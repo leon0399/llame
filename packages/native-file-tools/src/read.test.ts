@@ -26,6 +26,7 @@ import {
   splitSourceLines,
 } from "./read";
 import type { MultiReadSuccess, SingleReadSuccess } from "./source-lines";
+import { OUTLINE_UNSUPPORTED_MESSAGE } from "./representations";
 import { measureNativeModelOutput } from "./serialization";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -270,6 +271,146 @@ describe("native source reads", () => {
       kind: "directory",
       path: directory,
     });
+  });
+
+  it.each([
+    ["mdx", "# Heading\n"],
+    ["txt", "# Heading\n"],
+    ["json", "# Heading\n"],
+    ["xml", "# Heading\n"],
+    ["pdf", "# Heading\n"],
+    ["bin", Buffer.from([0xff, 0x00, 0x01])],
+  ])("rejects outline for a .%s source", async (extension, content) => {
+    const sourcePath = join(directory, `source.${extension}`);
+    await writeFile(sourcePath, content);
+    expect(await readFile({ path: `${sourcePath}:outline` })).toEqual({
+      status: "error",
+      type: "invalid_selector",
+      message: OUTLINE_UNSUPPORTED_MESSAGE,
+    });
+  });
+
+  it("rejects outline for a directory", async () => {
+    expect(await readFile({ path: `${directory}:outline` })).toEqual({
+      status: "error",
+      type: "invalid_selector",
+      message: "The :outline member is not supported for directory reads.",
+    });
+  });
+
+  it("uses the resolved host extension for readResolvedFile outline", async () => {
+    const hostPath = join(directory, "SKILL.md");
+    await writeFile(hostPath, "# Skill\n");
+    const result = await readResolvedFile(hostPath, {
+      displayPath: join(directory, "skill"),
+      selector: "outline",
+    });
+    expect(result).toMatchObject({
+      status: "success",
+      path: join(directory, "skill"),
+      representation: "outline",
+      content: "1: # Skill\n",
+    });
+  });
+
+  it("leaves ordinary and raw reads unchanged for a Markdown source", async () => {
+    const sourcePath = join(directory, "same.md");
+    await writeFile(sourcePath, "# Heading\nbody\n");
+    expect(await readFile({ path: sourcePath })).toMatchObject({
+      representation: "text",
+      content: "1: # Heading\n2: body\n",
+    });
+    expect(await readFile({ path: `${sourcePath}:raw` })).toMatchObject({
+      representation: "raw",
+      content: "# Heading\nbody\n",
+    });
+  });
+
+  it("recognizes and cuts an oversized Markdown heading", async () => {
+    const sourcePath = join(directory, "large.md");
+    await writeFile(sourcePath, `# ${"x".repeat(MAX_RESULT_CODE_UNITS + 1)}\n`);
+    const result = await readFile({ path: `${sourcePath}:outline` });
+    expect(result).toMatchObject({
+      status: "success",
+      representation: "outline",
+      content: `1: # ${"x".repeat(118)}…\n`,
+    });
+  });
+  it("keeps a dropped backtick from opening a fence", async () => {
+    const sourcePath = join(directory, "large-info.md");
+    const content = "```" + "x".repeat(20_000) + "`\n\n# Heading\n";
+    await writeFile(sourcePath, content);
+    const result = await readFile({ path: `${sourcePath}:outline` });
+    assertFileSuccess(result);
+    expect(result.content).toContain("3: # Heading\n");
+  });
+
+  it("keeps a dropped non-space from closing a fence", async () => {
+    const sourcePath = join(directory, "large-closer.md");
+    const content =
+      "```\n" + "`".repeat(20_000) + "x\n# Hidden\n```\n# Shown\n";
+    await writeFile(sourcePath, content);
+    const result = await readFile({ path: `${sourcePath}:outline` });
+    assertFileSuccess(result);
+    expect(result.content).not.toContain("# Hidden");
+    expect(result.content).toContain("5: # Shown\n");
+  });
+
+  it.each([
+    [
+      "a tilde fence closer",
+      "~~~\n" + "~".repeat(20_000) + "\n# Hidden\n~~~\n# Shown\n",
+      "1: ~~~\n3: # Hidden\n4: ~~~\n",
+    ],
+    [
+      "an equals setext underline",
+      "Title\n" + "=".repeat(20_000) + "\n# Kept\n",
+      `1: Title\n2: ${"=".repeat(120)}…\n3: # Kept\n`,
+    ],
+    [
+      "a dash setext underline",
+      "Title\n" + "-".repeat(20_000) + "\n# Kept\n",
+      `1: Title\n2: ${"-".repeat(120)}…\n3: # Kept\n`,
+    ],
+  ])(
+    "keeps %s recognized past the oversized cut",
+    async (_, content, outline) => {
+      const sourcePath = join(directory, "large-marker.md");
+      await writeFile(sourcePath, content);
+      const result = await readFile({ path: `${sourcePath}:outline` });
+      assertFileSuccess(result);
+      expect(result.content).toBe(outline);
+    },
+  );
+  it("keeps an oversized HTML block closer visible to the outline scanner", async () => {
+    const sourcePath = join(directory, "large-script.md");
+    await writeFile(
+      sourcePath,
+      `<script>${"x".repeat(20_000)}</script>\n\n# Heading\n\nbody\n`,
+    );
+    const result = await readFile({ path: `${sourcePath}:outline` });
+    assertFileSuccess(result);
+    expect(result.representation).toBe("outline");
+    expect(result.content).toContain("3: # Heading\n5: body\n");
+    expect(result.content).toMatch(/^1: <script>x+…\n/u);
+  });
+
+  it("finds an oversized HTML closer split across a read chunk", async () => {
+    const sourcePath = join(directory, "split-script.md");
+    const chunkSize = 64 * 1024;
+    const closer = "</script>";
+    const closerStart = chunkSize - 4;
+    const opener = "<script>";
+    const content =
+      opener +
+      "x".repeat(closerStart - opener.length) +
+      closer +
+      "\n\n# Heading\n\nbody\n";
+    await writeFile(sourcePath, content);
+    const result = await readFile({ path: `${sourcePath}:outline` });
+    assertFileSuccess(result);
+    expect(result.representation).toBe("outline");
+    expect(result.content).toContain("3: # Heading\n5: body\n");
   });
   it("reads a bounded range from a source larger than one MiB", async () => {
     await writeFile(path, "prefix\n" + "x\n".repeat(600_000) + "tail\n");

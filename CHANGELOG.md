@@ -2,6 +2,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-28
 
+- Native `read` now supports the Markdown `:outline` representation across host, `file://`, Knowledge, Skill, and web reads, with source-line scopes, enclosing headings, bounded continuation via `nextOffset`, and preserved source envelopes
+  ([#572](https://github.com/leon0399/llame/issues/572)).
+
 - Per-Run permission modes now let owners choose `default` or `bypass` on
   send when the operator enables `tools.permissionModes` (default
   `["default"]`). `GET /api/v1/permission-modes` lists enabled modes in

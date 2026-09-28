@@ -1,4 +1,7 @@
-import { DIRECTORY_TRAVERSAL_BUDGET } from '@workspace/native-file-tools';
+import {
+  DIRECTORY_TRAVERSAL_BUDGET,
+  fileMediaType,
+} from '@workspace/native-file-tools';
 import type { WebFetchFailure, WebRequestInit } from '../../http-client';
 
 import {
@@ -193,6 +196,7 @@ async function readTree(
   return {
     kind: 'rendered',
     content: '',
+    mediaType: undefined,
     directory: {
       displayPath: context.source.href,
       entries: toGithubDirectoryEntries(entries),
@@ -218,7 +222,12 @@ async function readBlob(
   if (decoded.kind === 'failed') {
     return { kind: 'failed', failure: decoded.failure };
   }
-  return { kind: 'rendered', content: decoded.content, notes: context.notes };
+  return {
+    kind: 'rendered',
+    content: decoded.content,
+    mediaType: fileMediaType(resolved.path.join('/')),
+    notes: context.notes,
+  };
 }
 
 async function readCommit(

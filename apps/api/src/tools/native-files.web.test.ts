@@ -317,6 +317,59 @@ describe('web locator dispatch', () => {
     });
     expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
   });
+  it('outlines a negotiated Markdown response', async () => {
+    const result = await nativeReadTool.execute(webContext(), {
+      path: fixtureUrl('/guide:outline'),
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      representation: 'outline',
+      method: 'negotiated',
+      content: '1: # Guide\n3: A publisher-provided body for agents.\n',
+    });
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
+  });
+
+  it('outlines a readability-converted HTML response', async () => {
+    respondWith(PAGE_HTML, 'text/html; charset=utf-8');
+    const result = await nativeReadTool.execute(webContext(), {
+      path: fixtureUrl('/guide:outline'),
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      representation: 'outline',
+      method: 'readability',
+    });
+    expect(result).toHaveProperty(
+      'content',
+      expect.stringContaining('1: ## Guide'),
+    );
+    expect(result).toHaveProperty(
+      'content',
+      expect.not.stringContaining('<p>'),
+    );
+    expect(fixture.requests).toEqual([
+      { method: 'GET', path: '/guide' },
+      { method: 'GET', path: '/guide.md' },
+    ]);
+  });
+
+  it('rejects outline for a plain-text response', async () => {
+    respondWith(MARKDOWN, 'text/plain; charset=utf-8');
+    const result = await nativeReadTool.execute(webContext(), {
+      path: fixtureUrl('/guide:outline'),
+    });
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The :outline member reads text/markdown content only; read this source without it.',
+    });
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
+  });
 
   it('returns an unnumbered window for a :raw line selector', async () => {
     respondWith(PAGE_HTML, 'text/html; charset=utf-8');

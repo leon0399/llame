@@ -17,7 +17,7 @@ type ReadSuccessBase = {
   /** Canonical host path when it differs from the given one. Both result
    *  constructors copy it before measuring, so it counts against the cap. */
   realPath?: string;
-  representation: "text" | "raw";
+  representation: "text" | "raw" | "outline";
   content: string;
   nextOffset?: number;
   truncated: boolean;

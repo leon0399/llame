@@ -2,6 +2,7 @@ import {
   NativeFileError,
   applySelectorSuffix,
   measureNativeModelOutput,
+  outlineReader,
   renderCollectedDirectory,
   selectMultiRangeLines,
   selectSourceLines,
@@ -38,6 +39,9 @@ type WebResultEnvelope = {
   notes?: ReadonlyArray<string>;
 };
 
+const ADAPTER_OUTLINE_TOO_LARGE_MESSAGE =
+  "The adapter document was cut at the web read's document bound, so an outline would omit structure; read it without :outline.";
+
 /** The envelope reports where the content came from: a probe that won names
  *  its own response's URL, and every other render names the call's. */
 function webResultEnvelope(
@@ -60,11 +64,11 @@ function webResultEnvelope(
  * room the envelope needs, and the locator's line selector applies to it
  * exactly as to a local file.
  */
-export function buildWebReadResult(
+export async function buildWebReadResult(
   locator: WebLocator,
   finalUrl: string,
   render: WebRender,
-): WebReadSuccess | WebReadFailure {
+): Promise<WebReadSuccess | WebReadFailure> {
   const envelope = webResultEnvelope(finalUrl, render);
   try {
     const target: ReadTarget = {
@@ -74,14 +78,7 @@ export function buildWebReadResult(
     if (render.directory !== undefined) {
       return buildDirectoryReadResult(target, envelope, render.directory);
     }
-    // A comma request needs the multi-range walk: the render is text in
-    // hand, so it cannot go through the file-backed stream reader, and
-    // `selectSourceLines` serves one window.
-    const read =
-      target.ranges === undefined
-        ? selectSourceLines(render.content, target)
-        : selectMultiRangeLines(render.content, target);
-    return { ...read, ...envelope };
+    return await buildWebFileResult(target, envelope, render);
   } catch (error) {
     if (!(error instanceof NativeFileError)) throw error;
     return {
@@ -97,26 +94,57 @@ export function buildWebReadResult(
   }
 }
 
+async function buildWebFileResult(
+  target: ReadTarget,
+  envelope: WebResultEnvelope,
+  render: WebRender,
+): Promise<WebReadSuccess | WebReadFailure> {
+  if (target.outline) {
+    if (render.truncated === true) {
+      return {
+        status: 'error',
+        type: 'representation_too_large',
+        message: ADAPTER_OUTLINE_TOO_LARGE_MESSAGE,
+      };
+    }
+    const read = await outlineReader(render.mediaType)(
+      splitSourceLines(render.content),
+      target,
+    );
+    return { ...read, ...envelope };
+  }
+  // A comma request needs the multi-range walk: the render is text in
+  // hand, so it cannot go through the file-backed stream reader, and
+  // `selectSourceLines` serves one window.
+  const read =
+    target.ranges === undefined
+      ? selectSourceLines(render.content, target)
+      : selectMultiRangeLines(render.content, target);
+  return { ...read, ...envelope };
+}
+
+function directorySelectorFailure(
+  target: ReadTarget,
+): WebReadFailure | undefined {
+  const message = target.outline
+    ? 'The :outline member is not supported for directory reads.'
+    : target.raw
+      ? 'The :raw selector is not supported for directory reads.'
+      : target.ranges !== undefined
+        ? 'Comma-separated selectors are not supported for directory reads.'
+        : undefined;
+  return message === undefined
+    ? undefined
+    : { status: 'error', type: 'invalid_selector', message };
+}
+
 function buildDirectoryReadResult(
   target: ReadTarget,
   envelope: WebResultEnvelope,
   directory: WebDirectory,
 ): WebReadSuccess | WebReadFailure {
-  if (target.raw) {
-    return {
-      status: 'error',
-      type: 'invalid_selector',
-      message: 'The :raw selector is not supported for directory reads.',
-    };
-  }
-  if (target.ranges !== undefined) {
-    return {
-      status: 'error',
-      type: 'invalid_selector',
-      message:
-        'Comma-separated selectors are not supported for directory reads.',
-    };
-  }
+  const refusal = directorySelectorFailure(target);
+  if (refusal !== undefined) return refusal;
   const options = {
     displayPath: target.path,
     reserveCodeUnits: measureNativeModelOutput(envelope),

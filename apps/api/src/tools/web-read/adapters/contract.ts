@@ -48,6 +48,7 @@ export type WebAdapterOutcome =
       readonly kind: 'rendered';
       readonly content: string;
       readonly origin?: string;
+      readonly mediaType: string | undefined;
       readonly notes: ReadonlyArray<string>;
       readonly directory?: WebDirectory;
     }
@@ -214,6 +215,10 @@ function renderAdapter(
   return {
     method: 'adapter',
     content: bounded.content,
+    ...(outcome.mediaType !== undefined && {
+      mediaType: outcome.mediaType,
+    }),
+    ...(bounded.truncated && { truncated: true }),
     finalUrl: source.href,
     ...(notes.length > 0 && { notes }),
     adapter: {

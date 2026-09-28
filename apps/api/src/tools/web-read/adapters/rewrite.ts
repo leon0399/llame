@@ -70,6 +70,7 @@ async function readRewriteAdapter(
     return {
       kind: 'rendered',
       content: rendered.content,
+      mediaType: rendered.mediaType,
       origin: target.origin,
       notes: [
         `content came through the operator-configured origin ${target.origin}`,

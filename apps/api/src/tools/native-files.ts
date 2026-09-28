@@ -205,9 +205,10 @@ async function executeSkill(
  * The catalog listing pages with the native single-range selector, so it
  * accepts exactly the ranges a file read accepts — including the inclusive
  * `N-M` end and the `N+K` length — and rejects anything else. Anything the
- * grammar accepts but a listing cannot express (`:raw`, comma multi-range)
- * fails rather than silently answering with the first page. `N-` and `+`
- * operands are validated by the shared parser, so `:0-0` and `:5-2` fail.
+ * grammar accepts but a listing cannot express (`:raw`, `:outline`, comma
+ * multi-range) fails rather than silently answering with the first page.
+ * `N-` and `+` operands are validated by the shared parser, so `:0-0` and
+ * `:5-2` fail.
  */
 function catalogWindow(
   selector: string | undefined,
@@ -219,6 +220,11 @@ function catalogWindow(
   } catch {
     return invalidCatalogSelectorResult(
       'The skill catalog selector is invalid.',
+    );
+  }
+  if (target.outline) {
+    return invalidCatalogSelectorResult(
+      'The :outline member is not supported for the skill catalog.',
     );
   }
   if (target.raw || target.ranges !== undefined) {

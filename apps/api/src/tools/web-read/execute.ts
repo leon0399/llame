@@ -132,12 +132,14 @@ async function fetchAndRender(
     let notes: ReadonlyArray<string> = [];
     if (!raw) {
       const adapters = await dispatchFor(context, locator.url, session, admit);
-      if (adapters.kind === 'fatal') {
+      if (adapters.kind === 'fatal')
         return { status: 'error', ...adapters.failure };
-      }
-      if (adapters.kind === 'rendered') {
-        return deps.buildWebReadResult(locator, locator.url, adapters.render);
-      }
+      if (adapters.kind === 'rendered')
+        return await deps.buildWebReadResult(
+          locator,
+          locator.url,
+          adapters.render,
+        );
       notes = adapters.notes;
     }
     const response = await session.fetch(locator.url);
@@ -151,7 +153,7 @@ async function fetchAndRender(
     );
     if ('type' in render) return { status: 'error', ...render };
     // The envelope drops an empty notes list, so an unclaimed read is unchanged.
-    return deps.buildWebReadResult(locator, response.finalUrl, {
+    return await deps.buildWebReadResult(locator, response.finalUrl, {
       ...render,
       notes: [...notes, ...(render.notes ?? [])],
     });

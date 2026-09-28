@@ -79,6 +79,7 @@ describe('rewrite web adapter reads', () => {
     expect(outcome).toMatchObject({
       kind: 'rendered',
       content: 'plain content',
+      mediaType: 'text/plain',
       origin: 'https://x.pcstyle.dev',
       notes: [
         'content came through the operator-configured origin https://x.pcstyle.dev',

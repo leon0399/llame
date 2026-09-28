@@ -80,6 +80,12 @@ describe('projectNativeFilePath', () => {
     expect(projectNativeFilePath('kb://Space/notes/a')).toBe(
       'kb://Space/notes/a',
     );
+    expect(projectNativeFilePath('kb://Space/notes/a:outline')).toBe(
+      'kb://Space/notes/a',
+    );
+    expect(projectNativeFilePath('kb://Space/notes/a:outline:3-9')).toBe(
+      'kb://Space/notes/a',
+    );
   });
 
   it('excludes comma read selectors from the resource identity', () => {

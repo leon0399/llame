@@ -1,5 +1,6 @@
 import { open, type FileHandle } from "node:fs/promises";
 import { NativeFileError, openFlags, type ReadTarget } from "./path";
+import { fileMediaType, outlineReader } from "./representations";
 import {
   appendMultiReadLine,
   appendReadLine,
@@ -14,15 +15,152 @@ import {
   type ReadSuccess,
 } from "./source-lines";
 
+const HTML_CLOSERS = [
+  "</script>",
+  "</pre>",
+  "</textarea>",
+  "</style>",
+  "-->",
+  "?>",
+  "]]>",
+  ">",
+] as const;
+const CLOSER_OVERLAP =
+  Math.max(...HTML_CLOSERS.map((closer) => closer.length)) - 1;
+
+type SourceLineState = {
+  partial: string;
+  oversized: boolean;
+  closerCarry: string;
+  droppedSummary: string;
+  droppedClosers: Array<string>;
+};
+
+function summaryCharacter(char: string): string {
+  if (char === " " || char === "\t") return " ";
+  if (
+    char === "`" ||
+    char === "~" ||
+    char === "=" ||
+    char === "-" ||
+    char === "*" ||
+    char === "_"
+  )
+    return char;
+  return "x";
+}
+
+function appendDroppedClosers(dropped: string, state: SourceLineState): void {
+  const searchable = state.closerCarry + dropped;
+  const lowerSearchable = searchable.toLowerCase();
+  for (const closer of HTML_CLOSERS) {
+    if (
+      lowerSearchable.includes(closer) &&
+      !state.droppedClosers.includes(closer)
+    )
+      state.droppedClosers.push(closer);
+  }
+  state.closerCarry = searchable.slice(-CLOSER_OVERLAP);
+}
+
+function appendDroppedSummary(dropped: string, state: SourceLineState): void {
+  for (const char of dropped) {
+    const summary = summaryCharacter(char);
+    if (!state.droppedSummary.includes(summary))
+      state.droppedSummary += summary;
+  }
+}
+
+function appendDroppedTail(dropped: string, state: SourceLineState): void {
+  // Whole-line decisions depend on character classes and closer substrings.
+  appendDroppedSummary(dropped, state);
+  appendDroppedClosers(dropped, state);
+}
+
+function appendPreservedTail(
+  state: SourceLineState,
+  terminator: string,
+): string {
+  const closers = state.droppedClosers.join("");
+  return `${state.partial}${state.droppedSummary}${closers}${terminator}`;
+}
+
+function resetSourceLine(state: SourceLineState): void {
+  state.partial = "";
+  state.oversized = false;
+  state.closerCarry = "";
+  state.droppedSummary = "";
+  state.droppedClosers.length = 0;
+}
+
+function lineBodyAndTerminator(fragment: string) {
+  if (fragment.endsWith("\r\n"))
+    return { body: fragment.slice(0, -2), terminator: "\r\n" };
+  if (fragment.endsWith("\n"))
+    return { body: fragment.slice(0, -1), terminator: "\n" };
+  return { body: fragment, terminator: "" };
+}
+
+function consumeOversizedFragment(
+  fragment: string,
+  state: SourceLineState,
+  preserveOversized: boolean,
+): string | null {
+  const { body, terminator } = lineBodyAndTerminator(fragment);
+  if (preserveOversized) appendDroppedTail(body, state);
+  if (terminator === "") return null;
+  const line = preserveOversized
+    ? appendPreservedTail(state, terminator)
+    : null;
+  resetSourceLine(state);
+  return line;
+}
+
+function takeSourceFragment(
+  fragment: string,
+  state: SourceLineState,
+  preserveOversized: boolean,
+): string | undefined | null {
+  if (state.oversized)
+    return consumeOversizedFragment(fragment, state, preserveOversized);
+  if (state.partial.length + fragment.length <= MAX_RESULT_CODE_UNITS) {
+    state.partial += fragment;
+    if (!fragment.endsWith("\n")) return null;
+    const line = state.partial;
+    resetSourceLine(state);
+    return line;
+  }
+  const { body, terminator } = lineBodyAndTerminator(fragment);
+  const combined = state.partial + body;
+  state.oversized = true;
+  state.partial = combined.slice(0, MAX_RESULT_CODE_UNITS);
+  if (preserveOversized) {
+    state.closerCarry = state.partial.slice(-CLOSER_OVERLAP);
+    appendDroppedTail(combined.slice(MAX_RESULT_CODE_UNITS), state);
+    if (terminator === "") return null;
+    const line = appendPreservedTail(state, terminator);
+    resetSourceLine(state);
+    return line;
+  }
+  if (terminator !== "") resetSourceLine(state);
+  return undefined;
+}
+
 /** Undefined marks a source line too large to fit any tool result. */
 async function* sourceLines(
   file: FileHandle,
   signal: AbortSignal | undefined,
+  preserveOversized = false,
 ): AsyncGenerator<string | undefined> {
   const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
   const buffer = Buffer.allocUnsafe(64 * 1024);
-  let partial = "";
-  let oversized = false;
+  const state: SourceLineState = {
+    partial: "",
+    oversized: false,
+    closerCarry: "",
+    droppedSummary: "",
+    droppedClosers: [],
+  };
   while (true) {
     // A cancelled or timed-out call must stop reading, not merely stop being
     // awaited: without this the loop keeps consuming a file no one will read.
@@ -37,22 +175,25 @@ async function* sourceLines(
       throw new NativeFileError("invalid_utf8");
     }
     for (const fragment of splitSourceLines(text)) {
-      if (
-        !oversized &&
-        partial.length + fragment.length > MAX_RESULT_CODE_UNITS
-      ) {
-        oversized = true;
-        yield undefined;
-      }
-      if (!oversized) partial += fragment;
-      if (!fragment.endsWith("\n")) continue;
-      if (!oversized) yield partial;
-      partial = "";
-      oversized = false;
+      const line = takeSourceFragment(fragment, state, preserveOversized);
+      if (line !== null) yield line;
     }
     if (bytesRead === 0) break;
   }
-  if (partial.length > 0 && !oversized) yield partial;
+  if (state.oversized) {
+    if (preserveOversized) yield appendPreservedTail(state, "");
+  } else if (state.partial.length > 0) {
+    yield state.partial;
+  }
+}
+
+async function* outlineSourceLines(
+  file: FileHandle,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<string> {
+  for await (const line of sourceLines(file, signal, true)) {
+    if (line !== undefined) yield line;
+  }
 }
 
 async function collectWindow(
@@ -387,6 +528,11 @@ export async function streamFileWindow(
   try {
     if (!(await file.stat()).isFile())
       throw new NativeFileError("not_regular_file");
+    if (target.outline)
+      return await outlineReader(fileMediaType(source.hostPath))(
+        outlineSourceLines(file, source.signal),
+        target,
+      );
     return target.ranges !== undefined
       ? await collectMultiWindow(file, target, source.signal)
       : await collectWindow(file, target, source.signal);

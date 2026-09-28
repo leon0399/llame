@@ -66,6 +66,25 @@ describe('knowledge locator parsing', () => {
     });
   });
 
+  it('preserves outline selectors and encoded colons in path segments', () => {
+    expect(parseKnowledgeLocator(`${SPACE}/notes.md:outline`)).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'notes.md',
+      selector: 'outline',
+    });
+    expect(
+      parseKnowledgeLocator(`${SPACE}/notes.md:outline:3-9`),
+    ).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'notes.md',
+      selector: 'outline:3-9',
+    });
+    expect(parseKnowledgeLocator(`${SPACE}/notes%3Aoutline.md`)).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'notes:outline.md',
+    });
+  });
+
   it('splits a comma selector and rejects a malformed suffix', () => {
     expect(
       parseKnowledgeLocator(`${SPACE}/research/note.md:5-10,20-30`),
@@ -83,6 +102,9 @@ describe('knowledge locator parsing', () => {
     });
     expect(
       parseKnowledgeLocator(`${SPACE}/research/note.md:5-10,,20-30`),
+    ).toBeUndefined();
+    expect(
+      parseKnowledgeLocator(`${SPACE}/research/note.md:outline:1,3`),
     ).toBeUndefined();
   });
 

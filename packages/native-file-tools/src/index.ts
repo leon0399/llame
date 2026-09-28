@@ -17,12 +17,16 @@ export {
   DIRECTORY_TRAVERSAL_BUDGET,
   DIRECTORY_CHILD_CAP,
 } from "./read";
+export {
+  outlineReader,
+  fileMediaType,
+  OUTLINE_UNSUPPORTED_MESSAGE,
+} from "./representations";
 export { renderCollectedDirectory } from "./collected-directory";
 export type {
   NativeReadOptions,
   ReadSuccess,
   FileFailure,
-  LineRange,
   MultiReadSuccess,
   DirectorySuccess,
   DirectoryFailure,

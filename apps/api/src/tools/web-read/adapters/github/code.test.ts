@@ -82,15 +82,19 @@ function renderedContent(
   return outcome.content;
 }
 describe('GitHub code adapter', () => {
-  it('fetches a blob once and preserves exact UTF-8 text', async () => {
-    const url = `${API_ORIGIN}/repos/acme/project/contents/src/a.ts?ref=main`;
+  it('fetches a Markdown blob once and preserves exact UTF-8 text', async () => {
+    const url = `${API_ORIGIN}/repos/acme/project/contents/README.md?ref=main`;
     const { outcome, urls } = await readGithub(
-      'https://github.com/acme/project/blob/main/src/a.ts',
+      'https://github.com/acme/project/blob/main/README.md',
       new Map([[url, [blobResponse('one\ntwo\n')]]]),
     );
 
     expect(urls).toStrictEqual([url]);
     expect(renderedContent(outcome)).toBe('one\ntwo\n');
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      mediaType: 'text/markdown',
+    });
   });
 
   it.each([
@@ -450,6 +454,7 @@ describe('GitHub code adapter', () => {
           { name: 'readme.md', kind: 'file' },
         ],
       },
+      mediaType: undefined,
     });
   });
   it('returns parse when a tree response has no tree array', async () => {
@@ -559,6 +564,7 @@ describe('GitHub code adapter', () => {
     expect(outcome).toMatchObject({
       kind: 'rendered',
       notes: ['README omitted: status'],
+      mediaType: 'text/markdown',
     });
     expect(renderedContent(outcome)).toContain('Description: A project');
     expect(renderedContent(outcome)).toContain(

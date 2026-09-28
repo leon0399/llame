@@ -14,11 +14,13 @@ export type WebLocatorError = {
 
 /**
  * The shipped trailing-selector grammar, reused unchanged: the `:raw` forms
- * first, else the last colon after the last slash. A URL's own scheme colon
- * can never win, because it always precedes the authority's slashes; whether
- * a match may split at all is `opensSelector`'s call.
+ * first, then the `:outline` forms, else the last colon after the last slash.
+ * A URL's own scheme colon can never win, because it always precedes the
+ * authority's slashes; whether a match may split at all is `opensSelector`'s
+ * call.
  */
 const RAW_SELECTOR = /:raw(?::([^:/]*))?$/u;
+const OUTLINE_SELECTOR = /:outline(?::([^:/]*))?$/u;
 
 const INVALID_URL_MESSAGE =
   'Write this locator as an absolute http:// or https:// URL.';
@@ -53,6 +55,13 @@ function splitSelector(text: string): SplitLocator {
   if (raw !== null && opensSelector(text, raw.index)) {
     const suffix = raw[1] === undefined ? 'raw' : `raw:${raw[1]}`;
     return { url: text.slice(0, raw.index), selector: suffix };
+  }
+  const outline = OUTLINE_SELECTOR.exec(text);
+  if (outline !== null && opensSelector(text, outline.index)) {
+    return {
+      url: text.slice(0, outline.index),
+      selector: text.slice(outline.index + 1),
+    };
   }
   const colon = text.lastIndexOf(':');
   if (!opensSelector(text, colon)) return { url: text };
