@@ -98,6 +98,13 @@ for [#756](https://github.com/leon0399/llame/issues/756) and
 [#758](https://github.com/leon0399/llame/issues/758). It records source and
 documentation reading only; nothing was run.
 
+The [OMP memory study](../long-term-memory/2026-09-28-omp-memory.md)
+traces [OMP's](./oh-my-pi.md) `local` summary pipeline, `learn` capture and
+Mnemopi retrieval backend at `v18.2.10`, and measures the `local` pipeline on one
+live installation: extraction coverage, provider refusals, per-worktree scopes and
+lessons lost to the injection cap. Mnemopi is source-only. It maps the queue,
+frozen-snapshot and recall-scoring ideas to llame's Knowledge and recall work.
+
 Read the ranked index first, then open individual references as needed.
 
 ## Index
