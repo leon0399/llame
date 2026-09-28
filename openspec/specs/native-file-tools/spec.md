@@ -6,6 +6,8 @@ Provides one bounded native file interface for local coding and file-backed
 Knowledge work, with exact edits, create-or-replace writes, selector-based
 reads, and future source/type extensions behind one result shape.
 
+Every permission-group evaluation this capability performs before opening a resource — a submitted or canonical local, `skill://`, `kb://`, or web locator, or a resolved web address — governs an attempt whose effective permission mode is `default`; a `bypass` attempt admits it without evaluating a permission group, as `tool-call-permissions` defines.
+
 ## Requirements
 
 ### Requirement: Native tools operate on absolute local regular files
@@ -1067,7 +1069,7 @@ request would connect to SHALL additionally be judged under the
 address-admission requirement below. Availability and
 restriction for the web SHALL come only from the `read` permission group's
 `path` clauses: a prefix allow admits the web, and a prefix or domain reject
-removes a host. No web tool id, `tools.allowed` entry, configuration block, or
+removes a host. This web-availability rule governs a `default`-mode attempt; under `bypass` the web is reachable without a `path` allow, as this capability's Purpose states. No web tool id, `tools.allowed` entry, configuration block, or
 advertisement condition SHALL be added; a process that does not advertise
 `read` SHALL NOT reach a URL through it. Each call SHALL fetch afresh: no
 response or render SHALL be cached, and a later selector read of the same

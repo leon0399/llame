@@ -840,7 +840,7 @@ The schema SHALL cover the shape-stable operator settings and SHALL be extended 
 
 ### Requirement: Operator tool permissions compile before process startup completes
 
-The configuration SHALL accept optional `tools.permissions` under the closed published schema. When omitted, the system SHALL create no permission groups, so every call is rejected; the shipped example documents the recommended portable map. There is no built-in fallback policy. A supplied map SHALL be the complete effective policy without merging; an explicit empty map SHALL reject all calls. It SHALL use the groups, clauses, matching syntax, and bounds defined by `tool-call-permissions`. Unknown or no-longer-configured permission keys SHALL be accepted and simply never match, so an MCP server change does not fail startup; malformed clauses, all-fields allow clauses, and invalid or unsupported regex SHALL fail startup before serving requests or claiming jobs. Diagnostics SHALL identify configuration locations and static reasons without printing patterns, resolved values, or matched input. Permission strings SHALL follow the existing single-pass interpolation and doubled-opening-brace escaping contract.
+The configuration SHALL accept optional `tools.permissions` under the closed published schema. When omitted, the system SHALL create no permission groups, so every call is rejected; the shipped example documents the recommended portable map. There is no built-in fallback policy. A supplied map SHALL be the complete effective policy without merging; an explicit empty map SHALL reject all calls. Every `tools.permissions` evaluation in this capability governs an attempt whose effective permission mode is `default`; a `bypass` attempt evaluates no permission group, as `tool-call-permissions` defines. It SHALL use the groups, clauses, matching syntax, and bounds defined by `tool-call-permissions`. Unknown or no-longer-configured permission keys SHALL be accepted and simply never match, so an MCP server change does not fail startup; malformed clauses, all-fields allow clauses, and invalid or unsupported regex SHALL fail startup before serving requests or claiming jobs. Diagnostics SHALL identify configuration locations and static reasons without printing patterns, resolved values, or matched input. Permission strings SHALL follow the existing single-pass interpolation and doubled-opening-brace escaping contract.
 
 #### Scenario: A no-longer-configured permission key does not fail startup
 
@@ -1212,3 +1212,34 @@ redaction behavior for secret fields.
 - **WHEN** any entry declares a `headers` field
 - **THEN** startup fails naming the entry and unknown field
 - **AND** no adapter request is issued
+
+### Requirement: Operator configuration enables Run permission modes
+
+The configuration SHALL accept an optional `tools.permissionModes` array under the closed published schema. Its built-in default SHALL be `["default"]`. Each item SHALL be one of the known mode values `"default"` and `"bypass"`. A supplied array SHALL be non-empty, SHALL contain no duplicate, and SHALL contain `"default"`; an empty array, an unknown value, a non-string item, a duplicate, or an array without `"default"` SHALL fail startup naming `tools.permissionModes`, before the process serves requests or claims jobs. Item values are literal: interpolation tokens SHALL NOT be accepted in them. The array order SHALL be preserved as the order in which enabled modes are published.
+
+Enabling `"bypass"` SHALL let every authenticated user select it for their own Runs; the configuration SHALL provide no per-user restriction. `tools.permissionModes` SHALL NOT change `tools.allowed`, `tools.permissions`, or any other setting's meaning.
+
+#### Scenario: Omitted modes enable only default
+
+- **WHEN** the configuration omits `tools.permissionModes`
+- **THEN** startup succeeds and the enabled modes are `["default"]`
+
+#### Scenario: Bypass is enabled explicitly
+
+- **WHEN** the configuration sets `tools.permissionModes` to `["default", "bypass"]`
+- **THEN** startup succeeds and both modes are enabled in that order
+
+#### Scenario: A list without default fails startup
+
+- **WHEN** the configuration sets `tools.permissionModes` to `["bypass"]` or `[]`
+- **THEN** startup fails with a diagnostic naming `tools.permissionModes`
+
+#### Scenario: Unknown or repeated modes fail startup
+
+- **WHEN** the configuration sets `tools.permissionModes` to `["default", "yolo"]` or `["default", "default"]`
+- **THEN** startup fails with a diagnostic naming `tools.permissionModes`
+
+#### Scenario: Interpolated mode values are rejected
+
+- **WHEN** an item of `tools.permissionModes` is `{env:LLAME_MODE}`
+- **THEN** startup fails with a diagnostic naming `tools.permissionModes`
