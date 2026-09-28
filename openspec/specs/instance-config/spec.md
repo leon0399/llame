@@ -1212,6 +1212,7 @@ redaction behavior for secret fields.
 - **WHEN** any entry declares a `headers` field
 - **THEN** startup fails naming the entry and unknown field
 - **AND** no adapter request is issued
+
 ### Requirement: Operator configuration enables Run permission modes
 
 The configuration SHALL accept an optional `tools.permissionModes` array under the closed published schema. Its built-in default SHALL be `["default"]`. Each item SHALL be one of the known mode values `"default"` and `"bypass"`. A supplied array SHALL be non-empty, SHALL contain no duplicate, and SHALL contain `"default"`; an empty array, an unknown value, a non-string item, a duplicate, or an array without `"default"` SHALL fail startup naming `tools.permissionModes`, before the process serves requests or claims jobs. Item values are literal: interpolation tokens SHALL NOT be accepted in them. The array order SHALL be preserved as the order in which enabled modes are published.
