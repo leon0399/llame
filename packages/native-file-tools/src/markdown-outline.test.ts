@@ -295,12 +295,24 @@ describe("markdown outline reader", () => {
     while (lines.length < 3600) lines.push("\n");
     lines[3549] = "## In scope\n";
     lines[3551] = "scope body\n";
-    await expect(
-      read(lines.join(""), "outline:3500-3600"),
-    ).resolves.toMatchObject({
+    const source = lines.join("");
+    await expect(read(source, "outline:3500-3600")).resolves.toMatchObject({
       content: "3550: ## In scope\n3552: scope body\n",
       truncated: false,
     });
+    await expect(read(source, "outline:3500")).resolves.toMatchObject({
+      content: "",
+      shownRange: null,
+      truncated: false,
+    });
+    let result = await read(source);
+    const seen = new Set<number>();
+    while (result.truncated && result.nextOffset !== undefined) {
+      expect(seen.has(result.nextOffset)).toBe(false);
+      seen.add(result.nextOffset);
+      result = await read(source, `outline:${result.nextOffset + 1}-3600`);
+    }
+    expect(result.content).toContain("3550: ## In scope\n");
   });
 
   it("emits a native line holding two headings once", async () => {
