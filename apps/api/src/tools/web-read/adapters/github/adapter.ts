@@ -31,11 +31,7 @@ import {
   type GithubIssueDocument,
   type GithubPullDocument,
 } from './document';
-import {
-  parseGithubUrl,
-  type GithubTarget,
-  type GithubThreadTarget,
-} from './url';
+import { parseGithubUrl, type GithubThreadTarget } from './url';
 import { readGithubCode } from './code';
 
 export const GITHUB_API_ORIGIN = 'https://api.github.com';
@@ -75,43 +71,13 @@ export function createGithubAdapter(
     route: 'native',
     match: (source) => parseGithubUrl(source) !== undefined,
     read: (source, io) => {
-      const target = parseGithubUrl(source);
-      return target === undefined
-        ? Promise.resolve<WebAdapterOutcome>({
-            kind: 'failed',
-            failure: 'parse',
-          })
-        : readGithubTarget(target, source, { io, apiOrigin, init });
+      const target = parseGithubUrl(source)!;
+      return 'number' in target
+        ? readGithubThread(target, io, apiOrigin, init)
+        : readGithubCode(target, { source, io, apiOrigin, init });
     },
   };
 }
-
-function readGithubTarget(
-  target: GithubTarget,
-  source: URL,
-  options: {
-    readonly io: WebAdapterIo;
-    readonly apiOrigin: string;
-    readonly init: WebRequestInit;
-  },
-): Promise<WebAdapterOutcome> {
-  if (isGithubThreadTarget(target)) {
-    return readGithubThread(
-      target,
-      options.io,
-      options.apiOrigin,
-      options.init,
-    );
-  }
-  return readGithubCode(target, { source, ...options });
-}
-
-function isGithubThreadTarget(
-  target: GithubTarget,
-): target is GithubThreadTarget {
-  return target.kind === 'issue' || target.kind === 'pull';
-}
-
 async function readGithubThread(
   target: GithubThreadTarget,
   io: WebAdapterIo,

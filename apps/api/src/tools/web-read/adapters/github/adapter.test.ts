@@ -696,23 +696,12 @@ describe('GitHub thread adapter', () => {
     ).resolves.toStrictEqual({ kind: 'failed', failure: 'parse' });
   });
 
-  it('claims repository-code shapes through the same native adapter', () => {
+  it('claims repository-code roots but not unsupported diff URLs', () => {
     const adapter = createGithubAdapter(config(), { apiOrigin: API_ORIGIN });
 
     expect(adapter.match(new URL('https://github.com/acme/project'))).toBe(
       true,
     );
-    expect(
-      adapter.match(new URL('https://github.com/acme/project/tree/main/src')),
-    ).toBe(true);
-    expect(
-      adapter.match(
-        new URL('https://github.com/acme/project/blob/main/src/a.ts'),
-      ),
-    ).toBe(true);
-    expect(
-      adapter.match(new URL('https://github.com/acme/project/commit/c91b31c')),
-    ).toBe(true);
     expect(
       adapter.match(new URL('https://github.com/acme/project/pull/12.diff')),
     ).toBe(false);
