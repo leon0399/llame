@@ -62,6 +62,7 @@ const ENV_KEYS = [
   'TRUST_PROXY_SRC',
   'IC_MODEL_MAX_OUTPUT_TOKENS',
   'PROVIDER_OPTIONS_SECRET',
+  'GITHUB_READ_TOKEN',
 ] as const;
 
 let originalEnv: Record<string, string | undefined>;
@@ -563,36 +564,90 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     expect(loadInstanceConfig().tools.webAdapters).toEqual([]);
   });
 
-  it('resolves rewrite entries in their declared order', () => {
-    const first = rewriteEntry({
-      id: 'x',
-      hosts: ['x.com', 'twitter.com'],
-      pathPattern: '^/[^/]+/status/\\d+$',
-      target: 'https://x.pcstyle.dev{path}',
-    });
-    const second = rewriteEntry({
-      id: 'second',
-      hosts: ['example.com'],
-      target: 'https://reader.example{path}',
-    });
-    writeConfig(JSON.stringify({ tools: { webAdapters: [first, second] } }));
+  it('resolves a GitHub token from an environment interpolation', () => {
+    process.env.GITHUB_READ_TOKEN = 'github-env-token';
+    const entry = {
+      id: 'github',
+      use: 'github' as const,
+      token: '{env:GITHUB_READ_TOKEN}',
+    };
+    writeConfig(JSON.stringify({ tools: { webAdapters: [entry] } }));
+
+    expect(loadInstanceConfig().tools.webAdapters).toEqual([
+      { ...entry, token: 'github-env-token' },
+    ]);
+  });
+
+  it('rejects a literal GitHub token without echoing it', () => {
+    const literalToken = 'literal-github-token';
+    writeConfig(
+      JSON.stringify({
+        tools: {
+          webAdapters: [{ id: 'github', use: 'github', token: literalToken }],
+        },
+      }),
+    );
+
+    let caught: unknown;
+    try {
+      loadInstanceConfig();
+    } catch (error) {
+      caught = error;
+    }
+    const message = errorMessage(caught);
+    expect(message).toContain('tools.webAdapters[github].token');
+    expect(message).not.toContain(literalToken);
+  });
+
+  it('rejects an empty GitHub token resolution', () => {
+    process.env.EMPTY_TOKEN = '';
+    writeConfig(
+      JSON.stringify({
+        tools: {
+          webAdapters: [
+            { id: 'github', use: 'github', token: '{env:EMPTY_TOKEN}' },
+          ],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools\.webAdapters\[github\]\.token/,
+    );
+  });
+
+  it('rejects unknown GitHub adapter fields', () => {
+    writeConfig(
+      JSON.stringify({
+        tools: {
+          webAdapters: [{ id: 'github', use: 'github', headers: {} }],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /\/tools\/webAdapters\/0\/headers/,
+    );
+  });
+
+  it('preserves rewrite and GitHub adapters in declared order', () => {
+    const rewrite = rewriteEntry();
+    const github = { id: 'github', use: 'github' as const };
+    writeConfig(JSON.stringify({ tools: { webAdapters: [rewrite, github] } }));
+
     expect(loadInstanceConfig().tools.webAdapters).toStrictEqual([
-      first,
-      second,
+      rewrite,
+      github,
     ]);
   });
 
   it('rejects unsupported adapter uses at boot', () => {
-    for (const use of ['nitter', 'github']) {
-      writeConfig(
-        JSON.stringify({
-          tools: { webAdapters: [rewriteEntry({ use })] },
-        }),
-      );
-      expect(() => loadInstanceConfig()).toThrow(
-        /\/tools\/webAdapters\/0\/use/,
-      );
-    }
+    writeConfig(
+      JSON.stringify({
+        tools: { webAdapters: [rewriteEntry({ use: 'nitter' })] },
+      }),
+    );
+    expect(() => loadInstanceConfig()).toThrow(/\/tools\/webAdapters\/0\/use/);
   });
 
   it('rejects duplicate adapter ids', () => {

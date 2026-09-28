@@ -10,8 +10,11 @@ import {
 } from '../http-client';
 import {
   classifyFetchFailure,
+  createWebAdapters,
   dispatchWebAdapters,
   isFatalAdapterFailure,
+  omissionNote,
+  rateLimitReset,
   MAX_ADAPTER_DOCUMENT_BYTES,
   type WebAdapter,
   type WebAdapterFailure,
@@ -94,6 +97,20 @@ function failedOutcome(failure: WebAdapterFailure): WebAdapterOutcome {
   return { kind: 'failed', failure };
 }
 
+describe('createWebAdapters', () => {
+  it('creates a native GitHub adapter with the configured id', () => {
+    const adapters = createWebAdapters([{ id: 'gh', use: 'github' }]);
+    expect(adapters).toHaveLength(1);
+    const adapter = adapters[0];
+    if (adapter === undefined) throw new Error('expected GitHub adapter');
+
+    expect(adapter).toMatchObject({ id: 'gh', route: 'native' });
+    expect(adapter.match(new URL('https://github.com/o/r/issues/1'))).toBe(
+      true,
+    );
+  });
+});
+
 describe('dispatchWebAdapters', () => {
   it('does not fetch or note an unclaimed URL', async () => {
     const fetch = vi.fn<WebAdapterIo['fetch']>();
@@ -129,6 +146,26 @@ describe('dispatchWebAdapters', () => {
         adapter: { id: 'second', route: 'rewrite' },
         notes: ['web adapter "first" fell through: status'],
       },
+    });
+  });
+  it('keeps a primary rate-limit reset in the fall-through note', async () => {
+    const result = await dispatchWebAdapters(
+      new URL(SOURCE),
+      [
+        adapter('github', true, {
+          kind: 'failed',
+          failure: 'rate_limit',
+          reset: '2023-11-14T22:13:20.000Z',
+        }),
+      ],
+      { fetch: () => Promise.resolve(response('unused')) },
+    );
+
+    expect(result).toStrictEqual({
+      kind: 'fallthrough',
+      notes: [
+        'web adapter "github" fell through: rate_limit, resets 2023-11-14T22:13:20.000Z',
+      ],
     });
   });
 
@@ -313,6 +350,33 @@ describe('classifyFetchFailure', () => {
       'rate_limit',
     ],
     [
+      {
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { remaining: '0' },
+      },
+      'rate_limit',
+    ],
+    [
+      {
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { retryAfter: '120' },
+      },
+      'rate_limit',
+    ],
+    [
+      {
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { reset: '1700000000' },
+      },
+      'status',
+    ],
+    [
       { type: 'http_status', message: 'The server answered HTTP 500.' },
       'status',
     ],
@@ -323,6 +387,51 @@ describe('classifyFetchFailure', () => {
 
   it.each(cases)('maps %s to %s', (failure, expected) => {
     expect(classifyFetchFailure(failure)).toBe(expected);
+  });
+});
+describe('omissionNote', () => {
+  it('formats a numeric rate-limit reset as ISO time', () => {
+    expect(
+      omissionNote('review comments', {
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { remaining: '0', reset: '1700000000' },
+      }),
+    ).toBe(
+      'review comments omitted: rate_limit, resets 2023-11-14T22:13:20.000Z',
+    );
+  });
+
+  it('omits reset text when no numeric reset is available', () => {
+    expect(
+      omissionNote('comments', {
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { remaining: '0' },
+      }),
+    ).toBe('comments omitted: rate_limit');
+  });
+});
+describe('rateLimitReset', () => {
+  it('returns reset only for classified rate limits', () => {
+    expect(
+      rateLimitReset({
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { remaining: '0', reset: '1700000000' },
+      }),
+    ).toBe('2023-11-14T22:13:20.000Z');
+    expect(
+      rateLimitReset({
+        type: 'http_status',
+        message: 'The server answered HTTP 403.',
+        httpStatus: 403,
+        rateLimit: { reset: '1700000000' },
+      }),
+    ).toBeUndefined();
   });
 });
 
@@ -346,6 +455,12 @@ describe('adapter primary failure fatality', () => {
         message: 'The web read exceeded its deadline.',
       }),
     ).toBe(true);
+    expect(
+      isFatalAdapterFailure({
+        type: 'parse',
+        message: 'The adapter could not parse the response.',
+      }),
+    ).toBe(false);
     expect(
       isFatalAdapterFailure({
         type: 'too_many_redirects',

@@ -1,7 +1,12 @@
 import { type WebAdapterConfig } from '../../../instance-config/llame-config';
 import { REJECTED_ADDRESS_MESSAGE } from '../../permissions/messages';
-import type { WebFetchFailure, WebResponse } from '../http-client';
+import type {
+  WebFetchFailure,
+  WebRequestInit,
+  WebResponse,
+} from '../http-client';
 import { CANDIDATE_FAILURES, type WebRender } from '../pipeline';
+import { createGithubAdapter } from './github/adapter';
 import { createRewriteAdapter } from './rewrite';
 
 export type WebAdapterRoute = 'native' | 'rewrite';
@@ -28,7 +33,10 @@ export type WebAdapterIo = {
   /** Admit `url` as derived kind `adapter` before using the shared session;
    * refused targets return a permission failure without issuing a request.
    * Accepted targets use that session's deadline, redirects, and pinning. */
-  readonly fetch: (url: string) => Promise<WebResponse | WebFetchFailure>;
+  readonly fetch: (
+    url: string,
+    init?: WebRequestInit,
+  ) => Promise<WebResponse | WebFetchFailure>;
 };
 
 export type WebAdapterOutcome =
@@ -41,6 +49,7 @@ export type WebAdapterOutcome =
   | {
       readonly kind: 'failed';
       readonly failure: WebAdapterFailure;
+      readonly reset?: string;
       /** A call-bound or caller-abort failure ends the whole web read. */
       readonly fatal?: WebFetchFailure;
     };
@@ -70,24 +79,72 @@ export function classifyFetchFailure(
         ? 'address'
         : 'permission';
     case 'http_status':
-      return /\bHTTP\s+429(?:\D|$)/u.test(failure.message)
-        ? 'rate_limit'
-        : 'status';
+      return classifyHttpStatusFailure(failure);
     case 'body_too_large':
       return 'too_large';
     case 'unsupported_content_type':
       return 'content_type';
+    case 'parse':
+      return 'parse';
     default:
       return 'transport';
   }
 }
+
+function classifyHttpStatusFailure(
+  failure: WebFetchFailure,
+): WebAdapterFailure {
+  const rateLimit = failure.rateLimit;
+  if (failure.httpStatus === 429) return 'rate_limit';
+  if (
+    failure.httpStatus === 403 &&
+    (rateLimit?.remaining === '0' || rateLimit?.retryAfter !== undefined)
+  ) {
+    return 'rate_limit';
+  }
+  if (
+    failure.httpStatus === undefined &&
+    /\bHTTP\s+429(?:\D|$)/u.test(failure.message)
+  ) {
+    return 'rate_limit';
+  }
+  return 'status';
+}
+
+export function rateLimitReset(failure: WebFetchFailure): string | undefined {
+  if (classifyFetchFailure(failure) !== 'rate_limit') return undefined;
+  return resetTimestamp(failure.rateLimit?.reset);
+}
+
+export function omissionNote(
+  section: string,
+  failure: WebFetchFailure,
+): string {
+  const category = classifyFetchFailure(failure);
+  const reset = rateLimitReset(failure);
+  return `${section} omitted: ${category}${
+    reset === undefined ? '' : `, resets ${reset}`
+  }`;
+}
+
+function resetTimestamp(value: string | undefined): string | undefined {
+  if (value === undefined || value.trim() === '') return undefined;
+  const date = new Date(Number(value) * 1000);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+/** An adapter's own report that a response it received could not be parsed. */
+const ADAPTER_PARSE_FAILURE = 'parse';
 
 /**
  * Only adapter-primary failures in this allowlist may fall through. Call
  * timeout, abort, redirect-budget exhaustion, and unknown failures end calls.
  */
 export function isFatalAdapterFailure(failure: WebFetchFailure): boolean {
-  return !Object.hasOwn(CANDIDATE_FAILURES, failure.type);
+  return (
+    !Object.hasOwn(CANDIDATE_FAILURES, failure.type) &&
+    failure.type !== ADAPTER_PARSE_FAILURE
+  );
 }
 
 export type WebAdapterDispatch =
@@ -123,8 +180,10 @@ export async function dispatchWebAdapters(
       if (outcome.fatal !== undefined) {
         return { kind: 'fatal', failure: outcome.fatal };
       }
+      const reset =
+        outcome.reset === undefined ? '' : `, resets ${outcome.reset}`;
       fallthroughNotes.push(
-        `web adapter "${adapter.id}" fell through: ${outcome.failure}`,
+        `web adapter "${adapter.id}" fell through: ${outcome.failure}${reset}`,
       );
       continue;
     }
@@ -165,9 +224,13 @@ function truncateAdapterDocument(content: string) {
   };
 }
 
-/** Builds the shipped rewrite-only adapter set while preserving operator order. */
+/** Builds configured adapters while preserving operator order. */
 export function createWebAdapters(
   configs: ReadonlyArray<WebAdapterConfig>,
 ): ReadonlyArray<WebAdapter> {
-  return configs.map(createRewriteAdapter);
+  return configs.map((config) =>
+    config.use === 'github'
+      ? createGithubAdapter(config)
+      : createRewriteAdapter(config),
+  );
 }

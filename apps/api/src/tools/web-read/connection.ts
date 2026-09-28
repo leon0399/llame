@@ -16,6 +16,7 @@ import type {
   WebFetchDeps,
   WebFetchFailure,
   WebFetchOptions,
+  WebRequestInit,
 } from './http-client';
 import {
   abortFailure,
@@ -48,6 +49,7 @@ export type ConnectionPlanner = {
     url: string,
     options: WebFetchOptions,
     deadline: CallDeadline,
+    init?: WebRequestInit,
   ): Promise<ConnectionRequestOutcome>;
   dispose(): void;
 };
@@ -63,6 +65,7 @@ type ConnectionRequestContext = {
   readonly url: string;
   readonly options: WebFetchOptions;
   readonly deadline: CallDeadline;
+  readonly init?: WebRequestInit;
 };
 
 type ConnectionDispatchContext = {
@@ -71,6 +74,7 @@ type ConnectionDispatchContext = {
   readonly deadline: CallDeadline;
   readonly fetch: WebFetchDeps['fetch'];
   readonly agent: Agent;
+  readonly init?: WebRequestInit;
 };
 type AddressResolution =
   | { readonly kind: 'addresses'; readonly addresses: Array<ResolvedAddress> }
@@ -131,8 +135,8 @@ export function createConnectionPlanner(
     agents: new Set(),
   };
   return {
-    request: (url, options, deadline) =>
-      requestConnection({ state, url, options, deadline }),
+    request: (url, options, deadline, init) =>
+      requestConnection({ state, url, options, deadline, init }),
     dispose() {
       for (const agent of state.agents) void agent.destroy();
       state.agents.clear();
@@ -161,6 +165,7 @@ async function requestConnection(
     deadline: context.deadline,
     fetch: context.state.deps.fetch,
     agent,
+    init: context.init,
   });
 }
 
@@ -207,15 +212,18 @@ async function dispatchRequest({
   deadline,
   fetch,
   agent,
+  init,
 }: ConnectionDispatchContext): Promise<ConnectionDispatchOutcome> {
+  const authorization = init?.authorization?.value;
   try {
     const response = await fetch(url, {
       method: 'GET',
       redirect: 'manual',
       credentials: 'omit',
       headers: {
-        accept: ACCEPT,
+        accept: init?.accept ?? ACCEPT,
         'user-agent': options.userAgent,
+        ...(authorization !== undefined && { authorization }),
       },
       signal: deadline.signal,
       dispatcher: agent,

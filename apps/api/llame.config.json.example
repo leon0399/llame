@@ -458,10 +458,15 @@
     // To enable Workspace entry/exit on a native host, also add
     // "enter_workspace" and "exit_workspace" to this allowlist.
     "allowed": ["search_conversations"],
-    // Optional ordered rewrite adapters; absent means none, and a present array
-    // is the exact enabled list. This example sends x.com status paths to the
-    // operator-declared origin below.
+    // Optional ordered web adapters; absent means none, and a present array is
+    // the exact enabled list. This example includes a native GitHub adapter
+    // and sends x.com status paths to the operator-declared origin below.
     // "webAdapters": [
+    //   {
+    //     "id": "github",
+    //     "use": "github",
+    //     "token": "{env:GITHUB_READ_TOKEN}",
+    //   },
     //   {
     //     "id": "x",
     //     "use": "rewrite",

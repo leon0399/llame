@@ -3,16 +3,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { createRewriteAdapter } from './rewrite';
 import type { WebAdapterIo } from './contract';
 import type { WebResponse, WebFetchFailure } from '../http-client';
-import type { WebAdapterConfig } from '../../../instance-config/llame-config';
+import type { RewriteWebAdapterConfig } from '../../../instance-config/llame-config';
 
-const BASE_CONFIG: WebAdapterConfig = {
+const BASE_CONFIG: RewriteWebAdapterConfig = {
   id: 'pcstyle',
   use: 'rewrite',
   hosts: ['x.com'],
   target: 'https://x.pcstyle.dev{path}',
 };
 
-function config(overrides: Partial<WebAdapterConfig> = {}): WebAdapterConfig {
+function config(
+  overrides: Partial<RewriteWebAdapterConfig> = {},
+): RewriteWebAdapterConfig {
   return { ...BASE_CONFIG, ...overrides };
 }
 

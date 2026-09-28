@@ -190,14 +190,14 @@ async function dispatchFor(
   admit: AdmitDerivedLocator,
 ): Promise<WebAdapterDispatch> {
   const adapterIo: WebAdapterIo = {
-    fetch: async (url) => {
+    fetch: async (url, init) => {
       if (admit('adapter', url).decision === 'reject') {
         return {
           type: 'permission_denied',
           message: 'The adapter target was refused by operator permissions.',
         };
       }
-      const result = await session.fetch(url);
+      const result = await session.fetch(url, init);
       // A caller abort can land after an adapter response resolves; do not
       // let a synchronous adapter render start in that case.
       return context.abortSignal?.aborted ? ABORTED_FAILURE : result;

@@ -40,6 +40,7 @@ import type {
   ResolvedAddress,
   WebFetchFailure,
   WebFetchOptions,
+  WebRequestInit,
   WebResponse,
 } from './http-client';
 
@@ -95,6 +96,7 @@ async function fetchOne(
   deps: TestDeps,
   options: Partial<WebFetchOptions> = {},
   url = URL_,
+  init?: WebRequestInit,
 ): Promise<WebResponse | WebFetchFailure> {
   const session = createWebFetchSession(
     { userAgent: USER_AGENT, ...options },
@@ -106,7 +108,7 @@ async function fetchOne(
     },
   );
   try {
-    return await session.fetch(url);
+    return await session.fetch(url, init);
   } finally {
     session.dispose();
   }
@@ -345,6 +347,27 @@ describe('web fetch client', () => {
       body: '# Title\n',
     });
   });
+  it('overrides Accept and sends authorization only to its origin', async () => {
+    let seen: RequestInit | undefined;
+    const deps: TestDeps = {
+      fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
+        seen = init;
+        return Promise.resolve(textResponse('# Title\n', 'text/markdown'));
+      },
+    };
+
+    await fetchOne(deps, {}, URL_, {
+      accept: 'application/vnd.github+json',
+      authorization: {
+        origin: 'https://docs.example.test',
+        value: 'Bearer secret',
+      },
+    });
+
+    const headers = new Headers(seen?.headers);
+    expect(headers.get('accept')).toBe('application/vnd.github+json');
+    expect(headers.get('authorization')).toBe('Bearer secret');
+  });
 
   it('returns a JSON body as text with its declared type', async () => {
     const deps = serving(textResponse('{"ok":true}', 'application/json'));
@@ -489,6 +512,57 @@ describe('web fetch client', () => {
       expect.stringMatching(/429.*120/u),
     );
     expect(deps.fetch).toHaveBeenCalledTimes(1);
+  });
+  it('adds status and rate-limit fields only for initialized requests', async () => {
+    const generic = await fetchOne(
+      serving(
+        new Response('private', {
+          status: 403,
+          headers: {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': '1700000000',
+            'retry-after': '120',
+          },
+        }),
+      ),
+    );
+    expect(generic).toStrictEqual({
+      type: 'http_status',
+      message: 'The server answered HTTP 403.',
+    });
+
+    const adapter = await fetchOne(
+      serving(
+        new Response('private', {
+          status: 403,
+          headers: {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': '1700000000',
+            'retry-after': '120',
+          },
+        }),
+      ),
+      {},
+      URL_,
+      {
+        accept: 'application/vnd.github+json',
+        authorization: {
+          origin: 'https://docs.example.test',
+          value: 'Bearer adapter-secret',
+        },
+      },
+    );
+    expect(adapter).toStrictEqual({
+      type: 'http_status',
+      message: 'The server answered HTTP 403.',
+      httpStatus: 403,
+      rateLimit: {
+        remaining: '0',
+        reset: '1700000000',
+        retryAfter: '120',
+      },
+    });
+    expect(JSON.stringify(adapter)).not.toContain('adapter-secret');
   });
 
   it('bounds and strips the Retry-After it echoes', async () => {
@@ -767,6 +841,27 @@ describe('web fetch client', () => {
       message: 'The request failed.',
     });
     expect(JSON.stringify(result)).not.toContain('evil.test');
+  });
+  it('never echoes an adapter authorization value in a failure message', async () => {
+    const authorization = 'Bearer adapter-secret';
+    const deps: TestDeps = {
+      fetch: () =>
+        Promise.reject(new Error(`request failed with ${authorization}`)),
+    };
+
+    const result = await fetchOne(deps, {}, URL_, {
+      authorization: {
+        origin: 'https://docs.example.test',
+        value: authorization,
+      },
+    });
+
+    expect(result).toHaveProperty('type', 'network_error');
+    expect(result).toHaveProperty(
+      'message',
+      expect.not.stringContaining('adapter-secret'),
+    );
+    expect(JSON.stringify(result)).not.toContain(authorization);
   });
 
   it('strips and bounds a transport message before echoing it', async () => {
@@ -1142,6 +1237,34 @@ describe('web fetch redirects', () => {
       body: '# Guide\n',
       link: '<https://b.example.test/guide.md>; rel="alternate"',
     });
+  });
+  it('drops authorization after a cross-origin hop and never restores it', async () => {
+    const back = 'https://a.example.test/final';
+    const seenHeaders: Array<Headers> = [];
+    const fetch = vi.fn(
+      (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = input instanceof Request ? input.url : String(input);
+        seenHeaders.push(new Headers(init?.headers));
+        if (url === START)
+          return Promise.resolve(redirectResponse(302, TARGET));
+        if (url === TARGET) return Promise.resolve(redirectResponse(302, back));
+        return Promise.resolve(textResponse('final', 'text/markdown'));
+      },
+    );
+
+    const result = await fetchOne({ fetch, admit: () => ALLOW }, {}, START, {
+      authorization: {
+        origin: 'https://a.example.test',
+        value: 'Bearer secret',
+      },
+    });
+
+    expect(result).toHaveProperty('body', 'final');
+    expect(seenHeaders.map((headers) => headers.get('authorization'))).toEqual([
+      'Bearer secret',
+      null,
+      null,
+    ]);
   });
 
   it('resolves a relative Location against the redirecting request’s URL', async () => {
