@@ -288,4 +288,24 @@ describe("markdown outline reader", () => {
       shownRange: { startLine: 1, endLine: 2 },
     });
   });
+
+  it("omits an ancestor chain that leaves no room for the scope", async () => {
+    const lines = Array.from({ length: 3000 }, (_, index) => `text ${index}\n`);
+    lines.push("===\n", "\n", "first body\n");
+    while (lines.length < 3600) lines.push("\n");
+    lines[3549] = "## In scope\n";
+    lines[3551] = "scope body\n";
+    await expect(
+      read(lines.join(""), "outline:3500-3600"),
+    ).resolves.toMatchObject({
+      content: "3550: ## In scope\n3552: scope body\n",
+      truncated: false,
+    });
+  });
+
+  it("emits a native line holding two headings once", async () => {
+    await expect(read("# A\r\r## B\nbody\n")).resolves.toMatchObject({
+      content: "1: # A\r\r## B\n2: body\n",
+    });
+  });
 });
