@@ -231,7 +231,6 @@ export class MultiCollector {
       MAX_RESULT_CODE_UNITS - (this.target.reserveCodeUnits ?? 0)
     ) {
       passage.cut = true;
-      this.haltedAt = index + 1;
       this.stopped = true;
       return false;
     }

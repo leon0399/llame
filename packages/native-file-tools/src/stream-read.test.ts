@@ -664,6 +664,27 @@ describe("markdown ancestor range selection", () => {
     }
   });
 
+  it("keeps byte-budget Markdown and text ranges identical", async () => {
+    const source = `${Array.from({ length: 500 }, () => "x".repeat(200)).join(
+      "\n",
+    )}\n`;
+    const directory = await mkdtemp(join(tmpdir(), "native-byte-budget-"));
+    try {
+      const paths = [join(directory, "same.md"), join(directory, "sam.txt")];
+      for (const path of paths) await writeFile(path, source);
+      for (const path of paths) {
+        const result = asMulti(
+          await readFile({ path: `${path}:1-300,400-410` }),
+        );
+        expect(result.shownRanges).toEqual([{ startLine: 1, endLine: 76 }]);
+        expect(result.nextOffset).toBe(76);
+        expect(result.truncated).toBe(true);
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("does not truncate a comma read with exactly 2,000 selected lines", () => {
     const source = "\n".repeat(2000);
     const result = selectMultiRangeLines(
@@ -674,6 +695,30 @@ describe("markdown ancestor range selection", () => {
     expect(result.truncated).toBe(false);
     expect(result).not.toHaveProperty("nextOffset");
     expect(result.shownRanges).toEqual([{ startLine: 1, endLine: 2000 }]);
+  });
+
+  it("reserves the first requested line in single chain admission", () => {
+    const source =
+      [
+        `# ${"h".repeat(120)}`,
+        ...Array.from({ length: 8 }, () => "body"),
+        "selected",
+      ].join("\n") + "\n";
+    const result = selectSourceLines(
+      source,
+      { ...applySelectorSuffix("/doc.md", "10-10"), reserveCodeUnits: 15_606 },
+      "text/markdown",
+    );
+    expect(result).toEqual({
+      status: "success",
+      kind: "file",
+      path: "/doc.md",
+      representation: "text",
+      content: "9: body\n10: selected\n",
+      requestedRange: { startLine: 10, endLine: 10 },
+      shownRange: { startLine: 9, endLine: 10 },
+      truncated: false,
+    });
   });
 
   it("advances a promoted continuation past a tight ancestor budget", () => {

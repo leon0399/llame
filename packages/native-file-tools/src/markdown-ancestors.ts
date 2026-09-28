@@ -482,7 +482,7 @@ function renderSingle(
     mandatory: selection.mandatory,
     result: base,
     emitted: 0,
-    reserveNextOffset: singular.nextOffset ?? target.offset,
+    reserveNextOffset: singular.nextOffset ?? firstRequested,
     target,
     firstRequested: target.offset,
     firstShownLine: selection.mandatory[0]?.line ?? firstRequested,
