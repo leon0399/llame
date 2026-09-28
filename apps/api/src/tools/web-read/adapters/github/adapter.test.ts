@@ -137,6 +137,15 @@ function checkRun(name: string, status: string, conclusion: string | null) {
   return { name, status, conclusion } satisfies JsonObject;
 }
 
+function file() {
+  return {
+    filename: 'src/app.ts',
+    status: 'modified',
+    additions: 2,
+    deletions: 1,
+  } satisfies JsonObject;
+}
+
 function pullRoutes(
   overrides: ReadonlyMap<string, ReadonlyArray<Reply>> = new Map(),
 ): Map<string, ReadonlyArray<Reply>> {
@@ -165,6 +174,41 @@ function pullRoutes(
   ]);
   for (const [url, replies] of overrides) routes.set(url, replies);
   return routes;
+}
+
+function malformedReviewRoutes(): Map<string, ReadonlyArray<Reply>> {
+  const reviewsPage1 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=1`;
+  const reviewsPage2 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=2`;
+  return pullRoutes(
+    new Map([
+      [
+        reviewsPage1,
+        [
+          response(
+            Array.from({ length: 100 }, (_, index) => review(index + 1)),
+          ),
+        ],
+      ],
+      [reviewsPage2, [response({ malformed: true })]],
+      [
+        `${API_ORIGIN}/repos/acme/project/pulls/12/comments?per_page=100&page=1`,
+        [response([reviewComment(5)])],
+      ],
+      [
+        `${API_ORIGIN}/repos/acme/project/pulls/12/files?per_page=100&page=1`,
+        [response([file()])],
+      ],
+      [
+        `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=1`,
+        [
+          response({
+            total_count: 1,
+            check_runs: [checkRun('lint', 'completed', 'success')],
+          }),
+        ],
+      ],
+    ]),
+  );
 }
 
 describe('GitHub thread adapter', () => {
@@ -552,49 +596,7 @@ describe('GitHub thread adapter', () => {
   });
 
   it('continues loading other sections after a malformed later review page', async () => {
-    const reviewsPage1 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=1`;
-    const reviewsPage2 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=2`;
-    const reviewCommentsUrl = `${API_ORIGIN}/repos/acme/project/pulls/12/comments?per_page=100&page=1`;
-    const filesUrl = `${API_ORIGIN}/repos/acme/project/pulls/12/files?per_page=100&page=1`;
-    const checksUrl = `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=1`;
-    const routes = pullRoutes(
-      new Map([
-        [
-          reviewsPage1,
-          [
-            response(
-              Array.from({ length: 100 }, (_, index) => review(index + 1)),
-            ),
-          ],
-        ],
-        [reviewsPage2, [response({ malformed: true })]],
-        [reviewCommentsUrl, [response([reviewComment(5)])]],
-        [
-          filesUrl,
-          [
-            response([
-              {
-                filename: 'src/app.ts',
-                status: 'modified',
-                additions: 2,
-                deletions: 1,
-              },
-            ]),
-          ],
-        ],
-        [
-          checksUrl,
-          [
-            response({
-              total_count: 1,
-              check_runs: [checkRun('lint', 'completed', 'success')],
-            }),
-          ],
-        ],
-      ]),
-    );
-    const { io } = scriptedIo(routes);
-
+    const { io } = scriptedIo(malformedReviewRoutes());
     const outcome = await createGithubAdapter(config(), {
       apiOrigin: API_ORIGIN,
     }).read(new URL(PULL_SOURCE), io);
