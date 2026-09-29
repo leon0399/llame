@@ -111,12 +111,17 @@ import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
-import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import { turnTelemetryLogger } from './turn-telemetry';
 import { createModelChangeItem } from './context-item-producers';
 import { createContextItemPart, isContextItemPart } from './context-item';
 import { type InRunContextProducer } from '../runs/in-run-context-items';
 
+import { createInstructionsProducer } from '../instructions/instructions-producer';
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from './recency-digest.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -5196,6 +5201,479 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ).toEqual([]);
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      }
+    });
+  });
+
+  describe('instruction files', () => {
+    /** The service inputs every case needs to load instruction files at all. */
+    function instructionsService(overrides?: ServiceWithToolsOverrides) {
+      return serviceWithTools({
+        nativeExecutorId: 'instructions-host',
+        allowed: ['enter_workspace', 'read'],
+        inRunProducer: createInstructionsProducer(),
+        ...overrides,
+      });
+    }
+
+    /** A Workspace root holding a root file, a nested package file, and a source file. */
+    function instructionFixture(): string {
+      const root = mkdtempSync(path.join(tmpdir(), 'instructions-e2e-'));
+      writeFileSync(
+        path.join(root, 'AGENTS.md'),
+        'root rules: run the tests\n',
+      );
+      mkdirSync(path.join(root, 'apps/api/src'), { recursive: true });
+      writeFileSync(
+        path.join(root, 'apps/api/AGENTS.md'),
+        'api rules: use vitest\n',
+      );
+      writeFileSync(
+        path.join(root, 'apps/api/src/x.ts'),
+        'export const x = 1;\n',
+      );
+      return root;
+    }
+
+    /** A model whose first step enters `root` and reads `readPath`, then answers. */
+    function enterAndReadModel(input: {
+      readonly root: string;
+      readonly readPath: string;
+      readonly readCallId: string;
+      readonly answer: string;
+    }): MockLanguageModelV3 {
+      let step = 0;
+      return new MockLanguageModelV3({
+        doStream: () => {
+          step += 1;
+          if (step === 1) {
+            return Promise.resolve(
+              jsonToolCallsResponse([
+                {
+                  toolCallId: `${input.readCallId}-enter`,
+                  toolName: 'enter_workspace',
+                  input: { path: input.root },
+                },
+                {
+                  toolCallId: input.readCallId,
+                  toolName: 'read',
+                  input: { path: input.readPath },
+                },
+              ]),
+            );
+          }
+          return Promise.resolve(textResponse(input.answer));
+        },
+      });
+    }
+
+    /** A one-tool-call model that then answers. */
+    function toolThenAnswerModel(input: {
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly toolInput: unknown;
+      readonly answer: string;
+    }): MockLanguageModelV3 {
+      let step = 0;
+      return new MockLanguageModelV3({
+        doStream: () => {
+          step += 1;
+          if (step === 1) {
+            return Promise.resolve(
+              jsonToolCallResponse(
+                input.toolCallId,
+                input.toolName,
+                input.toolInput,
+              ),
+            );
+          }
+          return Promise.resolve(textResponse(input.answer));
+        },
+      });
+    }
+
+    /** A new Run on an existing Chat, with its own user message. */
+    async function seedRunOnChat(
+      chat: Awaited<ReturnType<typeof seedBoundRun>>,
+      key: string,
+    ) {
+      const messageId = crypto.randomUUID();
+      const seeded = await tenantDb.runAs(userId, async (tx) => {
+        const userMessage = await new MessagesRepository(tx).create({
+          id: messageId,
+          chatId: chat.chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'and now another file' }],
+        });
+        const run = await new RunsRepository(tx).create({
+          chatId: chat.chatId,
+          messageId,
+          userId,
+          modelId: `test:${key}`,
+        });
+        return { userMessage, run };
+      });
+      return { ...chat, messageId, key, ...seeded };
+    }
+
+    /** The index of the tool-result message carrying `toolCallId`. */
+    function toolResultIndex(
+      prompt: ReadonlyArray<unknown>,
+      toolCallId: string,
+    ): number {
+      return prompt.findIndex(
+        (message) =>
+          isRecord(message) &&
+          message.role === 'tool' &&
+          Array.isArray(message.content) &&
+          message.content.some(
+            (part) =>
+              isRecord(part) &&
+              part.type === 'tool-result' &&
+              part.toolCallId === toolCallId,
+          ),
+      );
+    }
+
+    /** The concatenated text of a prompt message, empty for a non-text one. */
+    function promptText(message: unknown): string {
+      if (!isRecord(message)) return '';
+      const content = message['content'];
+      if (isString(content)) return content;
+      if (!Array.isArray(content)) return '';
+      return content
+        .flatMap((part) =>
+          isRecord(part) && isString(part['text']) ? [part['text']] : [],
+        )
+        .join('\n');
+    }
+
+    /** Every user-message index carrying an instructions bundle. */
+    function instructionsIndexes(
+      prompt: ReadonlyArray<unknown>,
+    ): Array<number> {
+      return prompt.flatMap((message, index) =>
+        isRecord(message) &&
+        message.role === 'user' &&
+        promptText(message).includes('<file path="')
+          ? [index]
+          : [],
+      );
+    }
+
+    /** The events one Run recorded under the `instructions` origin. */
+    async function instructionEvents(runId: string) {
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(runId, userId),
+      );
+      return events.flatMap((entry) =>
+        isRecord(entry.payload) && entry.payload['origin'] === 'instructions'
+          ? [{ type: entry.eventType, payload: entry.payload }]
+          : [],
+      );
+    }
+
+    /** The `instructions` items one Run's context-item record carries. */
+    async function instructionItems(runId: string) {
+      const run = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(runId, userId),
+      );
+      return (run?.contextItems ?? []).flatMap((item) =>
+        item.producer === 'instructions' ? [item] : [],
+      );
+    }
+
+    /** The instructions parts one Run's own turn staged onto its user message. */
+    async function stagedInstructionParts(seeded: {
+      readonly chatId: string;
+      readonly messageId: string;
+    }) {
+      const turn = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findTurnState(
+          seeded.chatId,
+          userId,
+          seeded.messageId,
+        ),
+      );
+      return (turn.userMessage?.parts ?? []).flatMap((part) =>
+        isRecord(part) &&
+        part['type'] === 'data-context' &&
+        isRecord(part['data']) &&
+        part['data']['producer'] === 'instructions'
+          ? [part]
+          : [],
+      );
+    }
+
+    /** The single instructions data-context part among stored messages. */
+    async function storedInstructionPart(chatId: string) {
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
+      );
+      return messages
+        .flatMap((message) => message.parts)
+        .find(
+          (part) =>
+            isRecord(part) &&
+            part['type'] === 'data-context' &&
+            isRecord(part['data']) &&
+            part['data']['producer'] === 'instructions',
+        );
+    }
+
+    async function waitForCompleted(runId: string): Promise<void> {
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(runId, userId),
+        );
+        return events.some((entry) => entry.eventType === 'run.completed');
+      });
+    }
+
+    it('loads the touched chain into the next step and keeps its reads out of the transcript', async () => {
+      const root = instructionFixture();
+      const seeded = await seedBoundRun(
+        `instructions-load-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      const model = enterAndReadModel({
+        root,
+        readPath: path.join(root, 'apps/api/src/x.ts'),
+        readCallId: 'read-x',
+        answer: 'Read the file.',
+      });
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // The step after the touch carries one bundle, directly after the
+        // tool result that triggered it, broadest directory first.
+        const prompt = model.doStreamCalls[1]?.prompt ?? [];
+        const toolIndex = toolResultIndex(prompt, 'read-x');
+        const bundleIndex = instructionsIndexes(prompt)[0];
+        expect(toolIndex).toBeGreaterThanOrEqual(0);
+        expect(bundleIndex).toBe(toolIndex + 1);
+        const bundle = promptText(prompt[bundleIndex]);
+        const rootFile = path.join(root, 'AGENTS.md');
+        const apiFile = path.join(root, 'apps/api/AGENTS.md');
+        expect(bundle).toContain(`<file path="${rootFile}">`);
+        expect(bundle).toContain(`<file path="${apiFile}">`);
+        expect(bundle.indexOf(rootFile)).toBeLessThan(bundle.indexOf(apiFile));
+        expect(bundle).toContain('root rules: run the tests');
+        expect(bundle).toContain('api rules: use vitest');
+
+        // The system reads are audited under `instructions` and produce no
+        // assistant tool part: the model's own read is the only one stored.
+        const audited = await instructionEvents(seeded.run.id);
+        expect(audited.map((entry) => entry.type)).toEqual([
+          'tool.requested',
+          'tool.completed',
+          'tool.requested',
+          'tool.completed',
+        ]);
+        const messages = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+        );
+        const assistant = messages.find(
+          (message) =>
+            message.role === 'assistant' &&
+            message.inReplyTo === seeded.userMessage.id,
+        );
+        const parts = (assistant?.parts ?? []).filter(isTypedPart);
+        expect(parts.map((part) => part.type)).toEqual([
+          'tool-enter_workspace',
+          'tool-read',
+          'data-context',
+          'text',
+        ]);
+        expect(parts[2]).toMatchObject({
+          data: { producer: 'instructions', form: 'notice' },
+        });
+        const readParts = parts.flatMap((part) =>
+          part['type'] === 'tool-read' ? [part] : [],
+        );
+        expect(readParts).toHaveLength(1);
+        expect(readParts[0]).toMatchObject({ toolCallId: 'read-x' });
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('loads nothing for a second touch inside the same compaction epoch', async () => {
+      const root = instructionFixture();
+      const seeded = await seedBoundRun(
+        `instructions-epoch-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      const first = enterAndReadModel({
+        root,
+        readPath: path.join(root, 'apps/api/src/x.ts'),
+        readCallId: 'read-x',
+        answer: 'Read the file.',
+      });
+
+      try {
+        const firstExecution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(first),
+        );
+        await firstExecution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // A later Run of the same Chat touches the same tree again.
+        const secondSeeded = await seedRunOnChat(
+          seeded,
+          `instructions-epoch-2-${crypto.randomUUID()}`,
+        );
+        const second = toolThenAnswerModel({
+          toolCallId: 'read-y',
+          toolName: 'read',
+          toolInput: { path: 'apps/api/src/x.ts' },
+          answer: 'No reload.',
+        });
+        const secondExecution = await executeSeeded(
+          secondSeeded,
+          service,
+          createMockModelClient(second),
+        );
+        await secondExecution.consumeStream?.();
+        await waitForCompleted(secondSeeded.run.id);
+
+        // The chain is already in effective history: no probe reads, no item,
+        // and nothing spliced after this step's tool result.
+        expect(await instructionEvents(secondSeeded.run.id)).toEqual([]);
+        expect(await stagedInstructionParts(secondSeeded)).toEqual([]);
+        const prompt = second.doStreamCalls[1]?.prompt ?? [];
+        expect(instructionsIndexes(prompt)).not.toContain(
+          toolResultIndex(prompt, 'read-y') + 1,
+        );
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('keeps a denied candidate out of the text and audits the denial', async () => {
+      const root = mkdtempSync(path.join(tmpdir(), 'instructions-denied-'));
+      writeFileSync(path.join(root, 'AGENTS.md'), 'denied rules\n');
+      writeFileSync(
+        path.join(root, 'CLAUDE.local.md'),
+        'allowed local rules\n',
+      );
+      const seeded = await seedBoundRun(
+        `instructions-denied-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService({
+        permissionPolicy: compileToolPermissionMap(
+          {
+            enter_workspace: { allow: true },
+            read: {
+              allow: true,
+              reject: [{ field: 'path', regex: 'AGENTS[.]md' }],
+            },
+          },
+          'instructions-denial-policy',
+        ),
+      });
+      const model = toolThenAnswerModel({
+        toolCallId: 'enter-root',
+        toolName: 'enter_workspace',
+        toolInput: { path: root },
+        answer: 'Entered.',
+      });
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // The denied path is audited as a rejected read under `instructions`
+        // and never reaches the model-visible text.
+        const deniedPath = path.join(root, 'AGENTS.md');
+        const audited = await instructionEvents(seeded.run.id);
+        expect(audited.map((entry) => entry.type)).toEqual([
+          'tool.requested',
+          'tool.completed',
+          'tool.requested',
+          'tool.completed',
+        ]);
+        expect(audited[0]?.payload).toMatchObject({
+          toolName: 'read',
+          input: { path: `${deniedPath}:raw:1-2000` },
+          permission: { decision: 'reject' },
+        });
+        expect(audited[1]?.payload).toMatchObject({ status: 'error' });
+        expect(audited[2]?.payload).toMatchObject({
+          permission: { decision: 'allow' },
+        });
+        expect(audited[3]?.payload).toMatchObject({ status: 'success' });
+        const items = await instructionItems(seeded.run.id);
+        expect(items).toHaveLength(1);
+        expect(items[0]?.text).toContain('allowed local rules');
+        expect(items[0]?.text).not.toContain(deniedPath);
+        expect(items[0]?.text).not.toContain('denied rules');
+        // The owner's part still records the denial for the chip.
+        expect(await storedInstructionPart(seeded.chatId)).toMatchObject({
+          data: { payload: { denied: [deniedPath] } },
+        });
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('exposes no instruction activity or items to another owner', async () => {
+      const root = instructionFixture();
+      const seeded = await seedBoundRun(
+        `instructions-isolation-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      const model = enterAndReadModel({
+        root,
+        readPath: path.join(root, 'apps/api/src/x.ts'),
+        readCallId: 'read-x',
+        answer: 'Read the file.',
+      });
+      const otherUserId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Other', ${`other-${otherUserId}@test.com`})`;
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+        expect(await instructionItems(seeded.run.id)).toHaveLength(1);
+
+        expect(
+          await tenantDb.runAs(otherUserId, (tx) =>
+            new RunsRepository(tx).findById(seeded.run.id, otherUserId),
+          ),
+        ).toBeUndefined();
+        expect(
+          await tenantDb.runAs(otherUserId, (tx) =>
+            new RunEventsRepository(tx).listByRunId(seeded.run.id, otherUserId),
+          ),
+        ).toEqual([]);
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        await sql`DELETE FROM users WHERE id = ${otherUserId}`;
+        rmSync(root, { recursive: true, force: true });
       }
     });
   });

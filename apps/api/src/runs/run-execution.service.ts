@@ -116,6 +116,7 @@ import {
   type DerivedDecisionRecord,
 } from '../tools/web-read/admission';
 import {
+  ORIGIN_INSTRUCTIONS,
   ORIGIN_SKILL_ACTIVATION,
   type ToolActivityOrigin,
 } from './tool-activity-origin';
@@ -145,7 +146,10 @@ import {
   createInRunContextItems,
   type InRunAttemptProducer,
   type InRunContextProducer,
+  type InRunReadPage,
 } from './in-run-context-items';
+import { instructionReadIds } from '../instructions/instructions-producer';
+import { instructionsSeenPaths } from '../chats/instructions-item';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
@@ -268,6 +272,22 @@ type WorkspaceStagedContext = {
   readonly writes?: WorkspaceWrites;
 };
 
+/**
+ * The instructions state one attempt threads into its in-Run producer: the
+ * `read` gate's verdict, the Run-scoped allocator every audited instruction
+ * read shares, and the canonical paths the attempt's effective history already
+ * discloses. `seenCanonicalPaths` is replaced in place when a transition
+ * compaction rebuilds the history, so a file the rebuilt context no longer
+ * names can load again (design D7).
+ */
+type InstructionReadState = {
+  /** Whether the `read` gate lets any instruction file load in this Run. */
+  readonly loadable: boolean;
+  /** Allocates the Run-scoped tool-call id of one audited instruction read. */
+  readonly nextToolCallId: () => string;
+  seenCanonicalPaths: ReadonlyArray<string>;
+};
+
 /** Context resolved inside the worker transaction before the model request. */
 type PreparedAttemptContext = BuiltContext & {
   /** Receipt-only data persisted before target-model I/O. */
@@ -275,6 +295,8 @@ type PreparedAttemptContext = BuiltContext & {
   /** Attempt-local catalog retained only in worker memory. */
   toolCatalog: AttemptToolCatalog;
   stagedParts: Array<MessagePart>;
+  /** Canonical instruction paths the effective history already discloses. */
+  seenInstructionPaths: Array<string>;
   recencyDigestInitialization?: RecencyDigestInitialization;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
   /** The skill-catalog writes this turn establishes; see `SkillCatalogWrites`. */
@@ -777,6 +799,15 @@ export class RunExecutionService {
     let attemptSkillCatalogWrites: SkillCatalogWrites | undefined;
     let attemptWorkspaceWrites: WorkspaceWrites | undefined;
     let attemptToolAvailability: Array<TurnToolAvailabilityEntry> = [];
+    // The instructions state this attempt's in-Run producer reads from: the
+    // gate, the Run-scoped read allocator, and the history-derived seen set
+    // (filled once the attempt's context is built, and replaced when a
+    // transition compaction rebuilds that history).
+    const instructions: InstructionReadState = {
+      loadable: this.instructionsLoadable(),
+      nextToolCallId: instructionReadIds(input.runId),
+      seenCanonicalPaths: [],
+    };
     try {
       const context = await this.prepareAttemptContext(
         input,
@@ -793,6 +824,7 @@ export class RunExecutionService {
       attemptToolAvailability = toTurnToolAvailability(
         context.toolCatalog.availabilityManifest,
       );
+      instructions.seenCanonicalPaths = context.seenInstructionPaths;
 
       // Inject staged context items into the model request: prepend their
       // rendered text to the triggering user message. Uses the same rendering
@@ -827,6 +859,7 @@ export class RunExecutionService {
         contextItems,
         attemptStagedParts,
         input,
+        instructions,
       );
       attemptContextItems = contextItems;
       // Recorded only once the request is final: before this point a
@@ -936,7 +969,6 @@ export class RunExecutionService {
     // into every later step by the model client's step callback, and published
     // only with a completed turn (design D1).
     const inRunItems = createInRunContextItems();
-    const inRunProducer = this.beginInRunAttempt(input);
     let deltaWrites: Promise<void> = Promise.resolve();
     let progressWriteFailed = false;
     // eslint-disable-next-line anti-slop/no-unknown-parameters -- generic run-event payload dispatcher: shape depends on `eventType` (a discriminated union `RunEventsRepository.append` accepts), and every call site below already constructs the correct literal shape (see `persistDelta`/`persistReasoning`/`recordToolRequested`); this is the single serialization chokepoint, not a validation boundary.
@@ -1233,6 +1265,49 @@ export class RunExecutionService {
     // surfaced to the stream/worker instead of becoming a detached rejection.
     let parentAbortSettlement: Promise<void> | undefined;
 
+    // Instruction reads go through the same closure as the model's own calls:
+    // reserved before admission, settled through `recordToolCompleted`, and
+    // carrying the `instructions` origin so abort and finish settlement close
+    // them and the assistant transcript never gains a fabricated tool part.
+    const readInstructionPage = async (
+      selectorPath: string,
+    ): Promise<ToolResult> => {
+      const toolCallId = instructions.nextToolCallId();
+      const toolInput = { path: selectorPath };
+      reserveToolRequest(toolCallId, 'read', toolInput, ORIGIN_INSTRUCTIONS);
+      const result = await runTool(
+        nativeReadTool,
+        toolInput,
+        { ...toolContext, toolCallId },
+        callTimeoutSeconds,
+        async (decision) => {
+          const open = openToolCalls.get(toolCallId);
+          if (open !== undefined) open.permission = decision;
+          emitToolRequested(
+            toolCallId,
+            'read',
+            toolInput,
+            decision,
+            ORIGIN_INSTRUCTIONS,
+          );
+          if (decision.decision === 'allow') {
+            enqueueEvent('tool.started', { toolCallId, toolName: 'read' });
+          }
+          await deltaWrites;
+          if (progressWriteFailed) {
+            throw new Error('Instruction read activity could not be recorded.');
+          }
+        },
+      );
+      recordToolCompleted(toolCallId, 'read', toolInput, result);
+      return result;
+    };
+    const inRunProducer = this.beginInRunAttempt(
+      input,
+      instructions,
+      readInstructionPage,
+    );
+
     let toolAdditions: AttemptToolAdditions;
     const executeBoundTool = async (
       declaration: ModelToolDeclaration,
@@ -1265,6 +1340,14 @@ export class RunExecutionService {
               toolCallId,
               toolName: declaration.id,
             });
+            // The trigger follows admission, not the result: a call that is
+            // allowed loads its directory whether or not it then failed, and a
+            // denied or never-admitted call loads nothing.
+            inRunProducer?.observeToolCall?.({
+              toolName: declaration.id,
+              input: args,
+              workspaceRoot: workspaceRoot.current(),
+            });
           }
           await deltaWrites;
           if (progressWriteFailed)
@@ -1282,6 +1365,14 @@ export class RunExecutionService {
       executor: Tool,
       result: ToolResult,
     ) => {
+      // The settled observation is what names an entry's canonical root: only
+      // the result knows whether the binding was established or switched.
+      inRunProducer?.observeToolCall?.({
+        toolName: declaration.id,
+        input: args,
+        workspaceRoot: workspaceRoot.current(),
+        result,
+      });
       if (input.abortSignal?.aborted) {
         // Bash gets a bounded chance to report its own proven result after
         // cancellation. Other tools are settled synchronously by the
@@ -1841,12 +1932,18 @@ export class RunExecutionService {
    * triggering message, then rebuilds the context with `systemPrompt` — the
    * shared core of both the initial per-run context build and a
    * transition-compaction rebuild.
+   *
+   * The same history read also yields the instruction files it already
+   * discloses (D7), so the caller never has to read the history twice.
    */
   private async rebuildContextForChat(
     tx: Db,
     input: ExecuteRunInput,
     systemPrompt: string,
-  ): Promise<ReturnType<typeof buildContext>> {
+  ): Promise<{
+    readonly context: ReturnType<typeof buildContext>;
+    readonly seenInstructionPaths: Array<string>;
+  }> {
     const { chatId, userId, userMessage } = input;
     const compaction = await new CompactionsRepository(tx).findLatestByChatId(
       chatId,
@@ -1861,19 +1958,24 @@ export class RunExecutionService {
         ...(compaction && { sinceSeq: compaction.uptoSeq }),
       },
     );
-    return buildContext(toStoredMessages(history), {
-      systemPrompt,
-      // A Run's own request continues this Chat, so it replays the Chat's
-      // persisted reasoning (D16).
-      requestKind: 'continuation',
-      ...(compaction && {
-        compaction: {
-          summary: compaction.summary,
-          uptoSeq: compaction.uptoSeq,
-          replacementHistory: compaction.replacementHistory,
-        },
+    return {
+      context: buildContext(toStoredMessages(history), {
+        systemPrompt,
+        // A Run's own request continues this Chat, so it replays the Chat's
+        // persisted reasoning (D16).
+        requestKind: 'continuation',
+        ...(compaction && {
+          compaction: {
+            summary: compaction.summary,
+            uptoSeq: compaction.uptoSeq,
+            replacementHistory: compaction.replacementHistory,
+          },
+        }),
       }),
-    });
+      seenInstructionPaths: [
+        ...instructionsSeenPaths(history.flatMap((message) => message.parts)),
+      ],
+    };
   }
 
   private beginWorkspaceAttempt(
@@ -2048,7 +2150,7 @@ export class RunExecutionService {
     const text = partsToText(input.userMessage.parts);
     const mentions = parseSkillMentions(text);
     if (mentions.length === 0) return new Set();
-    const baseContext = this.buildSkillReadContext(
+    const baseContext = this.buildSystemReadContext(
       input,
       nativeDeliverySequence,
       workspaceRoot,
@@ -2093,11 +2195,25 @@ export class RunExecutionService {
   }
 
   /**
-   * The trusted context for activation reads: the same fields the model's own
-   * tool context carries, built from the RUN's identity, plus the Run's
-   * remaining wall-clock deadline so a slow package cannot outlive the turn.
+   * Whether instruction files may load at all: the `read` tool must be in the
+   * operator allowlist and a native executor configured, so no trigger can
+   * disclose a file the model could not have read itself (spec: Read not
+   * allowlisted / Missing candidates leave no audit trail).
    */
-  private buildSkillReadContext(
+  private instructionsLoadable(): boolean {
+    const tools = this.instanceConfig.config.tools;
+    return (
+      tools.nativeExecutorId !== undefined && tools.allowed.includes('read')
+    );
+  }
+
+  /**
+   * The trusted context for a skill-activation system read: the same fields
+   * the model's own tool context carries, built from the RUN's identity, plus
+   * the Run's remaining wall-clock deadline so a slow read cannot outlive the
+   * turn.
+   */
+  private buildSystemReadContext(
     input: ExecuteRunInput,
     nativeDeliverySequence: number,
     workspaceRoot: WorkspaceRootCell,
@@ -2187,8 +2303,9 @@ export class RunExecutionService {
   private async ensureRequestFitsContextWindow(
     prepared: PreparedExecutionContext,
     contextItems: ReturnType<typeof buildContext>['contextItems'],
-    stagedParts: ReadonlyArray<MessagePart>,
+    stagedParts: Array<MessagePart>,
     input: ExecuteRunInput,
+    instructions: InstructionReadState,
   ): Promise<ReturnType<typeof buildContext>['contextItems']> {
     const reservedOutputTokens =
       this.instanceConfig.config.runs.maxOutputTokens;
@@ -2216,6 +2333,7 @@ export class RunExecutionService {
       input,
       reservedOutputTokens,
       stagedParts,
+      instructions,
     );
   }
 
@@ -2223,14 +2341,17 @@ export class RunExecutionService {
    * Attempts one transition compaction and context rebuild, then re-checks;
    * throws `ContextIncompatibleError` if compaction itself fails (unless the
    * abort signal fired, which rethrows) or the rebuilt request still doesn't
-   * fit. Mutates `prepared.messages` in place and returns the rebuilt context
-   * items to record — the initial build's items were never sent.
+   * fit. Mutates `prepared.messages` and the staged parts in place — the
+   * instructions seen set is recomputed against the rebuilt history — and
+   * returns the rebuilt context items to record: the initial build's items
+   * were never sent.
    */
   private async compactAndRebuildForContextWindow(
     prepared: PreparedExecutionContext,
     input: ExecuteRunInput,
     reservedOutputTokens: number | null,
-    stagedParts: ReadonlyArray<MessagePart>,
+    stagedParts: Array<MessagePart>,
+    instructions: InstructionReadState,
   ): Promise<ReturnType<typeof buildContext>['contextItems']> {
     try {
       await this.compaction.compactForTransition({
@@ -2250,8 +2371,11 @@ export class RunExecutionService {
     const rebuilt = await this.tenantDb.runAs(input.userId, (tx) =>
       this.rebuildContextForChat(tx, input, prepared.system),
     );
-    this.prependStagedContextItems(rebuilt.messages, stagedParts);
-    prepared.messages = rebuilt.messages;
+    // The rebuilt history decides the instructions seen set: a file the
+    // attempt's first request disclosed may no longer be named by it.
+    instructions.seenCanonicalPaths = rebuilt.seenInstructionPaths;
+    this.prependStagedContextItems(rebuilt.context.messages, stagedParts);
+    prepared.messages = rebuilt.context.messages;
     if (
       !requestFitsContextWindow({
         system: prepared.system,
@@ -2265,7 +2389,7 @@ export class RunExecutionService {
         'The complete request still exceeds the target model context window after one transition compaction.',
       );
     }
-    return [...rebuilt.contextItems, ...toRunContextItems(stagedParts)];
+    return [...rebuilt.context.contextItems, ...toRunContextItems(stagedParts)];
   }
 
   private abortedRunMessage(
@@ -2712,11 +2836,18 @@ export class RunExecutionService {
   /** The configured in-Run producer's state for one attempt, if any producer is registered. */
   private beginInRunAttempt(
     input: ExecuteRunInput,
+    instructions: InstructionReadState,
+    readPage: InRunReadPage,
   ): InRunAttemptProducer | undefined {
     return this.inRunProducer?.beginAttempt({
       runId: input.runId,
       chatId: input.chatId,
       userId: input.userId,
+      seenKeys: instructions.seenCanonicalPaths,
+      // A Run whose read gate is closed gets no page reader: the producer then
+      // marks and loads nothing (spec: Read not allowlisted).
+      ...(instructions.loadable && { readPage }),
+      abortSignal: input.abortSignal,
     });
   }
 
@@ -3069,7 +3200,8 @@ export class RunExecutionService {
       prompt.systemPrompt,
     );
     return {
-      ...built,
+      ...built.context,
+      seenInstructionPaths: built.seenInstructionPaths,
       effectiveContext,
       toolCatalog: catalog,
       stagedParts: staged.stagedParts,
