@@ -158,8 +158,8 @@ function encodedSuggestion(href: string, selector: string): string {
 }
 
 /**
- * A suffix that meant lines the grammar cannot serve (`:0`, `:12+`,
- * `:4-5,12+`, `:outline:49,119`). The forms the model can write are named
+ * A suffix that meant lines the grammar cannot serve (`:12+`, `:4-5,12+`,
+ * `:outline:49,119`). The forms the model can write are named
  * first and the literal-colon spelling second, because that model asked for
  * lines, not a path; encoding its colons requests a URL nobody serves.
  */

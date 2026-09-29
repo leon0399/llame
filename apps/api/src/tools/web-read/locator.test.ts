@@ -1,3 +1,5 @@
+import { isSelectorSuffix } from '@workspace/native-file-tools';
+
 import { canonicalHref, parseWebLocator } from './locator';
 
 describe('parseWebLocator', () => {
@@ -310,6 +312,28 @@ describe('parseWebLocator', () => {
       type: 'invalid_selector',
       message: 'Write this locator as https://w.example/wiki/Special%3A-',
     });
+  });
+
+  it('names only range forms the shipped grammar accepts', () => {
+    // The refusal messages restate the grammar in prose; a grammar change
+    // must fail here rather than leave a hint that teaches a refused form.
+    const named = [
+      '5',
+      '5-9',
+      '5+3',
+      '1-2,4+1',
+      'raw:5',
+      'raw:5-9',
+      'raw:1-2,4-5',
+      'outline:5',
+      'outline:5-9',
+      'outline:5+3',
+    ];
+    const unnamed = ['raw:5+3', 'outline:1,3'];
+    expect(named.filter((selector) => !isSelectorSuffix(selector))).toEqual([]);
+    expect(unnamed.filter((selector) => isSelectorSuffix(selector))).toEqual(
+      [],
+    );
   });
 
   it('names the forms a raw, outline, or comma range attempt accepts', () => {
