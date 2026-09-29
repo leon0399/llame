@@ -60,7 +60,8 @@ Re-estimate authored size at each layer boundary and before publication; split a
       text message after the preceding tool-result message; leave `tool-observation-part`
       budgets untouched and make compaction's replacement builder ignore the part (design D1,
       D7). Verify replay order, that the pair budget is not charged for the item, that a
-      compaction absorbing the message produces replacement records without it, and that a
+      compaction absorbing the message produces replacement records without it, that an item
+      whose tool pair the replay budget omitted still replays at its stored position, and that a
       user-message `data-context` part replays exactly as before.
 - [ ] 1.4 Append in-Run items to the Run context-item record after the final request's items in
       step order, with producer, form, and residency, committed with turn publication. Verify
@@ -130,8 +131,9 @@ Re-estimate authored size at each layer boundary and before publication; split a
       per step through the carrier interface; exclude `bash`, `kb://`, `skill://`, and web
       locators; exclude the model's own read of a candidate file from loading or marking that
       file (design D5). Verify each trigger and each exclusion, two touches in one step yielding
-      one bundle, the same-step-no-load boundary matching the Workspace root cell, and that
-      exit, same-root re-entry, and detach produce nothing.
+      one bundle, two selected candidates resolving to one canonical path loaded once under the
+      first path in walk order, the same-step-no-load boundary matching the Workspace root cell,
+      and that exit, same-root re-entry, and detach produce nothing.
 - [ ] 3.2 Derive the seen set from the `files` payload of instructions items in messages after
       the compaction cutoff plus the attempt's staged and emitted items, keyed by canonical
       path, reset on transition compaction inside a Run (design D7). Verify a second touch in

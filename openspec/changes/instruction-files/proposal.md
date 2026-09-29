@@ -24,8 +24,8 @@ gap is the first half of this change; the instruction-file producer is the secon
   only with the winning attempt, and recorded in the Run's context-item record in step
   order. `context-injection` gains this as a second carrier beside the triggering user
   message. Verified on the Anthropic Messages, OpenAI Responses (stored and
-  `store: false` with encrypted reasoning), and OpenCode Go Chat Completions wires with
-  reasoning preceding the tool call; see design.md.
+  `store: false` with encrypted reasoning), and OpenCode Go Chat Completions wires, with
+  reasoning preserved where the wire emits it; see design.md D2.
 - Add the **`instructions` producer** (form `notice`). For a touched directory `D`, it walks
   from the filesystem root down to `D` and, in each directory, selects at most one base file
   by the first existing name in `LLAME.override.md`, `LLAME.md`, `AGENTS.override.md`,

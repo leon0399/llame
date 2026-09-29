@@ -233,13 +233,16 @@ the in-repo precedent for scanning parts.
 
 **Consequence:** once per compaction epoch. Compaction's replacement builder does not carry
 in-Run items, so an absorbed file reloads on the next trigger; the root chain returns on the
-next accepted turn through D5. An edit to a loaded file is not re-announced within the
-epoch; a content digest is the upgrade path if that matters.
+next accepted turn through D5. A transition compaction inside a Run rebuilds effective
+history, so the attempt's seen state resets to the rebuilt history and the accepted-turn root
+load is decided against it. An edit to a loaded file is not re-announced within the epoch; a
+content digest is the upgrade path if that matters.
 
 ### D8: One item per step, path-labelled file blocks, scope sentence
 
-Payload: `{ files: [{ path, canonicalPath, truncated }] }`; private metadata adds
-`denied: [path]`. `path` is where the candidate was selected in the walk and labels the
+Payload: `{ files: [{ path, canonicalPath, truncated }], denied: [path] }`. The payload is
+the part's private metadata: the model receives only the rendered text, so the truncated flags
+and denied paths reach the owner's chip and never the model. `path` is where the candidate was selected in the walk and labels the
 block, so a symlinked file is scoped to the directory it was found in; `canonicalPath` is
 the seen key. The
 template renders one `<file path="…">` block per file in directory order, base before local,
@@ -328,7 +331,10 @@ rule.
 
 - **v4 (2026-09-30, implementation sizing):** The single producer layer measured about 4,600
   authored lines, so D11 splits it into `loading`, `producer`, `turn-load`, and `owner-chip`.
-  No behavior changes.
+  The Migration Plan now states the rollout order (the carrier deploys before any producer
+  authors an item) and that rollback stops at the carrier, replacing the earlier claim that a
+  downgrade was harmless. D7 records the transition-compaction reset; D8 states that the
+  payload is the private metadata. No behavior changes.
 - **v3 (2026-09-29, review round 2):** Paging uses bounded one-based `:raw:<from>-<to>`
   selectors, since no open-ended form exists, and stops on an oversized line (D6). The
   in-Run system-read helper and the `instructions` origin are named as layer-2 work, since
