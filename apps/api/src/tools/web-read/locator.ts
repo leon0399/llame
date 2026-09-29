@@ -164,11 +164,12 @@ function encodedSuggestion(href: string, selector: string): string {
  * lines, not a path; encoding its colons requests a URL nobody serves.
  */
 const LINE_SELECTOR_ATTEMPT = /^\d+[-+]?$/u;
-const RANGE_ATTEMPT = /^(?:(raw|outline):)?[\d,+-]+$/u;
+// A digit is required: `:-` or `:,` names no line, so it is a literal colon.
+const RANGE_ATTEMPT = /^(?:(raw|outline):)?[\d,+-]*\d[\d,+-]*$/u;
 const RANGE_FORMS = {
   lines:
     'A line selector is :N, :N-M, or :N+K, or a comma-separated list of them, and a line number starts at 1.',
-  raw: 'A raw selector is :raw, or :raw: followed by N, N-M, or N+K ranges separated by commas, and a line number starts at 1.',
+  raw: 'A raw selector is :raw, or :raw: followed by N or N-M ranges separated by commas, and a line number starts at 1.',
   outline:
     'An outline takes at most one range, :outline:N, :outline:N-M, or :outline:N+K, and a line number starts at 1; read one outline per range.',
 } as const;

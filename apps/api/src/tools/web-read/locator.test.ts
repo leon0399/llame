@@ -300,10 +300,15 @@ describe('parseWebLocator', () => {
       message:
         'A line selector is :N, :N-M, or :N+K, and a line number starts at 1, so line 12 is :12. For a literal colon, write this locator as https://example.test/guide%3A12+',
     });
-    // A suffix that is a word still gets the encoding hint alone.
+    // A suffix that is a word, or names no line, still gets the encoding
+    // hint alone.
     expect(parseWebLocator('https://w.example/wiki/Special:Search')).toEqual({
       type: 'invalid_selector',
       message: 'Write this locator as https://w.example/wiki/Special%3ASearch',
+    });
+    expect(parseWebLocator('https://w.example/wiki/Special:-')).toEqual({
+      type: 'invalid_selector',
+      message: 'Write this locator as https://w.example/wiki/Special%3A-',
     });
   });
 
@@ -319,7 +324,7 @@ describe('parseWebLocator', () => {
     expect(parseWebLocator(`${page}:raw:12+`)).toEqual({
       type: 'invalid_selector',
       message:
-        'A raw selector is :raw, or :raw: followed by N, N-M, or N+K ranges separated by commas, and a line number starts at 1. For a literal colon, write this locator as https://example.test/guide%3Araw%3A12+',
+        'A raw selector is :raw, or :raw: followed by N or N-M ranges separated by commas, and a line number starts at 1. For a literal colon, write this locator as https://example.test/guide%3Araw%3A12+',
     });
     expect(parseWebLocator(`${page}:4-5,12+`)).toEqual({
       type: 'invalid_selector',

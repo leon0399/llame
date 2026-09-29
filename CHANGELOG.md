@@ -4,8 +4,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - A web `read` whose `:outline` or `:raw` member, or comma list, carries a
   range outside the grammar (for example `:outline:49,119`) now names the
-  forms that selector accepts before the literal-colon spelling, instead of
-  suggesting a percent-encoded URL that the site does not serve
+  forms that selector accepts, and offers the percent-encoded literal-colon
+  spelling only second, since that URL is usually one the site does not serve
   ([#1026](https://github.com/leon0399/llame/issues/1026)).
 
 # 2026-09-28
