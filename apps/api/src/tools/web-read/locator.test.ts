@@ -1,3 +1,5 @@
+import { isSelectorSuffix } from '@workspace/native-file-tools';
+
 import { canonicalHref, parseWebLocator } from './locator';
 
 describe('parseWebLocator', () => {
@@ -300,10 +302,58 @@ describe('parseWebLocator', () => {
       message:
         'A line selector is :N, :N-M, or :N+K, and a line number starts at 1, so line 12 is :12. For a literal colon, write this locator as https://example.test/guide%3A12+',
     });
-    // A suffix that is a word still gets the encoding hint alone.
+    // A suffix that is a word, or names no line, still gets the encoding
+    // hint alone.
     expect(parseWebLocator('https://w.example/wiki/Special:Search')).toEqual({
       type: 'invalid_selector',
       message: 'Write this locator as https://w.example/wiki/Special%3ASearch',
+    });
+    expect(parseWebLocator('https://w.example/wiki/Special:-')).toEqual({
+      type: 'invalid_selector',
+      message: 'Write this locator as https://w.example/wiki/Special%3A-',
+    });
+  });
+
+  it('names only range forms the shipped grammar accepts', () => {
+    // The refusal messages restate the grammar in prose; a grammar change
+    // must fail here rather than leave a hint that teaches a refused form.
+    const named = [
+      '5',
+      '5-9',
+      '5+3',
+      '1-2,4+1',
+      'raw:5',
+      'raw:5-9',
+      'raw:1-2,4-5',
+      'outline:5',
+      'outline:5-9',
+      'outline:5+3',
+    ];
+    const unnamed = ['raw:5+3', 'outline:1,3'];
+    expect(named.filter((selector) => !isSelectorSuffix(selector))).toEqual([]);
+    expect(unnamed.filter((selector) => isSelectorSuffix(selector))).toEqual(
+      [],
+    );
+  });
+
+  it('names the forms a raw, outline, or comma range attempt accepts', () => {
+    // Encoding these colons asks for a URL nobody serves: the model meant a
+    // range the grammar does not take, not a literal colon in the path.
+    const page = 'https://example.test/guide';
+    expect(parseWebLocator(`${page}:outline:49,119`)).toEqual({
+      type: 'invalid_selector',
+      message:
+        'An outline takes at most one range, :outline:N, :outline:N-M, or :outline:N+K, and a line number starts at 1; read one outline per range. For a literal colon, write this locator as https://example.test/guide%3Aoutline%3A49,119',
+    });
+    expect(parseWebLocator(`${page}:raw:12+`)).toEqual({
+      type: 'invalid_selector',
+      message:
+        'A raw selector is :raw, or :raw: followed by N or N-M ranges separated by commas, and a line number starts at 1. For a literal colon, write this locator as https://example.test/guide%3Araw%3A12+',
+    });
+    expect(parseWebLocator(`${page}:4-5,12+`)).toEqual({
+      type: 'invalid_selector',
+      message:
+        'A line selector is :N, :N-M, or :N+K, or a comma-separated list of them, and a line number starts at 1. For a literal colon, write this locator as https://example.test/guide%3A4-5,12+',
     });
   });
 
