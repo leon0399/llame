@@ -56,11 +56,6 @@ export interface ModelStepStart {
   readonly stepNumber: number;
 }
 
-export interface ModelStepOverride {
-  /** Replaces this step's messages; undefined means no change. */
-  readonly messages?: Array<ModelMessage>;
-}
-
 export interface ModelStreamInput {
   messages: Array<ModelMessage>;
   /**
@@ -106,13 +101,16 @@ export interface ModelStreamInput {
   /**
    * Fired at the beginning of every model step in a tool-calling stream.
    * Provider clients single-source this callback through `prepareStep`.
-   * The returned override may replace the step's messages (`undefined` means
-   * no change); the client merges it with its own step settings, such as the
-   * step cap's `activeTools`.
+   * A returned array REPLACES this step's messages, and `undefined` leaves
+   * them unchanged; the client merges that with its own step settings, such
+   * as the step cap's `activeTools`.
    */
   onStepStart?: (
     step: ModelStepStart,
-  ) => Promise<ModelStepOverride | undefined> | ModelStepOverride | undefined;
+  ) =>
+    | Promise<Array<ModelMessage> | undefined>
+    | Array<ModelMessage>
+    | undefined;
   /**
    * Fired at most once, the moment the client disables tools for the
    * following step because `maxSteps` tool-requesting steps have already

@@ -480,7 +480,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
         tools,
         maxSteps: 3,
         onStepStart: ({ messages, stepNumber }) =>
-          stepNumber === 1 ? { messages: [...messages, injected] } : undefined,
+          stepNumber === 1 ? [...messages, injected] : undefined,
       }).text,
     ).resolves.toBe('done');
 

@@ -246,8 +246,6 @@ describeWithDatabase(
         new MemoryService(tenantDb),
         new RecencyDigestService(tenantDb),
         undefined,
-        undefined,
-        [],
       );
       userId = crypto.randomUUID();
       await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'R', ${`rm-${userId}@t.com`})`;
@@ -511,51 +509,6 @@ describeWithDatabase(
       );
       expect(nonReasoningParts).not.toContain('ENCRYPTED_RESUMED');
       expect(nonReasoningParts).not.toContain('ENCRYPTED_EMPTY_SUMMARY');
-
-      await sql`DELETE FROM chats WHERE id = ${chatId}`;
-    });
-
-    it('a settled worker-restart run keeps its tool part and records no in-Run item', async () => {
-      const { chatId, interrupted } = await seedInterruptedTurn();
-
-      // The restarted worker settles the stranded run. No step ran in this
-      // process, so no in-Run item exists to publish — and a non-completed
-      // settlement must not invent one.
-      const settlement = await service.settleTerminalRun({
-        runId: interrupted.id,
-        userId,
-        status: 'expired',
-        runPayload: { status: 'expired', message: 'worker restarted' },
-        error: { message: 'worker restarted' },
-      });
-      expect(settlement.outcome).toBe('won');
-
-      const [messages, run] = await tenantDb.runAs(userId, async (tx) => {
-        return [
-          await new MessagesRepository(tx).findByChatId(chatId, userId),
-          await new RunsRepository(tx).findById(interrupted.id, userId),
-        ] as const;
-      });
-      const assistant = messages.find(
-        (message) => message.role === 'assistant',
-      );
-      const parts = assistant?.parts ?? [];
-      // The tool activity the dead worker durably recorded survives the
-      // settlement …
-      expect(parts).toContainEqual(
-        expect.objectContaining({
-          type: 'tool-search_conversations',
-          toolCallId: 'call-resumed-1',
-          state: 'output-available',
-        }),
-      );
-      // … while no in-Run item part or Run-record entry appears: the record
-      // keeps the pre-dispatch value it had before the restart (never
-      // written by this seed, so NULL).
-      expect(
-        parts.filter(isRecord).some((part) => part.type === 'data-context'),
-      ).toBe(false);
-      expect(run?.contextItems).toBeNull();
 
       await sql`DELETE FROM chats WHERE id = ${chatId}`;
     });

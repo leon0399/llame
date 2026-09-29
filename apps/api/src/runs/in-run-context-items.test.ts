@@ -17,6 +17,13 @@ function contextItem(text: string): AuthoredContextItemPart {
   };
 }
 
+/** The exact message shape `applyToStep` inserts for a staged item. */
+function insertedMessage(text: string): ModelMessage {
+  return { role: 'user', content: [{ type: 'text', text }] };
+}
+
+const HISTORY: ModelMessage = { role: 'user', content: 'read the file' };
+
 const TOOL_CALL: ModelMessage = {
   role: 'assistant',
   content: [
@@ -36,51 +43,50 @@ const TOOL_RESULT: ModelMessage = {
   ],
 };
 
-function stepMessages(): Array<ModelMessage> {
-  return [{ role: 'user', content: 'read the file' }, TOOL_CALL, TOOL_RESULT];
+/** One Run step's live messages: the history prefix plus a tool round trip. */
+function toolStep(): Array<ModelMessage> {
+  return [HISTORY, TOOL_CALL, TOOL_RESULT];
 }
 
 describe('createInRunContextItems', () => {
   it('applies nothing when nothing is staged', () => {
     const items = createInRunContextItems();
-    items.beginStep({ messages: stepMessages(), stepNumber: 0 });
+    items.beginStep([HISTORY]);
 
-    expect(items.applyToStep(stepMessages())).toBeUndefined();
+    expect(items.applyToStep(toolStep())).toBeUndefined();
   });
 
   it('inserts a staged item directly after its anchor tool result', () => {
     const following: ModelMessage = { role: 'assistant', content: 'noted' };
-    const messages = [...stepMessages(), following];
+    const messages: Array<ModelMessage> = [...toolStep(), following];
     const items = createInRunContextItems();
-    items.beginStep({ messages, stepNumber: 0 });
+    // The Run's first step sees chat history only: the boundary sits after it,
+    // and only a message past the boundary can anchor an item.
+    items.beginStep([HISTORY]);
+    items.beginStep(messages);
     items.stage(contextItem('project rule'));
 
     const applied = items.applyToStep(messages);
 
     expect(applied).toHaveLength(messages.length + 1);
-    expect(applied?.[3]).toEqual({
-      role: 'user',
-      content: [{ type: 'text', text: 'project rule' }],
-    });
+    expect(applied?.[3]).toEqual(insertedMessage('project rule'));
     // Every original message object is reused by reference in its order; only
     // the item message is new.
-    expect(applied?.[0]).toBe(messages[0]);
-    expect(applied?.[1]).toBe(messages[1]);
-    expect(applied?.[2]).toBe(messages[2]);
+    expect(applied?.[0]).toBe(HISTORY);
+    expect(applied?.[1]).toBe(TOOL_CALL);
+    expect(applied?.[2]).toBe(TOOL_RESULT);
     expect(applied?.[4]).toBe(following);
     // The input array and its messages are untouched.
     expect(messages).toHaveLength(4);
   });
 
   it('recomputes placement when the step messages already carry the item', () => {
-    const messages = stepMessages();
+    const messages = toolStep();
     const items = createInRunContextItems();
-    items.beginStep({ messages, stepNumber: 0 });
+    items.beginStep([HISTORY]);
+    items.beginStep(messages);
     items.stage(contextItem('project rule'));
-    const inserted = {
-      role: 'user',
-      content: [{ type: 'text', text: 'project rule' }],
-    } satisfies ModelMessage;
+    const inserted = insertedMessage('project rule');
 
     // Simulate a model client that retained the previous step's override.
     const retained = items.applyToStep([...messages, inserted]);
@@ -92,63 +98,56 @@ describe('createInRunContextItems', () => {
   });
 
   it('keeps emission order for items sharing one anchor', () => {
-    const messages = stepMessages();
+    const messages = toolStep();
     const items = createInRunContextItems();
-    items.beginStep({ messages, stepNumber: 0 });
+    items.beginStep([HISTORY]);
+    items.beginStep(messages);
     items.stage(contextItem('first'));
     items.stage(contextItem('second'));
 
     const applied = items.applyToStep(messages);
 
     expect(applied?.slice(-2)).toEqual([
-      { role: 'user', content: [{ type: 'text', text: 'first' }] },
-      { role: 'user', content: [{ type: 'text', text: 'second' }] },
+      insertedMessage('first'),
+      insertedMessage('second'),
     ]);
   });
 
   it('appends an item staged with no tool result to the end', () => {
     const messages: Array<ModelMessage> = [{ role: 'user', content: 'hello' }];
     const items = createInRunContextItems();
-    items.beginStep({ messages, stepNumber: 0 });
+    items.beginStep(messages);
     items.stage(contextItem('no anchor'));
 
     const applied = items.applyToStep(messages);
 
     expect(applied).toHaveLength(2);
-    expect(applied?.[1]).toEqual({
-      role: 'user',
-      content: [{ type: 'text', text: 'no anchor' }],
-    });
+    expect(applied?.[1]).toEqual(insertedMessage('no anchor'));
   });
 
   it('appends an item whose anchor tool message is absent from a later step', () => {
-    const anchorMessages = stepMessages();
     const items = createInRunContextItems();
-    items.beginStep({ messages: anchorMessages, stepNumber: 0 });
+    items.beginStep([HISTORY]);
+    items.beginStep(toolStep());
     items.stage(contextItem('project rule'));
 
     // A later step whose live messages no longer carry that tool result (e.g.
     // omitted by the replay budget) has nowhere to anchor.
-    const laterMessages: Array<ModelMessage> = [
-      { role: 'user', content: 'read the file' },
-    ];
+    const laterMessages: Array<ModelMessage> = [HISTORY];
     const applied = items.applyToStep(laterMessages);
 
     expect(applied).toHaveLength(2);
-    expect(applied?.[1]).toEqual({
-      role: 'user',
-      content: [{ type: 'text', text: 'project rule' }],
-    });
+    expect(applied?.[1]).toEqual(insertedMessage('project rule'));
   });
 
   it('binds each staged item to the latest beginStep', () => {
     const items = createInRunContextItems();
-    const firstStep = stepMessages();
-    items.beginStep({ messages: firstStep, stepNumber: 0 });
+    items.beginStep([HISTORY]);
+    items.beginStep(toolStep());
     items.stage(contextItem('after first'));
 
     const secondStep: Array<ModelMessage> = [
-      ...firstStep,
+      ...toolStep(),
       {
         role: 'assistant',
         content: [
@@ -172,25 +171,101 @@ describe('createInRunContextItems', () => {
         ],
       },
     ];
-    items.beginStep({ messages: secondStep, stepNumber: 1 });
+    items.beginStep(secondStep);
     items.stage(contextItem('after second'));
 
-    expect(
-      items.items().map((item) => [item.stepNumber, item.anchorToolCallId]),
-    ).toEqual([
-      [0, 'call-1'],
-      [1, 'call-2'],
-    ]);
-
     const applied = items.applyToStep(secondStep);
-    expect(applied?.[3]).toEqual({
-      role: 'user',
-      content: [{ type: 'text', text: 'after first' }],
-    });
-    expect(applied?.at(-1)).toEqual({
-      role: 'user',
-      content: [{ type: 'text', text: 'after second' }],
-    });
+
+    expect(applied?.[3]).toEqual(insertedMessage('after first'));
+    expect(applied?.at(-1)).toEqual(insertedMessage('after second'));
+  });
+
+  it('never anchors an item to a tool result from before the Run boundary', () => {
+    const history: Array<ModelMessage> = [
+      { role: 'user', content: 'old question' },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'call-old',
+            toolName: 'read',
+            input: {},
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-old',
+            toolName: 'read',
+            output: { type: 'text', value: 'old contents' },
+          },
+        ],
+      },
+      { role: 'assistant', content: 'earlier answer' },
+      { role: 'user', content: 'current question' },
+    ];
+    const items = createInRunContextItems();
+    items.beginStep(history);
+    items.stage(contextItem('project rule'));
+
+    const applied = items.applyToStep(history);
+
+    // A prior Run's tool result must not become this Run's anchor: the item
+    // lands after the last history message, not inside the earlier turn.
+    expect(applied).toHaveLength(history.length + 1);
+    expect(applied?.at(-1)).toEqual(insertedMessage('project rule'));
+    expect(applied?.[3]).toBe(history[3]);
+  });
+
+  it('removes its own earlier copy only past the Run boundary', () => {
+    const duplicated = 'project rule';
+    const history: Array<ModelMessage> = [
+      { role: 'user', content: [{ type: 'text', text: duplicated }] },
+    ];
+    const items = createInRunContextItems();
+    items.beginStep(history);
+    const step: Array<ModelMessage> = [
+      ...history,
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'call-2',
+            toolName: 'read',
+            input: {},
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-2',
+            toolName: 'read',
+            output: { type: 'text', value: 'more contents' },
+          },
+        ],
+      },
+    ];
+    items.beginStep(step);
+    items.stage(contextItem(duplicated));
+
+    const applied = items.applyToStep(step);
+
+    // A real history message that reads exactly like the item is chat content,
+    // not an earlier insertion: it survives by reference, and the item is
+    // inserted once, after the tool result it is anchored to.
+    expect(applied?.[0]).toBe(history[0]);
+    expect(applied?.at(-1)).toEqual(insertedMessage(duplicated));
+    expect(
+      applied?.filter((message) => isItemCopy(message, duplicated)),
+    ).toHaveLength(2);
   });
 
   it('throws when staging before beginStep', () => {
@@ -201,3 +276,12 @@ describe('createInRunContextItems', () => {
     );
   });
 });
+
+/** Whether `message` is exactly one text part equal to `text`. */
+function isItemCopy(message: ModelMessage, text: string): boolean {
+  if (message.role !== 'user' || !Array.isArray(message.content)) return false;
+  const [part] = message.content;
+  return (
+    message.content.length === 1 && part?.type === 'text' && part.text === text
+  );
+}

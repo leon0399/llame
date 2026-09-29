@@ -6,7 +6,6 @@ import {
   stepCountIs,
   streamText,
   tool,
-  type PrepareStepResult,
   type ToolSet,
 } from 'ai';
 
@@ -113,7 +112,10 @@ export function applyToolCallingOptions(
   // accumulated context in the SAME streamText() call, rather
   // than the run ending mid tool-call.
   streamOptions.prepareStep = async ({ messages, stepNumber, steps }) => {
-    const override = await input.onStepStart?.({ messages, stepNumber });
+    const messagesOverride = await input.onStepStart?.({
+      messages,
+      stepNumber,
+    });
     const priorToolSteps = steps.filter(
       (step) => step.toolCalls.length > 0,
     ).length;
@@ -121,10 +123,10 @@ export function applyToolCallingOptions(
     if (capReached) {
       input.onCapReached?.();
     }
-    const stepSettings: PrepareStepResult<ToolSet> = {};
-    if (override?.messages) stepSettings.messages = override.messages;
-    if (capReached) stepSettings.activeTools = [];
-    return stepSettings;
+    return {
+      ...(messagesOverride && { messages: messagesOverride }),
+      ...(capReached && { activeTools: [] }),
+    };
   };
   // A model can request a tool name it wasn't declared (gate
   // refusal / hallucination) or pass arguments its schema

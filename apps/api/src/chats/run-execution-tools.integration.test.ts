@@ -24,7 +24,6 @@ import {
   stepCountIs,
   streamText,
   type ModelMessage,
-  type PrepareStepResult,
   type StepResult,
   type ToolSet,
 } from 'ai';
@@ -215,11 +214,8 @@ function createMockModelClient(
               messages: stepMessages,
               stepNumber,
             });
-            if (retainStepOverride && override?.messages !== undefined) {
-              retained = {
-                messages: override.messages,
-                sdkLength: messages.length,
-              };
+            if (retainStepOverride && override !== undefined) {
+              retained = { messages: override, sdkLength: messages.length };
             }
             const priorToolSteps = steps.filter(
               (step) => step.toolCalls.length > 0,
@@ -228,10 +224,10 @@ function createMockModelClient(
             if (capReached) {
               input.onCapReached?.();
             }
-            const stepSettings: PrepareStepResult<ToolSet> = {};
-            if (override?.messages) stepSettings.messages = override.messages;
-            if (capReached) stepSettings.activeTools = [];
-            return stepSettings;
+            return {
+              ...(override && { messages: override }),
+              ...(capReached && { activeTools: [] }),
+            };
           },
           experimental_repairToolCall: ({
             toolCall,
@@ -544,7 +540,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     embedDispatch?: ChatEmbedDispatcher;
     dynamicToolResolver?: DynamicToolExecutorResolver;
     dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
-    inRunProducers?: ReadonlyArray<InRunContextProducer>;
+    inRunProducer?: InRunContextProducer;
   };
 
   function resolveServiceWithTools(
@@ -595,7 +591,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ]),
       snapshotCandidates: () => resolved.dynamicCandidates ?? [],
       dynamicToolResolver: resolved.dynamicToolResolver,
-      inRunProducers: resolved.inRunProducers ?? [],
+      inRunProducer: resolved.inRunProducer,
     };
   }
 
@@ -636,7 +632,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       new RecencyDigestService(tenantDb),
       resolved.dynamicToolResolver,
       undefined,
-      resolved.inRunProducers ?? [],
+      resolved.inRunProducer,
     );
   }
 
@@ -4909,7 +4905,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       async (retainStepOverride) => {
         const seeded = await seedBoundRun(`in-run-item-${crypto.randomUUID()}`);
         const service = serviceWithTools({
-          inRunProducers: [syntheticItemProducer()],
+          inRunProducer: syntheticItemProducer(),
         });
         let turn = 0;
         const model = new MockLanguageModelV3({
@@ -5018,7 +5014,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         `in-run-item-failed-${crypto.randomUUID()}`,
       );
       const service = serviceWithTools({
-        inRunProducers: [syntheticItemProducer()],
+        inRunProducer: syntheticItemProducer(),
       });
       let turn = 0;
       const model = new MockLanguageModelV3({

@@ -8,33 +8,26 @@
  * from scratch each time: remove any earlier copy, then insert after the
  * anchor tool result. The module is pure — it holds only the staged items,
  * never persistence state.
+ *
+ * The Run boundary is the first step's live messages: everything before it is
+ * the Chat's history, which no part of this carrier reads or rewrites.
  */
 
 import type { ModelMessage } from 'ai';
 
 import type { AuthoredContextItemPart } from '../chats/context-item';
 
-export interface StagedInRunContextItem {
-  readonly part: AuthoredContextItemPart;
-  /**
-   * toolCallId of the LAST tool-result in the step's live messages at
-   * beginStep; null when none (then the item goes at the end of the
-   * messages).
-   */
-  readonly anchorToolCallId: string | null;
-  readonly stepNumber: number;
-}
-
 export interface InRunContextItems {
-  beginStep(step: {
-    messages: ReadonlyArray<ModelMessage>;
-    stepNumber: number;
-  }): void;
+  /**
+   * The first call of an attempt records messages.length as the Run boundary:
+   * everything before it is chat history the carrier never touches.
+   */
+  beginStep(messages: ReadonlyArray<ModelMessage>): void;
   /**
    * Binds to the anchor of the latest beginStep; throws Error if beginStep
    * was never called. Emission order is preserved.
    */
-  stage(part: AuthoredContextItemPart): StagedInRunContextItem;
+  stage(part: AuthoredContextItemPart): void;
   /**
    * undefined when nothing is staged. Otherwise a NEW array: every staged
    * item appears exactly once as `{ role: 'user', content: [{ type: 'text',
@@ -44,155 +37,141 @@ export interface InRunContextItems {
    * when the anchor is null or absent. Any earlier copy — a user message
    * whose content is exactly one text part equal to part.data.text — is
    * removed first. Never mutates the input array or any message object in
-   * it.
+   * it, and never reads or rewrites chat history before the Run boundary.
    */
   applyToStep(
     messages: ReadonlyArray<ModelMessage>,
   ): Array<ModelMessage> | undefined;
-  items(): ReadonlyArray<StagedInRunContextItem>;
+  /** The staged parts in emission order. */
+  parts(): ReadonlyArray<AuthoredContextItemPart>;
+}
+
+/** One staged item: its part and the anchor of the step it was staged at. */
+interface StagedItem {
+  readonly part: AuthoredContextItemPart;
+  /**
+   * toolCallId of the LAST tool-result in the step's live messages at
+   * beginStep, searched in the Run region only; null when the region carried
+   * none (then the item goes at the end of the messages).
+   */
+  readonly anchorToolCallId: string | null;
 }
 
 /** The toolCallId of the last tool-result part of the last tool message. */
 function lastToolCallId(messages: ReadonlyArray<ModelMessage>): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message.role !== 'tool' || !Array.isArray(message.content)) {
-      continue;
-    }
-    for (let part = message.content.length - 1; part >= 0; part -= 1) {
-      const content = message.content[part];
-      if (content.type === 'tool-result') {
-        return content.toolCallId;
-      }
-    }
-    // The last tool message carries no tool-result (e.g. only approval
-    // responses): there is no anchor to bind to.
-    return null;
-  }
-  return null;
+  const toolMessage = messages.findLast((message) => message.role === 'tool');
+  if (toolMessage?.role !== 'tool') return null;
+  const result = toolMessage.content.findLast(
+    (part) => part.type === 'tool-result',
+  );
+  return result?.type === 'tool-result' ? result.toolCallId : null;
 }
 
-interface StagedInsertions {
-  /** Index in the base messages of the message each item follows. */
-  readonly afterMessage: Map<number, Array<ModelMessage>>;
-  /** Items whose anchor is null or absent from the base messages. */
-  readonly tail: Array<ModelMessage>;
+/** Whether `message` is an earlier insertion of one of the staged items. */
+function isStagedCopy(
+  message: ModelMessage,
+  texts: ReadonlySet<string>,
+): boolean {
+  if (message.role !== 'user' || !Array.isArray(message.content)) return false;
+  if (message.content.length !== 1) return false;
+  const part = message.content[0];
+  return part?.type === 'text' && texts.has(part.text);
 }
 
-function groupInsertions(
-  base: Array<ModelMessage>,
-  staged: ReadonlyArray<StagedInRunContextItem>,
-): StagedInsertions {
-  const afterMessage = new Map<number, Array<ModelMessage>>();
-  const tail: Array<ModelMessage> = [];
-  for (const item of staged) {
-    const inserted: ModelMessage = {
-      role: 'user',
-      content: [{ type: 'text', text: item.part.data.text }],
-    };
-    const anchor = item.anchorToolCallId;
-    const anchorIndex =
-      anchor === null
-        ? -1
-        : base.findIndex(
-            (message) =>
-              message.role === 'tool' &&
-              Array.isArray(message.content) &&
-              message.content.some(
-                (part) =>
-                  part.type === 'tool-result' && part.toolCallId === anchor,
-              ),
-          );
-    if (anchorIndex === -1) {
-      tail.push(inserted);
-      continue;
-    }
-    const bucket = afterMessage.get(anchorIndex);
-    if (bucket) {
-      bucket.push(inserted);
-    } else {
-      afterMessage.set(anchorIndex, [inserted]);
-    }
-  }
-  return { afterMessage, tail };
-}
-
-function spliceInsertions(
-  base: Array<ModelMessage>,
-  insertions: StagedInsertions,
+/**
+ * The staged items anchored to a tool-result inside `message`, in emission
+ * order, marking each placed item in `placed` so it is emitted only once.
+ */
+function itemsAnchoredTo(
+  message: ModelMessage,
+  staged: ReadonlyArray<StagedItem>,
+  placed: Set<StagedItem>,
 ): Array<ModelMessage> {
-  const result: Array<ModelMessage> = [];
-  for (let index = 0; index < base.length; index += 1) {
-    result.push(base[index]);
-    const bucket = insertions.afterMessage.get(index);
-    if (bucket) {
-      result.push(...bucket);
+  if (message.role !== 'tool') return [];
+  const toolCallIds = new Set(
+    message.content.flatMap((part) =>
+      part.type === 'tool-result' ? [part.toolCallId] : [],
+    ),
+  );
+  return staged.flatMap((item) => {
+    const anchor = item.anchorToolCallId;
+    if (anchor === null || placed.has(item) || !toolCallIds.has(anchor)) {
+      return [];
     }
-  }
-  result.push(...insertions.tail);
-  return result;
+    placed.add(item);
+    return [
+      { role: 'user', content: [{ type: 'text', text: item.part.data.text }] },
+    ];
+  });
 }
 
+/**
+ * Splice every staged item into a step's messages. Only the Run region —
+ * everything from the boundary on — is rebuilt; the history prefix is
+ * concatenated unchanged.
+ */
 function spliceStagedItems(
   messages: ReadonlyArray<ModelMessage>,
-  staged: ReadonlyArray<StagedInRunContextItem>,
+  runStart: number,
+  staged: ReadonlyArray<StagedItem>,
 ): Array<ModelMessage> {
   const texts = new Set(staged.map((item) => item.part.data.text));
-  const base = messages.filter((message) => {
-    // A prior insertion of a staged item: exactly one text part with its text.
-    if (message.role !== 'user' || !Array.isArray(message.content)) {
-      return true;
-    }
-    if (message.content.length !== 1) {
-      return true;
-    }
-    const part = message.content[0];
-    return part.type !== 'text' || !texts.has(part.text);
-  });
-  return spliceInsertions(base, groupInsertions(base, staged));
+  const region = messages
+    .slice(runStart)
+    .filter((message) => !isStagedCopy(message, texts));
+  const placed = new Set<StagedItem>();
+  const spliced = region.flatMap((message) => [
+    message,
+    ...itemsAnchoredTo(message, staged, placed),
+  ]);
+  const unplaced = staged.flatMap(
+    (item): Array<ModelMessage> =>
+      placed.has(item)
+        ? []
+        : [
+            {
+              role: 'user',
+              content: [{ type: 'text', text: item.part.data.text }],
+            },
+          ],
+  );
+  return [...messages.slice(0, runStart), ...spliced, ...unplaced];
 }
 
 export function createInRunContextItems(): InRunContextItems {
-  const staged: Array<StagedInRunContextItem> = [];
-  let current: { anchorToolCallId: string | null; stepNumber: number } | null =
-    null;
+  const staged: Array<StagedItem> = [];
+  let runStart: number | null = null;
+  let anchorToolCallId: string | null = null;
 
   return {
-    beginStep(step): void {
-      current = {
-        anchorToolCallId: lastToolCallId(step.messages),
-        stepNumber: step.stepNumber,
-      };
+    beginStep(messages): void {
+      runStart ??= messages.length;
+      anchorToolCallId = lastToolCallId(messages.slice(runStart));
     },
 
-    stage(part): StagedInRunContextItem {
-      if (current === null) {
+    stage(part): void {
+      if (runStart === null) {
         throw new Error(
           'Cannot stage an in-Run context item before beginStep().',
         );
       }
-      const item: StagedInRunContextItem = {
-        part,
-        anchorToolCallId: current.anchorToolCallId,
-        stepNumber: current.stepNumber,
-      };
-      staged.push(item);
-      return item;
+      staged.push({ part, anchorToolCallId });
     },
 
     applyToStep(messages): Array<ModelMessage> | undefined {
-      if (staged.length === 0) return undefined;
-      return spliceStagedItems(messages, staged);
+      const start = runStart;
+      if (start === null || staged.length === 0) return undefined;
+      return spliceStagedItems(messages, start, staged);
     },
 
-    items(): ReadonlyArray<StagedInRunContextItem> {
-      return [...staged];
+    parts(): ReadonlyArray<AuthoredContextItemPart> {
+      return staged.map((item) => item.part);
     },
   };
 }
 
 /** In-Run context producers registered with the Run executor. */
-export const IN_RUN_CONTEXT_PRODUCERS = Symbol('IN_RUN_CONTEXT_PRODUCERS');
+export const IN_RUN_CONTEXT_PRODUCER = Symbol('IN_RUN_CONTEXT_PRODUCER');
 
 /** Trusted identity of the attempt a producer authors items for. */
 export interface InRunAttempt {

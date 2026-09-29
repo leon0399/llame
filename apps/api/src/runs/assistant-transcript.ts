@@ -289,12 +289,15 @@ export function createAssistantPartCollector(): AssistantPartCollectorImpl {
 /**
  * Drop the rail parts a turn collected in-Run. A non-completed outcome
  * publishes what the user actually saw and nothing else: the attempt's staged
- * context items are the winning attempt's to publish (design D1).
+ * context items are the winning attempt's to publish (design D1). An absent
+ * turn stays absent; every other field is carried over unchanged.
  */
-export function withoutContextItems(
-  parts: ReadonlyArray<MessagePart>,
-): Array<MessagePart> {
-  return parts.filter((part) => !isContextItemPart(part));
+export function withoutContextItems<
+  T extends { readonly parts: ReadonlyArray<MessagePart> },
+>(turn: T | undefined): T | undefined {
+  return turn === undefined
+    ? undefined
+    : { ...turn, parts: turn.parts.filter((part) => !isContextItemPart(part)) };
 }
 
 export type ToolActivityPartInput = {

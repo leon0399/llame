@@ -125,11 +125,7 @@ function isReasoningPart(part: unknown): part is ReasoningPart {
  * replay emits it as a user-role message, unlike a metadata-only or empty one.
  */
 function hasModelContextText(part: MessagePart): boolean {
-  return (
-    isContextItemPart(part) &&
-    part.data.text !== undefined &&
-    part.data.text.length > 0
-  );
+  return isContextItemPart(part) && !!part.data.text;
 }
 
 /**
@@ -442,7 +438,7 @@ class AssistantHistoryEmitter {
    * belongs before it. An item without text contributes nothing.
    */
   appendContextItem(text: string | undefined): void {
-    if (text === undefined || text.length === 0) return;
+    if (!text) return;
     this.flushPendingText();
     this.flushPendingReasoning();
     this.result.push({ role: 'user', content: [{ type: 'text', text }] });
