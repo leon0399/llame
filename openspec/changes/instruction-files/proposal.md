@@ -19,7 +19,7 @@ gap is the first half of this change; the instruction-file producer is the secon
 
 - Add a rail mechanism for **in-Run context items**: an item authored between model steps
   of a Run is stored as a `data-context` part on that Run's assistant message immediately
-  after the tool part whose result triggered it, replayed as a user-role text message after
+  after the last tool part of the triggering step, replayed as a user-role text message after
   that tool result, re-supplied at the same position on every later step of the Run, published
   only with the winning attempt, and recorded in the Run's context-item record in step
   order. `context-injection` gains this as a second carrier beside the triggering user
@@ -33,9 +33,9 @@ gap is the first half of this change; the instruction-file producer is the secon
   by the first existing name in `LLAME.local.md`, `AGENTS.local.md`, `CLAUDE.local.md`.
   Selection replaces: a directory that adds `LLAME.md` stops contributing its `AGENTS.md`.
   Files are loaded once per compaction epoch per canonical path; a bundle carries only the
-  files not yet in effective context. One item per trigger carries every newly loaded file
+  files not yet in effective context. One item per model step carries every newly loaded file
   in directory order, broad to specific, base before local within a directory, each in a
-  `<file path="…">` block, plus one scope sentence (each file applies to work under its own
+  `<file path="…">` block labelled with the path where it was found, plus one scope sentence (each file applies to work under its own
   directory; a deeper file takes precedence over a broader one where they conflict), the
   rail precedence statement, and a per-file truncation line when a file exceeds 32 KiB.
   Empty files contribute nothing.
@@ -51,11 +51,13 @@ gap is the first half of this change; the instruction-file producer is the secon
   staged or emitted by the current attempt). Compaction does not carry in-Run items into
   replacement history, so a file absorbed by a compaction reloads on the next trigger. No
   Chat column, migration, or fork remap.
-- **Authorization and audit.** Candidate existence is probed on the executor without a
-  permission decision and reveals nothing. Each existing candidate is one system-origin
-  `read` admitted by the `read` permission group and audited like a model read with origin
-  `instructions`; a denied file is omitted from the bundle and never named to the model.
-  Loading therefore cannot expose more than the model could read itself.
+- **Authorization and audit.** Candidate existence and size are probed on the executor
+  without a permission decision or audit event; the probe reveals nothing to the model. Each
+  existing candidate is one or more paged system-origin `read`s admitted by the `read`
+  permission group and audited like a model read with origin `instructions`; a denied file is
+  omitted from the bundle and never named to the model. The model therefore receives nothing
+  it could not read itself; the owner additionally learns, through the chip and audit, that a
+  denied candidate exists.
 - **Owner disclosure.** The item's private metadata records loaded, truncated, and denied
   paths; the transcript shows a chip listing them; the Run context-item record copies the
   model-visible text only. Non-owners, shares, exports, and search projections see none of it.

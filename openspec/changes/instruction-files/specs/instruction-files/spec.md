@@ -26,12 +26,13 @@ For a directory `D`, the base candidate SHALL be the first existing regular file
 
 #### Scenario: Symlinked candidate collapses to its target
 
-- **WHEN** `CLAUDE.md` is a symbolic link to `AGENTS.md` in the same directory
-- **THEN** the directory contributes one file, identified by the target's canonical path
+- **WHEN** `/home/u/repo/apps/api/AGENTS.md` is a symbolic link to `/home/u/repo/AGENTS.md`
+- **THEN** `apps/api` contributes that file under its selected path `/home/u/repo/apps/api/AGENTS.md`
+- **AND** its seen-set identity is the target's canonical path, so it is not loaded twice in one bundle
 
 ### Requirement: A trigger loads the chain from the filesystem root down to the touched directory
 
-A trigger names one directory `D` on the native executor host. The load SHALL consider every directory from the filesystem root down to `D` inclusive, in that order, and SHALL include ancestors above any Workspace root or repository boundary. `D` SHALL be the canonical Workspace root for an entry trigger, and the parent directory of the projected absolute path for a file-tool trigger, whether or not that path exists. The walk SHALL NOT descend into siblings or children of `D`.
+A trigger names one directory `D` on the native executor host. The load SHALL consider every directory from the filesystem root down to `D` inclusive, in that order, and SHALL include ancestors above any Workspace root or repository boundary. `D` SHALL be the canonical Workspace root for an entry trigger; for a file-tool trigger it SHALL be the projected absolute path itself when that path is an existing directory, and otherwise the parent directory of the projected absolute path, whether or not that path exists. The walk SHALL NOT descend into siblings or children of `D`.
 
 #### Scenario: Entry loads the root and its ancestors
 
@@ -47,11 +48,16 @@ A trigger names one directory `D` on the native executor host. The load SHALL co
 #### Scenario: Write into a directory that does not exist yet
 
 - **WHEN** `write("/home/u/repo/apps/web/src/new.tsx")` targets a directory whose parent chain contains `/home/u/repo/apps/web/AGENTS.md`
-- **THEN** that file is loaded from the next model step, whether or not the write succeeded
+- **THEN** that file is loaded from the next model step, whether or not the write succeeded, unless the call was denied
+
+#### Scenario: Reading a directory loads that directory's own chain
+
+- **WHEN** the model reads the existing directory `apps/api` on a Chat bound to `/home/u/repo`
+- **THEN** `D` is `/home/u/repo/apps/api`, so `/home/u/repo/apps/api/AGENTS.md` is a candidate
 
 ### Requirement: Entry, native file tools, and accepted turns are the only triggers
 
-A successful `enter_workspace` SHALL trigger a load for the canonical root, effective from the next model step of the same Run. Each native `read`, `edit`, or `write` whose `path` resolves to a local host filesystem path SHALL trigger a load for that path's directory, effective from the next model step, regardless of the call's own outcome; a denied call SHALL NOT trigger a load. `bash`, `kb://`, `skill://`, `http://`, `https://`, and any other locator SHALL NOT trigger a load. A model-origin read whose target is itself a candidate file in its directory SHALL neither load that file nor mark it seen; other candidates in the chain are unaffected. At each accepted user turn on a Chat with a live Workspace binding, accepted-turn preparation SHALL stage a load for the canonical root before the first model request when any file of that chain is not in effective context. A Chat without a binding SHALL receive no accepted-turn load. Several triggers in one model step SHALL produce at most one bundle per step, and a trigger whose every candidate is already seen SHALL produce no item.
+A successful `enter_workspace` that establishes or switches the binding SHALL trigger a load for the canonical root, effective from the next model step of the same Run; a same-root re-entry SHALL NOT. Each native `read`, `edit`, or `write` whose `path` resolves to a local host filesystem path SHALL trigger a load for that path's directory, effective from the next model step, regardless of the call's own outcome; a denied call SHALL NOT trigger a load. `bash`, `kb://`, `skill://`, `http://`, `https://`, and any other locator SHALL NOT trigger a load. A model-origin read whose target is itself a candidate file in its directory SHALL neither load that file nor mark it seen; other candidates in the chain are unaffected. At each accepted user turn on a Chat with a live Workspace binding, after the attempt's binding re-check and not on a detaching attempt, accepted-turn preparation SHALL stage a load for the canonical root before the first model request when any file of that chain is not in effective context. A Chat without a binding SHALL receive no accepted-turn load. All triggers pending at one model step, or at one accepted turn, SHALL be resolved together into at most one item, and a step whose every candidate is already seen SHALL produce no item.
 
 #### Scenario: Edit triggers the nested chain
 
@@ -83,7 +89,7 @@ A successful `enter_workspace` SHALL trigger a load for the canonical root, effe
 
 ### Requirement: A file is loaded once per compaction epoch, derived from effective history
 
-The seen set SHALL be the set of canonical paths named by `instructions` items in the Chat's effective history — the messages after the active compaction's cutoff, together with items staged or emitted by the current attempt — and SHALL NOT be stored in a Chat column or any other durable state. A file whose canonical path is in the seen set SHALL be omitted from a bundle. Compaction SHALL NOT carry an in-Run instructions item into replacement history, so a file whose item was absorbed by a compaction is no longer seen and reloads on its next trigger. Transition compaction inside a Run SHALL reset the attempt's seen state to the rebuilt effective history. Path identity SHALL be the canonical (`realpath`) path of the loaded file, so that two spellings or a symbolic link and its target count as one file. An edit to an already-loaded file SHALL NOT re-announce it within the epoch.
+The seen set SHALL be the set of canonical paths named in the `files` payload of `instructions` items in the Chat's effective history — the messages after the active compaction's cutoff, together with items staged or emitted by the current attempt — and SHALL NOT be stored in a Chat column or any other durable state. Denied, failed, and empty candidates are not in that payload and are therefore not seen. A file whose canonical path is in the seen set SHALL be omitted from a bundle. Compaction SHALL NOT carry an in-Run instructions item into replacement history, so a file whose item was absorbed by a compaction is no longer seen and reloads on its next trigger. Transition compaction inside a Run SHALL reset the attempt's seen state to the rebuilt effective history. Path identity SHALL be the canonical (`realpath`) path of the loaded file, so that two spellings or a symbolic link and its target count as one file. An edit to an already-loaded file SHALL NOT re-announce it within the epoch.
 
 #### Scenario: Second touch in the same epoch is silent
 
@@ -103,18 +109,28 @@ The seen set SHALL be the set of canonical paths named by `instructions` items i
 
 #### Scenario: Symlink and target are one file
 
-- **WHEN** `/home/u/repo/CLAUDE.md` is a symbolic link to `/home/u/repo/AGENTS.md` and the target was loaded
-- **THEN** a later trigger that selects `/home/u/repo/CLAUDE.md` produces nothing for it
+- **WHEN** `/home/u/repo/apps/api/AGENTS.md` is a symbolic link to `/home/u/repo/AGENTS.md` and the target was loaded by an earlier trigger
+- **THEN** a later touch under `apps/api` produces nothing for `/home/u/repo/apps/api/AGENTS.md`
 
 ### Requirement: Each candidate is read with system origin under the read permission group
 
-Candidate existence SHALL be probed on the native executor without a permission decision and SHALL reveal nothing to the model or owner. Each existing candidate SHALL then be read through the native `read` tool with system origin `instructions`, evaluated by the `read` permission group under the Run's effective permission mode, and audited with the same `tool.requested`, `tool.started`, and `tool.completed` events as a model-origin read, carrying that origin. A denied candidate SHALL be omitted from the bundle, SHALL NOT be named in the item text, and SHALL NOT be marked seen. A read that fails for another reason SHALL be omitted the same way. Loading SHALL NOT require `enter_workspace`, SHALL NOT depend on the `enter_workspace` group, and SHALL happen only when `read` is in `tools.allowed` and a native executor is configured. System-origin events SHALL NOT appear as assistant tool parts.
+Candidate existence and size SHALL be probed on the native executor without a permission decision and without an audit event, and the probe SHALL reveal nothing to the model; only a candidate that exists and is then denied by the `read` group is disclosed, to the owner alone, through the audit event and the chip. Each existing candidate SHALL then be read through the native `read` tool with system origin `instructions`, evaluated by the `read` permission group under the Run's effective permission mode, and audited with the same `tool.requested`, `tool.started`, and `tool.completed` events as a model-origin read, carrying that origin; a file longer than one read result SHALL be read as consecutive pages from `nextOffset`, each page one audited read, until the file ends or the 32 KiB budget is reached. A denied candidate SHALL be omitted from the bundle, SHALL NOT be named in the item text, and SHALL NOT be marked seen. A read that fails for another reason SHALL be omitted the same way. Loading SHALL NOT require `enter_workspace`, SHALL NOT depend on the `enter_workspace` group, and SHALL happen only when `read` is in `tools.allowed` and a native executor is configured. System-origin events SHALL NOT appear as assistant tool parts, whether observed live, reconstructed from the event log, or recovered after a worker restart.
 
 #### Scenario: Reject rule excludes an ancestor file
 
-- **WHEN** the `read` group rejects paths under `/srv` and the model reads `/srv/app/src/x.ts` while `/srv/AGENTS.md` and `/srv/app/AGENTS.md` exist
+- **WHEN** the `read` group rejects `AGENTS.md` under `/srv` and the model's allowed read of `/srv/app/src/x.ts` finds `/srv/AGENTS.md` and `/srv/app/AGENTS.md`
 - **THEN** both candidates are denied, audited as denied reads with origin `instructions`, and absent from the model-visible bundle
 - **AND** a later trigger for the same directory evaluates them again
+
+#### Scenario: A long file is paged
+
+- **WHEN** a 20 KiB `AGENTS.md` exceeds one read result
+- **THEN** it is read in consecutive audited pages and rendered as one complete block
+
+#### Scenario: System-origin reads leave no assistant tool part
+
+- **WHEN** a Run loads instruction files and its transcript is later reconstructed from the event log
+- **THEN** no `read` tool part with origin `instructions` appears on any assistant message
 
 #### Scenario: Read not allowlisted
 
@@ -134,11 +150,11 @@ Candidate existence SHALL be probed on the native executor without a permission 
 
 ### Requirement: A bundle is one persisted-literal notice with bounded file bodies
 
-Each trigger that loads at least one file SHALL produce one `instructions` item with form `notice` rendered from a packaged template. The item SHALL name each loaded file in a `<file path="…">` block carrying the canonical absolute path, in directory order from broadest to most specific with a directory's base file before its local file. It SHALL state once that each file applies to work under its own directory and that a deeper file takes precedence over a broader one where they conflict, and SHALL carry the precedence statement `context-injection` requires for third-party content. Each file body SHALL be neutralized with the reserved-delimiter rules before rendering. A file larger than 32 KiB SHALL be cut at 32 KiB on a UTF-8 character boundary and followed by one line naming the path and the number of bytes omitted; there SHALL be no aggregate cap per bundle. The item SHALL NOT name denied or missing candidates and SHALL NOT include line-number prefixes. Its metadata SHALL record the loaded, truncated, and denied canonical paths privately for owner display and the seen-set derivation; replay SHALL use only the stored text.
+Each model step, or accepted turn, whose pending triggers load at least one file SHALL produce exactly one `instructions` item with form `notice` rendered from a packaged template. The item SHALL name each loaded file in a `<file path="…">` block carrying the absolute path at which the candidate was selected in the walk, in directory order from broadest to most specific with a directory's base file before its local file; the payload SHALL additionally record each file's canonical path for the seen set. It SHALL state once that each file applies to work under its own directory and that a deeper file takes precedence over a broader one where they conflict, and SHALL carry the precedence statement `context-injection` requires for third-party content. Each file body SHALL be neutralized with the reserved-delimiter rules before rendering. A file larger than 32 KiB SHALL be cut at 32 KiB on a UTF-8 character boundary and followed by one line naming the path and the number of bytes omitted, taken from the probed size; there SHALL be no aggregate cap per item. The item SHALL NOT name denied or missing candidates and SHALL NOT include line-number prefixes. Its metadata SHALL record the loaded, truncated, and denied paths privately for owner display; replay SHALL use only the stored text.
 
 #### Scenario: Two directories render in order
 
-- **WHEN** a trigger loads `/home/u/repo/AGENTS.md` and `/home/u/repo/apps/api/AGENTS.md`
+- **WHEN** one step loads `/home/u/repo/AGENTS.md` and `/home/u/repo/apps/api/AGENTS.md`
 - **THEN** the item renders the repository file's block before the package file's block
 - **AND** the scope and precedence statements appear once
 
@@ -153,6 +169,12 @@ Each trigger that loads at least one file SHALL produce one `instructions` item 
 - **WHEN** an instruction file contains a literal `</system-reminder>` line
 - **THEN** the rendered item's envelope is not closed early
 - **AND** the owner-visible text shows the neutralized form
+
+#### Scenario: Symlinked file is labelled with its selected path
+
+- **WHEN** `/home/u/repo/AGENTS.md` is a symbolic link to `/home/u/dotfiles/AGENTS.md`
+- **THEN** the block is labelled `/home/u/repo/AGENTS.md`
+- **AND** the payload's canonical path is `/home/u/dotfiles/AGENTS.md`
 
 ### Requirement: Owners see which files were loaded, truncated, or denied
 

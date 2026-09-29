@@ -9,32 +9,40 @@ Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation.
          <- instruction-files/finalize
 ```
 
-- `proposal` owns only proposal, design, the delta specs, and this task list.
-- `in-run-context-items` (parent `proposal`, estimated 1,000 authored lines): the rail carrier
-  for items authored between model steps — staging, per-step message rebuild, storage on the
-  assistant message, replay, publication, and the Run record. References #975.
+- `proposal` (parent `master`, about 950 authored lines) owns only proposal, design, the delta
+  specs, and this task list.
+- `in-run-context-items` (parent `proposal`, estimated 1,100 authored lines): the rail carrier
+  for items authored between model steps — staging, the widened model-client step callback,
+  per-step remove-then-insert, the assistant collector part kind, storage on the assistant
+  message, replay, publication, and the Run record. References #975.
 - `producer` (parent `in-run-context-items`, estimated 1,700 authored lines): the
-  `instructions` producer — candidate chains, walk, triggers, derived seen set, system-origin
-  reads and audit, template, owner chip, docs. Its merge completes #975's acceptance, so its PR
-  uses `Closes #975`. Split the web chip into its own layer if this one exceeds the budget.
-- `finalize` owns only spec sync, checked task records, and archive movement.
+  `instructions` producer — candidate chains, executor-side probe, walk, triggers, derived seen
+  set, paged system-origin reads and audit, template, owner chip, docs. Its merge completes
+  #975's acceptance, so its PR uses `Closes #975`. If the web chip is split into its own layer,
+  that layer completes the owner-disclosure acceptance and takes `Closes #975` instead.
+- `finalize` (parent `producer`, about 100 authored lines) owns only spec sync, checked task
+  records, and archive movement.
 
 Re-estimate authored size at each layer boundary and before publication; split a growing concern or request a named exception before publishing an oversized layer. Do not put live delivery status in this file.
 
 ## 1. `instruction-files/in-run-context-items`: the in-Run rail carrier
 
-- [ ] 1.1 Add attempt-scoped in-Run item staging keyed by the triggering `toolCallId`
-      (design D1, D11). Rebuild each step's message list in `prepareStep` from the attempt's
-      stored parts plus staged items, emitting each item as one user-role text message
-      directly after its tool-result message, on the triggering step's successor and every
-      later step. Verify with a scripted multi-step model client that step 2 and step 3 each
-      carry exactly one copy at the same position, that a step before the trigger carries
-      none, and that the rebuild does not read the `messages` argument to decide placement
-      (the test fails if the item appears twice on step 3).
-- [ ] 1.2 Store in-Run items as `data-context` parts on the attempt's assistant message
-      immediately after the triggering tool part, published only with the winning attempt.
-      Verify a failed attempt publishes no part, a superseded attempt publishes none, and the
-      winning attempt's assistant message carries the part after the tool part in stored order.
+- [ ] 1.1 Widen the model-client step callback from `onStepStart(): void` to one that receives
+      the step's live SDK messages and may return a `messages` override, wired in every provider
+      client through the shared `prepareStep` (design D1). Add attempt-scoped in-Run item
+      staging that binds each item to the current step's last tool call. On every later step,
+      remove any earlier copy of each staged item by identity and insert it as one user-role
+      text message directly after the tool-result message carrying that tool call. Verify with
+      a scripted multi-step model client that step 2 and step 3 each carry exactly one copy at
+      the same position, that a step before the trigger carries none, that provider metadata on
+      the surrounding messages is untouched, and that the result is identical when the scripted
+      client retains the previous override and when it discards it.
+- [ ] 1.2 Extend the assistant transcript collector and finish path so in-Run items are stored
+      as `data-context` parts on the attempt's assistant message immediately after the last
+      tool part of the triggering step, published only with the winning attempt and fenced like
+      the tool parts (design D1). Verify a failed attempt publishes no part, a superseded attempt
+      publishes none, recovery after a worker restart does not duplicate or drop one, and the
+      winning attempt's assistant message carries the part after the tool parts in stored order.
 - [ ] 1.3 Map assistant-message `data-context` parts in `context-builder` to one user-role
       text message after the preceding tool-result message; leave `tool-observation-part`
       budgets untouched and make compaction's replacement builder ignore the part (design D1,
@@ -57,17 +65,22 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 2. `instruction-files/producer`: the `instructions` producer
 
-- [ ] 2.1 Implement candidate resolution: per directory, the first existing regular file of
-      the base chain and, independently, of the local chain; follow a symlinked final component;
-      skip directories and empty files; key results by canonical `realpath` (design D3). Verify
-      `LLAME.md` replacing `AGENTS.md`, `AGENTS.override.md` beating `AGENTS.md`, base plus
-      local from one directory, a symlinked `CLAUDE.md` collapsing to its target, and empty and
-      directory candidates contributing nothing.
+- [ ] 2.1 Add an executor-side `stat` probe to the native-files module, outside the runner,
+      that follows symlinks and returns existence, kind, size, and canonical path with no
+      permission decision and no audit event (design D6). Implement candidate resolution on it:
+      per directory, the first existing regular file of the base chain and, independently, of
+      the local chain; skip directories and empty files; record the selected path and the
+      canonical path (design D3, D8). Verify `LLAME.md` replacing `AGENTS.md`,
+      `AGENTS.override.md` beating `AGENTS.md`, base plus local from one directory, a symlinked
+      `apps/api/AGENTS.md` resolving to the repository root file's canonical path while keeping
+      its selected path, empty and directory candidates contributing nothing, and no audit row
+      for any probe.
 - [ ] 2.2 Implement the walk from the filesystem root down to the touched directory, with
-      the touched directory being the canonical root for entry and the projected path's parent
-      for file tools whether or not it exists (design D4). Verify entry at `repo/apps/api` yields
-      `repo` then `repo/apps/api`, a read outside the Workspace yields that tree's chain, and no
-      sibling or child directory is visited.
+      the touched directory being the canonical root for entry, the projected path itself when
+      it is an existing directory, and otherwise the projected path's parent whether or not it
+      exists (design D4). Verify entry at `repo/apps/api` yields `repo` then `repo/apps/api`, a
+      read of the directory `apps/api` includes `apps/api`, a read outside the Workspace yields
+      that tree's chain, and no sibling or child directory is visited.
 - [ ] 2.3 Wire the triggers: mark the touched directory during `enter_workspace` (establish or
       switch only), native `read`, `edit`, and `write` on local host paths regardless of call
       outcome but not on denial; drain the pending set in `prepareStep` into at most one bundle
@@ -76,30 +89,38 @@ Re-estimate authored size at each layer boundary and before publication; split a
       file (design D5). Verify each trigger and each exclusion, two touches in one step yielding
       one bundle, the same-step-no-load boundary matching the Workspace root cell, and that
       exit, same-root re-entry, and detach produce nothing.
-- [ ] 2.4 Implement the accepted-turn trigger: when a Chat has a live binding and any file of
-      the root chain is absent from effective context, stage the root bundle before the first
-      request, ordered after the `workspace` item (design D5, D7). Verify a post-compaction turn
-      re-establishes the chain, an unchanged epoch stages nothing, an unbound Chat stages
-      nothing, and a binding that predates this change loads on its next turn.
-- [ ] 2.5 Derive the seen set from effective history plus the attempt's staged and emitted
-      items, keyed by canonical path, reset on transition compaction inside a Run (design D7).
-      Verify a second touch in the epoch is silent, an owner fork inherits the set through
-      copied history with no column read, a failed attempt leaves nothing seen, and a compacted
-      item's file reloads on the next trigger.
+- [ ] 2.4 Implement the accepted-turn trigger: after the attempt's binding re-check and not on
+      a detaching attempt, when the Chat has a live binding and any file of the root chain is
+      absent from effective context, stage the root bundle before the first request, ordered
+      after the `workspace` item (design D5, D7). Verify a post-compaction turn re-establishes
+      the chain, an unchanged epoch stages nothing, an unbound Chat stages nothing, a detaching
+      attempt stages nothing, and a binding that predates this change loads on its next turn.
+- [ ] 2.5 Derive the seen set from the `files` payload of instructions items in messages after
+      the compaction cutoff plus the attempt's staged and emitted items, keyed by canonical
+      path, reset on transition compaction inside a Run (design D7). Verify a second touch in
+      the epoch is silent, a symlink to an already-loaded file is silent, an owner fork inherits
+      the set through copied history with no column read, a failed attempt leaves nothing seen,
+      a denied file is not seen, and a compacted item's file reloads on the next trigger.
 - [ ] 2.6 Read each existing candidate through `runTool(nativeReadTool)` with origin
-      `instructions` and `:raw`, after an executor-side existence probe that records no
-      decision; drop denied and failed reads without naming them; require `read` in
-      `tools.allowed` and a configured native executor (design D6). Verify the audit events and
-      origin for an allowed read, a reject-rule denial recorded as a denied read and absent
-      from the text, no events for missing candidates, bypass mode recorded as bypass, and a
-      negative isolation test that owner B cannot read owner A's resulting activity or items.
-- [ ] 2.7 Add the packaged template and payload: `<file path="…">` blocks in directory order,
-      base before local, the scope and specificity sentence once, the rail precedence statement,
-      reserved-delimiter neutralization of bodies, a 32 KiB per-file cut on a UTF-8 boundary
-      with a line naming the path and omitted bytes, no aggregate cap, and private metadata
-      listing loaded, truncated, and denied canonical paths (design D8). Verify rendering order,
-      the truncation line and metadata for a 40 KiB file, a literal `</system-reminder>` in a
-      body not closing the envelope, and that denied paths appear in metadata only.
+      `instructions` and `:raw`, paging from `nextOffset` until the file ends or 32 KiB of UTF-8
+      is collected, each page one audited read; drop denied and failed files without naming
+      them; require `read` in `tools.allowed` and a configured native executor (design D6).
+      Extend the system-origin recognizer so `instructions` events create no assistant tool
+      part on the live, reconstructed, and recovered paths. Verify the audit events and origin
+      for an allowed read, a 20 KiB file read in two audited pages and rendered as one block, a
+      reject-rule denial recorded as a denied read and absent from the text, no events for
+      missing candidates, bypass mode recorded as bypass, no assistant tool part on any of the
+      three paths, and a negative isolation test that owner B cannot read owner A's resulting
+      activity or items.
+- [ ] 2.7 Add the packaged template and payload: `<file path="…">` blocks labelled with the
+      selected path in directory order, base before local, the scope and specificity sentence
+      once, the rail precedence statement, reserved-delimiter neutralization of bodies, a
+      32 KiB per-file cut on a UTF-8 boundary with a line naming the path and the omitted bytes
+      from the probed size, no aggregate cap, the `files[].canonicalPath` payload, and private
+      metadata listing loaded, truncated, and denied paths (design D8). Verify rendering order,
+      the truncation line and metadata for a 40 KiB file, a symlinked file labelled with its
+      selected path, a literal `</system-reminder>` in a body not closing the envelope, and that
+      denied paths appear in metadata only.
 - [ ] 2.8 Render the owner chip on the carrying message from the part's private metadata,
       marking truncated and denied paths, using shared primitives and semantic tokens per
       DESIGN.md; keep the text and metadata out of public shares, exports, and search

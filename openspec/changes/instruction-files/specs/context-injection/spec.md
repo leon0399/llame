@@ -8,7 +8,7 @@ A materialized compaction checkpoint SHALL remain a rail context item with produ
 
 The wire role SHALL remain `user`. A provider-level role for injected context SHALL NOT be invented, and items SHALL NOT be emitted as additional conversation messages of their own where a message already exists to carry them: items attached to a turn SHALL be carried inside that turn's triggering user message.
 
-An item authored **between the model steps of one Run** — an in-Run item — has no user message to carry it. It SHALL be stored as a `data-context` part on that Run's assistant message, immediately after the tool part whose result triggered it, and SHALL be supplied to the model as a user-role text message placed after that tool result on the step that follows the trigger and on every later step of the same Run at the same position. It SHALL use the same envelope, framing, and vocabulary as an attached item. In-Run items SHALL be staged in memory and published with the assistant message only when the attempt wins; a failed or superseded attempt SHALL publish none.
+An item authored **between the model steps of one Run** — an in-Run item — has no user message to carry it. It SHALL be stored as a `data-context` part on that Run's assistant message, immediately after the last tool part of the step whose results triggered it, and SHALL be supplied to the model as a user-role text message placed after that step's last tool result on the step that follows the trigger and on every later step of the same Run at the same position. Within a Run, that placement SHALL be computed from the step's live model messages by removing any earlier copy of the item and inserting it after the tool-result message that carries the matching tool call, so that the result is identical whether or not the model client retains an earlier step's message override. It SHALL use the same envelope, framing, and vocabulary as an attached item. In-Run items SHALL be staged in memory and published with the assistant message only when the attempt wins; a failed or superseded attempt SHALL publish none.
 
 Each item SHALL occupy its **own text content block** within that message rather than being concatenated with another item or with the user's text. The separation between server-authored content and user-authored content SHALL therefore be structural rather than a textual convention that user input can imitate.
 
@@ -47,7 +47,7 @@ Each item SHALL occupy its **own text content block** within that message rather
   `checkpoint`, while the stored record is not a `data-context` part and replays
   without metadata reconstruction
 
-Worker-attempt contributions intended for conversation history SHALL be staged in memory before target-model I/O and published in the triggering message only with successful turn completion. Failed or superseded attempts SHALL not publish those staged rail parts; the attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order.
+Worker-attempt contributions intended for conversation history SHALL be staged in memory before the model request that first carries them and published only with successful turn completion: turn-attached items in the triggering message, in-Run items on the Run's assistant message. Failed or superseded attempts SHALL not publish those staged rail parts; the attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order.
 
 ### Requirement: Co-occurring items have a total author-time order
 
@@ -176,7 +176,8 @@ returns to the provider for the Chat that stores them, and map each surviving
 ordinary SDK text part containing `data.text`. A `data-context` part stored on an
 assistant message SHALL be mapped to one user-role message containing one text
 part with `data.text`, emitted directly after the tool-result message of the
-tool part that precedes it in stored order; it SHALL NOT be merged into the
+tool part that precedes it in stored order, or in its stored position when that
+tool pair was omitted by the replay budget; it SHALL NOT be merged into the
 assistant message's own content or into the tool-result message. It SHALL then pass the ordered
 parts to the AI SDK rather than manually constructing a joined transcript.
 

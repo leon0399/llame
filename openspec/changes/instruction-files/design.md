@@ -23,7 +23,7 @@ Tool results are `tool-${name}` parts on the assistant message
 (`apps/api/src/runs/assistant-transcript.ts:39-87`), replayed as assistant tool-call and
 tool tool-result pairs under `TOOL_REPLAY_CALL_LIMIT = 8000` and
 `TOOL_REPLAY_TURN_LIMIT = 32000` UTF-16 units, payloads cleared first
-(`apps/api/src/chats/tool-observation-part.ts:25-28,284-369`). Effective history is the
+(`apps/api/src/chats/tool-observation-part.ts:31-32,302-369`). Effective history is the
 active compaction's replacement history plus messages after `uptoSeq`
 (`apps/api/src/chats/context-builder.ts:533-565`); replacement records are text or
 payload-cleared tool records only (`:296-307`). Told state for the digest, the skill
@@ -81,19 +81,28 @@ precedence over broader ones", which no shipped harness states for path applicab
 ### D1: In-Run items are stored on the assistant message and re-spliced on every step
 
 **Decision:** An in-Run item is a `data-context` part appended to the attempt's assistant
-message immediately after the tool part whose result triggered it. `prepareStep` rebuilds
-that step's message list from one source, the attempt's stored parts plus staged in-Run
-items, emitting each item as a user-role text message directly after its tool-result
-message. The same rebuild runs on every step. Publication stores the parts with the
-assistant message when the attempt wins; the Run context-item record appends in-Run items
-after the final request's items in step order.
+message immediately after the last tool part of the step whose results triggered it. On each
+later step, `prepareStep` takes the step's live SDK messages — the SDK's own initial plus
+response messages, with their provider metadata (Responses `item_reference`s, encrypted
+reasoning ids, thinking signatures) intact — removes any earlier copy of each staged item by
+identity, and inserts each item as a user-role text message directly after the tool-result
+message that carries its triggering tool call. The result is the same whether the SDK
+retained an earlier override or not. The stored parts are not re-projected mid-Run: the
+replay projection with its pair budgets runs only when a later Run assembles history.
+Publication stores the parts with the assistant message when the attempt wins; the Run
+context-item record appends in-Run items after the final request's items in step order.
+
+**Model-client seam:** today `ModelStreamInput.onStepStart` is `() => void`
+(`apps/api/src/models/model-client.ts:90-93`) and the shared `prepareStep` returns only
+`activeTools` (`apps/api/src/models/openai-model-client.ts:114-123`). Layer 1 widens that
+callback to `(step: { messages }) => { messages? } | void` and wires it in every provider
+client, so the override is single-sourced like the step cap.
 
 **Why re-splice:** `ai@6.0.256` computes `stepInputMessages = [...initialMessages,
-...responseMessages]` on every step (`ai/dist/index.mjs:7723`); a `prepareStep` messages
-override is used for that step only. The current AI SDK documentation describes a newer
-behavior where the override persists as the base of later steps. The rebuild must therefore
-derive the step's messages idempotently from the attempt's own state, never by appending to
-the `messages` argument, so an upgrade cannot double-insert.
+...responseMessages]` on every step (`ai/dist/index.mjs:7723`) and honours a returned
+`messages` override for that step only (`:7741`). The current AI SDK documentation describes
+a newer behavior where the override persists as the base of later steps. Remove-then-insert
+by identity is idempotent under both, so an upgrade cannot double-insert.
 
 **Alternatives rejected:**
 
@@ -104,9 +113,14 @@ the `messages` argument, so an upgrade cannot double-insert.
   UI, forks, search projection, and compaction all assume.
 - Deferring nested loads to the next accepted turn. The model edits the file in this Run.
 
-**Consequence:** `context-builder` gains one mapping for assistant-message `data-context`
-parts; `tool-observation-part` is untouched, because the item is not a tool pair.
-Compaction's replacement builder ignores the part.
+**Consequence:** `assistant-transcript`'s collector gains the part kind, so the finish path
+persists it with the tool parts (`apps/api/src/runs/assistant-transcript.ts:122-260`,
+`run-execution.service.ts:2404-2409`); `context-builder` gains one mapping for
+assistant-message `data-context` parts (today `appendAssistantMessage` drops unknown parts,
+`context-builder.ts:587-609`); `tool-observation-part` is untouched, because the item is
+not a tool pair, and `buildCompactionToolReplacementRecords` already ignores non-tool parts
+(`tool-observation-part.ts:520-589`). `messages.parts` is untyped JSONB with no part-type
+validation (`apps/api/src/db/schema/chats.ts:234`), so no schema change.
 
 ### D2: Transport verified by a live spike on every reachable wire
 
@@ -170,21 +184,34 @@ The Workspace root cell already defers a binding change to the next step
 (`apps/api/src/tools/workspace-path.ts:10-33`); the pending set follows the same step
 boundary, so entry's own step never loads.
 
-### D6: Existence probe without a decision, then one audited system-origin read per file
+### D6: Existence probe without a decision, then audited system-origin reads per file
 
 Probing nine names per directory through the permission evaluator would write dozens of
-`not_found` audit rows per trigger. Existence is checked on the executor without a decision
-and reveals nothing. Each existing candidate is then read through `runTool(nativeReadTool)`
-with origin `instructions`, so the `read` group, bypass mode, timeout, and identity checks
-apply and `tool.requested`/`started`/`completed` are recorded like skill activation. A
-denied or failed read is dropped and not marked seen. The raw read (`:raw`) is used so no
-line-number prefixes enter the bundle, as skill activation does.
+`not_found` audit rows per trigger. The runner has no probe today: every read passes
+`admitToolCall` and `evaluateToolPermission` before execution
+(`apps/api/src/tools/runner.ts:247-270`). Layer 2 adds one executor-side `stat` (following
+symlinks, returning existence, kind, size, and canonical path) to the native-files module,
+outside the runner, with no decision and no audit row; it reveals nothing to the model, and
+the owner learns only of a candidate that exists and is then denied. Each existing candidate
+is then read through `runTool(nativeReadTool)` with origin `instructions`, so the `read`
+group, bypass mode, timeout, and identity checks apply and
+`tool.requested`/`started`/`completed` are recorded, as skill activation does
+(`apps/api/src/skills/skill-activation.ts:279-282`). One read result is capped at 16,000
+UTF-16 units and 2,000 lines (`packages/runtime-safety/src/result-truncation.ts:12`,
+`packages/native-file-tools/src/source-lines.ts:5-6`), below the 32 KiB budget, so a longer
+file is read as consecutive `:raw` pages from `nextOffset`, each an audited read, until the
+file ends or 32 KiB of UTF-8 has been collected; the omitted byte count comes from the
+probed size. A denied or failed page drops the whole file, unmarked. `:raw` keeps
+line-number prefixes out of the bundle, as skill activation does.
 
 ### D7: The seen set is a derivation over effective history
 
-`seen(attempt) = paths(instructions items in replacement-history-tail and messages after
-uptoSeq) ∪ paths(items staged for this attempt) ∪ paths(in-Run items emitted this
-attempt)`. Keys are canonical `realpath` values recorded in the item's private metadata.
+`seen(attempt) = paths(instructions items in messages after uptoSeq) ∪ paths(items staged
+for this attempt) ∪ paths(in-Run items emitted this attempt)`. Replacement history
+contributes nothing: its records are the checkpoint text and payload-cleared tool records only
+(`apps/api/src/chats/compaction-replacement-history.ts:109-128`), so an absorbed item is gone
+by construction. Keys are the canonical `realpath` values recorded in each item's `files`
+payload; denied and empty candidates are not in that payload and so are not seen.
 
 **Why not a column:** every disclosure this producer makes is in `messages.parts`, so the
 history is a complete record; a column would duplicate it and need fork remapping
@@ -198,9 +225,12 @@ in-Run items, so an absorbed file reloads on the next trigger; the root chain re
 next accepted turn through D5. An edit to a loaded file is not re-announced within the
 epoch; a content digest is the upgrade path if that matters.
 
-### D8: One item per trigger, path-labelled file blocks, scope sentence
+### D8: One item per step, path-labelled file blocks, scope sentence
 
-Payload: `{ files: [{ path, truncated }] }`; private metadata adds `denied: [path]`. The
+Payload: `{ files: [{ path, canonicalPath, truncated }] }`; private metadata adds
+`denied: [path]`. `path` is where the candidate was selected in the walk and labels the
+block, so a symlinked file is scoped to the directory it was found in; `canonicalPath` is
+the seen key. The
 template renders one `<file path="…">` block per file in directory order, base before local,
 one sentence stating scope and specificity precedence, and the rail precedence statement.
 Bodies are neutralized with the reserved-delimiter rules. Per-file cap 32 KiB, cut on a UTF-8
@@ -228,19 +258,22 @@ skills.
 ### D11: Layer ownership and interfaces
 
 - `instruction-files/in-run-context-items`: the rail carrier. Interface: an attempt-scoped
-  `stageInRunItem(afterToolCallId, item)` used by producers, the `prepareStep` rebuild, the
+  `stageInRunItem(item)` that binds the item to the current step's last tool call, the
+  widened `onStepStart` model-client callback returning a `messages` override, the
+  `prepareStep` remove-then-insert, the assistant collector part kind, the
   `context-builder` mapping for assistant-message `data-context` parts, publication, and the
   Run record. Ships with an integration test that injects a synthetic item and asserts the
-  step-2 and step-3 request shapes through the scripted model client.
+  step-2 and step-3 request shapes through the scripted model client, under both a retained
+  and a discarded override.
 - `instruction-files/producer`: candidate resolution, walk, triggers, seen-set derivation,
   system-origin reads and audit, template, chip, docs. Consumes the interface above and
   `runTool(nativeReadTool)`.
 
 ## Risks / Trade-offs
 
-- [A future `ai` upgrade persists the `prepareStep` override] → the rebuild derives each
-  step from attempt state rather than the `messages` argument; a regression test asserts a
-  single copy of the item on step 3.
+- [A future `ai` upgrade persists the `prepareStep` override] → placement is
+  remove-then-insert by identity over the live step messages; a regression test asserts a
+  single copy of the item on step 3 under both a retained and a discarded override.
 - [A wire rejects a user message after a tool result] → not observed on any reachable wire;
   fallback is text in the tool-result content outside the pair budget, same stored shape.
 - [Instruction files from cloned repositories carry prompt injection with more authority than
@@ -252,6 +285,9 @@ skills.
   a pathological monorepo is visible in the chip and the Run record.
 - [Symlink and path spelling duplicates] → canonical `realpath` keys; Claude Code's #94463
   and #87824 are the failure this avoids.
+- [Denied or empty root-chain files re-probe on every accepted turn] → one stat and, for a
+  denied file, one audited denied read per turn; visible in the owner's activity feed, bounded
+  by the chain length. Acceptable until a real deployment shows otherwise.
 
 ## Migration Plan
 
@@ -265,3 +301,16 @@ documented display-only behavior, so no data repair is needed.
 None that change the specs or layering. The template wording of the scope sentence may be
 revised against model behavior without a spec change, per the rail's producer-owned framing
 rule.
+
+## Revision history
+
+- **v2 (2026-09-29, review round 1):** Native read results cap at 16,000 UTF-16 units, so
+  files are read as paged audited `:raw` reads up to 32 KiB (D6). In-Run placement is
+  remove-then-insert over the live SDK messages, not a re-projection of stored parts, and the
+  model-client step callback is widened to return a `messages` override (D1, D11). Executor-side
+  `stat` probe named as new work; seen set derived from `files` payload only, replacement
+  history contributes nothing (D6, D7). Bundles are one per step; blocks labelled with the
+  selected path with `canonicalPath` in the payload (D8). Same-root re-entry excluded; directory
+  reads use the directory itself; accepted-turn load ordered after the binding re-check;
+  denied-candidate owner disclosure stated; replay-limit citation corrected.
+- **v1 (2026-09-29):** Initial draft.
