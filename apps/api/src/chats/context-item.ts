@@ -49,6 +49,10 @@ export const CONTEXT_ITEM_PRODUCERS = [
   'effective-context-change',
   'tool-availability',
   'workspace',
+  // The instructions bundle describes the paths the model is about to work
+  // under, so it follows the snapshot that names those paths and precedes the
+  // notices that read like content.
+  'instructions',
   // The catalog notice precedes the activations it may prompt (D6), and both
   // precede the digest so a turn's new context reads before its history.
   'skill-catalog',
@@ -245,7 +249,12 @@ export const CONTEXT_ITEM_TAG = 'system-reminder';
 export const CONTEXT_ITEM_PROVENANCE =
   'Inserted by llame; not written by the user.';
 
-function escapeXmlAttribute(value: string): string {
+/**
+ * Escapes a value for a double-quoted XML attribute. Exported so a producer
+ * whose body carries attributes of its own (the `instructions` producer's
+ * `<file path="…">` blocks) escapes them exactly as the envelope does.
+ */
+export function escapeXmlAttribute(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')

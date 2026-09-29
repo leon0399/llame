@@ -84,7 +84,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 2. `instruction-files/loading`: probe, chains, walk, reader, and template
 
-- [ ] 2.1 Add an executor-side `stat` probe to the native-files module, outside the runner,
+- [x] 2.1 Add an executor-side `stat` probe to the native-files module, outside the runner,
       that follows symlinks and returns existence, kind, size, and canonical path with no
       permission decision and no audit event (design D6). Implement candidate resolution on it:
       per directory, the first existing regular file of the base chain and, independently, of
@@ -96,13 +96,13 @@ Re-estimate authored size at each layer boundary and before publication; split a
       its selected path, an empty placeholder suppressing later names, a directory candidate
       skipped, and no audit row
       for any probe.
-- [ ] 2.2 Implement the walk from the filesystem root down to the touched directory, with
+- [x] 2.2 Implement the walk from the filesystem root down to the touched directory, with
       the touched directory being the canonical root for entry, the projected path itself when
       it is an existing directory, and otherwise the projected path's parent whether or not it
       exists (design D4). Verify entry at `repo/apps/api` yields `repo` then `repo/apps/api`, a
       read of the directory `apps/api` includes `apps/api`, a read outside the Workspace yields
       that tree's chain, and no sibling or child directory is visited.
-- [ ] 2.3 Add the paged candidate reader over an injected page reader: bounded
+- [x] 2.3 Add the paged candidate reader over an injected page reader: bounded
       `:raw:<from>-<to>` pages of at most 2,000 lines, each starting after the last complete line
       collected, until the file ends, 32 KiB of UTF-8 is collected, or a page returns no new
       line; a continuation page past the end of the file ends collection, a denial on any page is
@@ -110,7 +110,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       a 40 KiB file cut at 32 KiB on a UTF-8 boundary with the omitted count from the probed
       size, a file whose third line exceeds a result cut after two lines, a reject rule denied,
       and a missing file failed.
-- [ ] 2.4 Add the packaged template and payload: `<file path="…">` blocks labelled with the
+- [x] 2.4 Add the packaged template and payload: `<file path="…">` blocks labelled with the
       selected path in directory order, base before local, the scope and specificity sentence
       once, the rail precedence statement, reserved-delimiter neutralization of bodies, a
       32 KiB per-file cut on a UTF-8 boundary with a line naming the path and the omitted bytes
@@ -119,7 +119,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       the truncation line and metadata for a 40 KiB file, a symlinked file labelled with its
       selected path, a literal `</system-reminder>` in a body not closing the envelope, and that
       denied paths appear in metadata only.
-- [ ] 2.5 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused
+- [x] 2.5 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused
       integration files touched above, `pnpm format:check`, `git diff --check`, and
       `pnpm exec openspec validate instruction-files --strict`; record the commands in the PR
       body.
