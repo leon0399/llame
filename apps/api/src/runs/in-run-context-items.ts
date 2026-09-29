@@ -33,8 +33,9 @@ export interface InRunContextItems {
    * item appears exactly once as `{ role: 'user', content: [{ type: 'text',
    * text: part.data.text }] }`, directly after the `role: 'tool'` message
    * whose content carries `tool-result` with its anchor toolCallId (items
-   * sharing an anchor follow each other in emission order), or at the end
-   * when the anchor is null or absent. Any earlier copy — a user message
+   * sharing an anchor follow each other in emission order); at the Run
+   * boundary when the anchor is null; at the end when the anchor is absent from
+   * the step. Any earlier copy — a user message
    * whose content is exactly one text part equal to part.data.text — is
    * removed first. Never mutates the input array or any message object in
    * it, and never reads or rewrites chat history before the Run boundary.
@@ -52,7 +53,7 @@ interface StagedItem {
   /**
    * toolCallId of the LAST tool-result in the step's live messages at
    * beginStep, searched in the Run region only; null when the region carried
-   * none (then the item goes at the end of the messages).
+   * none (then the item goes at the Run boundary).
    */
   readonly anchorToolCallId: string | null;
 }
@@ -124,18 +125,20 @@ function spliceStagedItems(
     message,
     ...itemsAnchoredTo(message, staged, placed),
   ]);
-  const unplaced = staged.flatMap(
-    (item): Array<ModelMessage> =>
-      placed.has(item)
-        ? []
-        : [
-            {
-              role: 'user',
-              content: [{ type: 'text', text: item.part.data.text }],
-            },
-          ],
-  );
-  return [...messages.slice(0, runStart), ...spliced, ...unplaced];
+  // Staged before any Run tool result: the item belongs at the Run boundary,
+  // which is where the transcript stores it and where replay puts it. An item
+  // whose anchor is set but absent from this step goes last.
+  const leading: Array<ModelMessage> = [];
+  const unplaced: Array<ModelMessage> = [];
+  for (const item of staged) {
+    if (placed.has(item)) continue;
+    const target = item.anchorToolCallId === null ? leading : unplaced;
+    target.push({
+      role: 'user',
+      content: [{ type: 'text', text: item.part.data.text }],
+    });
+  }
+  return [...messages.slice(0, runStart), ...leading, ...spliced, ...unplaced];
 }
 
 export function createInRunContextItems(): InRunContextItems {

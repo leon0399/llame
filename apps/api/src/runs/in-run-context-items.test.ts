@@ -113,16 +113,23 @@ describe('createInRunContextItems', () => {
     ]);
   });
 
-  it('appends an item staged with no tool result to the end', () => {
-    const messages: Array<ModelMessage> = [{ role: 'user', content: 'hello' }];
+  it('keeps an item staged before any tool result at the Run boundary', () => {
     const items = createInRunContextItems();
-    items.beginStep(messages);
+    items.beginStep([HISTORY]);
     items.stage(contextItem('no anchor'));
 
-    const applied = items.applyToStep(messages);
-
-    expect(applied).toHaveLength(2);
-    expect(applied?.[1]).toEqual(insertedMessage('no anchor'));
+    expect(items.applyToStep([HISTORY])).toEqual([
+      HISTORY,
+      insertedMessage('no anchor'),
+    ]);
+    // A later step keeps it directly after the history prefix, where the
+    // transcript stores it, instead of moving it behind each new tool result.
+    expect(items.applyToStep(toolStep())).toEqual([
+      HISTORY,
+      insertedMessage('no anchor'),
+      TOOL_CALL,
+      TOOL_RESULT,
+    ]);
   });
 
   it('appends an item whose anchor tool message is absent from a later step', () => {
