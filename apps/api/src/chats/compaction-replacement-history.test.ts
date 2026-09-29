@@ -19,6 +19,17 @@ const toolPart = {
   outcome: 'success',
 };
 
+const contextPart = {
+  type: 'data-context' as const,
+  data: {
+    v: 1 as const,
+    producer: 'instructions',
+    runId: '11111111-1111-4111-8111-111111111111',
+    payload: {},
+    text: 'in-Run item',
+  },
+};
+
 const userMessage = {
   role: 'user' as const,
   parts: [{ type: 'text' as const, text: 'checkpoint' }],
@@ -97,6 +108,7 @@ describe('compaction replacement history', () => {
         userMessage,
         { role: 'assistant', parts: [{ type: 'text', text: 'arbitrary' }] },
       ],
+      [userMessage, { role: 'assistant', parts: [contextPart] }],
       [
         userMessage,
         { role: 'assistant', parts: [omission(2)] },

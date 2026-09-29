@@ -22,6 +22,10 @@ import { type ProviderMetadata } from 'ai';
 import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
 import {
+  isContextItemPart,
+  type AuthoredContextItemPart,
+} from '../chats/context-item';
+import {
   isHopRejection,
   normalizeToolObservationOutcome,
 } from '../chats/tool-observation-part';
@@ -257,6 +261,16 @@ class AssistantPartCollectorImpl {
     this.collected.push(part);
   }
 
+  /**
+   * An in-Run context item (design D1): appended where the transcript had
+   * reached when the producing step's results settled, so a completed turn
+   * stores it after that step's last tool part. Only a completed winning
+   * attempt publishes it — `withoutContextItems` fences every other outcome.
+   */
+  contextItem(part: AuthoredContextItemPart): void {
+    this.collected.push(part);
+  }
+
   parts(): Array<MessagePart> {
     return this.collected.filter(
       // Only settled tool parts are a durable history representation. A
@@ -270,6 +284,17 @@ class AssistantPartCollectorImpl {
 /** Builds the stored assistant transcript in the exact order llame observed it. */
 export function createAssistantPartCollector(): AssistantPartCollectorImpl {
   return new AssistantPartCollectorImpl();
+}
+
+/**
+ * Drop the rail parts a turn collected in-Run. A non-completed outcome
+ * publishes what the user actually saw and nothing else: the attempt's staged
+ * context items are the winning attempt's to publish (design D1).
+ */
+export function withoutContextItems(
+  parts: ReadonlyArray<MessagePart>,
+): Array<MessagePart> {
+  return parts.filter((part) => !isContextItemPart(part));
 }
 
 export type ToolActivityPartInput = {

@@ -6,7 +6,9 @@ import {
   NoSuchToolError,
   stepCountIs,
   streamText,
+  type ModelMessage,
   type StepResult,
+  type PrepareStepResult,
   type ToolSet,
 } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
@@ -235,15 +237,29 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
         ...(input.tools && {
           tools: input.tools,
           stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
-          prepareStep: ({ steps }: { steps: Array<StepResult<ToolSet>> }) => {
+          prepareStep: async ({
+            steps,
+            stepNumber,
+            messages,
+          }: {
+            steps: Array<StepResult<ToolSet>>;
+            stepNumber: number;
+            messages: Array<ModelMessage>;
+          }) => {
+            const override = await input.onStepStart?.({
+              messages,
+              stepNumber,
+            });
             const used = steps.filter(
               (step) => step.toolCalls.length > 0,
             ).length;
+            const stepSettings: PrepareStepResult<ToolSet> = {};
+            if (override?.messages) stepSettings.messages = override.messages;
             if (used >= (input.maxSteps ?? 8)) {
               input.onCapReached?.();
-              return { activeTools: [] };
+              stepSettings.activeTools = [];
             }
-            return {};
+            return stepSettings;
           },
           experimental_repairToolCall: ({ toolCall, error }) => {
             let parsedInput: unknown;
@@ -327,6 +343,8 @@ function executionService(
     new MemoryService(tenantDb),
     new RecencyDigestService(tenantDb),
     runtime,
+    undefined,
+    [],
   );
 }
 

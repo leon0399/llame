@@ -43,7 +43,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 1. `instruction-files/in-run-context-items`: the in-Run rail carrier
 
-- [ ] 1.1 Widen the model-client step callback from `onStepStart(): void` to one that receives
+- [x] 1.1 Widen the model-client step callback from `onStepStart(): void` to one that receives
       the step's live SDK messages and may return a `messages` override, wired in every provider
       client through the shared `prepareStep` (design D1). Add attempt-scoped in-Run item
       staging that binds each item to the current step's last tool call. On every later step,
@@ -53,26 +53,26 @@ Re-estimate authored size at each layer boundary and before publication; split a
       the same position, that a step before the trigger carries none, that provider metadata on
       the surrounding messages is untouched, and that the result is identical when the scripted
       client retains the previous override and when it discards it.
-- [ ] 1.2 Extend the assistant transcript collector and finish path so in-Run items are stored
+- [x] 1.2 Extend the assistant transcript collector and finish path so in-Run items are stored
       as `data-context` parts on the attempt's assistant message immediately after the last
       tool part of the triggering step, published only with the winning attempt and fenced like
       the tool parts (design D1). Verify a failed attempt publishes no part, a superseded attempt
       publishes none, recovery after a worker restart does not duplicate or drop one, and the
       winning attempt's assistant message carries the part after the tool parts in stored order.
-- [ ] 1.3 Map assistant-message `data-context` parts in `context-builder` to one user-role
+- [x] 1.3 Map assistant-message `data-context` parts in `context-builder` to one user-role
       text message after the preceding tool-result message; leave `tool-observation-part`
       budgets untouched and make compaction's replacement builder ignore the part (design D1,
       D7). Verify replay order, that the pair budget is not charged for the item, that a
       compaction absorbing the message produces replacement records without it, that an item
       whose tool pair the replay budget omitted still replays at its stored position, and that a
       user-message `data-context` part replays exactly as before.
-- [ ] 1.4 Append in-Run items to the Run context-item record after the final request's items in
+- [x] 1.4 Append in-Run items to the Run context-item record after the final request's items in
       step order, with producer, form, and residency, committed with turn publication. Verify
       `GET /api/v1/runs/:id/context-items` returns them for the owner and 404 for another
       owner, that the recorded text equals the stored part text exactly, that an item with empty
       text stays in the record with empty text, and that a Run whose preparation fails records
       `null`.
-- [ ] 1.5 Update `SPEC.md`'s context-rail lines for the second carrier and add a dated
+- [x] 1.5 Update `SPEC.md`'s context-rail lines for the second carrier and add a dated
       `CHANGELOG.md` entry. Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the
       focused integration files touched above, `pnpm format:check`, `pnpm lint:markdown`,
       `git diff --check`, and `pnpm exec openspec validate instruction-files --strict`; record

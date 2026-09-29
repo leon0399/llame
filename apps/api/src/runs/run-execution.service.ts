@@ -82,6 +82,7 @@ import {
   createAssistantPartCollector,
   reconstructDurableAssistant,
   toolActivityPart,
+  withoutContextItems,
 } from './assistant-transcript';
 import {
   InstanceConfigService,
@@ -139,6 +140,11 @@ import {
   RunsRepository,
   type RunEventType,
 } from './runs-repository';
+import {
+  IN_RUN_CONTEXT_PRODUCERS,
+  createInRunContextItems,
+  type InRunContextProducer,
+} from './in-run-context-items';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
@@ -319,6 +325,14 @@ type FinishRunInput = {
   assistantTurn?: AssistantTurnWrite;
   synthesizedTurnTelemetry?: AssistantTurnTelemetry;
   attemptContextParts?: ReadonlyArray<MessagePart>;
+  /**
+   * The completed Run's rail record: the dispatched request's items followed
+   * by the attempt's in-Run items in emission order. Supplied only for a
+   * completed outcome, because only a completed attempt publishes an in-Run
+   * item; every other settlement keeps whatever the pre-dispatch write
+   * recorded.
+   */
+  runContextItems?: Array<RunContextItem>;
   recencyDigestInitialization?: RecencyDigestInitialization;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
   skillCatalogWrites?: SkillCatalogWrites;
@@ -422,20 +436,24 @@ type RecencyDigestInitialization = {
   baseline: NonNullable<Chat['recencyDigestBaseline']>;
   told: NonNullable<Chat['recencyDigestTold']>;
 };
+/** One rail part as the Run record's item shape; none for a non-item part. */
+function toRunContextItem(part: MessagePart): RunContextItem | undefined {
+  if (!isContextItemPart(part)) return undefined;
+  const form = resolveForm(part);
+  return {
+    producer: part.data.producer,
+    ...(form !== undefined && { form }),
+    residency: 'rail' as const,
+    text: part.data.text ?? '',
+  };
+}
+
 function toRunContextItems(
   parts: ReadonlyArray<MessagePart>,
 ): Array<RunContextItem> {
   return parts.flatMap((part) => {
-    if (!isContextItemPart(part)) return [];
-    const form = resolveForm(part);
-    return [
-      {
-        producer: part.data.producer,
-        ...(form !== undefined && { form }),
-        residency: 'rail' as const,
-        text: part.data.text ?? '',
-      },
-    ];
+    const item = toRunContextItem(part);
+    return item === undefined ? [] : [item];
   });
 }
 
@@ -553,6 +571,11 @@ export class RunExecutionService {
     @Optional()
     @Inject(WorkspaceMcpClients)
     private readonly workspaceMcp?: WorkspaceMcpClients,
+    // Producers that author context items between model steps; none is
+    // required for a Run to execute.
+    @Optional()
+    @Inject(IN_RUN_CONTEXT_PRODUCERS)
+    private readonly inRunProducers: ReadonlyArray<InRunContextProducer> = [],
   ) {
     this.toolPromptRenderer = createToolPromptRenderer({
       configPath: this.instanceConfig.configPath ?? resolveConfigPath(),
@@ -566,6 +589,11 @@ export class RunExecutionService {
    * through the same durable settlement transaction as executor callbacks.
    * Throws when that transaction cannot commit so callers never acknowledge
    * queue work whose terminal state is not durable.
+   *
+   * Every caller settles a NON-completed status (retry exhaustion expires,
+   * pre-start cancellation cancels), and the live collector is the only
+   * carrier of an attempt's in-Run context item: a settlement after a worker
+   * restart therefore publishes no in-Run part (design D1).
    */
   async settleTerminalRun(input: {
     userId: string;
@@ -739,6 +767,9 @@ export class RunExecutionService {
     // templates. This replaces the accept-time snapshot binding.
     let prepared: PreparedExecutionContext;
     let attemptStagedParts: Array<MessagePart> = [];
+    // The request's rail record as dispatched, kept for the completed
+    // outcome's finish-time write (extended there with the in-Run items).
+    let attemptContextItems: Array<RunContextItem> = [];
     let attemptRecencyDigestTold:
       | NonNullable<Chat['recencyDigestTold']>
       | undefined;
@@ -799,6 +830,7 @@ export class RunExecutionService {
         attemptStagedParts,
         input,
       );
+      attemptContextItems = contextItems;
       // Recorded only once the request is final: before this point a
       // transition compaction can still replace it, and a preparation failure
       // means no request was ever made. Recording earlier would durably assert
@@ -902,6 +934,17 @@ export class RunExecutionService {
     // consistent: a failed run whose turn shows what the user actually saw).
     let streamedText = '';
     const assistantPartCollector = createAssistantPartCollector();
+    // In-Run rail items for this attempt: staged at step boundaries, spliced
+    // into every later step by the model client's step callback, and published
+    // only with a completed turn (design D1).
+    const inRunItems = createInRunContextItems();
+    const inRunProducers = this.inRunProducers.map((producer) =>
+      producer.beginAttempt({
+        runId: input.runId,
+        chatId: input.chatId,
+        userId: input.userId,
+      }),
+    );
     let deltaWrites: Promise<void> = Promise.resolve();
     let progressWriteFailed = false;
     // eslint-disable-next-line anti-slop/no-unknown-parameters -- generic run-event payload dispatcher: shape depends on `eventType` (a discriminated union `RunEventsRepository.append` accepts), and every call site below already constructs the correct literal shape (see `persistDelta`/`persistReasoning`/`recordToolRequested`); this is the single serialization chokepoint, not a validation boundary.
@@ -1428,8 +1471,25 @@ export class RunExecutionService {
           tools: toolSet,
           onToolSet: (record) => toolAdditions.bindToolRecord(record),
           maxSteps: maxStepsPerRun,
-          onStepStart: () => {
+          onStepStart: async ({ messages, stepNumber }) => {
             workspaceRoot.beginStep();
+            inRunItems.beginStep({ messages, stepNumber });
+            for (const producer of inRunProducers) {
+              await producer.prepareStep({
+                messages,
+                stepNumber,
+                stage: (part) => {
+                  inRunItems.stage(part);
+                  assistantPartCollector.contextItem(part);
+                },
+              });
+            }
+            // Recomputed from the step's own messages on every step, so a
+            // retained override is replaced rather than accumulated (D1).
+            const stepMessages = inRunItems.applyToStep(messages);
+            return stepMessages === undefined
+              ? undefined
+              : { messages: stepMessages };
           },
           // Fires once, the moment the model client disables tools for
           // the next step because maxStepsPerRun tool-requesting steps
@@ -1701,6 +1761,14 @@ export class RunExecutionService {
             assistantTurn: turn,
             ...(status === 'completed' && {
               attemptContextParts: attemptStagedParts,
+              // The dispatched request's items, then this attempt's in-Run
+              // items in emission order (D1/publication requirement).
+              runContextItems: [
+                ...attemptContextItems,
+                ...toRunContextItems(
+                  inRunItems.items().map((item) => item.part),
+                ),
+              ],
               ...(attemptRecencyDigestInitialization !== undefined && {
                 recencyDigestInitialization: attemptRecencyDigestInitialization,
               }),
@@ -2417,6 +2485,17 @@ export class RunExecutionService {
       await events.append(input.runId, 'model.completed', input.modelCompleted);
     }
     await this.persistFinishedContext(tx, input, finished);
+    // The completed attempt appends its in-Run items to the request's record
+    // in the same transaction that publishes them on the assistant message, so
+    // the record can never list an item the model never received — or miss one
+    // it did.
+    if (input.status === 'completed' && input.runContextItems !== undefined) {
+      await runsRepo.recordContextItems(
+        input.runId,
+        input.userId,
+        input.runContextItems,
+      );
+    }
 
     const assistantMessage = await this.persistAssistantMessage(
       tx,
@@ -2503,10 +2582,15 @@ export class RunExecutionService {
         current,
         input.assistantTurn,
       );
+      // A settlement someone else won publishes what the user saw: the
+      // expired attempt's staged rail items stay unpublished (design D1).
+      const lostTurn = input.assistantTurn;
       assistantMessage = await this.persistAssistantMessage(
         tx,
         input.userId,
-        input.assistantTurn,
+        lostTurn === undefined
+          ? undefined
+          : { ...lostTurn, parts: withoutContextItems(lostTurn.parts) },
       );
     }
     return {
@@ -2649,7 +2733,15 @@ export class RunExecutionService {
     durableParts: Array<MessagePart>,
   ): AssistantTurnPersistence | undefined {
     if (input.assistantTurn || durableParts.length === 0) {
-      return input.assistantTurn;
+      // A non-completed outcome publishes what the user saw, never the rail
+      // items the failed attempt staged (design D1). Reconstructed parts need
+      // no stripping: no in-Run item is ever event-reconstructed.
+      return input.assistantTurn === undefined || input.status === 'completed'
+        ? input.assistantTurn
+        : {
+            ...input.assistantTurn,
+            parts: withoutContextItems(input.assistantTurn.parts),
+          };
     }
     if (!finished.messageId) {
       throw new Error(
@@ -2673,7 +2765,8 @@ export class RunExecutionService {
       'userId' | 'runId' | 'attemptId' | 'assistantTurn' | 'modelCompleted'
     >,
   ): Promise<Message | undefined> {
-    if (!input.assistantTurn) {
+    const turn = input.assistantTurn;
+    if (!turn) {
       return undefined;
     }
     try {
@@ -2682,17 +2775,14 @@ export class RunExecutionService {
           input.runId,
           input.userId,
         );
-        await this.finalizeAssistantTurnTelemetry(
-          tx,
-          input,
-          run,
-          input.assistantTurn,
-        );
-        return this.persistAssistantMessage(
-          tx,
-          input.userId,
-          input.assistantTurn,
-        );
+        await this.finalizeAssistantTurnTelemetry(tx, input, run, turn);
+        // The terminal transaction rolled back, so no in-Run item was
+        // published or recorded; the salvage adds back only what the user
+        // saw (design D1).
+        return this.persistAssistantMessage(tx, input.userId, {
+          ...turn,
+          parts: withoutContextItems(turn.parts),
+        });
       });
     } catch (error) {
       this.logger.error(

@@ -392,6 +392,241 @@ describe('buildContext', () => {
     });
   });
 
+  describe('assistant-message context items (in-Run rail carrier)', () => {
+    // An in-Run item is stored as a `data-context` part on the Run's assistant
+    // message, after the tool part whose result triggered it. Replay turns it
+    // back into a user-role message directly after that pair's tool result.
+    const itemText = 'Follow the repository rule.';
+
+    const contextPart = (
+      text: string,
+      producer = 'instructions',
+    ): MessagePart => ({
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer,
+        runId: '11111111-1111-4111-8111-111111111111',
+        payload: { files: [] },
+        text,
+      },
+    });
+
+    const toolPart = (toolCallId: string): MessagePart => ({
+      type: 'tool-search_conversations',
+      toolCallId,
+      state: 'output-available',
+      input: { query: 'holidays' },
+      output: { status: 'success', value: 'ok' },
+      outcome: 'success',
+    });
+
+    /** The exact `[assistant tool-call, tool tool-result]` envelope the replay
+     * budget measures, so a fixture can be sized against the real constant. */
+    const pairEnvelopeSize = (part: MessagePart): number => {
+      const pair = projectToolObservations([part])?.pairs[0];
+      if (!pair) throw new Error('Expected a projected tool pair');
+      return JSON.stringify([
+        { role: 'assistant', content: [pair.toolCallPart] },
+        { role: 'tool', content: [pair.toolResultPart] },
+      ]).length;
+    };
+
+    it('replays a stored item as one user message after its tool result', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          toolPart('call-1'),
+          contextPart(itemText),
+          { type: 'text', text: 'done' },
+        ],
+      });
+
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+
+      expect(messages.map(({ role }) => role)).toEqual([
+        'assistant',
+        'tool',
+        'user',
+        'assistant',
+      ]);
+      expect(messages[1]).toMatchObject({
+        role: 'tool',
+        content: [
+          expect.objectContaining({
+            type: 'tool-result',
+            toolCallId: 'call-1',
+          }),
+        ],
+      });
+      expect(messages[2]).toEqual({
+        role: 'user',
+        content: [{ type: 'text', text: itemText }],
+      });
+      expect(messages[3]).toEqual({ role: 'assistant', content: 'done' });
+    });
+
+    it('leaves the tool pair and its replay budget untouched by the item text', () => {
+      const base: MessagePart = {
+        type: 'tool-search_conversations',
+        toolCallId: 'call-budget',
+        state: 'output-error',
+        input: { query: 'holidays' },
+        errorText: 'x',
+        // The pair's outcome is metadata-derived, so the replay below also
+        // pins that the item leaves the pair's metadata handling alone.
+        resultProviderMetadata: { llame: { cancelled: true } },
+      };
+      const padding = TOOL_REPLAY_CALL_LIMIT - pairEnvelopeSize(base) - 1;
+      expect(padding).toBeGreaterThan(0);
+      const sized: MessagePart = {
+        ...base,
+        errorText: `x${'P'.repeat(padding)}`,
+      };
+      expect(pairEnvelopeSize(sized)).toBe(TOOL_REPLAY_CALL_LIMIT - 1);
+
+      const bigItemText = 'C'.repeat(TOOL_REPLAY_CALL_LIMIT * 3);
+      const { messages } = buildContext(
+        [
+          msg({
+            role: 'assistant',
+            parts: [sized, contextPart(bigItemText)],
+          }),
+        ],
+        { systemPrompt, requestKind: 'continuation' },
+      );
+      const pairOnly = buildContext(
+        [msg({ role: 'assistant', parts: [sized] })],
+        { systemPrompt, requestKind: 'continuation' },
+      );
+
+      expect(messages.map(({ role }) => role)).toEqual([
+        'assistant',
+        'tool',
+        'user',
+      ]);
+      expect(messages.slice(0, 2)).toEqual(pairOnly.messages);
+      expect(messages[2]).toEqual({
+        role: 'user',
+        content: [{ type: 'text', text: bigItemText }],
+      });
+      const serializedPair = JSON.stringify(messages.slice(0, 2));
+      expect(serializedPair).toContain('Outcome: cancelled');
+      // The pair stays uncleared although the item text alone is three times
+      // the per-call limit: only the pair's own envelope is charged.
+      expect(serializedPair).toContain('P'.repeat(64));
+      expect(serializedPair).not.toContain('C'.repeat(64));
+    });
+
+    it('keeps the item at its stored position when the pair is omitted by the turn budget', () => {
+      const manyTools = Array.from({ length: 220 }, (_, index) => ({
+        type: 'tool-search_conversations',
+        toolCallId: `many-${index.toString().padStart(3, '0')}`,
+        state: 'output-error' as const,
+        input: {},
+        errorText: 'x',
+        outcome: 'invalid_input',
+      }));
+      const assistant = msg({
+        role: 'assistant',
+        parts: [manyTools[0], contextPart(itemText), ...manyTools.slice(1)],
+      });
+
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+
+      expect(messages[0].role).toBe('assistant');
+      expect(contentText(messages[0].content)).toContain(
+        'earlier tool observations omitted',
+      );
+      expect(messages[1]).toEqual({
+        role: 'user',
+        content: [{ type: 'text', text: itemText }],
+      });
+      const serializedTail = JSON.stringify(messages.slice(2));
+      expect(serializedTail).toContain('many-219');
+      expect(serializedTail).not.toContain('many-000');
+    });
+
+    it('replays an item-only assistant message instead of dropping it', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [contextPart(itemText)],
+      });
+
+      const { messages } = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+
+      expect(messages).toEqual([
+        { role: 'user', content: [{ type: 'text', text: itemText }] },
+      ]);
+    });
+
+    it('emits nothing for an empty item but still records it', () => {
+      const assistant = msg({
+        role: 'assistant',
+        parts: [contextPart('')],
+      });
+
+      const result = buildContext([assistant], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+
+      expect(result.messages).toEqual([]);
+      expect(result.contextItems).toEqual([
+        { producer: 'instructions', residency: 'rail', text: '' },
+      ]);
+    });
+
+    it('records user and assistant items in stored order', () => {
+      const turn1 = msg({
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          contextPart('turn 1 item', 'workspace'),
+          { type: 'text', text: 'hi' },
+        ],
+      });
+      const assistant = msg({
+        role: 'assistant',
+        parts: [
+          toolPart('call-1'),
+          contextPart(itemText),
+          { type: 'text', text: 'done' },
+        ],
+      });
+      const turn2 = msg({
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          contextPart('turn 2 item', 'temporal'),
+          { type: 'text', text: 'again' },
+        ],
+      });
+
+      const { contextItems } = buildContext([turn1, assistant, turn2], {
+        systemPrompt,
+        requestKind: 'continuation',
+      });
+
+      expect(
+        contextItems.map(({ producer, text }) => ({ producer, text })),
+      ).toEqual([
+        { producer: 'workspace', text: 'turn 1 item' },
+        { producer: 'instructions', text: itemText },
+        { producer: 'temporal', text: 'turn 2 item' },
+      ]);
+    });
+  });
+
   describe('parts round-trip', () => {
     it('text parts are preserved in message content', () => {
       const messages = [userMsg1];

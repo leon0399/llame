@@ -34,6 +34,17 @@ const toolPart = (overrides: UnknownRecord = {}): MessagePart => ({
   ...overrides,
 });
 
+const contextPart = (text: string): MessagePart => ({
+  type: 'data-context',
+  data: {
+    v: 1,
+    producer: 'instructions',
+    runId: '11111111-1111-4111-8111-111111111111',
+    payload: { files: [] },
+    text,
+  },
+});
+
 const assistantMessage = (
   parts: Array<MessagePart>,
   seq = 1,
@@ -494,6 +505,28 @@ describe('buildCompactionToolReplacementRecords edge paths', () => {
     expect(records).toHaveLength(1);
     expect(JSON.stringify(records)).toContain('assistant-call');
     expect(JSON.stringify(records)).not.toContain('user-call');
+  });
+
+  it('records the tool part only when a context item follows it', () => {
+    const records = buildCompactionToolReplacementRecords({
+      previous: [
+        {
+          role: 'user',
+          parts: [{ type: 'text', text: 'checkpoint' }],
+        },
+      ],
+      absorb: [
+        assistantMessage([
+          toolPart({ toolCallId: 'context-call' }),
+          contextPart('in-Run item text'),
+        ]),
+      ],
+    });
+
+    expect(records).toHaveLength(1);
+    expect(JSON.stringify(records)).toContain('context-call');
+    expect(JSON.stringify(records)).toContain('tool-search_conversations');
+    expect(JSON.stringify(records)).not.toContain('in-Run item text');
   });
 
   it('parses a prior omission marker and carries its count into new records', () => {

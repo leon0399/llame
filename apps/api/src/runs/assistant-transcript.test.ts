@@ -2,8 +2,10 @@ import {
   createAssistantPartCollector,
   reconstructDurableAssistant,
   toolActivityPart,
+  withoutContextItems,
   type ToolActivityPart,
 } from './assistant-transcript';
+import { createContextItemPart } from '../chats/context-item';
 import { projectToolObservations } from '../chats/tool-observation-part';
 import {
   REJECTED_HOP_MESSAGE,
@@ -241,6 +243,64 @@ describe('AssistantPartCollector', () => {
     // No truncation marker: the persisted text is the text the provider
     // produced, byte for byte (D9/D11 — replay signs or encrypts it).
     expect(JSON.stringify(parts)).not.toContain('…');
+  });
+});
+
+function contextItemPart() {
+  return createContextItemPart({
+    producer: 'workspace',
+    form: 'notice',
+    runId: RUN_ID,
+    payload: {},
+    text: '<system-reminder producer="workspace" form="notice">x</system-reminder>',
+  });
+}
+
+describe('AssistantPartCollector in-Run context items (D1)', () => {
+  it('stores an item staged between steps after the tool parts it followed', () => {
+    const collector = createAssistantPartCollector();
+    collector.toolRequested('c1');
+    collector.tool(successToolPart('c1'));
+    collector.toolRequested('c2');
+    collector.tool(errorToolPart('c2'));
+    const item = contextItemPart();
+    collector.contextItem(item);
+
+    expect(collector.parts()).toEqual([
+      successToolPart('c1'),
+      errorToolPart('c2'),
+      item,
+    ]);
+  });
+
+  it('holds an item after a tool slot that is still reserved', () => {
+    const collector = createAssistantPartCollector();
+    collector.toolRequested('c1');
+    const item = contextItemPart();
+    collector.contextItem(item);
+
+    collector.tool(successToolPart('c1'));
+
+    // The settlement fills the reserved slot in place, so the item keeps its
+    // position after the tool part the step's results triggered.
+    expect(collector.parts()).toEqual([successToolPart('c1'), item]);
+  });
+});
+
+describe('withoutContextItems', () => {
+  it('drops rail parts and preserves everything else in order', () => {
+    const item = contextItemPart();
+
+    expect(
+      withoutContextItems([
+        successToolPart('c1'),
+        item,
+        { type: 'text', text: 'partial answer' },
+      ]),
+    ).toEqual([
+      successToolPart('c1'),
+      { type: 'text', text: 'partial answer' },
+    ]);
   });
 });
 

@@ -44,6 +44,23 @@ export type ChatIdentity = {
   lane: ChatLane;
 };
 
+/** One step of a tool-calling stream, as the SDK is about to run it. */
+export interface ModelStepStart {
+  /**
+   * The SDK's live step messages: `[...initialMessages, ...responseMessages]`,
+   * provider metadata intact. Recomputed by the SDK on every step, so a
+   * caller that injects messages must re-apply them on each step.
+   */
+  readonly messages: Array<ModelMessage>;
+  /** Zero-based index of the step about to run (the SDK's `stepNumber`). */
+  readonly stepNumber: number;
+}
+
+export interface ModelStepOverride {
+  /** Replaces this step's messages; undefined means no change. */
+  readonly messages?: Array<ModelMessage>;
+}
+
 export interface ModelStreamInput {
   messages: Array<ModelMessage>;
   /**
@@ -89,8 +106,13 @@ export interface ModelStreamInput {
   /**
    * Fired at the beginning of every model step in a tool-calling stream.
    * Provider clients single-source this callback through `prepareStep`.
+   * The returned override may replace the step's messages (`undefined` means
+   * no change); the client merges it with its own step settings, such as the
+   * step cap's `activeTools`.
    */
-  onStepStart?: () => void;
+  onStepStart?: (
+    step: ModelStepStart,
+  ) => Promise<ModelStepOverride | undefined> | ModelStepOverride | undefined;
   /**
    * Fired at most once, the moment the client disables tools for the
    * following step because `maxSteps` tool-requesting steps have already
