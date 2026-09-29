@@ -28,6 +28,7 @@ import {
 import type { MultiReadSuccess, SingleReadSuccess } from "./source-lines";
 import { OUTLINE_UNSUPPORTED_MESSAGE } from "./representations";
 import { measureNativeModelOutput } from "./serialization";
+import { editFile } from "./mutate";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
@@ -310,6 +311,43 @@ describe("native source reads", () => {
       path: join(directory, "skill"),
       representation: "outline",
       content: "1: # Skill\n",
+    });
+  });
+
+  it("keeps a text range singular without Markdown ancestors", async () => {
+    const sourcePath = join(directory, "source.txt");
+    await writeFile(sourcePath, "# Heading\nbody\nvalue\n");
+    expect(await readFile({ path: `${sourcePath}:2-2` })).toEqual({
+      status: "success",
+      kind: "file",
+      path: sourcePath,
+      representation: "text",
+      content: "1: # Heading\n2: body\n3: value\n",
+      requestedRange: { startLine: 2, endLine: 2 },
+      shownRange: { startLine: 1, endLine: 3 },
+      nextOffset: 2,
+      truncated: false,
+    });
+  });
+
+  it("bypasses Markdown ancestors in an edit preview", async () => {
+    const sourcePath = join(directory, "preview.md");
+    await writeFile(sourcePath, "# Root\nintro\nselected\ntrailing\n");
+    expect(
+      await editFile({
+        path: sourcePath,
+        oldText: "selected",
+        newText: "changed",
+      }),
+    ).toEqual({
+      status: "success",
+      operation: "edit",
+      path: sourcePath,
+      replacements: 1,
+      diff: "@@ replacement at line 3 @@\n-selected\n+changed\n",
+      content: "2: intro\n3: changed\n4: trailing\n",
+      shownRange: { startLine: 2, endLine: 4 },
+      truncated: false,
     });
   });
 

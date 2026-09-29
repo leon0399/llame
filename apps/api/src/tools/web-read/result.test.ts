@@ -10,6 +10,18 @@ import { type WebRender } from './pipeline';
 import { buildWebReadResult } from './result';
 
 const GUIDE_URL = 'https://example.test/guide';
+const RANGED_MARKDOWN = [
+  '# Root',
+  'Root body',
+  '## First',
+  'First body',
+  '',
+  '## Second',
+  'Second body',
+  '',
+  '## Third',
+  'Third body',
+].join('\n');
 
 /** A rendered text of `count` lines, wide enough to exceed the shared bound. */
 function renderedLines(count: number): string {
@@ -524,6 +536,131 @@ describe('buildWebReadResult', () => {
       'content',
       expect.not.stringContaining('line 30'),
     );
+  });
+
+  it('prepends Markdown ancestors and retains the web envelope', async () => {
+    const result = await buildWebReadResult(
+      { url: GUIDE_URL, selector: '4-4' },
+      GUIDE_URL,
+      {
+        method: 'adapter',
+        content: RANGED_MARKDOWN,
+        mediaType: 'text/markdown',
+        finalUrl: 'https://cdn.example.test/guide.md',
+        adapter: {
+          id: 'reader',
+          route: 'rewrite',
+          origin: 'https://reader.example.test',
+        },
+        notes: ['from adapter'],
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      kind: 'file',
+      path: GUIDE_URL,
+      representation: 'text',
+      content: '1: # Root\n3: ## First\n4: First body\n5: \n',
+      requestedRanges: [{ startLine: 4, endLine: 4 }],
+      shownRanges: [
+        { startLine: 1, endLine: 1 },
+        { startLine: 3, endLine: 5 },
+      ],
+      truncated: false,
+      nextOffset: 4,
+      finalUrl: 'https://cdn.example.test/guide.md',
+      method: 'adapter',
+      adapter: {
+        id: 'reader',
+        route: 'rewrite',
+        origin: 'https://reader.example.test',
+      },
+      notes: ['from adapter'],
+    });
+    expect(result).not.toHaveProperty('requestedRange');
+    expect(result).not.toHaveProperty('shownRange');
+  });
+
+  it('keeps plain-text and raw ranged renders unchanged', async () => {
+    const plain = await buildWebReadResult(
+      { url: GUIDE_URL, selector: '4-4' },
+      GUIDE_URL,
+      {
+        method: 'text',
+        content: RANGED_MARKDOWN,
+        mediaType: 'text/plain',
+      },
+    );
+    expect(plain).toEqual({
+      status: 'success',
+      kind: 'file',
+      path: GUIDE_URL,
+      representation: 'text',
+      content: '3: ## First\n4: First body\n5: \n',
+      requestedRange: { startLine: 4, endLine: 4 },
+      shownRange: { startLine: 3, endLine: 5 },
+      nextOffset: 4,
+      truncated: false,
+      finalUrl: GUIDE_URL,
+      method: 'text',
+    });
+
+    const raw = await buildWebReadResult(
+      { url: GUIDE_URL, selector: 'raw:2-2' },
+      GUIDE_URL,
+      {
+        method: 'raw',
+        content: RANGED_MARKDOWN,
+        mediaType: 'text/markdown',
+      },
+    );
+    expect(raw).toEqual({
+      status: 'success',
+      kind: 'file',
+      path: GUIDE_URL,
+      representation: 'raw',
+      content: 'Root body\n',
+      requestedRange: { startLine: 2, endLine: 2 },
+      shownRange: { startLine: 2, endLine: 2 },
+      nextOffset: 2,
+      truncated: false,
+      finalUrl: GUIDE_URL,
+      method: 'raw',
+    });
+  });
+
+  it('adds a Markdown ancestor chain to every comma passage', async () => {
+    const result = await buildWebReadResult(
+      { url: GUIDE_URL, selector: '4-4,10-10' },
+      GUIDE_URL,
+      {
+        method: 'negotiated',
+        content: RANGED_MARKDOWN,
+        mediaType: 'text/markdown',
+      },
+    );
+
+    expect(result).toEqual({
+      status: 'success',
+      kind: 'file',
+      path: GUIDE_URL,
+      representation: 'text',
+      content:
+        '1: # Root\n3: ## First\n4: First body\n5: \n9: ## Third\n10: Third body',
+      requestedRanges: [
+        { startLine: 4, endLine: 4 },
+        { startLine: 10, endLine: 10 },
+      ],
+      shownRanges: [
+        { startLine: 1, endLine: 1 },
+        { startLine: 3, endLine: 5 },
+        { startLine: 9, endLine: 10 },
+      ],
+      truncated: false,
+      finalUrl: GUIDE_URL,
+      method: 'negotiated',
+    });
   });
 
   it('applies a comma selector to the rendered text', async () => {
