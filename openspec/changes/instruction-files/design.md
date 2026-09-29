@@ -276,9 +276,15 @@ skills.
   Run record. Ships with an integration test that injects a synthetic item and asserts the
   step-2 and step-3 request shapes through the scripted model client, under both a retained
   and a discarded override.
-- `instruction-files/producer`: candidate resolution over the new `stat` probe, walk,
-  triggers, seen-set derivation, the in-Run system-read helper and origin, paged reads,
-  template, chip, docs. Consumes the interface above and `runTool(nativeReadTool)`.
+- `instruction-files/loading`: the `stat` probe, candidate resolution, the walk, the paged
+  reader over an injected page reader, and the template, payload, and seen-path extraction;
+  unwired.
+- `instruction-files/producer`: triggers, seen-set derivation, the in-Run system-read helper
+  and origin, and registration with the carrier. Consumes the interface above and
+  `runTool(nativeReadTool)`.
+- `instruction-files/turn-load`: the accepted-turn root load and its recomputation after
+  transition compaction.
+- `instruction-files/owner-chip`: the owner chip, operator docs, `SPEC.md`, and the changelog.
 
 ## Risks / Trade-offs
 
@@ -320,6 +326,9 @@ rule.
 
 ## Revision history
 
+- **v4 (2026-09-30, implementation sizing):** The single producer layer measured about 4,600
+  authored lines, so D11 splits it into `loading`, `producer`, `turn-load`, and `owner-chip`.
+  No behavior changes.
 - **v3 (2026-09-29, review round 2):** Paging uses bounded one-based `:raw:<from>-<to>`
   selectors, since no open-ended form exists, and stops on an oversized line (D6). The
   in-Run system-read helper and the `instructions` origin are named as layer-2 work, since
