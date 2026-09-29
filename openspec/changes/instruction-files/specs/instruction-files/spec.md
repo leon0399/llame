@@ -6,7 +6,7 @@ Loads per-directory project instruction files (`LLAME.md`, `AGENTS.md`, `CLAUDE.
 
 ### Requirement: Each directory contributes at most one base file and one local file
 
-For a directory `D`, the base candidate SHALL be the first existing regular file among `LLAME.override.md`, `LLAME.md`, `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.override.md`, and `CLAUDE.md`, in that order, and the local candidate SHALL be the first existing regular file among `LLAME.local.md`, `AGENTS.local.md`, and `CLAUDE.local.md`, in that order. The two selections SHALL be independent: a directory MAY contribute a base file, a local file, both, or neither. A name earlier in a chain SHALL replace, not merge with, every later name in the same chain and directory. A candidate whose final path component is a symbolic link SHALL be followed and its target loaded; a candidate that resolves to a directory or is empty SHALL contribute nothing. Filename comparison SHALL be exact and case-sensitive.
+For a directory `D`, the base candidate SHALL be the first existing regular file among `LLAME.override.md`, `LLAME.md`, `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.override.md`, and `CLAUDE.md`, in that order, and the local candidate SHALL be the first existing regular file among `LLAME.local.md`, `AGENTS.local.md`, and `CLAUDE.local.md`, in that order. The two selections SHALL be independent: a directory MAY contribute a base file, a local file, both, or neither. A name earlier in a chain SHALL replace, not merge with, every later name in the same chain and directory. A candidate whose final path component is a symbolic link SHALL be followed and its target loaded; a name that resolves to a non-regular file SHALL NOT be selected and the chain continues; an empty regular file SHALL be selected and contribute nothing, so it suppresses later names. When two selected candidates in one walk resolve to the same canonical file, the first in walk order SHALL be loaded under its own selected path and the later one SHALL contribute nothing. Filename comparison SHALL be exact and case-sensitive.
 
 #### Scenario: LLAME.md replaces AGENTS.md
 
@@ -26,9 +26,13 @@ For a directory `D`, the base candidate SHALL be the first existing regular file
 
 #### Scenario: Symlinked candidate collapses to its target
 
-- **WHEN** `/home/u/repo/apps/api/AGENTS.md` is a symbolic link to `/home/u/repo/AGENTS.md`
-- **THEN** `apps/api` contributes that file under its selected path `/home/u/repo/apps/api/AGENTS.md`
-- **AND** its seen-set identity is the target's canonical path, so it is not loaded twice in one bundle
+- **WHEN** `/home/u/repo/apps/api/AGENTS.md` is a symbolic link to `/home/u/repo/AGENTS.md` and a touch under `apps/api` walks both directories
+- **THEN** `/home/u/repo/AGENTS.md` is loaded once under its own path and `apps/api` contributes nothing
+
+#### Scenario: Empty placeholder suppresses later names
+
+- **WHEN** a directory contains an empty `LLAME.md` and a non-empty `AGENTS.md`
+- **THEN** neither is loaded from that directory's base chain
 
 ### Requirement: A trigger loads the chain from the filesystem root down to the touched directory
 
@@ -89,7 +93,7 @@ A successful `enter_workspace` that establishes or switches the binding SHALL tr
 
 ### Requirement: A file is loaded once per compaction epoch, derived from effective history
 
-The seen set SHALL be the set of canonical paths named in the `files` payload of `instructions` items in the Chat's effective history — the messages after the active compaction's cutoff, together with items staged or emitted by the current attempt — and SHALL NOT be stored in a Chat column or any other durable state. Denied, failed, and empty candidates are not in that payload and are therefore not seen. A file whose canonical path is in the seen set SHALL be omitted from a bundle. Compaction SHALL NOT carry an in-Run instructions item into replacement history, so a file whose item was absorbed by a compaction is no longer seen and reloads on its next trigger. Transition compaction inside a Run SHALL reset the attempt's seen state to the rebuilt effective history. Path identity SHALL be the canonical (`realpath`) path of the loaded file, so that two spellings or a symbolic link and its target count as one file. An edit to an already-loaded file SHALL NOT re-announce it within the epoch.
+The seen set SHALL be the set of canonical paths named in the `files` payload of `instructions` items in the Chat's effective history — the messages after the active compaction's cutoff, together with items staged or emitted by the current attempt — and SHALL NOT be stored in a Chat column or any other durable state. Denied, failed, and empty candidates are not in that payload and are therefore not seen. A file whose canonical path is in the seen set SHALL be omitted from a bundle. Compaction SHALL NOT carry an in-Run instructions item into replacement history, so a file whose item was absorbed by a compaction is no longer seen and reloads on its next trigger. Transition compaction inside a Run SHALL reset the attempt's seen state to the rebuilt effective history, and the accepted-turn root load SHALL be decided against that rebuilt history. Path identity SHALL be the canonical (`realpath`) path of the loaded file, so that two spellings or a symbolic link and its target count as one file. An edit to an already-loaded file SHALL NOT re-announce it within the epoch.
 
 #### Scenario: Second touch in the same epoch is silent
 
@@ -114,7 +118,7 @@ The seen set SHALL be the set of canonical paths named in the `files` payload of
 
 ### Requirement: Each candidate is read with system origin under the read permission group
 
-Candidate existence and size SHALL be probed on the native executor without a permission decision and without an audit event, and the probe SHALL reveal nothing to the model; only a candidate that exists and is then denied by the `read` group is disclosed, to the owner alone, through the audit event and the chip. Each existing candidate SHALL then be read through the native `read` tool with system origin `instructions`, evaluated by the `read` permission group under the Run's effective permission mode, and audited with the same `tool.requested`, `tool.started`, and `tool.completed` events as a model-origin read, carrying that origin; a file longer than one read result SHALL be read as consecutive pages from `nextOffset`, each page one audited read, until the file ends or the 32 KiB budget is reached. A denied candidate SHALL be omitted from the bundle, SHALL NOT be named in the item text, and SHALL NOT be marked seen. A read that fails for another reason SHALL be omitted the same way. Loading SHALL NOT require `enter_workspace`, SHALL NOT depend on the `enter_workspace` group, and SHALL happen only when `read` is in `tools.allowed` and a native executor is configured. System-origin events SHALL NOT appear as assistant tool parts, whether observed live, reconstructed from the event log, or recovered after a worker restart.
+Candidate existence and size SHALL be probed on the native executor without a permission decision and without an audit event, and the probe SHALL reveal nothing to the model; only a candidate that exists and is then denied by the `read` group is disclosed, to the owner alone, through the audit event and, when the same step loads another file, the chip. Each existing candidate SHALL then be read through the native `read` tool with system origin `instructions`, evaluated by the `read` permission group under the Run's effective permission mode, and audited with the same `tool.requested`, `tool.started`, and `tool.completed` events as a model-origin read, carrying that origin; a file longer than one read result SHALL be read as consecutive bounded pages continuing at the reported `nextOffset`, each page one audited read, until the file ends, the 32 KiB budget is reached, or a page returns no new line because one source line cannot fit a result, at which point collection stops and the file is cut there. A denied candidate SHALL be omitted from the bundle, SHALL NOT be named in the item text, and SHALL NOT be marked seen. A read that fails for another reason SHALL be omitted the same way. Loading SHALL NOT require `enter_workspace`, SHALL NOT depend on the `enter_workspace` group, and SHALL happen only when `read` is in `tools.allowed` and a native executor is configured. System-origin events SHALL NOT appear as assistant tool parts, whether observed live, reconstructed from the event log, or recovered after a worker restart.
 
 #### Scenario: Reject rule excludes an ancestor file
 
@@ -126,6 +130,11 @@ Candidate existence and size SHALL be probed on the native executor without a pe
 
 - **WHEN** a 20 KiB `AGENTS.md` exceeds one read result
 - **THEN** it is read in consecutive audited pages and rendered as one complete block
+
+#### Scenario: An oversized line ends collection
+
+- **WHEN** a file's third line alone exceeds one read result
+- **THEN** the block carries the first two lines and a truncation line with the omitted byte count from the probed size
 
 #### Scenario: System-origin reads leave no assistant tool part
 
@@ -150,7 +159,7 @@ Candidate existence and size SHALL be probed on the native executor without a pe
 
 ### Requirement: A bundle is one persisted-literal notice with bounded file bodies
 
-Each model step, or accepted turn, whose pending triggers load at least one file SHALL produce exactly one `instructions` item with form `notice` rendered from a packaged template. The item SHALL name each loaded file in a `<file path="…">` block carrying the absolute path at which the candidate was selected in the walk, in directory order from broadest to most specific with a directory's base file before its local file; the payload SHALL additionally record each file's canonical path for the seen set. It SHALL state once that each file applies to work under its own directory and that a deeper file takes precedence over a broader one where they conflict, and SHALL carry the precedence statement `context-injection` requires for third-party content. Each file body SHALL be neutralized with the reserved-delimiter rules before rendering. A file larger than 32 KiB SHALL be cut at 32 KiB on a UTF-8 character boundary and followed by one line naming the path and the number of bytes omitted, taken from the probed size; there SHALL be no aggregate cap per item. The item SHALL NOT name denied or missing candidates and SHALL NOT include line-number prefixes. Its metadata SHALL record the loaded, truncated, and denied paths privately for owner display; replay SHALL use only the stored text.
+Each model step, or accepted turn, whose pending triggers load at least one file SHALL produce exactly one rail-resident `instructions` item with form `notice` rendered from a packaged template. The item SHALL name each loaded file in a `<file path="…">` block carrying the absolute path at which the candidate was selected in the walk, in directory order from broadest to most specific with a directory's base file before its local file; the payload SHALL additionally record each file's canonical path for the seen set. It SHALL state once that each file applies to work under its own directory and that a deeper file takes precedence over a broader one where they conflict, and SHALL carry the precedence statement `context-injection` requires for third-party content. Each file body SHALL be neutralized with the reserved-delimiter rules before rendering. A file larger than 32 KiB SHALL be cut at 32 KiB on a UTF-8 character boundary and followed by one line naming the path and the number of bytes omitted, taken from the probed size; there SHALL be no aggregate cap per item. The item SHALL NOT name denied or missing candidates and SHALL NOT include line-number prefixes. Its metadata SHALL record the loaded, truncated, and denied paths privately for owner display; replay SHALL use only the stored text.
 
 #### Scenario: Two directories render in order
 

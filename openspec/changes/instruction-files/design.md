@@ -193,16 +193,27 @@ Probing nine names per directory through the permission evaluator would write do
 symlinks, returning existence, kind, size, and canonical path) to the native-files module,
 outside the runner, with no decision and no audit row; it reveals nothing to the model, and
 the owner learns only of a candidate that exists and is then denied. Each existing candidate
-is then read through `runTool(nativeReadTool)` with origin `instructions`, so the `read`
-group, bypass mode, timeout, and identity checks apply and
-`tool.requested`/`started`/`completed` are recorded, as skill activation does
-(`apps/api/src/skills/skill-activation.ts:279-282`). One read result is capped at 16,000
-UTF-16 units and 2,000 lines (`packages/runtime-safety/src/result-truncation.ts:12`,
+is then read through `runTool(nativeReadTool)`. `runTool` itself only admits and executes
+(`apps/api/src/tools/runner.ts:247-285`); the origin tag and the
+`tool.requested`/`started`/`completed` events come from the caller, as skill activation does
+by passing `activity.admitted` and calling `activity.completed` around the call
+(`apps/api/src/skills/skill-activation.ts:279-282`). Layer 2 therefore adds an in-Run
+system-read helper on the worker closure that already holds the Run's tool context and
+event machinery (`run-execution.service.ts:978-1000,1407-1458`): it reserves an
+origin-tagged call, awaits ordered admission persistence, invokes `runTool`, records
+completion, takes part in abort and finish settlement, and extends the system-origin union
+(`apps/api/src/runs/tool-activity-origin.ts:16-45`) with `instructions` so no assistant part
+is produced on the live, reconstructed, or recovered paths. One read result is capped at
+16,000 UTF-16 units and 2,000 lines (`packages/runtime-safety/src/result-truncation.ts:12`,
 `packages/native-file-tools/src/source-lines.ts:5-6`), below the 32 KiB budget, so a longer
-file is read as consecutive `:raw` pages from `nextOffset`, each an audited read, until the
-file ends or 32 KiB of UTF-8 has been collected; the omitted byte count comes from the
-probed size. A denied or failed page drops the whole file, unmarked. `:raw` keeps
-line-number prefixes out of the bundle, as skill activation does.
+file is read as consecutive bounded `:raw:<from>-<to>` pages: the selector grammar has no
+open-ended `:raw:N-` form (`packages/native-file-tools/src/path.ts:225-252`), `nextOffset` is
+zero-based while selectors are one-based, so each page starts at `nextOffset + 1` and spans
+at most 2,000 lines. Paging stops when the file ends, when 32 KiB of UTF-8 (measured on the
+collected `content`) is reached, or when a page returns no new line because one source line
+cannot fit a result; the file is cut there and the omitted byte count comes from the probed
+size. A denied or failed page drops the whole file, unmarked. `:raw` keeps line-number
+prefixes out of the bundle, as skill activation does.
 
 ### D7: The seen set is a derivation over effective history
 
@@ -265,9 +276,9 @@ skills.
   Run record. Ships with an integration test that injects a synthetic item and asserts the
   step-2 and step-3 request shapes through the scripted model client, under both a retained
   and a discarded override.
-- `instruction-files/producer`: candidate resolution, walk, triggers, seen-set derivation,
-  system-origin reads and audit, template, chip, docs. Consumes the interface above and
-  `runTool(nativeReadTool)`.
+- `instruction-files/producer`: candidate resolution over the new `stat` probe, walk,
+  triggers, seen-set derivation, the in-Run system-read helper and origin, paged reads,
+  template, chip, docs. Consumes the interface above and `runTool(nativeReadTool)`.
 
 ## Risks / Trade-offs
 
@@ -304,6 +315,14 @@ rule.
 
 ## Revision history
 
+- **v3 (2026-09-29, review round 2):** Paging uses bounded one-based `:raw:<from>-<to>`
+  selectors, since no open-ended form exists, and stops on an oversized line (D6). The
+  in-Run system-read helper and the `instructions` origin are named as layer-2 work, since
+  `runTool` neither tags origin nor records activity (D6, D11). First walk occurrence wins for
+  a shared canonical file; empty placeholders suppress later names; chip disclosure of a
+  denial only when the step produced an item; accepted-turn root load decided after transition
+  compaction; `instructions` items declared rail-resident. Not adopted: re-loading a shared
+  symlinked file under a sibling directory's label (P2, low confidence, revisit if seen).
 - **v2 (2026-09-29, review round 1):** Native read results cap at 16,000 UTF-16 units, so
   files are read as paged audited `:raw` reads up to 32 KiB (D6). In-Run placement is
   remove-then-insert over the live SDK messages, not a re-projection of stored parts, and the

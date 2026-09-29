@@ -101,17 +101,21 @@ Re-estimate authored size at each layer boundary and before publication; split a
       the epoch is silent, a symlink to an already-loaded file is silent, an owner fork inherits
       the set through copied history with no column read, a failed attempt leaves nothing seen,
       a denied file is not seen, and a compacted item's file reloads on the next trigger.
-- [ ] 2.6 Read each existing candidate through `runTool(nativeReadTool)` with origin
-      `instructions` and `:raw`, paging from `nextOffset` until the file ends or 32 KiB of UTF-8
-      is collected, each page one audited read; drop denied and failed files without naming
-      them; require `read` in `tools.allowed` and a configured native executor (design D6).
-      Extend the system-origin recognizer so `instructions` events create no assistant tool
-      part on the live, reconstructed, and recovered paths. Verify the audit events and origin
-      for an allowed read, a 20 KiB file read in two audited pages and rendered as one block, a
-      reject-rule denial recorded as a denied read and absent from the text, no events for
-      missing candidates, bypass mode recorded as bypass, no assistant tool part on any of the
-      three paths, and a negative isolation test that owner B cannot read owner A's resulting
-      activity or items.
+- [ ] 2.6 Add an in-Run system-read helper on the worker closure that reserves an
+      origin-tagged call, awaits ordered `tool.requested` persistence, invokes
+      `runTool(nativeReadTool)`, records `tool.started`/`tool.completed`, and takes part in
+      abort and finish settlement; extend the system-origin union with `instructions` so those
+      events create no assistant tool part on the live, reconstructed, and recovered paths
+      (design D6). Read each existing candidate through it with bounded `:raw:<from>-<to>`
+      pages of at most 2,000 lines starting at `nextOffset + 1`, until the file ends, 32 KiB of
+      UTF-8 is collected, or a page returns no new line; drop denied and failed files without
+      naming them; require `read` in `tools.allowed` and a configured native executor. Verify
+      the audit events and origin for an allowed read, a 20 KiB file read in two audited pages
+      and rendered as one block, a file whose third line exceeds a result cut after two lines
+      with the omitted count from the probed size, a reject-rule denial recorded as a denied
+      read and absent from the text, no events for missing candidates, bypass mode recorded as
+      bypass, no assistant tool part on any of the three paths, and a negative isolation test
+      that owner B cannot read owner A's resulting activity or items.
 - [ ] 2.7 Add the packaged template and payload: `<file path="…">` blocks labelled with the
       selected path in directory order, base before local, the scope and specificity sentence
       once, the rail precedence statement, reserved-delimiter neutralization of bodies, a
