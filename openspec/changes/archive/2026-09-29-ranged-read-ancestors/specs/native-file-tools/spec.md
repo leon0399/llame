@@ -28,7 +28,8 @@ SHALL NOT be treated as a relative or literal filename. For regular-file reads, 
 one preceding and one following source line (context lines) when available, and the extended
 lines SHALL appear in the same `content` block as the requested lines.
 
-For an ordinary ranged read of a `text/markdown` source, `content` SHALL also prepend the direct ancestor heading lines for the passage's first requested line, as specified by the ranged Markdown ancestor requirement. When at least one ancestor line is emitted, a single-range result SHALL report plural `requestedRanges` and `shownRanges` fields instead of singular fields. For single-range reads, result
+For an ordinary ranged read of a `text/markdown` source, `content` SHALL also prepend the direct ancestor heading lines for the passage's first requested line, as specified by the ranged Markdown ancestor requirement.
+For single-range reads, result
 details SHALL identify requested and shown ranges, representation, path, and
 common truncation state. For an `outline` result, `content` SHALL consist of
 verbatim source lines carrying the ordinary line-number prefixes, chosen by the
@@ -106,7 +107,10 @@ intervals that overlap or sit adjacent. Raw multi-range requests SHALL NOT
 expand context. A comma-separated request SHALL report plural range fields
 even if normalization and expansion leave one interval.
 
-For a non-raw, non-outline Markdown source, each merged expanded passage SHALL prepend the direct ancestor heading lines for that passage's first requested line, shallowest first, deduplicated against every line already shown by earlier passages and chains, and output SHALL remain in source order. `requestedRanges` SHALL exclude ancestor lines, while `shownRanges` SHALL include them.
+For a non-raw, non-outline Markdown source, each merged expanded passage SHALL
+also prepend its ancestor headings as specified by the ranged Markdown ancestor
+requirement.
+
 Absolute literal-path precedence and scheme-specific authorization SHALL apply
 before reading as for existing selectors. Directory comma selectors SHALL fail
 with `invalid_selector`; ordinary directory selectors SHALL remain unchanged.
@@ -382,9 +386,7 @@ A ranged read SHALL never read past its requested window. The Markdown scanner
 SHALL end at the window end; a line whose role is undecided at that boundary
 SHALL count as not a heading for this read. An open paragraph that might become
 a setext heading and an unclosed line-one `---` block SHALL be replayed as
-Markdown rather than resolved with later input. The same window-end rule SHALL
-apply to web renders, so host and web produce the same ancestors for the same
-text and window.
+Markdown rather than resolved with later input.
 
 The rule SHALL apply uniformly to host paths, `file://`, `kb://`, `skill://`,
 and web renders labeled `text/markdown`, after existing permission admission
@@ -392,7 +394,7 @@ and source resolution. It SHALL preserve each source's existing identity,
 Knowledge attribution and untrusted-content notice, web provenance, and
 execution-time coordinates. `:raw`, `:outline`, directory reads, unselected
 reads, empty files, non-Markdown reads, and `edit`/`write` post-edit previews
-SHALL remain unchanged. Mutation previews SHALL not receive ancestor headings.
+SHALL remain unchanged.
 
 #### Scenario: A ranged read prepends its enclosing headings
 
