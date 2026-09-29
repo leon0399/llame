@@ -98,8 +98,8 @@ Re-estimate authored size at each layer boundary and before publication; split a
       read of the directory `apps/api` includes `apps/api`, a read outside the Workspace yields
       that tree's chain, and no sibling or child directory is visited.
 - [ ] 2.3 Add the paged candidate reader over an injected page reader: bounded
-      `:raw:<from>-<to>` pages of at most 2,000 lines, each continuing at the reported
-      `nextOffset`, until the file ends, 32 KiB of UTF-8 is collected, or a page returns no new
+      `:raw:<from>-<to>` pages of at most 2,000 lines, each starting after the last complete line
+      collected, until the file ends, 32 KiB of UTF-8 is collected, or a page returns no new
       line; a denial on any page is a denied file and any other failure a failed file (design
       D6). Verify with the real native `read`: a 20 KiB file read in two pages and returned whole,
       a 40 KiB file cut at 32 KiB on a UTF-8 boundary with the omitted count from the probed

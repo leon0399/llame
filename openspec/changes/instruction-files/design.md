@@ -207,9 +207,10 @@ is produced on the live, reconstructed, or recovered paths. One read result is c
 16,000 UTF-16 units and 2,000 lines (`packages/runtime-safety/src/result-truncation.ts:12`,
 `packages/native-file-tools/src/source-lines.ts:5-6`), below the 32 KiB budget, so a longer
 file is read as consecutive bounded `:raw:<from>-<to>` pages: the selector grammar has no
-open-ended `:raw:N-` form (`packages/native-file-tools/src/path.ts:225-252`), `nextOffset` is
-zero-based while selectors are one-based, so each page starts at `nextOffset + 1` and spans
-at most 2,000 lines. Paging stops when the file ends, when 32 KiB of UTF-8 (measured on the
+open-ended `:raw:N-` form (`packages/native-file-tools/src/path.ts:225-252`), so each page
+starts at the line after the last complete line collected and spans at most 2,000 lines. It
+does not follow `nextOffset`: the reader advances `nextOffset` past a line it cannot render,
+and following it would collect text after that hole. Paging stops when the file ends, when 32 KiB of UTF-8 (measured on the
 collected `content`) is reached, or when a page returns no new line because one source line
 cannot fit a result; the file is cut there and the omitted byte count comes from the probed
 size. A denied or failed page drops the whole file, unmarked. `:raw` keeps line-number
@@ -334,7 +335,9 @@ rule.
   The Migration Plan now states the rollout order (the carrier deploys before any producer
   authors an item) and that rollback stops at the carrier, replacing the earlier claim that a
   downgrade was harmless. D7 records the transition-compaction reset; D8 states that the
-  payload is the private metadata. No behavior changes.
+  payload is the private metadata. D6 and the spec now continue paging after the last complete
+  line collected rather than at `nextOffset`, which skips a line the reader cannot render; the
+  cut at that line is what the spec already required. No other behavior changes.
 - **v3 (2026-09-29, review round 2):** Paging uses bounded one-based `:raw:<from>-<to>`
   selectors, since no open-ended form exists, and stops on an oversized line (D6). The
   in-Run system-read helper and the `instructions` origin are named as layer-2 work, since
