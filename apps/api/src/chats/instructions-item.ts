@@ -16,11 +16,7 @@
 
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { loadPackagedTemplate } from '../prompts/template-engine';
-import {
-  isBoolean,
-  isString,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
+import { isBoolean, type UnknownRecord } from '@workspace/runtime-safety';
 
 import {
   escapeXmlAttribute,
@@ -30,6 +26,7 @@ import {
 import {
   createRenderedContextItem,
   isExactRecord,
+  isNonEmptyString,
 } from './context-item-shared';
 
 /** One file the caller loaded, with the reader's truncation bookkeeping. */
@@ -44,11 +41,10 @@ export interface LoadedInstructionFile {
   readonly omittedBytes: number;
 }
 
-export interface InstructionsPayloadFile {
-  readonly path: string;
-  readonly canonicalPath: string;
-  readonly truncated: boolean;
-}
+export type InstructionsPayloadFile = Pick<
+  LoadedInstructionFile,
+  'path' | 'canonicalPath' | 'truncated'
+>;
 
 /**
  * The item's metadata. `denied` is owner-only: a denial is operator policy the
@@ -86,10 +82,6 @@ function isInstructionsPayloadFile(
     isNonEmptyString(value['canonicalPath']) &&
     isBoolean(value['truncated'])
   );
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return isString(value) && value.trim().length > 0;
 }
 
 /**
@@ -137,12 +129,20 @@ function renderInstructions(
   return renderInstructionsTemplate({
     files: files.map((file) => ({
       // The path labels the block, so it is attribute-escaped; the body is
-      // repository-authored text sitting inside an element of its own, so the
-      // sanitizer is what keeps it from closing that element or opening
-      // another envelope. Applied here rather than by the caller so every path
-      // into this producer is covered.
+      // repository-authored text sitting inside an element of its own. The
+      // sanitizer keeps it from closing that element or opening another
+      // envelope. A body that spells a tag-shaped `file` token — a balanced
+      // forged block, or an unmatched opener the template's own closer would
+      // end — is neutralized on top of that, so it cannot forge a block
+      // labelled with a path that was never loaded. `file` stays out of the
+      // shared reserved set because reserving it globally would strip the tag
+      // from every operator prompt; the `<` is escaped rather than the token
+      // dropped, keeping the body readable.
       path: escapeXmlAttribute(file.path),
-      body: sanitizeAuthoredText(file.content),
+      body: sanitizeAuthoredText(file.content).replaceAll(
+        /<(\/?file)(?=[\s>/]|$)/gi,
+        '&lt;$1',
+      ),
       truncated: file.truncated,
       omittedBytes: file.omittedBytes,
     })),

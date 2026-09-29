@@ -8,6 +8,7 @@
  * only authority over what may enter the model's context.
  */
 
+import { readdir } from 'node:fs/promises';
 import { posix } from 'node:path';
 
 import {
@@ -78,41 +79,49 @@ export interface InstructionCandidate {
   readonly size: number;
 }
 
-async function firstCandidate(
+/**
+ * The exact names one directory holds: nothing is probed for a name the
+ * directory does not list under that exact spelling, so a case-insensitive host
+ * cannot match `AGENTS.md` to `agents.md`. A directory that cannot be listed
+ * (missing, unreadable) yields no candidates.
+ */
+async function listDirectoryNames(
   directory: string,
-  chain: ReadonlyArray<string>,
-  stat: StatHostPath,
-): Promise<InstructionCandidate | undefined> {
-  for (const name of chain) {
-    const path = posix.join(directory, name);
-    const probe = await stat(path);
-    if (probe.kind === 'file')
-      return { path, canonicalPath: probe.canonicalPath, size: probe.size };
+): Promise<ReadonlyArray<string>> {
+  try {
+    return await readdir(directory);
+  } catch {
+    return [];
   }
-  return undefined;
-}
-
-async function chainCandidate(
-  directory: string,
-  chain: ReadonlyArray<string>,
-  stat: StatHostPath,
-): Promise<Array<InstructionCandidate>> {
-  const candidate = await firstCandidate(directory, chain, stat);
-  return candidate === undefined ? [] : [candidate];
 }
 
 /**
  * One base candidate and, independently, one local candidate for `directory`,
- * base first. A non-regular entry continues the chain; an empty regular file is
- * selected and ends it.
+ * base first. Only names the listing carries are probed, matched exactly in
+ * chain order; a non-regular entry continues the chain; an empty regular file
+ * is selected and ends it.
  */
 export async function selectCandidates(
   directory: string,
   stat: StatHostPath,
 ): Promise<Array<InstructionCandidate>> {
-  const base = await chainCandidate(directory, BASE_CHAIN, stat);
-  const local = await chainCandidate(directory, LOCAL_CHAIN, stat);
-  return [...base, ...local];
+  const listed = await listDirectoryNames(directory);
+  const candidates: Array<InstructionCandidate> = [];
+  for (const chain of [BASE_CHAIN, LOCAL_CHAIN]) {
+    for (const name of chain) {
+      if (!listed.includes(name)) continue;
+      const path = posix.join(directory, name);
+      const probe = await stat(path);
+      if (probe.kind !== 'file') continue;
+      candidates.push({
+        path,
+        canonicalPath: probe.canonicalPath,
+        size: probe.size,
+      });
+      break;
+    }
+  }
+  return candidates;
 }
 
 export type ReadPage = (selectorPath: string) => Promise<ToolResult>;
@@ -127,31 +136,10 @@ export type InstructionFileRead =
   | { readonly kind: 'denied' }
   | { readonly kind: 'failed' };
 
-/** One raw page's content and, when another page follows, its zero-based continuation line. */
-type InstructionPage = {
-  readonly content: string;
-  readonly nextOffset: number | undefined;
-};
-
-/** The page a native file-read result carries; undefined for any other result. */
-function pageOf(result: ToolResult): InstructionPage | undefined {
-  if (result.status !== 'success') return undefined;
-  const { content, nextOffset } = result;
-  if (!isString(content)) return undefined;
-  return { content, nextOffset: isNumber(nextOffset) ? nextOffset : undefined };
-}
-
 /** The longest prefix of `value` whose UTF-8 encoding fits `limit` bytes. */
 function cutToByteLimit(value: string, limit: number): string {
-  let cut = 0;
-  let bytes = 0;
-  for (const character of value) {
-    const size = Buffer.byteLength(character, 'utf8');
-    if (bytes + size > limit) break;
-    bytes += size;
-    cut += character.length;
-  }
-  return value.slice(0, cut);
+  const buffer = new Uint8Array(limit);
+  return value.slice(0, new TextEncoder().encodeInto(value, buffer).read);
 }
 
 function loaded(
@@ -165,24 +153,16 @@ function loaded(
   return { kind: 'loaded', content, truncated: omittedBytes > 0, omittedBytes };
 }
 
-/** Complete source lines in one page's content. */
-function lineCount(content: string): number {
-  let lines = 0;
-  for (const character of content) if (character === '\n') lines += 1;
-  return lines;
-}
-
 /**
  * Read one candidate as consecutive bounded `:raw` pages, cut at
  * INSTRUCTION_FILE_BYTE_LIMIT UTF-8 bytes on a character boundary.
  *
- * Continuation is derived from the complete lines collected rather than from a
- * page's `nextOffset`, which points past a line the native reader could not
- * render: re-requesting that line as a page's first line is what turns the skip
- * into the no-progress stop instead of silently collecting text after a hole.
- * A page that adds no line ends the file there, as does `invalid_selector` on a
- * continuation page; a `permission_denied` page denies the whole file and any
- * other error fails it.
+ * Each page starts after the last complete line collected, never at the
+ * previous page's `nextOffset`: that offset points past a line the native
+ * reader could not render, so starting there would silently join text across
+ * the hole. A page that adds no line ends the file there, as does
+ * `invalid_selector` on a continuation page; a `permission_denied` page denies
+ * the whole file and any other error fails it.
  */
 export async function readInstructionFile(
   candidate: InstructionCandidate,
@@ -190,7 +170,6 @@ export async function readInstructionFile(
 ): Promise<InstructionFileRead> {
   let content = '';
   let lines = 0;
-  let firstPage = true;
   for (;;) {
     const from = lines + 1;
     const result = await readPage(
@@ -198,23 +177,30 @@ export async function readInstructionFile(
     );
     if (result.status === 'error') {
       if (result.type === 'permission_denied') return { kind: 'denied' };
-      if (result.type === 'invalid_selector' && !firstPage) break;
+      if (result.type === 'invalid_selector' && lines > 0) break;
       return { kind: 'failed' };
     }
-    const page = pageOf(result);
-    if (page === undefined) return { kind: 'failed' };
-    if (page.content === '') break;
-    content += page.content;
-    if (Buffer.byteLength(content, 'utf8') >= INSTRUCTION_FILE_BYTE_LIMIT)
-      return loaded(
-        candidate,
-        cutToByteLimit(content, INSTRUCTION_FILE_BYTE_LIMIT),
-      );
-    if (page.nextOffset === undefined) break;
-    const added = lineCount(page.content);
+    if (!isString(result.content)) return { kind: 'failed' };
+    if (result.content === '') break;
+    content += result.content;
+    if (Buffer.byteLength(content, 'utf8') >= INSTRUCTION_FILE_BYTE_LIMIT) {
+      const cut = cutToByteLimit(content, INSTRUCTION_FILE_BYTE_LIMIT);
+      // The cut is a truncation even when the probed size is stale (a file
+      // that grew after the probe): more was read than the collection kept.
+      return {
+        kind: 'loaded',
+        content: cut,
+        truncated: true,
+        omittedBytes: Math.max(
+          1,
+          candidate.size - Buffer.byteLength(cut, 'utf8'),
+        ),
+      };
+    }
+    if (!isNumber(result.nextOffset)) break;
+    const added = result.content.split('\n').length - 1;
     if (added === 0) break;
     lines += added;
-    firstPage = false;
   }
   return loaded(candidate, content);
 }

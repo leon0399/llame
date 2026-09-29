@@ -1,9 +1,9 @@
 /**
  * Low-level helpers shared by every context-item producer
  * (context-item-producers.ts and tool-availability-context-item.ts): the
- * exact-key-set payload guard and the envelope-rendering constructor. Split
- * out so the producer modules can depend on this without depending on each
- * other.
+ * exact-key-set payload guard, the non-empty-string guard, and the
+ * envelope-rendering constructor. Split out so the producer modules can depend
+ * on this without depending on each other.
  */
 import {
   createContextItemPart,
@@ -12,7 +12,16 @@ import {
   type ContextItemForm,
 } from './context-item';
 import { compareCodePoints } from '../canonical-json';
-import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
+
+/** A string with at least one non-whitespace character. */
+export function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.trim().length > 0;
+}
 
 export function isExactRecord(
   value: unknown,

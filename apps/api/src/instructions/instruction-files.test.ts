@@ -22,12 +22,14 @@ import { type CompiledPolicy } from '../tools/permissions/types';
 import { runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import {
+  INSTRUCTION_FILE_BYTE_LIMIT,
   readInstructionFile,
   selectCandidates,
   touchedDirectory,
   walkDirectories,
   type InstructionCandidate,
   type ReadPage,
+  type StatHostPath,
 } from './instruction-files';
 
 let root: string;
@@ -211,6 +213,33 @@ describe('selectCandidates', () => {
       },
     ]);
   });
+
+  it('does not select a lowercase agents.md for AGENTS.md', async () => {
+    await writeFile(join(root, 'agents.md'), '# Lowercase\n');
+
+    expect(await selectCandidates(root, statHostPath)).toEqual([]);
+  });
+
+  it('probes only the names the directory lists, matched exactly', async () => {
+    // A host can resolve a path the directory does not list under that exact
+    // spelling (case-insensitive filesystems asking for `AGENTS.md` find
+    // `agents.md`), so the listing, not `stat`, decides which names are
+    // candidates.
+    const claude = join(root, 'CLAUDE.md');
+    await writeFile(claude, '# Claude\n');
+    const resolvesEveryName: StatHostPath = (path) =>
+      Promise.resolve({ kind: 'file', size: 9, canonicalPath: path });
+
+    expect(await selectCandidates(root, resolvesEveryName)).toEqual([
+      { path: claude, canonicalPath: claude, size: 9 },
+    ]);
+  });
+
+  it('selects nothing from a directory that cannot be listed', async () => {
+    expect(await selectCandidates(join(root, 'missing'), statHostPath)).toEqual(
+      [],
+    );
+  });
 });
 
 describe('readInstructionFile', () => {
@@ -373,5 +402,87 @@ describe('readInstructionFile', () => {
       truncated: false,
       omittedBytes: 0,
     });
+  });
+
+  it('reports truncation when a page carries more than the probed size', async () => {
+    // The file grew between the probe and the read, so the collected bytes are
+    // past the stale size: the cut still has to be reported as a truncation.
+    const readPage: ReadPage = () =>
+      Promise.resolve({
+        status: 'success',
+        kind: 'file',
+        path: '/srv/AGENTS.md',
+        content: 'a'.repeat(INSTRUCTION_FILE_BYTE_LIMIT + 1),
+      });
+
+    const result = await readInstructionFile(
+      { path: '/srv/AGENTS.md', canonicalPath: '/srv/AGENTS.md', size: 5 },
+      readPage,
+    );
+
+    expect(result).toEqual({
+      kind: 'loaded',
+      content: 'a'.repeat(INSTRUCTION_FILE_BYTE_LIMIT),
+      truncated: true,
+      omittedBytes: 1,
+    });
+  });
+
+  it('denies the whole file when a continuation page is denied', async () => {
+    const pages: Array<ToolResult> = [
+      {
+        status: 'success',
+        kind: 'file',
+        path: '/srv/AGENTS.md',
+        content: 'hello\n',
+        nextOffset: 1,
+        truncated: true,
+      },
+      { status: 'error', type: 'permission_denied', message: 'Denied.' },
+    ];
+    const readPage: ReadPage = () => {
+      const page = pages.shift();
+      if (page === undefined) throw new Error('unexpected page request');
+      return Promise.resolve(page);
+    };
+
+    const result = await readInstructionFile(
+      { path: '/srv/AGENTS.md', canonicalPath: '/srv/AGENTS.md', size: 6 },
+      readPage,
+    );
+
+    expect(result).toEqual({ kind: 'denied' });
+  });
+
+  it('fails a file whose first page cannot be selected', async () => {
+    const readPage: ReadPage = () =>
+      Promise.resolve({
+        status: 'error',
+        type: 'invalid_selector',
+        message: 'No such line.',
+      });
+
+    const result = await readInstructionFile(
+      { path: '/srv/AGENTS.md', canonicalPath: '/srv/AGENTS.md', size: 6 },
+      readPage,
+    );
+
+    expect(result).toEqual({ kind: 'failed' });
+  });
+
+  it('fails a successful read that carries no content', async () => {
+    const readPage: ReadPage = () =>
+      Promise.resolve({
+        status: 'success',
+        kind: 'directory',
+        path: '/srv/AGENTS.md',
+      });
+
+    const result = await readInstructionFile(
+      { path: '/srv/AGENTS.md', canonicalPath: '/srv/AGENTS.md', size: 6 },
+      readPage,
+    );
+
+    expect(result).toEqual({ kind: 'failed' });
   });
 });
