@@ -158,17 +158,36 @@ function encodedSuggestion(href: string, selector: string): string {
 }
 
 /**
- * A suffix that meant a line the grammar cannot serve (`:0`, `:12+`). The
- * ranges the model can write are named first and the literal-colon spelling
- * second, because that model asked for a line, not a path.
+ * A suffix that meant lines the grammar cannot serve (`:0`, `:12+`,
+ * `:4-5,12+`, `:outline:49,119`). The forms the model can write are named
+ * first and the literal-colon spelling second, because that model asked for
+ * lines, not a path; encoding its colons requests a URL nobody serves.
  */
 const LINE_SELECTOR_ATTEMPT = /^\d+[-+]?$/u;
+const RANGE_ATTEMPT = /^(?:(raw|outline):)?[\d,+-]+$/u;
+const RANGE_FORMS = {
+  lines:
+    'A line selector is :N, :N-M, or :N+K, or a comma-separated list of them, and a line number starts at 1.',
+  raw: 'A raw selector is :raw, or :raw: followed by N, N-M, or N+K ranges separated by commas, and a line number starts at 1.',
+  outline:
+    'An outline takes at most one range, :outline:N, :outline:N-M, or :outline:N+K, and a line number starts at 1; read one outline per range.',
+} as const;
 
 function invalidSelectorMessage(href: string, selector: string): string {
   const encoded = encodedSuggestion(href, selector);
-  if (!LINE_SELECTOR_ATTEMPT.test(selector)) return encoded;
-  const start = selector.replace(/[-+]$/u, '');
-  return `A line selector is :N, :N-M, or :N+K, and a line number starts at 1, so line ${start} is :${start}. For a literal colon, ${lowerFirst(encoded)}`;
+  const literal = `For a literal colon, ${lowerFirst(encoded)}`;
+  if (LINE_SELECTOR_ATTEMPT.test(selector)) {
+    const start = selector.replace(/[-+]$/u, '');
+    return `A line selector is :N, :N-M, or :N+K, and a line number starts at 1, so line ${start} is :${start}. ${literal}`;
+  }
+  const attempt = RANGE_ATTEMPT.exec(selector);
+  if (attempt === null) return encoded;
+  const member = attempt[1];
+  const forms =
+    member === 'raw' || member === 'outline'
+      ? RANGE_FORMS[member]
+      : RANGE_FORMS.lines;
+  return `${forms} ${literal}`;
 }
 
 function lowerFirst(text: string): string {
