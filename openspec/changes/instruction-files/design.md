@@ -302,10 +302,15 @@ skills.
 
 ## Migration Plan
 
-No schema change. Deploy by process upgrade; old assistant messages carry no `data-context`
-parts and replay unchanged. Rollback is a process downgrade: a downgraded worker would
-replay an assistant-message `data-context` part as an unknown part and omit it, which is the
-documented display-only behavior, so no data repair is needed.
+No schema change. Deploy by process upgrade in stack order: the carrier layer
+(`in-run-context-items`) merges and deploys to every API and worker process before the
+producer layer (`producer`) authors any `instructions` item, so no process ever meets an
+assistant-message `data-context` part it cannot replay. Old assistant messages carry no such
+part and replay unchanged. Rollback stops at the carrier: revert or hold back the producer
+layer, which ends new authoring while the carrier keeps replaying parts already stored.
+Downgrading below the carrier is not a supported rollback, because a pre-carrier worker
+replays an assistant-message `data-context` part as an unknown part and omits its text from
+model context; the stored history survives, its model-facing meaning does not.
 
 ## Open Questions
 
