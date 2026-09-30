@@ -291,6 +291,61 @@ skills.
 - `instruction-files/turn-load`: the accepted-turn root load and its recomputation after
   transition compaction.
 - `instruction-files/owner-chip`: the owner chip, operator docs, `SPEC.md`, and the changelog.
+  References #975.
+- `instruction-files/knowledge`: `kb://` triggers, the Space-scoped walk, the owner-scoped
+  Space probe, and logical locator labels and seen keys. Its merge closes #975.
+
+### D12: Knowledge locators load within their Space
+
+**Decision:** a native `read`, `edit`, or `write` whose `path` is a `kb://` locator loads the
+same candidate chains from the root of that Space down to the touched directory, with the
+same selection rules, the same paged system-origin reads, and the same seen-once-per-epoch
+behavior as a host path. A `knowledge_search` hit does not trigger, exactly like `bash`: a
+hit is a document the model chose to surface, not a location it is about to work in, and the
+trigger rule is about touch, not discovery.
+
+**Why the Space root is the ceiling:** the operator's `knowledge.root` is a private host
+path that holds every owner's Spaces and is operator-owned, not agent-visible; walking above
+a Space would load whatever instruction-named file happens to sit beside it, and D4's walk
+to `/` exists only because a host ancestor can plausibly carry the owner's own dotfiles. A
+Space is the unit an owner authors rules in, so it is also the unit the walk stops at. The
+Space's touched directory is the locator's own directory when it names an existing directory
+in that Space, else its parent within the Space.
+
+**Why owner-authored Space rules apply:** an owner writes `CLAUDE.md` and per-directory
+`AGENTS.md` in a Space to govern work done there, including agent Knowledge writes
+([#212](https://github.com/leon0399/llame/issues/212)); excluding `kb://` touches would leave
+exactly the agent that most needs the rules without them.
+
+**Why logical locators:** Knowledge results never expose host paths, owner IDs, credentials,
+or raw filesystem errors (`docs/knowledge.md`). A bundle that labelled a Space candidate with
+its host path would break that promise in the model context, the payload, the audit events,
+and the owner chip. Each candidate is therefore labelled and keyed by
+`formatKnowledgeLocator`'s output, `kb://<spaceId>/<relative path>`; that string is also the
+seen key, so the model's own read of a candidate is excluded by comparing locators within the
+same directory. The Knowledge resolver refuses a symlinked candidate, so a symlink cannot
+collapse two Space candidates into one.
+
+**Why the probe is owner-scoped:** Space resolution runs through the Run owner's
+`resolveBindingForOwnerById` and RLS on every call
+(`apps/api/src/knowledge/knowledge-locator.ts:211-232`), so an absent, other-owner, or
+unavailable Space is one indistinguishable result. Probing a Space the owner cannot reach
+would either leak existence through timing or an error surface, so a locator naming such a
+Space loads nothing, probes nothing, and records no event.
+
+**No accepted-turn load:** a Chat's Workspace binding is what an accepted-turn load is
+decided from, and a Space has no binding. A `kb://` chain therefore returns only on its next
+touch, and the accepted-turn trigger stays host-path only.
+
+**Gating:** loading needs `read` in `tools.allowed`; a host-path trigger additionally needs a
+native executor, a `kb://` trigger additionally needs a configured `knowledge.root`, and
+neither needs `enter_workspace`. The permission projection already canonicalizes `kb://`
+before `path` rules run (`apps/api/src/tools/permissions/locator-projection.ts:54-55`), so the
+`read` group admits a Space candidate under the same rule a model read of that locator gets.
+
+**Ordering:** host and Knowledge candidates resolve into the same one-item-per-step bundle —
+host files first, then Knowledge files, each group from its broadest directory and base
+before local — so a step that touches both produces one notice the model reads in one place.
 
 ## Risks / Trade-offs
 
@@ -338,6 +393,15 @@ rule.
 
 ## Revision history
 
+- **v7 (2026-09-30, Knowledge locators):** Leo's design review corrected the earlier draft,
+  which excluded `kb://` touches from loading: an owner who writes rules in a Space got none
+  of them for the work done in that Space. D12 adds Knowledge-locator loading, and the walk
+  requirement is now scoped to host-path and entry triggers while a new requirement states the
+  Space-scoped walk, the owner-scoped probe, logical locator identity, and the absence of an
+  accepted-turn load for a Space. The trigger list now admits a `kb://` `read`/`edit`/`write`
+  and names `knowledge_search` as a non-trigger; the probe and gating sentences split host
+  paths from `kb://`; and the seen-set and bundle requirements key a Knowledge candidate by its
+  logical locator. D11 adds the `instruction-files/knowledge` layer, which closes #975.
 - **v6 (2026-09-30, post-review decisions):** Risks records that a fully denied step
   discloses nothing in the chat and points to #1039; the earlier "visible in the owner's
   activity feed" claim is removed, because no feed shows system-origin events. The chip renders

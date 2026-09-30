@@ -41,18 +41,24 @@ gap is the first half of this change; the instruction-file producer is the secon
   Empty files contribute nothing.
 - **Triggers.** `enter_workspace` loads the chain for the canonical root from the next model
   step. Native `read`, `edit`, and `write` on a local filesystem path load the chain for the
-  path's directory from the next model step, whether or not the target exists; `bash`,
-  `kb://`, `skill://`, and web locators do not. Each accepted user turn on a bound Chat whose
-  root chain is not in effective context stages the root chain before the first request,
-  which covers compaction and bindings that predate this change. A model `read` of an
-  instruction file itself neither triggers that file nor marks it seen.
-- **Seen set.** Derived, not stored: the canonical paths named by `instructions` items in the
+  path's directory from the next model step, whether or not the target exists; a `kb://`
+  locator loads the chain from the root of its own Space down to the touched directory,
+  labelled and keyed by logical `kb://` locators, so no host path ever reaches the model or
+  the owner. `bash`, `knowledge_search`, `skill://`, and web locators do not trigger. Each
+  accepted user turn on a bound Chat whose root chain is not in effective context stages the
+  root chain before the first request, which covers compaction and bindings that predate this
+  change. A model `read` of an instruction file itself neither triggers that file nor marks it
+  seen.
+- **Seen set.** Derived, not stored: the file identities named by `instructions` items in the
   Chat's effective history (messages after the active compaction's cutoff, plus items
-  staged or emitted by the current attempt). Compaction does not carry in-Run items into
+  staged or emitted by the current attempt) — a canonical host path, or the logical `kb://`
+  locator for a Space candidate. Compaction does not carry in-Run items into
   replacement history, so a file absorbed by a compaction reloads on the next trigger. No
   Chat column, migration, or fork remap.
-- **Authorization and audit.** Candidate existence and size are probed on the executor
-  without a permission decision or audit event; the probe reveals nothing to the model. Each
+- **Authorization and audit.** Candidate existence and size are probed without a permission
+  decision or audit event — on the executor for a host path, through the Run owner's
+  Knowledge resolver for a Space, which loads nothing for another owner's, missing, or
+  unavailable Space; the probe reveals nothing to the model. Each
   existing candidate is one or more paged system-origin `read`s admitted by the `read`
   permission group and audited like a model read with origin `instructions`; a denied file is
   omitted from the bundle and never named to the model. The model therefore receives nothing
@@ -76,15 +82,18 @@ descendant path on that executor. This is accepted for the personal-first deploy
 recorded as a tradeoff in design.md. `LLAME.md` replacing `AGENTS.md` in the same directory
 is accepted; a repository that wants both writes the shared text in `LLAME.md` or waits
 for #1029. "Seen" means once per compaction epoch, matching Claude Code and OpenCode, not
-once per Chat.
+once per Chat. The walk inside a Knowledge Space stops at that Space's own root: the operator
+Knowledge root above it spans every owner's Spaces and is a private host path, so nothing above
+a Space is loaded and no Space loads for an owner who cannot reach it.
 
 ## Capabilities
 
 ### New Capabilities
 
 - `instruction-files`: candidate chains and per-directory selection, the directory walk and
-  its ceiling, triggers, the derived seen set, system-origin admission and audit, bundle
-  content and bounds, owner disclosure, and compaction behavior.
+  its ceiling for host paths and for `kb://` locators within their Space, triggers, the
+  derived seen set, system-origin admission and audit, bundle content and bounds, owner
+  disclosure, and compaction behavior.
 
 ### Modified Capabilities
 
@@ -109,6 +118,10 @@ once per Chat.
   existing `prepareStep`/`onStepStart` seam, publication with the winning attempt, the Run
   context-item record, and system-origin reads with `instructions` audit origin.
 - `apps/api/src/tools`: the trigger hook on native `read`/`edit`/`write` and Workspace entry.
+- `apps/api/src/knowledge`: owner-scoped Space resolution and candidate probing for the
+  Space-scoped walk, reusing the existing locator resolution and its host-path containment
+  check.
 - `apps/web`: the instructions chip on assistant and user messages.
-- Docs: `docs/native-files.md`, `SPEC.md`'s context-rail and Workspace lines, `CHANGELOG.md`.
+- Docs: `docs/native-files.md`, `docs/knowledge.md`, `SPEC.md`'s context-rail and Workspace
+  lines, `CHANGELOG.md`.
 - No schema change and no migration.

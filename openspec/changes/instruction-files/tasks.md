@@ -9,6 +9,7 @@ Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation.
          <- instruction-files/producer
          <- instruction-files/turn-load
          <- instruction-files/owner-chip
+         <- instruction-files/knowledge
          <- instruction-files/finalize
 ```
 
@@ -28,12 +29,14 @@ Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation.
 - `turn-load` (parent `producer`, about 800 authored lines): the accepted-turn root load staged
   after the `workspace` item, recomputed after transition compaction. References #975.
 - `owner-chip` (parent `turn-load`, about 1,000 authored lines): the owner chip, the share
-  exclusion test, operator docs, `SPEC.md`, and the changelog entry. Its merge completes #975's
-  acceptance, so its PR uses `Closes #975`.
+  exclusion test, operator docs, `SPEC.md`, and the changelog entry. References #975.
+- `knowledge` (parent `owner-chip`, about 900 authored lines): `kb://` triggers, the
+  Space-scoped walk, the owner-scoped Space probe, and logical locator labels and seen keys.
+  Its merge completes #975's acceptance, so its PR uses `Closes #975`.
 - The implementation was first planned as one `producer` layer (estimated 1,700 lines); the
   measured implementation was about 4,600 authored lines, so it is split along these
   responsibilities to stay within the review budget.
-- `finalize` (parent `owner-chip`, about 100 authored lines) owns only spec sync, checked task
+- `finalize` (parent `knowledge`, about 100 authored lines) owns only spec sync, checked task
   records, and archive movement.
 
 Re-estimate authored size at each layer boundary and before publication; split a growing concern or request a named exception before publishing an oversized layer. Do not put live delivery status in this file.
@@ -130,12 +133,12 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [ ] 3.1 Wire the triggers: mark the touched directory during `enter_workspace` (establish or
       switch only), native `read`, `edit`, and `write` on local host paths regardless of call
       outcome but not on denial; drain the pending set in `prepareStep` into at most one bundle
-      per step through the carrier interface; exclude `bash`, `kb://`, `skill://`, and web
-      locators; exclude the model's own read of a candidate file from loading or marking that
-      file (design D5). Verify each trigger and each exclusion, two touches in one step yielding
-      one bundle, two selected candidates resolving to one canonical path loaded once under the
-      first path in walk order, the same-step-no-load boundary matching the Workspace root cell,
-      and that exit, same-root re-entry, and detach produce nothing.
+      per step through the carrier interface; exclude `bash`, `knowledge_search`, `skill://`,
+      and web locators; exclude the model's own read of a candidate file from loading or
+      marking that file (design D5). Verify each trigger and each exclusion, two touches in one
+      step yielding one bundle, two selected candidates resolving to one canonical path loaded
+      once under the first path in walk order, the same-step-no-load boundary matching the
+      Workspace root cell, and that exit, same-root re-entry, and detach produce nothing.
 - [ ] 3.2 Derive the seen set from the `files` payload of instructions items in messages after
       the compaction cutoff plus the attempt's staged and emitted items, keyed by canonical
       path, reset on transition compaction inside a Run (design D7). Verify a second touch in
@@ -199,20 +202,59 @@ Re-estimate authored size at each layer boundary and before publication; split a
       `typecheck`, and `test:coverage`, the focused integration files touched above,
       `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate instruction-files --strict`; record the commands in the PR
-      body, which uses `Closes #975`.
+      body, which uses `Refs #975`.
 - [ ] 5.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 5.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+      CI and zero actionable unresolved feedback before creating `knowledge`.
+
+## 6. `instruction-files/knowledge`: Knowledge locator loading
+
+- [ ] 6.1 Wire the `kb://` trigger into the producer's pending set, project a Knowledge
+      locator to its Space and touched directory, and resolve that Space under the Run owner's
+      identity through the owner-scoped Knowledge resolver (design D12). Walk from the Space
+      root down to the touched directory with the same chains, selection rules, empty-file
+      suppression, and non-regular skipping; a symlinked candidate the Knowledge resolver
+      refuses is not selected. Label and key each selected candidate by its logical
+      `kb://<spaceId>/<relative path>` locator, exclude the model's own read of a candidate by
+      comparing that locator within the same directory, and never put a host path in the text,
+      payload, metadata, events, or chip. Verify the chain from the Space root down to the
+      touched directory, that a file above the Space root is never loaded, that a locator
+      naming another owner's Space, a missing Space, or an unavailable Space loads nothing and
+      probes nothing, and that a symlinked candidate is skipped.
+- [ ] 6.2 Split the gating: loading requires `read` in `tools.allowed`, plus a native executor
+      for a host-path trigger or a configured `knowledge.root` for a `kb://` trigger, and
+      `enter_workspace` for neither. Read Space candidates through the layer-3 in-Run system
+      read helper with `kb://` locators and `:raw` pages under origin `instructions`, and order
+      one item per step with host files first, then Knowledge files, each group from its
+      broadest directory and base before local. Verify a `kb://`-only Run on a process without
+      a native executor loads its chain, a step touching both a host path and a `kb://` locator
+      produces exactly one item with the host file first, and a second touch in the epoch is
+      silent.
+- [ ] 6.3 Verify the negative isolation cases: a locator naming another owner's Space loads
+      nothing, issues no candidate probe, and records no `instructions` event; the item text,
+      payload, metadata, audit events, and owner chip contain no host path; and a
+      `knowledge_search` hit loads nothing.
+- [ ] 6.4 Document the Space-scoped walk, the logical labels, and the non-triggers in
+      `docs/knowledge.md` and `docs/native-files.md`, update the `SPEC.md` sentence for
+      Knowledge loading, and add a dated `CHANGELOG.md` entry. Run `pnpm --filter api lint`,
+      `typecheck`, and `unit`, the focused integration files touched above, `pnpm format:check`,
+      `pnpm lint:markdown`, `git diff --check`, and
+      `pnpm exec openspec validate instruction-files --strict`; record the commands in the PR
+      body, which uses `Closes #975`.
+- [ ] 6.5 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+      accepted findings, and rerun affected checks before marking ready.
+- [ ] 6.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `finalize`.
 
-## 6. `instruction-files/finalize`: spec sync and archive
+## 7. `instruction-files/finalize`: spec sync and archive
 
-- [ ] 6.1 After every implementation layer is published, verified, and checked, create only the
+- [ ] 7.1 After every implementation layer is published, verified, and checked, create only the
       finalize layer with `$gh-stack`, then run `$openspec-sync-specs`. Verify
       `pnpm exec openspec validate --specs --strict` and
       `pnpm exec openspec validate --all --strict`; this layer contains no application fix and
       no shipping record.
-- [ ] 6.2 Inspect `pnpm exec openspec status --change instruction-files --json` and this task
+- [ ] 7.2 Inspect `pnpm exec openspec status --change instruction-files --json` and this task
       list; stop if an artifact or earlier task is incomplete. Complete this task as part of
       `$openspec-archive-change`, preserving checked history, and verify strict specs/all
       validation, Markdown lint, formatting, and `git diff --check` on the archived result.
