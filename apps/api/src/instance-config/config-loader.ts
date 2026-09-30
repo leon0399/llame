@@ -141,21 +141,17 @@ function resolveRunsConfig(
       }),
       'runs.heartbeatSeconds',
     ),
-    timeoutSeconds: resolveNumeric({
-      configPath: 'runs.timeoutSeconds',
-      ...readLeaf(raw, 'runs', 'timeoutSeconds'),
-      builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
-      // Opt-in: null (absent, explicit null, or an empty-resolving token) is
-      // "no wall-clock budget". A configured budget at or above the runs
-      // domain's execution ceiling would be silently truncated by it, so it
-      // fails startup naming this path instead.
-      nullable: true,
-      under: {
-        limit: RUN_EXECUTION_CEILING_SECONDS,
-        name: 'the Run execution ceiling',
-      },
-      env,
-    }),
+    // Opt-in: null (absent, explicit null, or an empty-resolving token) is
+    // "no wall-clock budget".
+    timeoutSeconds: requireBudgetUnderExecutionCeiling(
+      resolveNumeric({
+        configPath: 'runs.timeoutSeconds',
+        ...readLeaf(raw, 'runs', 'timeoutSeconds'),
+        builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
+        nullable: true,
+        env,
+      }),
+    ),
   };
 }
 
@@ -780,17 +776,14 @@ function resolveNullableString(opts: {
 }
 
 /**
- * An exclusive upper bound on a resolved numeric setting, with the name it goes
- * by in the boot error. Both bounds are enforced AFTER interpolation: the JSON
- * Schema's `minimum`/`maximum` can only constrain the literal-integer branch of
- * a `…OrToken` $def, never the token string.
+ * Resolve one numeric setting: absent leaves take the built-in default,
+ * everything else is read by the raw value's shape. `min` is an inclusive
+ * lower bound (default 1) enforced AFTER interpolation, so an `{env:...}`
+ * token that resolves below it fails with a clear config error — the JSON
+ * Schema's `minimum` only constrains the literal-integer branch of a
+ * `…OrToken` $def, never the token string (e.g. pg-boss's hard 10s
+ * `heartbeatSeconds` floor).
  */
-type ExclusiveUpperBound = { limit: number; name: string };
-
-/** The shared doc for a setting's lower bound: the default floor is 1, and an
- *  `{env:...}` token resolving below it must fail with a clear config error
- *  rather than crash boot inside the substrate (e.g. pg-boss's hard 10s
- *  `heartbeatSeconds` floor). */
 function resolveNumeric(opts: {
   configPath: string;
   present: boolean;
@@ -799,32 +792,30 @@ function resolveNumeric(opts: {
   nullable: boolean;
   env: NodeJS.ProcessEnv;
   min?: number;
-  under?: ExclusiveUpperBound;
 }): number | null {
-  if (!opts.present) {
+  const { configPath, present, raw, builtInDefault, nullable, env, min } = opts;
+
+  if (!present) {
     // Absent from the file = the built-in default. The environment reaches
     // config ONLY through {env:...} interpolation tokens in the file — there
     // is no bare env-var fallback (D5).
-    return opts.builtInDefault;
+    return builtInDefault;
   }
-  return resolvePresentNumeric(opts);
-}
 
-/** The file-carried half of `resolveNumeric`, by the raw value's shape. */
-function resolvePresentNumeric(opts: {
-  configPath: string;
-  raw: unknown;
-  nullable: boolean;
-  env: NodeJS.ProcessEnv;
-  min?: number;
-  under?: ExclusiveUpperBound;
-}): number | null {
-  const { configPath, raw, nullable, env, min, under } = opts;
+  // A nullable setting resolves explicit null to "unset"; a required one
+  // rejects it. ajv's raw-shape validation already rejects `null` on the
+  // non-nullable settings, so this is defense-in-depth in case the schema and
+  // this map ever drift.
   if (raw === null) {
-    return resolveExplicitNull(configPath, nullable);
+    if (!nullable) {
+      throw new InstanceConfigError(
+        `${configPath}: must not be null (not a nullable setting)`,
+      );
+    }
+    return null;
   }
   if (isNumber(raw)) {
-    assertWithinBounds(raw, configPath, min, under);
+    assertPositiveInteger(raw, configPath, min);
     return raw;
   }
 
@@ -836,29 +827,7 @@ function resolvePresentNumeric(opts: {
       `${configPath}: must be a number or a {env:}/{path:} token string`,
     );
   }
-  return resolveNumericFromToken(raw, {
-    configPath,
-    env,
-    nullable,
-    min,
-    under,
-  });
-}
-
-/**
- * An explicit `null` in the file: unset for a nullable setting, a boot failure
- * for a required one. Unreachable while every numberOrToken/nullableNumberOrToken
- * $def is the arbiter — ajv's raw-shape validation already rejects `null` on a
- * non-nullable setting before this branch can run. Kept as defense-in-depth in
- * case the schema and this map ever drift.
- */
-function resolveExplicitNull(configPath: string, nullable: boolean): null {
-  if (!nullable) {
-    throw new InstanceConfigError(
-      `${configPath}: must not be null (not a nullable setting)`,
-    );
-  }
-  return null;
+  return resolveNumericFromToken(raw, { configPath, env, nullable, min });
 }
 
 /** The {env:}/{path:} token-string branch of `resolveNumeric` — resolved,
@@ -871,10 +840,9 @@ function resolveNumericFromToken(
     env: NodeJS.ProcessEnv;
     nullable: boolean;
     min?: number;
-    under?: ExclusiveUpperBound;
   },
 ): number | null {
-  const { configPath, env, nullable, min, under } = opts;
+  const { configPath, env, nullable, min } = opts;
   const resolved = resolveInterpolatedString(raw, configPath, env);
   if (resolved.trim() === '') {
     if (nullable) {
@@ -890,7 +858,7 @@ function resolveNumericFromToken(
       `${configPath}: interpolated value does not resolve to a valid number`,
     );
   }
-  assertWithinBounds(n, configPath, min, under);
+  assertPositiveInteger(n, configPath, min);
   return n;
 }
 
@@ -914,35 +882,39 @@ function requireResolvedNumber(
   return value;
 }
 
+/**
+ * The one bound on a Run limit that is not plain positivity: a wall-clock
+ * budget at or above the runs domain's execution ceiling is a budget the
+ * ceiling would silently truncate, so it fails startup naming the path rather
+ * than pretending to apply. A `null` budget is never checked.
+ */
+function requireBudgetUnderExecutionCeiling(
+  value: number | null,
+): number | null {
+  if (value !== null && value >= RUN_EXECUTION_CEILING_SECONDS) {
+    throw new InstanceConfigError(
+      `runs.timeoutSeconds: must be below ${RUN_EXECUTION_CEILING_SECONDS} (the Run execution ceiling)`,
+    );
+  }
+  return value;
+}
+
 function isStringArray(value: unknown): value is Array<string> {
   return Array.isArray(value) && value.every(isString);
 }
 
 /**
- * The bounds one resolved numeric setting must satisfy (literal or
- * interpolated-and-coerced). A file that says `"timeoutSeconds": -5` is
+ * Positivity/integer bound for every numeric setting (literal or
+ * interpolated-and-coerced): a file that says `"timeoutSeconds": -5` is
  * exactly the misconfiguration this feature exists to catch at boot, so it
- * fails loud rather than falling back; an exclusive upper bound fails for the
- * same reason, because a value the limit would silently truncate is a value
- * the operator would believe applies and it would not.
+ * fails loud rather than falling back.
  */
-function assertWithinBounds(
-  n: number,
-  configPath: string,
-  min: number | undefined,
-  under: ExclusiveUpperBound | undefined,
-): void {
-  const floor = min ?? 1;
-  if (!Number.isInteger(n) || n < floor) {
+function assertPositiveInteger(n: number, configPath: string, min = 1): void {
+  if (!Number.isInteger(n) || n < min) {
     throw new InstanceConfigError(
-      floor === 1
+      min === 1
         ? `${configPath}: must be a positive integer`
-        : `${configPath}: must be an integer >= ${floor}`,
-    );
-  }
-  if (under !== undefined && n >= under.limit) {
-    throw new InstanceConfigError(
-      `${configPath}: must be below ${under.limit} (${under.name})`,
+        : `${configPath}: must be an integer >= ${min}`,
     );
   }
 }

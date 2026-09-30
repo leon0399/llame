@@ -124,23 +124,29 @@ describe('applyStreamIdleWatchdog', () => {
     );
   });
 
-  it('fails a stream that stalls between parts', async () => {
+  it('reports a stall after an output part to onError, and still finishes', async () => {
     const stalled = model('stalled-parts', () =>
       Promise.resolve({
-        stream: stallingAfter([{ type: 'stream-start', warnings: [] }]),
+        stream: stallingAfter([
+          { type: 'stream-start', warnings: [] },
+          { type: 'text-start', id: 'answer' },
+          { type: 'text-delta', id: 'answer', delta: 'partial' },
+        ]),
       }),
     );
+    const onError = vi.fn<StreamTextOnErrorCallback>();
 
-    const result = watched(stalled, { chat: CHAT, messages });
-    const settled = result.fullStream.pipeTo(new WritableStream()).then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+    const result = watched(stalled, { chat: CHAT, messages, onError });
     await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
 
-    // The stream the caller reads fails with llame's own error; the parts the
-    // provider did send stay behind it.
-    expect(await settled).toBeInstanceOf(ModelStreamIdleError);
+    expect(onError.mock.calls[0]?.[0].error).toBeInstanceOf(
+      ModelStreamIdleError,
+    );
+    // The result still settles terminally, and keeps what the provider did
+    // send. An errored stream instead of an `error` part would leave the Run
+    // non-terminal, and the job would retry it from the start.
+    await expect(result.finishReason).resolves.toBe('error');
+    await expect(Promise.resolve(result.text)).resolves.toBe('partial');
   });
 
   it('leaves a stream whose parts keep arriving alone', async () => {

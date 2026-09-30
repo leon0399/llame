@@ -799,101 +799,65 @@ describeIfDb(
       expect(dispatchCalls).toHaveLength(1);
     });
 
-    it('409s a DIFFERENT message while a non-terminal run is in flight for the chat, and leaves the blocker untouched', async () => {
-      const chatId = crypto.randomUUID();
-      const rejectedMessageId = crypto.randomUUID();
-
-      await send(chatId, crypto.randomUUID(), 'blocker');
-      const blocker = await activeRun(chatId);
-      expect(blocker).toBeDefined();
-      // A fresh blocker whose job is live: work the queue can still execute.
-      jobState.mockResolvedValue('active');
-
-      await expect(
-        send(chatId, rejectedMessageId, 'a different message'),
-      ).rejects.toBeInstanceOf(ConflictException);
-
-      // The blocker is exactly as it was — a run the queue can still execute
-      // is never expired here, at any age (see the cases above).
-      const stillBlocking = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(blocker!.id, userId),
-      );
-      expect(stillBlocking?.status).toBe(blocker!.status);
-      const messages = await tenantDb.runAs(userId, (tx) =>
-        new MessagesRepository(tx).findByChatId(chatId, userId),
-      );
-      expect(messages.some(({ id }) => id === rejectedMessageId)).toBe(false);
-      expect(dispatchCalls).toHaveLength(1);
-    });
-
-    it('409s an ACTIVE blocker older than any configured budget — a live job is never expired by age', async () => {
-      const chatId = crypto.randomUUID();
-
-      await send(chatId, crypto.randomUUID(), 'long-running blocker');
-      const blocker = await activeRun(chatId);
-      expect(blocker).toBeDefined();
-      // Far older than the 300 s budget this instance configures. The run's job
-      // is still active, so the queue can execute it: 409, and it keeps running.
-      await ageRun(blocker!.id, 400_000);
-      jobState.mockResolvedValue('active');
-
-      await expect(
-        send(chatId, crypto.randomUUID(), 'a different message'),
-      ).rejects.toBeInstanceOf(ConflictException);
-
-      const stillBlocking = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(blocker!.id, userId),
-      );
-      expect(stillBlocking?.status).toBe(blocker!.status);
-      expect(dispatchCalls).toHaveLength(1);
-    });
-
-    it.each(['queued', 'retrying'] as const)(
-      '409s a %s blocker during a worker outage, whatever its age',
-      async (state) => {
+    // One table, one test: a blocker the queue can still execute is live and
+    // 409s the chat — at any age, and whether its job is actively running,
+    // still waiting to be claimed, or not yet written while the run row is
+    // already committed.
+    it.each([
+      { state: 'active', ageMs: 0, why: 'a live job, fresh' },
+      // Far older than the 300 s budget this instance configures: age alone
+      // must never end a run the queue can execute.
+      {
+        state: 'active',
+        ageMs: 400_000,
+        why: 'a live job, long past any budget',
+      },
+      {
+        state: 'queued',
+        ageMs: 400_000,
+        why: 'a job still waiting for a worker',
+      },
+      {
+        state: 'retrying',
+        ageMs: 400_000,
+        why: 'a job awaiting its next attempt',
+      },
+      {
+        state: 'absent',
+        // Under one liveness window: the enqueue may still be in flight after
+        // the run row committed.
+        ageMs: heartbeatSeconds(BUILT_IN_DEFAULTS) * 1000 - 2 * SECOND_MS,
+        why: 'no job yet, younger than one heartbeat window',
+      },
+    ] as const)(
+      '409s a second message when the blocker has $why',
+      async ({ state, ageMs }) => {
         const chatId = crypto.randomUUID();
+        const rejectedMessageId = crypto.randomUUID();
 
-        await send(chatId, crypto.randomUUID(), 'queued blocker');
+        await send(chatId, crypto.randomUUID(), 'blocker');
         const blocker = await activeRun(chatId);
         expect(blocker).toBeDefined();
-        await ageRun(blocker!.id, 400_000);
         jobState.mockResolvedValue(state);
+        if (ageMs > 0) await ageRun(blocker!.id, ageMs);
 
         await expect(
-          send(chatId, crypto.randomUUID(), 'a different message'),
+          send(chatId, rejectedMessageId, 'a different message'),
         ).rejects.toBeInstanceOf(ConflictException);
 
+        // The blocker is exactly as it was, and the rejected message was never
+        // persisted: nothing about a live run changes under a second message.
         const stillBlocking = await tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(blocker!.id, userId),
         );
         expect(stillBlocking?.status).toBe(blocker!.status);
+        const messages = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findByChatId(chatId, userId),
+        );
+        expect(messages.some(({ id }) => id === rejectedMessageId)).toBe(false);
+        expect(dispatchCalls).toHaveLength(1);
       },
     );
-
-    it('409s a job-less blocker younger than one liveness window (the enqueue may still be in flight)', async () => {
-      const chatId = crypto.randomUUID();
-
-      await send(
-        chatId,
-        crypto.randomUUID(),
-        'blocker whose enqueue is in flight',
-      );
-      const blocker = await activeRun(chatId);
-      expect(blocker).toBeDefined();
-      jobState.mockResolvedValue('absent');
-      const youngerThanHeartbeat =
-        heartbeatSeconds(BUILT_IN_DEFAULTS) * 1000 - 2 * SECOND_MS;
-      await ageRun(blocker!.id, youngerThanHeartbeat);
-
-      await expect(
-        send(chatId, crypto.randomUUID(), 'a different message'),
-      ).rejects.toBeInstanceOf(ConflictException);
-
-      const stillBlocking = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(blocker!.id, userId),
-      );
-      expect(stillBlocking?.status).toBe(blocker!.status);
-    });
 
     it.each(['absent', 'completed', 'failed', 'cancelled'] as const)(
       'expires a blocker whose job reads %s once it is older than one liveness window, and admits the new message',

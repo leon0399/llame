@@ -415,28 +415,22 @@ const MAX_ADAPTER_DECISIONS = 16;
 export const RUN_TIMEOUT_ABORT_REASON = 'run-timeout';
 /**
  * AbortSignal.abort(reason) tag for the worker's execution ceiling — the
- * substrate bound a run reaches when no budget was configured (or the
- * configured budget is above the ceiling). It settles as `expired` exactly
- * like a budget overrun, but its message names the ceiling, never a budget
- * the operator did not configure.
+ * substrate bound a run reaches when no budget is configured. It settles as
+ * `expired` exactly like a budget overrun, but its message names the ceiling,
+ * never a budget the operator did not configure.
  */
 export const RUN_CEILING_ABORT_REASON = 'run-ceiling';
 export const NATIVE_MUTATION_ABORT_REASON = 'native-mutation-unknown';
-
-const RUN_BUDGET_EXCEEDED_MESSAGE =
-  'Run timed out: exceeded its wall-clock budget.';
-const RUN_CEILING_REACHED_MESSAGE =
-  'Run reached the 23 h 55 m execution ceiling.';
 
 /**
  * The terminal message for an expired run, chosen from the abort REASON
  * rather than the status: both reasons settle as run.expired, but only a
  * configured budget may be named in the message.
  */
-export function expiredRunMessage(signal: AbortSignal | undefined): string {
+function expiredRunMessage(signal: AbortSignal | undefined): string {
   return signal?.reason === RUN_CEILING_ABORT_REASON
-    ? RUN_CEILING_REACHED_MESSAGE
-    : RUN_BUDGET_EXCEEDED_MESSAGE;
+    ? 'Run reached the 23 h 55 m execution ceiling.'
+    : 'Run timed out: exceeded its wall-clock budget.';
 }
 
 /**
@@ -726,17 +720,20 @@ export class RunExecutionService {
       const runs = new RunsRepository(tx);
       const events = new RunEventsRepository(tx);
       if (input.abortSignal?.aborted) {
-        const signal = input.abortSignal;
         const status = classifyAbortedRun(input.abortSignal);
         const finished = await runs.markFinished(
           input.runId,
           input.userId,
           status,
-          { error: { message: this.abortedRunMessage(status, signal) } },
+          {
+            error: {
+              message: this.abortedRunMessage(status, input.abortSignal),
+            },
+          },
         );
         if (finished) {
           await events.append(input.runId, `run.${status}`, {
-            message: this.abortedRunMessage(status, signal),
+            message: this.abortedRunMessage(status, input.abortSignal),
           });
         }
         return false;

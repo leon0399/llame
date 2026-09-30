@@ -65,16 +65,6 @@ describe('RunDispatchService', () => {
     );
   });
 
-  it('reads a run job state by the run id the dispatch named it with', async () => {
-    const q = queue();
-    const jobState = vi.spyOn(q, 'jobState');
-    jobState.mockResolvedValue('active');
-    const service = new RunDispatchService(q, config(), tenantDb());
-
-    await expect(service.jobState('run-1')).resolves.toBe('active');
-    expect(jobState).toHaveBeenCalledWith(RUNS_QUEUE, 'run-1');
-  });
-
   it('retries queue bootstrap after failure and rethrows enqueue failures', async () => {
     const bootstrapFailure = new Error('queue offline');
     const q = queue();

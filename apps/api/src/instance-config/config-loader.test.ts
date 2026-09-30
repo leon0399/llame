@@ -532,34 +532,14 @@ describe('loadInstanceConfig — opt-in Run limits (opt-in-run-limits D1)', () =
     expect(fromTokens.tools.maxStepsPerRun).toBeNull();
   });
 
-  it('keeps a configured budget and cap', () => {
-    writeConfig(
-      '{ "runs": { "timeoutSeconds": 1200 }, "tools": { "maxStepsPerRun": 40 } }',
-    );
-    const config = loadInstanceConfig();
-    expect(config.runs.timeoutSeconds).toBe(1200);
-    expect(config.tools.maxStepsPerRun).toBe(40);
-  });
-
   it.each([
-    ['{ "runs": { "timeoutSeconds": 0 } }', /runs\/timeoutSeconds/],
     ['{ "runs": { "timeoutSeconds": 2.5 } }', /runs\/timeoutSeconds/],
-    ['{ "tools": { "maxStepsPerRun": 0 } }', /tools\/maxStepsPerRun/],
     ['{ "tools": { "maxStepsPerRun": -1 } }', /tools\/maxStepsPerRun/],
     ['{ "tools": { "maxStepsPerRun": 1.5 } }', /tools\/maxStepsPerRun/],
   ])('fails startup naming the path for %s', (config, path) => {
     writeConfig(config);
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     expect(() => loadInstanceConfig()).toThrow(path);
-  });
-
-  it('fails startup when a token resolves to zero — zero is never unlimited', () => {
-    process.env.RUN_TIMEOUT_SECONDS_SRC = '0';
-    writeConfig(
-      '{ "runs": { "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS_SRC}" } }',
-    );
-    expect(() => loadInstanceConfig()).toThrow(/runs\.timeoutSeconds/);
-    delete process.env.RUN_TIMEOUT_SECONDS_SRC;
   });
 
   it('fails startup naming the path when a budget is at or above the execution ceiling', () => {

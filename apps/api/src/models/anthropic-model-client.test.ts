@@ -687,6 +687,12 @@ describe('createAnthropicModelClient — reasoning channel settlement (D18)', ()
   );
 });
 
+/** A Messages stream that delivers a text block, then never sends again. */
+const pingThenSilence = [
+  ...textBlock(0, 'partial'),
+  'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":null},"usage":{"output_tokens":1}}\n\n',
+];
+
 describe('createAnthropicModelClient — stream-idle watchdog (design D4)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -697,18 +703,16 @@ describe('createAnthropicModelClient — stream-idle watchdog (design D4)', () =
   });
 
   it('keeps the watchdog error and its code through the Messages sanitizer', async () => {
-    // A 200 whose SSE body never produces another event: the provider
-    // answered and then went silent, which is what the watchdog fails.
+    // A 200 whose SSE body delivers a text block and then goes silent: the
+    // provider answered, started, and stopped — the watchdog's case.
     const harness = buildHarness({
       respond: () =>
         new Response(
           new ReadableStream<Uint8Array>({
             start(controller) {
-              controller.enqueue(
-                new TextEncoder().encode(
-                  'event: ping\ndata: {"type": "ping"}\n\n',
-                ),
-              );
+              for (const event of pingThenSilence) {
+                controller.enqueue(new TextEncoder().encode(event));
+              }
             },
           }),
           { headers: { 'Content-Type': 'text/event-stream' } },
@@ -727,8 +731,10 @@ describe('createAnthropicModelClient — stream-idle watchdog (design D4)', () =
       messages,
       onError,
     });
-    void Promise.resolve(result.text).catch(() => undefined);
+    // The SDK streams nothing until a result accessor is read.
+    const drained = result.fullStream.pipeTo(new WritableStream());
     await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
+    await drained;
 
     expect(reported[0]).toBeInstanceOf(ModelStreamIdleError);
     expect(reported[0]).toMatchObject({ code: 'model_stream_idle' });

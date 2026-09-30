@@ -485,9 +485,9 @@ class HarnessModelClient implements ModelClient {
         ...((behavior.kind === 'conversation-recall' ||
           behavior.kind === 'tool-script') && {
           stopWhen:
-            input.maxSteps === null
+            input.maxSteps == null
               ? () => false
-              : stepCountIs((input.maxSteps ?? 8) + 1),
+              : stepCountIs(input.maxSteps + 1),
         }),
       }),
       ...scriptedStreamHandlers(input, settlement),

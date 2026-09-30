@@ -87,18 +87,19 @@ export function runsQueueDefinition(
     options: {
       ...RUNS_QUEUE.options,
       heartbeatSeconds: heartbeatSeconds(config),
-      // The job duration this queue DECLARES, one second under the worker's own
-      // execution ceiling: the worker ends a still-running run first, so
-      // pg-boss never fails and re-executes a live run because of its age.
+      // The job duration this queue DECLARES — deliberately longer than the
+      // worker's execution ceiling, so the worker ends a live run long before
+      // pg-boss could fail and re-execute it because of its age.
       expireInSeconds: RUNS_JOB_EXPIRE_SECONDS,
     },
   };
 }
 
 /**
- * The longest a single run's job may stay active, in seconds — the largest
- * value pg-boss accepts (it rejects 24 h or more), and one second under
- * `RUN_EXECUTION_CEILING_SECONDS` so the worker's own ceiling always wins.
+ * The longest a single run's job may stay active, in seconds: the largest
+ * value pg-boss accepts (it rejects 24 h or more), and the backstop that sits
+ * ABOVE `RUN_EXECUTION_CEILING_SECONDS` so the worker's own ceiling always
+ * ends the run first.
  */
 export const RUNS_JOB_EXPIRE_SECONDS = 86_399;
 

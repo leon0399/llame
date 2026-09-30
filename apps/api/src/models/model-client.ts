@@ -94,7 +94,9 @@ export interface ModelStreamInput {
    *
    * `null` is the operator's explicit "no cap" (design D1): the loop then runs
    * as many steps as the model asks for, and `onCapReached` never fires. An
-   * absent value keeps the client's own 8-step default.
+   * absent value means no cap either — every caller that supplies `tools`
+   * either runs them under an operator-configured cap or never executes a
+   * tool at all.
    */
   maxSteps?: number | null;
   /**

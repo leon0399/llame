@@ -472,7 +472,6 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
 });
 
 const ONE_SECOND_MS = 1000;
-const ONE_HOUR_SECONDS = 3600;
 
 describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limits D2)', () => {
   const job: RunJob = {
@@ -513,13 +512,10 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
   });
 
   /** Runs one job to its in-flight point and returns the live abort spy. */
-  async function armFor(
-    timeoutSeconds: number | null,
-  ): Promise<{ abort: Mock; unregister: ReturnType<typeof vi.fn> }> {
+  async function armFor(timeoutSeconds: number | null): Promise<Mock> {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(queuedRun);
     const abort = vi.fn();
     const controller = new AbortController();
-    const unregister = vi.fn();
     const { service, consumeSpy } = makeService(makeFakeTx(), {
       timeoutSeconds,
       models: { createClient: vi.fn().mockReturnValue({}) },
@@ -535,18 +531,18 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
           signal: controller.signal,
           abort,
         }),
-        unregister,
+        unregister: vi.fn(),
       },
     });
     const handler = await captureRunsHandler(service, consumeSpy);
     void handler(job);
     await vi.waitFor(() => expect(abort).not.toHaveBeenCalled());
-    return { abort, unregister };
+    return abort;
   }
 
   it('aborts with the budget reason at the configured budget', async () => {
     vi.useFakeTimers();
-    const { abort } = await armFor(300);
+    const abort = await armFor(300);
 
     await vi.advanceTimersByTimeAsync(299_000);
     expect(abort).not.toHaveBeenCalled();
@@ -556,7 +552,7 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
 
   it('aborts with the ceiling reason, not a budget, when no budget is configured', async () => {
     vi.useFakeTimers();
-    const { abort } = await armFor(null);
+    const abort = await armFor(null);
 
     // A no-budget run is still ended — by the substrate's ceiling, well past
     // any budget an operator would have configured.
@@ -564,18 +560,6 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
     expect(abort).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(ONE_SECOND_MS);
     expect(abort).toHaveBeenCalledWith(RUN_CEILING_ABORT_REASON);
-  });
-
-  it('never runs past the execution ceiling, even for an over-ceiling budget', async () => {
-    vi.useFakeTimers();
-    // Defensive: the loader rejects such a budget at boot, so this only proves
-    // the worker's own min() holds if a config object ever bypasses it.
-    const { abort } = await armFor(
-      RUN_EXECUTION_CEILING_SECONDS + ONE_HOUR_SECONDS,
-    );
-
-    await vi.advanceTimersByTimeAsync(RUN_EXECUTION_CEILING_SECONDS * 1000);
-    expect(abort).toHaveBeenCalledExactlyOnceWith(RUN_CEILING_ABORT_REASON);
   });
 });
 

@@ -225,18 +225,18 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // user cancel produces on the exact same AbortController/signal. No queue
     // job involved: a healthy worker kills its own overrun.
     //
-    // The limit is min(configured budget, the runs execution ceiling): the
-    // ceiling exists so the queue's declared job duration is never what ends a
-    // live run, and it wins (with its own reason, so the recorded message
-    // never names a budget the operator did not configure).
+    // The ceiling exists so the queue's declared job duration is never what
+    // ends a live run. A configured budget always wins over it (the loader
+    // rejects one at or above the ceiling), so the ceiling only decides the
+    // run's fate when NO budget is configured — and it carries its own reason,
+    // so the recorded message never names a budget the operator did not set.
     const budgetSeconds = runTimeoutSeconds(this.instanceConfig.config);
-    const overCeiling =
-      budgetSeconds === null || budgetSeconds > RUN_EXECUTION_CEILING_SECONDS;
-    const limitMs =
-      (overCeiling ? RUN_EXECUTION_CEILING_SECONDS : budgetSeconds) * 1000;
+    const limitMs = (budgetSeconds ?? RUN_EXECUTION_CEILING_SECONDS) * 1000;
     const timeoutTimer = setTimeout(() => {
       abort.abort(
-        overCeiling ? RUN_CEILING_ABORT_REASON : RUN_TIMEOUT_ABORT_REASON,
+        budgetSeconds === null
+          ? RUN_CEILING_ABORT_REASON
+          : RUN_TIMEOUT_ABORT_REASON,
       );
     }, limitMs);
 

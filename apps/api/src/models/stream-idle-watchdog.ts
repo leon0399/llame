@@ -31,28 +31,17 @@ export class ModelStreamIdleError extends Error {
   }
 }
 
-/** One provider request's idle window and what expiry does to it. */
-interface IdleWatchdog {
-  /** The signal the provider call carries: the Run's, linked to `idle`. */
-  readonly signal: AbortSignal;
-  /** Restarts the window; the first call is before the request leaves. */
-  arm: () => void;
-  /** Sets what expiry does: reject the request, or error the stream. */
-  onExpiry: (fail: (error: ModelStreamIdleError) => void) => void;
-  /** Ends the window for good and detaches the Run's abort listener. */
-  settle: () => void;
-}
-
-/** What expiry does before the caller has said: nothing, yet. */
-const NO_EXPIRY: (error: ModelStreamIdleError) => void = () => undefined;
-
-function createIdleWatchdog(runSignal: AbortSignal | undefined): IdleWatchdog {
+/**
+ * One provider request's idle window. `fail` is what expiry does: reject the
+ * request while its result is still pending, error the stream after that.
+ * Settling is final — a part arriving after the stream ended, the provider
+ * errored, or the Run aborted must not reopen the window.
+ */
+function createIdleWatchdog(runSignal: AbortSignal | undefined) {
   const idle = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let fail: (error: ModelStreamIdleError) => void = NO_EXPIRY;
-  // Settling is final: a part that arrives after the stream ended, the
-  // provider errored, or the run aborted must not reopen the window.
   let settled = false;
+  let fail: ((error: ModelStreamIdleError) => void) | undefined;
 
   const settle = (): void => {
     settled = true;
@@ -60,15 +49,14 @@ function createIdleWatchdog(runSignal: AbortSignal | undefined): IdleWatchdog {
       clearTimeout(timer);
       timer = undefined;
     }
-    runSignal?.removeEventListener('abort', onRunAbort);
+    // The linked signal aborts on its own; the window is all that's left.
+    runSignal?.removeEventListener('abort', settle);
   };
-  function onRunAbort(): void {
-    settle();
-    idle.abort();
-  }
-  runSignal?.addEventListener('abort', onRunAbort, { once: true });
+
+  runSignal?.addEventListener('abort', settle, { once: true });
 
   return {
+    /** The signal the provider call carries: the Run's, linked to `idle`. */
     signal:
       runSignal === undefined
         ? idle.signal
@@ -79,10 +67,10 @@ function createIdleWatchdog(runSignal: AbortSignal | undefined): IdleWatchdog {
       timer = setTimeout(() => {
         timer = undefined;
         idle.abort();
-        fail(new ModelStreamIdleError());
+        fail?.(new ModelStreamIdleError());
       }, STREAM_IDLE_TIMEOUT_MS);
     },
-    onExpiry: (next) => (fail = next),
+    onExpiry: (next: (error: ModelStreamIdleError) => void) => (fail = next),
     settle,
   };
 }
@@ -118,17 +106,26 @@ async function watchStream(
   }
 }
 
-/** The provider parts, each of which restarts the idle window. */
+/**
+ * The provider parts, each of which restarts the idle window.
+ *
+ * An expiry reports the failure the way a failed request does — an `error`
+ * part, then a close — not by erroring the stream. The SDK reports an `error`
+ * part to `onError` and finishes the step; an errored stream it swallows in
+ * `consumeStream`, which would leave the Run non-terminal.
+ */
 function watchedParts(
   source: ReadableStream<LanguageModelV3StreamPart>,
-  watchdog: IdleWatchdog,
+  watchdog: ReturnType<typeof createIdleWatchdog>,
 ): ReadableStream<LanguageModelV3StreamPart> {
   const reader = source.getReader();
   return new ReadableStream<LanguageModelV3StreamPart>({
     start(controller) {
       watchdog.onExpiry((error) => {
         watchdog.settle();
-        controller.error(error);
+        void reader.cancel(error);
+        controller.enqueue({ type: 'error', error });
+        controller.close();
       });
     },
     async pull(controller) {
@@ -142,7 +139,8 @@ function watchedParts(
         controller.enqueue(next.value);
       } catch (error) {
         watchdog.settle();
-        controller.error(error);
+        controller.enqueue({ type: 'error', error });
+        controller.close();
         return;
       }
       watchdog.arm();

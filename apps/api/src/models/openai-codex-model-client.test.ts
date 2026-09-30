@@ -718,6 +718,12 @@ describe('createOpenAICodexModelClient', () => {
   });
 });
 
+/** A Responses stream that delivers one delta, then never sends again. */
+const createdThenDeltaThenSilence = [
+  'event: response.created\ndata: {"type":"response.created","response":{"id":"r1"}}\n\n',
+  'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","item_id":"i1","delta":"partial"}\n\n',
+];
+
 describe('createOpenAICodexModelClient — stream-idle watchdog (design D4)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -728,16 +734,15 @@ describe('createOpenAICodexModelClient — stream-idle watchdog (design D4)', ()
   });
 
   it('keeps the watchdog error and its code through the subscription sanitizer', async () => {
-    // A 200 whose SSE body answers and then goes silent: the watchdog's case.
+    // A 200 whose SSE body delivers a delta and then goes silent: the
+    // provider answered, started, and stopped — the watchdog's case.
     globalThis.fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
       new Response(
         new ReadableStream<Uint8Array>({
           start(controller) {
-            controller.enqueue(
-              new TextEncoder().encode(
-                'event: response.created\ndata: {"type":"response.created","response":{"id":"r1"}}\n\n',
-              ),
-            );
+            for (const event of createdThenDeltaThenSilence) {
+              controller.enqueue(new TextEncoder().encode(event));
+            }
           },
         }),
         { headers: { 'content-type': 'text/event-stream' } },
@@ -760,8 +765,10 @@ describe('createOpenAICodexModelClient — stream-idle watchdog (design D4)', ()
         reported.push(error);
       },
     });
-    void Promise.resolve(result.text).catch(() => undefined);
+    // The SDK streams nothing until a result accessor is read.
+    const drained = result.fullStream.pipeTo(new WritableStream());
     await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
+    await drained;
 
     expect(reported[0]).toBeInstanceOf(ModelStreamIdleError);
     expect(reported[0]).toMatchObject({ code: 'model_stream_idle' });
