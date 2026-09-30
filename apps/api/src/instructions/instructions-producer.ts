@@ -90,14 +90,31 @@ const FILE_TOOL_IDS: ReadonlyArray<string> = [
 interface TriggerTarget {
   /** The touched path in that world; `''` is a Space's own directory. */
   readonly key: string;
-  /** A `kb://` trigger's Space, canonicalized; absent for a host path. */
-  readonly spaceId?: string;
+  /** The `kb://` trigger's Space; absent for a host path. */
+  readonly space?: SpaceTrigger;
+}
+
+/**
+ * One `kb://` trigger's Space under two spellings. `id` is the canonical
+ * lower-case form, so one Space is one group, one set of item labels, and one
+ * seen key however its locator was written; `spelledId` is that id as the
+ * triggering call wrote it, and it is the spelling every candidate of the
+ * group is read under, so a `read` rule is evaluated for the candidate exactly
+ * as it was for the model's own read of that Space.
+ */
+interface SpaceTrigger {
+  readonly id: string;
+  readonly spelledId: string;
 }
 
 /** One pending trigger: the path it touches, and whether a read named it. */
 interface PendingTrigger extends TriggerTarget {
-  /** A read disclosed the file it named, so that file is not loaded (D5). */
-  readonly excludeCandidate: boolean;
+  /**
+   * A read disclosed the file it named, so that file is not loaded (D5). Only
+   * a trigger that can name a file sets it: a directory trigger — an entry or
+   * an accepted turn's bound root — discloses nothing, so it carries none.
+   */
+  readonly excludeCandidate?: boolean;
 }
 
 /** The whole read budget of one trigger set, collected as it loads. */
@@ -164,8 +181,13 @@ function spaceTarget(rest: string): TriggerTarget | undefined {
   }
   return {
     // One Space, one spelling: an upper-case id and its lower-case form are one
-    // Space, so they share a group and a seen key.
-    spaceId: parsed.knowledgeSpaceId.toLowerCase(),
+    // Space, so they share a group and a seen key. The read selector keeps the
+    // spelling of the call that named the Space first, so the permission group
+    // never sees a second, differently spelled read of the same Space.
+    space: {
+      id: parsed.knowledgeSpaceId.toLowerCase(),
+      spelledId: parsed.knowledgeSpaceId,
+    },
     key: relativePath ?? '',
   };
 }
@@ -206,9 +228,7 @@ function observedTrigger(call: InRunToolCall): PendingTrigger | undefined {
   }
   if (call.toolName !== enterWorkspaceTool.id) return undefined;
   const root = enteredRoot(call.result);
-  return root === undefined
-    ? undefined
-    : { key: root, excludeCandidate: false };
+  return root === undefined ? undefined : { key: root };
 }
 
 /** One directory's pending exclusions, collected across the trigger set. */
@@ -267,6 +287,47 @@ interface TriggerGroup {
   readonly scope: InstructionScope;
   readonly page: ReadPage;
   readonly directories: Map<string, ReadonlySet<string>>;
+  /** A Space group's files are owner-maintained Knowledge content. */
+  readonly knowledge: boolean;
+}
+
+/** One Space's triggers in a step, with the id spelling its first call used. */
+interface SpaceTriggers {
+  readonly spelledId: string;
+  readonly triggers: Array<PendingTrigger>;
+}
+
+/** The trigger set's host triggers and each Space's own, in first-mention order. */
+interface TriggerPartition {
+  readonly onHost: Array<PendingTrigger>;
+  readonly bySpace: Map<string, SpaceTriggers>;
+}
+
+/** Splits a step's triggers into the host world and one group per Space. */
+function partitionTriggers(
+  triggers: ReadonlyArray<PendingTrigger>,
+): TriggerPartition {
+  const bySpace = new Map<string, SpaceTriggers>();
+  const onHost: Array<PendingTrigger> = [];
+  for (const trigger of triggers) {
+    const space = trigger.space;
+    if (space === undefined) {
+      onHost.push(trigger);
+      continue;
+    }
+    const owned = bySpace.get(space.id);
+    // The first trigger that named a Space fixes the spelling its candidates
+    // are read under, so one step reads one Space under one locator form.
+    if (owned === undefined) {
+      bySpace.set(space.id, {
+        spelledId: space.spelledId,
+        triggers: [trigger],
+      });
+    } else {
+      owned.triggers.push(trigger);
+    }
+  }
+  return { onHost, bySpace };
 }
 
 /**
@@ -279,26 +340,16 @@ async function resolveGroups(input: {
   readonly triggers: ReadonlyArray<PendingTrigger>;
   readonly worlds: AttemptWorlds;
 }): Promise<Array<TriggerGroup>> {
-  const bySpace = new Map<string, Array<PendingTrigger>>();
-  const onHost: Array<PendingTrigger> = [];
-  for (const trigger of input.triggers) {
-    const spaceId = trigger.spaceId;
-    if (spaceId === undefined) {
-      onHost.push(trigger);
-      continue;
-    }
-    const owned = bySpace.get(spaceId);
-    if (owned === undefined) bySpace.set(spaceId, [trigger]);
-    else owned.push(trigger);
-  }
+  const { onHost, bySpace } = partitionTriggers(input.triggers);
   const groups: Array<TriggerGroup> = [];
   const hostPage = input.worlds.readPage;
-  if (hostPage !== undefined && onHost.length > 0) {
+  if (hostPage !== undefined) {
     const scope = hostInstructionScope();
     groups.push({
       scope,
       page: hostPage,
       directories: await resolveDirectories(onHost, scope),
+      knowledge: false,
     });
   }
   const knowledge = input.worlds.knowledge;
@@ -306,11 +357,16 @@ async function resolveGroups(input: {
   for (const [spaceId, owned] of bySpace) {
     const space = await knowledge.probe(spaceId);
     if (space === undefined) continue;
-    const scope = spaceInstructionScope(spaceId, space);
+    const scope = spaceInstructionScope({
+      knowledgeSpaceId: spaceId,
+      readSpaceId: owned.spelledId,
+      space,
+    });
     groups.push({
       scope,
       page: knowledge.readPage,
-      directories: await resolveDirectories(owned, scope),
+      directories: await resolveDirectories(owned.triggers, scope),
+      knowledge: true,
     });
   }
   return groups;
@@ -342,11 +398,11 @@ async function collectCandidate(
   collector: BundleCollector,
   candidate: InstructionCandidate,
   disclosed: ReadonlySet<string>,
-  readPage: ReadPage,
+  group: TriggerGroup,
 ): Promise<void> {
   if (collector.keys.has(candidate.canonicalPath)) return;
   if (disclosed.has(candidate.canonicalPath)) return;
-  const read = await readInstructionFile(candidate, readPage);
+  const read = await readInstructionFile(candidate, group.page);
   if (read.kind === 'denied') {
     collector.denied.push(candidate.path);
     return;
@@ -362,6 +418,7 @@ async function collectCandidate(
     content: read.content,
     truncated: read.truncated,
     omittedBytes: read.omittedBytes,
+    knowledge: group.knowledge,
   });
 }
 
@@ -408,16 +465,13 @@ async function loadGroup(
       // An aborted Run stops loading at the next candidate instead of walking
       // a whole chain to the filesystem root.
       abortSignal?.throwIfAborted();
-      await collectCandidate(collector, candidate, disclosed, group.page);
+      await collectCandidate(collector, candidate, disclosed, group);
     }
   }
 }
 
 /** One attempt's pending triggers and seen keys; discarded with the attempt. */
-function createAttemptProducer(
-  attempt: InRunAttempt,
-  worlds: AttemptWorlds,
-): InRunAttemptProducer {
+function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
   const keys = new Set(attempt.seenKeys);
   let pending: Array<PendingTrigger> = [];
   return {
@@ -433,7 +487,7 @@ function createAttemptProducer(
       const part = await loadBundle({
         runId: attempt.runId,
         triggers,
-        worlds,
+        worlds: attempt,
         keys,
         abortSignal: attempt.abortSignal,
       });
@@ -451,7 +505,7 @@ export function createInstructionsProducer(): InRunContextProducer {
     ): Promise<AuthoredContextItemPart | undefined> {
       return loadBundle({
         runId: context.runId,
-        triggers: [{ key: context.workspaceRoot, excludeCandidate: false }],
+        triggers: [{ key: context.workspaceRoot }],
         // An accepted turn starts from a bound Workspace root, so only the
         // host world has a directory to walk: no Space is probed for it.
         worlds: { readPage: context.readPage },
@@ -465,19 +519,10 @@ export function createInstructionsProducer(): InRunContextProducer {
     },
 
     beginAttempt(attempt: InRunAttempt): InRunAttemptProducer {
-      // Without a page reader for any world this Run may load in — the `read`
-      // tool, the native executor, or the Knowledge root is absent — no trigger
-      // can load anything.
-      if (attempt.readPage === undefined && attempt.knowledge === undefined) {
-        return { prepareStep: () => {} };
-      }
-      const worlds: AttemptWorlds = {
-        ...(attempt.readPage !== undefined && { readPage: attempt.readPage }),
-        ...(attempt.knowledge !== undefined && {
-          knowledge: attempt.knowledge,
-        }),
-      };
-      return createAttemptProducer(attempt, worlds);
+      // An attempt with no page reader for any world it may load in — the
+      // `read` tool, the native executor, and the Knowledge root all absent —
+      // resolves no world at all, so its triggers load nothing.
+      return createAttemptProducer(attempt);
     },
   };
 }

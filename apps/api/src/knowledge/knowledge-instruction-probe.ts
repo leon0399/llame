@@ -86,19 +86,33 @@ export function createKnowledgeInstructionProbe(input: {
 const SPACE_ROOT = '';
 
 /**
- * One Space as an instruction scope: the locator is both the label every
- * candidate is named by and the identity it is keyed by, because the resolver
- * refuses links, so no two spellings inside a Space name the same file.
+ * One Space as an instruction scope: the canonical locator is both the label
+ * every candidate is named by and the identity it is keyed by, because the
+ * resolver refuses links, so no two spellings inside a Space name the same
+ * file.
+ *
+ * `readSpaceId` is that same id as the step's first triggering `kb://` call
+ * spelled it. Only the read selector carries it: a `read` rule the operator
+ * wrote against `kb://<Upper-Case>/…` is evaluated for the candidate read
+ * exactly as it was for the model's own read of that Space, so a Space
+ * reached under one spelling is never read under another.
  */
-export function spaceInstructionScope(
-  knowledgeSpaceId: string,
-  space: KnowledgeInstructionScope,
-): InstructionScope {
+export function spaceInstructionScope(input: {
+  readonly knowledgeSpaceId: string;
+  readonly readSpaceId: string;
+  readonly space: KnowledgeInstructionScope;
+}): InstructionScope {
+  const { knowledgeSpaceId, readSpaceId, space } = input;
   const label = (key: string): string =>
     formatKnowledgeLocator({ knowledgeSpaceId, relativePath: key });
   return {
     root: SPACE_ROOT,
     label,
+    readLabel: (key) =>
+      formatKnowledgeLocator({
+        knowledgeSpaceId: readSpaceId,
+        relativePath: key,
+      }),
     probe: async (key) => {
       const entry = await space.probe(key);
       return entry.kind === 'missing'
@@ -117,12 +131,29 @@ function spaceScope(
   /**
    * One Space-relative path's host path, but only while it resolves inside the
    * Space: a component swapped for a link after validation resolves outside,
-   * and the chain continues past it exactly as past a refused entry.
+   * and the chain continues past it exactly as past a refused entry. Neither
+   * step may be assumed: a failure of either degrades the entry to missing.
    */
   const inside = async (relativePath: string): Promise<string | undefined> => {
-    const host = await hostPathOf(adapter, signal, relativePath);
-    if (host === undefined) return undefined;
-    return (await adapter.isInsideSpace(host, signal)) ? host : undefined;
+    try {
+      const host = await adapter.resolveHostPath(
+        relativePath === SPACE_ROOT ? undefined : relativePath,
+        { allowMissing: true, signal },
+      );
+      return (await adapter.isInsideSpace(host, signal)) ? host : undefined;
+    } catch (error) {
+      // A cancelled Run is not a missing file: it ends the walk where the
+      // producer's own abort check would, instead of quietly loading nothing.
+      // Any other failure — a path that will not resolve, or a containment
+      // check that cannot answer at all — is a refusal, never a pass.
+      if (
+        error instanceof KnowledgeFilesystemError &&
+        error.code === 'knowledge_cancelled'
+      ) {
+        throw error;
+      }
+      return undefined;
+    }
   };
   return {
     probe: async (relativePath) => probeEntry(await inside(relativePath)),
@@ -131,30 +162,6 @@ function spaceScope(
       return host === undefined ? [] : listDirectoryNames(host);
     },
   };
-}
-
-/** The validated host path of one Space-relative path, or nothing. */
-async function hostPathOf(
-  adapter: KnowledgeFilesystemAdapterPort,
-  signal: AbortSignal | undefined,
-  relativePath: string,
-): Promise<string | undefined> {
-  try {
-    return await adapter.resolveHostPath(
-      relativePath === SPACE_ROOT ? undefined : relativePath,
-      { allowMissing: true, signal },
-    );
-  } catch (error) {
-    // A cancelled Run is not a missing file: it ends the walk where the
-    // producer's own abort check would, instead of quietly loading nothing.
-    if (
-      error instanceof KnowledgeFilesystemError &&
-      error.code === 'knowledge_cancelled'
-    ) {
-      throw error;
-    }
-    return undefined;
-  }
 }
 
 /** What one validated host path is, without following a link. */

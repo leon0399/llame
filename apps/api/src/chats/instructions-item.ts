@@ -15,6 +15,7 @@
  */
 
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
+import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import { isBoolean, type UnknownRecord } from '@workspace/runtime-safety';
 
@@ -41,6 +42,13 @@ export interface LoadedInstructionFile {
   readonly truncated: boolean;
   /** Bytes the 32 KiB cut left out, taken from the probed size. */
   readonly omittedBytes: number;
+  /**
+   * The file was loaded from a Knowledge Space, so its bundle carries the
+   * closed owner-maintained, may-be-stale notice once (knowledge-tools: model
+   * -visible Knowledge content SHALL identify itself as untrusted). A host
+   * file never sets it, and its bundle is repository content already.
+   */
+  readonly knowledge: boolean;
 }
 
 export type InstructionsPayloadFile = Pick<
@@ -117,6 +125,7 @@ export function createInstructionsItem(input: {
 }
 
 const renderInstructionsTemplate = loadPackagedTemplate<{
+  readonly knowledgeNotice: string;
   readonly files: ReadonlyArray<{
     readonly path: string;
     readonly body: string;
@@ -129,6 +138,11 @@ function renderInstructions(
   files: ReadonlyArray<LoadedInstructionFile>,
 ): string {
   return renderInstructionsTemplate({
+    // One notice per bundle, however many Space files it carries, and none at
+    // all for a bundle of repository files alone.
+    knowledgeNotice: files.some((file) => file.knowledge)
+      ? KNOWLEDGE_CONTENT_NOTICE
+      : '',
     files: files.map((file) => ({
       // The path labels the block, so it is attribute-escaped; the body is
       // repository-authored text sitting inside an element of its own. The

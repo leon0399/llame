@@ -205,9 +205,13 @@ A `kb://` `read`, `edit`, or `write` triggers the same way, inside its Space:
 the walk starts at the Space's own directory and goes down to the touched
 directory, never above it, so a file in the `knowledge.root` itself is never a
 candidate. Each loaded file is named by its `kb://<knowledgeSpaceId>/<path>`
-locator, its canonical key is that locator, and its pages are read through the
-native `read` tool under the same `instructions` origin and `read` permission
-group. `knowledge_search` hits never trigger. When host and Space files are
+locator, its canonical key is that locator under the canonical lower-case
+Space id — one Space, one spelling, however the triggering call wrote it — and
+its pages are read through the native `read` tool under the same
+`instructions` origin and `read` permission group, addressed by the Space id as
+the step's first `kb://` call spelled it, so a `read` reject rule is evaluated
+for those pages exactly as it was for the model's own read of that Space.
+`knowledge_search` hits never trigger. When host and Space files are
 pending at the same step, they resolve into one item with the host files first,
 each group broadest directory first. A Space that is missing, belongs to
 another owner, or is unavailable loads nothing and reveals nothing, and a
@@ -221,9 +225,10 @@ for host triggers or a configured `knowledge.root` for `kb://` triggers, and
 does not require `enter_workspace`.
 
 A file is loaded at most once per compaction epoch. The seen set is the set of
-canonical (`realpath`) paths recorded in the payload of `instructions` items
-in the Chat's effective history, and is never stored in a Chat column; a
-forked Chat inherits it through its copied history. A candidate whose
+canonical paths recorded in the payload of `instructions` items in the Chat's
+effective history — a host `realpath`, or the `kb://` locator of a Space file,
+always under the canonical lower-case Space id — and is never stored in a Chat
+column; a forked Chat inherits it through its copied history. A candidate whose
 canonical path is already seen is omitted, so a symlink and its target are one
 file and an edit to a loaded file is not re-announced; denied, failed, and
 empty candidates are not seen. All triggers pending at one model step, or one

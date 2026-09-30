@@ -57,6 +57,14 @@ export interface InstructionScope {
   /** The logical label of one key: an absolute host path or a `kb://` locator. */
   readonly label: (key: string) => string;
   /**
+   * The selector a page read of `key` is issued under. It is `label` itself
+   * for the host. A Knowledge Space spells the same locator with the Space id
+   * as the step's first triggering call spelled it, so the audited `read` of a
+   * candidate is evaluated against the same spelling the model's own read of
+   * that Space was — never a second, differently spelled one.
+   */
+  readonly readLabel: (key: string) => string;
+  /**
    * One key, resolved. `canonicalPath` is the identity a seen set and a
    * self-read exclusion compare: a host realpath, or the logical locator for a
    * Knowledge Space, which resolves no links.
@@ -73,6 +81,7 @@ export function hostInstructionScope(
   return {
     root: '/',
     label: (key) => key,
+    readLabel: (key) => key,
     probe: stat,
     list: listDirectoryNames,
   };
@@ -85,9 +94,10 @@ function joinKey(key: string, name: string): string {
 
 /** The directory holding `key`, or the world's own root for a top-level key. */
 export function parentKey(key: string, root: string): string {
+  // A cut at or before the first separator, and no cut at all, both mean the
+  // key has no directory of its own: the empty prefix is the world root.
   const cut = key.lastIndexOf('/');
-  const parent = cut < 0 ? '' : key.slice(0, cut);
-  return parent.length === 0 ? root : parent;
+  return cut <= 0 ? root : key.slice(0, cut);
 }
 
 /**
@@ -147,6 +157,13 @@ export interface InstructionCandidate {
   readonly canonicalPath: string;
   /** The probed byte size, the baseline for the omitted-byte count. */
   readonly size: number;
+  /**
+   * The selector the page read is issued under. It equals `path` for the host
+   * and is the only place a Space's read spelling appears: the model sees and
+   * the seen set keys the canonical label, while the permission group sees the
+   * spelling the step's own call used.
+   */
+  readonly readPath: string;
 }
 
 /**
@@ -187,6 +204,7 @@ export async function selectCandidates(
         path: scope.label(entry),
         canonicalPath: probe.canonicalPath,
         size: probe.size,
+        readPath: scope.readLabel(entry),
       });
       break;
     }
@@ -243,7 +261,7 @@ export async function readInstructionFile(
   for (;;) {
     const from = lines + 1;
     const result = await readPage(
-      `${candidate.path}:raw:${from}-${from + MAX_READ_LINES - 1}`,
+      `${candidate.readPath}:raw:${from}-${from + MAX_READ_LINES - 1}`,
     );
     if (result.status === 'error') {
       if (result.type === 'permission_denied') return { kind: 'denied' };

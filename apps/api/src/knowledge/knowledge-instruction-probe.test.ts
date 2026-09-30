@@ -7,6 +7,7 @@
  * fake, because that is the only authority the probe has.
  */
 
+import { execFileSync } from 'node:child_process';
 import {
   mkdirSync,
   mkdtempSync,
@@ -136,6 +137,121 @@ describe('createKnowledgeInstructionProbe', () => {
     await expect(scope?.probe('CLAUDE.md')).rejects.toMatchObject({
       code: 'knowledge_cancelled',
     });
+  });
+
+  it('resolves no scope for a Space whose own directory is not inside it', async () => {
+    const real = new KnowledgeFilesystemAdapter(bindingOf(SPACE));
+    const outside = (hostPath: string) =>
+      Promise.resolve(hostPath !== path.join(root, SPACE));
+
+    // The Space root resolves, and containment says it is not the Space: no
+    // scope at all, so not one of its candidates is ever probed.
+    const scope = await probeOver({
+      search: (query, limit, options) => real.search(query, limit, options),
+      isInsideSpace: outside,
+      resolveHostPath: (relativePath, options) =>
+        real.resolveHostPath(relativePath, options),
+    })(SPACE);
+    expect(scope).toBeUndefined();
+  });
+
+  it('asks the trusted resolver with the Space root, a may-be-missing path, and the Run signal', async () => {
+    const real = new KnowledgeFilesystemAdapter(bindingOf(SPACE));
+    const calls: Array<{
+      readonly relativePath: string | undefined;
+      readonly options: unknown;
+    }> = [];
+    const containment: Array<AbortSignal | undefined> = [];
+    const controller = new AbortController();
+    writeFileSync(path.join(root, SPACE, 'CLAUDE.md'), 'space rules\n');
+    const scope = await probeOver(
+      {
+        search: (query, limit, options) => real.search(query, limit, options),
+        isInsideSpace: (hostPath, signal) => {
+          containment.push(signal);
+          return real.isInsideSpace(hostPath, signal);
+        },
+        resolveHostPath: (relativePath, options) => {
+          calls.push({ relativePath, options });
+          return real.resolveHostPath(relativePath, options);
+        },
+      },
+      controller.signal,
+    )(SPACE);
+
+    expect(await scope?.probe('CLAUDE.md')).toEqual({
+      kind: 'file',
+      size: 12,
+    });
+    await scope?.list('');
+
+    // The Space's own directory is asked for as the root itself — once up
+    // front, once for the listing — and an entry is asked for by its
+    // Space-relative path, each as a path that may be absent rather than as an
+    // error the walk has to catch.
+    expect(calls.map((call) => call.relativePath)).toEqual([
+      undefined,
+      'CLAUDE.md',
+      undefined,
+    ]);
+    // The up-front root check carries the Run's own signal; every entry in the
+    // walk additionally asks for a path that may be absent rather than as an
+    // error the walk has to catch.
+    expect(calls[0]?.options).toEqual({ signal: controller.signal });
+    for (const call of calls.slice(1)) {
+      expect(call.options).toEqual({
+        allowMissing: true,
+        signal: controller.signal,
+      });
+    }
+    // A cancelled Run reaches every call, so the walk stops where the
+    // producer's own abort check would.
+    expect(containment.every((signal) => signal === controller.signal)).toBe(
+      true,
+    );
+  });
+
+  it('reports a missing entry and an empty listing rather than failing', async () => {
+    const scope = await probeOver(
+      new KnowledgeFilesystemAdapter(bindingOf(SPACE)),
+    )(SPACE);
+
+    // Nothing here exists, and the chain simply continues past it.
+    expect(await scope?.probe('absent.md')).toEqual({ kind: 'missing' });
+    expect(await scope?.list('absent')).toEqual([]);
+  });
+
+  it('reports an entry that is neither a file nor a directory as missing', async () => {
+    const scope = await probeOver(
+      new KnowledgeFilesystemAdapter(bindingOf(SPACE)),
+    )(SPACE);
+    // A FIFO is a real entry the reader could never open as a file: it is
+    // skipped exactly like a device node, never selected as a candidate.
+    execFileSync('mkfifo', [path.join(root, SPACE, 'pipe')]);
+
+    expect(await scope?.probe('pipe')).toEqual({ kind: 'missing' });
+  });
+
+  it('reports an entry missing when the containment check itself fails', async () => {
+    const honest = new KnowledgeFilesystemAdapter(bindingOf(SPACE));
+    writeFileSync(path.join(root, SPACE, 'CLAUDE.md'), 'space rules\n');
+    mkdirSync(path.join(root, SPACE, 'notes'), { recursive: true });
+    writeFileSync(path.join(root, SPACE, 'notes/AGENTS.md'), 'note rules\n');
+    const scope = await probeOver({
+      search: (query, limit, options) => honest.search(query, limit, options),
+      isInsideSpace: (hostPath) =>
+        hostPath === path.join(root, SPACE)
+          ? Promise.resolve(true)
+          : Promise.reject(new Error('containment unavailable')),
+      resolveHostPath: (relativePath, options) =>
+        honest.resolveHostPath(relativePath, options),
+    })(SPACE);
+
+    // Containment that cannot be answered is containment that cannot be
+    // claimed: the entry is missing and the directory lists nothing, exactly
+    // as it would for a link that resolved outside the Space.
+    expect(await scope?.probe('CLAUDE.md')).toEqual({ kind: 'missing' });
+    expect(await scope?.list('notes')).toEqual([]);
   });
 });
 

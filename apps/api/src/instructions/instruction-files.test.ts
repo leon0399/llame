@@ -24,6 +24,7 @@ import { type ToolContext, type ToolResult } from '../tools/types';
 import {
   INSTRUCTION_FILE_BYTE_LIMIT,
   hostInstructionScope,
+  parentKey,
   readInstructionFile,
   selectCandidates,
   touchedPath,
@@ -79,8 +80,26 @@ function nativePageReader(
 async function candidateOf(file: string): Promise<InstructionCandidate> {
   const probe = await statHostPath(file);
   if (probe.kind === 'missing') throw new Error(`missing fixture ${file}`);
-  return { path: file, canonicalPath: probe.canonicalPath, size: probe.size };
+  return {
+    path: file,
+    canonicalPath: probe.canonicalPath,
+    size: probe.size,
+    readPath: file,
+  };
 }
+
+describe('parentKey', () => {
+  it('answers the directory holding a key, or the world root for a top-level one', () => {
+    // A host key is absolute, so a top-level file's parent is the empty prefix
+    // and the world's own root takes its place.
+    expect(parentKey('/srv/AGENTS.md', '/')).toBe('/srv');
+    expect(parentKey('/AGENTS.md', '/')).toBe('/');
+    // A Space key is relative: the same top-level name has no directory at all,
+    // so the Space's own directory is its parent.
+    expect(parentKey('notes/lore/x.md', '')).toBe('notes/lore');
+    expect(parentKey('AGENTS.md', '')).toBe('');
+  });
+});
 
 describe('walkFrom', () => {
   it('lists the filesystem root down to the directory', () => {
@@ -135,7 +154,12 @@ describe('selectCandidates', () => {
     await writeFile(join(root, 'AGENTS.md'), '# Agents\n');
 
     expect(await selectCandidates(host, root)).toEqual([
-      { path: llame, canonicalPath: await realpath(llame), size: 8 },
+      {
+        path: llame,
+        canonicalPath: await realpath(llame),
+        size: 8,
+        readPath: llame,
+      },
     ]);
   });
 
@@ -151,6 +175,7 @@ describe('selectCandidates', () => {
         path: override,
         canonicalPath: await realpath(override),
         size: 9,
+        readPath: override,
       },
     ]);
   });
@@ -201,7 +226,12 @@ describe('selectCandidates', () => {
     await writeFile(claude, '# Claude\n');
 
     expect(await selectCandidates(host, root)).toEqual([
-      { path: claude, canonicalPath: await realpath(claude), size: 9 },
+      {
+        path: claude,
+        canonicalPath: await realpath(claude),
+        size: 9,
+        readPath: claude,
+      },
     ]);
   });
 
@@ -211,7 +241,12 @@ describe('selectCandidates', () => {
     await writeFile(join(root, 'AGENTS.md'), '# Agents\n');
 
     expect(await selectCandidates(host, root)).toEqual([
-      { path: empty, canonicalPath: await realpath(empty), size: 0 },
+      {
+        path: empty,
+        canonicalPath: await realpath(empty),
+        size: 0,
+        readPath: empty,
+      },
     ]);
   });
 
@@ -226,6 +261,7 @@ describe('selectCandidates', () => {
         path: join(root, 'AGENTS.md'),
         canonicalPath: await realpath(target),
         size: 9,
+        readPath: join(root, 'AGENTS.md'),
       },
     ]);
   });
@@ -248,7 +284,9 @@ describe('selectCandidates', () => {
 
     expect(
       await selectCandidates(hostInstructionScope(resolvesEveryName), root),
-    ).toEqual([{ path: claude, canonicalPath: claude, size: 9 }]);
+    ).toEqual([
+      { path: claude, canonicalPath: claude, size: 9, readPath: claude },
+    ]);
   });
 
   it('selects nothing from a directory that cannot be listed', async () => {
@@ -380,7 +418,12 @@ describe('readInstructionFile', () => {
     const missing = join(root, 'AGENTS.md');
 
     const result = await readInstructionFile(
-      { path: missing, canonicalPath: missing, size: 7 },
+      {
+        path: missing,
+        canonicalPath: missing,
+        size: 7,
+        readPath: missing,
+      },
       nativePageReader(),
     );
 
@@ -406,7 +449,12 @@ describe('readInstructionFile', () => {
     };
 
     const result = await readInstructionFile(
-      { path: '/srv/AGENTS.md', canonicalPath: '/srv/AGENTS.md', size: 6 },
+      {
+        path: '/srv/AGENTS.md',
+        canonicalPath: '/srv/AGENTS.md',
+        size: 6,
+        readPath: '/srv/AGENTS.md',
+      },
       readPage,
     );
 
@@ -466,7 +514,12 @@ describe('readInstructionFile', () => {
       });
 
     const result = await readInstructionFile(
-      { path: '/srv/AGENTS.md', canonicalPath: '/srv/AGENTS.md', size: 5 },
+      {
+        path: '/srv/AGENTS.md',
+        canonicalPath: '/srv/AGENTS.md',
+        size: 5,
+        readPath: '/srv/AGENTS.md',
+      },
       readPage,
     );
 
@@ -492,6 +545,7 @@ describe('readInstructionFile', () => {
         path: '/srv/AGENTS.md',
         canonicalPath: '/srv/AGENTS.md',
         size: INSTRUCTION_FILE_BYTE_LIMIT,
+        readPath: '/srv/AGENTS.md',
       },
       readPage,
     );
@@ -523,7 +577,12 @@ describe('readInstructionFile', () => {
     };
 
     const result = await readInstructionFile(
-      { path: '/srv/AGENTS.md', canonicalPath: '/srv/AGENTS.md', size: 6 },
+      {
+        path: '/srv/AGENTS.md',
+        canonicalPath: '/srv/AGENTS.md',
+        size: 6,
+        readPath: '/srv/AGENTS.md',
+      },
       readPage,
     );
 
@@ -539,7 +598,12 @@ describe('readInstructionFile', () => {
       });
 
     const result = await readInstructionFile(
-      { path: '/srv/AGENTS.md', canonicalPath: '/srv/AGENTS.md', size: 6 },
+      {
+        path: '/srv/AGENTS.md',
+        canonicalPath: '/srv/AGENTS.md',
+        size: 6,
+        readPath: '/srv/AGENTS.md',
+      },
       readPage,
     );
 
@@ -555,7 +619,12 @@ describe('readInstructionFile', () => {
       });
 
     const result = await readInstructionFile(
-      { path: '/srv/AGENTS.md', canonicalPath: '/srv/AGENTS.md', size: 6 },
+      {
+        path: '/srv/AGENTS.md',
+        canonicalPath: '/srv/AGENTS.md',
+        size: 6,
+        readPath: '/srv/AGENTS.md',
+      },
       readPage,
     );
 

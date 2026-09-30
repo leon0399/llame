@@ -31,6 +31,7 @@ import {
   createKnowledgeInstructionProbe,
   type KnowledgeInstructionProbe,
 } from '../knowledge/knowledge-instruction-probe';
+import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { type KnowledgeToolResolver } from '../tools/types';
 import { createInstructionsProducer } from './instructions-producer';
 
@@ -193,8 +194,10 @@ function spaceOf(files: Readonly<Record<string, string>>) {
     );
   const readPage: ReadPage = (selectorPath) => {
     reads.push(selectorPath);
+    // A read carries the Space id as the step's own call spelled it, so only
+    // its canonical lower-case form identifies the Space here.
     const key = selectorPath
-      .slice(`kb://${SPACE}/`.length)
+      .replace(/^kb:\/\/[^/]+\//iu, '')
       .replace(/:raw:\d+-\d+$/u, '');
     const body = files[key];
     return Promise.resolve(
@@ -303,6 +306,57 @@ describe('instructions producer Knowledge Space triggers', () => {
     );
     await prepare();
     expect(staged).toHaveLength(1);
+  });
+
+  it('reads a Space under the id the step spelled, and labels it canonically', async () => {
+    const space = spaceOf({ 'notes/AGENTS.md': 'note rules\n' });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    producer.observeToolCall?.(
+      spaceCall('notes/x.md', 'read', SPACE.toUpperCase()),
+    );
+    await prepare();
+
+    // The audited read carries the spelling the model's own call used, so a
+    // `read` rule written against that locator is evaluated for this read
+    // exactly as it was for the model's — never under a second spelling.
+    expect(space.reads).toEqual([
+      `kb://${SPACE.toUpperCase()}/notes/AGENTS.md:raw:1-2000`,
+    ]);
+    // The model-visible block and the seen key stay canonical: one Space, one
+    // spelling in everything the owner and the transcript see.
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+    expect(seenKeys(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+  });
+
+  it("loads the Space root's chain for a locator naming only the Space", async () => {
+    const space = spaceOf({ 'CLAUDE.md': 'space rules\n' });
+
+    // Both spellings of "the Space's own directory" walk it: the trigger has
+    // no relative path at all, so the only key the walk may ask the trusted
+    // resolver about is the Space root itself and its own candidates.
+    for (const locator of [`kb://${SPACE}`, `kb://${SPACE}/`]) {
+      const { producer, staged, prepare } = attemptOf({ space });
+      const before = space.probes.length;
+
+      producer.observeToolCall?.({
+        toolName: 'read',
+        input: { path: locator },
+        workspaceRoot: root,
+      });
+      await prepare();
+
+      expect(blockPaths(lastStaged(staged))).toEqual([
+        `kb://${SPACE}/CLAUDE.md`,
+      ]);
+      expect(space.probes.slice(before).filter((key) => key !== '')).toEqual([
+        'CLAUDE.md',
+      ]);
+    }
   });
 
   it('loads nothing for a locator the Knowledge resolver would refuse', async () => {
@@ -417,6 +471,30 @@ describe('instructions producer Knowledge Space triggers', () => {
       join(root, 'apps/api/AGENTS.md'),
       `kb://${SPACE}/notes/lore/AGENTS.md`,
     ]);
+    // The bundle carries owner-maintained Knowledge content, so the closed
+    // untrusted-and-may-be-stale notice is in it once.
+    expect(lastStaged(staged).data.text).toContain(KNOWLEDGE_CONTENT_NOTICE);
+    expect(
+      lastStaged(staged).data.text.split(KNOWLEDGE_CONTENT_NOTICE),
+    ).toHaveLength(2);
+  });
+
+  it('loads nothing for a Space id spelled under another scheme', async () => {
+    const space = spaceOf({ 'notes/AGENTS.md': 'note rules\n' });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    // `kb://` is the one scheme that names a Space: the same id and path under
+    // any other scheme is a remote resource, never a local candidate.
+    for (const scheme of ['https', 'mcp']) {
+      // A path that is not itself a candidate, so nothing here can be
+      // dismissed as a read that disclosed the file it named.
+      producer.observeToolCall?.(readCall(`${scheme}://${SPACE}/notes/x.md`));
+    }
+    await prepare();
+
+    expect(staged).toEqual([]);
+    expect(space.probes).toEqual([]);
+    expect(space.reads).toEqual([]);
   });
 
   it('ignores a knowledge search and any trigger without its Space capability', async () => {
@@ -444,6 +522,21 @@ describe('instructions producer Knowledge Space triggers', () => {
     expect(spaceOnly.staged).toEqual([]);
     expect(space.reads).toEqual([]);
   });
+
+  it('loads a Space trigger on an attempt with no host page reader', async () => {
+    const space = spaceOf({ 'notes/AGENTS.md': 'note rules\n' });
+    const { producer, staged, prepare } = attemptOf({ readPage: null, space });
+
+    producer.observeToolCall?.(spaceCall('notes/x.md'));
+    await prepare();
+
+    // Each world is gated by its own capability: no host page reader stops the
+    // host chain, not the Space one, which still walks and reads.
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+    expect(space.reads).toEqual([`kb://${SPACE}/notes/AGENTS.md:raw:1-2000`]);
+  });
 });
 
 describe('instructions producer triggers', () => {
@@ -467,6 +560,8 @@ describe('instructions producer triggers', () => {
     expect(part.data.text.indexOf(join(root, 'AGENTS.md'))).toBeLessThan(
       part.data.text.indexOf(join(root, 'apps/api/AGENTS.md')),
     );
+    // Host files are repository content: no Knowledge notice.
+    expect(part.data.text).not.toContain(KNOWLEDGE_CONTENT_NOTICE);
     // A step with no pending trigger stages nothing new.
     await prepare();
     expect(staged).toHaveLength(1);
@@ -542,6 +637,23 @@ describe('instructions producer triggers', () => {
     for (const call of ignored) producer.observeToolCall?.(call);
     await prepare();
     expect(staged).toEqual([]);
+  });
+
+  it('loads a candidate its own edit or write named, which a read would skip', async () => {
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+
+    // Only a read discloses the file it named; a write discloses nothing, so
+    // the very file being written is announced.
+    for (const toolName of ['edit', 'write']) {
+      const { producer, staged, prepare } = attemptOf();
+      producer.observeToolCall?.(
+        readCall(join(root, 'apps/api/AGENTS.md'), toolName),
+      );
+      await prepare();
+      expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([
+        join(root, 'apps/api/AGENTS.md'),
+      ]);
+    }
   });
 
   it('marks an entry that established or switched the binding, and nothing else', async () => {
@@ -801,19 +913,29 @@ describe('instructions producer triggers', () => {
     ]);
   });
 
-  it('marks nothing for exit_workspace', async () => {
+  it('marks nothing for exit_workspace, or for another tool reporting a binding', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
-    const { producer, staged, prepare } = attemptOf();
 
-    producer.observeToolCall?.({
-      toolName: exitWorkspaceTool.id,
-      input: {},
-      workspaceRoot: root,
-      result: { status: 'success', state: 'exited' },
-    });
-    await prepare();
+    for (const [toolName, result] of [
+      [exitWorkspaceTool.id, { status: 'success', state: 'exited' }],
+      ['search_conversations', { status: 'success', state: 'bound', root }],
+      ['knowledge_search', { status: 'success', state: 'switched', root }],
+    ] as const) {
+      const { producer, staged, prepare } = attemptOf();
 
-    expect(staged).toEqual([]);
+      producer.observeToolCall?.({
+        toolName,
+        input: {},
+        workspaceRoot: root,
+        result,
+      });
+      await prepare();
+
+      // Only `enter_workspace` establishes a binding, so only it marks a
+      // directory to walk: another tool reporting the same shape is not read
+      // as one.
+      expect(staged).toEqual([]);
+    }
   });
 
   it('stays silent for a symlink whose target an earlier trigger loaded', async () => {
