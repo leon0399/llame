@@ -114,7 +114,7 @@ import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import { turnTelemetryLogger } from './turn-telemetry';
 import { createModelChangeItem } from './context-item-producers';
-import { createContextItemPart } from './context-item';
+import { createContextItemPart, isContextItemPart } from './context-item';
 import { type InRunContextProducer } from '../runs/in-run-context-items';
 
 import { MemoryService } from '../memory/memory.service';
@@ -4824,6 +4824,107 @@ describeIfDb('executeRun tool-loop persistence', () => {
           outcome: 'not_available',
         }),
       );
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+    }
+  });
+
+  it('replays a stored metadata-only context item into the Run record with empty text in stored order', async () => {
+    // A rail row on a persisted message is a receipt even when it never
+    // carried text: `text` is absent on metadata-only rows and explicitly
+    // empty on others, and neither form may be dropped on the way into the
+    // Run record. Seeded by hand because seedBoundRun always creates the
+    // triggering message first — this history must precede it in stored order.
+    const metadataOnlyPart = {
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'legacy-history',
+        runId: crypto.randomUUID(),
+        payload: { marker: 'metadata-only' },
+      },
+    };
+    const explicitlyEmptyPart = {
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'legacy-history-empty',
+        runId: crypto.randomUUID(),
+        payload: { marker: 'explicitly-empty' },
+        text: '',
+      },
+    };
+    // Guard the fixture itself: a part the envelope rejects would make the
+    // assertions below vacuous.
+    expect(isContextItemPart(metadataOnlyPart)).toBe(true);
+    expect(isContextItemPart(explicitlyEmptyPart)).toBe(true);
+
+    const key = `replayed-item-${crypto.randomUUID()}`;
+    const chatId = crypto.randomUUID();
+    const messageId = crypto.randomUUID();
+    const seeded = await tenantDb.runAs(userId, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: chatId,
+        ownerUserId: userId,
+        title: 'Replayed rail receipts',
+      });
+      const messagesRepo = new MessagesRepository(tx);
+      await messagesRepo.create({
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [metadataOnlyPart, explicitlyEmptyPart],
+      });
+      const userMessage = await messagesRepo.create({
+        id: messageId,
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'use the bound context' }],
+      });
+      const run = await new RunsRepository(tx).create({
+        chatId,
+        messageId,
+        userId,
+        modelId: `test:${key}`,
+        permissionMode: 'default',
+      });
+      return { chatId, messageId, key, userMessage, run };
+    });
+
+    const service = serviceWithTools();
+    const model = new MockLanguageModelV3({
+      doStream: () => Promise.resolve(textResponse('Acknowledged.')),
+    });
+
+    try {
+      const execution = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await execution.consumeStream?.();
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const run = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(seeded.run.id, userId),
+      );
+      // Both inert rows survive into the record as `text: ''` receipts in
+      // stored part order; attempt staging (the temporal receipt) is
+      // appended after the replayed history.
+      expect(
+        (run?.contextItems ?? []).filter((item) =>
+          ['legacy-history', 'legacy-history-empty'].includes(item.producer),
+        ),
+      ).toEqual([
+        { producer: 'legacy-history', residency: 'rail', text: '' },
+        { producer: 'legacy-history-empty', residency: 'rail', text: '' },
+      ]);
     } finally {
       await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
     }
