@@ -16,7 +16,7 @@ const ConversationContext = React.createContext<{
  * Adds `node` to `nodes` and rebuilds every parent -> child edge from
  * `parentIds` from scratch (not incrementally), so `children` never drifts
  * out of sync with the declared parents. Pure so it is unit-testable without
- * the provider (docs/testing.md rule 5).
+ * the provider (docs/development/testing.md rule 5).
  */
 export function addNodeToTree(
   nodes: Record<string, ConversationNode>,

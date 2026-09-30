@@ -123,7 +123,7 @@ packaged prompt — which is precisely why the summarization exclusion sits belo
 - [x] 4.7 Unit tests: a delta and a model switch on the same turn emit both reminders independently; displacement, archival, and deletion emit nothing; batching collapses multiple events into one append
 - [x] 4.8 Unit tests: an already-told chat never repeats; a chat that resurfaces through ordinary activity alone (no title change, no pin change) does append; a resurfaced below-cap chat does append; a newly pinned chat displacing a rendered one emits no unpin; unpinning a never-announced chat emits nothing; a failed transaction leaves the told-set unchanged
 - [x] 4.9 Unit test: with `shareRecentChats` off, no append is emitted on any turn
-- [x] 4.10 Document the delta event log in `apps/api/AGENTS.md`, and record the coordinated rollout there and in `docs/scaling.md`: this layer adds a server-authored message-part schema, so deploy workers able to render it before any API authors it, and on rollback stop authoring, drain accepted Runs, then roll binaries back
+- [x] 4.10 Document the delta event log in `apps/api/AGENTS.md`, and record the coordinated rollout there and in `docs/product/operator/scaling.md`: this layer adds a server-authored message-part schema, so deploy workers able to render it before any API authors it, and on rollback stop authoring, drain accepted Runs, then roll binaries back
 
 ## 5. `recency-digest/compaction`
 

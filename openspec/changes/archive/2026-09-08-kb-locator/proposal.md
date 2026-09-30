@@ -71,7 +71,7 @@ before the native package runs. `knowledge-tools.ts` loses `knowledgeReadTool`
 and `knowledge-filesystem-read.ts` loses its legacy envelope; search emits
 locators. `knowledge-tool-candidate-resolver.ts`, `registry.ts`, and the
 `tool-observation-part.ts` renderer change. Prompts (`chat-default.md`, tool
-descriptions), `docs/knowledge.md`, `docs/native-files.md`, README, SPEC, and
-the e2e Knowledge scenario are updated; `docs/knowledge.md` points at the native
+descriptions), `docs/product/operator/knowledge.md`, `docs/product/operator/native-files.md`, README, SPEC, and
+the e2e Knowledge scenario are updated; `docs/product/operator/knowledge.md` points at the native
 read surface. Issues: closes #702 and #691; #701 tracker updated; #703
 (`chats://`) follows the same scheme seam.

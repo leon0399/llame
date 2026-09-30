@@ -1,4 +1,4 @@
-# The test pyramid, as a job graph (docs/testing.md is the contract).
+# The test pyramid, as a job graph (docs/development/testing.md is the contract).
 #
 #   typecheck -> test (one leg per workspace, coverage) --+
 #   typecheck -> build -----------------------------------+-> browser-e2e
@@ -184,7 +184,7 @@ jobs:
   # computed from the diff against the pull request's own tree, so it cannot go
   # stale and cannot refuse for want of a prior measurement. `coverageAnalysis:
   # perTest` runs only the tests covering each mutant. See
-  # docs/mutation-gate-redesign.md.
+  # docs/development/mutation-gate-redesign.md.
   mutation:
     name: Mutation testing (${{ matrix.name }})
     runs-on: ubuntu-latest

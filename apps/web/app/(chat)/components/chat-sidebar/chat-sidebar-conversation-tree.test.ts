@@ -2,7 +2,7 @@
 
 /**
  * `computeVisibleConversations` is pure ancestor/descendant tracing
- * (docs/testing.md rule 5's "pure logic" carve-out). `useConversationTreeData`
+ * (docs/development/testing.md rule 5's "pure logic" carve-out). `useConversationTreeData`
  * is a headless hook (sample-data seeding, selection, SVG sizing) — its
  * render output (`ChatSidebarConversationTree`) is covered separately by this
  * file's story.

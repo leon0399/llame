@@ -103,7 +103,7 @@ Persisted event families currently cover Run lifecycle (`run.created`, `run.star
 
 ### 9.5 Execution boundary
 
-Every chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/scaling.md](docs/scaling.md).
+Every chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/product/operator/scaling.md](docs/product/operator/scaling.md).
 
 All current workers coordinate through the same installation's queue and database authority. No Node Protocol, user-machine enrollment, direct or tunneled remote executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
 
@@ -146,7 +146,7 @@ declaration-hash match against the attempt's admitted catalog. Configured
 endpoints are operator-approved outbound data boundaries. Redirects are
 disabled, while private endpoints are intentionally allowed for self-hosted
 services. See [`mcp-tools`](openspec/specs/mcp-tools/spec.md) and
-[docs/mcp-tools.md](docs/mcp-tools.md).
+[docs/product/operator/mcp-tools.md](docs/product/operator/mcp-tools.md).
 
 The worker records each native or MCP dispatch attempt before invoking it. On queue redelivery, a Run with any recorded native attempt or MCP dispatch fails as `outcome_unknown` instead of re-running its model loop; open calls settle from durable results where present, and no recorded operation is invoked again. A Run with no native or MCP attempt may restart its tool loop from the first step. The existing owner-scoped event log records native attempts before file changes and settles known results before continuation; client replay executes no filesystem operation.
 
@@ -177,7 +177,7 @@ the same Knowledge-relative attribution. Historical `knowledge_read` observation
 render as recorded. See
 [`knowledge-tools`](openspec/specs/knowledge-tools/spec.md),
 [`tool-calling`](openspec/specs/tool-calling/spec.md), and the
-[operator runbook](docs/knowledge.md).
+[operator runbook](docs/product/operator/knowledge.md).
 
 ### 13.7 Native file execution
 
@@ -220,7 +220,7 @@ recorded against the locator for `kb://`; an unsettled attempt never executes
 again, and an unknown result aborts the model loop. Native files have no
 Knowledge-specific size ceiling, and their output shares the common result
 cap. See [native file behavior](openspec/specs/native-file-tools/spec.md)
-and [operator setup](docs/native-files.md).
+and [operator setup](docs/product/operator/native-files.md).
 
 ### 13.8 System skill catalog
 
@@ -264,7 +264,7 @@ credentials, mutate through a `skill://` locator, or reach another owner's
 Knowledge. `tools.allowed` alone decides availability, and operator skill
 sources admit `read` without admitting absolute-path host authority. See
 [agent skills](openspec/specs/agent-skills/spec.md) and
-[operator setup](docs/skills.md).
+[operator setup](docs/product/operator/skills.md).
 
 ### 13.9 Managed bash contract
 
@@ -366,7 +366,7 @@ which are unsupported by this MVP.
 
 See [`knowledge-spaces`](openspec/specs/knowledge-spaces/spec.md),
 [`knowledge-tools`](openspec/specs/knowledge-tools/spec.md), and the
-[operator runbook](docs/knowledge.md).
+[operator runbook](docs/product/operator/knowledge.md).
 
 ## 19. Channels
 
@@ -378,7 +378,7 @@ The §7.1 mapping is reusable by future channels, but it does not authorize deli
 
 ## 20. Memory and search
 
-Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. It indexes canonical human-authored user and ordinary assistant text, not model-switch metadata, system prompts, tool receipts, generated summaries, or checkpoint envelopes. Canonical model excerpts are coverage-gated and carry message-sequence plus logical-line coordinates reusable by the owner-authorized `conversation_read`; exact reads derive current visible text from stored message parts and return numbered, bounded content. Vector retrieval fuses a third cosine-scan leg with the existing FTS and trigram legs via RRF, with request-time query embedding bounded per surface and silent lexical fallback. Semantic facts and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md), [`search-projection`](openspec/specs/search-projection/spec.md), and the [operator runbook](docs/conversation-recall.md).
+Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. It indexes canonical human-authored user and ordinary assistant text, not model-switch metadata, system prompts, tool receipts, generated summaries, or checkpoint envelopes. Canonical model excerpts are coverage-gated and carry message-sequence plus logical-line coordinates reusable by the owner-authorized `conversation_read`; exact reads derive current visible text from stored message parts and return numbered, bounded content. Vector retrieval fuses a third cosine-scan leg with the existing FTS and trigram legs via RRF, with request-time query embedding bounded per surface and silent lexical fallback. Semantic facts and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md), [`search-projection`](openspec/specs/search-projection/spec.md), and the [operator runbook](docs/product/operator/conversation-recall.md).
 
 ### 20.1 Authored personalization
 

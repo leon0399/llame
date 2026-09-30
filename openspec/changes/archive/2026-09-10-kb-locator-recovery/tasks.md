@@ -21,7 +21,7 @@ and updates the #701 tracker. Every layer references #736 and #737.
 - [x] 1.3 Make `passageLocator` encode a segment only when it contains `:`, `?`, `#`, or `%`, replacing exactly those characters; verify unit tests that a path with spaces is emitted literally, a `:` path is emitted with `%3A`, a `%` path with `%25`, and that every emitted locator passed unchanged to `read` opens the passage (integration).
 - [x] 1.4 Add the one-sentence rule to the `read` description and to `chat-default.md`; verify the receipt snapshot test and `pnpm lint:markdown` pass.
 - [x] 1.5 Negative isolation test: `notes%2Fsecret.md` (the case only the per-segment check catches), an encoded `..`, and a second owner's identifier open nothing and return `invalid_path` or `knowledge_space_not_found` respectively; verify it passes and that no host path appears in any result.
-- [x] 1.6 Update `docs/knowledge.md` and `docs/native-files.md` with the encoding rule and the `%25` cost, and add the dated changelog entry; verify `pnpm lint:markdown` and `pnpm format:check` pass.
+- [x] 1.6 Update `docs/product/operator/knowledge.md` and `docs/product/operator/native-files.md` with the encoding rule and the `%25` cost, and add the dated changelog entry; verify `pnpm lint:markdown` and `pnpm format:check` pass.
 
 ## 2. suggestions
 

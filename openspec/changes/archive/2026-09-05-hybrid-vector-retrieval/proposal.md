@@ -33,5 +33,5 @@ None.
 - **Latency:** every search on a configured instance adds one provider round-trip bounded by the surface budget; the SQL adds one exact vector scan filtered by owner and model key. Recorded, not guessed, in the eval layer.
 - **Cost:** one query embedding per search on a configured instance. Zero for a self-hosted backend, zero when no model is declared.
 - **Tests:** fake-backend integration tests cover the model-key filter, stale-hash exclusion, dimension mismatch, provider failure and timeout fallback, cross-tenant / public / empty-identity negatives on the vector leg, RRF ordering, and the vector-only tool result. The opt-in eval is the only place a real provider is contacted.
-- **Docs:** `SPEC.md` search section, `apps/api/CLAUDE.md` ("embeddings are produced but not read until #197"), `docs/conversation-recall.md`, `README.md` tool defaults, `CHANGELOG.md`.
+- **Docs:** `SPEC.md` search section, `apps/api/CLAUDE.md` ("embeddings are produced but not read until #197"), `docs/product/operator/conversation-recall.md`, `README.md` tool defaults, `CHANGELOG.md`.
 - **Not affected:** the embedding write path, backfill, prune, retry-failed, the chunker, the projection schema, the `conversation_read` tool, and the public share egress.

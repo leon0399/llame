@@ -196,7 +196,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       tests and return preview URLs; add an API test that a public share of a Chat with
       instructions items carries none of them.
 - [x] 5.2 Document the chains, walk, triggers, once-per-epoch rule, the walk-to-root
-      tradeoff with the reject-rule remedy, and the chip in `docs/native-files.md`; update
+      tradeoff with the reject-rule remedy, and the chip in `docs/product/operator/native-files.md`; update
       `SPEC.md`'s Workspace and context-rail lines; add a dated `CHANGELOG.md` entry. Run
       `pnpm --filter api lint`, `typecheck`, and `test:coverage`, `pnpm --filter web lint`,
       `typecheck`, and `test:coverage`, the focused integration files touched above,
@@ -241,7 +241,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       Space file carries the closed Knowledge untrusted-content notice exactly once and a
       host-only bundle carries none; and a `knowledge_search` hit loads nothing.
 - [x] 6.4 Document the Space-scoped walk, the logical labels, and the non-triggers in
-      `docs/knowledge.md` and `docs/native-files.md`, update the `SPEC.md` sentence for
+      `docs/product/operator/knowledge.md` and `docs/product/operator/native-files.md`, update the `SPEC.md` sentence for
       Knowledge loading, and add a dated `CHANGELOG.md` entry. Run `pnpm --filter api lint`,
       `typecheck`, and `unit`, the focused integration files touched above, `pnpm format:check`,
       `pnpm lint:markdown`, `git diff --check`, and

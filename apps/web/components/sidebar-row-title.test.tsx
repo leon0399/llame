@@ -3,7 +3,7 @@
 /**
  * Coverage for the overflow-sync effect (useTitleOverflowSync/syncTitleOverflow
  * /writeScroll) — pure DOM-measurement logic, not render/interaction, so it
- * stays here rather than in a story per docs/testing.md rule 5. jsdom ships no
+ * stays here rather than in a story per docs/development/testing.md rule 5. jsdom ships no
  * ResizeObserver and always reports 0 for clientWidth/scrollWidth, so both are
  * stubbed locally per test to exercise the clipped/unclipped branches; that
  * stub is the seam, not a first-party module mock.

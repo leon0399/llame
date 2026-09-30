@@ -42,7 +42,7 @@ const API_RATE_LIMIT_PER_MINUTE = (() => {
     // Uses req.ip, so TRUST_PROXY correctness feeds directly into fairness.
     // NOTE: counters are per-process in-memory — with api × N replicas the
     // effective ceiling is N× and resets on restart. Acceptable single-node;
-    // a shared ThrottlerStorage becomes necessary with #116 (docs/scaling.md).
+    // a shared ThrottlerStorage becomes necessary with #116 (docs/product/operator/scaling.md).
     ThrottlerModule.forRoot({
       throttlers: [
         { name: 'default', ttl: 60_000, limit: API_RATE_LIMIT_PER_MINUTE },

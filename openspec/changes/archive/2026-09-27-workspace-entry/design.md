@@ -346,7 +346,7 @@ does not invoke that MCP operation again.
   diagnostics, entry result, and receipts; other tools that independently read the same source
   are outside that guarantee.
 - [Retiring the attestation makes existing operator allowlists write-capable] → **BREAKING**
-  changelog entry and a `docs/mcp-tools.md` migration note telling operators to add permission
+  changelog entry and a `docs/product/operator/mcp-tools.md` migration note telling operators to add permission
   rejects for mutating MCP tools.
 - [Exact-id permission groups make large Workspace servers tedious] → accepted; every call to an
   unlisted tool is rejected, so the failure mode is safe.

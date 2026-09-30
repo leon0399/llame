@@ -29,7 +29,7 @@ depend on it.
   archives.
 - [CHANGELOG.md](CHANGELOG.md): shipped chronology.
 - [DESIGN.md](DESIGN.md): UI language.
-- [docs/testing.md](docs/testing.md), [docs/scaling.md](docs/scaling.md): test
+- [docs/development/testing.md](docs/development/testing.md), [docs/product/operator/scaling.md](docs/product/operator/scaling.md): test
   placement and runtime topology.
 - [`docs/research`](docs/research): noncanonical evidence.
 - [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
@@ -129,7 +129,7 @@ deterministic; secrets never reach logs, errors, model context, or owner output.
   `as unknown as T`, are banned; narrow or validate the boundary.
 - Product Markdown is part of `pnpm lint` and available directly through
   `pnpm lint:markdown`; lint commands reject unused disables.
-- Follow [docs/testing.md](docs/testing.md). DB suites never skip silently.
+- Follow [docs/development/testing.md](docs/development/testing.md). DB suites never skip silently.
 - UI uses [DESIGN.md](DESIGN.md), shared primitives, and semantic tokens.
   `@shadcn/lint` enforces this through oxlint: components own their color,
   typography, spacing, shape, effects, and motion, and call sites may only add

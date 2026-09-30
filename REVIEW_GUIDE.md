@@ -76,7 +76,7 @@ path and failure.
 ### Tests and migrations
 
 - A bug fix has a test that fails without it. Use the layer defined in
-  [docs/testing.md](docs/testing.md); DB suites never skip silently.
+  [docs/development/testing.md](docs/development/testing.md); DB suites never skip silently.
 - Reject tautologies: name an implementation mutation that leaves the test
   green. Tests assert observable behavior, not mock wiring.
 - Tenant changes include datastore and app-layer negative tests.

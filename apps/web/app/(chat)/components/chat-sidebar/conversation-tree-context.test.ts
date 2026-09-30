@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 /**
- * `addNodeToTree` is pure tree-rebuild logic (docs/testing.md rule 5's "pure
+ * `addNodeToTree` is pure tree-rebuild logic (docs/development/testing.md rule 5's "pure
  * logic" carve-out). `useConversation`'s outside-provider guard and the
  * provider's addNode/selection wiring are headless hook behavior — no render
  * output, so no story applies to this module.

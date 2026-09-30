@@ -52,7 +52,7 @@ converts HTML locally (peer survey in `design.md`). Issue #913.
   `content-signal` are not consulted. No cache: a selector read refetches.
 - The example config keeps `read`'s whole-tool allow and adds two
   `read.path` rejects: `^http://` and grokipedia with
-  subdomains and a trailing dot. A new operator runbook, `docs/web-read.md`,
+  subdomains and a trailing dot. A new operator runbook, `docs/product/operator/web-read.md`,
   shows the domain-allowlist alternative.
 
 Not **BREAKING**: no key, tool id, or schema changes; a process that never
@@ -119,7 +119,7 @@ master <- web-read/proposal <- web-read/fetch <- web-read/policy <- web-read/fin
   between merges. Closes nothing.
 - `policy` (~1,000 lines): derived locators (hops, alternates, suffix,
   `llms.txt`) with their admission and provenance, `rejectedUrl`, example
-  rejects, `docs/web-read.md`, changelog, README/AGENTS line. `Closes #913`.
+  rejects, `docs/product/operator/web-read.md`, changelog, README/AGENTS line. `Closes #913`.
 - `finalize`: spec sync and archive only.
 
 ## Impact
@@ -133,7 +133,7 @@ in `assistant-transcript.ts`, the `ToolResult` error variant in
 `packages/runtime-safety` (optional `rejectedUrl`),
 `apps/api/llame.config.json.example` with its mirror
 `apps/api/src/testing/portable-tool-policy.ts`, `apps/api/package.json`,
-`docs/web-read.md`, `CHANGELOG.md`, `README.md`, `apps/api/AGENTS.md`. No
+`docs/product/operator/web-read.md`, `CHANGELOG.md`, `README.md`, `apps/api/AGENTS.md`. No
 migration, HTTP API surface, or database schema change.
 
 ## Acceptance

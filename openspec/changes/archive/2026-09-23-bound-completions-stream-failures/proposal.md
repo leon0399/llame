@@ -138,6 +138,6 @@ review budget.
   `apps/api/src/models/opencode-go-model-client.test.ts` (the test that pins
   the quoted event is inverted), and one run-level test in
   `apps/api/src/runs/run-execution.service.test.ts`.
-- `docs/opencode-go.md` failure paragraph and `CHANGELOG.md`.
+- `docs/product/operator/providers/opencode-go.md` failure paragraph and `CHANGELOG.md`.
 - Canonical specs at finalize: `provider-api-selection` and
   `opencode-go-provider`.

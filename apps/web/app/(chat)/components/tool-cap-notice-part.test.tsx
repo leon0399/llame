@@ -1,6 +1,6 @@
 /**
  * Pure `parseCapNoticePart` shape handling only — the chip's rendered state
- * lives in tool-cap-notice-part.stories.tsx (docs/testing.md rule 5). Both
+ * lives in tool-cap-notice-part.stories.tsx (docs/development/testing.md rule 5). Both
  * wire paths hand this function the same persisted `{ type, data }` part:
  * `toChatUiMessages` passes parts through verbatim, asserted in
  * lib/services/chat/history.test.ts.

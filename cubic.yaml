@@ -121,7 +121,7 @@ reviews:
         - "**/*.test.tsx"
 
     - name: Test quality
-      description: Enforce docs/testing.md as summarized in the linked file.
+      description: Enforce docs/development/testing.md as summarized in the linked file.
       file_paths:
         - .cubic/tests.md
       include:

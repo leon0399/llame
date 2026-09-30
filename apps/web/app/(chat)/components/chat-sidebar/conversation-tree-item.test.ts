@@ -1,5 +1,5 @@
 /**
- * `truncateMessage`/`getTypeLabel` are pure formatting logic (docs/testing.md
+ * `truncateMessage`/`getTypeLabel` are pure formatting logic (docs/development/testing.md
  * rule 5's "pure logic" carve-out). Render/interaction detail for the item
  * itself lives in this component's own conversation-tree-item.stories.tsx.
  */

@@ -150,7 +150,7 @@ test("changes outside mutant sources select nothing", () => {
     "apps/api/src/db/migrations/0001_example.sql":
       "CREATE TABLE a (id uuid);\n",
     "apps/api/src/testing/fixture.ts": lines(3),
-    "docs/testing.md": "# docs\n",
+    "docs/development/testing.md": "# docs\n",
     ".markdownlint-cli2.jsonc": "{}\n",
   });
 

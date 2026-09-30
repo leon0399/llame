@@ -2,7 +2,7 @@
 
 /**
  * Headless hook logic, so it lives in a jsdom suite rather than a story
- * (docs/testing.md rule 5): the interesting part is the timer chain, which a
+ * (docs/development/testing.md rule 5): the interesting part is the timer chain, which a
  * play function could only observe through a rendered row.
  */
 

@@ -41,7 +41,7 @@ sandboxes may need local-bind permission for Stryker.
   database ownership, and security requirements.
 - [Architecture contract](../../SPEC.md) defines the cross-cutting system
   invariants.
-- [Personal Knowledge operator runbook](../../docs/knowledge.md) defines the
+- [Personal Knowledge operator runbook](../../docs/product/operator/knowledge.md) defines the
   configured root, worker mounts, live-file authority, and security boundary.
-- [Testing](../../docs/testing.md) and [scaling](../../docs/scaling.md) document
+- [Testing](../../docs/development/testing.md) and [scaling](../../docs/product/operator/scaling.md) document
   the test pyramid and durable-worker topology.

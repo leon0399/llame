@@ -121,5 +121,5 @@ None.
 - `apps/api/src/db`: two nullable `chats` columns for the rank baseline and its compaction
   identity; one closed unavailable reason `declaration_budget_exceeded`.
 - `apps/api/src/instance-config`: two optional model keys and their JSON Schema entries.
-- Docs: `docs/mcp-tools.md`, `README.md`, `SPEC.md` §13, `CHANGELOG.md` on ship.
+- Docs: `docs/product/operator/mcp-tools.md`, `README.md`, `SPEC.md` §13, `CHANGELOG.md` on ship.
 - Closes [#338](https://github.com/leon0399/llame/issues/338).

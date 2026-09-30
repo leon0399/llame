@@ -112,7 +112,7 @@ implementation layers.
       case-insensitive text-reject regex `(?i)(^|[/\\])\.mcp\.json$` and W2 with
       `(?i)(^|[/\\])\.(llame|agents|claude)[/\\]`; document that in-repo aliases such as symlinks
       can bypass these rejects and there is no executor-level guard. Add Workspace entry and its
-      host-authority boundary in `docs/native-files.md`. Update `SPEC.md:35` so Workspace is a
+      host-authority boundary in `docs/product/operator/native-files.md`. Update `SPEC.md:35` so Workspace is a
       current runtime object on the native executor, add the local-node research paragraph
       recording the absolute-path exception to §5.4, and add a dated `CHANGELOG.md` entry. Verify
       the example-policy scenarios, including the canonical `no_allow` case and preservation of
@@ -156,7 +156,7 @@ implementation layers.
 - [x] 3.2 List Workspace skills in the `enter_workspace` result and make them loadable in the
       entering Run. Verify with a worker integration test that entry and `skill://<name>` read work
       in the same Run, and that the next accepted turn's catalog delta announces the new skills.
-- [x] 3.3 Document Workspace skill sources in `docs/skills.md`; update `SPEC.md:196` so skill
+- [x] 3.3 Document Workspace skill sources in `docs/product/operator/skills.md`; update `SPEC.md:196` so skill
       sources include Workspace sources while entered; add a dated `CHANGELOG.md` entry. Run the API
       checks from 1.9 for this layer and record them in the PR body.
 - [x] 3.4 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun
@@ -192,7 +192,7 @@ implementation layers.
       Update `README.md` (~260-261) to remove the instruction to allowlist each namespaced tool as
       read-only, and update `apps/api/AGENTS.md` (~248-249) to remove the wildcard read-only
       attestation. Remove the read-only attestation and write-capable MCP deferral from `VISION.md`
-      and `docs/mcp-tools.md`, adding an operator migration note that permitting
+      and `docs/product/operator/mcp-tools.md`, adding an operator migration note that permitting
       `enter_workspace` on a directory that any allowlisted tool can write — `bash`, native
       `write`/`edit` without W1/W2, or write-capable operator or Workspace MCP tools — is
       equivalent to `execute_code` and host-secret exfiltration. Add a dated **BREAKING**
@@ -275,7 +275,7 @@ workspace_generation)`. Keep Workspace candidates and executors out of the proce
 - [x] 6.5 Update `SPEC.md:132` to document per-process operator MCP clients plus per-Chat
       Workspace MCP clients. Document Workspace MCP config, interpolation, lifetime, generation
       keying, per-Chat resolver isolation, byte-equal deferred shadowing, case-only collision
-      unavailability, and the audited-repository assumption in `docs/mcp-tools.md`; add a dated
+      unavailability, and the audited-repository assumption in `docs/product/operator/mcp-tools.md`; add a dated
       `CHANGELOG.md` entry. Run the API checks from 1.9 and web checks from 2.3 for this layer and
       record them in the PR body, which uses `Closes #974`.
 - [x] 6.6 Self-review (SR) the parent-relative draft diff, fix accepted findings, and rerun

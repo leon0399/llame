@@ -34,7 +34,7 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 - Optional native host file tools: selector-based `read`, exact `edit`, and
   create-or-replace `write`, with durable mutation fencing, plus host `bash`
   with per-call literal `cwd` and additive `env`, fresh processes, and bounded
-  output. See [native file setup](docs/native-files.md).
+  output. See [native file setup](docs/product/operator/native-files.md).
 - Web reads through that same native `read` tool: absolute `http://` and
   `https://` locators, publisher Markdown first (negotiated, announced
   alternates, a `.md` suffix probe, `llms.txt`), a bounded local render, and
@@ -44,7 +44,7 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   address is also judged against the `read` group's rejects, and each request
   is pinned to an admitted address, under 10 s header, 30 s call, and 5 MiB
   body bounds. See
-  [web read setup](docs/web-read.md).
+  [web read setup](docs/product/operator/web-read.md).
 - Owner-scoped Markdown Knowledge Spaces: `knowledge_search` over live files
   (including uncommitted changes), plus `kb://` reads through the native
   `read` tool, operator-configured and allowlisted.
@@ -54,8 +54,8 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 
 Not yet shipped: agent-authored knowledge writes, Git-backed recovery, user
 BYOK, fine-grained tool permissions, subagents. See [ROADMAP.md](ROADMAP.md).
-Operator setup: [docs/conversation-recall.md](docs/conversation-recall.md),
-[docs/knowledge.md](docs/knowledge.md).
+Operator setup: [docs/product/operator/conversation-recall.md](docs/product/operator/conversation-recall.md),
+[docs/product/operator/knowledge.md](docs/product/operator/knowledge.md).
 
 ## Direction
 
@@ -102,7 +102,7 @@ route at an endpoint fixed in llame's code, so the entry declares
 credential and must resolve nonblank, because the gateway authenticates every
 request, while `baseUrl` and `accountId` are rejected at boot, and no `id` or
 ambient variable moves or authenticates a request. See
-[docs/opencode-go.md](docs/opencode-go.md) for its route ceiling, accepted
+[docs/product/operator/providers/opencode-go.md](docs/product/operator/providers/opencode-go.md) for its route ceiling, accepted
 upstream failures, per-model privacy terms, and quota boundaries.
 **Breaking**: `type: "openai"` is deleted — re-declare every entry that used it
 as one of those two wires, or startup fails naming the entry. `openai-codex`
@@ -119,7 +119,7 @@ Configuration loading does not probe the root; provisioning and worker
 execution fail closed when their mount is missing. The Knowledge API keeps the
 root and local binding out of model context and owner-facing results; allowlisted
 host `bash` can discover a mounted root through ordinary filesystem commands.
-See [docs/knowledge.md](docs/knowledge.md).
+See [docs/product/operator/knowledge.md](docs/product/operator/knowledge.md).
 
 **Breaking**: `knowledge_read` is deleted. An allowlisted `knowledge_read`
 entry now fails boot; remove it from `tools.allowed` before upgrading. Read
@@ -142,7 +142,7 @@ worker memory, so a receipt is not a record of the descriptions the model was
 shown. The owner UI shows model switches and loads the receipt on demand; host
 file paths never enter the model catalog or receipt. Authoring:
 [apps/api/AGENTS.md](apps/api/AGENTS.md), operator runbook:
-[docs/tool-prompts.md](docs/tool-prompts.md).
+[docs/product/operator/tool-prompts.md](docs/product/operator/tool-prompts.md).
 
 `models[].providerOptions` is a server-only free-form object of provider-native
 request options for the adapter the provider `type` selects, keyed as that
@@ -266,7 +266,7 @@ not reach it. Runs unsandboxed as the
 llame user. Operators must explicitly allowlist each namespaced tool or its
 server namespace, and every call must have an applicable `tools.permissions`
 group; allowlisting selects eligibility but does not attest to read-only
-behavior. See [docs/mcp-tools.md](docs/mcp-tools.md).
+behavior. See [docs/product/operator/mcp-tools.md](docs/product/operator/mcp-tools.md).
 
 ## Documentation
 
@@ -275,13 +275,13 @@ behavior. See [docs/mcp-tools.md](docs/mcp-tools.md).
 - [SPEC.md](SPEC.md): current architecture, invariants, and authority map
 - [CHANGELOG.md](CHANGELOG.md): shipped history
 - [AGENTS.md](AGENTS.md): repository workflow and engineering rules
-- [docs/knowledge.md](docs/knowledge.md): personal Knowledge operator runbook
-- [docs/mcp-tools.md](docs/mcp-tools.md): remote MCP operator runbook
-- [docs/tool-prompts.md](docs/tool-prompts.md): tool description template
+- [docs/product/operator/knowledge.md](docs/product/operator/knowledge.md): personal Knowledge operator runbook
+- [docs/product/operator/mcp-tools.md](docs/product/operator/mcp-tools.md): remote MCP operator runbook
+- [docs/product/operator/tool-prompts.md](docs/product/operator/tool-prompts.md): tool description template
   operator runbook
-- [docs/codex-subscription.md](docs/codex-subscription.md): ChatGPT/Codex
+- [docs/product/operator/providers/codex-subscription.md](docs/product/operator/providers/codex-subscription.md): ChatGPT/Codex
   subscription operator runbook
-- [docs/opencode-go.md](docs/opencode-go.md): OpenCode Go subscription
+- [docs/product/operator/providers/opencode-go.md](docs/product/operator/providers/opencode-go.md): OpenCode Go subscription
   operator runbook
 - [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
   peer harness / protocol prior art (noncanonical)

@@ -18,7 +18,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       // Write the report even when a test fails: the metric targets in
-      // docs/code-quality-targets.md need a number from every run, and a
+      // docs/development/code-quality-targets.md need a number from every run, and a
       // single unrelated failure otherwise yields none at all.
       reportOnFailure: true,
       reporter: ["text-summary", "json"],

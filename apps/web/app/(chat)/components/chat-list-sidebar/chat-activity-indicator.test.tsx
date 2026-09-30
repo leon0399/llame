@@ -1,6 +1,6 @@
 /**
  * Pure status-resolution logic only — the badge's rendered states live in
- * chat-activity-indicator.stories.tsx (docs/testing.md rule 5).
+ * chat-activity-indicator.stories.tsx (docs/development/testing.md rule 5).
  */
 
 import { describe, expect, it } from "vitest";

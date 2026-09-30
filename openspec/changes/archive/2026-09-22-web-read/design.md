@@ -118,7 +118,7 @@ The substrate, on current `master`:
   a cloud metadata address passes any `path` clause that admits its name, and
   an answer that changes between the decision and the connection passes too; a
   redirect chain reaches those addresses the same way. The delta spec states
-  this as behavior so a later fix has a test to change, and `docs/web-read.md`
+  this as behavior so a later fix has a test to change, and `docs/product/operator/web-read.md`
   records the threat model: the operator should keep the `read` group tight,
   because the tool is reachable from model-authored text.
 
@@ -342,7 +342,7 @@ The substrate, on current `master`:
   case-sensitive like the rest of the map because the tool refuses every
   noncanonical spelling before a request (D1); a trailing-dot host is
   canonical, hence the `\.?`.
-  The new `docs/web-read.md` runbook shows
+  The new `docs/product/operator/web-read.md` runbook shows
   the narrower alternative, replacing the whole-tool allow with field allows
   for `^/`, `^kb://`, `^skill://`, and `^https://docs\.example\.com/`, and the
   recommended-policy requirement names both rejects and the alternative.

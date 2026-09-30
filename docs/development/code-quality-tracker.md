@@ -6,7 +6,7 @@ Current thresholds and numeric debt live in
 - A rule blocks only after owned findings reach zero. No permanent baseline,
   broad allowlist, or directory suppression.
 - Vendored rule patches and tests belong in
-  [`packages/oxlint-plugin-anti-slop/UPSTREAM.md`](../packages/oxlint-plugin-anti-slop/UPSTREAM.md).
+  [`packages/oxlint-plugin-anti-slop/UPSTREAM.md`](../../packages/oxlint-plugin-anti-slop/UPSTREAM.md).
 - Reviewer findings are candidates. Verify them against primary tool output or
   by applying the named mutation.
 - Tool probes use production configuration. Changed categories/options or

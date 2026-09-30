@@ -4,7 +4,7 @@
  * Callers depend on this interface (via the QUEUE token), never on pg-boss
  * directly — a dependency firewall and test seam first, an engine swap second:
  * queue-shaped engines (BullMQ/SQS) fit behind it; a workflow engine like
- * Temporal would be a rearchitecture, not a swap (docs/scaling.md). pg-boss is the only wired
+ * Temporal would be a rearchitecture, not a swap (docs/product/operator/scaling.md). pg-boss is the only wired
  * implementation (SPEC §24.0.1): Postgres-first, no Redis, no separate
  * scheduler service.
  *

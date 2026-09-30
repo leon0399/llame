@@ -54,7 +54,7 @@ There is no timeout: a hung accept is an infrastructure failure, and reload reco
 | S3    | streaming output              | Stop icon, enabled |
 | S4    | pending stop (M2)             | spinner, disabled  |
 
-The spinner then means only "stopping". Stop is operable from Send onward because M1 and M2 make it effective from Send onward. A `chat-composer` story's play function asserts the four states, per `docs/testing.md` rule 5.
+The spinner then means only "stopping". Stop is operable from Send onward because M1 and M2 make it effective from Send onward. A `chat-composer` story's play function asserts the four states, per `docs/development/testing.md` rule 5.
 
 ### M4: Pending indicator and live-only empty rows
 
@@ -86,6 +86,6 @@ This extends the hold-until-abort fixture decided for the Stop proof with a rele
 - [The first frame now arrives before any content, so the live list holds an assistant message with no parts during `submitted`] → M4 renders the indicator for it; unit tests cover the visible-content and live-only-row rules, including Stop before output, adoption, and a following send.
 - [Committing headers earlier changes when an accept-time failure can still become an HTTP error] → the frame is written only after the Run is accepted and enqueued; earlier failures still throw before any body write.
 - [A Stop at different moments leaves different history: nothing before the model request, an empty "stopped" turn after it] → accepted and specified; this is shipped persistence that `run-usage-accounting` depends on, and changing it is a non-goal. After a Stop with no output the row is absent until history adoption brings the persisted turn, if any, at most one active-runs poll after settlement (M4).
-- [Multi-process deployments cannot stop a claimed Run] → the spec states the boundary and names #207; `docs/scaling.md` already warns operators.
+- [Multi-process deployments cannot stop a claimed Run] → the spec states the boundary and names #207; `docs/product/operator/scaling.md` already warns operators.
 - [A background toast now covers mobile header controls for up to 4 s] → accepted; it is dismissible and never covers the composer.
 - [Rollback] → no data or schema change. Reverting the bridge restores lazy `start`; the client's pending-stop path then waits until first output, the same outcome as today.

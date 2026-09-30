@@ -125,6 +125,6 @@ a Space is loaded and no Space loads for an owner who cannot reach it.
   Space-scoped walk, reusing the existing locator resolution and its host-path containment
   check.
 - `apps/web`: the instructions chip on assistant and user messages.
-- Docs: `docs/native-files.md`, `docs/knowledge.md`, `SPEC.md`'s context-rail and Workspace
+- Docs: `docs/product/operator/native-files.md`, `docs/product/operator/knowledge.md`, `SPEC.md`'s context-rail and Workspace
   lines, `CHANGELOG.md`.
 - No schema change and no migration.
