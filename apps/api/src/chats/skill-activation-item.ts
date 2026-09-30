@@ -26,6 +26,7 @@ import {
 import {
   createRenderedContextItem,
   isExactRecord,
+  isNonEmptyString,
 } from './context-item-shared';
 import { type AuthoredContextItemPart } from './context-item';
 
@@ -123,10 +124,6 @@ function isOmissionPayload(value: UnknownRecord): boolean {
 
 function isRecordWithKind(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && 'kind' in value;
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return isString(value) && value.trim().length > 0;
 }
 
 function isFailureReason(
