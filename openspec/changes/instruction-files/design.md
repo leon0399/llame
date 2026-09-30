@@ -328,10 +328,13 @@ collapse two Space candidates into one.
 
 **Why the probe is owner-scoped:** Space resolution runs through the Run owner's
 `resolveBindingForOwnerById` and RLS on every call
-(`apps/api/src/knowledge/knowledge-locator.ts:211-232`), so an absent, other-owner, or
-unavailable Space is one indistinguishable result. Probing a Space the owner cannot reach
-would either leak existence through timing or an error surface, so a locator naming such a
-Space loads nothing, probes nothing, and records no event.
+(`apps/api/src/knowledge/knowledge-locator.ts:211-232`). The resolver distinguishes two
+results: `knowledge_space_not_found` for a Space that is absent, removed, or owned by
+someone else — deliberately one result, so probing cannot reveal which — and
+`knowledge_space_unavailable` for a Space the owner cannot be served from at all. The
+producer treats every one of them the same way: nothing loads, nothing is probed, and no
+event is recorded. Probing a Space the owner cannot reach would either leak existence
+through timing or an error surface.
 
 **No accepted-turn load:** a Chat's Workspace binding is what an accepted-turn load is
 decided from, and a Space has no binding. A `kb://` chain therefore returns only on its next
@@ -342,6 +345,29 @@ native executor, a `kb://` trigger additionally needs a configured `knowledge.ro
 neither needs `enter_workspace`. The permission projection already canonicalizes `kb://`
 before `path` rules run (`apps/api/src/tools/permissions/locator-projection.ts:54-55`), so the
 `read` group admits a Space candidate under the same rule a model read of that locator gets.
+
+**Space identifier spelling:** grouping, labels, and seen keys use the lower-cased Space
+identifier, so one Space's candidates group and dedupe under one identity no matter how the
+triggering calls spelled it. Each candidate page read uses the identifier exactly as the
+triggering call spelled it, taking that step's first mention of the Space, so the `read`
+group evaluates the same locator spelling the model's own read of that candidate would get.
+Reading at the model's own spelling is never more permissive than the injection it
+accompanies: a rule the model's read passes is a rule the injection passes.
+
+**The Knowledge notice rides along:** a bundle carrying at least one Space candidate carries
+the closed untrusted-content notice `knowledge-tools` defines
+(`apps/api/src/knowledge/knowledge-content-notice.ts`) exactly once, so a bundle that injects
+owner-authored notes into the model context is framed the same way a `kb://` read result is.
+The bundle's precedence statement therefore says repository or Knowledge content rather than
+repository content alone, because a Space file is not repository content and calling it that
+would misdescribe what the model is being asked to trust.
+
+**Host paths under `knowledge.root`:** a `kb://` walk stops at its Space root, but a
+host-path trigger is still a host-path trigger: reading a host path that happens to sit
+inside the operator's `knowledge.root` loads that directory's chain under host authority,
+the same rule as any other ancestor. That is a documented trust boundary, not a hole the
+Space walk opens. On a multi-owner host the operator closes it with a `read` reject for the
+Knowledge root, which keeps every Space from being loaded through a plain host path.
 
 **Ordering:** host and Knowledge candidates resolve into the same one-item-per-step bundle —
 host files first, then Knowledge files, each group from its broadest directory and base
@@ -393,6 +419,20 @@ rule.
 
 ## Revision history
 
+- **v8 (2026-09-30, Knowledge review):** D12 now states the resolver's two results and the
+  producer's single handling of them, instead of calling an absent, other-owner, and
+  unavailable Space one indistinguishable result: the resolver distinguishes
+  `knowledge_space_not_found` from `knowledge_space_unavailable`, and loading, probing, and
+  auditing are all suppressed for either. D12 adds the Space identifier spelling rule —
+  grouping, labels, and seen keys lower-case, each candidate page read at the triggering
+  call's own spelling — and the rule that a bundle carrying any Space candidate carries the
+  closed Knowledge untrusted-content notice once, with the bundle's precedence statement
+  covering Knowledge content rather than repository content alone. D12 also records that a
+  host-path read inside the operator's `knowledge.root` stays under host authority and is
+  restricted with a `read` reject, with no owner scoping for host paths. The Knowledge
+  requirement carries the notice, the spelling rule, and a scenario for the notice; the
+  bundle requirement generalizes its precedence wording; and the proposal's denied-candidate
+  disclosure now excepts a step whose every candidate is denied.
 - **v7 (2026-09-30, Knowledge locators):** Leo's design review corrected the earlier draft,
   which excluded `kb://` touches from loading: an owner who writes rules in a Space got none
   of them for the work done in that Space. D12 adds Knowledge-locator loading, and the walk

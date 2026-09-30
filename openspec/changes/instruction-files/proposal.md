@@ -63,7 +63,10 @@ gap is the first half of this change; the instruction-file producer is the secon
   permission group and audited like a model read with origin `instructions`; a denied file is
   omitted from the bundle and never named to the model. The model therefore receives nothing
   it could not read itself; the owner additionally learns, through the chip and audit, that a
-  denied candidate exists.
+  denied candidate exists — except in a step where every candidate is denied, which produces
+  no item and therefore no chip, leaving the denied `read` audit event as the only record.
+  Disclosure of that case is tracked in
+  [#1039](https://github.com/leon0399/llame/issues/1039).
 - **Owner disclosure.** The item's private metadata records loaded, truncated, and denied
   paths; the transcript shows a chip listing them; the Run context-item record copies the
   model-visible text only. Non-owners, shares, exports, and search projections see none of it.

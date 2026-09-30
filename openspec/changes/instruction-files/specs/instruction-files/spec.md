@@ -67,6 +67,8 @@ Space resolution and every candidate probe SHALL run under the Run owner's ident
 
 Every selected candidate SHALL be labelled and keyed by its logical locator `kb://<spaceId>/<relative path>`, percent-encoded exactly as the Knowledge locator formatter produces it, and that logical locator SHALL be the item's `path` and its seen key; no host path SHALL appear in the item's text, payload, metadata, audit events, or owner chip. Each selected candidate SHALL be read through the native `read` tool with its `kb://` locator and bounded `:raw:<from>-<to>` pages, under system origin `instructions`, evaluated by the `read` permission group exactly as a host candidate is.
 
+Grouping, labels, and seen keys SHALL use the Space identifier lower-cased, while each candidate page SHALL be read with the Space identifier spelled exactly as the triggering call spelled it, taking the first mention of that Space in the step, so the `read` group evaluates the same locator spelling the model's own read of that candidate would. A read at the model's own spelling SHALL NOT be more permissive than the injection it accompanies. A bundle carrying at least one Knowledge candidate SHALL include the closed Knowledge untrusted-content notice `knowledge-tools` defines exactly once, and a bundle carrying only host-path candidates SHALL NOT include it.
+
 A `kb://` trigger SHALL NOT produce an accepted-turn load, because a Space has no Workspace binding; its chain returns on the next touch after a compaction. Candidates loaded for one step from host-path triggers and from `kb://` triggers SHALL resolve into at most one item, with the host files first, then the Knowledge files, each group from its broadest directory and a base file before its local file.
 
 #### Scenario: A read in a Space loads that Space's chain from its root
@@ -95,6 +97,12 @@ A `kb://` trigger SHALL NOT produce an accepted-turn load, because a Space has n
 - **WHEN** a step loads candidates from a Space
 - **THEN** the item text and the `files` payload carry `kb://<spaceId>/<relative path>` values
 - **AND** no host path appears in the text, the payload, the metadata, or the audit events
+
+#### Scenario: A Space bundle carries the Knowledge notice once
+
+- **WHEN** one step loads candidates from a Space, with or without host-path candidates
+- **THEN** the item includes the closed Knowledge untrusted-content notice exactly once
+- **AND** a bundle of host-path candidates only carries no such notice
 
 ### Requirement: Entry, native file tools, and accepted turns are the only triggers
 
@@ -201,7 +209,7 @@ Candidate existence and size SHALL be probed without a permission decision and w
 
 ### Requirement: A bundle is one persisted-literal notice with bounded file bodies
 
-Each model step, or accepted turn, whose pending triggers load at least one file SHALL produce exactly one rail-resident `instructions` item with form `notice` rendered from a packaged template. The item SHALL name each loaded file in a `<file path="…">` block carrying the identifier at which the candidate was selected in the walk — the absolute host path for a host-path candidate, the logical `kb://` locator for a Knowledge candidate — in directory order from broadest to most specific with a directory's base file before its local file, host-path candidates before Knowledge candidates when one step loads both; the payload SHALL additionally record each file's canonical path, or its logical locator for a Knowledge candidate, as its seen key. It SHALL state once that each file applies to work under its own directory and that a deeper file takes precedence over a broader one where they conflict, and SHALL carry the precedence statement `context-injection` requires for third-party content. Each file body SHALL be neutralized with the reserved-delimiter rules before rendering. A file larger than 32 KiB SHALL be cut at 32 KiB on a UTF-8 character boundary and followed by one line naming the path and the number of bytes omitted, taken from the probed size; there SHALL be no aggregate cap per item. The item SHALL NOT name denied or missing candidates and SHALL NOT include line-number prefixes. Its metadata SHALL record the loaded, truncated, and denied paths privately for owner display; replay SHALL use only the stored text.
+Each model step, or accepted turn, whose pending triggers load at least one file SHALL produce exactly one rail-resident `instructions` item with form `notice` rendered from a packaged template. The item SHALL name each loaded file in a `<file path="…">` block carrying the identifier at which the candidate was selected in the walk — the absolute host path for a host-path candidate, the logical `kb://` locator for a Knowledge candidate — in directory order from broadest to most specific with a directory's base file before its local file, host-path candidates before Knowledge candidates when one step loads both; the payload SHALL additionally record each file's canonical path, or its logical locator for a Knowledge candidate, as its seen key. It SHALL state once that each file applies to work under its own directory and that a deeper file takes precedence over a broader one where they conflict, and SHALL carry the precedence statement `context-injection` requires for third-party content, whose wording SHALL cover both repository and Knowledge content rather than repository content alone. Each file body SHALL be neutralized with the reserved-delimiter rules before rendering. A file larger than 32 KiB SHALL be cut at 32 KiB on a UTF-8 character boundary and followed by one line naming the path and the number of bytes omitted, taken from the probed size; there SHALL be no aggregate cap per item. The item SHALL NOT name denied or missing candidates and SHALL NOT include line-number prefixes. Its metadata SHALL record the loaded, truncated, and denied paths privately for owner display; replay SHALL use only the stored text.
 
 #### Scenario: Two directories render in order
 
