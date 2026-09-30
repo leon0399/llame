@@ -1320,6 +1320,27 @@ describe('system-origin tool activity', () => {
     expect(result.openToolCalls).toEqual(new Map());
   });
 
+  it('produces no assistant part for an instructions-origin read', () => {
+    const result = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'instructions-1',
+        toolName: 'read',
+        input: { path: '/repo/AGENTS.md:raw:1-2000' },
+        origin: 'instructions',
+      }),
+      event('tool.completed', {
+        toolCallId: 'instructions-1',
+        toolName: 'read',
+        status: 'success',
+        output: { status: 'success', content: 'repo rules' },
+        origin: 'instructions',
+      }),
+    ]);
+
+    expect(result.collector.parts()).toEqual([]);
+    expect(result.openToolCalls).toEqual(new Map());
+  });
+
   it('leaves model-origin activity beside it untouched', () => {
     const result = reconstructDurableAssistant([
       event('tool.requested', requested('activation-1')),

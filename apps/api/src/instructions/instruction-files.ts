@@ -57,17 +57,38 @@ export function walkDirectories(directory: string): Array<string> {
 }
 
 /**
- * The directory a native read/edit/write path touches: the path itself when it
- * is an existing directory, else its parent, whether or not that parent exists.
+ * The directory a native read/edit/write path touches, together with the file
+ * identity of that one probe.
  */
-export async function touchedDirectory(
+export interface TouchedPath {
+  /**
+   * The path itself when it is an existing directory, else its parent, whether
+   * or not that parent exists.
+   */
+  readonly directory: string;
+  /**
+   * The canonical path of the regular file the path names, following symlinks;
+   * undefined for a directory, a non-regular entry, and a path that does not
+   * exist. The producer compares it against candidate canonical paths, so one
+   * probe answers both questions.
+   */
+  readonly canonicalPath: string | undefined;
+}
+
+/**
+ * Probe one path: the directory it touches, plus its canonical file identity
+ * when it names a regular file.
+ */
+export async function touchedPath(
   absolutePath: string,
   stat: StatHostPath,
-): Promise<string> {
+): Promise<TouchedPath> {
   const probe = await stat(absolutePath);
-  return probe.kind === 'directory'
-    ? absolutePath
-    : posix.dirname(absolutePath);
+  return {
+    directory:
+      probe.kind === 'directory' ? absolutePath : posix.dirname(absolutePath),
+    canonicalPath: probe.kind === 'file' ? probe.canonicalPath : undefined,
+  };
 }
 
 export interface InstructionCandidate {

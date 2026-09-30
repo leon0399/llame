@@ -111,12 +111,20 @@ import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
-import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import { turnTelemetryLogger } from './turn-telemetry';
 import { createModelChangeItem } from './context-item-producers';
 import { createContextItemPart, isContextItemPart } from './context-item';
+import { instructionsSeenPaths } from './instructions-item';
 import { type InRunContextProducer } from '../runs/in-run-context-items';
 
+import { createInstructionsProducer } from '../instructions/instructions-producer';
+import { ChatsService } from './chats.service';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from './recency-digest.service';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -519,6 +527,25 @@ async function waitFor(
   }
 }
 
+/** The index of the tool-result message carrying `toolCallId`. */
+function toolResultIndex(
+  prompt: ReadonlyArray<unknown>,
+  toolCallId: string,
+): number {
+  return prompt.findIndex(
+    (message) =>
+      isRecord(message) &&
+      message.role === 'tool' &&
+      Array.isArray(message.content) &&
+      message.content.some(
+        (part) =>
+          isRecord(part) &&
+          part.type === 'tool-result' &&
+          part.toolCallId === toolCallId,
+      ),
+  );
+}
+
 describeIfDb('executeRun tool-loop persistence', () => {
   let sql: SqlClient;
   let db: Db;
@@ -679,7 +706,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     key = `worker-${crypto.randomUUID()}`,
     permissionMode: PermissionMode = 'default',
   ) {
-    const chatId = crypto.randomUUID();
+    const chatId: string = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const seeded = await tenantDb.runAs(userId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
@@ -4968,18 +4995,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       if (prompt === undefined) {
         throw new Error('the model step was never dispatched');
       }
-      const toolIndex = prompt.findIndex(
-        (message) =>
-          isRecord(message) &&
-          message.role === 'tool' &&
-          Array.isArray(message.content) &&
-          message.content.some(
-            (part) =>
-              isRecord(part) &&
-              part.type === 'tool-result' &&
-              part.toolCallId === toolCallId,
-          ),
-      );
+      const toolIndex = toolResultIndex(prompt, toolCallId);
       expect(toolIndex).toBeGreaterThanOrEqual(0);
       const carryingIndexes = prompt.flatMap((message, index) => {
         if (
@@ -5196,6 +5212,872 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ).toEqual([]);
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      }
+    });
+  });
+
+  describe('instruction files', () => {
+    /** The service inputs every case needs to load instruction files at all. */
+    function instructionsService(overrides?: ServiceWithToolsOverrides) {
+      return serviceWithTools({
+        nativeExecutorId: 'instructions-host',
+        allowed: ['enter_workspace', 'read'],
+        inRunProducer: createInstructionsProducer(),
+        ...overrides,
+      });
+    }
+
+    /** A Workspace root holding a root file, a nested package file, and a source file. */
+    function instructionFixture(): string {
+      const root = mkdtempSync(path.join(tmpdir(), 'instructions-e2e-'));
+      writeFileSync(
+        path.join(root, 'AGENTS.md'),
+        'root rules: run the tests\n',
+      );
+      mkdirSync(path.join(root, 'apps/api/src'), { recursive: true });
+      writeFileSync(
+        path.join(root, 'apps/api/AGENTS.md'),
+        'api rules: use vitest\n',
+      );
+      writeFileSync(
+        path.join(root, 'apps/api/src/x.ts'),
+        'export const x = 1;\n',
+      );
+      return root;
+    }
+
+    /**
+     * A model whose first step carries these tool calls (one or many), then
+     * answers with `answer`.
+     */
+    function firstStepThenAnswer(
+      first: ReadonlyArray<{
+        readonly toolCallId: string;
+        readonly toolName: string;
+        readonly input: unknown;
+      }>,
+      answer: string,
+    ): MockLanguageModelV3 {
+      let step = 0;
+      return new MockLanguageModelV3({
+        doStream: () => {
+          step += 1;
+          if (step === 1) return Promise.resolve(jsonToolCallsResponse(first));
+          return Promise.resolve(textResponse(answer));
+        },
+      });
+    }
+
+    /** A new Run on an existing Chat, with its own user message. */
+    async function seedRunOnChat(
+      chat: Awaited<ReturnType<typeof seedBoundRun>>,
+      key: string,
+    ) {
+      const messageId = crypto.randomUUID();
+      const seeded = await tenantDb.runAs(userId, async (tx) => {
+        const userMessage = await new MessagesRepository(tx).create({
+          id: messageId,
+          chatId: chat.chatId,
+          role: 'user',
+          senderUserId: userId,
+          parts: [{ type: 'text', text: 'and now another file' }],
+        });
+        const run = await new RunsRepository(tx).create({
+          chatId: chat.chatId,
+          messageId,
+          userId,
+          modelId: `test:${key}`,
+        });
+        return { userMessage, run };
+      });
+      return { ...chat, messageId, key, ...seeded };
+    }
+
+    /** The concatenated text of a prompt message, empty for a non-text one. */
+    function promptText(message: unknown): string {
+      if (!isRecord(message)) return '';
+      const content = message['content'];
+      if (isString(content)) return content;
+      if (!Array.isArray(content)) return '';
+      return content
+        .flatMap((part) =>
+          isRecord(part) && isString(part['text']) ? [part['text']] : [],
+        )
+        .join('\n');
+    }
+
+    /** Every user-message index carrying an instructions bundle. */
+    function instructionsIndexes(
+      prompt: ReadonlyArray<unknown>,
+    ): Array<number> {
+      return prompt.flatMap((message, index) =>
+        isRecord(message) &&
+        message.role === 'user' &&
+        promptText(message).includes('<file path="')
+          ? [index]
+          : [],
+      );
+    }
+
+    /** The events one Run recorded under the `instructions` origin. */
+    async function instructionEvents(runId: string) {
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(runId, userId),
+      );
+      return events.flatMap((entry) =>
+        isRecord(entry.payload) && entry.payload['origin'] === 'instructions'
+          ? [{ type: entry.eventType, payload: entry.payload }]
+          : [],
+      );
+    }
+
+    /** The `instructions` items one Run's context-item record carries. */
+    async function instructionItems(runId: string) {
+      const run = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(runId, userId),
+      );
+      return (run?.contextItems ?? []).flatMap((item) =>
+        item.producer === 'instructions' ? [item] : [],
+      );
+    }
+
+    /** The instructions parts one Run's own turn staged onto its user message. */
+    async function stagedInstructionParts(seeded: {
+      readonly chatId: string;
+      readonly messageId: string;
+    }) {
+      const turn = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findTurnState(
+          seeded.chatId,
+          userId,
+          seeded.messageId,
+        ),
+      );
+      return (turn.userMessage?.parts ?? []).flatMap((part) =>
+        isContextItemPart(part) && part.data.producer === 'instructions'
+          ? [part]
+          : [],
+      );
+    }
+
+    /** The single instructions data-context part among stored messages. */
+    async function storedInstructionPart(chatId: string) {
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
+      );
+      return messages
+        .flatMap((message) => message.parts)
+        .find(
+          (part) =>
+            isContextItemPart(part) && part.data.producer === 'instructions',
+        );
+    }
+
+    async function waitForCompleted(runId: string): Promise<void> {
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(runId, userId),
+        );
+        return events.some((entry) => entry.eventType === 'run.completed');
+      });
+    }
+
+    it('loads the touched chain into the next step and keeps its reads out of the transcript', async () => {
+      const root = instructionFixture();
+      const seeded = await seedBoundRun(
+        `instructions-load-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      const model = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'read-x-enter',
+            toolName: 'enter_workspace',
+            input: { path: root },
+          },
+          {
+            toolCallId: 'read-x',
+            toolName: 'read',
+            input: { path: path.join(root, 'apps/api/src/x.ts') },
+          },
+        ],
+        'Read the file.',
+      );
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // The step after the touch carries one bundle, directly after the
+        // tool result that triggered it, broadest directory first.
+        const prompt = model.doStreamCalls[1]?.prompt ?? [];
+        const toolIndex = toolResultIndex(prompt, 'read-x');
+        const bundleIndex = instructionsIndexes(prompt)[0];
+        expect(toolIndex).toBeGreaterThanOrEqual(0);
+        expect(bundleIndex).toBe(toolIndex + 1);
+        const bundle = promptText(prompt[bundleIndex]);
+        const rootFile = path.join(root, 'AGENTS.md');
+        const apiFile = path.join(root, 'apps/api/AGENTS.md');
+        expect(bundle).toContain(`<file path="${rootFile}">`);
+        expect(bundle).toContain(`<file path="${apiFile}">`);
+        expect(bundle.indexOf(rootFile)).toBeLessThan(bundle.indexOf(apiFile));
+        expect(bundle).toContain('root rules: run the tests');
+        expect(bundle).toContain('api rules: use vitest');
+
+        // The system reads are audited under `instructions` and produce no
+        // assistant tool part: the model's own read is the only one stored.
+        const audited = await instructionEvents(seeded.run.id);
+        expect(audited.map((entry) => entry.type)).toEqual([
+          'tool.requested',
+          'tool.completed',
+          'tool.requested',
+          'tool.completed',
+        ]);
+        const messages = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+        );
+        const assistant = messages.find(
+          (message) =>
+            message.role === 'assistant' &&
+            message.inReplyTo === seeded.userMessage.id,
+        );
+        const parts = (assistant?.parts ?? []).filter(isTypedPart);
+        expect(parts.map((part) => part.type)).toEqual([
+          'tool-enter_workspace',
+          'tool-read',
+          'data-context',
+          'text',
+        ]);
+        expect(parts[2]).toMatchObject({
+          data: { producer: 'instructions', form: 'notice' },
+        });
+        const readParts = parts.flatMap((part) =>
+          part['type'] === 'tool-read' ? [part] : [],
+        );
+        expect(readParts).toHaveLength(1);
+        expect(readParts[0]).toMatchObject({ toolCallId: 'read-x' });
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('loads nothing for a second touch inside the same compaction epoch', async () => {
+      const root = instructionFixture();
+      const seeded = await seedBoundRun(
+        `instructions-epoch-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      const first = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'read-x-enter',
+            toolName: 'enter_workspace',
+            input: { path: root },
+          },
+          {
+            toolCallId: 'read-x',
+            toolName: 'read',
+            input: { path: path.join(root, 'apps/api/src/x.ts') },
+          },
+        ],
+        'Read the file.',
+      );
+
+      try {
+        const firstExecution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(first),
+        );
+        await firstExecution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // A later Run of the same Chat touches the same tree again.
+        const secondSeeded = await seedRunOnChat(
+          seeded,
+          `instructions-epoch-2-${crypto.randomUUID()}`,
+        );
+        const second = firstStepThenAnswer(
+          [
+            {
+              toolCallId: 'read-y',
+              toolName: 'read',
+              input: { path: 'apps/api/src/x.ts' },
+            },
+          ],
+          'No reload.',
+        );
+        const secondExecution = await executeSeeded(
+          secondSeeded,
+          service,
+          createMockModelClient(second),
+        );
+        await secondExecution.consumeStream?.();
+        await waitForCompleted(secondSeeded.run.id);
+
+        // The chain is already in effective history: no probe reads, no item,
+        // and nothing spliced after this step's tool result.
+        expect(await instructionEvents(secondSeeded.run.id)).toEqual([]);
+        expect(await stagedInstructionParts(secondSeeded)).toEqual([]);
+        const prompt = second.doStreamCalls[1]?.prompt ?? [];
+        // Control: the triggering call itself landed as this step's tool
+        // result, so the silence below is about the bundle, not a missing call.
+        expect(toolResultIndex(prompt, 'read-y')).toBeGreaterThanOrEqual(0);
+        expect(instructionsIndexes(prompt)).not.toContain(
+          toolResultIndex(prompt, 'read-y') + 1,
+        );
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('keeps a denied candidate out of the text and audits the denial', async () => {
+      const root = mkdtempSync(path.join(tmpdir(), 'instructions-denied-'));
+      writeFileSync(path.join(root, 'AGENTS.md'), 'denied rules\n');
+      writeFileSync(
+        path.join(root, 'CLAUDE.local.md'),
+        'allowed local rules\n',
+      );
+      const seeded = await seedBoundRun(
+        `instructions-denied-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService({
+        permissionPolicy: compileToolPermissionMap(
+          {
+            enter_workspace: { allow: true },
+            read: {
+              allow: true,
+              reject: [{ field: 'path', regex: 'AGENTS[.]md' }],
+            },
+          },
+          'instructions-denial-policy',
+        ),
+      });
+      const model = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'enter-root',
+            toolName: 'enter_workspace',
+            input: { path: root },
+          },
+        ],
+        'Entered.',
+      );
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // The denied path is audited as a rejected read under `instructions`
+        // and never reaches the model-visible text.
+        const deniedPath = path.join(root, 'AGENTS.md');
+        const audited = await instructionEvents(seeded.run.id);
+        expect(audited.map((entry) => entry.type)).toEqual([
+          'tool.requested',
+          'tool.completed',
+          'tool.requested',
+          'tool.completed',
+        ]);
+        expect(audited[0]?.payload).toMatchObject({
+          toolName: 'read',
+          input: { path: `${deniedPath}:raw:1-2000` },
+          permission: { decision: 'reject' },
+        });
+        expect(audited[1]?.payload).toMatchObject({ status: 'error' });
+        expect(audited[2]?.payload).toMatchObject({
+          permission: { decision: 'allow' },
+        });
+        expect(audited[3]?.payload).toMatchObject({ status: 'success' });
+        const items = await instructionItems(seeded.run.id);
+        expect(items).toHaveLength(1);
+        expect(items[0]?.text).toContain('allowed local rules');
+        expect(items[0]?.text).not.toContain(deniedPath);
+        expect(items[0]?.text).not.toContain('denied rules');
+        // The owner's part still records the denial for the chip.
+        expect(await storedInstructionPart(seeded.chatId)).toMatchObject({
+          data: { payload: { denied: [deniedPath] } },
+        });
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('exposes no instruction activity or items to another owner', async () => {
+      const root = instructionFixture();
+      const seeded = await seedBoundRun(
+        `instructions-isolation-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      const model = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'read-x-enter',
+            toolName: 'enter_workspace',
+            input: { path: root },
+          },
+          {
+            toolCallId: 'read-x',
+            toolName: 'read',
+            input: { path: path.join(root, 'apps/api/src/x.ts') },
+          },
+        ],
+        'Read the file.',
+      );
+      const otherUserId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Other', ${`other-${otherUserId}@test.com`})`;
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+        expect(await instructionItems(seeded.run.id)).toHaveLength(1);
+        // Control: the owner's own session reads the item back.
+        expect(await storedInstructionPart(seeded.chatId)).toBeDefined();
+
+        // Owner B's session, but the OWNER's user id handed to every
+        // repository call: the SQL filter alone would match, so only the
+        // datastore's row-level security can produce the empty results.
+        expect(
+          await tenantDb.runAs(otherUserId, (tx) =>
+            new RunsRepository(tx).findById(seeded.run.id, userId),
+          ),
+        ).toBeUndefined();
+        expect(
+          await tenantDb.runAs(otherUserId, (tx) =>
+            new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+          ),
+        ).toEqual([]);
+        const foreignMessages = await tenantDb.runAs(otherUserId, (tx) =>
+          new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+        );
+        expect(
+          foreignMessages.flatMap((message) =>
+            message.parts.filter(
+              (part) =>
+                isContextItemPart(part) &&
+                part.data.producer === 'instructions',
+            ),
+          ),
+        ).toEqual([]);
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        await sql`DELETE FROM users WHERE id = ${otherUserId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('loads nothing when a reject rule denies the model read', async () => {
+      const root = mkdtempSync(
+        path.join(tmpdir(), 'instructions-read-denied-'),
+      );
+      writeFileSync(path.join(root, 'AGENTS.md'), 'root rules\n');
+      const deniedPath = path.join(root, 'denied.ts');
+      const allowedPath = path.join(root, 'allowed.ts');
+      writeFileSync(deniedPath, 'export const denied = 1;\n');
+      writeFileSync(allowedPath, 'export const allowed = 1;\n');
+      const seeded = await seedBoundRun(
+        `instructions-read-denied-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService({
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: {
+              allow: true,
+              reject: [{ field: 'path', literal: deniedPath }],
+            },
+            enter_workspace: { allow: true },
+          },
+          'instructions-model-read-denied-policy',
+        ),
+      });
+      const model = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'read-denied',
+            toolName: 'read',
+            input: { path: deniedPath },
+          },
+        ],
+        'Denied.',
+      );
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // A denied call is not a trigger: no probe, no audit, no item.
+        expect(await instructionEvents(seeded.run.id)).toEqual([]);
+        expect(await instructionItems(seeded.run.id)).toEqual([]);
+        expect(await storedInstructionPart(seeded.chatId)).toBeUndefined();
+
+        // Control: the same fixture loads on the next Run's allowed read, so
+        // the silence above is the denial, not an empty directory.
+        const retrySeeded = await seedRunOnChat(
+          seeded,
+          `instructions-read-allowed-${crypto.randomUUID()}`,
+        );
+        const allowed = firstStepThenAnswer(
+          [
+            {
+              toolCallId: 'read-allowed',
+              toolName: 'read',
+              input: { path: allowedPath },
+            },
+          ],
+          'Allowed.',
+        );
+        const retryExecution = await executeSeeded(
+          retrySeeded,
+          service,
+          createMockModelClient(allowed),
+        );
+        await retryExecution.consumeStream?.();
+        await waitForCompleted(retrySeeded.run.id);
+        expect(await instructionItems(retrySeeded.run.id)).toHaveLength(1);
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps a same-step relative read off the entry's root", async () => {
+      const newRoot = instructionFixture();
+      const seeded = await seedBoundRun(
+        `instructions-step-boundary-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      // One step: enter `newRoot` and, in the same step, read a relative
+      // path. The entry takes effect only at the next step, so the read
+      // resolves against the root in effect before it — none.
+      const model = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'enter-root',
+            toolName: 'enter_workspace',
+            input: { path: newRoot },
+          },
+          {
+            toolCallId: 'read-x',
+            toolName: 'read',
+            input: { path: 'apps/api/x.ts' },
+          },
+        ],
+        'Entered and read.',
+      );
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // The entry's own step carries no bundle: the triggers are staged for
+        // the next step.
+        expect(
+          instructionsIndexes(model.doStreamCalls[0]?.prompt ?? []),
+        ).toEqual([]);
+        // The next step carries the entry's chain only. The same-step read
+        // did not resolve against the new root, so its nested file is absent.
+        const prompt = model.doStreamCalls[1]?.prompt ?? [];
+        const bundles = instructionsIndexes(prompt);
+        expect(bundles).toHaveLength(1);
+        const bundle = promptText(prompt[bundles[0] ?? -1]);
+        expect(bundle).toContain(
+          `<file path="${path.join(newRoot, 'AGENTS.md')}">`,
+        );
+        expect(bundle).not.toContain(path.join(newRoot, 'apps/api/AGENTS.md'));
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(newRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('audits one read per page for a file longer than one read result', async () => {
+      const root = mkdtempSync(path.join(tmpdir(), 'instructions-paged-'));
+      const pageLine = (prefix: string) =>
+        `${prefix}${'a'.repeat(1024 - prefix.length)}\n`;
+      const body = Array.from({ length: 20 }, (_, index) =>
+        pageLine(index === 0 ? 'FIRST ' : index === 19 ? 'LAST ' : 'filler '),
+      ).join('');
+      writeFileSync(path.join(root, 'AGENTS.md'), body);
+      mkdirSync(path.join(root, 'apps/api/src'), { recursive: true });
+      writeFileSync(
+        path.join(root, 'apps/api/src/x.ts'),
+        'export const x = 1;\n',
+      );
+      const seeded = await seedBoundRun(
+        `instructions-paged-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      const model = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'read-x',
+            toolName: 'read',
+            input: { path: path.join(root, 'apps/api/src/x.ts') },
+          },
+        ],
+        'Read it.',
+      );
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // One audited page per page of the file, each with its own call id.
+        const file = path.join(root, 'AGENTS.md');
+        const audited = await instructionEvents(seeded.run.id);
+        // `tool.started` carries no origin, so the origin-filtered log shows
+        // one request/completion pair per page.
+        expect(audited.map((entry) => entry.type)).toEqual([
+          'tool.requested',
+          'tool.completed',
+          'tool.requested',
+          'tool.completed',
+        ]);
+        const requests = audited.filter(
+          (entry) => entry.type === 'tool.requested',
+        );
+        const requestedPaths = requests.map((entry) =>
+          isRecord(entry.payload) &&
+          isRecord(entry.payload['input']) &&
+          isString(entry.payload['input']['path'])
+            ? entry.payload['input']['path']
+            : '',
+        );
+        expect(requestedPaths[0]).toBe(`${file}:raw:1-2000`);
+        expect(requestedPaths[1]).toMatch(
+          new RegExp(`^${file}:raw:\\d+-\\d+$`, 'u'),
+        );
+        expect(requestedPaths[1]).not.toBe(requestedPaths[0]);
+        const callIds = requests.map((entry) =>
+          isRecord(entry.payload) ? entry.payload['toolCallId'] : undefined,
+        );
+        expect(new Set(callIds).size).toBe(2);
+
+        // The single bundle carries the whole file, not just its first page.
+        const prompt = model.doStreamCalls[1]?.prompt ?? [];
+        const bundles = instructionsIndexes(prompt);
+        expect(bundles).toHaveLength(1);
+        const bundle = promptText(prompt[bundles[0] ?? -1]);
+        expect(bundle).toContain('FIRST ');
+        expect(bundle).toContain('LAST ');
+        const items = await instructionItems(seeded.run.id);
+        expect(items).toHaveLength(1);
+        expect(items[0]?.text).toContain('LAST ');
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("omits files a fork's copied history already names", async () => {
+      const root = instructionFixture();
+      const seeded = await seedBoundRun(
+        `instructions-fork-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      const model = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'read-x-enter',
+            toolName: 'enter_workspace',
+            input: { path: root },
+          },
+          {
+            toolCallId: 'read-x',
+            toolName: 'read',
+            input: { path: path.join(root, 'apps/api/src/x.ts') },
+          },
+        ],
+        'Read the file.',
+      );
+      let forkedChatId: string | undefined;
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+        expect(await storedInstructionPart(seeded.chatId)).toBeDefined();
+
+        // The fork copies the source's messages verbatim — the instructions
+        // item included — so the fork's effective history names the files.
+        const chats = new ChatsService(
+          tenantDb,
+          new RunAbortRegistry(),
+          noopReindexDispatch(),
+          noopEmbedDispatch(),
+          noopQueryEmbedder(),
+        );
+        const forked = await chats.forkChat(seeded.chatId, userId);
+        forkedChatId = forked.id;
+        expect(await storedInstructionPart(forked.id)).toBeDefined();
+        const forkedHistory = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findByChatId(forked.id, userId),
+        );
+        // The copied item is part of the request's own rail record; what the
+        // fork must not do is read the files again.
+        expect(
+          instructionsSeenPaths(
+            forkedHistory.flatMap((message) => message.parts),
+          ),
+        ).toContain(path.join(root, 'AGENTS.md'));
+
+        const forkedSeeded = await seedRunOnChat(
+          { ...seeded, chatId: forked.id },
+          `instructions-fork-run-${crypto.randomUUID()}`,
+        );
+        const second = firstStepThenAnswer(
+          [
+            {
+              toolCallId: 'read-y',
+              toolName: 'read',
+              input: { path: path.join(root, 'apps/api/src/x.ts') },
+            },
+          ],
+          'No reload.',
+        );
+        const secondExecution = await executeSeeded(
+          forkedSeeded,
+          service,
+          createMockModelClient(second),
+        );
+        await secondExecution.consumeStream?.();
+        await waitForCompleted(forkedSeeded.run.id);
+
+        // No Chat column is consulted: the copied history supplied the set,
+        // so the fork's trigger probes and audits nothing.
+        expect(await instructionEvents(forkedSeeded.run.id)).toEqual([]);
+        const prompt = second.doStreamCalls[1]?.prompt ?? [];
+        expect(toolResultIndex(prompt, 'read-y')).toBeGreaterThanOrEqual(0);
+        expect(instructionsIndexes(prompt)).not.toContain(
+          toolResultIndex(prompt, 'read-y') + 1,
+        );
+      } finally {
+        if (forkedChatId !== undefined) {
+          await sql`DELETE FROM chats WHERE id = ${forkedChatId}`;
+        }
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('leaves nothing seen when an attempt fails after loading', async () => {
+      const root = instructionFixture();
+      const readPath = path.join(root, 'apps/api/src/x.ts');
+      const seeded = await seedBoundRun(
+        `instructions-attempt-failed-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      // The first step triggers the load; the second drops the stream before
+      // the turn can publish.
+      let step = 0;
+      const failing = new MockLanguageModelV3({
+        doStream: () => {
+          step += 1;
+          if (step === 1) {
+            return Promise.resolve(
+              jsonToolCallsResponse([
+                {
+                  toolCallId: 'read-x',
+                  toolName: 'read',
+                  input: { path: readPath },
+                },
+              ]),
+            );
+          }
+          return Promise.resolve({
+            stream: simulateReadableStream({
+              chunks: [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'error',
+                  error: new Error('provider dropped the stream'),
+                },
+              ],
+            }),
+          });
+        },
+      });
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(failing),
+        );
+        await execution.consumeStream?.();
+        await waitFor(async () => {
+          const events = await tenantDb.runAs(userId, (tx) =>
+            new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+          );
+          return events.some((event) => event.eventType === 'run.failed');
+        });
+
+        // The failed attempt published nothing: its bundle is not history.
+        expect(await instructionItems(seeded.run.id)).toEqual([]);
+        expect(await storedInstructionPart(seeded.chatId)).toBeUndefined();
+
+        // The retry's first trigger loads the same files again.
+        const retrySeeded = await seedRunOnChat(
+          seeded,
+          `instructions-attempt-retry-${crypto.randomUUID()}`,
+        );
+        const retry = firstStepThenAnswer(
+          [
+            {
+              toolCallId: 'read-y',
+              toolName: 'read',
+              input: { path: readPath },
+            },
+          ],
+          'Retried.',
+        );
+        const retryExecution = await executeSeeded(
+          retrySeeded,
+          service,
+          createMockModelClient(retry),
+        );
+        await retryExecution.consumeStream?.();
+        await waitForCompleted(retrySeeded.run.id);
+        expect(await instructionItems(retrySeeded.run.id)).toHaveLength(1);
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
       }
     });
   });

@@ -7,7 +7,9 @@
  * because the user wrote `$name` — and its reads must not masquerade as
  * assistant tool calls. A tool part for one would tell the model it had
  * requested a read it never requested, and would put a fabricated call into the
- * durable transcript the UI replays.
+ * durable transcript the UI replays. The `instructions` producer is the second:
+ * llame reads a candidate instruction file because the model touched a
+ * directory, and the model never asked for that read either.
  *
  * The discriminators below are read off the durable event payload, so recovery
  * on another worker reaches the same conclusion as the live path without any
@@ -17,7 +19,13 @@
 import { isRecord } from '@workspace/runtime-safety';
 
 /** The trusted origin of one tool call. Absent means model-origin. */
-export type ToolActivityOrigin = 'skill-activation';
+export type ToolActivityOrigin = 'skill-activation' | 'instructions';
+
+/** The run loop reading a package the user named with `$name`. */
+export const ORIGIN_SKILL_ACTIVATION: ToolActivityOrigin = 'skill-activation';
+
+/** The run loop reading a candidate instruction file a trigger named. */
+export const ORIGIN_INSTRUCTIONS: ToolActivityOrigin = 'instructions';
 
 /**
  * Whether a durable event payload records a system-origin call.
@@ -28,8 +36,8 @@ export type ToolActivityOrigin = 'skill-activation';
  */
 export function isSystemOriginPayload(payload: unknown): boolean {
   if (!isRecord(payload)) return false;
-  return payload['origin'] === ORIGIN_SKILL_ACTIVATION;
+  return (
+    payload['origin'] === ORIGIN_SKILL_ACTIVATION ||
+    payload['origin'] === ORIGIN_INSTRUCTIONS
+  );
 }
-
-/** The one system-origin discriminator shipped in this revision. */
-export const ORIGIN_SKILL_ACTIVATION: ToolActivityOrigin = 'skill-activation';

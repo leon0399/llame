@@ -277,24 +277,45 @@ function applyRangedSelector(
   };
 }
 
-/** Split a combined `path:selector` string, then apply the shared grammar. */
-function parseSelector(input: string): ReadTarget {
+/**
+ * Split the `path:selector` suffix off `input`: the `:raw` and `:outline`
+ * forms claim everything after their marker, any other suffix splits at the
+ * last colon past the last path separator, and everything else is a path with
+ * no selector. The suffix is returned unvalidated — a caller that acts on it
+ * applies the shared grammar, which rejects what the shape gate admits but the
+ * ranges do not.
+ */
+/** A native path split into its locator and optional read selector. */
+export interface SelectorSplit {
+  readonly path: string;
+  readonly selector?: string;
+}
+
+export function splitSelectorSuffix(input: string): SelectorSplit {
   const raw = /:raw(?::([^:/]*))?$/.exec(input);
   if (raw) {
-    const suffix = raw[1] === undefined ? "raw" : `raw:${raw[1]}`;
-    return applySelectorSuffix(input.slice(0, raw.index), suffix);
+    return {
+      path: input.slice(0, raw.index),
+      selector: raw[1] === undefined ? "raw" : `raw:${raw[1]}`,
+    };
   }
   const outline = /:outline(?::([^:/]*))?$/.exec(input);
   if (outline) {
-    return applySelectorSuffix(
-      input.slice(0, outline.index),
-      input.slice(outline.index + 1),
-    );
+    return {
+      path: input.slice(0, outline.index),
+      selector: input.slice(outline.index + 1),
+    };
   }
   const colon = input.lastIndexOf(":");
   return colon > input.lastIndexOf("/")
-    ? applySelectorSuffix(input.slice(0, colon), input.slice(colon + 1))
-    : applySelectorSuffix(input, undefined);
+    ? { path: input.slice(0, colon), selector: input.slice(colon + 1) }
+    : { path: input };
+}
+
+/** Split a combined `path:selector` string, then apply the shared grammar. */
+function parseSelector(input: string): ReadTarget {
+  const { path, selector } = splitSelectorSuffix(input);
+  return applySelectorSuffix(path, selector);
 }
 
 async function classifyParsedTarget(target: ReadTarget): Promise<ReadTarget> {

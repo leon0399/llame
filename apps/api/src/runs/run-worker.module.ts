@@ -19,6 +19,8 @@ import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunsModule } from './runs.module';
 import { RunsWorkerService } from './runs-worker.service';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './snapshot-tool-execution';
+import { IN_RUN_CONTEXT_PRODUCER } from './in-run-context-items';
+import { createInstructionsProducer } from '../instructions/instructions-producer';
 
 /**
  * RunWorkerModule (#48/#50) — the run EXECUTION side: queue consumers
@@ -60,6 +62,13 @@ import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './snapshot-tool-execution';
     {
       provide: DYNAMIC_TOOL_EXECUTOR_RESOLVER,
       useExisting: McpRuntimeService,
+    },
+    // The producer that loads per-directory instruction files into a Run's
+    // context. Stateless: each attempt's triggers and seen keys live in the
+    // state it returns from `beginAttempt`.
+    {
+      provide: IN_RUN_CONTEXT_PRODUCER,
+      useValue: createInstructionsProducer(),
     },
   ],
   exports: [RunDispatchService, RunStreamBridgeService],

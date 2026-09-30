@@ -16,6 +16,8 @@
 import type { ModelMessage } from 'ai';
 
 import type { AuthoredContextItemPart } from '../chats/context-item';
+import type { ReadPage } from '../instructions/instruction-files';
+import type { ToolResult } from '../tools/types';
 
 export interface InRunContextItems {
   /**
@@ -176,11 +178,34 @@ export function createInRunContextItems(): InRunContextItems {
 /** In-Run context producers registered with the Run executor. */
 export const IN_RUN_CONTEXT_PRODUCER = Symbol('IN_RUN_CONTEXT_PRODUCER');
 
+/** One tool call a producer observes. */
+export interface InRunToolCall {
+  readonly toolName: string;
+  /** The AI-SDK-validated tool input, forwarded verbatim. */
+  readonly input: unknown;
+  /** The Workspace root in effect for the call; undefined when unbound. */
+  readonly workspaceRoot: string | undefined;
+  /**
+   * The call's own result. Present on the settled observation and absent on
+   * the admission observation, which happens before anything ran.
+   */
+  readonly result?: ToolResult;
+}
+
 /** Trusted identity of the attempt a producer authors items for. */
 export interface InRunAttempt {
   readonly runId: string;
   readonly chatId: string;
   readonly userId: string;
+  /** Keys already disclosed to the attempt's effective context. */
+  readonly seenKeys?: ReadonlySet<string>;
+  /**
+   * Reads one audited page for this attempt. Absent when the producer may not
+   * load at all — the `read` tool or a native executor is missing.
+   */
+  readonly readPage?: ReadPage;
+  /** The Run's own abort signal; a producer must stop loading once it fires. */
+  readonly abortSignal?: AbortSignal;
 }
 
 export interface InRunStepContext {
@@ -196,6 +221,12 @@ export interface InRunStepContext {
 /** Per-attempt state of one producer; discarded with the attempt. */
 export interface InRunAttemptProducer {
   prepareStep(step: InRunStepContext): Promise<void> | void;
+  /**
+   * Optional: observes one tool call. Called with the call's input at
+   * admission (allowed calls only) and again with its result at settlement, so
+   * a producer can trigger on an input, an outcome, or both.
+   */
+  observeToolCall?(call: InRunToolCall): void;
 }
 
 export interface InRunContextProducer {
