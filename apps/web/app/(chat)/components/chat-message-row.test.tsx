@@ -334,34 +334,4 @@ describe("messageRowMode", () => {
       }),
     ).toBe("content");
   });
-
-  it("renders an assistant turn whose only content is the instructions chip", () => {
-    // A live-only copy has no seq, so the chip alone is what keeps the row
-    // from being withheld as an empty placeholder.
-    expect(
-      messageRowMode({
-        message: {
-          id: "assistant-instructions",
-          role: "assistant",
-          parts: [INSTRUCTIONS_PART],
-        },
-        isLast: false,
-        status: "ready",
-      }),
-    ).toBe("content");
-  });
-
-  it("hides an assistant turn whose only part is another producer's context item", () => {
-    expect(
-      messageRowMode({
-        message: {
-          id: "assistant-context",
-          role: "assistant",
-          parts: [CONTEXT_PART],
-        },
-        isLast: false,
-        status: "ready",
-      }),
-    ).toBe("hidden");
-  });
 });

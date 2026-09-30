@@ -167,6 +167,55 @@ export function isContextItemPart(
   return type === "data-context" && isNonNullObject(data);
 }
 
+/** The envelope every `data-context` notice this app renders shares: exact
+ *  key set (`text` optional), `v: 1`, the expected `producer`, form
+ *  `notice`, a UUID `runId`, and `text` a string when present. Returns the
+ *  still-unvalidated `payload` once the envelope holds — each caller owns
+ *  validating that payload — or `undefined` when it does not. */
+function noticePayload(
+  value: unknown,
+  producer: "effective-context-change" | "instructions",
+) {
+  if (!isContextItemPart(value)) return undefined;
+  const requiredKeys = ["v", "producer", "form", "runId", "payload"];
+  if (
+    !isNonNullObject(value.data) ||
+    (!keysMatch(Object.keys(value.data), requiredKeys) &&
+      !keysMatch(Object.keys(value.data), [...requiredKeys, "text"]))
+  ) {
+    return undefined;
+  }
+  // SAFETY: the checks above confirmed `value.data` is a non-null object
+  // with exactly these keys (optionally plus `text`); each field is
+  // validated individually below before the payload is returned.
+  const {
+    v,
+    producer: actualProducer,
+    form,
+    runId,
+    payload,
+    text,
+  } = value.data as {
+    v: unknown;
+    producer: unknown;
+    form: unknown;
+    runId: unknown;
+    payload: unknown;
+    text?: unknown;
+  };
+  if (
+    v !== 1 ||
+    actualProducer !== producer ||
+    form !== "notice" ||
+    !isString(runId) ||
+    !UUID_PATTERN.test(runId) ||
+    (text !== undefined && !isString(text))
+  ) {
+    return undefined;
+  }
+  return payload;
+}
+
 /** The `data.payload` shape of a model-switch context item, validated on its
  *  own — a real sub-boundary of `isModelSwitchPart`, not an arbitrary split. */
 function isModelSwitchPayload(
@@ -196,35 +245,7 @@ function isModelSwitchPayload(
 }
 
 export function isModelSwitchPart(value: unknown): value is ModelSwitchPart {
-  if (!isContextItemPart(value)) return false;
-  const requiredKeys = ["v", "producer", "form", "runId", "payload"];
-  if (
-    !isNonNullObject(value.data) ||
-    (!keysMatch(Object.keys(value.data), requiredKeys) &&
-      !keysMatch(Object.keys(value.data), [...requiredKeys, "text"]))
-  ) {
-    return false;
-  }
-  // SAFETY: the checks above confirmed `value.data` is a non-null object
-  // with exactly these keys (optionally plus `text`); each field is
-  // validated individually below before being trusted.
-  const { v, producer, form, runId, payload, text } = value.data as {
-    v: unknown;
-    producer: unknown;
-    form: unknown;
-    runId: unknown;
-    payload: unknown;
-    text?: unknown;
-  };
-  return (
-    v === 1 &&
-    producer === "effective-context-change" &&
-    form === "notice" &&
-    isString(runId) &&
-    UUID_PATTERN.test(runId) &&
-    (text === undefined || isString(text)) &&
-    isModelSwitchPayload(payload)
-  );
+  return isModelSwitchPayload(noticePayload(value, "effective-context-change"));
 }
 
 export function modelSwitchPart(message: {
@@ -289,41 +310,7 @@ function isInstructionsPayload(
 }
 
 export function isInstructionsPart(value: unknown): value is InstructionsPart {
-  if (!isContextItemPart(value)) return false;
-  const requiredKeys = ["v", "producer", "form", "runId", "payload"];
-  if (
-    !isNonNullObject(value.data) ||
-    (!keysMatch(Object.keys(value.data), requiredKeys) &&
-      !keysMatch(Object.keys(value.data), [...requiredKeys, "text"]))
-  ) {
-    return false;
-  }
-  // SAFETY: the checks above confirmed `value.data` is a non-null object
-  // with exactly these keys (optionally plus `text`); each field is
-  // validated individually below before being trusted.
-  const { v, producer, form, runId, payload, text } = value.data as {
-    v: unknown;
-    producer: unknown;
-    form: unknown;
-    runId: unknown;
-    payload: unknown;
-    text?: unknown;
-  };
-  return (
-    v === 1 &&
-    producer === "instructions" &&
-    form === "notice" &&
-    isString(runId) &&
-    UUID_PATTERN.test(runId) &&
-    (text === undefined || isString(text)) &&
-    isInstructionsPayload(payload)
-  );
-}
-
-export function instructionsPart(message: {
-  parts: ReadonlyArray<unknown>;
-}): InstructionsPart | null {
-  return message.parts.find(isInstructionsPart) ?? null;
+  return isInstructionsPayload(noticePayload(value, "instructions"));
 }
 
 /**
@@ -384,9 +371,7 @@ export function mergeTrustedModelContextParts(
       // out — both are already `UIMessage["parts"]`-shaped content; the cast
       // is only needed because the part's literal-typed `data` doesn't
       // structurally match the SDK's wider generic `data-*` part type.
-      parts: (trusted.length > 0
-        ? [...trusted, ...visibleParts]
-        : visibleParts) as UIMessage["parts"],
+      parts: [...trusted, ...visibleParts] as UIMessage["parts"],
     };
   });
 }

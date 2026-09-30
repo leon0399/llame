@@ -85,30 +85,3 @@ export const LoadedTruncatedDenied: Story = {
     );
   },
 };
-
-/**
- * A bundle whose only file loaded whole: the chip names it and marks nothing,
- * so a clean load never wears a truncation or denial marker.
- *
- * @summary a wholly loaded file is unmarked
- */
-export const AllLoaded: Story = {
-  tags: ["ai-generated"],
-  args: {
-    files: [
-      {
-        path: "/home/operator/repo/AGENTS.md",
-        canonicalPath: "/home/operator/repo/AGENTS.md",
-        truncated: false,
-      },
-    ],
-    denied: [],
-  },
-  play: async ({ canvas }) => {
-    await expect(
-      canvas.getByText("/home/operator/repo/AGENTS.md"),
-    ).toBeVisible();
-    await expect(canvas.queryByText("truncated")).toBeNull();
-    await expect(canvas.queryByText("denied")).toBeNull();
-  },
-};

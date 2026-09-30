@@ -9,10 +9,7 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 
-import {
-  isInstructionsPart,
-  type InstructionsPayload,
-} from "@/lib/services/chat/history";
+import type { InstructionsPayload } from "@/lib/services/chat/history";
 
 /** How one file path figures in the bundle: loaded whole, loaded up to the
  *  per-file cap, or denied by the `read` permission group. */
@@ -94,29 +91,19 @@ function InstructionFileChip({ entry }: { entry: InstructionFileChipEntry }) {
   );
 }
 
-/** Narrows an unknown part to the payload the chip renders, or null when it
- *  is not an `instructions` item this build knows — the transcript keeps
- *  every other `data-context` part invisible. */
-export function parseInstructionsPart(
-  part: unknown,
-): InstructionsPayload | null {
-  if (!isInstructionsPart(part)) return null;
-  return part.data.payload;
-}
-
 /**
  * The owner-facing chip for an `instructions` context item (design D9): the
  * paths a trigger loaded, each marked when the file was cut at the per-file
  * cap or denied by the `read` permission group. It reads the part's private
- * payload, which never reaches the model text or a public share, and the
- * transcript renders it on the assistant message carrying the item — live
- * and reloaded history show the same disclosure.
+ * payload, which never reaches the model text or a public share. The
+ * transcript renders it on the message carrying the item — the triggering
+ * user turn for an accepted-turn load, the assistant turn for an in-Run item
+ * — and live and reloaded history show the same disclosure.
  *
  * @summary owner chip for loaded, truncated, and denied instruction files
  */
 export function InstructionsPart(payload: InstructionsPayload) {
   const entries = chipEntries(payload);
-  if (entries.length === 0) return null;
 
   return (
     <div className="my-1 flex flex-wrap items-center gap-1">

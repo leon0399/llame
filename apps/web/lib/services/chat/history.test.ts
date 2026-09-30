@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 import {
   adoptServerHistory,
-  instructionsPart,
   isInstructionsPart,
   messageRenderKey,
   mergeTrustedModelContextParts,
@@ -324,12 +323,9 @@ describe("instructions context items", () => {
   });
 
   it("parses only the exact persisted instructions shape", () => {
-    expect(instructionsPart({ parts: [instructionsItem] })).toEqual(
-      instructionsItem,
-    );
-    expect(
-      instructionsPart({ parts: [{ type: "text", text: "hello" }] }),
-    ).toBeNull();
+    expect(isInstructionsPart(instructionsItem)).toBe(true);
+    expect(isInstructionsPart({ type: "text", text: "hello" })).toBe(false);
+    expect(isInstructionsPart(null)).toBe(false);
   });
 
   it("keeps metadata-only historical items owner-visible", () => {
@@ -339,14 +335,13 @@ describe("instructions context items", () => {
       data: { v, producer, form, runId, payload },
     };
 
-    expect(instructionsPart({ parts: [metadataOnly] })).toEqual(metadataOnly);
+    expect(isInstructionsPart(metadataOnly)).toBe(true);
     expect(
-      instructionsPart({
-        parts: [
-          { ...instructionsItem, data: { ...instructionsItem.data, text: 42 } },
-        ],
+      isInstructionsPart({
+        ...instructionsItem,
+        data: { ...instructionsItem.data, text: 42 },
       }),
-    ).toBeNull();
+    ).toBe(false);
   });
 
   it("rejects an extra key at every level rather than rendering an unknown shape", () => {

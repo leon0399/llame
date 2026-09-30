@@ -28,7 +28,7 @@ import {
   type GroupedAssistantPart,
   type NonReasoningPart,
 } from "./group-assistant-parts";
-import { InstructionsPart, parseInstructionsPart } from "./instructions-part";
+import { InstructionsPart } from "./instructions-part";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
@@ -134,9 +134,8 @@ function MessagePartView({
     const capNotice = parseCapNoticePart(part);
     return capNotice ? <ToolCapNoticePart {...capNotice} /> : null;
   }
-  const instructions = parseInstructionsPart(part);
-  if (instructions) {
-    return <InstructionsPart {...instructions} />;
+  if (isInstructionsPart(part)) {
+    return <InstructionsPart {...part.data.payload} />;
   }
   return <span>unsupported part type: {part.type}</span>;
 }

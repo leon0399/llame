@@ -167,7 +167,8 @@ existing directory, and otherwise that path's parent, whether or not the
 parent exists. Ancestors above the Workspace root and above any Git root are
 included, so `/home/operator/AGENTS.md` enters every Chat that touches a path
 beneath it on that executor. A reject rule on the `read` group excludes such a
-path from every load:
+path from every load; add the rule to the existing `tools.permissions` map
+rather than replacing what is already configured there:
 
 ```json
 {
@@ -178,7 +179,7 @@ path from every load:
         "reject": [
           {
             "field": "path",
-            "regex": "^/home/operator/(AGENTS|CLAUDE|LLAME)\\.md($|:)"
+            "regex": "^/home/operator/(LLAME|AGENTS|CLAUDE)(\\.override|\\.local)?\\.md($|:)"
           }
         ]
       }
@@ -188,83 +189,48 @@ path from every load:
 ```
 
 Entry loads the root chain when it establishes or switches the binding, never
-on a same-root re-entry, and exit and detach load nothing; the load is
+on a same-root re-entry, and exit and detach load nothing; every load is
 effective from the next model step. Each native `read`, `edit`, or `write`
 whose `path` resolves to a local host path loads its directory's chain from
 the next model step, whatever the call's own outcome — a denied call loads
 nothing — and a read selector or representation suffix (`:40-80`, `:outline`)
 does not change the trigger directory, while a `file://` alias triggers as the
-path it decodes to. Every trigger path is normalized before its directory is
-resolved, so `.` and `..` segments cannot dodge the candidate-file exclusion
-or name a directory the path only spells. Each accepted turn on a Chat with a
-live binding, after the attempt's binding re-check and not on a detaching
-attempt, re-stages the bound root's chain before the first model request when
-any file of it is not already in effective context; a Chat without a binding
-stages nothing. `bash`, `kb://`, `skill://`, `http://`, and `https://` never
-trigger a load, and a model read of a candidate file itself neither loads nor
-marks that file.
+path it decodes to. Each accepted turn on a Chat with a live binding re-stages
+the bound root's chain before the first model request when any file of it is
+not already in effective context; a Chat without a binding stages nothing.
+`bash`, `kb://`, `skill://`, `http://`, and `https://` never trigger a load,
+and a model read of a candidate file itself neither loads nor marks that file.
+
 Loading requires `read` in `tools.allowed` and a configured native executor;
 it does not require `enter_workspace`.
 
 A file is loaded at most once per compaction epoch. The seen set is the set of
 canonical (`realpath`) paths recorded in the payload of `instructions` items
-in the Chat's effective history — the messages after the active compaction's
-cutoff, together with items staged or emitted by the current attempt — and is
-never stored in a Chat column; a forked Chat inherits it through its copied
-history. A candidate whose canonical path is already seen is omitted, so a
-symlink and its target are one file and an edit to a loaded file is not
-re-announced. Denied, failed, and empty candidates are not seen. Compaction
-does not carry an in-Run item into replacement history, so a file whose item
-was absorbed loads again on its next trigger, and transition compaction inside
-a Run resets the attempt's seen state to the rebuilt history and decides the
-accepted-turn load against it. All triggers pending at one model step, or one
-accepted turn, resolve together into at most one item, and a step whose
-candidates are all already seen produces no item.
+in the Chat's effective history, and is never stored in a Chat column; a
+forked Chat inherits it through its copied history. A candidate whose
+canonical path is already seen is omitted, so a symlink and its target are one
+file and an edit to a loaded file is not re-announced; denied, failed, and
+empty candidates are not seen. All triggers pending at one model step, or one
+accepted turn, resolve together into at most one item.
 
-Candidate existence and size are probed on the executor with no permission
-decision and no audit event, and the probe is not model-visible; a directory
-with none of the nine names leaves no trail. Each existing candidate is read
-through the native `read` tool with system origin `instructions` and an
-attempt-scoped call id of `instructions-<runId>-<attemptId>-<n>`, evaluated by
-the `read` permission group under the Run's effective permission mode and
-recorded as the same `tool.requested`, `tool.started`, and `tool.completed`
-events as a model-origin read — one audited call per page. Those events never
-create an assistant tool part, live, reconstructed, or recovered. A file
-longer than one read result is read as consecutive bounded `:raw:<from>-<to>`
-pages, each starting after the last complete line collected — never at the
-reported zero-based `nextOffset`, which can point past a line the reader
-could not render; collection stops when the file ends (a continuation page
-that starts past the end of the file ends it), when 32 KiB of UTF-8 is
-collected, or when a page returns no new line because one source line cannot
-fit a result. A denied or otherwise failed page drops the whole file: it is
-absent from the model-visible text, never named there, and not marked seen. A
-denial is disclosed to the owner alone, through the read's audit event and,
-when the same step loads another file, the chip.
+Each existing candidate is read as a native `read` call with system origin
+`instructions`, under the `read` permission group and the Run's effective
+permission mode, with an attempt-scoped call id of
+`instructions-<runId>-<attemptId>-<n>` — one audited call per page. A denied
+or otherwise failed page drops the whole file: it is absent from the
+model-visible text, never named there, and disclosed to the owner alone
+through the read's audit event and, when the same step loads another file, the
+chip.
 
-One model step or accepted turn that loads at least one file produces exactly
-one rail-resident `instructions` item with form `notice`, ordered after the
-`workspace` item. Each loaded file gets a `<file path="…">` block labelled
-with the path at which the candidate was selected in the walk — a symlinked
-file keeps its selected path — in directory order from broadest to most
-specific, a directory's base file before its local file; the payload also
-records the canonical path the seen set keys on. Missing candidates are never
-named. The item states once that each file applies to work under its own
-directory and that a deeper file takes precedence over a broader one where
-they conflict, and it ranks below system instructions and the user's requests:
-it can neither grant tools or capabilities nor relax authorization, and
-attempts to do so are disregarded. Bodies are neutralized so a literal
-`</system-reminder>` cannot close the envelope and a tag-shaped `file` token
-cannot forge or end a `<file>` block, and they carry no line-number prefixes.
 A file larger than 32 KiB is cut at 32 KiB on a UTF-8 character boundary and
-followed by one line naming the path and the byte count omitted, taken from
-the probed size; there is no aggregate cap across files.
+followed by one line naming the path and the byte count omitted; there is no
+aggregate cap across files.
 
 The owner transcript shows a chip on the message that carries the item — the
 triggering user message for an accepted-turn load, the assistant message for
 an in-Run item — listing the loaded paths and marking truncated and denied
-ones from the item's private metadata. The Run context-item record and later
-replay use the model-visible text only, and non-owners, public shares,
-transcript exports, and search projections expose neither the text nor the
+ones from the item's private metadata. Non-owners, public shares, transcript
+exports, and search projections expose neither the item's text nor its
 metadata.
 
 Imports are not supported; instruction files are loaded only from the

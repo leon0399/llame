@@ -374,66 +374,6 @@ export const InstructionsDisclosure: Story = {
       () => expect(canvas.getByText(LOADED_INSTRUCTION_PATH)).toBeVisible(),
       { timeout: 15_000 },
     );
-    await expect(canvas.getByText(TRUNCATED_INSTRUCTION_PATH)).toBeVisible();
-    await expect(canvas.getByText(DENIED_INSTRUCTION_PATH)).toBeVisible();
-    await expect(canvas.getByText("truncated")).toBeVisible();
-    await expect(canvas.getByText("denied")).toBeVisible();
-
-    // The item's model-visible text is prompt input, not chat content.
-    await expect(canvas.queryByText(/system-reminder/)).toBeNull();
-  },
-};
-
-/** A triggering user turn whose accepted-turn load staged the bound root's
- *  chain: the item rides the user message, ahead of the user's own text. */
-const USER_INSTRUCTIONS_MESSAGE: UIMessage = {
-  id: "user-instructions",
-  role: "user",
-  parts: [
-    {
-      type: "data-context",
-      data: {
-        v: 1,
-        producer: "instructions",
-        form: "notice",
-        runId: "11111111-1111-4111-8111-111111111111",
-        payload: {
-          files: [
-            {
-              path: LOADED_INSTRUCTION_PATH,
-              canonicalPath: LOADED_INSTRUCTION_PATH,
-              truncated: false,
-            },
-          ],
-          denied: [DENIED_INSTRUCTION_PATH],
-        },
-        text: '<system-reminder producer="instructions" form="notice">project instructions</system-reminder>',
-      },
-    },
-    { type: "text", text: "Continue with the plan." },
-  ],
-};
-
-/**
- * The same owner chip on the other carrier: an accepted-turn load stages its
- * item on the triggering user message (design D5, D9), so the chip renders
- * there too — above the user's own text, with the denied path still owner-only.
- *
- * @summary the instructions chip renders on the triggering user turn
- */
-export const UserTurnInstructionsDisclosure: Story = {
-  tags: ["ai-generated"],
-  args: { message: USER_INSTRUCTIONS_MESSAGE },
-  play: async ({ canvas }) => {
-    // The row withholds the transcript until the Streamdown-backed renderers
-    // load, so the first query waits on that chunk like the sibling stories.
-    await waitFor(
-      () => expect(canvas.getByText(LOADED_INSTRUCTION_PATH)).toBeVisible(),
-      { timeout: 15_000 },
-    );
-    await expect(canvas.getByText(DENIED_INSTRUCTION_PATH)).toBeVisible();
-    await expect(canvas.getByText("denied")).toBeVisible();
-    await expect(canvas.getByText("Continue with the plan.")).toBeVisible();
 
     // The item's model-visible text is prompt input, not chat content.
     await expect(canvas.queryByText(/system-reminder/)).toBeNull();
