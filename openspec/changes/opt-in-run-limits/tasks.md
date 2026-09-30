@@ -66,7 +66,7 @@ Use `$openspec-apply-change` for the implementation commits.
 
 ## 3. Finalize
 
-- [ ] 3.1 After 2.1–2.7 are checked, run `$openspec-sync-specs`. Rewrite the `durable-runs` Purpose sentence so it names job-state admission and the opt-in budget instead of "age-based recovery" and the "in-process wall-clock budget". Verify each MODIFIED requirement word for word against the delta, then run `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
+- [x] 3.1 After 2.1–2.7 are checked, run `$openspec-sync-specs`. Rewrite the `durable-runs` Purpose sentence so it names job-state admission and the opt-in budget instead of "age-based recovery" and the "in-process wall-clock budget". Verify each MODIFIED requirement word for word against the delta, then run `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
 - [ ] 3.2 Confirm `pnpm exec openspec status --change opt-in-run-limits --json` reports every artifact done and this list complete apart from 3.2. Then run `pnpm exec openspec archive opt-in-run-limits --skip-specs --yes` and commit the move separately.
 
 After archive movement, and not as checkbox prerequisites:
