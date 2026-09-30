@@ -71,10 +71,10 @@ The terminal states map onto Run outcomes, and `input-required` and
 **Caution:** the spec fixes enforcement but not policy. Servers must use
 encrypted transport and authenticate every request[^a2a-spec-security], and
 must check authorization on every operation, before any query that could leak
-another caller's resources[^a2a-spec-authz]. What the authorization model is,
-which history is retained and how credentials are issued remain agent-defined,
-so a client cannot assume complete replay. Signed cards are optional and prove
-nothing without a trusted key source.
+another caller's resources[^a2a-spec-authz]. The authorization model, retained
+history and credential issuance remain agent-defined, so a client cannot
+assume complete replay. Signed cards are optional and prove nothing without a
+trusted key source.
 
 [^a2a-spec]: [A2A protocol specification](https://a2a-protocol.org/latest/specification/)
 

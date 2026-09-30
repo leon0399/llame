@@ -50,25 +50,25 @@ sources:
 
 Two layers of the same idea. **AI Catalog** is a static, nestable envelope
 (`application/ai-catalog+json`, servable from any URL, with
-`/.well-known/ai-catalog.json` as an optional discovery location[^ai-catalog-discovery]) listing
-heterogeneous artifacts: A2A Agent Cards, MCP Server Cards, Agent Skills and
-plugin bundles, each by `url` or inline `data`[^ai-catalog-format]. **ARD** adds
-search: its own entry format at `/.well-known/ard.json`, registries that ingest
-entries and a federated `POST /search`[^ard-discovery]. ARD treats AI Catalog as
-its predecessor: every ARD entry is a catalog entry, and consumers may still read
-the catalog locations.
+`/.well-known/ai-catalog.json` as an optional discovery location[^ai-catalog-discovery])
+listing heterogeneous artifacts: A2A Agent Cards, MCP Server Cards, Agent
+Skills and plugin bundles, each by `url` or inline `data`[^ai-catalog-format].
+**ARD** adds search: its own entry format at `/.well-known/ard.json`,
+registries that ingest entries and a federated `POST /search`[^ard-discovery].
+ARD treats AI Catalog as its predecessor: every ARD entry is a catalog entry,
+and consumers may still read the catalog locations.
 
 **Mechanics**
 
-1. **Entries.** `identifier` (usually `urn:air:<publisher>:...`), `type` as the
-   artifact media type, and `url` or `data`. The native card stays authoritative
-   for transport, tools and auth; the entry only points at it.
+1. **Entries.** `identifier` (usually `urn:air:<publisher>:...`), `type` as
+   the artifact media type, and `url` or `data`. The native card stays
+   authoritative for transport, tools and auth; the entry only points at it.
 2. **ARD discovery signals.** `representativeQueries`, capabilities and tags
    drive semantic ranking. Sources include `ard.json`, in-page JSON-LD, a
    `robots.txt` `Agentmap:` line, `<link rel="ard">` and DNS service
    binding[^ard-how].
-3. **Scores.** An ARD search `score` is relevance only; the spec says it is not
-   a trust or safety score.
+3. **Scores.** An ARD search `score` is relevance only; the spec says it is
+   not a trust or safety score.
 4. **Trust.** AI Catalog's Trust Manifest is optional, and a manifest may carry
    attestations or provenance without a signature. A signed one must include a
    `subject` with the media type and digest; `subject.url` is optional, so an
@@ -83,8 +83,8 @@ the catalog locations.
 **llame fit: watch.** Every executor, MCP server and skill in llame is
 operator-configured. A catalog could become an import format for that
 configuration, and ARD's relevance-versus-trust split matches llame's rule that
-relevance is never authorization. Open-web discovery that adds tools at run time
-would need tenant scope, permission groups and provenance first.
+relevance is never authorization. Open-web discovery that adds tools at run
+time would need tenant scope, permission groups and provenance first.
 
 **Caution:** both are pre-1.0 and overlap with MCP Server Cards and
 `server.json`, which have not converged. A signed manifest without an anchored

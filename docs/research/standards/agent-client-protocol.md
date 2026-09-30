@@ -65,12 +65,12 @@ newline-delimited JSON over stdio[^acp-v1-overview].
    the agent reads, writes and executes inside the client's environment. The v2
    draft drops that surface in favor of MCP.
 5. **Session management.** v1 already declares `session/load` (replay),
-   `session/resume`, `session/list` and `session/close`[^acp-v1-methods],
-   each gated by its own advertised capability: `loadSession`,
-   `sessionCapabilities.resume` and `sessionCapabilities.close`
-   [^acp-v1-session], and `sessionCapabilities.list`[^acp-v1-session-list].
-   The v2 draft drops `session/load`[^acp-v2-methods] and replays through a
-   `replayFrom` cursor on `session/resume`[^acp-v2-schema].
+   `session/resume`, `session/list` and `session/close`[^acp-v1-methods], each
+   gated by its own advertised capability: `loadSession`,
+   `sessionCapabilities.resume` and `sessionCapabilities.close`[^acp-v1-session],
+   and `sessionCapabilities.list`[^acp-v1-session-list]. The v2 draft drops
+   `session/load`[^acp-v2-methods] and replays through a `replayFrom` cursor on
+   `session/resume`[^acp-v2-schema].
 6. **Remote.** Streamable HTTP and WebSocket transports are an RFD, not
    stable[^acp-remote-rfd].
 7. **Adopters.** goose, Gemini CLI, OpenCode, OpenHands, Cline, and adapters

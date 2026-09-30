@@ -62,15 +62,15 @@ code; actions are names that application handlers execute.
 
 **llame fit: watch.** llame's web chat renders stored `messages.parts` through
 fixed `@workspace/ui` elements. Inline mode matches that shape: a spec part
-rendered by a small catalog over existing shadcn components. It would be a
-new stored part type, which needs a spec under the repository's
-`messages.parts` rule. The [System One/Jev study](../tool-harness/2026-09-23-system-one-jev/index.md)
+rendered by a small catalog over existing shadcn components. It would be a new
+stored part type, which needs a spec under the repository's `messages.parts`
+rule. The [System One/Jev study](../tool-harness/2026-09-23-system-one-jev/index.md)
 records a json-render plus Jev demonstration and its limits.
 
-**Caution:** the catalog limits vocabulary, not effects. An action that
-reaches the server still needs llame's permission, tenancy and Run
-accounting. Renderer parity is incomplete; the docs say only React scopes
-visibility inside `repeat` items. Pre-1.0 API churn is expected.
+**Caution:** the catalog limits vocabulary, not effects. An action that reaches
+the server still needs llame's permission, tenancy and Run accounting.
+Renderer parity is incomplete: the docs say only React scopes visibility inside
+`repeat` items. Pre-1.0 API churn is expected.
 
 [^json-render-readme]: [json-render README](https://github.com/vercel-labs/json-render/blob/c2600d73908ed505e6d726f5b6f969ba8f597ce7/README.md)
 

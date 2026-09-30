@@ -27,21 +27,21 @@ sources:
 
 High-confidence narrow reference for prompt assets; moderate applicability to
 future Profiles/Skills. Pattern loading[^internal-plugins-db-fsdb-patterns-go]
-supports named files, explicit variables, an input insertion point, and custom
-overrides. Request assembly[^internal-core-chatter-go-l218-l346]
-composes patterns with reusable context and strategies. This informs llame's
-file-native profile direction: resolve composition through trusted code and bind
-the effective result to the Run receipt.
+supports named files, explicit variables, an input insertion point and custom
+overrides. Request assembly[^internal-core-chatter-go-l218-l346] composes
+patterns with reusable context and strategies. This informs llame's file-native
+profile direction: resolve composition through trusted code and bind the
+effective result to the Run receipt.
 
 Its extension registry[^internal-plugins-template-extension-registry-go-l238-l275]
-checks both definition and executable hashes before returning an extension.
-Useful drift-detection prior art for future installed executable capabilities;
-the hashes do not establish trust or prevent a replacement after the check.
+checks definition and executable hashes before returning an extension. Useful
+drift-detection prior art for future installed executable capabilities; the
+hashes do not establish trust or prevent a replacement after the check.
 
-**Caution:** Template expansion can invoke file, network, and executable plugins
-during prompt construction. Extension execution[^internal-plugins-template-extension-executor-go-l31-l152]
-uses unsandboxed `sh -c` with inherited process environment; only the file-output
-path applies its timeout. These mechanisms require llame's explicit tool and
+**Caution:** template expansion can invoke file, network and executable
+plugins during prompt construction. Extension execution[^internal-plugins-template-extension-executor-go-l31-l152]
+uses unsandboxed `sh -c` with inherited process environment; only the
+file-output path applies its timeout. These need llame's explicit tool and
 executor authority, not permission inferred from a prompt asset. Local JSON
 sessions and a global server API key do not supply llame's durable Runs or
 owner isolation. Study assets and integrity checks without importing a second

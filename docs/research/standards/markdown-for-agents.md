@@ -23,9 +23,9 @@ sources:
   page updated 2026-07-13; no cost on Pro, Business, Enterprise and SSL for
   SaaS[^cf-md-agents-blog][^cf-md-agents-docs]
 
-Opt-in per zone or rule. When a client sends `Accept: text/markdown`, the edge
-fetches origin HTML and converts it to Markdown on the fly. This is a
-vendor feature over ordinary HTTP content negotiation, not a new format.
+Opt-in per zone or rule: when a client sends `Accept: text/markdown`, the edge
+fetches origin HTML and converts it to Markdown on the fly. A vendor feature
+over ordinary HTTP content negotiation, not a new format.
 
 **Mechanics**[^cf-md-agents-docs]
 
@@ -34,24 +34,24 @@ vendor feature over ordinary HTTP content negotiation, not a new format.
    are removed, cache and CORS headers kept.
 2. **Token estimates.** `x-markdown-tokens` and `x-original-tokens` estimate
    converted and original sizes.
-3. **Content Signals.** An origin `content-signal` header is preserved;
-   absent one, Cloudflare adds `ai-train=yes, search=yes, ai-input=yes`.
+3. **Content Signals.** An origin `content-signal` header is preserved; absent
+   one, Cloudflare adds `ai-train=yes, search=yes, ai-input=yes`.
 4. **Output shape.** YAML frontmatter from title, description and Open Graph
-   tags, the cleaned body, and JSON-LD in a fenced `json` block
-   [^cf-md-conversion]. Only HTML up to 2 MiB is converted.
+   tags, the cleaned body, and JSON-LD in a fenced `json`
+   block[^cf-md-conversion]. Only HTML up to 2 MiB is converted.
 
-**llame fit: consumed.** llame's web `read` sends
-`Accept: text/markdown` on every request, so an enabled zone is served through
-the existing `negotiated` adapter without vendor code; see
-[adapter order](../../web-read.md#adapter-order). The result deliberately
-omits `markdownTokens` and response headers, and `content-signal` is neither
-consulted nor reported ([what is not read](../../web-read.md#what-is-not-read)). Using the token
-estimate for context budgeting would be a result-contract change; nothing asks
-for it yet.
+**llame fit: consumed.** llame's web `read` sends `Accept: text/markdown` on
+every request, so an enabled zone is served through the existing `negotiated`
+adapter without vendor code; see
+[adapter order](../../web-read.md#adapter-order). The result omits
+`markdownTokens` and response headers, and `content-signal` is neither
+consulted nor reported ([what is not read](../../web-read.md#what-is-not-read)).
+Using the token estimate for context budgeting would be a result-contract
+change; nothing asks for it yet.
 
-**Caution:** a default `content-signal` is Cloudflare's publisher-use
-default, not consent or access control. Token counts are Cloudflare estimates,
-not a tokenizer for any given model.
+**Caution:** a default `content-signal` is Cloudflare's publisher-use default,
+not consent or access control. Token counts are Cloudflare estimates, not a
+tokenizer for any given model.
 
 [^cf-md-agents-docs]: [Markdown for Agents reference](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/)
 
