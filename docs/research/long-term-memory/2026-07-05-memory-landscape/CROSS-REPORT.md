@@ -189,6 +189,16 @@ Two memory micro-patterns adopted from inside its otherwise anti-example injecti
 
 **beads anti-examples:** `bd prime` dumps _all_ memories at session start — no framing, no provenance, no lifecycle, and (the store keeps no timestamps) in _alphabetical key order_; third dump-all specimen after baro. And no access control anywhere — identity is a free-text string.
 
+### 7.4 OpenLore (see `../2026-09-30-openlore.md`)
+
+aakarim/OpenLore (Go; Apache-2.0; source read at `2c7b60c0`, 2026-09-30) serves Markdown to agents over SSH, SFTP and MCP through an in-process shell, with identity-scoped docsets. Despite "continuous learning repository" marketing it has **no extraction, consolidation, ranking or recall injection**, so it feeds the Knowledge/Profile write path, not §2's fact layer. Deltas worth carrying into #212/#513 design:
+
+1. **Blind-overwrite CAS from session read tracking:** every read records a content hash; a later whole-file overwrite fails if the file changed since. llame's `write` with `replace: true` has no precondition, and #212 relies on `edit`'s exact-match fence, which `write` bypasses. Needed once humans and agents co-edit Profile files. Tracked in #706 as an explicit read-issued tag rather than implicit tracking.
+2. **Growth caps at admission (`max: initial`):** a file may not exceed its first admitted size × growth; the rejection names the numbers and a remedy; only a privileged role resets the baseline, with audit. Direct counter to standing-context bloat (OMP study: ~73% of lessons truncated out).
+3. **Principal/actor attribution** outside the change set, and a **create-only inbox grant** as the cheapest review-before-accept lane.
+
+**Anti-examples:** a stale `SECURITY.md` contradicting the current write system; "no process execution" that excludes operator `sh -c` hooks and `spawn`; keyless, allow-unknown defaults; application-layer isolation only. Connecting it as an llame operator MCP server would give every user one shared OpenLore identity.
+
 ---
 
 ## 8. Bottom line
