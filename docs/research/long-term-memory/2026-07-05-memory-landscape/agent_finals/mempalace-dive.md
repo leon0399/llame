@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Agent: mempalace-dive — MemPalace hype-vs-reality"
+description: "Frozen agent final separating MemPalace's real engineering from its benchmark marketing and identifying the layered wake-up budget and zero-LLM write path as the two ideas worth stealing."
+tags:
+  [
+    agent-final,
+    memory-landscape,
+    mempalace,
+    benchmark-critique,
+    retrieval,
+    context-budget,
+  ]
+status: deprecated
+---
+
 # Agent: mempalace-dive — MemPalace hype-vs-reality (delivered 2026-07-05T13:54Z)
 
 ## (a) Synthesis (buzz vs. engineering, what to steal for llame)

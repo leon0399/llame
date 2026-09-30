@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Agent: production-systems — Production memory systems"
+description: "Frozen agent final cataloguing four convergences across shipped production memory systems, from two-tier stores and files-as-substrate to off-hot-path consolidation, plus poisoning failure modes."
+tags:
+  [
+    agent-final,
+    memory-landscape,
+    production-systems,
+    consolidation,
+    two-tier-memory,
+    memory-poisoning,
+  ]
+status: deprecated
+---
+
 # Agent: production-systems — Production memory systems (delivered 2026-07-05T13:55Z)
 
 ## Synthesis (production LLM long-term memory, as of July 2026)

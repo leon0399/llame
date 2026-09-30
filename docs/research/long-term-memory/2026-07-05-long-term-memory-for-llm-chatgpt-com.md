@@ -1,3 +1,12 @@
+---
+type: Research
+title: "Long-term memory for LLM assistants across chats"
+description: "Surveys assistant memory research and argues for a data-first six-layer stack, from immutable event log to user-visible knowledge vault, with scopes as first-class records and decay deferred to a later policy layer."
+tags:
+  [memory-architecture, layered-memory, knowledge-vault, scoping, forgetting]
+status: stable
+---
+
 # Long-Term Memory for LLM Assistants Across Chats
 
 This report is written from the perspective of an LLM systems architect focused on persistent memory, retrieval, and agent infrastructure.

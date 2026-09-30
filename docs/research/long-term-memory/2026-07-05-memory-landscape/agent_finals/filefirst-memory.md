@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Agent: filefirst-memory — File-first / Obsidian-style memory"
+description: "Frozen agent final reading the OpenClaw and Hermes Agent checkouts, finding file-first memory right for Knowledge Spaces but wrong as the system of record for multi-tenant chat memory."
+tags:
+  [
+    agent-final,
+    memory-landscape,
+    file-first,
+    obsidian,
+    knowledge-spaces,
+    postgres-rls,
+  ]
+status: deprecated
+---
+
 # Agent: filefirst-memory — File-first / Obsidian-style memory (delivered 2026-07-05T13:56Z)
 
 ## (a) Synthesis

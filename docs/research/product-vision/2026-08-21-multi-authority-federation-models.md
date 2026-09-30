@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Multi-Authority Federation Models"
+description: "Compares multi-authority resource federation with global identity and ownerless database federation, and selects one replicated Personal Realm that links to foreign authorities, one governing authority per shared Space."
+tags:
+  [
+    product-vision,
+    federation,
+    multi-authority,
+    personal-realm,
+    replication,
+    offline-sync,
+  ]
+status: stable
+---
+
 # Multi-Authority Federation Models
 
 Recorded 2026-08-21. Active, noncanonical research adjacent to

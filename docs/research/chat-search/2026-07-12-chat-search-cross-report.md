@@ -1,3 +1,12 @@
+---
+type: Research
+title: "Chat search to episodic memory: cross-report"
+description: "Reviews the external chat-search recommendation against llame's code, adopts its derived search projection with one correction and five substitutions, and maps the result onto issue #194 and phases #195 to #198."
+tags:
+  [chat-search, episodic-memory, postgresql, pgvector, rrf, search-projection]
+status: stable
+---
+
 # Chat search → episodic memory — cross-report
 
 **Status:** Reviewed & adopted with corrections (tracked in #194)

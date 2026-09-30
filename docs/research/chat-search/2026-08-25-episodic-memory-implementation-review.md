@@ -1,3 +1,11 @@
+---
+type: Research
+title: "Episodic memory after #194: implementation review"
+description: "Argues issue #194 targets the wrong risk: search artifacts must never become evidence, so canonical chats stay the source of truth and hybrid RRF is a candidate generator, not a confidence model."
+tags: [episodic-memory, retrieval, provenance, issue-194, rrf, citation]
+status: stable
+---
+
 # Episodic memory after #194: implementation review
 
 Status: noncanonical research memo

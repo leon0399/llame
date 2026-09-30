@@ -1,3 +1,11 @@
+---
+type: Research
+title: "Dreaming and sleep-time memory consolidation: landscape and verdict"
+description: "Separates three senses of dreaming, verifies OpenClaw's deterministic promotion cycle, and concludes offline LLM consolidation earns no place in llame because verbatim storage beats extraction at matched retrieval."
+tags: [consolidation, dreaming, sleep-time-compute, verbatim-storage, openclaw]
+status: stable
+---
+
 # Dreaming / sleep-time memory consolidation — landscape + verdict (2026-07-12)
 
 **Status:** Reviewed; verdict adopted (no consolidation layer for llame now — rationale in §7)

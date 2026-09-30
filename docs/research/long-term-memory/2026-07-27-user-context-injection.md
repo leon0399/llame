@@ -1,3 +1,19 @@
+---
+type: Research
+title: "User-context injection: what to take from ChatGPT's context assembly, and what not to"
+description: "Dissects the five user-context blocks ChatGPT injects every turn, recommends the profile, response-preference and dated-observation formats on llame's typed-part rail, and rejects system-prompt injection."
+tags:
+  [
+    context-injection,
+    chatgpt,
+    personalization,
+    provenance,
+    prompt-rail,
+    recency-digest,
+  ]
+status: stable
+---
+
 # User-context injection — what to take from ChatGPT's context assembly, and what not to
 
 **Status:** Exploration — noncanonical. §4.2/§5.2–§5.7 **shipped** as the OpenSpec change `add-user-personalization` (2026-08-03); the shipped capability spec and the code, not this note, are authoritative for that scope. Note that implementation departed from parts of this exploration: there is no `timezone` field, no per-model activation report, and no rendered-token estimate — see the change's `design.md` (D2a, D3, D6) for why each was cut. §6 (recency digest) and the inferred-memory sections remain unproposed.

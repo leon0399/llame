@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Cross-session long-term memory for AI assistants: verified state of the art and an architecture blueprint for llame"
+description: "Audits MemPalace, the LOCOMO and LongMemEval benchmarks, and open-source memory systems, then recommends a bi-temporal fact layer, decay-aware retrieval and three-store separation for llame."
+tags:
+  [
+    memory-architecture,
+    benchmarks,
+    locomo,
+    bi-temporal,
+    retrieval-scoring,
+    mempalace,
+  ]
+status: stable
+---
+
 # Cross-Session Long-Term Memory for AI Assistants: Verified State of the Art and an Architecture Blueprint for llame
 
 ## TL;DR

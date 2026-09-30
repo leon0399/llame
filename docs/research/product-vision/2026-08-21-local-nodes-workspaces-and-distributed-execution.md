@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Local Nodes, Workspaces, and Distributed Execution"
+description: "Preserves the noncanonical product direction for local Nodes, Workspaces, Sandboxes and distributed execution, separating settled decisions from candidate mechanisms and narrowing the first cut to Git-backed knowledge."
+tags:
+  [
+    product-vision,
+    local-nodes,
+    workspaces,
+    distributed-execution,
+    sandboxes,
+    node-enrollment,
+  ]
+status: stable
+---
+
 # Local Nodes, Workspaces, and Distributed Execution
 
 Recorded 2026-08-21. Noncanonical discussion checkpoint — this document preserves

@@ -1,3 +1,12 @@
+---
+type: Research
+title: "2026-07-05 memory-landscape run — what's frozen vs. maintained"
+description: "States that CROSS-REPORT.md is the only maintained document in the 2026-07-05 memory-landscape run directory and classifies every other file there as a frozen artifact kept for provenance."
+tags:
+  [memory-landscape, bundle-readme, frozen-artifacts, provenance, superseded]
+status: stable
+---
+
 # 2026-07-05 memory-landscape run — what's frozen vs. maintained
 
 **[CROSS-REPORT.md](CROSS-REPORT.md) is the only maintained, canonical document in this directory.** It records the corrected verdicts and the build plan, and it supersedes anything that disagrees with it in the inputs below (including the main report's polymorphic scope-schema sketch — the cross-report's nullable-FK shape is the one to build).

@@ -1,3 +1,11 @@
+---
+type: Research
+title: "baro / Mozaik cross-run memory exploration notes"
+description: "Reads baro's cross-run memory on the Mozaik engine and extracts one transferable idea, run decisions as the memory grain, plus three anti-examples: imperative recall framing, scope leakage and extract-only storage."
+tags: [baro, mozaik, cross-run-memory, anti-patterns, mem0]
+status: stable
+---
+
 # baro / Mozaik cross-run memory — exploration notes (2026-07-07)
 
 Source: [baro blog, "Agents That Remember: Shared Memory for Autonomous Agent Teams"](https://www.baro.rs/blog/agents-that-remember) (JigJoy, Miodrag Todorović). **Vendor marketing post, single source, no eval numbers** — evidence value is low. Its worth is as a _live specimen_: a shipped 2026 memory system whose design makes several choices the cross-report classifies as mistakes, plus one genuinely good idea.

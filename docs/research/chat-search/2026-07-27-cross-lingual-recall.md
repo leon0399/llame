@@ -1,3 +1,11 @@
+---
+type: Research
+title: "Cross-lingual recall: asking in one language, finding a chat held in another"
+description: "Finds shipped phase 1 cannot bridge languages by design, the planned embedding leg can but degrades cross-lingual queries to single-leg RRF with measured same-language bias, and no cross-language eval category exists."
+tags: [cross-lingual-recall, multilingual, chat-search, rrf, embeddings, eval]
+status: stable
+---
+
 # Cross-lingual recall — asking in one language, finding a chat held in another
 
 **Status:** Exploration — noncanonical; no spec/issue deltas applied yet

@@ -1,3 +1,11 @@
+---
+type: Research
+title: "GitHub Copilot Memory exploration notes"
+description: "Documents Copilot Memory's two-scope model, its store_memory and vote_memory tools, and citation-verified recall, and derives four deltas for llame's memory write path."
+tags: [copilot, memory-scopes, citation-validation, memory-vote, decay]
+status: stable
+---
+
 # GitHub Copilot Memory — exploration notes (2026-07-05)
 
 Sources: [official docs](https://docs.github.com/en/copilot/concepts/agents/copilot-memory), [GitHub engineering blog "Building an agentic memory system for GitHub Copilot"](https://github.blog/ai-and-ml/github-copilot/building-an-agentic-memory-system-for-github-copilot/), [changelog 2026-05-26](https://github.blog/changelog/2026-05-26-copilot-memory-has-more-controls-for-deletion-scope-and-the-copilot-cli/), [copilot-cli#1443](https://github.com/github/copilot-cli/issues/1443), plus a direct probe of Copilot CLI 1.0.68 (`copilot -p ... --enable-memory`; tools are **server-side runtime tools**, not in the CLI bundle — confirmed by bundle grep).

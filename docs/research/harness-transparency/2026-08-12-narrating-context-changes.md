@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Narrating context changes to the assistant: what llame does, and who else does it"
+description: "Finds llame's narration of its own context changes is prior art, while pairing that in-band notice with an immutable, owner-retrievable per-Run receipt is the part hard to find elsewhere."
+tags:
+  [
+    harness-transparency,
+    context-injection,
+    disclosure,
+    provenance,
+    prior-art,
+    run-receipt,
+  ]
+status: stable
+---
+
 # Narrating context changes to the assistant: what llame does, and who else does it
 
 Surveyed 2026-08-12. Noncanonical — evidence and positioning, not a decision.
