@@ -75,8 +75,11 @@ export interface TouchedPath {
   readonly canonicalPath: string | undefined;
 }
 
-/** The one probe behind {@link TouchedPath}, for a path whose spelling is known. */
-export async function touchedDirectory(
+/**
+ * Probe one path: the directory it touches, plus its canonical file identity
+ * when it names a regular file.
+ */
+export async function touchedPath(
   absolutePath: string,
   stat: StatHostPath,
 ): Promise<TouchedPath> {

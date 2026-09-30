@@ -25,7 +25,7 @@ import {
   INSTRUCTION_FILE_BYTE_LIMIT,
   readInstructionFile,
   selectCandidates,
-  touchedDirectory,
+  touchedPath,
   walkDirectories,
   type InstructionCandidate,
   type ReadPage,
@@ -88,12 +88,12 @@ describe('walkDirectories', () => {
   });
 });
 
-describe('touchedDirectory', () => {
+describe('touchedPath', () => {
   it('returns an existing directory itself, with no file identity', async () => {
     const nested = join(root, 'apps', 'api');
     await mkdir(nested, { recursive: true });
 
-    expect(await touchedDirectory(nested, statHostPath)).toEqual({
+    expect(await touchedPath(nested, statHostPath)).toEqual({
       directory: nested,
       canonicalPath: undefined,
     });
@@ -106,7 +106,7 @@ describe('touchedDirectory', () => {
     const link = join(root, 'AGENTS.md');
     await symlink(target, link);
 
-    expect(await touchedDirectory(link, statHostPath)).toEqual({
+    expect(await touchedPath(link, statHostPath)).toEqual({
       directory: root,
       canonicalPath: await realpath(target),
     });
@@ -115,7 +115,7 @@ describe('touchedDirectory', () => {
   it('returns the parent of a path that does not exist', async () => {
     const missing = join(root, 'apps', 'web', 'src', 'new.tsx');
 
-    expect(await touchedDirectory(missing, statHostPath)).toEqual({
+    expect(await touchedPath(missing, statHostPath)).toEqual({
       directory: join(root, 'apps', 'web', 'src'),
       canonicalPath: undefined,
     });

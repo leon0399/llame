@@ -57,7 +57,7 @@ import {
 import {
   readInstructionFile,
   selectCandidates,
-  touchedDirectory,
+  touchedPath,
   walkDirectories,
   type InstructionCandidate,
   type ReadPage,
@@ -161,7 +161,7 @@ async function resolveDirectories(
 ): Promise<Map<string, ReadonlySet<string>>> {
   const pending = new Map<string, PendingDirectory>();
   for (const trigger of triggers) {
-    const touched = await touchedDirectory(trigger.path, stat);
+    const touched = await touchedPath(trigger.path, stat);
     const entry = pending.get(touched.directory) ?? {
       plainTouch: false,
       disclosedCanonicalPaths: new Set<string>(),
