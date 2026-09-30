@@ -19,7 +19,7 @@ A user message SHALL become a worker-processed **run** whose progress is an appe
 
 At most one non-terminal run SHALL exist per chat, enforced **at the datastore** (a partial unique index over non-terminal runs), not by application checks alone. A second, _different_ message for a chat that already has an in-flight run SHALL be rejected with a conflict (409). Re-submitting an already-accepted message id SHALL be rejected as a duplicate — a message never produces two runs. A run whose worker has died mid-execution SHALL be recovered or expired by the `job-queue` substrate (worker-death recovery / dead-letter).
 
-Each run SHALL be enqueued as the job named by the run's own id (per `job-queue`'s named-job requirement), so the single-flight admission path can judge a blocking run from its own job's state rather than from the run's age. A blocking run whose job is queued, retrying, or active SHALL be treated as live: the new message is rejected (409), however long the run has existed. A blocking run whose job is absent, completed, failed, or cancelled SHALL be treated as **stuck** — the queue can no longer execute it (a job never enqueued after a crash, or a job that settled without settling its run) — and SHALL be expired by the admission path on the next message, so a stuck run can never wedge a chat permanently. A run younger than one liveness window (`runs.heartbeatSeconds`) whose job is absent SHALL be treated as live, because its enqueue may still be in flight. Admission SHALL read only the job named by the blocking run's id, and only for a run visible in the requesting owner's tenant scope; it SHALL NOT scan the queue or read another owner's run or job.
+Each run SHALL be enqueued as the job named by the run's own id (per `job-queue`'s named-job requirement), so the single-flight admission path can judge a blocking run from its own job's state rather than from the run's age. A blocking run whose job is queued, retrying, or active SHALL be treated as live: the new message is rejected (409), however long the run has existed. A blocking run whose job is absent, completed, failed, or cancelled SHALL be treated as **stuck** — the queue can no longer execute it (a job never enqueued after a crash, or a job that settled without settling its run) — and SHALL be expired by the admission path on the next message, so a stuck run can never wedge a chat permanently. A run younger than one liveness window (`runs.heartbeatSeconds`) whose job is absent SHALL be treated as live, because its enqueue may still be in flight. A job state admission cannot read within a bounded wait, or at all, SHALL be treated as live, never as stuck. Admission SHALL read only the job named by the blocking run's id, and only for a run visible in the requesting owner's tenant scope; it SHALL NOT scan the queue or read another owner's run or job.
 
 #### Scenario: Concurrent different message is refused
 
@@ -40,6 +40,11 @@ Each run SHALL be enqueued as the job named by the run's own id (per `job-queue`
 
 - **WHEN** a non-terminal run older than one liveness window has no job, or its job is completed, failed, or cancelled, and a new different message arrives
 - **THEN** the admission path expires the stuck run with a terminal `run.expired` and admits the new message, rather than 409-ing the chat indefinitely
+
+#### Scenario: An unreadable job state never expires a run
+
+- **WHEN** a chat's run is old enough to be stuck and admission cannot read its job state, because the read fails or does not answer in time
+- **THEN** the submission is rejected (409) and the run is neither expired nor otherwise changed
 
 #### Scenario: A queued run blocks during a worker outage
 

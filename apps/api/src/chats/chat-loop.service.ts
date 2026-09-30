@@ -44,6 +44,9 @@ import {
 } from '../runs/run-dispatch.service';
 import { sanitizeClientMessageParts } from './context-item';
 
+/** How long admission waits on the blocking run's job state (see blockerIsLive). */
+const JOB_STATE_READ_TIMEOUT_MS = 5000;
+
 /**
  * Narrows a read-back message's `unknown[]` JSONB `parts` to `MessagePart[]`:
  * each part must be an object (the union's `Record<string, unknown>`
@@ -475,14 +478,31 @@ export class ChatLoopService {
    * as live for one liveness window, because the enqueue can legitimately
    * land just after the run row committed. Anything else — absent and older
    * than that, or a settled job — means the queue can no longer execute it.
+   *
+   * The read runs inside the accepted-turn transaction, which holds the chat
+   * row, so it is bounded; a state it cannot read in time, or at all, cannot
+   * prove the run wedged and counts as live (409), never as expirable.
    */
   private async blockerIsLive(run: Run): Promise<boolean> {
-    const state = await this.dispatch.jobState(run.id);
-    if (state === 'queued' || state === 'retrying' || state === 'active') {
-      return true;
-    }
+    let timer: NodeJS.Timeout | undefined;
+    const state = await Promise.race([
+      this.dispatch.jobState(run.id),
+      new Promise<'unreadable'>((resolve) => {
+        timer = setTimeout(
+          () => resolve('unreadable'),
+          JOB_STATE_READ_TIMEOUT_MS,
+        );
+      }),
+    ])
+      .catch(() => 'unreadable' as const)
+      .finally(() => clearTimeout(timer));
     if (state !== 'absent') {
-      return false;
+      return (
+        state === 'unreadable' ||
+        state === 'queued' ||
+        state === 'retrying' ||
+        state === 'active'
+      );
     }
     const lastSignOfLife = run.startedAt ?? run.createdAt;
     return (

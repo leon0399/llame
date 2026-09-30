@@ -37,9 +37,19 @@ export class ModelStreamIdleError extends Error {
  * Settling is final — a part arriving after the stream ended, the provider
  * errored, or the Run aborted must not reopen the window.
  */
-function createIdleWatchdog(runSignal: AbortSignal | undefined) {
+interface IdleWatchdog {
+  readonly signal: AbortSignal;
+  readonly arm: () => void;
+  readonly onExpiry: (fail: (error: ModelStreamIdleError) => void) => void;
+  readonly settle: () => void;
+}
+
+function createIdleWatchdog(
+  runSignal: AbortSignal | undefined,
+  callSignal: AbortSignal | undefined,
+): IdleWatchdog {
   const idle = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: NodeJS.Timeout | undefined;
   let settled = false;
   let fail: ((error: ModelStreamIdleError) => void) | undefined;
 
@@ -56,11 +66,14 @@ function createIdleWatchdog(runSignal: AbortSignal | undefined) {
   runSignal?.addEventListener('abort', settle, { once: true });
 
   return {
-    /** The signal the provider call carries: the Run's, linked to `idle`. */
+    /**
+     * The signal the provider call carries: the one the SDK composed for this
+     * call (the Run's, plus any per-call timeout), linked to `idle`.
+     */
     signal:
-      runSignal === undefined
+      callSignal === undefined
         ? idle.signal
-        : AbortSignal.any([runSignal, idle.signal]),
+        : AbortSignal.any([callSignal, idle.signal]),
     arm: () => {
       if (settled) return;
       if (timer !== undefined) clearTimeout(timer);
@@ -87,7 +100,7 @@ async function watchStream(
   params: LanguageModelV3CallOptions,
   runSignal: AbortSignal | undefined,
 ): Promise<LanguageModelV3StreamResult> {
-  const watchdog = createIdleWatchdog(runSignal);
+  const watchdog = createIdleWatchdog(runSignal, params.abortSignal);
   const stalled = new Promise<never>((_, reject) => {
     watchdog.onExpiry(reject);
   });
@@ -116,7 +129,7 @@ async function watchStream(
  */
 function watchedParts(
   source: ReadableStream<LanguageModelV3StreamPart>,
-  watchdog: ReturnType<typeof createIdleWatchdog>,
+  watchdog: IdleWatchdog,
 ): ReadableStream<LanguageModelV3StreamPart> {
   const reader = source.getReader();
   return new ReadableStream<LanguageModelV3StreamPart>({

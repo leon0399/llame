@@ -619,6 +619,41 @@ describe('ChatLoopService.createMessageStream', () => {
     expect(markFinished).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['the read rejects', () => Promise.reject(new Error('pool timeout'))],
+    ['the read never answers', () => new Promise<never>(() => undefined)],
+  ])(
+    'conflicts, and never expires, when %s',
+    async (_label, read: () => Promise<never>) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      // Old enough that a readable 'absent' would expire it: only the
+      // unreadable state keeps it live.
+      const blocking: Run = {
+        ...run,
+        id: 'blocking-run',
+        createdAt: new Date(now.getTime() - 86_400_000),
+        startedAt: null,
+      };
+      const { service, findActiveByChatId, markFinished, jobState } =
+        makeService();
+      findActiveByChatId.mockResolvedValue(blocking);
+      jobState.mockImplementation(read);
+
+      // Settle the rejection now so the timer advance cannot surface it early.
+      const outcome = service
+        .createMessageStream(input)
+        .catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const error = await outcome;
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error).toMatchObject({
+        message: 'Another run is already in flight for this chat',
+      });
+      expect(markFinished).not.toHaveBeenCalled();
+    },
+  );
+
   it('conflicts on a job-less run younger than one liveness window', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
