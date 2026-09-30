@@ -36,6 +36,7 @@ import {
   type SystemModelCatalogEntry,
 } from '../models/model-catalog';
 import { type ModelClient } from '../models/model-client';
+import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import {
   ChatsRepository,
   CompactionsRepository,
@@ -412,7 +413,31 @@ const MAX_ADAPTER_DECISIONS = 16;
  * timeout is recorded as run.expired, never run.cancelled.
  */
 export const RUN_TIMEOUT_ABORT_REASON = 'run-timeout';
+/**
+ * AbortSignal.abort(reason) tag for the worker's execution ceiling — the
+ * substrate bound a run reaches when no budget was configured (or the
+ * configured budget is above the ceiling). It settles as `expired` exactly
+ * like a budget overrun, but its message names the ceiling, never a budget
+ * the operator did not configure.
+ */
+export const RUN_CEILING_ABORT_REASON = 'run-ceiling';
 export const NATIVE_MUTATION_ABORT_REASON = 'native-mutation-unknown';
+
+const RUN_BUDGET_EXCEEDED_MESSAGE =
+  'Run timed out: exceeded its wall-clock budget.';
+const RUN_CEILING_REACHED_MESSAGE =
+  'Run reached the 23 h 55 m execution ceiling.';
+
+/**
+ * The terminal message for an expired run, chosen from the abort REASON
+ * rather than the status: both reasons settle as run.expired, but only a
+ * configured budget may be named in the message.
+ */
+export function expiredRunMessage(signal: AbortSignal | undefined): string {
+  return signal?.reason === RUN_CEILING_ABORT_REASON
+    ? RUN_CEILING_REACHED_MESSAGE
+    : RUN_BUDGET_EXCEEDED_MESSAGE;
+}
 
 /**
  * Classify an aborted run's terminal status from the signal that aborted it:
@@ -425,7 +450,10 @@ export function classifyAbortedRun(
   signal: AbortSignal | undefined,
 ): 'cancelled' | 'expired' | 'failed' {
   if (signal?.reason === NATIVE_MUTATION_ABORT_REASON) return 'failed';
-  return signal?.reason === RUN_TIMEOUT_ABORT_REASON ? 'expired' : 'cancelled';
+  return signal?.reason === RUN_TIMEOUT_ABORT_REASON ||
+    signal?.reason === RUN_CEILING_ABORT_REASON
+    ? 'expired'
+    : 'cancelled';
 }
 /**
  * Resolve the permission mode accepted on a Run against the modes available
@@ -698,16 +726,17 @@ export class RunExecutionService {
       const runs = new RunsRepository(tx);
       const events = new RunEventsRepository(tx);
       if (input.abortSignal?.aborted) {
+        const signal = input.abortSignal;
         const status = classifyAbortedRun(input.abortSignal);
         const finished = await runs.markFinished(
           input.runId,
           input.userId,
           status,
-          { error: { message: this.abortedRunMessage(status) } },
+          { error: { message: this.abortedRunMessage(status, signal) } },
         );
         if (finished) {
           await events.append(input.runId, `run.${status}`, {
-            message: this.abortedRunMessage(status),
+            message: this.abortedRunMessage(status, signal),
           });
         }
         return false;
@@ -729,7 +758,7 @@ export class RunExecutionService {
           );
           if (cancelled) {
             await events.append(input.runId, 'run.cancelled', {
-              message: this.abortedRunMessage('cancelled'),
+              message: this.abortedRunMessage('cancelled', input.abortSignal),
             });
           }
         }
@@ -1103,11 +1132,15 @@ export class RunExecutionService {
     const { maxStepsPerRun, callTimeoutSeconds } =
       this.instanceConfig.config.tools;
 
+    // The step cap actually reached, or `null` when no cap is configured (the
+    // opt-in default) or none was reached — the value both cap reporting paths
+    // publish, so neither can ever name a cap the operator did not set.
+    let cappedAt: number | null = null;
+
     // Tool activity accumulated in occurrence order, for persistence on the
     // assistant message (design D5) — both genuinely-executed calls and
     // gate-refused/hallucinated calls push here, so both render through the
     // exact same ToolCallPart component web-side.
-    let capped = false;
 
     // One place each for the two tool events that both the executed path and
     // the gate-refused path emit identically — the only difference between the
@@ -1517,7 +1550,13 @@ export class RunExecutionService {
         return;
       }
       const status = classifyAbortedRun(input.abortSignal);
-      const message = toolTerminationMessage(status);
+      // An expired run's terminal message names its abort REASON (a configured
+      // budget or the execution ceiling) rather than "a tool was interrupted",
+      // so it reads like every other expired settlement.
+      const message =
+        status === 'expired'
+          ? expiredRunMessage(input.abortSignal)
+          : toolTerminationMessage(status);
       const hasBashCall = [...openToolCalls.values()].some(
         ({ toolName }) => toolName === 'bash',
       );
@@ -1618,7 +1657,7 @@ export class RunExecutionService {
           // actually completes (a run that errors mid-loop after
           // capping does not claim to have "completed with the cap").
           onCapReached: () => {
-            capped = true;
+            cappedAt = maxStepsPerRun;
             enqueueEvent('run.step_cap_reached', {
               stepsUsed: maxStepsPerRun,
               maxSteps: maxStepsPerRun,
@@ -1748,9 +1787,15 @@ export class RunExecutionService {
             });
             return;
           }
+          // A stalled model stream is a model-level failure, not an abort: it
+          // ends the run terminally `failed` under its own error code so the
+          // cause survives on the run and its event (the same treatment
+          // `outcome_unknown` gets), and the job succeeds without a retry.
+          const idleCode =
+            error instanceof ModelStreamIdleError ? error.code : undefined;
           const message =
             status === 'expired'
-              ? 'Run timed out: exceeded its wall-clock budget.'
+              ? expiredRunMessage(input.abortSignal)
               : error instanceof Error
                 ? error.message
                 : String(error);
@@ -1785,8 +1830,12 @@ export class RunExecutionService {
             runPayload: {
               status,
               message,
+              ...(idleCode !== undefined && { code: idleCode }),
             },
-            error: { message },
+            error: {
+              message,
+              ...(idleCode !== undefined && { code: idleCode }),
+            },
             assistantTurn: turn,
           });
 
@@ -1844,10 +1893,10 @@ export class RunExecutionService {
           // finish-races-abort case) get this; the common event-driven abort
           // goes through onError → the streamedText-only parts above (reasoning
           // dropped, like text-in-progress today).
-          if (capped) {
+          if (cappedAt !== null) {
             assistantPartCollector.capNotice({
               type: 'data-cap-notice',
-              data: { stepsUsed: maxStepsPerRun, maxSteps: maxStepsPerRun },
+              data: { stepsUsed: cappedAt, maxSteps: cappedAt },
             });
           }
           // Normally a no-op — a completed run settled every call through the
@@ -2277,8 +2326,10 @@ export class RunExecutionService {
   /**
    * The trusted context for a system-origin read (skill activation, the
    * accepted-turn instructions load): the same fields the model's own tool
-   * context carries, built from the RUN's identity, plus the Run's remaining
-   * wall-clock deadline so a slow read cannot outlive the turn.
+   * context carries, built from the RUN's identity. Deliberately no
+   * `timeoutMs`: every system-origin read goes through `runTool`, whose
+   * `prepareToolExecution` derives the per-call deadline from the tool or
+   * `tools.callTimeoutSeconds` and overwrites whatever this context carried.
    */
   private buildSystemReadContext(
     input: ExecuteRunInput,
@@ -2296,7 +2347,6 @@ export class RunExecutionService {
       workspaceRoot,
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
-      timeoutMs: this.instanceConfig.config.runs.timeoutSeconds * 1000,
       knowledgeResolver: this.knowledgeResolver,
       skillCatalog: this.skillCatalog,
       permissionPolicy: this.permissionPolicy,
@@ -2612,13 +2662,20 @@ export class RunExecutionService {
     return [...rebuilt.context.contextItems, ...toRunContextItems(stagedParts)];
   }
 
+  /**
+   * The terminal message an aborted run settles with. The expired text comes
+   * from the abort REASON (budget vs. execution ceiling), never from the
+   * status alone — both settle as run.expired, but only a configured budget
+   * may be named.
+   */
   private abortedRunMessage(
     status: 'cancelled' | 'expired' | 'failed',
+    signal: AbortSignal | undefined,
   ): string {
     if (status === 'failed')
       return 'Native mutation outcome is unknown; inspect the file before a new attempt.';
     return status === 'expired'
-      ? 'Run timed out: exceeded its wall-clock budget.'
+      ? expiredRunMessage(signal)
       : 'Run was cancelled before model inference.';
   }
 
@@ -2635,7 +2692,7 @@ export class RunExecutionService {
     attemptId: string,
   ): Promise<never> {
     const status = classifyAbortedRun(input.abortSignal);
-    const message = this.abortedRunMessage(status);
+    const message = this.abortedRunMessage(status, input.abortSignal);
     const finish = await this.finishRun({
       userId: input.userId,
       runId: input.runId,

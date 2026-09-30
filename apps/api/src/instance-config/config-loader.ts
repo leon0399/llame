@@ -43,6 +43,7 @@ import {
 import { createModelPromptLoader } from './prompt-loader';
 import { compileRegexMatcher } from '../tools/permissions/matcher';
 import { parseRewriteTarget } from '../tools/web-read/adapters/rewrite-target';
+import { RUN_EXECUTION_CEILING_SECONDS } from '../runs/run-queues';
 import { getRegisteredToolIds } from '../tools/registry';
 import {
   type PermissionClause,
@@ -140,16 +141,21 @@ function resolveRunsConfig(
       }),
       'runs.heartbeatSeconds',
     ),
-    timeoutSeconds: requireResolvedNumber(
-      resolveNumeric({
-        configPath: 'runs.timeoutSeconds',
-        ...readLeaf(raw, 'runs', 'timeoutSeconds'),
-        builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
-        nullable: false,
-        env,
-      }),
-      'runs.timeoutSeconds',
-    ),
+    timeoutSeconds: resolveNumeric({
+      configPath: 'runs.timeoutSeconds',
+      ...readLeaf(raw, 'runs', 'timeoutSeconds'),
+      builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
+      // Opt-in: null (absent, explicit null, or an empty-resolving token) is
+      // "no wall-clock budget". A configured budget at or above the runs
+      // domain's execution ceiling would be silently truncated by it, so it
+      // fails startup naming this path instead.
+      nullable: true,
+      under: {
+        limit: RUN_EXECUTION_CEILING_SECONDS,
+        name: 'the Run execution ceiling',
+      },
+      env,
+    }),
   };
 }
 
@@ -207,13 +213,43 @@ function resolveToolsConfig(
       configPath: 'tools.permissionModes',
       ...readLeaf(raw, 'tools', 'permissionModes'),
     }),
-    maxStepsPerRun: resolveToolNumber(raw, 'maxStepsPerRun', env),
-    callTimeoutSeconds: resolveToolNumber(raw, 'callTimeoutSeconds', env),
+    ...resolveToolNumbers(raw, env),
     promptFiles: resolveToolPromptFiles(raw),
     webAdapters: resolveWebAdaptersConfig(raw, env),
   };
   if (nativeExecutorId) tools.nativeExecutorId = nativeExecutorId;
   return tools;
+}
+
+/**
+ * The two numeric `tools.*` settings. `maxStepsPerRun` is opt-in like
+ * `runs.timeoutSeconds` — null (absent, explicit null, or an
+ * empty-resolving token) means no cap at all; `callTimeoutSeconds` is a
+ * required positive integer.
+ */
+function resolveToolNumbers(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+): Pick<LlameConfig['tools'], 'maxStepsPerRun' | 'callTimeoutSeconds'> {
+  return {
+    maxStepsPerRun: resolveNumeric({
+      configPath: 'tools.maxStepsPerRun',
+      ...readLeaf(raw, 'tools', 'maxStepsPerRun'),
+      builtInDefault: BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
+      nullable: true,
+      env,
+    }),
+    callTimeoutSeconds: requireResolvedNumber(
+      resolveNumeric({
+        configPath: 'tools.callTimeoutSeconds',
+        ...readLeaf(raw, 'tools', 'callTimeoutSeconds'),
+        builtInDefault: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
+        nullable: false,
+        env,
+      }),
+      'tools.callTimeoutSeconds',
+    ),
+  };
 }
 
 function resolveWebAdaptersConfig(
@@ -367,25 +403,6 @@ function resolveToolPromptFiles(raw: RawInstanceConfig | undefined) {
     files[toolId] = value;
   }
   return files;
-}
-
-/** Resolve one numeric `tools.*` setting with the built-in default. */
-function resolveToolNumber(
-  raw: RawInstanceConfig | undefined,
-  key: 'maxStepsPerRun' | 'callTimeoutSeconds',
-  env: NodeJS.ProcessEnv,
-): number {
-  const configPath = `tools.${key}`;
-  return requireResolvedNumber(
-    resolveNumeric({
-      configPath,
-      ...readLeaf(raw, 'tools', key),
-      builtInDefault: BUILT_IN_DEFAULTS.tools[key],
-      nullable: false,
-      env,
-    }),
-    configPath,
-  );
 }
 
 /** Load, validate, interpolate, and apply file > built-in-default precedence (the environment reaches config only via {env:...} tokens in the file). Throws InstanceConfigError on any failure — the only correct response is to abort boot (D6). */
@@ -762,6 +779,18 @@ function resolveNullableString(opts: {
   return resolved === '' ? null : resolved;
 }
 
+/**
+ * An exclusive upper bound on a resolved numeric setting, with the name it goes
+ * by in the boot error. Both bounds are enforced AFTER interpolation: the JSON
+ * Schema's `minimum`/`maximum` can only constrain the literal-integer branch of
+ * a `…OrToken` $def, never the token string.
+ */
+type ExclusiveUpperBound = { limit: number; name: string };
+
+/** The shared doc for a setting's lower bound: the default floor is 1, and an
+ *  `{env:...}` token resolving below it must fail with a clear config error
+ *  rather than crash boot inside the substrate (e.g. pg-boss's hard 10s
+ *  `heartbeatSeconds` floor). */
 function resolveNumeric(opts: {
   configPath: string;
   present: boolean;
@@ -769,39 +798,33 @@ function resolveNumeric(opts: {
   builtInDefault: number | null;
   nullable: boolean;
   env: NodeJS.ProcessEnv;
-  /**
-   * Inclusive lower bound (default 1). Enforced AFTER interpolation, so an
-   * `{env:...}` token that resolves below it fails with a clear config error
-   * — the JSON Schema's `minimum` only constrains the literal-integer branch
-   * of a `…OrToken` $def, never the token string (e.g. pg-boss's hard 10s
-   * `heartbeatSeconds` floor).
-   */
   min?: number;
+  under?: ExclusiveUpperBound;
 }): number | null {
-  const { configPath, present, raw, builtInDefault, nullable, env, min } = opts;
-
-  if (!present) {
+  if (!opts.present) {
     // Absent from the file = the built-in default. The environment reaches
     // config ONLY through {env:...} interpolation tokens in the file — there
     // is no bare env-var fallback (D5).
-    return builtInDefault;
+    return opts.builtInDefault;
   }
+  return resolvePresentNumeric(opts);
+}
 
+/** The file-carried half of `resolveNumeric`, by the raw value's shape. */
+function resolvePresentNumeric(opts: {
+  configPath: string;
+  raw: unknown;
+  nullable: boolean;
+  env: NodeJS.ProcessEnv;
+  min?: number;
+  under?: ExclusiveUpperBound;
+}): number | null {
+  const { configPath, raw, nullable, env, min, under } = opts;
   if (raw === null) {
-    // Unreachable while every numberOrToken/nullableNumberOrToken $def
-    // excludes "null" for non-nullable settings — ajv's raw-shape
-    // validation already rejects `null` on heartbeatSeconds/timeoutSeconds
-    // before this branch can run.
-    // Kept as defense-in-depth in case the schema and this map ever drift.
-    if (!nullable) {
-      throw new InstanceConfigError(
-        `${configPath}: must not be null (not a nullable setting)`,
-      );
-    }
-    return null;
+    return resolveExplicitNull(configPath, nullable);
   }
   if (isNumber(raw)) {
-    assertPositiveInteger(raw, configPath, min);
+    assertWithinBounds(raw, configPath, min, under);
     return raw;
   }
 
@@ -813,7 +836,29 @@ function resolveNumeric(opts: {
       `${configPath}: must be a number or a {env:}/{path:} token string`,
     );
   }
-  return resolveNumericFromToken(raw, { configPath, env, nullable, min });
+  return resolveNumericFromToken(raw, {
+    configPath,
+    env,
+    nullable,
+    min,
+    under,
+  });
+}
+
+/**
+ * An explicit `null` in the file: unset for a nullable setting, a boot failure
+ * for a required one. Unreachable while every numberOrToken/nullableNumberOrToken
+ * $def is the arbiter — ajv's raw-shape validation already rejects `null` on a
+ * non-nullable setting before this branch can run. Kept as defense-in-depth in
+ * case the schema and this map ever drift.
+ */
+function resolveExplicitNull(configPath: string, nullable: boolean): null {
+  if (!nullable) {
+    throw new InstanceConfigError(
+      `${configPath}: must not be null (not a nullable setting)`,
+    );
+  }
+  return null;
 }
 
 /** The {env:}/{path:} token-string branch of `resolveNumeric` — resolved,
@@ -826,9 +871,10 @@ function resolveNumericFromToken(
     env: NodeJS.ProcessEnv;
     nullable: boolean;
     min?: number;
+    under?: ExclusiveUpperBound;
   },
 ): number | null {
-  const { configPath, env, nullable, min } = opts;
+  const { configPath, env, nullable, min, under } = opts;
   const resolved = resolveInterpolatedString(raw, configPath, env);
   if (resolved.trim() === '') {
     if (nullable) {
@@ -844,7 +890,7 @@ function resolveNumericFromToken(
       `${configPath}: interpolated value does not resolve to a valid number`,
     );
   }
-  assertPositiveInteger(n, configPath, min);
+  assertWithinBounds(n, configPath, min, under);
   return n;
 }
 
@@ -870,6 +916,35 @@ function requireResolvedNumber(
 
 function isStringArray(value: unknown): value is Array<string> {
   return Array.isArray(value) && value.every(isString);
+}
+
+/**
+ * The bounds one resolved numeric setting must satisfy (literal or
+ * interpolated-and-coerced). A file that says `"timeoutSeconds": -5` is
+ * exactly the misconfiguration this feature exists to catch at boot, so it
+ * fails loud rather than falling back; an exclusive upper bound fails for the
+ * same reason, because a value the limit would silently truncate is a value
+ * the operator would believe applies and it would not.
+ */
+function assertWithinBounds(
+  n: number,
+  configPath: string,
+  min: number | undefined,
+  under: ExclusiveUpperBound | undefined,
+): void {
+  const floor = min ?? 1;
+  if (!Number.isInteger(n) || n < floor) {
+    throw new InstanceConfigError(
+      floor === 1
+        ? `${configPath}: must be a positive integer`
+        : `${configPath}: must be an integer >= ${floor}`,
+    );
+  }
+  if (under !== undefined && n >= under.limit) {
+    throw new InstanceConfigError(
+      `${configPath}: must be below ${under.limit} (${under.name})`,
+    );
+  }
 }
 
 /**
@@ -2001,22 +2076,6 @@ function assertReferencesCatalog(
   if (id !== null && !ids.has(id)) {
     throw new InstanceConfigError(
       `${configPath}: does not reference any configured ${catalogLabel}`,
-    );
-  }
-}
-
-/**
- * Positivity/integer bound for all four numeric settings (literal or
- * interpolated-and-coerced): a file that says `"timeoutSeconds": -5` is
- * exactly the misconfiguration this feature exists to catch at boot, so it
- * fails loud rather than falling back.
- */
-function assertPositiveInteger(n: number, configPath: string, min = 1): void {
-  if (!Number.isInteger(n) || n < min) {
-    throw new InstanceConfigError(
-      min === 1
-        ? `${configPath}: must be a positive integer`
-        : `${configPath}: must be an integer >= ${min}`,
     );
   }
 }

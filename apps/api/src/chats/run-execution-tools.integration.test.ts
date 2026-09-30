@@ -212,7 +212,10 @@ function createMockModelClient(
           messages: input.messages,
           abortSignal: input.abortSignal,
           tools,
-          stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
+          stopWhen:
+            input.maxSteps === null
+              ? () => false
+              : stepCountIs((input.maxSteps ?? 8) + 1),
           prepareStep: async ({
             steps,
             stepNumber,
@@ -238,7 +241,10 @@ function createMockModelClient(
             const priorToolSteps = steps.filter(
               (step) => step.toolCalls.length > 0,
             ).length;
-            const capReached = priorToolSteps >= (input.maxSteps ?? 8);
+            const capReached =
+              input.maxSteps === undefined || input.maxSteps === null
+                ? false
+                : priorToolSteps >= input.maxSteps;
             if (capReached) {
               input.onCapReached?.();
             }

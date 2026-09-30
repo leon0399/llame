@@ -30,6 +30,10 @@ import {
   trackAbortSettlement,
 } from './openai-model-client';
 import { applyRequestUsageCallback } from './request-usage';
+import {
+  applyStreamIdleWatchdog,
+  ModelStreamIdleError,
+} from './stream-idle-watchdog';
 
 /**
  * The default Messages endpoint, the `baseURL` the adapter falls back to when
@@ -274,6 +278,8 @@ const ABORT_ERROR_NAMES: ReadonlyArray<string> = [
  *   surfaces. The SDK builds its fixed text ("No output generated…") itself,
  *   never from response bytes, and it is the marker every wire's client
  *   surfaces on the result's `text` channel.
+ * - `ModelStreamIdleError`: llame's own stream-idle watchdog (design D4) —
+ *   llame's own text, and the code the run records depends on it.
  * - an abort-shaped rejection: see {@link ABORT_ERROR_NAMES}.
  *
  * Everything else status-less — a transport failure, a malformed (or
@@ -287,6 +293,7 @@ function isLocalFailure(error: unknown): error is Error {
   return (
     InvalidArgumentError.isInstance(error) ||
     NoOutputGeneratedError.isInstance(error) ||
+    error instanceof ModelStreamIdleError ||
     (error instanceof Error && ABORT_ERROR_NAMES.includes(error.name))
   );
 }
@@ -370,6 +377,7 @@ function buildStreamOptions(
   };
   applyToolCallingOptions(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
+  applyStreamIdleWatchdog(streamOptions, input);
   if (input.onTextDelta) {
     streamOptions.onChunk = ({ chunk }) => {
       if (chunk.type === 'text-delta') {

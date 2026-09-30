@@ -25,12 +25,14 @@ import { deadLetterQueue, QUEUE, type QueueConsumer } from '../queue/queue';
 import { RunAbortRegistry, type RunAbortRegistrar } from './run-abort-registry';
 import { ModelContextExecutionError } from './snapshot-tool-execution';
 import {
+  RUN_CEILING_ABORT_REASON,
   RUN_TIMEOUT_ABORT_REASON,
   RunExecutionService,
   RunNotRunnableError,
   type RunExecutor,
 } from './run-execution.service';
 import {
+  RUN_EXECUTION_CEILING_SECONDS,
   runsQueueDefinition,
   runTimeoutSeconds,
   RUNS_QUEUE,
@@ -217,15 +219,26 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     }
 
     // In-process wall-clock abort (design D7 mechanism 1): while THIS worker
-    // is alive, a run exceeding its budget is aborted here and tagged with
-    // RUN_TIMEOUT_ABORT_REASON so RunExecutionService (classifyAbortedRun)
-    // records a terminal run.expired instead of the run.cancelled a genuine
+    // is alive, a run exceeding its limit is aborted here and tagged with the
+    // reason RunExecutionService (classifyAbortedRun) reads, so a budget
+    // overrun is recorded as run.expired — not the run.cancelled a genuine
     // user cancel produces on the exact same AbortController/signal. No queue
-    // job involved — a healthy worker kills its own overrun.
-    const timeoutMs = runTimeoutSeconds(this.instanceConfig.config) * 1000;
+    // job involved: a healthy worker kills its own overrun.
+    //
+    // The limit is min(configured budget, the runs execution ceiling): the
+    // ceiling exists so the queue's declared job duration is never what ends a
+    // live run, and it wins (with its own reason, so the recorded message
+    // never names a budget the operator did not configure).
+    const budgetSeconds = runTimeoutSeconds(this.instanceConfig.config);
+    const overCeiling =
+      budgetSeconds === null || budgetSeconds > RUN_EXECUTION_CEILING_SECONDS;
+    const limitMs =
+      (overCeiling ? RUN_EXECUTION_CEILING_SECONDS : budgetSeconds) * 1000;
     const timeoutTimer = setTimeout(() => {
-      abort.abort(RUN_TIMEOUT_ABORT_REASON);
-    }, timeoutMs);
+      abort.abort(
+        overCeiling ? RUN_CEILING_ABORT_REASON : RUN_TIMEOUT_ABORT_REASON,
+      );
+    }, limitMs);
 
     try {
       const result = await this.runExecution.executeRun({

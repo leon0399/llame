@@ -37,7 +37,7 @@ import {
   type RunStreamResponder,
 } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { stuckRunThresholdMs } from '../runs/run-queues';
+import { heartbeatSeconds } from '../runs/run-queues';
 import {
   RunDispatchService,
   type RunDispatcher,
@@ -468,26 +468,45 @@ export class ChatLoopService {
     }
   }
 
+  /**
+   * Whether a run still in flight is one the queue can execute, judged by its
+   * own job's state rather than by its age: a queued, retrying, or active job
+   * is live however long the run has existed. A job-less run is still treated
+   * as live for one liveness window, because the enqueue can legitimately
+   * land just after the run row committed. Anything else — absent and older
+   * than that, or a settled job — means the queue can no longer execute it.
+   */
+  private async blockerIsLive(run: Run): Promise<boolean> {
+    const state = await this.dispatch.jobState(run.id);
+    if (state === 'queued' || state === 'retrying' || state === 'active') {
+      return true;
+    }
+    if (state !== 'absent') {
+      return false;
+    }
+    const lastSignOfLife = run.startedAt ?? run.createdAt;
+    return (
+      Date.now() - lastSignOfLife.getTime() <
+      heartbeatSeconds(this.instanceConfig.config) * 1000
+    );
+  }
+
   private async clearActiveRunSlot(input: {
     runsRepo: RunsRepository;
     eventsRepo: RunEventsRepository;
     chatId: string;
     userId: string;
   }): Promise<void> {
-    const stuckAfterMs = stuckRunThresholdMs(this.instanceConfig.config);
-    const isStuck = (run: Run) =>
-      Date.now() - (run.startedAt ?? run.createdAt).getTime() >= stuckAfterMs;
     const findActive = () =>
       input.runsRepo.findActiveByChatId(input.chatId, input.userId);
-
     let blocking = await findActive();
     if (!blocking) return;
-    if (!isStuck(blocking)) {
+    if (await this.blockerIsLive(blocking)) {
       // Re-check once: `blocking` may have finished between the read above
-      // and now, or genuinely still be within its grace window.
+      // and now, in which case the chat is simply free.
       blocking = await findActive();
       if (!blocking) return;
-      if (!isStuck(blocking)) {
+      if (await this.blockerIsLive(blocking)) {
         throw new ConflictException(
           'Another run is already in flight for this chat',
         );

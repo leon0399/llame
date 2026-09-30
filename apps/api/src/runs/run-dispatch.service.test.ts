@@ -35,6 +35,7 @@ function queue(): Queue {
     schedule: () => Promise.resolve(),
     unschedule: () => Promise.resolve(),
     cancel: () => Promise.resolve(),
+    jobState: () => Promise.resolve('absent'),
   };
 }
 
@@ -43,7 +44,7 @@ afterEach(() => {
 });
 
 describe('RunDispatchService', () => {
-  it('ensures the configured runs queue once and enqueues the committed job', async () => {
+  it('ensures the configured runs queue once and enqueues each run under its own id', async () => {
     const q = queue();
     const ensureQueue = vi.spyOn(q, 'ensureQueue');
     const enqueue = vi.spyOn(q, 'enqueue');
@@ -53,11 +54,25 @@ describe('RunDispatchService', () => {
     await service.dispatch({ ...job, runId: 'run-2' });
 
     expect(ensureQueue).toHaveBeenCalledOnce();
-    expect(enqueue).toHaveBeenNthCalledWith(1, RUNS_QUEUE, job);
-    expect(enqueue).toHaveBeenNthCalledWith(2, RUNS_QUEUE, {
-      ...job,
-      runId: 'run-2',
+    expect(enqueue).toHaveBeenNthCalledWith(1, RUNS_QUEUE, job, {
+      id: 'run-1',
     });
+    expect(enqueue).toHaveBeenNthCalledWith(
+      2,
+      RUNS_QUEUE,
+      { ...job, runId: 'run-2' },
+      { id: 'run-2' },
+    );
+  });
+
+  it('reads a run job state by the run id the dispatch named it with', async () => {
+    const q = queue();
+    const jobState = vi.spyOn(q, 'jobState');
+    jobState.mockResolvedValue('active');
+    const service = new RunDispatchService(q, config(), tenantDb());
+
+    await expect(service.jobState('run-1')).resolves.toBe('active');
+    expect(jobState).toHaveBeenCalledWith(RUNS_QUEUE, 'run-1');
   });
 
   it('retries queue bootstrap after failure and rethrows enqueue failures', async () => {
@@ -101,7 +116,7 @@ describe('RunDispatchService', () => {
     const service = new RunDispatchService(q, config(), db);
 
     await expect(service.dispatch(job)).rejects.toBe(enqueueFailure);
-    expect(enqueue).toHaveBeenCalledWith(RUNS_QUEUE, job);
+    expect(enqueue).toHaveBeenCalledWith(RUNS_QUEUE, job, { id: 'run-1' });
     expect(runAs).toHaveBeenCalledWith('user-1', expect.any(Function));
     // The owner-scoped callback actually runs: the run is failed with the
     // generic message, never the raw infra error.

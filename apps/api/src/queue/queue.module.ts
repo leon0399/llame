@@ -9,6 +9,7 @@ import { QUEUE, type Queue } from './queue';
 class OpenApiQueueService implements Queue {
   ensureQueue: Queue['ensureQueue'] = () => Promise.resolve();
   enqueue: Queue['enqueue'] = () => Promise.resolve(null);
+  jobState: Queue['jobState'] = () => Promise.resolve('absent');
   consume: Queue['consume'] = () => Promise.resolve('openapi-noop');
   schedule: Queue['schedule'] = () => Promise.resolve();
   unschedule: Queue['unschedule'] = () => Promise.resolve();

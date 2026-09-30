@@ -161,7 +161,10 @@ describeIfDb('personalization binds per run', () => {
       { config: BUILT_IN_DEFAULTS },
       { createUiMessageStreamResponse: () => new Response(null) },
       new RunAbortRegistry(),
-      { dispatch: () => Promise.resolve() },
+      {
+        dispatch: () => Promise.resolve(),
+        jobState: () => Promise.resolve('absent'),
+      },
     );
     runExecution = new RunExecutionService(
       tenantDb,

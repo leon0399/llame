@@ -195,7 +195,9 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
     expect(provider).toHaveBeenCalledWith('deepseek-chat');
     const streamTextCall = streamTextMock.mock.calls[0]?.[0];
     expect(streamTextCall).toMatchObject({
-      model: providerModel,
+      // The client wraps the wire's model in its own middlewares, so
+      // identity is the adapter's own provider and model id.
+      model: { provider: 'openai-compatible.test', modelId: 'deepseek-chat' },
       messages,
       system: 'stable system',
     });

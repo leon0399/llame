@@ -93,10 +93,20 @@ held Stop, settlement) is specified in
 [`run-cancellation`](../openspec/specs/run-cancellation/spec.md);
 issue 207 tracks cross-process abort.
 
-Run liveness uses process wall-clock abort, pg-boss heartbeat/retry, dead-letter
-terminalization, and age-based unwedge for queued rows with no active job.
-Enqueue is not transactional with the Run row: failure marks the Run failed
-best-effort; age unwedge covers a crash between row commit and enqueue.
+A Run has no default time or step limit: `runs.timeoutSeconds` and
+`tools.maxStepsPerRun` are `null` (unlimited) unless the operator sets them.
+Liveness uses pg-boss heartbeat/retry and dead-letter terminalization. Each Run
+is enqueued as the job named by its own id, and the `runs` queue declares a job
+duration of 86,399 s, so pg-boss never expires a live Run at its 900 s default.
+The worker ends any Run still executing 23 h 55 m into its current attempt as
+`run.expired`, before that duration elapses, and a model request that streams
+nothing for 300 s fails its Run with `model_stream_idle`. Admission judges a
+blocking Run by its job's state: queued, retrying, or active blocks with 409;
+a job that is absent (after one heartbeat window) or settled lets the next
+message expire the Run. Enqueue is not transactional with the Run row: failure
+marks the Run failed best-effort, and a crash between row commit and enqueue
+leaves a job-less Run that the next message expires. A deploy stops workers
+after a 30 s drain, and pg-boss retries their Runs from the beginning.
 
 Per-Chat ordering is exclusivity, not queueing: one nonterminal Run per Chat;
 concurrent new messages get 409 and same-message retry supersedes.

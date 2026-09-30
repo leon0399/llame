@@ -23,6 +23,10 @@ import {
 import { ANTHROPIC_DEFAULT_BASE_URL } from './anthropic-model-client';
 import type { ChatIdentity } from './model-client';
 import { KEYLESS_PLACEHOLDER_API_KEY } from './openai-model-client';
+import {
+  ModelStreamIdleError,
+  STREAM_IDLE_TIMEOUT_MS,
+} from './stream-idle-watchdog';
 
 const hello = messageEnvelope(textBlock(0, 'hello'));
 
@@ -681,4 +685,52 @@ describe('createAnthropicModelClient — reasoning channel settlement (D18)', ()
       expect(observed).toEqual([expected]);
     },
   );
+});
+
+describe('createAnthropicModelClient — stream-idle watchdog (design D4)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps the watchdog error and its code through the Messages sanitizer', async () => {
+    // A 200 whose SSE body never produces another event: the provider
+    // answered and then went silent, which is what the watchdog fails.
+    const harness = buildHarness({
+      respond: () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  'event: ping\ndata: {"type": "ping"}\n\n',
+                ),
+              );
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        ),
+    });
+    const reported: Array<unknown> = [];
+    const onError = ({ error }: { error: unknown }) => {
+      reported.push(error);
+    };
+
+    // The run records its failure from `onError`, which is where this client's
+    // sanitizer speaks; the SDK's own end-of-stream error is what the result
+    // channel carries.
+    const result = buildClient(harness).streamText({
+      chat: CHAT,
+      messages,
+      onError,
+    });
+    void Promise.resolve(result.text).catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
+
+    expect(reported[0]).toBeInstanceOf(ModelStreamIdleError);
+    expect(reported[0]).toMatchObject({ code: 'model_stream_idle' });
+  });
 });

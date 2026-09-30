@@ -464,7 +464,10 @@ describe('ChatLoopService accept/worker context binding', () => {
       createUiMessageStreamResponse: vi.fn(() => new Response()),
     };
     const aborts: RunAborter = { abort: vi.fn() };
-    const dispatcher: RunDispatcher = { dispatch };
+    const dispatcher: RunDispatcher = {
+      dispatch,
+      jobState: () => Promise.resolve('absent'),
+    };
     const systemPrompts = systemPromptsOverride ?? new SystemPromptsService();
     const render = vi.spyOn(systemPrompts, 'render');
     const personalization: PromptUserResolver = personalizationOverride ?? {

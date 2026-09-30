@@ -547,17 +547,71 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
       ),
     );
     const client = buildClient(model);
+    const onCapReached = vi.fn();
 
     const result = client.streamText({
       chat: CHAT,
       messages,
       tools,
       maxSteps: 2,
+      onCapReached,
     });
     await result.consumeStream();
 
     expect(model.doStreamCalls).toHaveLength(3);
     expect(model.doStreamCalls[2]?.tools).toEqual([]);
+    expect(onCapReached).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs an uncapped tool loop for as many steps as the model requests', async () => {
+    // 120 tool-requesting turns: well past the 100 steps the retired default
+    // capped at, so a cap that survived anywhere in the client would show.
+    const model = scriptedModel([
+      ...Array.from({ length: 120 }, (_, index) =>
+        toolResponse([{ toolName: 'echo', input: `{"value":"${index}"}` }]),
+      ),
+      textResponse(),
+    ]);
+    const client = buildClient(model);
+    const onStepStart = vi.fn<NonNullable<ModelStreamInput['onStepStart']>>();
+    const onCapReached = vi.fn();
+
+    await expect(
+      client.streamText({
+        chat: CHAT,
+        messages,
+        tools,
+        maxSteps: null,
+        onStepStart,
+        onCapReached,
+      }).text,
+    ).resolves.toBe('done');
+
+    expect(model.doStreamCalls).toHaveLength(121);
+    // Every step kept its tools: the cap never disables them, so no step
+    // ends the loop early.
+    expect(model.doStreamCalls.every((call) => call.tools?.length === 1)).toBe(
+      true,
+    );
+    expect(onStepStart).toHaveBeenCalledTimes(121);
+    expect(onCapReached).not.toHaveBeenCalled();
+  });
+
+  it('drops every step request body, which an uncapped call would hoard', async () => {
+    const withBody = {
+      ...textResponse(),
+      request: { body: { messages: ['huge'] } },
+    };
+    const model = scriptedModel([withBody]);
+
+    const steps = await buildClient(model).streamText({
+      chat: CHAT,
+      messages,
+      tools,
+      maxSteps: null,
+    }).steps;
+
+    expect(steps[0]?.request?.body).toBeUndefined();
   });
 
   it('forwards text and reasoning chunks to their optional callbacks', async () => {
