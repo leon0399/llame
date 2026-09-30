@@ -23,13 +23,13 @@ decision_cutoff: 2026-07-15
 
 ## Executive summary
 
-The dangerous version of this vision is “one platform that does knowledge,
+The dangerous version of this vision is "one platform that does knowledge,
 memory, agents, workflows, apps, local coding, smart homes, family sharing, and
-enterprise.” That is not a product scope. It is a decade-sized platform
-category, and treating all of it as one milestone would produce abstractions
-without a strong user loop.
+enterprise." That is a decade-sized platform category, not a product scope, and
+one milestone for all of it would produce abstractions without a strong user
+loop.
 
-The coherent long-term product converges on one compounding loop:
+The long-term product converges on one compounding loop:
 
 1. The user asks from any ordinary chat.
 2. llame retrieves relevant, permitted knowledge and episodes.
@@ -39,110 +39,85 @@ The coherent long-term product converges on one compounding loop:
 6. It proposes or lands a recoverable knowledge revision.
 7. The next run starts from better context.
 
-That loop is the destination, not milestone one. Delivery starts with governed
-tool use in ordinary chat, adds a first-party workspace service as a separate
-increment, and only then closes the durable knowledge loop.
-
-The agreed product thesis is:
+That loop is the destination, not milestone one. The agreed product thesis:
 
 > **llame is a self-hosted context-and-action system that builds a permissioned,
 > provenance-rich model of your world, then uses governed agents to answer and
 > act across channels, services, and machines.**
 
-It is **personal-first, not personal-only**. A person's private knowledge can be
-available across their own projects by default. Shared family, team, and
-corporate knowledge remains separately governed. Projects organize work; they
-are not the fundamental ownership or security boundary.
+llame is **personal-first, not personal-only** (D-01). Delivery starts with
+governed tool use in ordinary chat (D-05); an isolated agent workspace and
+durable, agent-maintained knowledge follow as separate, non-blocking milestones
+(5.1, 5.2), neither a prerequisite for the tool milestone; workflow builders,
+installed apps, multi-agent orchestration, remote coding harnesses, multi-
+channel bots, and persistent per-agent machines stay later layers (5.3).
 
-The first delivery is tool connectivity in the existing assistant: a
-protocol-neutral tool runtime with MCP as its first primary adapter. An isolated
-agent workspace and durable, agent-maintained knowledge follow as separate
-milestones; neither is a prerequisite for accepting the tool milestone. Tools
-provide the immediate reason to use llame, while later knowledge capabilities
-make useful interactions compound. Workflow builders, installed apps,
-multi-agent orchestration, remote coding harnesses, multi-channel bots, and
-persistent per-agent machines remain later layers.
-
-**Confidence**
-
-- Capturing the decisions already made: **high**
-- Coherence of the proposed domain boundaries: **high**
-- Feasibility of the first vertical slice: **moderate**
-- Final sequencing and effort: **unknown** until the current implementation is
-  mapped against this model
-- Enterprise-grade information-flow enforcement: **low** without a dedicated
-  threat model and adversarial prototype
+Confidence: decisions already made **high**; domain boundaries **high**; first
+vertical slice **moderate**; sequencing and effort **unknown** until the
+implementation is mapped; enterprise information-flow enforcement **low**
+without a threat model and adversarial prototype.
 
 ## Introduction
 
-This synthesis combines:
+This synthesis combines the current llame vision, specification, shipped
+history, and long-term-memory research [13, 14, 15, 16]; issue #194's
+episodic-memory direction [1]; primary documentation and pinned implementation
+evidence from OpenClaw, Hermes, NanoClaw, gbrain, Odysseus, Letta, Mem0, and
+Graphiti [2, 3, 4, 5, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29];
+protocol and harness documentation for Codex App Server, ACP, A2A, and OpenCode,
+plus pinned Codex and OpenCode execution source [6, 9, 10, 11, 12, 51, 52, 53,
+57, 58, 59, 60]; workflow and channel references from n8n and Telegram [7, 8];
+official Jujutsu documentation for workspaces, concurrency, Git interoperability,
+and integration stability [30, 31, 32, 33]; and official Claude Code
+documentation for custom-agent definitions, invocation, permissions, skills, MCP
+scope, persistent memory, sessions, checkpoints, and worktrees [49, 50, 54, 55,
+56].
 
-- the current llame vision, specification, shipped history, and long-term-memory
-  research [13, 14, 15, 16];
-- issue #194's episodic-memory direction [1];
-- primary documentation and pinned implementation evidence from OpenClaw,
-  Hermes, NanoClaw, gbrain, Odysseus, Letta, Mem0, and Graphiti
-  [2, 3, 4, 5, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29];
-- protocol and harness documentation for Codex App Server, ACP, A2A, and
-  OpenCode, plus pinned Codex and OpenCode execution source
-  [6, 9, 10, 11, 12, 51, 52, 53, 57, 58, 59, 60];
-- workflow and channel references from n8n and Telegram [7, 8]; and
-- official Jujutsu documentation for workspaces, concurrency, Git
-  interoperability, and integration stability [30, 31, 32, 33]; and
-- official Claude Code documentation for custom-agent definitions, invocation,
-  permissions, skills, MCP scope, persistent memory, sessions, checkpoints, and
-  worktrees [49, 50, 54, 55, 56].
-
-Product choices marked **Decision** below were agreed in the design discussion.
-They are not presented as conclusions proved by the external sources.
-Statements marked **Recommendation** or **Open** are not approved product
+Choices marked **Decision** were agreed in the design discussion, not proved by
+these sources. **Recommendation** and **Open** items are not approved
 commitments.
-
-The accompanying JSONL files preserve the source, evidence, and claim ledgers.
 
 ## Main Analysis: what the reference systems actually establish
 
-No reference project provides the complete model llame needs. “Brain” and
-“memory” are overloaded names; copying one implementation would collapse
+No reference project provides the complete model llame needs. "Brain" and
+"memory" are overloaded names; copying one implementation would collapse
 different trust and lifecycle requirements.
 
 ### 2.1 Markdown memory is proven, but insufficient by itself
 
 OpenClaw treats Markdown files as the durable source of record and search data
-as derived indexing [2]. Its memory-wiki work adds structured claims and
-provenance [17]. Hermes combines persistent memory with curated skill
-improvement [4, 5, 18]. gbrain similarly treats a repository as a system of
-record and models cross-brain writes as an explicit operation [23, 24].
+as derived indexing [2]; its memory-wiki work adds structured claims and
+provenance [17]. Hermes pairs persistent memory with curated skill improvement
+[4, 5, 18]. gbrain treats a repository as a system of record and models
+cross-brain writes as an explicit operation [23, 24].
 
-This supports a Git-first Markdown vault. It does **not** justify treating every
-retrieved sentence as a timeless fact, using filesystem layout as
-authorization, or allowing an agent process to mutate the accepted repository
+This supports a Git-first Markdown vault, but does **not** justify treating
+every retrieved sentence as a timeless fact, using filesystem layout as
+authorization, or letting an agent process mutate the accepted repository
 directly.
 
 ### 2.2 Semantic memory solves a different problem
 
-Odysseus extracts selected memories stated or clearly implied by the user and
-adds them directly to native memory rather than creating a revision proposal
-[25]. Letta exposes agent-readable and agent-writable memory blocks [26]. Mem0
-preserves temporal update history [27]. Graphiti traces derived context back to
-source episodes [29]. gbrain experiments with confidence decay for fact records
-[28].
+Odysseus extracts memories stated or clearly implied by the user and adds them
+to native memory directly, without proposing a revision [25]. Letta exposes
+agent-readable and agent-writable memory blocks [26]. Mem0 preserves temporal
+update history [27]. Graphiti traces derived context back to source episodes
+[29]. gbrain experiments with confidence decay for fact records [28].
 
-These systems are useful precedents for small, derived facts such as
-preferences, identity details, and recurring relationships. They are not a
-replacement for user-readable documents. Applying their schemas to an entire
+These suit small derived facts (preferences, identity details, recurring
+relationships), not user-readable documents. Applying their schemas to an entire
 Obsidian-like vault would make the knowledge base opaque and expensive to
 maintain.
 
 ### 2.3 Sandboxing is not tenancy
 
-NanoClaw isolates sessions in containers and places controls around package
-installation and self-modification [20, 21, 22]. OpenClaw explicitly documents a
-trusted-user model rather than hostile multi-tenant isolation [3].
+NanoClaw isolates sessions in containers and controls package installation and
+self-modification [20, 21, 22]. OpenClaw documents a trusted-user model rather
+than hostile multi-tenant isolation [3].
 
-Therefore containers, sparse checkouts, and isolated workspaces are execution
-controls, not authorization boundaries. Shared or corporate knowledge requires
-an independent capability and information-flow model.
+Containers, sparse checkouts, and isolated workspaces are execution controls,
+not authorization boundaries. Shared or corporate knowledge requires an
+independent capability and information-flow model.
 
 ### 2.4 Protocol support is an adapter layer, not the product
 
@@ -152,69 +127,61 @@ independent agents [11]. Codex App Server exposes authentication, conversation
 history, approvals, and streamed agent events [6]. OpenCode exposes a headless
 server with an OpenAPI endpoint [12].
 
-These are plausible execution adapters. None should define llame's durable Run,
-permission, memory, or audit semantics. llame must remain the control plane and
-translate its own model into vendor-specific protocols.
+None of these should define llame's durable Run, permission, memory, or audit
+semantics: llame stays the control plane and translates its own model into
+vendor-specific protocols.
 
 ### 2.5 Claude Code separates an agent profile, its invocation, and its memory
 
-Claude Code custom agents are declarative Markdown/YAML profiles. The definition
-provides a routing description and system prompt, with optional model, tool,
-permission, MCP-server, Skill, memory, background-execution, and worktree-
-isolation settings [49]. A named agent invocation receives a fresh context and
-can be selected automatically from its description, invoked explicitly, or used
-for the whole session [49].
+Claude Code custom agents are declarative Markdown/YAML profiles: a routing
+description and system prompt plus optional model, tool, permission, MCP-server,
+Skill, memory, background-execution, and worktree-isolation settings [49]. A
+named invocation gets a fresh context and can be selected automatically from its
+description, invoked explicitly, or used for the whole session [49].
 
-Persistent agent memory is optional rather than intrinsic identity. Claude Code
-maps it to a user-, project-, or local-scoped directory, injects instructions and
-a bounded prefix of its memory index, and lets the agent maintain the files
-[49]. The normal Claude Code memory model likewise distinguishes human-authored
-instructions from agent-authored learnings and treats both as context rather
-than an enforcement mechanism [50].
+Persistent memory is optional, not identity: Claude Code maps it to a user-,
+project-, or local-scoped directory, injects instructions plus a bounded prefix
+of its memory index, and lets the agent maintain the files [49]. Its normal
+memory model separates human-authored instructions from agent-authored learnings
+and treats both as context, not enforcement [50].
 
-This is a strong precedent for **Agent Profile + Run + optional Agent Memory**.
-It is not a precedent for giving an agent an independent security principal.
-Claude Code agents inherit a permission context, while managed MCP restrictions
-still apply [49]. Its automatic enabling of file-write tools for persistent
-memory is reasonable in a trusted local coding environment but cannot be copied
-as llame's multi-tenant authorization model. In llame, any persistent agent
-memory must remain visible, principal-owned, permissioned, auditable, portable,
-and subject to the same revision and information-flow rules as other knowledge.
+That supports **Agent Profile + Run + optional Agent Memory**, not an
+independent security principal: agents inherit a permission context, and managed
+MCP restrictions still apply [49]. Auto-enabling file-write tools for memory
+suits a trusted local coding environment, not llame's multi-tenant
+authorization. In llame, persistent agent memory stays visible, principal-owned,
+permissioned, auditable, portable, and bound by the same revision and
+information-flow rules as other knowledge.
 
 ### 2.6 Coding harnesses retain a live workspace across turns
 
-Codex, Claude Code, and OpenCode converge on a simpler continuity model than a
-fresh workspace per agentic turn.
+Codex, Claude Code, and OpenCode converge on a simpler model than a fresh
+workspace per agentic turn.
 
-Codex keeps a task's transcript and recorded working directory while reading
-the current working tree; a managed task keeps the same associated worktree over
-time [52, 53]. Its App Server working-directory override applies to the current
-and subsequent turns, and local child-agent threads inherit the parent's working
-directory rather than receiving automatic child worktrees [51]. Codex's managed
-worktree snapshots are lifecycle recovery before cleanup, not normal turn-to-
-turn transport [53].
+- Codex keeps a task's transcript and recorded working directory while reading
+  the current working tree, and a managed task keeps the same associated
+  worktree over time [52, 53]. Its App Server working-directory override covers
+  the current and subsequent turns, and local child-agent threads inherit the
+  parent's working directory rather than getting child worktrees [51]. Worktree
+  snapshots are lifecycle recovery before cleanup, not turn-to-turn transport
+  [53].
+- Claude Code ties a session to its current directory, so switching branches
+  changes visible files without replacing the conversation [54]. Its per-prompt
+  checkpoint is explicit local undo: direct edit-tool changes are tracked, Bash
+  and external changes are not [55]. Default subagents start in the main
+  conversation's directory; worktree isolation is scoped to the session or child
+  agent, not each turn [49, 56].
+- OpenCode starts in a current directory, resumes Sessions, and uses Git-backed
+  undo/redo [57, 58, 59]. Its source stores directory and workspace identity on
+  the Session, snapshots before and after execution steps in the same worktree,
+  and creates or resumes child Sessions without a child-specific directory [60].
 
-Claude Code ties a session to its current directory. Switching branches changes
-the files Claude sees without replacing the conversation history [54]. It
-creates a checkpoint for each user prompt, but those checkpoints are explicit
-local undo: direct edit-tool changes are tracked, while Bash and ordinary
-external changes are not [55]. Default subagents start in the main conversation's
-current directory; worktree isolation, when requested, is scoped to the session
-or child agent rather than each turn [49, 56].
-
-OpenCode starts against a current directory, resumes Sessions, and uses Git-
-backed undo/redo over file changes [57, 58, 59]. Its current source stores the
-directory and workspace identity on the Session, takes before-and-after
-snapshots around execution steps in the same worktree, and creates or resumes
-child Sessions without allocating a child-specific directory [60].
-
-Therefore none of these references automatically materializes Run N's
-checkpoint into a fresh workspace for Run N+1. Their common model is **live
-session/task workspace + per-turn delta or undo metadata**. A per-Run workspace
-would be a deliberate stronger llame isolation policy, not reference parity.
-This evidence does not decide llame's policy: reusing live state is cheaper and
-more natural, but it creates concurrency and cross-authority risks that the
-mostly local reference harnesses do not solve.
+None materializes Run N's checkpoint into a fresh workspace for Run N+1; the
+common model is **live session/task workspace + per-turn delta or undo
+metadata**. A per-Run workspace would be a deliberate stronger llame isolation
+policy, not reference parity. Evidence does not decide llame's policy: live
+state is cheaper and more natural but creates concurrency and cross-authority
+risks these mostly local harnesses do not solve.
 
 ## Synthesis: resolved product decisions
 
@@ -232,23 +199,22 @@ mostly local reference harnesses do not solve.
 
 **Consequences**
 
-A Project is a context and workflow organizer. It may reference chats,
-Knowledge Spaces, connectors, apps, and artifacts owned by different
-principals. It does not own every resource placed in it.
+A Project is a context and workflow organizer: it may reference chats, Knowledge
+Spaces, connectors, apps, and artifacts owned by different principals, but it
+does not own every resource placed in it.
 
-A Project may associate one or more working directories, paths inside Knowledge
-Spaces, and Artifacts. Those associations steer retrieval, tool defaults, and
-context priority; they do not grant access. The Run first filters resources by
-its effective authority and then materializes only explicitly selected working
-roots—never every resource recursively associated with the Project. Moving a
-Chat into or out of a Project changes future Runs only; the next user message
-receives a visible system reminder and recomputes context while prior Runs keep
-their original Project and security lineage.
+Project associations—working directories, paths inside Knowledge Spaces,
+Artifacts—steer retrieval, tool defaults, and context priority; they grant no
+access. A Run filters resources by its effective authority, then materializes
+only explicitly selected working roots, never every resource recursively
+associated with the Project. Moving a Chat into or out of a Project changes
+future Runs only: the next user message gets a visible system reminder and
+recomputes context, while prior Runs keep their original Project and security
+lineage.
 
-The global assistant should reduce filing work, but it must expose which sources
-were used and allow the user to constrain or correct routing. “The system
-figured it out” is acceptable for retrieval ranking; it is not acceptable for
-crossing a permission boundary.
+Automatic routing must expose which sources were used and let the user constrain
+or correct it. "The system figured it out" is acceptable for retrieval ranking,
+not for crossing a permission boundary.
 
 ### D-02 — Three durable stores plus derived projections
 
@@ -266,42 +232,40 @@ crossing a permission boundary.
 
 **Consequences**
 
-- Knowledge documents must not be atomized wholesale into the facts table.
+- Knowledge documents must not be atomized wholesale into the facts table, which
+  may accelerate recall but never silently overrides the Markdown source of
+  record.
 - A semantic fact must retain its source episode or document, governing scope,
   temporal status, and correction/supersession relationship.
-- The facts table may accelerate recall; it may not silently override the
-  Markdown source of record.
 - Agent-specific memory is optional and selected by an Agent Profile, but its
-  Knowledge Space remains owned and governed by a person, group, or
-  organization. It may be attached to a Project, but configuration and
-  organizational scope do not become ownership.
-- Humans, subagents, workflows, tools, and external harnesses may all contribute
-  authenticated current activity to episodic memory, but they cannot directly
-  insert arbitrary past events or choose their own actor, timestamp, approval,
-  or lineage. The control plane derives and seals those fields from the
-  authenticated execution path. Harness-reported internal events remain
-  identified as reported rather than independently observed.
+  Knowledge Space stays owned and governed by a person, group, or organization;
+  attaching it to a Project does not turn configuration or organizational scope
+  into ownership.
+- Humans, subagents, workflows, tools, and external harnesses may contribute
+  authenticated current activity to episodic memory, but none may insert
+  arbitrary past events or pick their own actor, timestamp, approval, or
+  lineage: the control plane seals those fields from the authenticated execution
+  path, and harness-reported internal events stay identified as reported.
 - An agent may improve Knowledge, derived semantic facts, or its optional
-  persistent Agent Memory through the normal governed write paths. That does not
-  grant it permission to rewrite the episodic event log or attribute its claims
-  to a user.
+  persistent Agent Memory through the normal governed write paths, but not
+  rewrite the episodic event log or attribute its claims to a user.
 - Procedural improvement belongs to inspectable, versioned Skills, Agent
-  Profiles, and workflows under D-19; it must not be hidden inside semantic
-  facts or mutable runtime prompts.
+  Profiles, and workflows under D-19, never inside semantic facts or mutable
+  runtime prompts.
 
 ### D-03 — The agent maintains the knowledge base
 
 **Decision**
 
-The agent is expected to create, expand, correct, and reorganize knowledge. A
-request such as “research this potential client” should improve the relevant
-Knowledge Space, not merely return a disposable answer.
+The agent should create, expand, correct, and reorganize knowledge: a request
+such as "research this potential client" should improve the relevant Knowledge
+Space, not merely return a disposable answer.
 
 Knowledge writes use risk-tiered autonomy:
 
 - well-sourced, low-consequence, in-scope changes may land automatically;
-- weakly sourced, conflicting, consequential, destructive, or
-  scope-widening changes become proposals;
+- weakly sourced, conflicting, consequential, destructive, or scope-widening
+  changes become proposals;
 - ordinary corrections supersede prior claims without erasing their history;
   and
 - authorized readers may inspect accepted history; a revert enters the same
@@ -309,48 +273,43 @@ Knowledge writes use risk-tiered autonomy:
 
 **Consequences**
 
-“User-authored” records provenance and edit authority, not factual correctness
-or immortality. Agent-authored and imported records require the same provenance
+"User-authored" records provenance and edit authority, not factual correctness
+or immortality; agent-authored and imported records need the same provenance
 model. Newer verified evidence may inform an answer while the revision service
 proposes a correction to the canonical record.
 
 **Working security recommendation — details open**
 
-Ordinary correction history is not an excuse to retain exposed secrets,
-unlawful data, or compromised content forever. A privileged purge traverses all
-three durable stores plus internal copies: reachable and unreachable Git
-objects; Jujutsu operation, workspace, and hidden-revision state; episode
-messages, Run events, and tool payloads; semantic facts; workspaces, artifacts,
-and snapshots; indexes, caches, logs, and traces; and managed mirrors and
-backups.
-
-The purge rewrites, tombstones, crypto-shreds, or quarantines each copy as its
-storage and any legal hold permit, leaves only a non-sensitive audit tombstone,
-and reports prior clones, exports, provider calls, or unmanaged backups that
-cannot be retracted.
+Correction history is not an excuse to retain exposed secrets, unlawful data, or
+compromised content forever. A privileged purge traverses all three durable
+stores plus internal copies: reachable and unreachable Git objects; Jujutsu
+operation, workspace, and hidden-revision state; episode messages, Run events,
+and tool payloads; semantic facts; workspaces, artifacts, and snapshots;
+indexes, caches, logs, and traces; managed mirrors and backups. For each copy it
+rewrites, tombstones, crypto-shreds, or quarantines as storage and legal hold
+permit, leaves only a non-sensitive audit tombstone, and reports prior clones,
+exports, provider calls, or unmanaged backups that cannot be retracted.
 
 ### D-04 — Freshness is empirical and risk-sensitive
 
 **Decision**
 
-Markdown stays simple. Freshness is primarily enforced at retrieval and use,
-not by forcing every sentence into a database schema.
-
-Optional page metadata may be used when valuable:
+Markdown stays simple: freshness is enforced at retrieval and use, not by
+forcing every sentence into a database schema. Optional page metadata may be
+used when valuable:
 
     ---
     verified_at: 2026-07-15
     review_after: 2026-10-15
     ---
 
-Current factual claims should include a source and checked date where practical.
-The retrieval envelope may add path, modification time, verification time,
+Current factual claims should carry a source and checked date where practical,
+and the retrieval envelope may add path, modification time, verification time,
 review status, and trust metadata without rewriting the document.
 
-Page-level verification metadata is only a retrieval hint; it does not certify
-every claim on a page. Consequential or independently volatile claims may need
-their own asserted, observed, source-published, verified, and valid-time
-metadata.
+Page-level verification metadata is only a retrieval hint; it certifies no
+individual claim. Consequential or independently volatile claims may need their
+own asserted, observed, source-published, verified, and valid-time metadata.
 
 The agent follows these rules:
 
@@ -359,7 +318,7 @@ The agent follows these rules:
 - treat a newer direct preference statement as superseding an older one only
   for the same subject, predicate, and context;
 - keep user- or system-owned standing policies active until revised, while
-  flagging overdue review; verify volatile external legal or organizational
+  flagging overdue review, and verify volatile external legal or organizational
   policy before consequential use;
 - schedule monitoring only for explicitly watched entities or projects; and
 - never equate filesystem modification time with factual verification time.
@@ -371,28 +330,23 @@ not content schema.
 
 **Decision**
 
-The first useful increment is the existing assistant augmented with governed
-tool use. It can:
+The first useful increment is the existing assistant plus governed tool use: it
+connects to an MCP server, exposes selected tools to a Run, invokes them from
+ordinary chat, folds results into the response, and shows access and calls to
+the user and audit log.
 
-- connect to an MCP server;
-- make selected tools available to a Run;
-- invoke them from an ordinary chat interaction;
-- incorporate their results into the response; and
-- expose tool access and calls to the user and audit log.
-
-llame owns a protocol-neutral tool runtime. MCP is its first primary adapter,
+llame owns a protocol-neutral tool runtime; MCP is its first primary adapter,
 not its internal domain model. Native tools, MCP servers, and later connector
-protocols share llame's tool identity, permission, approval, secret-brokering,
-invocation, audit, and result-provenance model. “Supports MCP” alone is not a
+protocols share one tool identity, permission, approval, secret-brokering,
+invocation, audit, and result-provenance model. "Supports MCP" alone is not a
 user capability; the runtime must prove useful through complete user jobs.
 
-Permission is keyed to a concrete, origin-qualified tool identity: integration
-installation plus tool name, regardless of whether the origin is native, MCP, a
-connector, or an App. There is no blanket per-MCP permission unit. A configured
-policy survives ordinary schema and implementation changes to that same tool;
-replacing the integration installation creates new tool identities and requires
-new policy. Trusting an installation includes trusting compatible evolution of
-its existing tools—the runtime cannot infer semantic safety from schema diffs.
+Permission is keyed to an origin-qualified tool identity: integration
+installation plus tool name, whether native, MCP, connector, or App, with no
+blanket per-MCP unit. A configured policy survives ordinary schema and
+implementation changes to the same tool; replacing the installation creates new
+identities and needs new policy. Trusting an installation includes trusting
+compatible tool evolution, since schema diffs cannot establish semantic safety.
 
 Each tool has an explicit three-state execution policy, following the Claude.ai
 interaction model:
@@ -401,64 +355,55 @@ interaction model:
 - **ask** — request confirmation before invocation; and
 - **deny** — do not expose or invoke the tool.
 
-Instance-owned system tools may define an instance default—for example, web
-search may default to **allow**. User-owned MCP tools initially default to a
-conservative policy until configured. A user's deliberate **allow** may cover a
-mutating tool; risk classification informs the default rather than permanently
-overriding explicit consent. Effective policy and every invocation remain
-visible and auditable.
+Instance-owned system tools may set an instance default (web search may default
+to **allow**); user-owned MCP tools default conservatively until configured. A
+deliberate **allow** may cover a mutating tool: risk classification informs
+defaults but never overrides explicit consent, and policy and every invocation
+stay visible and auditable.
 
-That policy applies to child Runs as well as the root Run. By default, a child
-inherits the initiating user's available tool catalog and each concrete tool's
-configured policy; it is not reduced to read-only merely because it is a
-subagent. A child may therefore send email or perform another mutating action
-when the effective tool policy is **allow**. The parent delegation, child-Chat
-envelope, Agent Profile, governing policy, or adapter may attenuate that surface,
-but none may widen it. A parent's one-off approval is not inherited as a durable
-tool policy.
+Child Runs follow the same policy: by default a child inherits the initiating
+user's tool catalog and each tool's policy, so it is not read-only merely as a
+subagent and may mutate when policy is **allow**. Parent delegation, child-Chat
+envelope, Agent Profile, governing policy, or adapter may attenuate that
+surface, never widen it; a parent's one-off approval is not inherited.
 
-For **ask**, invocation creates a pending approval and moves the same Run into a
-paused `awaiting_approval` state. Initial implementation requires an eligible
-user to approve or deny it. A child may route the request through its
-orchestrator, which may reject, refine, or relay it, but mere parenthood does not
-let one model turn **ask** into **allow**. Approval resumes the same logical Run;
-denial, cancellation, or timeout follows the Run's ordinary terminal or recovery
-path. This is a logical lifecycle state, not a requirement to keep an executor or
-sandbox process alive while waiting.
+For **ask**, invocation creates a pending approval and pauses the same Run in
+`awaiting_approval`; initially an eligible user must approve or deny. A child
+may route the request through its orchestrator, which may reject, refine, or
+relay it, but parenthood does not turn **ask** into **allow**. Approval resumes
+the same logical Run; denial, cancellation, or timeout follows the Run's normal
+terminal or recovery path, and no executor or sandbox process must stay alive
+while waiting.
 
-Letting an orchestrator or risk classifier satisfy the request without a human
-is an eventual, separate, explicit `auto` approval policy. A classifier may
-inform defaults or the `auto` decision, but it cannot override **deny** or
-manufacture authority.
+Human-free approval by an orchestrator or classifier is a separate, eventual,
+explicit `auto` policy; a classifier may inform defaults or `auto` but cannot
+override **deny** or manufacture authority.
 
 **Scope boundary**
 
-The first tool milestone does not depend on a first-party workspace, Knowledge Space,
-semantic graph, episodic recall, or agent-authored Markdown. Those are subsequent
-increments. Web search is the initial behavioral evaluation, not a restriction
-on supported tools: users should be able to connect other compatible remote MCP
-servers. The first iteration supports remote MCP transport; local stdio servers
-are deferred. Server registrations initially have either instance-wide or
-user-wide scope. An instance-wide registration may include an instance-owned
-managed credential and expose the server as a system capability to eligible
-users and Runs—for example, one managed search account serving the instance. A
-user-wide registration and its credentials belong to that user; in the first
-iteration, the user may configure this MCP connection directly. A later managed
-connector may install an instance-wide server definition while letting each user
-bind their own external account through a first-party authorization flow—for
-example, “Connect GitHub”—without manually configuring MCP. More granular
-Project, Chat, agent, and workflow strategies are left open. Shipping only
-protocol conformance or a connector catalog would be platform theater.
-Exposing llame's own capabilities through MCP is a later outward-facing adapter
-under D-18 and is not part of this first client milestone.
+The tool milestone needs none of: a first-party workspace, Knowledge Space,
+semantic graph, episodic recall, or agent-authored Markdown. Web search is the
+initial behavioral evaluation, not a restriction: other compatible remote MCP
+servers are connectable, remote MCP transport ships first, and local stdio is
+deferred. Registrations are instance-wide or user-wide. An instance-wide one may
+carry an instance-owned managed credential and expose the server to eligible
+users and Runs (for example, one managed search account); a user-wide one and
+its credentials belong to that user, who may configure MCP directly at first.
+Later, a managed connector may install an instance-wide definition while each
+user binds their own account through a first-party authorization flow ("Connect
+GitHub") without manual MCP configuration. More granular Project, Chat, agent,
+and workflow strategies remain open. Shipping only protocol conformance or a
+connector catalog would be platform theater; exposing llame's own capabilities
+through MCP is a later outward-facing adapter under D-18, outside this
+milestone.
 
 ### D-06 — One logical system, separate resource and trust boundaries
 
 **Decision**
 
 The user's Home is the canonical, principal-controlled content and configuration
-tree. It is not a generated export, and it is never exposed to a sandbox as one
-shared writable filesystem.
+tree: not a generated export, and never exposed to a sandbox as one shared
+writable filesystem.
 
 | Resource          | Purpose                                                            | Durable authority              |
 | ----------------- | ------------------------------------------------------------------ | ------------------------------ |
@@ -471,60 +416,52 @@ shared writable filesystem.
 | Connector         | Brokered access to an external system                              | Principal-scoped grant         |
 
 An artifact remains powerless until the user explicitly promotes or installs it
-as an App. Apps receive isolated runtime and data, explicit capabilities, and
-brokered credentials. They do not receive direct database access, raw OAuth
-secrets, or a shared writable volume with the vault or other apps.
-
-App-to-app integration uses declared APIs and events. Effective authority is the
-intersection of user grant, app manifest, task context, and platform policy.
+as an App. Apps get isolated runtime and data, explicit capabilities, and
+brokered credentials, but no direct database access, raw OAuth secrets, or
+shared writable volume with the vault or other apps. App-to-app integration uses
+declared APIs and events; effective authority is the intersection of user grant,
+app manifest, task context, and platform policy.
 
 **Decision at the product-boundary level; backend details remain open**
 
 A Workspace is a durable, domain-bound live file namespace associated with a
-Chat, not a disposable namespace recreated for every Run. Every Run in that Chat
-reattaches to the current Workspace state, reauthorizes access under its own
-capability snapshot, and records its file delta or boundary revision. The Chat
-binding is continuity, not authority.
+Chat, not a disposable namespace recreated per Run. Every Run reattaches,
+reauthorizes under its own capability snapshot, and records its file delta or
+boundary revision; the Chat binding is continuity, not authority.
 
-When an orchestrator creates a child Chat, its authorized creator may select the
-Workspace mode once:
+The authorized creator chooses the child Chat's Workspace mode once: **shared**
+binds it to the parent's current Workspace, **isolated** creates a copy-on-write
+Workspace pinned to a recorded parent revision. The mode covers every later Run
+of that child, is not a per-Run setting, cannot silently change on resume, and a
+different mode needs a new child Chat. Security may reject sharing when the
+child's governing domain or authority is incompatible. Without a selection the
+child defaults to **shared**, so parallel or background work that must not touch
+the live parent tree requests **isolated** at creation. Concurrent shared-writer
+behavior remains open under O-06.
 
-- **shared** binds the child Chat to the parent's current Workspace; or
-- **isolated** creates a copy-on-write Workspace pinned to a recorded parent
-  revision.
+Milestone two builds a first-party **workspace service** and needs no sandbox
+vendor: an execution sandbox is optional compute that may attach to a Workspace
+without owning its lifecycle. Providers already separate the two—Vercel sends
+data outliving one sandbox to a separate Drive [35], Daytona backs persistent
+volumes with S3-compatible storage [39], Modal separates persistent Volumes from
+sandbox snapshots [42, 43].
 
-That mode belongs to the child Chat and applies to all of its later Runs. It is
-not a per-Run setting and cannot silently change when the child is resumed. A
-different mode requires a new child Chat. Security may reject sharing when the
-child's governing domain or authority is incompatible. When the creator does not
-select a mode, the child Chat defaults to **shared**. Parallel or background work
-that should not touch the live parent tree must explicitly request **isolated**
-at creation. Concurrent shared-writer behavior remains open under O-06.
+The implementation recommendation is deliberately boring:
 
-Milestone two builds a first-party **workspace service** and does not require a
-sandbox vendor. An execution sandbox is optional compute that may attach to a
-Workspace without owning its lifecycle. This distinction is already
-visible in the provider landscape: Vercel directs data that outlives one sandbox
-to a separate Drive [35], Daytona backs persistent volumes with S3-compatible
-storage [39], and Modal separates persistent Volumes from sandbox snapshots
-[42, 43].
-
-The working implementation recommendation is deliberately boring:
-
-- one durable namespace per Workspace binding, backed by a local filesystem on
-  a single-node instance and a storage adapter when multi-node storage is needed;
+- one durable namespace per Workspace binding, on a local filesystem for a
+  single-node instance and a storage adapter when multi-node storage is needed;
 - a child Chat either references the parent's namespace or receives a
-  copy-on-write namespace when it is created;
+  copy-on-write namespace at creation;
 - the sandbox may receive only an explicitly selected Project working copy, an
   isolated Artifact working copy, and a private scratchpad;
 - the Project mount is a copy-on-write overlay, Git worktree, or equivalent
-  disposable view rather than the canonical directory itself;
+  disposable view, not the canonical directory;
 - the Home root, Knowledge repositories, other Projects and Artifacts, platform
   databases, and storage credentials remain inaccessible;
 - knowledge reads and changes go through governed retrieval and revision tools,
   not a raw filesystem mount; and
 - selected Project or Artifact outputs publish back through a controlled service
-  operation rather than arbitrary sandbox writes to Home.
+  operation, not arbitrary sandbox writes to Home.
 
 Provider volumes and machine snapshots are replaceable caches or execution
 state, never llame's durable authority or portable export format.
@@ -538,21 +475,20 @@ state, never llame's durable authority or portable export format.
 | Docker plus gVisor | Locally operable OCI path; Docker needs explicit resource limits and daemon hardening, while gVisor adds a per-sandbox application-kernel boundary [44, 45, 46] | Plausible later single-node executor; requires a threat model and compatibility evals |
 | Direct Firecracker | Strong microVM primitive, but the operator must add egress filtering and snapshot packaging, security, and lifecycle management [47, 48]                        | Too much orchestration for the workspace milestone; evaluate only for a later runtime |
 
-This is consistent with the agent-harness boundary: llame's trusted control
-plane owns operational identity, authorization, credentials, and audit, and
-mediates changes to durable Home files; replaceable sandboxes own only temporary
-views and execution.
+llame's trusted control plane owns operational identity, authorization,
+credentials, and audit, and mediates changes to durable Home files; replaceable
+sandboxes own only temporary views and execution.
 
 ### D-07 — Git-first knowledge, Jujutsu-backed revision service
 
 **Decision**
 
 - The accepted Knowledge Space is Git-compatible and exportable.
-- Every Knowledge Space has exactly one canonical accepted ref. For a
-  Home-managed Space, the accepted Git ref in Home is canonical. For an
-  upstream-managed attachment, the external upstream ref is canonical and the
-  Home checkout plus llame indexes are imported projections. Postgres and search
-  state follow the configured canonical ref; they do not overrule it.
+- Every Knowledge Space has exactly one canonical accepted ref: the accepted Git
+  ref in Home for a Home-managed Space, or the external upstream ref for an
+  upstream-managed attachment, where the Home checkout and llame indexes are
+  imported projections. Postgres and search state follow that ref; they do not
+  overrule it.
 - Within one target Knowledge Space, one logical accepted knowledge revision
   becomes one semantic commit, not one commit per file write.
 - For every target Knowledge Space it mutates, a change session receives a
@@ -560,19 +496,17 @@ views and execution.
 - Jujutsu is the internal revision engine behind a trusted Knowledge Revision
   Service, not the API or security boundary exposed to agents.
 - The service owns Git/Jujutsu metadata; ordinary sandboxes see only their
-  scoped working tree.
-- A shell-capable or hostile run uses a stronger isolated clone or snapshot and
-  submits a patch for import.
+  scoped working tree, and a shell-capable or hostile run uses a stronger
+  isolated clone or snapshot and submits a patch for import.
 
 **Working architecture consequence — not an approved implementation contract**
 
-Jujutsu workspaces give each workspace its own working-copy commit [30]. Its
-operation model can merge divergent operation-log views, but unresolved
-bookmark and reference conflicts remain explicit [31]. That makes it a good fit
-for parallel agent changes; it does not eliminate the need for a serialized
-visible-revision landing path.
+Jujutsu workspaces give each workspace its own working-copy commit [30] and can
+merge divergent operation-log views, but unresolved bookmark and reference
+conflicts remain explicit [31]: good for parallel agent changes, not a
+replacement for a serialized visible-revision landing path.
 
-The landing lifecycle is:
+The landing lifecycle:
 
 1. for each target Knowledge Space, read its canonical accepted Git ref as H and
    create an isolated revision workspace at H;
@@ -590,125 +524,102 @@ The landing lifecycle is:
    semantic facts, mirrors, and derived indexes, then clean up the revision
    workspace.
 
-The explicit states are **candidate → prepared → accepted → indexed**. A commit's
-existence does not make it accepted; movement of the canonical accepted ref does.
-Postgres records prepared workflow state, audit, and the last observed and indexed
-revisions. After partial failure, reconciliation follows Home and repairs those
-projections for a Home-managed Space; for an upstream-managed Space it follows
-the configured upstream instead. It never moves the canonical source back to a
-database pointer. The exact crash-safe prepared-intent journal remains an
-implementation detail.
+The explicit states are **candidate → prepared → accepted → indexed**: a commit's
+existence does not make it accepted, movement of the canonical accepted ref
+does. Postgres records prepared workflow state, audit, and the last observed and
+indexed revisions; after partial failure, reconciliation follows Home (or the
+configured upstream) and never moves the canonical source back to a database
+pointer. The crash-safe prepared-intent journal stays an implementation detail.
 
-A cross-space change is a Postgres proposal group containing one base revision,
-workspace, and candidate commit per Knowledge Space. Its commits land through
-their own policies; the design does not pretend that separate Git repositories
-provide atomic multi-repository commits.
+A cross-space change is a Postgres proposal group with one base revision,
+workspace, and candidate commit per Knowledge Space, landing through each
+Space's own policy, since separate Git repositories cannot commit atomically
+together.
 
 Interleaving unmanaged Git and Jujutsu operations can create confusing
-divergence [32]. Jujutsu's library and CLI integration surfaces are not stable
-[33]. Therefore llame needs a narrow, version-pinned adapter with contract
-tests.
+divergence [32], and Jujutsu's library and CLI integration surfaces are not
+stable [33], so llame needs a narrow, version-pinned adapter with contract tests.
+One writable Jujutsu repository must not sit on a shared filesystem across
+worker nodes; a central repository owner or isolated per-worker clones import
+changes into the landing service [31].
 
-The service must not place one writable Jujutsu repository on a shared
-filesystem across worker nodes. A central repository owner or isolated
-per-worker clones import changes into the landing service [31].
-
-The owner of a personal Home can move an accepted ref outside llame. That is an
-external import: llame detects it, records its external provenance, validates
-what it can, and reindexes it, but cannot pretend its agent landing policy
-constrains the filesystem owner. Managed shared and organization repositories
-instead restrict accepted-ref writers at the storage layer and route other
-changes through incoming refs, proposals, or upstream pull requests. A Knowledge
+A personal Home owner can move an accepted ref outside llame: an external
+import, which llame detects, records with external provenance, validates where
+it can, and reindexes, without pretending its agent landing policy constrains
+the filesystem owner. Managed shared and organization repositories instead
+restrict accepted-ref writers at the storage layer and route other changes
+through incoming refs, proposals, or upstream pull requests. Each Knowledge
 Space has one configured canonical accepted ref; remote Git hosting may mirror
-it or serve as that canonical upstream, but never creates a second source of
-truth.
+it or be that upstream, never a second source of truth.
 
 ### D-08 — One repository per governance and export boundary
 
 **Decision**
 
 A personal vault and a corporate vault are not directories in the same
-repository. Each Knowledge Space has one governing principal and one coherent
-history, policy, retention, and export boundary.
+repository: each Knowledge Space has one governing principal—a person, a family
+or group, or an organization—and one coherent history, policy, retention, and
+export boundary. Membership grants distinct capabilities such as query, read,
+propose, land, export, and manage; query or read does not imply clone or export,
+and once full Git history has been cloned, later access revocation cannot claw
+it back.
 
-The governing principal may be:
-
-- a person;
-- a family or group; or
-- an organization.
-
-Membership grants distinct capabilities such as query, read, propose, land,
-export, and manage. Query or read does not imply clone or export. Once full Git
-history has been cloned, later access revocation cannot claw it back.
-
-Corporate sources may remain upstream-canonical. llame may attach and index them,
-while changes become proposals or pull requests to the upstream owner rather
-than silent local truth.
+Corporate sources may stay upstream-canonical: llame attaches and indexes them,
+while changes become proposals or pull requests to the upstream owner.
 
 This is the north-star boundary, not a requirement for the initial personal
-Knowledge slice. Initially, multiple user-owned Knowledge Spaces may be only
-organizational and share one owner trust domain, with no per-Space ACL or
-information-flow policy.
+Knowledge slice, where multiple user-owned Spaces may be only organizational and
+share one owner trust domain with no per-Space ACL or information-flow policy.
 
 ### D-09 — Run, not Chat, is the durable security boundary
 
 **Decision**
 
-A **Run** is one durable agentic turn, not one model-provider inference. It starts
-from a user message, workflow trigger, or parent delegation and may contain many
-model calls, tool calls, child Runs, workspace or Artifact changes, intermediate
-events, pauses, approvals, and execution segments before reaching a terminal
-result. In ordinary chat, the next user message after completion creates another
-Run in the same Chat. Steering or resuming an active or paused turn instead adds
-an event and, when necessary, a new execution segment to the same logical Run.
-Completed, failed, and cancelled Runs are immutable terminal records. A later
-follow-up creates a new Run linked as a continuation; it does not reopen the old
-capability snapshot or audit envelope.
+A **Run** is one durable agentic turn, not one model-provider inference. It
+starts from a user message, workflow trigger, or parent delegation and may hold
+many model calls, tool calls, child Runs, workspace or Artifact changes,
+intermediate events, pauses, approvals, and execution segments before a terminal
+result. After completion, the next user message creates another Run in the same
+Chat; steering or resuming an active or paused turn adds an event, and when
+needed a new execution segment, to the same logical Run. Completed, failed, and
+cancelled Runs are immutable terminal records; a follow-up is a new continuation
+Run and does not reopen the old capability snapshot or audit envelope.
 
-A **Chat** contains one or more Runs and retains conversational continuity. It may
-be an ordinary interactive conversation, a child/subagent conversation created
-by a parent Run, or a background/system conversation created for workflow or
-maintenance execution. Every Run belongs to exactly one Chat and uses the same
-transcript, event, streaming, steering, and continuation architecture. Origin and
-presentation metadata may keep background and nested Chats out of the primary
-chat list without inventing a second execution model. Chat identity and retained
-context are not an authority snapshot, and common storage does not imply that
-all prior Chat content is injected into every Run. Codex App Server's Thread maps
-to llame's Chat and its Turn maps to llame's Run; active steering appends to the
-current Run rather than creating another [6, 51].
+A **Chat** contains one or more Runs and keeps conversational continuity: an
+interactive conversation, a parent Run's child/subagent conversation, or a
+background/system conversation for workflow or maintenance work. Every Run
+belongs to exactly one Chat and uses the same transcript, event, streaming,
+steering, and continuation architecture; origin and presentation metadata may
+keep background and nested Chats out of the primary list without a second
+execution model. Chat identity and retained context are not an authority
+snapshot, and shared storage does not mean all prior Chat content enters every
+Run. Codex App Server's Thread maps to llame's Chat and its Turn to llame's Run;
+active steering appends to the current Run rather than creating another [6, 51].
 
-At most one Run is active in a Chat. New input either steers that active Run or
-queues a later Run; it does not create an interleaved concurrent Run in the same
-transcript. Parallelism uses separate child Chats, whose creation-time Workspace
-mode determines whether their file state is shared or isolated.
+At most one Run is active per Chat: new input steers it or queues a later Run,
+never an interleaved concurrent Run in one transcript. Parallelism uses separate
+child Chats whose creation-time Workspace mode decides whether file state is
+shared or isolated.
 
-A Chat may retain a Workspace binding without becoming a security boundary. Each
-new Run independently reauthorizes attachment to that Workspace. If its current
-authority is incompatible with the Workspace's governing domain, it cannot
-attach; prior file state is never silently exposed through conversational
-continuity.
+A Chat may retain a Workspace binding without becoming a security boundary: each
+new Run independently reauthorizes attachment, and one whose authority is
+incompatible with the Workspace's governing domain cannot attach. Prior file
+state is never silently exposed through conversational continuity.
 
-The initial personal Knowledge slice treats every Space owned by one user as part
-of that user's single trust domain. Spaces and attached directories affect
-organization, retrieval priority, and revision targets—not access control. It
-does not ship cross-user shared Spaces, corporate attachments, or mixed-domain
-writes. Existing authenticated user-to-user tenant isolation still applies and
-is not deferred.
+The initial personal Knowledge slice treats all Spaces owned by one user as one
+trust domain: Spaces and attached directories affect organization, retrieval
+priority, and revision targets, not access control. It ships no cross-user
+shared Spaces, corporate attachments, or mixed-domain writes, and existing
+authenticated user-to-user tenant isolation still applies.
 
 For the first shared-knowledge implementation, each Run has one governing
-security/output domain and a source-lineage set constrained to that domain. A
-Chat is UX continuity and may contain multiple Runs, but it must not silently
-carry authority or context from one Run to another.
+security/output domain and a source-lineage set constrained to it; a Chat is UX
+continuity and must not silently carry authority or context between Runs.
 
-Each Run receives a frozen capability snapshot:
-
-- authenticated identity and governing principal;
-- readable Knowledge Spaces;
-- allowed models and embedding providers;
-- tools and connectors;
-- writable sink;
-- retention requirements; and
-- policy version.
+Each Run receives a frozen capability snapshot: authenticated identity and
+governing principal; readable Knowledge Spaces; allowed models and embedding
+providers; tools and connectors; writable sink; retention requirements; and
+policy version.
 
 The minimum information-flow rule is necessary but not sufficient:
 
@@ -718,27 +629,26 @@ The minimum information-flow rule is necessary but not sufficient:
 **Working security consequences — not approved implementation details**
 
 The snapshot is an immutable audit record and maximum authority, not an
-irrevocable lease. A live revocation epoch or short-lived capability lease may
-only narrow it and is rechecked before retrieval, model/provider calls, secret
-minting, tool or connector calls, writes, proposal landing, and publication.
+irrevocable lease: a live revocation epoch or short-lived lease may only narrow
+it and is rechecked before retrieval, model/provider calls, secret minting, tool
+or connector calls, writes, proposal landing, and publication.
 
-Every flow must satisfy the intersection of source egress policy, processor
-policy, and destination ingress policy. Processors and destinations include
-model and embedding providers, rerankers, MCP/tool endpoints, connectors,
-trace stores, logs, and caches—not only the final user-visible sink. Deny when
-there is no permitted intersection.
+Every flow needs the intersection of source egress, processor, and destination
+ingress policy. Processors and destinations include model and embedding
+providers, rerankers, MCP/tool endpoints, connectors, trace stores, logs, and
+caches, not just the final user-visible sink; deny when no permitted
+intersection exists.
 
-Messages, tool results, and compaction summaries carry domain lineage. Context
-assembly for a later Run filters incompatible prior Chat content rather than
-rehydrating the Chat wholesale.
+Messages, tool results, and compaction summaries carry domain lineage, so
+context assembly for a later Run filters incompatible prior Chat content instead
+of rehydrating the Chat wholesale.
 
-Mixed-domain synthesis is not enabled by default in the first implementation.
-If explicitly introduced later, the response, transcript, summary, workspace,
-artifact, derived memory, tool payload, logs, and caches inherit a governed
-mixed domain whose policy accepts every source. If no such policy intersection
-exists, the Run is denied. Corporate-derived facts never enter personal
-semantic memory automatically. Mixed-domain writes, sends, exports, and
-publication become explicit transfer or release proposals.
+Mixed-domain synthesis is off by default. If introduced later, the response,
+transcript, summary, workspace, artifact, derived memory, tool payload, logs, and
+caches inherit a governed mixed domain accepting every source, or the Run is
+denied; corporate-derived facts never enter personal semantic memory
+automatically, and mixed-domain writes, sends, exports, and publication become
+explicit transfer or release proposals.
 
 This is deliberately coarse run-level lineage, not AI-generated per-span DLP.
 
@@ -749,21 +659,20 @@ This is deliberately coarse run-level lineage, not AI-generated per-span DLP.
 Cross-user resource access should eventually prefer narrow, purpose-built
 capabilities. Calendar free/busy sharing is a connector disclosure capability,
 not Knowledge Space access control; it belongs to the connector and sharing
-model even if knowledge-flow policy later uses the same release concepts.
+model even if knowledge-flow policy later reuses its release concepts.
 
 **Working security consequences — details open**
 
 Revoking a member immediately invalidates their capability leases, tokens,
 future connector access, and subject/policy-scoped caches, and terminates their
 affected Runs where possible. Their workspace state is destroyed, sealed, or
-quarantined according to the governing domain's frozen retention and legal-hold
-policy; execution authority ends in every case.
+quarantined under the governing domain's frozen retention and legal-hold policy;
+execution authority ends in every case.
 
-An ACL change or source detachment is not a purge. It traverses recorded lineage
+An ACL change or source detachment is not a purge: it traverses recorded lineage
 and re-authorizes every dependent episode, fact, summary, proposal, snapshot,
-artifact, cached output, and index entry. Affected objects are revoked,
-re-derived, quarantined, or retained only inside their original inaccessible
-domain according to policy.
+artifact, cached output, and index entry, then revokes, re-derives, quarantines,
+or retains affected objects only inside their original inaccessible domain.
 
 A privileged purge invokes D-03's transitive store-wide erasure path, subject to
 legal hold. Neither revocation nor purge can retract data already shown, cloned,
@@ -777,120 +686,108 @@ exported, or sent to an external model.
   description, prompt, model defaults, Skills, tool/MCP defaults, permission
   ceiling, and optional memory binding. The main assistant is the default
   generalist profile, not a separate kind of entity.
-- Invoking a profile creates an auditable **Run**. A user may invoke one
-  directly; a parent Run may dispatch multiple child Runs in parallel or
-  sequence; and a child may dispatch nested Runs when its profile and policy
-  permit it.
-- A child Run may execute natively in llame or through a replaceable harness
-  adapter such as Codex App Server, ACP, A2A, OpenCode, or another vendor-specific
-  agent interface. llame still owns the Run tree, lifecycle, approvals,
-  cancellation, audit, lineage, and published results.
-- Optional persistent Agent Memory is principal-owned and governed as described
-  in D-02. A specialist prompt plus memory does not create an autonomous
-  principal. Long-lived service identity remains reserved for installed Apps and
-  unattended workflows.
+- Invoking a profile creates an auditable **Run**: a user may invoke one
+  directly, a parent Run may dispatch child Runs in parallel or sequence, and a
+  child may dispatch nested Runs when its profile and policy permit.
+- A child Run may execute natively or through a replaceable harness adapter
+  (Codex App Server, ACP, A2A, OpenCode, or another vendor interface); llame
+  still owns the Run tree, lifecycle, approvals, cancellation, audit, lineage,
+  and published results.
+- Optional persistent Agent Memory is principal-owned and governed as in D-02; a
+  specialist prompt plus memory is not an autonomous principal, and long-lived
+  service identity stays reserved for installed Apps and unattended workflows.
 
-Creating a child Chat records a persistent maximum delegation envelope. The
-envelope is a ceiling, not a reusable grant or frozen permission snapshot. Every
-new child Run re-resolves current authority:
+A child Chat records a persistent maximum delegation envelope—a ceiling, not a
+reusable grant or frozen snapshot. Every new child Run re-resolves current
+authority:
 
 > **child Run authority** = current initiating principal or delegator grants ∩
 > child Chat delegation envelope ∩ Agent Profile ceiling ∩ current governing
 > policy ∩ adapter capability
 
-Child Chat creation also records its immutable Workspace mode: share the
-parent's current binding or create an isolated copy-on-write binding from a
-recorded revision. Every later Run and resumed external harness session for that
-child reuses the same binding. Workspace mode is independent of Agent Profile and
-tool permissions and does not change when either changes, although authorization
-may prohibit a requested shared mode. Omission resolves to `shared`; isolation is
-an explicit child-Chat creation choice.
+Child Chat creation also fixes its Workspace mode—share the parent's binding or
+create an isolated copy-on-write binding from a recorded revision—for every
+later Run and resumed harness session. The mode is independent of Agent Profile
+and tool permissions and does not change with them, though authorization may
+reject a requested shared mode; omission resolves to `shared`, and isolation is
+an explicit creation choice.
 
-Unless the user, parent delegation, or Agent Profile narrows it, the child
-Chat's initial tool envelope mirrors the initiating Run's user-configured tool
-catalog and per-tool policies. This preserves ordinary subagent jobs that need
-side-effecting tools without treating the child as a new principal.
+Unless narrowed by the user, parent delegation, or Agent Profile, the child's
+initial tool envelope mirrors the initiating Run's user-configured catalog and
+per-tool policies, so ordinary subagent jobs keep side-effecting tools without a
+new principal.
 
-Direct steering of an active Run cannot widen its existing ceiling. A later
-human-, parent-, or workflow-initiated Run in the same child Chat remains inside
-the Chat envelope even when the initiator holds broader grants. Widening requires
-an explicit authorized one-Run grant or Chat reconfiguration; revocation and
-current policy may always narrow the effective result.
+Steering cannot widen the ceiling, and a later Run in the same child Chat stays
+inside the Chat envelope even when the initiator holds broader grants. Widening
+requires an explicit authorized one-Run grant or Chat reconfiguration;
+revocation and current policy may always narrow the result.
 
 Delegation passes the minimum task context, Knowledge Spaces, workspace files,
-and output destinations required. Tool availability follows the inherited,
-attenuable policy above rather than an unconditional read-only or minimum-tool
-rule. Source lineage follows the delegated context. A child result is data
-returned to the parent, not a permission grant; neither a child nor an agent
-message can approve an escalation or widen descendant authority. An explicit
-`auto` approval policy may authorize a call inside the existing ceiling; that is
-resolution of predelegated authority, not escalation.
+and output destinations required; tool availability follows the inherited,
+attenuable policy rather than an unconditional read-only or minimum-tool rule,
+and source lineage follows the delegated context. A child result is data for the
+parent, not a permission grant: neither a child nor an agent message can approve
+an escalation or widen descendant authority, and an `auto` policy only resolves
+authority already delegated inside the ceiling.
 
-A parent Run initially delegates by creating or addressing a child Chat and
-starting a child Run within it. Every child Run is separately inspectable.
-Recursive delegation is bounded by policy-controlled depth, fan-out, time, token,
-and cost budgets, with cancellation propagating through active descendants. The
-working starting point is a default depth of three below the root and a hard
-platform ceiling of five; these are implementation defaults, not frozen vision
-commitments. Exact limits, failure aggregation, and synthesis UX remain open.
-Claude Code is a useful precedent for parallel, chained, depth-limited agents and
-resuming a completed agent as a new run under the same agent ID [49], but its
-limits are not llame's specification.
+A parent delegates by creating or addressing a child Chat and starting a child
+Run in it; every child Run is separately inspectable. Policy-controlled depth,
+fan-out, time, token, and cost budgets bound recursion, and cancellation
+propagates through active descendants. The working defaults are depth three
+below the root and a hard platform ceiling of five—implementation defaults, not
+frozen vision—while exact limits, failure aggregation, and synthesis UX remain
+open. Claude Code is a useful precedent for parallel, chained, depth-limited
+agents and for resuming a completed agent as a new run under the same agent ID
+[49], not llame's specification.
 
-Best-of-N and Summary-of-N are orchestration patterns over that same model. A
-parent Run starts N child Runs in N child Chats, waits for their results, then
-selects, evaluates, or synthesizes them itself or through another bounded child
-Run. They do not require concurrent Runs inside the parent Chat. Candidate file
-changes follow each child Chat's creation-time Workspace mode: shared changes are
-live immediately, while isolated changes require an explicit integration path.
-Artifact publication remains governed independently. Exact judge, scoring,
-synthesis, and shared-writer behavior remain open.
+Best-of-N and Summary-of-N use the same model: a parent starts N child Runs in N
+child Chats, waits, then selects, evaluates, or synthesizes them itself or
+through another bounded child Run; they do not require concurrent Runs inside
+the parent Chat. Candidate file changes follow each child Chat's creation-time
+Workspace mode—shared changes live immediately, isolated changes need an
+explicit integration path—while Artifact publication stays independently
+governed; judge, scoring, synthesis, and shared-writer behavior remain open.
 
-A Run transcript is multi-actor. Its canonical input events distinguish the
-authenticated actor—human, parent Run, workflow, external harness, or system—from
-the role or envelope used to deliver content to a model provider. A delegation or
-steering instruction may therefore be projected as a provider `user` message
+A Run transcript is multi-actor: canonical input events distinguish the
+authenticated actor (human, parent Run, workflow, external harness, or system)
+from the provider role or envelope delivering content to a model, so a
+delegation or steering instruction may project as a provider `user` message
 without becoming user-authored. Reminder text is a model-behavior hint, never an
 authorization, provenance, or memory boundary.
 
 A child Run's instructions, messages, tool activity, results, and direct human
 steering are valid episodic events with their actual actors. A child may create
-durable Knowledge or memory contributions within its grants, but it cannot forge
-history, approvals, or user statements. For an external executor, llame records
-the events it can authenticate and labels additional executor-streamed detail as
-harness-reported.
+durable Knowledge or memory within its grants but cannot forge history,
+approvals, or user statements; for an external executor, llame records what it
+can authenticate and labels further streamed detail as harness-reported.
 
-An authorized user may open a child Chat and address its current Run directly
-rather than asking the parent to relay a message. A parent-agent or human message
-sent while that Run is active steers the same Run; a message deliberately queued
-for later or sent after terminal completion starts another Run in the same child
-Chat. This matches Codex's distinct `send_message` and `followup_task` behavior
-[51]. The child Chat remains linked to its orchestration lineage, and steering
-does not transfer ownership or grant approval. The parent receives a state-change
-event so it can reconcile its plan with the intervention.
+An authorized user may address a child Chat's current Run directly. A message
+sent while that Run is active steers it; one deliberately queued or sent after
+completion starts another Run in the same child Chat, matching Codex's
+`send_message` and `followup_task` behavior [51]. The child Chat keeps its
+orchestration lineage, steering transfers no ownership or approval, and the
+parent receives a state-change event to reconcile its plan.
 
-A live-capable adapter injects steering at a safe runtime boundary. Otherwise
-llame pauses or restarts execution as a new immutable segment of the same logical
-Run, preserving its transcript, workspace, lineage, budget, and exact context
-revisions. Claude Code's subagent panel, direct follow-ups, and resumable agent
-IDs are a useful product precedent [49], not a constraint on llame's adapter
-protocol.
+A live-capable adapter injects steering at a safe runtime boundary; otherwise
+llame pauses or restarts execution as a new immutable segment of the same
+logical Run, preserving transcript, workspace, lineage, budget, and exact
+context revisions. Claude Code's subagent panel, direct follow-ups, and
+resumable agent IDs are a product precedent [49], not an adapter-protocol
+constraint.
 
-An executor session and a Run have different lifecycles. llame may reuse a
-Claude, Codex, ACP, or other harness session—and therefore its retained model
-context—for a continuation Run. The adapter binding belongs to the Chat, while
-each new agentic turn still receives a new Run ID, capability snapshot, budget,
-and audit envelope linked to the prior Run.
+Executor sessions and Runs have distinct lifecycles: llame may reuse a Claude,
+Codex, ACP, or other harness session and its retained model context for a
+continuation Run, while the adapter binding belongs to the Chat and every new
+turn still gets a new Run ID, capability snapshot, budget, and audit envelope
+linked to the prior Run.
 
-Run completion does not archive its child Chat. A completed child remains
-inspectable and addressable in the orchestration tree until the user or an
-authorized orchestrator action explicitly archives it. UI nesting or visual
-collapse may control clutter without changing archival state. Archival is not
-deletion and does not erase the transcript or prevent an authorized later
-continuation. Compute and workspace lifecycles remain separate: a terminal Run
-does not keep an executor alive merely because its Chat remains unarchived, while
-its Workspace binding remains available according to Chat and retention policy.
-Archiving a child Chat must not delete a Workspace still shared by another Chat.
+Run completion does not archive the child Chat, which stays inspectable and
+addressable until the user or an authorized orchestrator archives it; UI nesting
+or collapse does not change archival state. Archival is neither deletion nor a
+barrier to an authorized continuation, and compute lifecycles stay separate—a
+terminal Run does not keep an executor alive—while the Workspace binding remains
+available per Chat and retention policy. Archiving a child Chat must not delete
+a Workspace still shared by another Chat.
 
 ### D-12 — Unattended workflows use dedicated service identities
 
@@ -902,34 +799,32 @@ creates or binds a dedicated workload identity governed by the person, group, or
 organization that owns the workflow.
 
 A portable workflow definition declares trigger logic, an Agent Profile or Run
-template, and behavior. Activation creates a control-plane installation that
-pins an exact definition revision and separately binds its service identity,
-explicit capability grants, connector secrets, active triggers, allowed input
-and output domains, budgets, and approval policy. Editing executable Home content
-cannot change installation authority; activation or an installation update must
-pass the governing review path. Every schedule, email, message, webhook, or other
-trigger creates or addresses a background Chat and starts an ordinary auditable
-Run under the installed identity. The triggering payload is untrusted input and
-source context, not an authority grant. Sharing the Chat architecture does not
-silently make unrelated prior workflow executions part of the new Run's context.
+template, and behavior. Activation creates a control-plane installation pinning
+an exact definition revision and separately binding its service identity,
+capability grants, connector secrets, triggers, allowed input and output
+domains, budgets, and approval policy. Editing executable Home content cannot
+change installation authority; activation and installation updates pass the
+governing review. Each schedule, email, message, webhook, or other trigger
+creates or addresses a background Chat and starts an ordinary auditable Run
+under the installed identity; the triggering payload is untrusted input and
+source context, not authority, and unrelated prior executions do not join the
+new Run's context.
 
-Chat routing is configurable per workflow installation. Independent executions
-may create a new background Chat per trigger, while continuous processes may
-reuse a configured Chat and add one Run per trigger. Both modes use the same
-Chat/Run architecture. The initial default, target selection, correlation keys,
-and overlapping-trigger behavior remain open.
+Chat routing is configurable per installation: independent executions may create
+a new background Chat per trigger, while continuous processes may reuse one
+configured Chat with a Run per trigger. Defaults, target selection, correlation
+keys, and overlapping-trigger behavior remain open.
 
-Removing the creator does not silently preserve their personal grants and does
-not arbitrarily destroy organization-owned automation. The workflow continues
-only with capabilities explicitly granted to its service identity by its current
-governing principal. Revoking or narrowing those grants blocks new affected Runs
-and narrows or terminates in-flight Runs through the same live-revocation model
-as D-09.
+Removing the creator preserves no personal grants and destroys no
+organization-owned automation: the workflow continues only with capabilities
+its current governing principal explicitly granted to its service identity, and
+revoking or narrowing them blocks new affected Runs and narrows or terminates
+in-flight Runs through D-09's live-revocation model.
 
-Human approval remains attributable to an eligible person or role. Neither the
-workflow, its agent, nor a child Run can approve its own escalation. Exact
-ownership-transfer, orphaning, retry, idempotency, concurrency, approval-timeout,
-and secret-rotation behavior remains open.
+Human approval stays attributable to an eligible person or role; a workflow, its
+agent, or a child Run cannot approve its own escalation. Ownership transfer,
+orphaning, retry, idempotency, concurrency, approval timeout, and secret
+rotation remain open.
 
 ### D-13 — Home is the canonical user data plane; upstream attachments stay external
 
@@ -941,7 +836,7 @@ to export. At minimum:
 - each Project has a canonical directory in or attached to Home;
 - each Home-managed Knowledge Space is a directory containing its own Git
   repository, while an upstream-managed Space has an attached checkout or index
-  projection; both follow one repository per governance and export boundary as
+  projection; both follow the one repository per governance and export boundary
   required by D-08; and
 - each Artifact is a versioned file tree in or attached to Home; and
 - Skills, Agent Profiles, and workflow definitions are inspectable, versioned
@@ -949,21 +844,21 @@ to export. At minimum:
 - llame observes or imports those sources and builds its retrieval indexes and
   application projections from them.
 
-A Project directory remains an organizational and working-context root, not an
-automatic authorization boundary. A Home may reference shared or organization
+A Project directory stays an organizational and working-context root, not an
+authorization boundary, and a Home may reference shared or organization
 Knowledge Spaces without folding their history into the personal repository.
 
-The operational control plane remains database-authoritative for identities,
-grants, service identities, Runs, audit, approvals, and secret bindings. Search,
-embeddings, and other content projections are rebuildable from Home. Moving a
-Home to another instance therefore means attaching or copying the canonical tree
-and reimporting it, not exporting content out of an opaque llame database.
+The operational control plane stays database-authoritative for identities,
+grants, service identities, Runs, audit, approvals, and secret bindings, while
+search, embeddings, and other content projections are rebuildable from Home.
+Moving a Home to another instance therefore means attaching or copying the
+canonical tree and reimporting it, not exporting content out of an opaque llame
+database.
 
-As defined in D-06, sandboxes do not mount Home. They receive only selected
-copy-on-write Project and Artifact working copies plus a private scratchpad;
-everything else is inaccessible. The exact Home layout beyond these durable
-resource roots, and the portable representation of database-only episodic and
-operational state, remains open.
+Sandboxes do not mount Home (D-06); they receive only selected copy-on-write
+Project and Artifact working copies plus a private scratchpad. The exact Home
+layout beyond these durable resource roots, and the portable representation of
+database-only episodic and operational state, remains open.
 
 ### D-14 — An Artifact is one lightweight versioned file tree
 
@@ -976,64 +871,63 @@ or binary Artifact classes.
 - A published version is immutable. Editing happens in an isolated working copy
   and publishing creates the next version; a mutable `latest` pointer may select
   it.
-- A single Markdown, text, or code file receives a lightweight, Gist-like
-  content/edit/history experience rather than repository-management UI.
+- A single Markdown, text, or code file gets a lightweight, Gist-like
+  content/edit/history experience, not repository-management UI.
 - A multi-file source Artifact uses the same abstraction and may additionally be
   mounted as a workspace or previewed.
-- Text and source content may use Git internally. Binary content is not forced
-  through Git. That storage choice is not an initial user-facing setting.
-- Work targeting an existing Project remains a Project change rather than
-  creating a redundant Artifact repository.
+- Text and source content may use Git internally; binary content is not forced
+  through Git, and that storage choice is not an initial user-facing setting.
+- Work targeting an existing Project remains a Project change rather than a
+  redundant Artifact repository.
 
-The Artifact remains powerless until explicitly installed as an App under D-06.
-Backend layout, Git repository granularity, and richer media-specific behavior
-remain implementation details until actual use requires them.
+The Artifact remains powerless until installed as an App under D-06. Backend
+layout, Git repository granularity, and richer media-specific behavior remain
+implementation details until actual use requires them.
 
 ### D-15 — External channel identities fail closed until linked
 
 **Decision**
 
 An external Telegram, Slack, or other channel sender must map to a llame user
-before the channel can create a Run. Unlinked senders receive no public assistant,
+before the channel can create a Run; unlinked senders get no public assistant,
 knowledge, or tool capabilities. A later implementation may offer only an
-account-linking response; the first implementation may simply deny or ignore
-them.
+account-linking response; the first may simply deny or ignore them.
 
 The initial mapping may be configured manually in the database or an
 administrator UI. It binds a stable provider-supplied identifier in the scope of
-the connector or provider tenant to a llame user. Usernames and display names do
-not establish identity. Self-service linking, when added, must complete through
-an already authenticated llame session or another explicit verification flow.
+the connector or provider tenant to a llame user; usernames and display names do
+not establish identity, and self-service linking must complete through an
+already authenticated llame session or another explicit verification flow.
 
 A linked private-channel message creates a Run under that user's authority, with
-the channel recorded as an output destination. A group-channel response uses the
-group's output domain and does not silently inject any participant's personal
-knowledge. Channel transport never expands the user's grants.
+the channel as an output destination. A group-channel response uses the group's
+output domain and never injects a participant's personal knowledge; channel
+transport never expands the user's grants.
 
-Later channel behavior is composed from independent policy axes: destination
-binding, sender admission, activation rules, handling of non-triggering messages,
-and delivery visibility. Named UX modes are presets over those axes, not one
-hard-coded group-mode enum. Providers and policy axes ship incrementally rather
-than blocking the first linked private-channel slice.
-
-Provider-specific linking UX, bot installation, group membership synchronization,
-message editing, attachments, commands, and delivery guarantees remain open.
+Later channel behavior composes from independent policy axes: destination
+binding, sender admission, activation rules, handling of non-triggering
+messages, and delivery visibility. Named UX modes are presets over those axes,
+not one hard-coded group-mode enum, and providers and policy axes ship
+incrementally rather than blocking the first linked private-channel slice.
+Provider-specific linking UX, bot installation, group membership
+synchronization, message editing, attachments, commands, and delivery guarantees
+remain open.
 
 ### D-16 — Email and calendar are connectors, not separate agent subsystems
 
 **Decision**
 
-Initial email and calendar access uses the protocol-neutral tool runtime from
-D-05. A user may connect a compatible remote MCP server manually; its tools use
-the same registration ownership, credentials, `allow`/`ask`/`deny` policy,
-invocation provenance, and audit path as every other connector.
+Initial email and calendar access uses D-05's protocol-neutral tool runtime: a
+user may connect a compatible remote MCP server manually, and its tools use the
+same registration ownership, credentials, `allow`/`ask`/`deny` policy,
+invocation provenance, and audit path as any other connector.
 
-Later first-party connectors may replace manual setup with managed OAuth, account
-binding, token refresh, and provider subscriptions or webhooks. They still expose
-the same governed tool identities and workflow-trigger events rather than
-creating parallel permission, credential, or audit systems. An incoming email or
-calendar event is trigger data, not authority; an unattended reaction creates a
-Run under D-12's service identity.
+Later first-party connectors may replace manual setup with managed OAuth,
+account binding, token refresh, and provider subscriptions or webhooks, but they
+still expose the same governed tool identities and workflow-trigger events
+rather than parallel permission, credential, or audit systems. An incoming
+email or calendar event is trigger data, not authority, and an unattended
+reaction creates a Run under D-12's service identity.
 
 Provider adapters, event normalization, polling versus push delivery, token
 lifecycle, and initial write scopes remain open.
@@ -1043,36 +937,35 @@ lifecycle, and initial write scopes remain open.
 **Decision**
 
 A user-controlled machine participates as an explicitly enrolled Worker that
-initiates an authenticated outbound connection to the llame control plane. It
-does not require a public inbound listener and is not exposed as a general remote
-shell.
+opens an authenticated outbound connection to the llame control plane. It needs
+no public inbound listener and is not a general remote shell.
 
 Enrollment binds a device identity to its governing principal, advertised
 capabilities, and revocable local policy. The control plane may dispatch only an
-authority-attenuated Run or child Run under D-11. The Worker independently limits
-execution to explicitly registered Project roots and capabilities, creates a
-copy-on-write worktree or sandbox, streams auditable events and approvals, and
-publishes only selected results.
+authority-attenuated Run or child Run under D-11, and the Worker independently
+limits execution to explicitly registered Project roots and capabilities,
+creates a copy-on-write worktree or sandbox, streams auditable events and
+approvals, and publishes only selected results.
 
 Neither enrollment nor a job grants ambient access to the device's Home,
-filesystem, credentials, or network. A private repository may remain on the
+filesystem, credentials, or network. A private repository may stay on the
 device, but local execution alone does not guarantee local privacy: any model,
-tool, or connector receiving its content is still an egress destination governed
-by D-09.
+tool, or connector receiving its content is still an egress destination under
+D-09.
 
 Revocation blocks future dispatch and attempts to terminate affected in-flight
-work. It cannot retract task data already delivered to an offline or compromised
-Worker. Enrollment UX, device keys, attestation, sandbox runtime, updates, local
-secret handling, and offline recovery remain open.
+work, but cannot retract task data already delivered to an offline or
+compromised Worker. Enrollment UX, device keys, attestation, sandbox runtime,
+updates, local secret handling, and offline recovery remain open.
 
 ### D-18 — Managed external harnesses use llame's internal model
 
 **Decision**
 
 llame first defines its own Chat, Run, resource, revision, provenance, and audit
-semantics. A Claude Code, Codex, enrolled Worker, or other harness orchestrated by
-llame is an executor attached to a llame Chat and its current Run; the harness
-session does not replace or redefine that model.
+semantics. A Claude Code, Codex, enrolled Worker, or other harness orchestrated
+by llame is an executor attached to a llame Chat and its current Run; the
+harness session does not replace that model.
 
 When granted through a managed Run, an external agent may:
 
@@ -1081,54 +974,52 @@ When granted through a managed Run, an external agent may:
 - create and revise Artifacts;
 - submit authenticated current messages and outputs that llame records as
   attributed episodic events, and contribute semantic-fact candidates; and
-- update Knowledge through the revision service, including automatically landing
-  changes when its grant and the normal risk policy allow it.
+- update Knowledge through the revision service, including automatic landing
+  when its grant and the normal risk policy allow it.
 
-A proposal is a landing state used when review is required, not a permanent
-restriction on external agents. All writes retain the external agent, harness,
-Run, source, and governing-domain provenance. Managed Runs use short-lived scoped
+A proposal is a landing state for when review is required, not a permanent
+restriction on external agents. All writes retain external agent, harness, Run,
+source, and governing-domain provenance, and managed Runs use short-lived scoped
 credentials.
 
-The supported interface does not provide raw platform-storage access or bypass
-the accepted-ref, workspace-publish, approval, and audit paths. A personal Home
-owner may still edit their own files outside llame as described in D-07; that is
-an external import rather than an integrated agent write.
+The supported interface provides no raw platform-storage access and bypasses no
+accepted-ref, workspace-publish, approval, or audit path. A personal Home owner
+may still edit their own files outside llame as described in D-07; that is an
+external import, not an integrated agent write.
 
 The long-range goal still includes first-party read/write API and MCP access for
-standalone third-party clients. Its authentication, session/Run mapping, MCP
-resources and tools, conflict UX, and synchronization semantics are deliberately
-open. Generic client constraints must not distort the internal model before that
-model has shipped and been validated.
+standalone third-party clients, with authentication, session/Run mapping, MCP
+resources and tools, conflict UX, and synchronization semantics deliberately
+open. Generic client constraints must not distort the internal model before it
+has shipped and been validated.
 
 ### D-19 — Self-improvement is versioned; self-maintenance produces PRs
 
 **Decision**
 
 llame improves itself by maintaining inspectable, attributable, and reversible
-Knowledge, Skills, Agent Profiles, and workflow definitions in Home. It does not
-silently mutate hidden prompts or train model weights as its normal improvement
-mechanism.
+Knowledge, Skills, Agent Profiles, and workflow definitions in Home, not by
+silently mutating hidden prompts or training model weights.
 
-Each execution segment pins the exact versions of these resources that formed its
-context. Accepted changes affect later Runs by default. An authorized actor may
-pause an active Run, attach an exact accepted or candidate Skill or context
-revision through an explicit amendment, and resume as a new immutable segment of
-the same Run. This supports a parent noticing a child struggle, writing a Skill,
-and steering that child to use the pinned revision without rewriting prior
-context.
+Each execution segment pins the exact resource versions that formed its context,
+and accepted changes affect later Runs by default. An authorized actor may pause
+an active Run, attach an exact accepted or candidate Skill or context revision
+through an explicit amendment, and resume as a new immutable segment of the same
+Run: a parent, for example, can notice a child struggle, write a Skill, and
+steer that child to the pinned revision without rewriting prior context.
 
 Within externally configured policy, agents may create, edit, review, land, and
 activate versioned Skills, prompts, Agent Profile behavior, workflow definitions,
-and allowlisted non-authority runtime preferences for later Runs. The governing
-pipeline may include automatic validation, an independent model review, a local
-change request or pull request, and policy-approved automatic landing. Editable
+and allowlisted non-authority runtime preferences for later Runs, through a
+pipeline of automatic validation, independent model review, a local change
+request or pull request, and policy-approved automatic landing. Editable
 instructions cannot grant tools, credentials, Knowledge access, output
 destinations, approval power, or a wider self-modification scope; authority
-remains external to content.
+stays external to content.
 
-Eventually, an instance owner may explicitly register llame's own source and
-deployment configuration as a Project. A user or authorized maintenance workflow
-can then dispatch a coding Run to diagnose a problem, create an isolated branch
+Eventually an instance owner may explicitly register llame's own source and
+deployment configuration as a Project, letting a user or authorized maintenance
+workflow dispatch a coding Run to diagnose a problem, create an isolated branch
 or worktree, implement and verify a change, push the branch, and open a pull
 request through a granted source-control connector. The llame source tree is the
 Project; build outputs, reports, and previews may be Artifacts.
@@ -1136,7 +1027,7 @@ Project; build outputs, reports, and previews may be Artifacts.
 The default source-maintenance posture is pull-request-only: the maintenance Run
 does not rewrite the running installation, merge, deploy, or widen permissions.
 Merge and deployment may eventually be separately granted to an eligible
-identity and policy pipeline; they never follow merely from source-write access.
+identity and policy pipeline, never following merely from source-write access.
 Automatic issue intake, log access, CI-feedback loops, dependency updates, merge
 authority, and deployment remain open and outside initial scope.
 
@@ -1194,20 +1085,19 @@ implementation specification.
    update derived indexes, and make the improved context available to later
    Runs.
 
-Semantic facts are durable records, not indexes. Every candidate retains an
+Semantic facts are durable records, not indexes, and every candidate retains an
 exact source-kind and source reference. A revision-derived candidate remains
 pending until its source commit becomes reachable from the canonical accepted
-Git ref. Reconciliation then accepts the fact transition idempotently. Retrieval
+Git ref; reconciliation then accepts the transition idempotently, and retrieval
 must not serve a revision-derived fact whose source commit is not accepted. An
 episode- or event-derived candidate may be accepted under the same risk,
-approval, domain, and live-revocation rules without requiring a Markdown
-revision.
+approval, domain, and live-revocation rules without a Markdown revision.
 
-Reconciliation follows each Space's configured canonical accepted ref and updates
-operational records and derived projections after logical visibility. A revert
-moves knowledge forward with a new commit and append-only fact supersession or
-invalidation events. A privileged purge follows the transitive erasure path
-instead.
+Reconciliation follows each Space's configured canonical accepted ref and
+updates operational records and derived projections after logical visibility. A
+revert moves knowledge forward with a new commit and append-only fact
+supersession or invalidation events; a privileged purge takes the transitive
+erasure path instead.
 
 ### 4.3 Storage ownership
 
@@ -1217,7 +1107,7 @@ instead.
   Knowledge Space Git commits and accepted refs are canonical; an
   upstream-managed Space follows its configured external accepted ref and keeps
   only a checkout or index projection in Home. Project directories are canonical
-  working roots. Artifact file trees and version history are canonical Home
+  working roots, and Artifact file trees and version history are canonical Home
   content. Jujutsu workspaces, operation history, hidden revisions, and change
   IDs are adapter-local workflow state.
 - Postgres owns identity, grants, episodes and Run events, semantic facts and
@@ -1254,14 +1144,13 @@ Add useful MCP tool use to the current chat and Run model:
 5. Agent-loop invocation, result streaming, cancellation, and useful failures.
 6. User-visible access, calls, approvals, and audit history.
 7. Web search as the first end-to-end evaluation, while allowing other
-   compatible remote MCP servers to be connected through the same path.
+   compatible remote MCP servers through the same path.
 
-Acceptance is behavioral: from an ordinary chat, a user can connect and grant a
-remote MCP web-search tool, the agent can use it to answer a question, an
-ungranted tool cannot be called, and the user can inspect what happened. The
-evaluation must not special-case or limit the runtime to search. Workspace
-files, knowledge mutation, and later recall are explicitly outside this
-milestone.
+Acceptance is behavioral: from an ordinary chat, a user connects and grants a
+remote MCP web-search tool, the agent uses it to answer a question, an ungranted
+tool cannot be called, and the user can inspect what happened. The evaluation
+must not special-case or limit the runtime to search. Workspace files, knowledge
+mutation, and later recall are outside this milestone.
 
 ### 5.2 Agreed short-term sequence
 
@@ -1273,8 +1162,8 @@ milestone.
    trust domain, retrieval, provenance, episodic recall, and the revision
    service. Per-Space policy and shared domains are not prerequisites.
 
-The detailed short-term plan ends here. Later layers remain directional horizons
-until their dependencies and product value are proven.
+Later layers remain directional horizons until their dependencies and product
+value are proven.
 
 ### 5.3 Long-range horizons — abstract, not implementation commitments
 
@@ -1297,33 +1186,26 @@ until their dependencies and product value are proven.
 9. **Self-maintenance:** governed diagnosis and pull requests against an
    explicitly registered llame Project.
 
-The order within these long-range horizons is still open; this is neither an
-implementation plan nor an estimate.
+Their internal order is still open; this is neither an implementation plan nor
+an estimate.
 
 ## 6. Explicit non-commitments
 
-The following are part of the long-range vision but are not resolved initial
-scope:
+These are part of the long-range vision but not resolved initial scope: an
+n8n-style visual workflow builder; arbitrary marketplace MCP servers; the
+implementation schedule and concrete limits for nested multi-agent
+orchestration; persistent full Linux machines for every agent; unconstrained
+package installation or agent-authored authority-bearing runtime policy;
+automatic Worker installation, unattended host access, and concrete
+private-machine coding harness support; artifact-to-App installation details;
+autonomous Home Assistant or other high-consequence control; managed first-party
+email/calendar onboarding and broad write scopes; self-service channel linking
+and provider-specific delivery semantics; per-span classification, automatic
+redaction, or full enterprise DLP; cross-instance federation; automatic merge or
+deployment of self-authored changes; and model-weight training or unconstrained
+recursive self-modification.
 
-- an n8n-style visual workflow builder;
-- arbitrary marketplace MCP servers;
-- the implementation schedule and concrete limits for nested multi-agent
-  orchestration;
-- persistent full Linux machines for every agent;
-- unconstrained package installation or agent-authored authority-bearing runtime
-  policy;
-- automatic Worker installation, unattended host access, and concrete private-
-  machine coding harness support;
-- artifact-to-App installation details;
-- autonomous Home Assistant or other high-consequence control;
-- managed first-party email/calendar onboarding and broad write scopes;
-- self-service channel linking and provider-specific delivery semantics;
-- per-span classification, automatic redaction, or full enterprise DLP;
-- cross-instance federation;
-- automatic merge or deployment of self-authored changes;
-- model-weight training or unconstrained recursive self-modification.
-
-Deferral is not rejection. These depend on the Run, capability, revision, and
+Deferral is not rejection: these depend on the Run, capability, revision, and
 information-flow primitives being trustworthy first.
 
 ## 7. Open decisions
@@ -1342,22 +1224,21 @@ reorganization?
 ### O-03 — Revision policy
 
 The high-level risk-tiered policy is decided. What exact thresholds determine
-which knowledge changes may auto-land? The implementation still needs a
-concrete risk matrix, validators, review UX, and rules for destructive
-refactors.
+which knowledge changes may auto-land? The implementation still needs a concrete
+risk matrix, validators, review UX, and rules for destructive refactors.
 
 ### O-04 — Semantic fact schema
 
-What is the smallest useful representation for subject, predicate/value,
-source, scope, temporal validity, confidence, status, and supersession without
-building a second knowledge base?
+What is the smallest useful representation for subject, predicate/value, source,
+scope, temporal validity, confidence, status, and supersession without building
+a second knowledge base?
 
 ### O-05 — Agent model
 
 The high-level profile, Run-tree, memory, and service-identity split is resolved
-in D-11. Multi-actor transcripts and direct human steering of still-parented
-child Chats are also resolved there. Still open: profile scope and inheritance,
-which Agent Memory scopes ship and their defaults, delegation budget defaults,
+in D-11, as are multi-actor transcripts and direct human steering of
+still-parented child Chats. Still open: profile scope and inheritance, which
+Agent Memory scopes ship and their defaults, delegation budget defaults,
 delegation-envelope and one-Run-grant UX, failure aggregation, result synthesis,
 Best-of-N judging, Chat retention and archive authorization details, eventual
 `auto` approval rules, and how each external harness adapter maps steering
@@ -1365,21 +1246,21 @@ boundaries, llame approvals, and cancellation.
 
 ### O-06 — Local and remote execution
 
-The outbound enrolled-Worker boundary is resolved in D-17. Still open: enrollment
-and recovery UX, device-key rotation, attestation, sandboxing, networking, local
-secret access, updates, offline cancellation, and concrete coding-harness
-adapters. Also open after the reference verification in section 2.6: whether
+The outbound enrolled-Worker boundary is resolved in D-17. Still open:
+enrollment and recovery UX, device-key rotation, attestation, sandboxing,
+networking, local secret access, updates, offline cancellation, and concrete
+coding-harness adapters. Also open after the section 2.6 verification: whether
 parallel child creation should warn or require isolation; when snapshots are
 taken; and how concurrent shared writers, integration, retention, and cleanup
 behave.
 
 ### O-07 — Artifact and App contract
 
-The minimal versioned-file-tree Artifact model and explicit Artifact-to-App trust
-boundary are resolved in D-14 and D-06. Still open: the smallest App manifest,
-capability vocabulary, installation review, API/event integration, quotas, and
-update model. Artifact subclasses and backend-selection UX are deliberately not
-planned.
+The minimal versioned-file-tree Artifact model and explicit Artifact-to-App
+trust boundary are resolved in D-14 and D-06. Still open: the smallest App
+manifest, capability vocabulary, installation review, API/event integration,
+quotas, and update model. Artifact subclasses and backend-selection UX are
+deliberately not planned.
 
 ### O-08 — Workflow semantics
 
@@ -1397,19 +1278,19 @@ from corporate or mixed context into personal/shared context?
 
 ### O-10 — Portable Home format
 
-The Home-first direction is resolved in D-13: portable user-controlled content is
-already canonical and is attached or copied into a new instance, then reimported
-and reindexed; upstream-managed Spaces are reattached to their canonical source.
+The Home-first direction is resolved in D-13: portable user-controlled content
+is canonical, attached or copied into a new instance, then reimported and
+reindexed, while upstream-managed Spaces reattach to their canonical source.
 Still open: the exact directory conventions and how database-only episodes,
 semantic facts, Apps, connector configuration, grants, audit history, and
-optionally encrypted secrets migrate alongside Home. Derived indexes are rebuilt,
-not exported as authority.
+optionally encrypted secrets migrate alongside Home. Derived indexes are
+rebuilt, not exported as authority.
 
 ### O-11 — Purge and retention contract
 
-Which principals may invoke privileged history rewrite, what evidence must be
-retained in the audit tombstone, how are mirrors and backups rotated, and how
-does llame prove deletion without falsely claiming it can retract prior exports?
+Which principals may invoke privileged history rewrite, what evidence must the
+audit tombstone retain, how are mirrors and backups rotated, and how does llame
+prove deletion without falsely claiming it can retract prior exports?
 
 ### O-12 — Multi-channel delivery details
 
@@ -1428,9 +1309,9 @@ without fabricating lifecycle boundaries the client does not expose?
 
 **Recommendation**
 
-Do not paste this platform vision into the existing giant SPEC. That would
-repeat the current failure: vision, future architecture, shipped behavior, and
-implementation detail would drift inside one document.
+Do not paste this platform vision into the existing giant SPEC: that would
+repeat the current failure, where vision, future architecture, shipped behavior,
+and implementation detail drift inside one document.
 
 After the open domain questions above are settled:
 
@@ -1446,7 +1327,7 @@ After the open domain questions above are settled:
   alternatives, and uncertainty.
 
 The current vision already labels several of these ideas as unreviewed emerging
-directions [13]. This synthesis is the intermediate decision record needed
+directions [13]; this synthesis is the intermediate decision record needed
 before promoting them into canonical commitments.
 
 ## Claims-Evidence Table
@@ -1530,150 +1411,38 @@ claims.
 
 ## Revision history
 
-- **v0.32 (2026-07-15):** Made `shared` the default Workspace mode for a newly
-  created child Chat and required its creator to request copy-on-write
-  `isolated` explicitly; kept concurrent shared-writer behavior open.
-- **v0.31 (2026-07-15):** Replaced the Run-owned workspace proposal with a
-  domain-bound live Workspace associated with a Chat; made `shared` versus
-  copy-on-write `isolated` an immutable child-Chat creation choice reused by all
-  later child Runs; left the creation-time default and concurrent-writer details
-  open.
-- **v0.30 (2026-07-15):** Verified Codex, Claude Code, and OpenCode workspace
-  continuity against current official documentation and pinned source; found
-  that all three retain live task/session workspaces and use snapshots for undo
-  or cleanup rather than automatic per-turn rematerialization; recorded the
-  conflict with D-06 without silently changing the product decision.
-- **v0.29 (2026-07-15):** Made **ask** pause the same Run in an auditable
-  `awaiting_approval` state; required user approval initially; deferred
-  orchestrator/classifier `auto` approval; kept executor suspension separate
-  from the logical Run state.
-- **v0.28 (2026-07-15):** Let child Runs inherit the initiating user's available
-  concrete tools and per-tool policies by default, including mutating tools;
-  retained attenuation and audit; separated routing an **ask** through the
-  orchestrator from explicitly granting an `auto` policy that may approve
-  without a human.
-- **v0.27 (2026-07-15):** Limited each Chat to one active Run; routed steering or
-  queued work explicitly; modeled Best-of-N and Summary-of-N as a parent Run
-  orchestrating parallel isolated child Chats rather than concurrent Runs in one
-  Chat.
-- **v0.26 (2026-07-15):** Made workflow Chat routing configurable: independent
-  triggers may create new background Chats, while continuous processes may reuse
-  a configured Chat and create a new Run there; left defaults, correlation, and
-  overlapping-trigger behavior open.
-- **v0.25 (2026-07-15):** Required every Run—including workflow, maintenance,
-  and other background work—to belong to a Chat and reuse one transcript/event/
-  steering architecture; allowed origin and presentation metadata to hide or
-  nest non-interactive Chats without implying automatic context reuse.
-- **v0.24 (2026-07-15):** Prioritized llame's internal Chat, Run, resource,
-  revision, provenance, and audit model over speculative manual-integration
-  semantics; kept orchestrated harnesses inside managed Runs; moved standalone
-  API/MCP lifecycle and authentication details back to an open decision.
-- **v0.23 (2026-07-15):** Kept completed child Chats unarchived and visible until
-  a user or authorized orchestrator explicitly archives them; separated visual
-  collapse, archival, transcript retention, workspace retention, and executor
-  lifetime.
-- **v0.22 (2026-07-15):** Gave each child Chat a persistent maximum delegation
-  envelope rather than reusable authority; required every Run to intersect that
-  ceiling with current initiator grants, Agent Profile limits, governing policy,
-  and adapter capability; kept widening explicit and revocation live.
-- **v0.21 (2026-07-15):** Verified Codex and Claude Code lifecycle behavior;
-  generalized Chat as the persistent root-or-child conversation containing Runs;
-  kept active parent or human steering inside the current Run; treated queued or
-  post-terminal follow-ups as new Runs in the same Chat; and left continuation
-  authority explicitly open.
-- **v0.20 (2026-07-15):** Synchronized earlier agreed resolutions: qualified
-  permissions by concrete integration tool; separated Home-managed from
-  upstream-managed canonical refs; split portable workflow definitions from
-  authority-bearing installations; made Project associations steering rather
-  than recursive materialization; defined channel policy axes; and allowed
-  bounded, versioned self-improvement plus explicit live context amendments
-  without self-expanding authority.
-- **v0.19 (2026-07-15):** Made completed, failed, and cancelled Runs immutable;
-  modeled later follow-ups as linked continuation Runs; and separated persistent
-  external executor-session context from llame Run identity and authority.
-- **v0.18 (2026-07-15):** Allowed humans, native subagents, workflows, tools, and
-  external harnesses to contribute authenticated episodic events and durable
-  memory changes while reserving actor, time, approval, and lineage sealing to
-  the control plane; distinguished harness-reported detail from observed events.
-- **v0.17 (2026-07-15):** Moved per-Space authorization and cross-domain
-  information-flow enforcement out of the initial personal Knowledge slice;
-  retained user-to-user tenant isolation; treated early Spaces as organization,
-  retrieval, and revision boundaries; and separated calendar disclosure from KB
-  access control.
-- **v0.16 (2026-07-15):** Defined a Run as one durable agentic turn containing
-  potentially many model inferences, tools, child Runs, pauses, and execution
-  segments; distinguished a new completed-chat turn from steering or resuming
-  the same active logical Run.
-- **v0.15 (2026-07-15):** Separated authenticated event authorship from provider
-  message roles; made Run transcripts explicitly multi-actor; allowed authorized
-  users to inspect and steer a child directly without changing its parentage or
-  authority; required parent notification and adapter-specific safe-boundary
-  injection or segmented resume.
-- **v0.14 (2026-07-15):** Defined self-improvement as visible, versioned changes
-  to Home resources pinned per Run; prevented instructions from expanding their
-  own authority; and added a long-range self-maintenance loop that changes an
-  explicitly registered llame Project and opens a PR without self-merging or
-  self-deploying.
-- **v0.13 (2026-07-15):** Made the future first-party llame API/MCP surface
-  genuinely read/write for external agents; allowed governed Project, Artifact,
-  episode, fact, and Knowledge contributions—including policy-approved automatic
-  landing—without bypassing provenance, revision, or audit paths.
-- **v0.12 (2026-07-15):** Defined user machines as explicitly enrolled,
-  outbound-connected Workers rather than inbound remote shells; constrained jobs
-  to attenuated Runs and registered roots; preserved local policy, audit,
-  revocation, and provider-egress boundaries.
-- **v0.11 (2026-07-15):** Unified email and calendar with the normal connector
-  and tool runtime; kept manual remote MCP viable first; reserved first-party
-  integrations for managed OAuth and event ingestion without duplicating
-  permissions, credentials, Runs, or audit.
-- **v0.10 (2026-07-15):** Made external channels fail closed: only senders mapped
-  to llame users may create Runs; allowed manual database/UI mappings initially;
-  rejected username-based identity; and kept group-channel output separate from
-  personal knowledge by default.
-- **v0.9 (2026-07-15):** Reduced Artifacts to one lightweight versioned-file-tree
-  abstraction; made published versions immutable; kept single-file text/code UX
-  Gist-like; allowed Git as an internal text/source mechanism without creating an
-  Artifact taxonomy or storage configuration surface.
-- **v0.8 (2026-07-15):** Made Home the canonical user content/configuration
-  plane; made Project directories and Knowledge Git repositories imported
-  sources; limited sandboxes to Project and Artifact working copies plus
-  scratch; reversed knowledge visibility so the accepted Git ref is authoritative
-  and Postgres/index state reconciles from Home.
-- **v0.7 (2026-07-15):** Decided that unattended workflows execute as ordinary
-  Runs under dedicated, explicitly granted service identities rather than
-  borrowing their creator's authority; separated governing ownership, trigger
-  input, human approval, and live revocation.
-- **v0.6 (2026-07-15):** Added the Claude Code custom-agent reference model;
-  separated Agent Profiles, isolated Run invocations, optional scoped Agent
-  Memory, and unattended service identities; decided that native and external
-  agents form bounded, auditable, authority-attenuating Run trees; recorded the
-  multi-tenant boundary that persistent memory remains principal-owned and
-  governed.
-- **v0.5 (2026-07-15):** Made tool-enabled chat the independent first milestone;
-  added remote-first MCP scope, instance/user ownership, managed-connector
-  evolution, per-tool allow/ask/deny policy, and web-search evaluation; separated
-  first-party Workspace storage from replaceable execution backends and
-  added a current provider/runtime evidence pass.
-- **v0.4 (2026-07-15):** Kept agreed product choices as decisions and explicitly
-  demoted deeper revision, revocation, purge, and consistency mechanics to
-  working recommendations or open details; clarified logical revision
-  visibility and episode-sourced facts without treating them as finalized
-  design.
-- **v0.3 (2026-07-15):** Added privileged purge semantics, live revocation over
-  frozen Run snapshots, retention-aware revocation, derived-lineage
-  invalidation, per-Space revision workspaces, compare-and-swap landing,
-  authorization-fingerprinted caches, governed semantic-fact transitions, and
-  cross-store recovery; narrowed Jujutsu and memory claims and synchronized
-  their evidence.
-- **v0.2 (2026-07-15):** Reframed Markdown as a source of record; separated
-  three durable stores from derived indexes; clarified page-level freshness and
-  the unresolved revision-policy thresholds; corrected Odysseus extraction
-  wording; added Jujutsu conflict, shared-filesystem, cleanup, canonical-Git,
-  and external-ingress constraints; completed processor-aware information flow,
-  Chat lineage filtering, pre-ranking authorization, and scoped revocation;
-  refreshed the Jujutsu evidence ledger.
-- **v0.1 (2026-07-15):** Initial synthesis of ten decisions, architecture
-  consequences, staged scope, open decisions, and the research evidence base.
+- **v0.32 (2026-07-15):** `shared` became the default child-Chat Workspace mode; copy-on-write `isolated` is an explicit request; concurrent shared writers stay open.
+- **v0.31 (2026-07-15):** Run-owned workspace replaced by a Chat-associated, domain-bound live Workspace; `shared` versus `isolated` became an immutable child-Chat creation choice; creation-time default and concurrent-writer details left open.
+- **v0.30 (2026-07-15):** Codex, Claude Code, and OpenCode workspace continuity verified against current docs and pinned source (live workspaces; snapshots for undo or cleanup; no per-turn rematerialization); the conflict with D-06 was recorded without changing the decision.
+- **v0.29 (2026-07-15):** **ask** pauses the same Run in an auditable `awaiting_approval` state with initial user approval; orchestrator/classifier `auto` approval deferred; executor suspension kept separate from the logical Run state.
+- **v0.28 (2026-07-15):** Child Runs inherit the initiating user's concrete tools and per-tool policies by default, mutating tools included, with attenuation and audit retained; routing an **ask** through the orchestrator separated from an explicit human-free `auto` policy.
+- **v0.27 (2026-07-15):** Limited each Chat to one active Run; steering or queued work routed explicitly; Best-of-N and Summary-of-N modeled as a parent Run orchestrating parallel isolated child Chats rather than concurrent Runs in one Chat.
+- **v0.26 (2026-07-15):** Workflow Chat routing made configurable: independent triggers may create new background Chats, while continuous processes may reuse a configured Chat and create a new Run there; defaults, correlation, and overlapping-trigger behavior left open.
+- **v0.25 (2026-07-15):** Every Run, including workflow, maintenance, and background work, must belong to a Chat and reuse one transcript/event/steering architecture; metadata may hide or nest non-interactive Chats without implying automatic context reuse.
+- **v0.24 (2026-07-15):** llame's internal Chat, Run, resource, revision, provenance, and audit model prioritized over speculative manual-integration semantics; orchestrated harnesses kept inside managed Runs; standalone API/MCP lifecycle and authentication details returned to an open decision.
+- **v0.23 (2026-07-15):** Completed child Chats stay unarchived and visible until a user or authorized orchestrator explicitly archives them; visual collapse, archival, transcript retention, workspace retention, and executor lifetime separated.
+- **v0.22 (2026-07-15):** Each child Chat got a persistent maximum delegation envelope rather than reusable authority; every Run intersects that ceiling with current initiator grants, Agent Profile limits, governing policy, and adapter capability; widening stays explicit and revocation live.
+- **v0.21 (2026-07-15):** Codex and Claude Code lifecycle behavior verified; Chat generalized as the persistent root-or-child conversation containing Runs; active steering stays inside the current Run; queued or post-terminal follow-ups start new Runs in the same Chat; continuation authority left open.
+- **v0.20 (2026-07-15):** Earlier agreed resolutions synchronized: permissions qualified by concrete integration tool; Home-managed and upstream-managed canonical refs separated; portable workflow definitions split from authority-bearing installations; Project associations steer rather than materialize recursively; channel policy axes defined; bounded, versioned self-improvement and explicit live context amendments allowed without self-expanding authority.
+- **v0.19 (2026-07-15):** Completed, failed, and cancelled Runs made immutable; later follow-ups modeled as linked continuation Runs; persistent external executor-session context separated from llame Run identity and authority.
+- **v0.18 (2026-07-15):** Humans, native subagents, workflows, tools, and external harnesses may contribute authenticated episodic events and durable memory changes; actor, time, approval, and lineage sealing reserved to the control plane; harness-reported detail distinguished from observed events.
+- **v0.17 (2026-07-15):** Per-Space authorization and cross-domain information-flow enforcement moved out of the initial personal Knowledge slice; user-to-user tenant isolation retained; early Spaces treated as organization, retrieval, and revision boundaries; calendar disclosure separated from KB access control.
+- **v0.16 (2026-07-15):** Run defined as one durable agentic turn containing potentially many model inferences, tools, child Runs, pauses, and execution segments; steering or resuming the same active logical Run distinguished from a new completed-chat turn.
+- **v0.15 (2026-07-15):** Authenticated event authorship separated from provider message roles; Run transcripts made explicitly multi-actor; authorized users may inspect and steer a child directly without changing its parentage or authority; parent notification and adapter-specific safe-boundary injection or segmented resume required.
+- **v0.14 (2026-07-15):** Self-improvement defined as visible, versioned changes to Home resources pinned per Run; instructions cannot expand their own authority; long-range self-maintenance changes an explicitly registered llame Project and opens a PR without self-merging or self-deploying.
+- **v0.13 (2026-07-15):** Future first-party llame API/MCP surface made genuinely read/write for external agents, allowing governed Project, Artifact, episode, fact, and Knowledge contributions, including policy-approved automatic landing, without bypassing provenance, revision, or audit paths.
+- **v0.12 (2026-07-15):** User machines defined as explicitly enrolled, outbound-connected Workers, not inbound remote shells; jobs constrained to attenuated Runs and registered roots; local policy, audit, revocation, and provider-egress boundaries preserved.
+- **v0.11 (2026-07-15):** Email and calendar unified with the normal connector and tool runtime; manual remote MCP viable first; first-party integrations reserved for managed OAuth and event ingestion without duplicating permissions, credentials, Runs, or audit.
+- **v0.10 (2026-07-15):** External channels fail closed: only senders mapped to llame users may create Runs; manual database/UI mappings allowed initially; username-based identity rejected; group-channel output separate from personal knowledge by default.
+- **v0.9 (2026-07-15):** Artifacts reduced to one lightweight versioned-file-tree abstraction; published versions immutable; single-file text/code UX Gist-like; Git allowed as an internal text/source mechanism without creating an Artifact taxonomy or storage configuration surface.
+- **v0.8 (2026-07-15):** Home made the canonical user content/configuration plane; Project directories and Knowledge Git repositories became imported sources; sandboxes limited to Project and Artifact working copies plus scratch; knowledge visibility reversed so the accepted Git ref is authoritative, with Postgres/index state reconciling from Home.
+- **v0.7 (2026-07-15):** Unattended workflows decided to execute as ordinary Runs under dedicated, explicitly granted service identities rather than borrowing their creator's authority; governing ownership, trigger input, human approval, and live revocation separated.
+- **v0.6 (2026-07-15):** Claude Code custom-agent reference model added; Agent Profiles, isolated Run invocations, optional scoped Agent Memory, and unattended service identities separated; native and external agents form bounded, auditable, authority-attenuating Run trees; the multi-tenant boundary is recorded: persistent memory stays principal-owned and governed.
+- **v0.5 (2026-07-15):** Tool-enabled chat made the independent first milestone; remote-first MCP scope, instance/user ownership, managed-connector evolution, per-tool allow/ask/deny policy, and web-search evaluation added; first-party Workspace storage separated from replaceable execution backends; provider/runtime evidence pass added.
+- **v0.4 (2026-07-15):** Agreed product choices kept as decisions; deeper revision, revocation, purge, and consistency mechanics explicitly demoted to working recommendations or open details; logical revision visibility and episode-sourced facts clarified as not finalized.
+- **v0.3 (2026-07-15):** Privileged purge semantics, live revocation over frozen Run snapshots, retention-aware revocation, derived-lineage invalidation, per-Space revision workspaces, compare-and-swap landing, authorization-fingerprinted caches, governed semantic-fact transitions, and cross-store recovery added; Jujutsu and memory claims narrowed and their evidence synchronized.
+- **v0.2 (2026-07-15):** Markdown reframed as a source of record; three durable stores separated from derived indexes; page-level freshness and unresolved revision-policy thresholds clarified; Odysseus extraction wording corrected; Jujutsu conflict, shared-filesystem, cleanup, canonical-Git, and external-ingress constraints added; processor-aware information flow, Chat lineage filtering, pre-ranking authorization, and scoped revocation completed; Jujutsu evidence ledger refreshed.
+- **v0.1 (2026-07-15):** Initial synthesis of ten decisions, architecture consequences, staged scope, open decisions, and the research evidence base.
 
 ## Bibliography
 
