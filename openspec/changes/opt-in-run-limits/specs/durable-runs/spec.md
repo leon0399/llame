@@ -31,18 +31,18 @@ Each run SHALL be enqueued as the job named by the run's own id (per `job-queue`
 - **WHEN** no worker is consuming the runs queue, a chat's run is still queued, and a different message is submitted
 - **THEN** the submission is rejected (409) and the queued run executes once a worker returns
 
-#### Scenario: Admission judges only the requesting owner's run
+#### Scenario: Another owner's run is never judged
 
-- **WHEN** an owner submits a message to a chat they own
-- **THEN** admission reads the job state of at most that chat's blocking run, and never reads, expires, or reveals another owner's run or job
+- **WHEN** a caller submits a message naming another owner's chat whose run is live or stuck
+- **THEN** the request is rejected as not found, no job state is read, and that run is neither expired nor revealed
 
 ### Requirement: A run never stays stuck, enforced without a cross-tenant reaper
 
 A run SHALL NOT remain non-terminal indefinitely, and its liveness SHALL be enforced with **no cross-tenant scan** — every liveness action runs either in-process on the executing worker or in the run owner's tenant scope. A run that keeps making progress SHALL have **no default limit** on its duration or step count: it ends when the model answers, when the owner cancels it, or by one of the mechanisms below. These mechanisms cover the failure modes:
 
 - **Optional in-process time budget** — when the operator configures `runs.timeoutSeconds`, a run that exceeds that wall-clock budget while its worker is alive SHALL be aborted in-process and recorded as a terminal `run.expired` (distinct from a user-requested `run.cancelled`). Without a configured budget, no wall-clock budget applies.
-- **Execution ceiling** — the executing worker SHALL end any run still executing 23 hours 55 minutes after it started, recording a terminal `run.expired` whose message names the execution ceiling rather than a configured budget. The ceiling SHALL fall before the `runs` queue's declared job duration (per `job-queue`), so the queue never fails and re-executes a live run from its beginning because of its age.
-- **Model stream idle watchdog** — while the worker reads a model's streamed response, a request that yields no streamed part for 300 seconds after it is sent, or for 300 seconds after its previous part, SHALL be aborted, and the run SHALL be recorded as terminally failed with the error code `model-stream-idle`. The watchdog SHALL measure only time spent waiting on the model's response; time spent executing tools SHALL never count toward it. It SHALL NOT retry the request.
+- **Execution ceiling** — the executing worker SHALL end any run still executing 23 hours 55 minutes after its current execution attempt started, recording a terminal `run.expired` whose message names the execution ceiling rather than a configured budget. The ceiling SHALL fall before the `runs` queue's declared job duration (per `job-queue`), so the queue never fails and re-executes a live run from its beginning because of its age.
+- **Model stream idle watchdog** — while the worker reads a model's streamed response, a request that yields no streamed part for 300 seconds after it is sent, or for 300 seconds after its previous part, SHALL be aborted, and the run SHALL be recorded as terminally failed with the error code `model_stream_idle` on the run's error and in its `run.failed` event. The watchdog SHALL measure only time spent waiting on the model's response; time spent executing tools SHALL never count toward it. It SHALL NOT retry the request.
 - **Worker-death recovery** — if the executing worker dies or hangs (stops signalling liveness), the run's job SHALL be detected as stalled by the `job-queue` substrate (see its native worker-liveness requirement) and retried, so a healthy worker re-executes the run rather than leaving it orphaned. Re-execution is safe because claiming and completion are crash-safe (single-flight, first-writer-wins).
 - **Tenant-scoped terminal expiry** — a run whose job exhausts its retries SHALL be settled to a terminal `run.expired` state in the run owner's tenant scope, via the queue's dead-letter path, with no cross-tenant scan.
 
@@ -60,14 +60,14 @@ There SHALL be no application-level liveness poll or per-run "deadman" job; nati
 
 #### Scenario: A run reaching the execution ceiling ends before the queue expires it
 
-- **WHEN** a run is still executing 23 hours 55 minutes after it started
+- **WHEN** a run is still executing 23 hours 55 minutes after its current execution attempt started
 - **THEN** the worker records a terminal `run.expired` whose message names the execution ceiling
 - **AND** the queue does not fail or retry the job
 
 #### Scenario: A stalled model stream fails the run
 
 - **WHEN** a model request yields no streamed part for 300 seconds, before its first part or between two parts
-- **THEN** the request is aborted and the run is recorded as terminally failed with error code `model-stream-idle`
+- **THEN** the request is aborted and the run is recorded as terminally failed with error code `model_stream_idle`
 - **AND** the parts observed before the stall remain in the run's record and the request is not retried
 
 #### Scenario: A long tool call does not trip the stream watchdog

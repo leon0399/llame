@@ -8,11 +8,10 @@ None of the nine reference harnesses surveyed for #1038 caps a turn at minutes. 
 
 ## What Changes
 
-- **BREAKING (operator defaults):** `runs.timeoutSeconds` and `tools.maxStepsPerRun` are unlimited by default. Each accepts `null` (unlimited) or a positive integer. An operator who relied on the old 900 s or 100-step defaults now sets them explicitly. Explicitly configured values keep working unchanged.
+- **BREAKING (operator defaults):** `runs.timeoutSeconds` and `tools.maxStepsPerRun` are unlimited by default. Each accepts `null` (unlimited) or a positive integer. An operator who relied on the old 900 s or 100-step defaults now sets them explicitly. Explicitly configured values keep working unchanged, including the old limits written into every configuration copied from the example, which the operator must remove to get the new defaults.
 - The `runs` queue declares a job expiry just under pg-boss's 24 h ceiling. The worker ends a Run at a fixed ceiling below that expiry, recording `run.expired` with a message that names the ceiling. The queue substrate therefore never fails and retries a live Run from scratch. A configured `runs.timeoutSeconds` above the ceiling fails startup.
 - Admission decides whether a blocking Run is dead from its queue job's state, not from the Run's age. Each Run is enqueued as the job whose id is the Run id. A new message gets 409 while that job is queued, retrying, or active. The blocking Run is expired only when its job is absent or already settled, beyond a short enqueue grace window.
-- Each model request gets a stream-idle watchdog: 300 s before the first streamed part and 300 s between parts, measured only while the provider response is being read. When it fires, the provider request is aborted and the Run fails with a named `model-stream-idle` error. There is no automatic retry.
-- A system-origin read (skill activation, accepted-turn instructions) takes its deadline from `tools.callTimeoutSeconds`, like every other tool call, instead of from the Run budget.
+- Each model request gets a stream-idle watchdog: 300 s before the first streamed part and 300 s between parts, measured only while the provider response is being read. When it fires, the provider request is aborted and the Run fails with the error code `model_stream_idle`. There is no automatic retry.
 
 ## Capabilities
 

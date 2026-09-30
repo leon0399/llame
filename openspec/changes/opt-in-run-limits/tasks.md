@@ -18,22 +18,23 @@ Use `$openspec-apply-change` for the implementation commits.
 
 ## 1. Proposal
 
-- [ ] 1.1 Commit the proposal, design, delta specs, and this task list. Verify with `pnpm exec openspec validate opt-in-run-limits --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
-- [ ] 1.2 Run `$iterative-review-refinement` with at least two independent reviewers. Verify each finding against the code or specs, and commit each round separately.
-- [ ] 1.3 Record Leo's approval of the final proposal revision before any implementation commit.
+- [x] 1.1 Commit the proposal, design, delta specs, and this task list. Verify with `pnpm exec openspec validate opt-in-run-limits --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] 1.2 Run `$iterative-review-refinement` with at least two independent reviewers. Verify each finding against the code or specs, and commit each round separately.
+- [x] 1.3 Record Leo's approval of the final proposal revision before any implementation commit. Leo approved the revision after the first review round on 2026-09-30 ("after this review round - done").
 
 ## 2. Implementation
 
 - [ ] 2.1 Make the Run limits opt-in (design D1):
   - `runs.timeoutSeconds` and `tools.maxStepsPerRun` become `number | null`, default `null`, across the types, loader, published schema, example config, and `.env.example`.
   - `0`, negative, and fractional values fail startup, as does a `runs.timeoutSeconds` at or above the execution ceiling.
-  - Verify with `config-loader.test.ts` and `schema.test.ts`: absent and `null` resolve to `null`, and each rejected value names its path.
-- [ ] 2.2 Remove the default step cap from the model clients (design D1). `maxSteps: null` sets a `stopWhen` that never fires, never calls `onCapReached`, and records no cap marker. A configured cap keeps today's behaviour. Verify with unit tests for both paths in the shared tool-calling helper, and extend `run-execution-tools.integration.test.ts` with an uncapped Run that exceeds 100 steps' worth of fake tool turns.
+  - The example config uses `"timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-}"` and omits `maxStepsPerRun`.
+  - Verify with `config-loader.test.ts` and `schema.test.ts`: absent, `null`, and an empty-resolving token resolve to `null`; the committed example loads with both limits `null`; each rejected value names its path.
+- [ ] 2.2 Remove the default step cap from the model clients (design D1). `maxSteps: null` sets a `stopWhen` that never fires, keeps `prepareStep` forwarding `onStepStart` and its messages override, never calls `onCapReached`, and records no cap marker; clients pass `include: { requestBody: false }`. A configured cap keeps today's behaviour. Verify with unit tests that drive the production `applyToolCallingOptions` through a `MockLanguageModelV3`: an uncapped loop runs more than 100 tool steps with `onStepStart` firing on each, and a configured cap still stops. Update the test-only mock clients that copy `maxSteps ?? 8` (`run-execution-tools.integration.test.ts`, `scripted-model-client.ts`, `mcp-operator.integration.test.ts`, `run-usage-accounting.integration.test.ts`) to treat `null` as uncapped.
 - [ ] 2.3 Declare the runs queue's job duration and the worker's execution ceiling (design D2):
   - `QueueOptions.expireInSeconds` passes through `ensureQueue`'s create and update calls, and `runsQueueDefinition` declares 86,399 s.
-  - The worker's timer is `min(timeoutSeconds ?? ∞, 86,100 s)`, with a distinct `run-ceiling` abort reason classified `expired` with the ceiling message.
-  - A system-origin read takes its deadline from `tools.callTimeoutSeconds`.
-  - Verify with `pgboss-queue.service.test.ts` (the option shapes), `run-queues.test.ts`, `run-execution.service.test.ts` (the classification and message), and a `queue.integration.test.ts` case where a handler outlives its default expiry.
+  - The worker's per-attempt timer is `min(timeoutSeconds ?? ∞, 86,100 s)`, with a distinct `run-ceiling` abort reason classified `expired`. Every site that writes the expired message chooses it from the abort reason.
+  - Delete the dead `timeoutMs` in `buildSystemReadContext`.
+  - Verify with `pgboss-queue.service.test.ts` (the option shapes, and undeclared queues carry no `expireInSeconds`), `run-queues.test.ts`, `run-execution.service.test.ts` (the budget and ceiling messages at each writing site), and a `queue.integration.test.ts` case where a queue first created without an expiry is re-declared with one and a job enqueued afterwards reports that `expireInSeconds` through `getJobById`.
 - [ ] 2.4 Name each Run's job after the Run and judge admission by job state (design D3):
   - `Queue.enqueue` accepts `id`, and `Queue.jobState` returns the mapped state without the payload.
   - Dispatch enqueues with `id: runId`, `clearActiveRunSlot` applies the D3 table, and `stuckRunThresholdMs` is deleted.
@@ -46,7 +47,8 @@ Use `$openspec-apply-change` for the implementation commits.
     - **negative isolation:** another owner's Chat id neither expires that owner's live Run nor reaches `jobState`.
 - [ ] 2.5 Add the stream-idle watchdog middleware (design D4):
   - It is applied by every model client beside the usage callback.
-  - It arms before `doStream()`, resets on each provider part, and aborts with `model-stream-idle`.
+  - It calls `model.doStream` with a linked abort signal, arms before that call, resets on each provider part, and fails with `ModelStreamIdleError` (`model_stream_idle`) both before headers and mid-stream.
+  - Every client's error sanitizer passes `ModelStreamIdleError` through.
   - Run execution records the Run as terminally `failed` and keeps the observed parts, and the job succeeds without a retry.
   - Verify with unit tests using fake timers:
     - a stalled first part fires;
@@ -54,7 +56,7 @@ Use `$openspec-apply-change` for the implementation commits.
     - steady parts do not fire;
     - an aborted Run clears the timer;
     - a tool running longer than 300 s between two requests does not fire.
-  - Add one `run-execution` test proving the terminal `failed` state and the error code.
+  - Verify through the real Anthropic and Codex sanitizers that the error keeps its code, and add one `run-execution` test proving the terminal `failed` state, `error.code`, and the `run.failed` payload code.
 - [ ] 2.6 Update the docs:
   - `docs/scaling.md`: Run limits, the execution ceiling, and the stream watchdog.
   - `CHANGELOG.md`: a dated entry marked **Breaking** for the defaults.

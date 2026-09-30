@@ -4,7 +4,7 @@
 
 A queue MAY require an in-flight job to signal **liveness**: the consuming worker SHALL signal it **automatically** while its handler runs (no application heartbeat code), and if the signal lapses beyond a bounded interval — the worker crashed, was killed, hung, or shut down without draining — the substrate SHALL fail and retry the job under the queue's retry/dead-letter policy. A long-running handler SHALL keep the job alive for its full duration without application code; detection SHALL require **no external reaper or per-job liveness-poll**. This makes worker-death recovery a property of the substrate, available to any consumer that opts into it.
 
-A queue SHALL declare the longest a single job may stay active. The substrate SHALL NOT fail a live, liveness-signalling job for its age before that declared duration elapses, and its own default job expiry SHALL NOT apply in its place. A declared duration at or above the substrate's own ceiling SHALL fail queue declaration at startup rather than being silently shortened.
+A queue MAY declare the longest a single job may stay active. When it does, the substrate SHALL NOT fail a live, liveness-signalling job for its age before that declared duration elapses, and its own default job expiry SHALL NOT apply in its place. A queue that declares none keeps the substrate's default.
 
 #### Scenario: A dead worker's job is retried
 
@@ -15,11 +15,6 @@ A queue SHALL declare the longest a single job may stay active. The substrate SH
 
 - **WHEN** a handler legitimately runs for far longer than the liveness interval, and for longer than the substrate's default job expiry, but within its queue's declared duration
 - **THEN** the job is not failed — the worker's automatic liveness signal keeps it claimed for the handler's full duration
-
-#### Scenario: A declared duration above the substrate ceiling fails startup
-
-- **WHEN** a queue declares a job duration at or above the substrate's ceiling
-- **THEN** the queue declaration fails at startup naming the queue, and no shorter duration is substituted
 
 ## ADDED Requirements
 
@@ -40,4 +35,4 @@ A producer SHALL be able to enqueue a job under an identifier it chooses, unique
 #### Scenario: A reused identifier does not duplicate work
 
 - **WHEN** a producer enqueues a second job under an identifier the queue already holds
-- **THEN** no second job is created and exactly one handler execution is ever offered for that identifier
+- **THEN** no second job is created, the enqueue reports that nothing was created, and the existing job's state and payload are unchanged
