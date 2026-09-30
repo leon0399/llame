@@ -9152,4 +9152,98 @@ describe('RunExecutionService instruction files', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("replaces the first build's staged item when the rebuilt history changes the bundle", async () => {
+    // The seen keys the walk produces are canonical, so the history item that
+    // names the root file must be canonical too.
+    const root = realpathSync(instructionsRoot());
+    const baseFile = path.join(root, 'AGENTS.md');
+    const localFile = path.join(root, 'AGENTS.local.md');
+    writeFileSync(localFile, 'local overrides\n');
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      let contextWindowTokens = 1;
+      const captured: CapturedStream = {};
+      const base = createFakeModelClient(['answer']);
+      const mutableClient: ModelClient = {
+        ...base,
+        get contextWindowTokens() {
+          return contextWindowTokens;
+        },
+        streamText: (options) => {
+          captured.options = options;
+          return base.streamText(options);
+        },
+      };
+      const execution = makeExecutionService(
+        mutableClient,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+      // The first build's history names the base file, so the accepted turn
+      // stages the local file alone. The rebuilt history, read after the
+      // transition compaction, names nothing — and the bundle recomputed
+      // against it adds the base file back, so it must replace the first
+      // build's item in place.
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId')
+        .mockResolvedValueOnce([
+          { ...userMessage, parts: [instructionItem(root)] },
+        ])
+        .mockResolvedValue([userMessage]);
+      execution.compactForTransition.mockImplementation(() => {
+        contextWindowTokens = 128_000;
+        return Promise.resolve('created' as const);
+      });
+
+      const result = await execution.service.executeRun({
+        ...executionInput(mutableClient),
+        userMessage: {
+          id: messageId,
+          seq: 1,
+          parts: [
+            createModelChangeItem({
+              oldModel: { id: 'old-model' },
+              newModel: { id: 'fake-model' },
+              runId,
+            }),
+          ],
+        },
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(execution.compactForTransition).toHaveBeenCalledTimes(1);
+      // The only model call is the rebuilt request. The recomputed bundle is
+      // both root files: the first build's item named the local file alone,
+      // so a surviving copy of it would make the local file appear twice.
+      const prompt = JSON.stringify(captured.options?.messages);
+      expect(prompt).toContain('run the tests');
+      expect(prompt).toContain('local overrides');
+      expect(prompt.split(baseFile)).toHaveLength(2);
+      expect(prompt.split(localFile)).toHaveLength(2);
+      // The first build's item was replaced in place, not added to: the turn
+      // stages one instructions item, and it is the recomputed one — the only
+      // one that names the base file.
+      expect(
+        stagedProducers(repositories).filter(
+          (producer) => producer === 'instructions',
+        ),
+      ).toHaveLength(1);
+      const staged = stagedInstructionPart(repositories);
+      expect(staged?.data.text).toContain('run the tests');
+      expect(staged?.data.text).toContain('local overrides');
+      // The Run record mirrors the request: one item, the recomputed one.
+      await vi.waitFor(() =>
+        expect(repositories.recordContextItems).toHaveBeenCalled(),
+      );
+      const items = instructionItems(repositories);
+      expect(items).toHaveLength(1);
+      expect(items[0]?.text).toContain('run the tests');
+      expect(items[0]?.text).toContain('local overrides');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
