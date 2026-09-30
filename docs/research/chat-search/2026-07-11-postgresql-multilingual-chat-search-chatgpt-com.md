@@ -22,19 +22,15 @@ Build chat search as a **derived search projection** inside PostgreSQL:
 
 1. Keep `chats` and `messages` as the canonical application data.
 2. Convert each chat into overlapping, contextual **search documents** made from multiple adjacent messages.
-3. Index each search document with:
-   - PostgreSQL full-text search using the language-neutral `simple` configuration;
-   - `pg_trgm` for typo and partial-match recovery;
-   - a multilingual embedding stored with pgvector.
+3. Index each search document with PostgreSQL full-text search using the language-neutral `simple` configuration, `pg_trgm` for typo and partial-match recovery, and a multilingual embedding stored with pgvector.
 4. Retrieve candidates independently from lexical, trigram, and vector search.
 5. Merge candidates with **Reciprocal Rank Fusion (RRF)**.
 6. Aggregate document matches into ranked chats.
-7. Generate embeddings asynchronously through a provider-neutral NestJS interface.
-8. Use OpenAI Batch, another hosted provider, or a local embedding worker as interchangeable backends.
-9. Start with exact vector search inside each user's filtered dataset. Add HNSW only after measurements show that exact search is too slow.
-10. Do not require language detection for indexing or querying.
+7. Generate embeddings asynchronously through a provider-neutral NestJS interface; use OpenAI Batch, another hosted provider, or a local embedding worker as interchangeable backends.
+8. Start with exact vector search inside each user's filtered dataset. Add HNSW only after measurements show that exact search is too slow.
+9. Do not require language detection for indexing or querying.
 
-The resulting architecture is PostgreSQL-native and does not depend on Elasticsearch, Qdrant, Supabase, OpenAI, or any particular embedding model.
+No dependency on Elasticsearch, Qdrant, Supabase, OpenAI, or any particular embedding model.
 
 ---
 
@@ -42,30 +38,9 @@ The resulting architecture is PostgreSQL-native and does not depend on Elasticse
 
 Neither lexical search nor embeddings are sufficient alone.
 
-### Lexical search is strongest for
-
-- exact names;
-- identifiers such as `SVM-1842`, UUIDs, error codes, and package names;
-- URLs and filenames;
-- quoted phrases;
-- code symbols;
-- queries where the user remembers the original wording.
-
-### Embeddings are strongest for
-
-- paraphrases;
-- conceptual queries;
-- vague recollections;
-- cross-language retrieval;
-- questions whose wording differs from the original conversation.
-
-### Trigram matching is useful for
-
-- spelling errors;
-- incomplete words;
-- transliteration differences;
-- unusual names;
-- words that are not handled well by token-based full-text search.
+- **Lexical search** is strongest for exact names; identifiers such as `SVM-1842`, UUIDs, error codes, and package names; URLs and filenames; quoted phrases; code symbols; and queries where the user remembers the original wording.
+- **Embeddings** are strongest for paraphrases, conceptual queries, vague recollections, cross-language retrieval, and questions whose wording differs from the original conversation.
+- **Trigram matching** covers spelling errors, incomplete words, transliteration differences, unusual names, and words poorly handled by token-based full-text search.
 
 Run these retrieval methods independently and fuse their **ranks**, rather than trying to combine incompatible raw scores.
 
@@ -73,9 +48,7 @@ Run these retrieval methods independently and fuse their **ranks**, rather than 
 
 ## 3. Search the conversation in contextual windows
 
-Do not embed only individual messages and do not embed an entire chat as one vector.
-
-A single message often lacks context:
+Do not embed only individual messages, and do not embed an entire chat as one vector. A single message often lacks context:
 
 ```text
 [user]
@@ -85,9 +58,7 @@ Does it support that?
 Yes, but only with PostgreSQL 18.
 ```
 
-An entire chat may contain many unrelated subjects, producing a weak averaged representation.
-
-Instead, create contextual documents containing several adjacent messages:
+An entire chat may contain many unrelated subjects, producing a weak averaged representation. Instead, create contextual documents containing several adjacent messages:
 
 ```text
 [user]
@@ -105,9 +76,7 @@ Yes. Store the embedding model metadata separately and access providers through 
 
 ### Recommended chunking policy
 
-Use message boundaries rather than cutting arbitrary text.
-
-A practical initial policy:
+Use message boundaries rather than cutting arbitrary text. A practical initial policy:
 
 - target approximately 300–800 tokens;
 - use a conservative character cap if the core chunker must remain tokenizer-independent;
@@ -122,14 +91,7 @@ The embedding backend may expose an optional tokenizer or maximum input size, bu
 
 ### Re-indexing policy
 
-For the first implementation, rebuilding all chunks for a dirty chat is usually simpler and reliable. Only changed chunks need new embeddings because their content hashes will differ.
-
-Later, append-only chats can be optimized by rebuilding only:
-
-- the final existing chunk;
-- any new chunks created after it.
-
-Edits and deletions should rebuild every chunk that overlaps the affected messages.
+For the first implementation, rebuilding all chunks for a dirty chat is usually simpler and reliable. Only changed chunks need new embeddings because their content hashes will differ. Later, append-only chats can be optimized by rebuilding only the final existing chunk and any new chunks created after it. Edits and deletions should rebuild every chunk that overlaps the affected messages.
 
 ---
 
@@ -150,7 +112,7 @@ An optional extension such as PGroonga can be introduced later for languages req
 
 ## 5. Search projection schema
 
-The following schema is intentionally separate from the canonical `messages` table.
+The projection is intentionally separate from the canonical `messages` table.
 
 ### 5.1 Search documents
 
@@ -187,16 +149,9 @@ CREATE TABLE search_documents (
 
 `owner_id` represents the search-security boundary. It may instead be a `workspace_id`, `tenant_id`, or another scope used by the application.
 
-`normalized_content` should be created in application code using deterministic normalization, for example:
+`normalized_content` should be created in application code with deterministic normalization: Unicode NFKC, normalized newlines, collapsed repeated whitespace, lowercase where appropriate, accents preserved by default, and code, identifiers, and URLs preserved.
 
-- Unicode NFKC;
-- normalized newlines;
-- collapsed repeated whitespace;
-- lowercase where appropriate;
-- preservation of accents by default;
-- preservation of code, identifiers, and URLs.
-
-Do not automatically transliterate all text or strip accents globally. Those operations can merge distinct words and degrade non-English search.
+Do not transliterate all text or strip accents globally. Those operations can merge distinct words and degrade non-English search.
 
 ### 5.2 Search-document indexes
 
@@ -255,11 +210,7 @@ multilingual-search-v1
 multilingual-search-v2
 ```
 
-The rest of the application should use this internal key, not a provider's public model name.
-
-Store separate document and query prefixes because some embedding families expect asymmetric inputs such as `query:` and `passage:`.
-
-Only one model normally needs to be active for user queries, while another model may be backfilled and evaluated in parallel.
+The rest of the application should use this internal key, not a provider's public model name. Store separate document and query prefixes because some embedding families expect asymmetric inputs such as `query:` and `passage:`. Only one model normally needs to be active for user queries, while another model may be backfilled and evaluated in parallel.
 
 ---
 
@@ -308,11 +259,7 @@ This prevents a delayed batch result from overwriting a newer document version a
 
 ## 8. Exact vector search first
 
-pgvector performs exact nearest-neighbor search without an approximate index.
-
-For user-specific chat search, the `owner_id` filter may reduce the searchable set to thousands or tens of thousands of documents. Exact search can be simpler, perfectly accurate, and fast enough.
-
-Start with:
+pgvector performs exact nearest-neighbor search without an approximate index. For user-specific chat search, the `owner_id` filter may reduce the searchable set to thousands or tens of thousands of documents, where exact search is simpler, perfectly accurate, and fast enough. Start with:
 
 ```sql
 SELECT
@@ -326,13 +273,11 @@ ORDER BY embedding <=> $3::vector
 LIMIT 100;
 ```
 
-Benchmark this before introducing HNSW.
+Benchmark this before introducing HNSW. Do not add HNSW automatically merely because vectors are present; measure exact-search latency first.
 
 ### When to add HNSW
 
-Add HNSW when production measurements show unacceptable query latency or CPU usage.
-
-Because the column supports multiple dimensions, create one partial expression index per searchable model:
+Add HNSW when production measurements show unacceptable query latency or CPU usage. Because the column supports multiple dimensions, create one partial expression index per searchable model:
 
 ```sql
 CREATE INDEX CONCURRENTLY search_embeddings_multilingual_v1_hnsw
@@ -363,8 +308,6 @@ For filtered approximate search, enable iterative scans for the transaction:
 SET LOCAL hnsw.iterative_scan = strict_order;
 ```
 
-Do not add HNSW automatically merely because vectors are present. Measure exact-search latency first.
-
 ---
 
 ## 9. Language strategy
@@ -383,19 +326,7 @@ and:
 websearch_to_tsquery('simple', query)
 ```
 
-This avoids incorrect assumptions about a message having exactly one language.
-
-Language detection is unreliable for:
-
-- short messages;
-- mixed-language messages;
-- code-heavy content;
-- proper names;
-- product names;
-- transliterated text;
-- chats that switch language repeatedly.
-
-A multilingual embedding model supplies semantic and cross-language recall, while `simple` FTS preserves exact word forms.
+This avoids incorrect assumptions about a message having exactly one language. Language detection is unreliable for short messages, mixed-language messages, code-heavy content, proper names, product names, transliterated text, and chats that switch language repeatedly. A multilingual embedding model supplies semantic and cross-language recall, while `simple` FTS preserves exact word forms.
 
 ### Known limitation
 
@@ -421,7 +352,7 @@ The query embedding must use the same model revision and query-prefix convention
 
 ### Candidate sizes
 
-Reasonable initial values:
+Reasonable initial values, to be tuned with relevance tests rather than intuition:
 
 ```text
 Lexical candidates: 100
@@ -430,15 +361,11 @@ Trigram candidates: 30–50
 Final chats: 20
 ```
 
-Tune these values with relevance tests rather than intuition.
-
 ---
 
 ## 11. Reciprocal Rank Fusion
 
-Do not mix raw cosine similarity, trigram similarity, and `ts_rank_cd` with a weighted sum. Their numeric scales are unrelated and change across datasets.
-
-Use RRF:
+Do not mix raw cosine similarity, trigram similarity, and `ts_rank_cd` with a weighted sum: their numeric scales are unrelated and change across datasets. Use RRF:
 
 ```text
 rrf_score =
@@ -447,7 +374,7 @@ rrf_score =
   + trigram_weight / (k + trigram_rank)
 ```
 
-A suitable starting point is:
+A suitable starting point, not a set of universal constants:
 
 ```text
 k = 60
@@ -455,8 +382,6 @@ lexical_weight = 1.0
 vector_weight = 1.0
 trigram_weight = 0.35
 ```
-
-These are starting values, not universal constants.
 
 ---
 
@@ -635,11 +560,7 @@ LIMIT 20;
 
 ### Why aggregate only a few documents
 
-Using only `MAX(document_score)` makes chat ranking unstable around one accidental match.
-
-Summing every matching document unfairly favors long chats.
-
-A weighted top-three aggregation is a useful compromise:
+Using only `MAX(document_score)` makes chat ranking unstable around one accidental match, and summing every matching document unfairly favors long chats. A weighted top-three aggregation is a useful compromise, to be tuned with evaluation data:
 
 ```text
 best result        × 1.00
@@ -735,9 +656,7 @@ LocalOnnxEmbeddingBackend
 LocalHttpEmbeddingBackend
 ```
 
-Provider-specific request formats belong inside these adapters.
-
-The search service should depend on an injection token:
+Provider-specific request formats belong inside these adapters, and the search service should depend on an injection token:
 
 ```ts
 export const EMBEDDING_BACKEND = Symbol("EMBEDDING_BACKEND");
@@ -832,15 +751,7 @@ Use a lease timeout so another worker can reclaim rows abandoned by a crashed pr
 
 ## 16. Delayed batch embeddings
 
-The indexing system should support both synchronous and delayed document embedding.
-
-A hosted Batch API is appropriate because:
-
-- document embeddings are not on the request latency path;
-- the recent-chats UI already exposes newly created conversations;
-- a 24-hour search-index delay is acceptable;
-- batch processing can be less expensive;
-- the same job model can support hosted or local batch workers.
+The indexing system should support both synchronous and delayed document embedding. A hosted Batch API is appropriate because document embeddings are not on the request latency path, the recent-chats UI already exposes newly created conversations, a 24-hour search-index delay is acceptable, batch processing can be less expensive, and the same job model can support hosted or local batch workers.
 
 ### Generic batch state
 
@@ -950,40 +861,11 @@ SearchModule
 
 Suggested responsibilities:
 
-### `ChatSearchService`
-
-- validates the query;
-- obtains the active model;
-- generates the query embedding;
-- executes the hybrid SQL;
-- formats snippets and result metadata.
-
-### `SearchProjectionService`
-
-- loads messages;
-- chunks conversations;
-- normalizes text;
-- calculates content hashes;
-- upserts and deletes search documents.
-
-### `SearchIndexWorker`
-
-- claims dirty chats;
-- rebuilds projections;
-- creates embedding work.
-
-### `EmbeddingBatchWorker`
-
-- builds provider batches;
-- submits them;
-- polls their state;
-- validates and persists results.
-
-### `EmbeddingModelRegistry`
-
-- resolves the active model;
-- provides dimensions and prefixes;
-- prevents querying an index with an incompatible model.
+- `ChatSearchService` — validates the query; obtains the active model; generates the query embedding; executes the hybrid SQL; formats snippets and result metadata.
+- `SearchProjectionService` — loads messages; chunks conversations; normalizes text; calculates content hashes; upserts and deletes search documents.
+- `SearchIndexWorker` — claims dirty chats; rebuilds projections; creates embedding work.
+- `EmbeddingBatchWorker` — builds provider batches; submits them; polls their state; validates and persists results.
+- `EmbeddingModelRegistry` — resolves the active model; provides dimensions and prefixes; prevents querying an index with an incompatible model.
 
 NestJS `@nestjs/schedule` is sufficient for periodic polling and job claiming. In a multi-instance deployment, workers must still coordinate through row locks or advisory locks.
 
@@ -991,18 +873,7 @@ NestJS `@nestjs/schedule` is sufficient for periodic polling and job claiming. I
 
 ## 18. Drizzle ORM strategy
 
-Use Drizzle for normal schema and application queries, but do not force every PostgreSQL-specific feature into the TypeScript schema DSL.
-
-Use raw SQL migrations for:
-
-- `CREATE EXTENSION`;
-- generated `tsvector` columns;
-- partial expression HNSW indexes;
-- PostgreSQL search functions;
-- custom constraints involving `vector_dims`;
-- advanced `WITH` queries used for rank fusion.
-
-This keeps migrations explicit and reviewable.
+Use Drizzle for normal schema and application queries, but do not force every PostgreSQL-specific feature into the TypeScript schema DSL. Use raw SQL migrations for `CREATE EXTENSION`, generated `tsvector` columns, partial expression HNSW indexes, PostgreSQL search functions, custom constraints involving `vector_dims`, and advanced `WITH` queries used for rank fusion. This keeps migrations explicit and reviewable.
 
 A NestJS repository can call the hybrid query through Drizzle:
 
@@ -1021,12 +892,7 @@ const rows = await db.execute(sql`
 `);
 ```
 
-Wrapping the hybrid SQL in a PostgreSQL function is optional but useful when:
-
-- the query is large;
-- multiple application services need it;
-- SQL-level tests are desirable;
-- query-plan stability matters.
+Wrapping the hybrid SQL in a PostgreSQL function is optional but useful when the query is large, multiple application services need it, SQL-level tests are desirable, or query-plan stability matters.
 
 Keep authorization arguments explicit even when row-level security is also enabled.
 
@@ -1034,9 +900,7 @@ Keep authorization arguments explicit even when row-level security is also enabl
 
 ## 19. Model migration
 
-Never overwrite old vectors in place when changing models.
-
-Use this migration process:
+Never overwrite old vectors in place when changing models. Use this migration process:
 
 1. register the new model as enabled but not active;
 2. build its partial HNSW index only if approximate search is needed;
@@ -1054,9 +918,7 @@ Changing a provider without changing the model semantics may still require a new
 
 ## 20. Security and deletion
 
-Every search path must enforce the same authorization rules as ordinary chat access.
-
-Requirements:
+Every search path must enforce the same authorization rules as ordinary chat access. Requirements:
 
 - filter by `owner_id`, tenant, workspace, project, or ACL inside every candidate CTE;
 - never retrieve globally and filter results in application code;
@@ -1073,9 +935,7 @@ For complex sharing, a single `owner_id` may be insufficient. Replace it with a 
 
 ## 21. Relevance evaluation
 
-Build a small, versioned evaluation dataset before tuning weights.
-
-Include queries covering:
+Build a small, versioned evaluation dataset before tuning weights. Include queries covering:
 
 - exact phrases;
 - names and identifiers;
@@ -1091,18 +951,7 @@ Include queries covering:
 - old and recent conversations;
 - long chats containing several subjects.
 
-For every query, label relevant chats and optionally relevance grades.
-
-Track:
-
-- Recall@10;
-- MRR;
-- nDCG@10;
-- zero-result rate;
-- latency p50 and p95;
-- query-embedding latency;
-- exact-versus-HNSW recall;
-- proportion of results contributed by each retriever.
+For every query, label relevant chats and optionally relevance grades. Track Recall@10, MRR, nDCG@10, zero-result rate, latency p50 and p95, query-embedding latency, exact-versus-HNSW recall, and the proportion of results contributed by each retriever.
 
 Evaluate retrieval changes before changing RRF weights, chunk sizes, models, or candidate counts.
 
@@ -1110,18 +959,7 @@ Evaluate retrieval changes before changing RRF weights, chunk sizes, models, or 
 
 ## 22. Performance progression
 
-### Initial implementation
-
-Use:
-
-- native `simple` FTS;
-- `pg_trgm`;
-- exact pgvector search filtered by owner;
-- RRF;
-- PostgreSQL-backed jobs;
-- delayed batch document embeddings.
-
-This is the simplest production-capable version.
+The initial implementation is native `simple` FTS, `pg_trgm`, exact pgvector search filtered by owner, RRF, PostgreSQL-backed jobs, and delayed batch document embeddings. This is the simplest production-capable version.
 
 ### Add HNSW when
 
@@ -1228,8 +1066,6 @@ Interactive query
                     ▼
        ranked chats with snippets
 ```
-
-This design keeps PostgreSQL as the only required datastore, supports multilingual and mixed-language conversations, allows delayed low-cost indexing, and permits embedding providers or lexical engines to be replaced without redesigning the search domain.
 
 ---
 
