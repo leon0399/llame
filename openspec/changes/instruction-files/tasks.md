@@ -77,9 +77,9 @@ Re-estimate authored size at each layer boundary and before publication; split a
       focused integration files touched above, `pnpm format:check`, `pnpm lint:markdown`,
       `git diff --check`, and `pnpm exec openspec validate instruction-files --strict`; record
       the commands in the PR body.
-- [ ] 1.6 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix accepted
+- [x] 1.6 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix accepted
       findings, and rerun affected checks before marking ready.
-- [ ] 1.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
+- [x] 1.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
       and zero actionable unresolved feedback before adding the `loading` layer.
 
 ## 2. `instruction-files/loading`: probe, chains, walk, reader, and template
@@ -123,9 +123,9 @@ Re-estimate authored size at each layer boundary and before publication; split a
       integration files touched above, `pnpm format:check`, `git diff --check`, and
       `pnpm exec openspec validate instruction-files --strict`; record the commands in the PR
       body.
-- [ ] 2.6 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 2.6 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 2.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 2.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `producer`.
 
 ## 3. `instruction-files/producer`: in-Run loading
@@ -162,9 +162,9 @@ Re-estimate authored size at each layer boundary and before publication; split a
       integration files touched above, `pnpm format:check`, `git diff --check`, and
       `pnpm exec openspec validate instruction-files --strict`; record the commands in the PR
       body.
-- [ ] 3.5 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 3.5 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 3.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 3.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `turn-load`.
 
 ## 4. `instruction-files/turn-load`: the accepted-turn root load
@@ -182,9 +182,9 @@ Re-estimate authored size at each layer boundary and before publication; split a
       integration files touched above, `pnpm format:check`, `git diff --check`, and
       `pnpm exec openspec validate instruction-files --strict`; record the commands in the PR
       body.
-- [ ] 4.4 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 4.4 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 4.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 4.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `owner-chip`.
 
 ## 5. `instruction-files/owner-chip`: owner disclosure and docs
@@ -203,9 +203,9 @@ Re-estimate authored size at each layer boundary and before publication; split a
       `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate instruction-files --strict`; record the commands in the PR
       body, which uses `Refs #975`.
-- [ ] 5.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 5.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 5.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 5.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `knowledge`.
 
 ## 6. `instruction-files/knowledge`: Knowledge locator loading
@@ -247,19 +247,19 @@ Re-estimate authored size at each layer boundary and before publication; split a
       `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate instruction-files --strict`; record the commands in the PR
       body, which uses `Closes #975`.
-- [ ] 6.5 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 6.5 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 6.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 6.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `finalize`.
 
 ## 7. `instruction-files/finalize`: spec sync and archive
 
-- [ ] 7.1 After every implementation layer is published, verified, and checked, create only the
+- [x] 7.1 After every implementation layer is published, verified, and checked, create only the
       finalize layer with `$gh-stack`, then run `$openspec-sync-specs`. Verify
       `pnpm exec openspec validate --specs --strict` and
       `pnpm exec openspec validate --all --strict`; this layer contains no application fix and
       no shipping record.
-- [ ] 7.2 Inspect `pnpm exec openspec status --change instruction-files --json` and this task
+- [x] 7.2 Inspect `pnpm exec openspec status --change instruction-files --json` and this task
       list; stop if an artifact or earlier task is incomplete. Complete this task as part of
       `$openspec-archive-change`, preserving checked history, and verify strict specs/all
       validation, Markdown lint, formatting, and `git diff --check` on the archived result.
