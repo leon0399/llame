@@ -51,8 +51,9 @@ _Alternatives:_ no worker-side ceiling, letting pg-boss expire the job. Rejected
 | queued, retrying, active             | any                           | live: 409                                                   |
 | absent                               | under `runs.heartbeatSeconds` | live: 409 (the enqueue may still be in flight after commit) |
 | absent, completed, failed, cancelled | otherwise                     | stuck: expire, admit                                        |
+| unreadable (fails or exceeds 5 s)    | any                           | live: 409 (cannot prove wedged)                             |
 
-The existing double-read of the blocker stays, so a blocker that finishes between reads is simply gone. `stuckRunThresholdMs` is deleted.
+The read runs inside the accepted-turn transaction, which holds the chat row, so it is bounded at 5 s and read once per send; the existing re-read of the blocker row stays, so a blocker that finishes between reads is simply gone. This row and the bound were added after GitHub review (`b9e5c9d8`). `stuckRunThresholdMs` is deleted.
 
 A stalled `active` job needs no heartbeat-age check. pg-boss already fails it through the heartbeat path and retries it, and the dead-letter consumer settles it once retries are exhausted. Admission only needs "can the queue still execute this Run?".
 

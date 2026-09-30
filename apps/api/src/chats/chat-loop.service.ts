@@ -519,18 +519,19 @@ export class ChatLoopService {
   }): Promise<void> {
     const findActive = () =>
       input.runsRepo.findActiveByChatId(input.chatId, input.userId);
-    let blocking = await findActive();
+    const blocking = await findActive();
     if (!blocking) return;
     if (await this.blockerIsLive(blocking)) {
-      // Re-check once: `blocking` may have finished between the read above
-      // and now, in which case the chat is simply free.
-      blocking = await findActive();
-      if (!blocking) return;
-      if (await this.blockerIsLive(blocking)) {
+      // Re-check the row once: `blocking` may have finished between the read
+      // above and now, in which case the chat is simply free. Its job state
+      // is not read again, so one send holds the chat row for at most one
+      // bounded wait.
+      if (await findActive()) {
         throw new ConflictException(
           'Another run is already in flight for this chat',
         );
       }
+      return;
     }
 
     const message =

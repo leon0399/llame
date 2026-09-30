@@ -241,4 +241,31 @@ describe('applyStreamIdleWatchdog', () => {
     await expect(text).resolves.toBe('answered');
     expect(request).toBe(3);
   });
+
+  it('keeps the signal the SDK composed for the call, not only the Run signal', async () => {
+    const stalled = model(
+      'call-signal',
+      () => new Promise<never>(() => undefined),
+    );
+    // The call carries its own abort (a per-call timeout, say) while the Run
+    // has none: the provider request must still see the call's abort.
+    const call = new AbortController();
+    const streamOptions = {
+      model: stalled,
+      messages,
+      abortSignal: call.signal,
+    };
+    applyStreamIdleWatchdog(streamOptions, { chat: CHAT, messages });
+    const settled = Promise.resolve(streamText(streamOptions).text).catch(
+      (error: unknown) => error,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    call.abort();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(stalled.doStreamCalls[0]?.abortSignal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
+    await settled;
+  });
 });

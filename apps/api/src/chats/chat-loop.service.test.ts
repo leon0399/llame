@@ -617,6 +617,8 @@ describe('ChatLoopService.createMessageStream', () => {
       message: 'Another run is already in flight for this chat',
     });
     expect(markFinished).not.toHaveBeenCalled();
+    // One bounded read per send: the re-check reads only the row.
+    expect(jobState).toHaveBeenCalledTimes(1);
   });
 
   it.each([
