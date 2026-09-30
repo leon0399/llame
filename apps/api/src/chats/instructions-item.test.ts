@@ -235,6 +235,17 @@ describe('a bundle of loaded files', () => {
     expect(bodyOf(part)).toContain('&lt;/FILE&gt;&lt;File>');
   });
 
+  it('neutralizes a file tag padded with whitespace', () => {
+    const part = createInstructionsItem({
+      runId: RUN_ID,
+      files: [loaded('/home/u/repo/AGENTS.md', '< file path="/x">< / file>')],
+      denied: [],
+    });
+
+    expect(bodyOf(part)).toContain('&lt; file path="/x">&lt; / file&gt;');
+    expect(bodyOf(part).match(/<file path=/g)).toHaveLength(1);
+  });
+
   it('keeps denied paths in the private metadata only', () => {
     const part = createInstructionsItem({
       runId: RUN_ID,

@@ -185,8 +185,10 @@ export async function readInstructionFile(
     content += result.content;
     if (Buffer.byteLength(content, 'utf8') >= INSTRUCTION_FILE_BYTE_LIMIT) {
       const cut = cutToByteLimit(content, INSTRUCTION_FILE_BYTE_LIMIT);
-      // The cut is a truncation even when the probed size is stale (a file
-      // that grew after the probe): more was read than the collection kept.
+      // Dropping collected bytes is a truncation even when the probed size is
+      // stale (a file that grew after the probe); a file of exactly the limit
+      // loses nothing and falls back to the probed size.
+      if (cut.length === content.length) return loaded(candidate, cut);
       return {
         kind: 'loaded',
         content: cut,

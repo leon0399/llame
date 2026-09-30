@@ -428,6 +428,32 @@ describe('readInstructionFile', () => {
     });
   });
 
+  it('reports no truncation for a file of exactly the byte limit', async () => {
+    const readPage: ReadPage = () =>
+      Promise.resolve({
+        status: 'success',
+        kind: 'file',
+        path: '/srv/AGENTS.md',
+        content: 'a'.repeat(INSTRUCTION_FILE_BYTE_LIMIT),
+      });
+
+    const result = await readInstructionFile(
+      {
+        path: '/srv/AGENTS.md',
+        canonicalPath: '/srv/AGENTS.md',
+        size: INSTRUCTION_FILE_BYTE_LIMIT,
+      },
+      readPage,
+    );
+
+    expect(result).toEqual({
+      kind: 'loaded',
+      content: 'a'.repeat(INSTRUCTION_FILE_BYTE_LIMIT),
+      truncated: false,
+      omittedBytes: 0,
+    });
+  });
+
   it('denies the whole file when a continuation page is denied', async () => {
     const pages: Array<ToolResult> = [
       {
