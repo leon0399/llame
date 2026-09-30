@@ -1775,6 +1775,7 @@ describe('RunExecutionService executeRun', () => {
       const appendActivation = vi
         .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
         .mockResolvedValue({ applied: true });
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
       const execution = makeExecutionService(
         createFakeModelClient(['answer']),
         undefined,
@@ -1802,6 +1803,35 @@ describe('RunExecutionService executeRun', () => {
         kind: 'activation',
         skill: 'pdf',
       });
+      // The system read is durably audited under its own origin: the request
+      // names the locator scheme, not the resolved package path, and the
+      // completion closes the triple the request/start opened.
+      const activationReads = append.mock.calls.flatMap(([, eventType, p]) =>
+        isRecord(p) && p['origin'] === 'skill-activation'
+          ? [{ type: eventType, payload: p }]
+          : [],
+      );
+      expect(activationReads.map((record) => record.type)).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+      expect(activationReads[0]?.payload).toMatchObject({
+        toolName: 'read',
+        input: { path: 'skill://' },
+        permission: { decision: 'allow' },
+      });
+      expect(activationReads[1]?.payload).toMatchObject({
+        toolName: 'read',
+        status: 'success',
+      });
+      // The start carries no origin — it discloses nothing — so the triple is
+      // asserted through the call id the request opened.
+      const callId = activationReads[0]?.payload['toolCallId'];
+      expect(
+        append.mock.calls.flatMap(([, eventType, p]) =>
+          isRecord(p) && p['toolCallId'] === callId ? [eventType] : [],
+        ),
+      ).toEqual(['tool.requested', 'tool.started', 'tool.completed']);
     } finally {
       rmSync(source, { recursive: true, force: true });
     }
@@ -9147,6 +9177,89 @@ describe('RunExecutionService instruction files', () => {
       expect(stagedInstructionPart(repositories)?.data.text).toContain(
         'run the tests',
       );
+      expect(instructionItems(repositories)).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("drops the first build's staged chain when the rebuilt history names it", async () => {
+    // The seen keys the walk produces are canonical, so the history item that
+    // names the root file must be canonical too.
+    const root = realpathSync(instructionsRoot());
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      // The workspace snapshot was disclosed in an earlier turn, so nothing
+      // precedes the instructions item on the rail: it sits at index 0, the
+      // position the removal must still find.
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'host-a',
+        workspaceGeneration: 4,
+        workspaceTold: root,
+        workspaceToldFrom: null,
+      });
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'setTold',
+      ).mockResolvedValue(undefined);
+      serveNativeReads();
+      let contextWindowTokens = 1;
+      const base = createFakeModelClient(['answer']);
+      const mutableClient: ModelClient = {
+        ...base,
+        get contextWindowTokens() {
+          return contextWindowTokens;
+        },
+      };
+      const execution = makeExecutionService(
+        mutableClient,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+      // The first build's history names nothing, so the accepted turn stages
+      // the root chain. The rebuilt history names the root file — the bundle
+      // recomputed against it loads nothing, and the stale first-build item
+      // must leave the rail rather than ride beside the rebuilt request.
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId')
+        .mockResolvedValueOnce([userMessage])
+        .mockResolvedValue([
+          { ...userMessage, parts: [instructionItem(root)] },
+        ]);
+      execution.compactForTransition.mockImplementation(() => {
+        contextWindowTokens = 128_000;
+        return Promise.resolve('created' as const);
+      });
+
+      const result = await execution.service.executeRun({
+        ...executionInput(mutableClient),
+        userMessage: {
+          id: messageId,
+          seq: 1,
+          parts: [
+            createModelChangeItem({
+              oldModel: { id: 'old-model' },
+              newModel: { id: 'fake-model' },
+              runId,
+            }),
+          ],
+        },
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(execution.compactForTransition).toHaveBeenCalledTimes(1);
+      // The recomputed bundle loaded nothing, so the rail keeps exactly the
+      // temporal item — the recompute removed the item the first build had
+      // staged first on the rail.
+      expect(stagedProducers(repositories)).toEqual(['temporal']);
+      expect(stagedInstructionPart(repositories)).toBeUndefined();
+      await vi.waitFor(() =>
+        expect(repositories.recordContextItems).toHaveBeenCalled(),
+      );
+      // The rebuilt history's own item is the only one the Run record carries:
+      // the stale first-build item did not ride along.
       expect(instructionItems(repositories)).toHaveLength(1);
     } finally {
       rmSync(root, { recursive: true, force: true });
