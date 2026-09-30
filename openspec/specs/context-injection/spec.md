@@ -14,6 +14,8 @@ A materialized compaction checkpoint SHALL remain a rail context item with produ
 
 The wire role SHALL remain `user`. A provider-level role for injected context SHALL NOT be invented, and items SHALL NOT be emitted as additional conversation messages of their own where a message already exists to carry them: items attached to a turn SHALL be carried inside that turn's triggering user message.
 
+An item authored **between the model steps of one Run** — an in-Run item — has no user message to carry it. It SHALL be stored as a `data-context` part on that Run's assistant message, immediately after the last tool part of the step whose results triggered it, and SHALL be supplied to the model as a user-role text message placed after that step's last tool result on the step that follows the trigger and on every later step of the same Run at the same position. Within a Run, that placement SHALL be computed from the step's live model messages by removing any earlier copy of the item and inserting it after the tool-result message that carries the matching tool call, so that the result is identical whether or not the model client retains an earlier step's message override. It SHALL use the same envelope, framing, and vocabulary as an attached item. In-Run items SHALL be staged in memory and published with the assistant message only when the attempt wins; a failed or superseded attempt SHALL publish none.
+
 Each item SHALL occupy its **own text content block** within that message rather than being concatenated with another item or with the user's text. The separation between server-authored content and user-authored content SHALL therefore be structural rather than a textual convention that user input can imitate.
 
 #### Scenario: Two items are injected on one turn
@@ -35,6 +37,13 @@ Each item SHALL occupy its **own text content block** within that message rather
 - **THEN** the item is carried by the message its producer already owns
 - **AND** it uses the same envelope, framing, and vocabulary as an attached item
 
+#### Scenario: An in-Run item follows its triggering tool result
+
+- **WHEN** a producer authors an item after a tool result inside a Run
+- **THEN** the item is stored on the Run's assistant message after that tool part
+- **AND** every later model step of that Run receives it as a user-role message directly after that tool result
+- **AND** a failed attempt publishes neither the item nor a seen record of it
+
 #### Scenario: A compaction checkpoint replaces history
 
 - **WHEN** compaction materializes replacement history for a superseded prefix
@@ -44,7 +53,7 @@ Each item SHALL occupy its **own text content block** within that message rather
   `checkpoint`, while the stored record is not a `data-context` part and replays
   without metadata reconstruction
 
-Worker-attempt contributions intended for conversation history SHALL be staged in memory before target-model I/O and published in the triggering message only with successful turn completion. Failed or superseded attempts SHALL not publish those staged rail parts; the attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order.
+Worker-attempt contributions intended for conversation history SHALL be staged in memory before the model request that first carries them and published only with successful turn completion: turn-attached items in the triggering message, in-Run items on the Run's assistant message. Failed or superseded attempts SHALL not publish those staged rail parts; the attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order.
 
 ### Requirement: The envelope states its own provenance and an operator cannot remove it
 
@@ -241,12 +250,15 @@ When more than one item is injected on the same turn, the authoring/request-prep
 1. `effective-context-change`
 2. `tool-availability`
 3. `workspace`
-4. `skill-catalog`
-5. `skill-activation`
-6. `recency-digest`
-7. `temporal`
+4. `instructions`
+5. `skill-catalog`
+6. `skill-activation`
+7. `recency-digest`
+8. `temporal`
 
 When one producer contributes more than one item, those items SHALL be stored in emission order. A producer added later SHALL extend this authoring list in the rail specification.
+
+In-Run items SHALL be ordered by the model step that triggered them and, within a step, by this same producer precedence; they are never re-sorted against the attached items of the triggering user message.
 
 Replay SHALL preserve the stored part order. It SHALL NOT re-sort historical items through the current precedence list or merge adjacent text parts. The compaction checkpoint is carried by replacement history of its own and follows that capability's placement rule rather than this attached-item list.
 
@@ -281,6 +293,11 @@ When worker preparation adds attempt-owned items beside already persisted messag
 - **WHEN** a Workspace state change and an effective skill catalog change accompany one user message
 - **THEN** the `workspace` item precedes the `skill-catalog` item and both precede the user text
 - **AND** replay preserves those stored positions
+
+#### Scenario: Workspace snapshot and root instructions share a turn
+
+- **WHEN** an accepted turn re-establishes the Workspace snapshot and stages the root instruction chain
+- **THEN** the `workspace` item precedes the `instructions` item and both precede any `skill-catalog` item
 
 ### Requirement: Residency determines whether a change re-renders the prompt or appends an item
 
@@ -515,9 +532,9 @@ remains required and SHALL NOT authorize rewriting conversation state.
 
 ### Requirement: Successful Runs record the winning attempt's injected items
 
-Each successfully completed Run SHALL record the winning attempt's context items injected into the final request it executed, as
-they appeared in the final application request, together with each item's
-producer, form, and residency. The record SHALL be owner-scoped and enforced at
+Each successfully completed Run SHALL record the winning attempt's context items injected into the requests it executed, as
+they appeared in the final application request and in every later model step of that attempt, together with each item's
+producer, form, and residency. In-Run items SHALL follow the final request's items in step order. The record SHALL be owner-scoped and enforced at
 the datastore, and SHALL NOT be exposed to a non-owner, public share, ordinary
 transcript export, or search projection.
 
@@ -542,6 +559,12 @@ that limitation SHALL remain documented.
 - **WHEN** a Run executes with persisted context text
 - **THEN** its record copies the exact text used by the final request
 - **AND** the record is readable only by the chat owner
+
+#### Scenario: A Run injects an in-Run item
+
+- **WHEN** a Run's winning attempt emits an item between model steps
+- **THEN** the record lists it after the final request's items, with its producer, form, and residency
+- **AND** its text is the stored part text, not a re-render
 
 #### Scenario: A renderer's wording changes
 
@@ -574,8 +597,13 @@ Request assembly SHALL treat `messages.parts` as the durable application/UI
 history. It SHALL preserve model-bearing stored parts and their order, omit
 declared display-only parts except reasoning parts, which `reasoning-output`
 returns to the provider for the Chat that stores them, and map each surviving
-`data-context` part to one
-ordinary SDK text part containing `data.text`. It SHALL then pass the ordered
+`data-context` part on a user message to one
+ordinary SDK text part containing `data.text`. A `data-context` part stored on an
+assistant message SHALL be mapped to one user-role message containing one text
+part with `data.text`, emitted directly after the tool-result message of the
+tool part that precedes it in stored order, or in its stored position when that
+tool pair was omitted by the replay budget; it SHALL NOT be merged into the
+assistant message's own content or into the tool-result message. It SHALL then pass the ordered
 parts to the AI SDK rather than manually constructing a joined transcript.
 
 This SHALL be an application-level best-effort invariant, not a promise of
@@ -595,6 +623,12 @@ materialized replacement history required by `model-system-prompts` and
 - **THEN** the transition supplies one `{ type: "text", text: data.text }` part
   in the same position
 - **AND** no producer renderer, sanitizer, sorter, or manual join runs
+
+#### Scenario: An assistant-message context part crosses the SDK boundary
+
+- **WHEN** a stored assistant message contains a tool part followed by a non-empty `data-context` part
+- **THEN** replay emits the tool-call and tool-result pair and then one user-role message with that text
+- **AND** the tool pair's replay budget is not charged for the context text
 
 #### Scenario: SDK serialization changes
 
@@ -744,7 +778,7 @@ The enqueue-bound effective-context receipt SHALL retain its immutable prompt/to
 
 ### Requirement: Workspace binding changes are rail-resident context items
 
-Before resolving effective skill sources, explicit `$skill` activation, Workspace MCP clients or catalog, or the `workspace` producer's items, attempt preparation SHALL finish the Workspace binding re-check and any detach. A detaching attempt SHALL contribute no Workspace skill activation, `skill://` resolution, or Workspace tools and SHALL still narrate the detach. Skill-catalog baseline content already frozen at acceptance in the accepted-turn transaction before worker preparation MAY still list Workspace skills for that attempt; the next accepted turn's skill-catalog notice SHALL remove them.
+Before resolving effective skill sources, explicit `$skill` activation, Workspace MCP clients or catalog, the `workspace` producer's items, or the accepted-turn `instructions` load, attempt preparation SHALL finish the Workspace binding re-check and any detach. A detaching attempt SHALL contribute no Workspace skill activation, `skill://` resolution, Workspace tools, or accepted-turn `instructions` item and SHALL still narrate the detach. Skill-catalog baseline content already frozen at acceptance in the accepted-turn transaction before worker preparation MAY still list Workspace skills for that attempt; the next accepted turn's skill-catalog notice SHALL remove them.
 
 At each accepted user turn, accepted-turn preparation SHALL compare the Chat's current Workspace
 root, or its absence, with the root last narrated to the Chat, or the absence of any narration. For
