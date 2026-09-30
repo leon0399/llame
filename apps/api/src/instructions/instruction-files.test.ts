@@ -488,6 +488,7 @@ describe('readInstructionFile', () => {
       {
         path: '/srv/AGENTS.md',
         canonicalPath: '/srv/AGENTS.md',
+        readPath: '/srv/AGENTS.md',
         size: Buffer.byteLength(body, 'utf8'),
       },
       readPage,
