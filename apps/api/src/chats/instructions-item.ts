@@ -140,7 +140,7 @@ function renderInstructions(
       // dropped, keeping the body readable.
       path: escapeXmlAttribute(file.path),
       body: sanitizeAuthoredText(file.content).replaceAll(
-        /<(\s*\/?\s*file)(?=[\s>/]|$)/gi,
+        /<(\s*\/?\s*file)(?=\s*\/?>|\s+[\w-]+\s*=|$)/gi,
         '&lt;$1',
       ),
       truncated: file.truncated,

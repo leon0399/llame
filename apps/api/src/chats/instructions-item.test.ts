@@ -246,6 +246,21 @@ describe('a bundle of loaded files', () => {
     expect(bodyOf(part).match(/<file path=/g)).toHaveLength(1);
   });
 
+  it('leaves prose that only mentions a file alone', () => {
+    const part = createInstructionsItem({
+      runId: RUN_ID,
+      files: [
+        loaded(
+          '/home/u/repo/AGENTS.md',
+          'Run `sort < file` when a < file size.',
+        ),
+      ],
+      denied: [],
+    });
+
+    expect(bodyOf(part)).toContain('Run `sort < file` when a < file size.');
+  });
+
   it('keeps denied paths in the private metadata only', () => {
     const part = createInstructionsItem({
       runId: RUN_ID,
