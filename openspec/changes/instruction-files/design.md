@@ -165,10 +165,16 @@ before any Workspace exists still gets its chain.
 
 **Tradeoff, accepted:** an instruction file in the executor host's home directory enters
 every Chat that touches a descendant path on that executor, for every owner sharing it.
-Permission rejects on the `read` group are the operator's tool to exclude such paths, and
-D6 makes every candidate subject to them. Codex and Gemini stop at the git root; that was
-rejected because it discards exactly the monorepo-root and dotfiles-root context the
-exploration case needs.
+Permission rejects are the operator's tool to exclude such paths, and D6 makes every
+candidate subject to them. **The remedy, stated once here:** reject the path in the `read`,
+`edit`, and `write` groups, keep `bash` off it, and do not expose `bypass` in
+`tools.permissionModes`. Under `bypass` every `tools.permissions` evaluation returns
+`permission_mode_bypass` without evaluating the policy
+(`apps/api/src/tools/permissions/admit.ts:11`, `evaluator.ts:55-61`), so a reject rule closes
+nothing in that mode, and an operator who leaves `bypass` selectable has no reject rule at
+all. The operator's `knowledge.root` is the case that needs every part of that remedy. Codex
+and Gemini stop at the git root; that was rejected because it discards exactly the
+monorepo-root and dotfiles-root context the exploration case needs.
 
 ### D5: Triggers are entry, native read/edit/write, and the accepted turn
 
@@ -346,13 +352,26 @@ neither needs `enter_workspace`. The permission projection already canonicalizes
 before `path` rules run (`apps/api/src/tools/permissions/locator-projection.ts:54-55`), so the
 `read` group admits a Space candidate under the same rule a model read of that locator gets.
 
-**Space identifier spelling:** grouping, labels, and seen keys use the lower-cased Space
-identifier, so one Space's candidates group and dedupe under one identity no matter how the
-triggering calls spelled it. Each candidate page read uses the identifier exactly as the
-triggering call spelled it, taking that step's first mention of the Space, so the `read`
-group evaluates the same locator spelling the model's own read of that candidate would get.
-Reading at the model's own spelling is never more permissive than the injection it
-accompanies: a rule the model's read passes is a rule the injection passes.
+**Space identifier spelling:** the `read` group matches a locator case-sensitively
+(`compileLiteralMatcher` compiles the operator's literal quoted and unflagged,
+`apps/api/src/tools/permissions/matcher.ts:25-37`) while the Knowledge resolver does not:
+`isKnowledgeSpaceId` accepts either hex case
+(`apps/api/src/knowledge/knowledge-filesystem-validation.ts:17-25`) and
+`findByIdForOwner` compares a `uuid` column
+(`apps/api/src/knowledge/knowledge-space.repository.ts:142-157`), so `kb://A623…/CLAUDE.md`
+and `kb://a623…/CLAUDE.md` are one Space to the resolver and two strings to the policy. Two
+spellings would judge the injection and the model's own read of the same file under two
+different rule evaluations, and the operator's rule would bind one and leave the other open,
+so one canonical spelling is the only way both are judged identically. A `kb://` locator
+therefore triggers a load only when its Space identifier is already the lower-case form
+`formatKnowledgeLocator` emits and the model is shown
+(`apps/api/src/knowledge/knowledge-locator.ts:89-100`); an identifier carrying an upper-case
+letter loads nothing, probes nothing, and records no event, and the model's own read of that
+locator still runs under the spelling it wrote. Grouping, labels, seen keys, and every
+candidate page read then use that one spelling, so the `read` group judges the injection
+under exactly the locator the model wrote. The earlier per-step first-mention rule existed
+only to recover the triggering call's spelling, which is no longer admitted, so the separate
+read spelling is deleted rather than reconciled.
 
 **The Knowledge notice rides along:** a bundle carrying at least one Space candidate carries
 the closed untrusted-content notice `knowledge-tools` defines
@@ -365,9 +384,10 @@ would misdescribe what the model is being asked to trust.
 **Host paths under `knowledge.root`:** a `kb://` walk stops at its Space root, but a
 host-path trigger is still a host-path trigger: reading a host path that happens to sit
 inside the operator's `knowledge.root` loads that directory's chain under host authority,
-the same rule as any other ancestor. That is a documented trust boundary, not a hole the
-Space walk opens. On a multi-owner host the operator closes it with a `read` reject for the
-Knowledge root, which keeps every Space from being loaded through a plain host path.
+the same rule as any other ancestor, with no owner scoping for host paths. That is a
+documented trust boundary, not a hole the Space walk opens. On a multi-owner host the
+operator closes it with the reject remedy in D4, which covers the Knowledge root as it does
+every other host ancestor.
 
 **Ordering:** host and Knowledge candidates resolve into the same one-item-per-step bundle —
 host files first, then Knowledge files, each group from its broadest directory and base
@@ -383,8 +403,9 @@ before local — so a step that touches both produces one notice the model reads
 - [Instruction files from cloned repositories carry prompt injection with more authority than
   a read result] → the rail precedence statement in every bundle, reserved-delimiter
   neutralization, and the `read` group's rejects; the bundle grants nothing.
-- [Walk to `/` pulls operator-host files into owner chats] → accepted; documented in
-  `docs/native-files.md` with the reject-rule remedy.
+- [Walk to `/` pulls operator-host files into owner chats] → accepted; the reject remedy is
+  D4's, mode caveat included: a selectable `bypass` permission mode admits a call before the
+  policy runs, so a reject rule never closes it.
 - [Large chains inflate every later step of the Run] → per-file 32 KiB cap and once-per-epoch;
   a pathological monorepo is visible in the chip and the Run record.
 - [Symlink and path spelling duplicates] → canonical `realpath` keys; Claude Code's #94463
@@ -419,6 +440,18 @@ rule.
 
 ## Revision history
 
+- **v9 (2026-09-30, second Knowledge review):** The Space identifier rule is
+  lower-case-only: the `read` group matches a locator case-sensitively while the resolver
+  does not, so two spellings of one Space were two policy evaluations of the same file.
+  Loading triggers only on the canonical lower-case identifier, and grouping, labels, seen
+  keys, and candidate page reads all use that one spelling, which deletes the per-step
+  first-mention read spelling rather than adding to it. The host-path reject remedy is
+  stated once, in D4 — reject the path in the `read`, `edit`, and `write` groups, keep
+  `bash` off it, and do not expose `bypass` in `tools.permissionModes`, because a bypassed
+  call is admitted before the policy is evaluated — and D12's host-path paragraph and the
+  walk-to-root risk now cross-reference it. The Knowledge requirement carries the
+  single-spelling rule and a scenario for an upper-case identifier; task 6.1 names the
+  trigger rule and the logical labels, and task 6.3 the notice and the upper-case case.
 - **v8 (2026-09-30, Knowledge review):** D12 now states the resolver's two results and the
   producer's single handling of them, instead of calling an absent, other-owner, and
   unavailable Space one indistinguishable result: the resolver distinguishes

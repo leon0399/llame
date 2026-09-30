@@ -67,7 +67,9 @@ Space resolution and every candidate probe SHALL run under the Run owner's ident
 
 Every selected candidate SHALL be labelled and keyed by its logical locator `kb://<spaceId>/<relative path>`, percent-encoded exactly as the Knowledge locator formatter produces it, and that logical locator SHALL be the item's `path` and its seen key; no host path SHALL appear in the item's text, payload, metadata, audit events, or owner chip. Each selected candidate SHALL be read through the native `read` tool with its `kb://` locator and bounded `:raw:<from>-<to>` pages, under system origin `instructions`, evaluated by the `read` permission group exactly as a host candidate is.
 
-Grouping, labels, and seen keys SHALL use the Space identifier lower-cased, while each candidate page SHALL be read with the Space identifier spelled exactly as the triggering call spelled it, taking the first mention of that Space in the step, so the `read` group evaluates the same locator spelling the model's own read of that candidate would. A read at the model's own spelling SHALL NOT be more permissive than the injection it accompanies. A bundle carrying at least one Knowledge candidate SHALL include the closed Knowledge untrusted-content notice `knowledge-tools` defines exactly once, and a bundle carrying only host-path candidates SHALL NOT include it.
+Loading SHALL occur only for a locator whose Space identifier is already the canonical lower-case form the Knowledge locator formatter produces; a locator whose Space identifier contains an upper-case letter SHALL load nothing, probe nothing, and record no event, and the model's own read of that locator SHALL proceed normally under the spelling it wrote. Grouping, labels, seen keys, and every candidate page read SHALL use that one canonical spelling, so the `read` group evaluates the injection under exactly the locator the model's own read of that candidate uses.
+
+A bundle carrying at least one Knowledge candidate SHALL include the closed Knowledge untrusted-content notice `knowledge-tools` defines exactly once, and a bundle carrying only host-path candidates SHALL NOT include it.
 
 A `kb://` trigger SHALL NOT produce an accepted-turn load, because a Space has no Workspace binding; its chain returns on the next touch after a compaction. Candidates loaded for one step from host-path triggers and from `kb://` triggers SHALL resolve into at most one item, with the host files first, then the Knowledge files, each group from its broadest directory and a base file before its local file.
 
@@ -97,6 +99,12 @@ A `kb://` trigger SHALL NOT produce an accepted-turn load, because a Space has n
 - **WHEN** a step loads candidates from a Space
 - **THEN** the item text and the `files` payload carry `kb://<spaceId>/<relative path>` values
 - **AND** no host path appears in the text, the payload, the metadata, or the audit events
+
+#### Scenario: An upper-case Space identifier is not a trigger
+
+- **WHEN** the model calls `read("kb://<Space>/notes/x.md")`, where `<Space>` spells a Space's identifier with upper-case letters, and that Space holds `CLAUDE.md`
+- **THEN** no instructions item is produced, no candidate in that Space is probed, and no event with origin `instructions` is recorded
+- **AND** the model's own read of that locator still runs and returns the named file
 
 #### Scenario: A Space bundle carries the Knowledge notice once
 
