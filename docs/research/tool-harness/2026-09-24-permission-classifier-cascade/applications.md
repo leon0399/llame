@@ -116,9 +116,8 @@ latency was median 287.0 ms and nearest-rank p95
 393 ms, excluding deliberate two-second pacing.
 These are inference metadata, not total engineering cost or a reconciled invoice.
 
-[Raw application requests/responses](./experiments/applications-results.jsonl),
-[capacity failure](./experiments/applications-failures.jsonl) and
-[derived summary](./experiments/applications-summary.json) preserve every outcome.
+[Raw application requests/responses](./experiments/applications-results.jsonl) and
+[derived summary](./experiments/applications-summary.json) preserve every successful outcome.
 The effort and evidence-retention Score families use the half-rung tolerance
 above; the table is not a single uniform accuracy measure across tasks.
 

@@ -306,7 +306,7 @@ python3 docs/research/tool-harness/2026-09-24-semantic-find-judge/probes/jegrep-
 
 The first verifies the OMP HEAD, reads pinned Git blobs, transpiles unchanged TypeScript using the esbuild already supplied by tsx and records source hashes. Filesystem/native scan, provider responses, credential resolution and sleep are controlled doubles; only find's simple template interpolation is supplied, not the complete prompt engine. It does not run the complete CLI, native scanner, local worker or live model. The second requires Python 3.10+ and Git, extracts unchanged pure scoring functions with Python AST, inventories benchmark metadata and computes stated arithmetic; it does not clone the four target repositories or rerun upstream benchmarks. [^8292ab9cae884594][^52b275ecc0c07648]
 
-Canonical evidence is in [sources](./sources.jsonl), [evidence](./evidence.jsonl) and [claims](./claims.jsonl). The [session observation](./session-observation.json) is separately qualified. [Verification](./verification.json) records actual checks and [review](./review.json) records independently checked findings. This is documentation-only research; no application tests or unrelated CI monitoring are needed for its handoff.
+The [session observation](./session-observation.json) is separately qualified. This is documentation-only research; no application tests or unrelated CI monitoring are needed for its handoff.
 
 ## Revision history
 

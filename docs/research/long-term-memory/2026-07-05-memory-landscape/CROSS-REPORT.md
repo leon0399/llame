@@ -8,8 +8,8 @@ status: stable
 
 # Cross-Report: Long-Term Memory for llame — Final Verdicts and Build Plan
 
-**Date:** 2026-07-05 · **Inputs:** main research report + 5 independent research syntheses (101 evidence items, 87 sources), independently reviewed by 3 cross-reviewers (architect / adversarial skeptic / product). Reviewer originals in `cross-review/`.
-**Purpose:** the single document to act on. Where the reviewers disagreed with the main report, this document records the _corrected_ position. Where this document and any input disagree — including the main report's polymorphic `scope_kind`/`scope_id` schema sketch, which §2 below **supersedes** with the nullable-FK shape — this document wins. The agent finals, cross-reviews, and JSONL corpora are frozen run artifacts kept for provenance, not maintained positions.
+**Date:** 2026-07-05 · **Inputs:** main research report + 5 independent research syntheses (101 evidence items, 87 sources), independently reviewed by 3 cross-reviewers (architect / adversarial skeptic / product).
+**Purpose:** the single document to act on. Where the reviewers disagreed with the main report, this document records the _corrected_ position. Where this document and any input disagree — including the main report's polymorphic `scope_kind`/`scope_id` schema sketch, which §2 below **supersedes** with the nullable-FK shape — this document wins. The main report, agent finals, cross-reviews, and JSONL corpora were frozen run artifacts, not maintained positions; they are no longer in the tree and remain at [`ed959f31`](https://github.com/leon0399/llame/tree/ed959f31c3f1bcdb9cb7e5945b0dd195e70b4b8d/docs/research/long-term-memory/2026-07-05-memory-landscape).
 
 ---
 

@@ -18,9 +18,9 @@ before the runner stops.
   `applications-summary.json`: eighty cases across ten application families.
   `routing-fixtures.jsonl` and `evidence-fixtures.jsonl` retain the two authoring
   slices that were merged before inference.
-- `failed-attempts.jsonl`, `applications-failures.jsonl`, `transport.json`,
-  `run-plans.json`, `application-plans.json`, `smoke.json`: setup failures,
-  capacity errors, frozen plans and transport provenance. Missing cost is unknown.
+- `transport.json`, `run-plans.json`, `application-plans.json`, `smoke.json`:
+  setup failures, capacity errors, frozen plans and transport provenance. Missing
+  cost is unknown.
 
 Labels and expected reasons are excluded from model requests. Raw responses
 preserve request hashes, typed answers, usage and cost metadata. No stronger

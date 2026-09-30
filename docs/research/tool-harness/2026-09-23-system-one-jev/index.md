@@ -31,15 +31,6 @@ and develops applications U13-U20 beyond Knowledge search.
 - [Research report](./report.md) - Findings, the five supplied application
   assessments, six additional llame use cases (U1-U6), counterevidence,
   priorities, and stable source footnotes.
-- [Source registry](./sources.jsonl) - Source identities and retrieval metadata.
-- [Evidence ledger](./evidence.jsonl) - Source-backed observations and measurement
-  qualifications, joined to the report through stable source IDs.
-- [Claim ledger](./claims.jsonl) - Factual claims, synthesis and recommendations
-  linked to supporting evidence.
-- [Run manifest](./run_manifest.json) - Research scope and artifact paths;
-  `report_dir` resolves relative to the manifest.
-- [Verification record](./verification.json) - Executed checks and their limits.
-- [Review record](./review.json) - Independent review findings and dispositions.
 - [Adapter experiment](./probes/adapter-probe.mjs) and
   [recorded output](./probes/adapter-probe-result.json) - Installed SDK wire shape
   for `allowedTools` versus `activeTools`, with all HTTP intercepted locally.

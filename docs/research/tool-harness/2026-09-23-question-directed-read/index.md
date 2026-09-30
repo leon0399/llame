@@ -10,11 +10,6 @@ investigation. Noncanonical: this bundle does not implement or approve `?q=`.
 - [Source-aware investigation](./source-aware-investigation.md) - Integrated
   additions from the supplied analysis: OKF/code navigation, evidence intents,
   bounded area workers and visual-reader source mappings, with claim corrections.
-- [Sources](./sources.jsonl) and [evidence](./evidence.jsonl) - Dated primary
-  sources, pinned code observations and qualified measurements.
-- [Claims](./claims.jsonl) - Typed claims and their evidence links.
-- [Manifest](./run_manifest.json) - Research scope; paths resolve from the bundle.
-- [Verification](./verification.json) - Executed checks, review outcomes and limits.
 - [LensVLM mechanics probe](./probes/lens-preprocessing.py) and
   [recorded result](./probes/lens-preprocessing-result.json) - Normalization,
   page-call parsing and bounded expansion; no model or full renderer execution.
@@ -58,5 +53,4 @@ pnpm exec tsx probes/locator-policy.mjs
 ```
 
 It checks synthetic strings against the recommended operator-policy fixture,
-not runtime defaults, and opens no credential target. Review corrections and
-superseded draft evidence are recorded in [review.json](./review.json).
+not runtime defaults, and opens no credential target.

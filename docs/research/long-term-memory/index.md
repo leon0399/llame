@@ -4,7 +4,7 @@ Research on cross-chat memory for llame: the 2026-07-05 landscape run and its
 maintained cross-report, product and system deep dives, and later studies of
 context injection, recency digests, OMP memory and OpenLore.
 
-- [2026-07-05 memory-landscape run](./2026-07-05-memory-landscape/index.md) - Multi-agent landscape survey; its CROSS-REPORT is the maintained verdict and build plan, everything else in the run is frozen.
+- [2026-07-05 memory-landscape run](./2026-07-05-memory-landscape/index.md) - Multi-agent landscape survey, kept as its cross-report: corrected verdicts, the build plan and later deep dives.
 - [Recency digest: how other systems actually do it](./2026-08-12-recency-digest-prior-art.md) - Compares how ChatGPT, Claude.ai, Claude Code, Letta, Gemini and Open WebUI inject cross-conversation awareness, and finds only ChatGPT injects verbatim bodies, in the section with a published exfiltration exploit.
 - [beads deep-dive notes](./2026-07-09-beads.md) - Studies beads at a pinned commit and adopts its dependency vocabulary, SQL ready-work predicate, lease/heartbeat/reclaim run ownership, wisp-to-digest compaction and reference-aware pruning for llame's todos and runs.
 - [gbrain deep-dive notes](./2026-07-09-gbrain.md) - Examines gbrain's markdown-first fact fence, write path, dedup classifier and dream cycle, and extracts the invariant that deletions recorded only in a derived layer resurrect on rebuild.

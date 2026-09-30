@@ -121,9 +121,6 @@ sources:
   - id: "3625dc1afe52ad01"
     resource: "https://github.com/leon0399/llame/blob/e70228485042967fd9545ad0cb133faae1be2268/apps/api/src/knowledge/knowledge-tools.ts"
     title: "llame bounded live Knowledge search"
-  - id: "e2690a0d9dfca4da"
-    resource: "./verification.json"
-    title: "Question-directed read research execution record"
   - id: "5e356f9875f85bb8"
     resource: "https://github.com/apple-aiml-research/ml-lensvlm/blob/10709a7e2a80bdf971628359d47e4bd35fce3d95/lensvlm/vision_config.py"
     title: "LensVLM reference serving defaults"
@@ -433,10 +430,6 @@ records the future parser/projection hazard in `probes/locator-policy-result.jso
 
 This bundle uses OKF stable source footnotes, a source/evidence ledger and typed claim records. Source inspection, executed mechanics, price arithmetic, recommendations and untested hypotheses remain distinguishable. Relevant checks are Markdown, formatting, OKF/YAML, evidence links and the offline scripts; unrelated integration CI is not a research handoff gate.
 
-The [verification record](./verification.json) names checks actually run; the
-[review record](./review.json) records corrections and superseded draft evidence.
-[^e2690a0d9dfca4da]
-
 ## Revision history
 
 - v3 (2026-09-23): Defined repeated carry as conditional model requests, not stored conversation turns; incorporated llame's per-pair/per-turn replay caps and the possibility that a small answer outlives an oversized source.
@@ -522,8 +515,6 @@ The [verification record](./verification.json) names checks actually run; the
 [^cf22f78099135172]: [Earlier System One/Jev research layer](../2026-09-23-system-one-jev/report.md)
 
 [^3625dc1afe52ad01]: [llame bounded live Knowledge search](https://github.com/leon0399/llame/blob/e70228485042967fd9545ad0cb133faae1be2268/apps/api/src/knowledge/knowledge-tools.ts)
-
-[^e2690a0d9dfca4da]: [Question-directed read research execution record](./verification.json)
 
 [^5e356f9875f85bb8]: [LensVLM reference serving defaults](https://github.com/apple-aiml-research/ml-lensvlm/blob/10709a7e2a80bdf971628359d47e4bd35fce3d95/lensvlm/vision_config.py)
 
