@@ -1,7 +1,3 @@
----
-okf_version: "0.2"
----
-
 # Tools and harness extensions
 
 Noncanonical references for components used by agentic harnesses: plugins,

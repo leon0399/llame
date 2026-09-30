@@ -1,7 +1,3 @@
----
-okf_version: "0.2"
----
-
 # Agentic harness references
 
 Noncanonical research index for llame as a **meta-harness**: llame owns Chat/Run
