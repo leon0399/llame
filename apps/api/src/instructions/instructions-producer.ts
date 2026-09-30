@@ -167,14 +167,16 @@ async function resolveDirectories(
       disclosedCanonicalPaths: new Set<string>(),
     };
     pending.set(touched.directory, entry);
-    // A read of an existing file in a directory neither loads nor marks that
-    // file, and the comparison is canonical: a link the model read under
-    // another name discloses the candidate it resolves to. Every other trigger
-    // loads the directory's whole chain.
-    const disclosed =
-      trigger.excludeCandidate && touched.canonicalPath !== undefined;
-    if (disclosed) entry.disclosedCanonicalPaths.add(touched.canonicalPath);
-    else entry.plainTouch = true;
+    // A read of an existing file neither loads nor marks that file, compared by
+    // canonical path, so a link the model read under another name discloses the
+    // candidate it resolves to; other candidates in the directory still load.
+    // An edit, a write, an entry, or a read of a directory or missing path
+    // clears these exclusions and loads the directory's whole chain.
+    if (trigger.excludeCandidate && touched.canonicalPath !== undefined) {
+      entry.disclosedCanonicalPaths.add(touched.canonicalPath);
+    } else {
+      entry.plainTouch = true;
+    }
   }
   const resolved = new Map<string, ReadonlySet<string>>();
   for (const [directory, entry] of pending) {
