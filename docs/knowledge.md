@@ -87,8 +87,10 @@ A host path under `knowledge.root` is host authority, not Space content: a
 `read`, `edit`, or `write` that names one is a plain native file operation,
 governed by the host's own permissions, ownership, and executor, and it is
 never attributed to a Space or to its owner. Where one host serves several
-owners, add a `read` reject rule for the Knowledge root so an absolute path
-cannot reach a Space file the owner's own `kb://` access would not authorize.
+owners, add a reject rule for the Knowledge root to each of the `read`,
+`edit`, and `write` groups (and keep `bash` off such a host), so an absolute
+path cannot read or change a Space file the owner's own `kb://` access would
+not authorize.
 
 ## Deployment and filesystem trust
 
