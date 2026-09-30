@@ -1,5 +1,19 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-09-30
+
+- Chats now load per-directory project instruction files (`LLAME.md`,
+  `AGENTS.md`, `CLAUDE.md` and their override and local variants) into model
+  context on Workspace entry, on a native `read`, `edit`, or `write` touch,
+  and when the bound root's chain is missing from effective context on an
+  accepted turn, walking each touched directory's chain from the filesystem
+  root. Loading is once per compaction epoch, read through the `read`
+  permission group under system origin `instructions`, cut at 32 KiB per file
+  with a named omitted-byte count, and disclosed to the owner by a chip on the
+  carrying message — the triggering user turn for an accepted-turn load, the
+  assistant turn for an in-Run item — listing loaded, truncated, and denied
+  paths ([#975](https://github.com/leon0399/llame/issues/975)).
+
 # 2026-09-29
 
 - Context items can now be carried between the model steps of one Run: such an

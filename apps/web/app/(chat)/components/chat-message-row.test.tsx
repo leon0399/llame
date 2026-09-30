@@ -166,11 +166,38 @@ const CONTEXT_PART: UIMessage["parts"][number] = {
   },
 };
 
+const INSTRUCTIONS_PART: UIMessage["parts"][number] = {
+  type: "data-context",
+  data: {
+    v: 1,
+    producer: "instructions",
+    form: "notice",
+    runId: "11111111-1111-1111-1111-111111111111",
+    payload: {
+      files: [
+        {
+          path: "/home/u/repo/apps/api/AGENTS.md",
+          canonicalPath: "/home/u/repo/AGENTS.md",
+          truncated: true,
+        },
+      ],
+      denied: ["/srv/AGENTS.md"],
+    },
+    text: "loaded 1 instruction file",
+  },
+};
+
 describe("hasVisibleContent", () => {
   it("counts text, tool, and notice parts as visible content", () => {
     expect(hasVisibleContent([{ type: "text", text: "Answer." }])).toBe(true);
     expect(hasVisibleContent([TOOL_PART])).toBe(true);
     expect(hasVisibleContent([CAP_NOTICE_PART])).toBe(true);
+  });
+
+  it("counts the instructions chip as visible owner disclosure", () => {
+    // The chip is the owner's only view of which files a trigger loaded,
+    // truncated, or had denied (design D9), so a turn carrying it paints.
+    expect(hasVisibleContent([INSTRUCTIONS_PART])).toBe(true);
   });
 
   it("finds nothing visible in a reasoning run that carries no text", () => {
@@ -200,7 +227,7 @@ describe("hasVisibleContent", () => {
     ).toBe(true);
   });
 
-  it("finds nothing visible in server-authored context parts or in no parts", () => {
+  it("finds nothing visible in another producer's context part or in no parts", () => {
     expect(hasVisibleContent([CONTEXT_PART])).toBe(false);
     expect(hasVisibleContent([])).toBe(false);
   });

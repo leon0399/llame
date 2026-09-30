@@ -189,13 +189,13 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 5. `instruction-files/owner-chip`: owner disclosure and docs
 
-- [ ] 5.1 Render the owner chip on the carrying message from the part's private metadata,
+- [x] 5.1 Render the owner chip on the carrying message from the part's private metadata,
       marking truncated and denied paths, using shared primitives and semantic tokens per
       DESIGN.md; keep the text and metadata out of public shares, exports, and search
       projections (design D9). Verify with component tests and a story; run the Storybook story
       tests and return preview URLs; add an API test that a public share of a Chat with
       instructions items carries none of them.
-- [ ] 5.2 Document the chains, walk, triggers, once-per-epoch rule, the walk-to-root
+- [x] 5.2 Document the chains, walk, triggers, once-per-epoch rule, the walk-to-root
       tradeoff with the reject-rule remedy, and the chip in `docs/native-files.md`; update
       `SPEC.md`'s Workspace and context-rail lines; add a dated `CHANGELOG.md` entry. Run
       `pnpm --filter api lint`, `typecheck`, and `test:coverage`, `pnpm --filter web lint`,
