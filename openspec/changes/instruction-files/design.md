@@ -335,7 +335,9 @@ rule.
 - **v5 (2026-09-30, finalize review):** The `workspace-entry` and `context-injection`
   requirements that own the Workspace binding re-check now list the accepted-turn
   `instructions` load among its consumers, and a detaching attempt contributes no accepted-turn
-  `instructions` item. This states behavior `instruction-files` already required.
+  `instructions` item, in the requirement text and in the re-check's ordering scenario. The
+  proposal's capability list names both amendments. This states behavior `instruction-files`
+  already required.
 - **v4 (2026-09-30, implementation sizing):** The single producer layer measured about 4,600
   authored lines, so D11 splits it into `loading`, `producer`, `turn-load`, and `owner-chip`.
   The Migration Plan now states the rollout order (the carrier deploys before any producer

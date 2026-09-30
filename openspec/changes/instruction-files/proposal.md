@@ -92,9 +92,13 @@ once per Chat.
   steps, replayed as a user-role message after the triggering tool result and re-supplied on
   later steps; `instructions` joins the producer precedence list after `workspace`; the Run
   context-item record includes in-Run items in step order; the SDK conversion boundary maps
-  assistant-message `data-context` parts to user-role text messages.
+  assistant-message `data-context` parts to user-role text messages; and the Workspace
+  binding-change requirement finishes the re-check before the accepted-turn `instructions`
+  load, so a detaching attempt stages no `instructions` item.
 - `workspace-entry`: entry also triggers the `instruction-files` load for the canonical root
-  from the next model step.
+  from the next model step (In-Run Workspace transitions), and the binding re-check (Each Run
+  attempt re-checks the binding) runs before the accepted-turn `instructions` load, which a
+  detaching attempt skips.
 
 ## Impact
 
