@@ -57,14 +57,6 @@ export interface InstructionScope {
   /** The logical label of one key: an absolute host path or a `kb://` locator. */
   readonly label: (key: string) => string;
   /**
-   * The selector a page read of `key` is issued under. It is `label` itself
-   * for the host. A Knowledge Space spells the same locator with the Space id
-   * as the step's first triggering call spelled it, so the audited `read` of a
-   * candidate is evaluated against the same spelling the model's own read of
-   * that Space was — never a second, differently spelled one.
-   */
-  readonly readLabel: (key: string) => string;
-  /**
    * One key, resolved. `canonicalPath` is the identity a seen set and a
    * self-read exclusion compare: a host realpath, or the logical locator for a
    * Knowledge Space, which resolves no links.
@@ -81,7 +73,6 @@ export function hostInstructionScope(
   return {
     root: '/',
     label: (key) => key,
-    readLabel: (key) => key,
     probe: stat,
     list: listDirectoryNames,
   };
@@ -157,13 +148,6 @@ export interface InstructionCandidate {
   readonly canonicalPath: string;
   /** The probed byte size, the baseline for the omitted-byte count. */
   readonly size: number;
-  /**
-   * The selector the page read is issued under. It equals `path` for the host
-   * and is the only place a Space's read spelling appears: the model sees and
-   * the seen set keys the canonical label, while the permission group sees the
-   * spelling the step's own call used.
-   */
-  readonly readPath: string;
 }
 
 /**
@@ -204,7 +188,6 @@ export async function selectCandidates(
         path: scope.label(entry),
         canonicalPath: probe.canonicalPath,
         size: probe.size,
-        readPath: scope.readLabel(entry),
       });
       break;
     }
@@ -261,7 +244,7 @@ export async function readInstructionFile(
   for (;;) {
     const from = lines + 1;
     const result = await readPage(
-      `${candidate.readPath}:raw:${from}-${from + MAX_READ_LINES - 1}`,
+      `${candidate.path}:raw:${from}-${from + MAX_READ_LINES - 1}`,
     );
     if (result.status === 'error') {
       if (result.type === 'permission_denied') return { kind: 'denied' };

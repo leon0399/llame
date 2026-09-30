@@ -84,7 +84,6 @@ async function candidateOf(file: string): Promise<InstructionCandidate> {
     path: file,
     canonicalPath: probe.canonicalPath,
     size: probe.size,
-    readPath: file,
   };
 }
 
@@ -158,7 +157,6 @@ describe('selectCandidates', () => {
         path: llame,
         canonicalPath: await realpath(llame),
         size: 8,
-        readPath: llame,
       },
     ]);
   });
@@ -175,7 +173,6 @@ describe('selectCandidates', () => {
         path: override,
         canonicalPath: await realpath(override),
         size: 9,
-        readPath: override,
       },
     ]);
   });
@@ -230,7 +227,6 @@ describe('selectCandidates', () => {
         path: claude,
         canonicalPath: await realpath(claude),
         size: 9,
-        readPath: claude,
       },
     ]);
   });
@@ -245,7 +241,6 @@ describe('selectCandidates', () => {
         path: empty,
         canonicalPath: await realpath(empty),
         size: 0,
-        readPath: empty,
       },
     ]);
   });
@@ -261,7 +256,6 @@ describe('selectCandidates', () => {
         path: join(root, 'AGENTS.md'),
         canonicalPath: await realpath(target),
         size: 9,
-        readPath: join(root, 'AGENTS.md'),
       },
     ]);
   });
@@ -284,9 +278,7 @@ describe('selectCandidates', () => {
 
     expect(
       await selectCandidates(hostInstructionScope(resolvesEveryName), root),
-    ).toEqual([
-      { path: claude, canonicalPath: claude, size: 9, readPath: claude },
-    ]);
+    ).toEqual([{ path: claude, canonicalPath: claude, size: 9 }]);
   });
 
   it('selects nothing from a directory that cannot be listed', async () => {
@@ -422,7 +414,6 @@ describe('readInstructionFile', () => {
         path: missing,
         canonicalPath: missing,
         size: 7,
-        readPath: missing,
       },
       nativePageReader(),
     );
@@ -453,7 +444,6 @@ describe('readInstructionFile', () => {
         path: '/srv/AGENTS.md',
         canonicalPath: '/srv/AGENTS.md',
         size: 6,
-        readPath: '/srv/AGENTS.md',
       },
       readPage,
     );
@@ -488,7 +478,6 @@ describe('readInstructionFile', () => {
       {
         path: '/srv/AGENTS.md',
         canonicalPath: '/srv/AGENTS.md',
-        readPath: '/srv/AGENTS.md',
         size: Buffer.byteLength(body, 'utf8'),
       },
       readPage,
@@ -519,7 +508,6 @@ describe('readInstructionFile', () => {
         path: '/srv/AGENTS.md',
         canonicalPath: '/srv/AGENTS.md',
         size: 5,
-        readPath: '/srv/AGENTS.md',
       },
       readPage,
     );
@@ -546,7 +534,6 @@ describe('readInstructionFile', () => {
         path: '/srv/AGENTS.md',
         canonicalPath: '/srv/AGENTS.md',
         size: INSTRUCTION_FILE_BYTE_LIMIT,
-        readPath: '/srv/AGENTS.md',
       },
       readPage,
     );
@@ -582,7 +569,6 @@ describe('readInstructionFile', () => {
         path: '/srv/AGENTS.md',
         canonicalPath: '/srv/AGENTS.md',
         size: 6,
-        readPath: '/srv/AGENTS.md',
       },
       readPage,
     );
@@ -603,7 +589,6 @@ describe('readInstructionFile', () => {
         path: '/srv/AGENTS.md',
         canonicalPath: '/srv/AGENTS.md',
         size: 6,
-        readPath: '/srv/AGENTS.md',
       },
       readPage,
     );
@@ -624,7 +609,6 @@ describe('readInstructionFile', () => {
         path: '/srv/AGENTS.md',
         canonicalPath: '/srv/AGENTS.md',
         size: 6,
-        readPath: '/srv/AGENTS.md',
       },
       readPage,
     );

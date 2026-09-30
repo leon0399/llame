@@ -87,32 +87,20 @@ const SPACE_ROOT = '';
 
 /**
  * One Space as an instruction scope: the canonical locator is both the label
- * every candidate is named by and the identity it is keyed by, because the
- * resolver refuses links, so no two spellings inside a Space name the same
- * file.
- *
- * `readSpaceId` is that same id as the step's first triggering `kb://` call
- * spelled it. Only the read selector carries it: a `read` rule the operator
- * wrote against `kb://<Upper-Case>/…` is evaluated for the candidate read
- * exactly as it was for the model's own read of that Space, so a Space
- * reached under one spelling is never read under another.
+ * every candidate is named by and the identity it is keyed and read by,
+ * because the resolver refuses links, so no two spellings inside a Space name
+ * the same file.
  */
 export function spaceInstructionScope(input: {
   readonly knowledgeSpaceId: string;
-  readonly readSpaceId: string;
   readonly space: KnowledgeInstructionScope;
 }): InstructionScope {
-  const { knowledgeSpaceId, readSpaceId, space } = input;
+  const { knowledgeSpaceId, space } = input;
   const label = (key: string): string =>
     formatKnowledgeLocator({ knowledgeSpaceId, relativePath: key });
   return {
     root: SPACE_ROOT,
     label,
-    readLabel: (key) =>
-      formatKnowledgeLocator({
-        knowledgeSpaceId: readSpaceId,
-        relativePath: key,
-      }),
     probe: async (key) => {
       const entry = await space.probe(key);
       return entry.kind === 'missing'

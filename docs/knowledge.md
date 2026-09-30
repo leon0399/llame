@@ -63,17 +63,19 @@ Git submission remains separate work under #212.
 A `read`, `edit`, or `write` of a `kb://` locator loads the same per-directory
 instruction chain a host path does, walked from the Space's own directory down
 to the touched directory and never above it: a file in `knowledge.root` itself
-is not a candidate, and no host path is probed. Each loaded file is named by
-its `kb://<knowledgeSpaceId>/<path>` locator and its seen key is that locator
-under the canonical lower-case Space id, however the triggering call spelled it;
-its pages are read through the native `read` tool under system origin
-`instructions` and the `read` permission group, addressed by the Space id as
-the step's first `kb://` call spelled it, so a `read` reject rule on `path`
-applies to those pages exactly as it did to the model's own read of that Space.
-Space resolution and every probe use the Run owner: a Space that is missing,
-another owner's, or unavailable loads nothing and reveals nothing, and so does
-a locator whose own path the Knowledge resolver refuses — a traversal, or one
-deeper than its component cap. `knowledge_search` hits never trigger. See
+is not a candidate, and no host path is probed. Only a Space identifier already
+in the canonical lower-case form llame formats and shows is a trigger; an
+identifier written with an upper-case hex digit is not, so that call still
+reads the file but loads no instruction file from the Space. Each loaded file
+is named by its `kb://<knowledgeSpaceId>/<path>` locator and its seen key is
+that same locator, and its pages are read through the native `read` tool under
+system origin `instructions` and the `read` permission group under that exact
+locator, so a `read` reject rule on `path` applies to those pages exactly as it
+does to the model's own read of that Space. Space resolution and every probe
+use the Run owner: a Space that is missing, another owner's, or unavailable
+loads nothing and reveals nothing, and so does a locator whose own path the
+Knowledge resolver refuses — a traversal, or one deeper than its component cap.
+`knowledge_search` hits never trigger. See
 [native files](native-files.md#instruction-files) for the chain names and the
 host-path rules that apply unchanged.
 
@@ -90,7 +92,9 @@ never attributed to a Space or to its owner. Where one host serves several
 owners, add a reject rule for the Knowledge root to each of the `read`,
 `edit`, and `write` groups (and keep `bash` off such a host), so an absolute
 path cannot read or change a Space file the owner's own `kb://` access would
-not authorize.
+not authorize. Under the `bypass` permission mode no `tools.permissions` rule
+is evaluated, so a reject rule closes nothing there: do not expose `bypass` in
+`tools.permissionModes` on such a host.
 
 ## Deployment and filesystem trust
 

@@ -150,6 +150,7 @@ const OTHER_SPACE = 'b6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
 function spaceOf(files: Readonly<Record<string, string>>) {
   const reads: Array<string> = [];
   const probes: Array<string> = [];
+  const asked: Array<string> = [];
   const directories = new Set<string>(['']);
   for (const key of Object.keys(files)) {
     for (let parent = parentKey(key, ''); ; parent = parentKey(parent, '')) {
@@ -158,9 +159,14 @@ function spaceOf(files: Readonly<Record<string, string>>) {
     }
   }
   const entries = [...directories, ...Object.keys(files)];
-  const knowledge: KnowledgeInstructionProbe = (spaceId) =>
-    Promise.resolve(
-      spaceId === SPACE
+  // A real probe resolves the Space under RLS, which matches an identifier
+  // whatever its case, so this one does too: an upper-case id names the same
+  // Space. Only the producer's own canonical-only rule keeps such a locator
+  // from ever reaching it.
+  const knowledge: KnowledgeInstructionProbe = (spaceId) => {
+    asked.push(spaceId);
+    return Promise.resolve(
+      spaceId.toLowerCase() === SPACE
         ? {
             probe(relativePath) {
               probes.push(relativePath);
@@ -192,10 +198,11 @@ function spaceOf(files: Readonly<Record<string, string>>) {
           }
         : undefined,
     );
+  };
   const readPage: ReadPage = (selectorPath) => {
     reads.push(selectorPath);
-    // A read carries the Space id as the step's own call spelled it, so only
-    // its canonical lower-case form identifies the Space here.
+    // Only a canonical lower-case id reaches a read at all, so the locator
+    // prefix strips a Space id that identifies this Space here.
     const key = selectorPath
       .replace(/^kb:\/\/[^/]+\//iu, '')
       .replace(/:raw:\d+-\d+$/u, '');
@@ -211,7 +218,7 @@ function spaceOf(files: Readonly<Record<string, string>>) {
           },
     );
   };
-  return { knowledge, readPage, reads, probes };
+  return { knowledge, readPage, reads, probes, asked };
 }
 
 /** One `kb://` read call, in a Space that exists. */
@@ -279,7 +286,7 @@ describe('instructions producer Knowledge Space triggers', () => {
     ]);
   });
 
-  it('loads one Space once however its id is spelled', async () => {
+  it('stages nothing for a Space id that is not in canonical form', async () => {
     const space = spaceOf({
       'x.md': 'first\n',
       'notes/y.md': 'second\n',
@@ -287,50 +294,51 @@ describe('instructions producer Knowledge Space triggers', () => {
     });
     const { producer, staged, prepare } = attemptOf({ space });
 
-    // Two spellings of one Space id in one step: one group, one file each.
-    producer.observeToolCall?.(spaceCall('x.md'));
-    producer.observeToolCall?.(
-      spaceCall('notes/y.md', 'read', SPACE.toUpperCase()),
-    );
+    // Only the lower-case id llame itself formats is a trigger, so an
+    // upper-case locator names no instruction file to load: it asks the
+    // owner's resolver about no Space at all, reads nothing, and stages
+    // nothing — even though that resolver would happily resolve the id.
+    producer.observeToolCall?.(spaceCall('x.md', 'read', SPACE.toUpperCase()));
+    await prepare();
+
+    expect(staged).toEqual([]);
+    expect(space.asked).toEqual([]);
+    expect(space.probes).toEqual([]);
+    expect(space.reads).toEqual([]);
+  });
+
+  it('loads a canonical locator in the same step as an upper-case one', async () => {
+    const space = spaceOf({
+      'x.md': 'first\n',
+      'notes/y.md': 'second\n',
+      'notes/AGENTS.md': 'note rules\n',
+    });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    // The upper-case call is not a trigger and the lower-case one is, so the
+    // step stages the chain of the one directory it named.
+    producer.observeToolCall?.(spaceCall('x.md', 'read', SPACE.toUpperCase()));
+    producer.observeToolCall?.(spaceCall('notes/y.md'));
     await prepare();
 
     expect(staged).toHaveLength(1);
     expect(blockPaths(lastStaged(staged))).toEqual([
       `kb://${SPACE}/notes/AGENTS.md`,
     ]);
+    // Every group, label, seen key, and read agrees on the canonical spelling,
+    // which is also the only one the `read` rule is evaluated under.
+    expect(space.reads).toEqual([`kb://${SPACE}/notes/AGENTS.md:raw:1-2000`]);
+    expect(seenKeys(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
 
-    // The keys carry the canonical spelling, so an upper-case trigger in the
-    // same epoch is already seen and loads nothing.
+    // The key is canonical, so a later touch of the same file is already seen
+    // and loads nothing.
     producer.observeToolCall?.(
       spaceCall('notes/AGENTS.md', 'read', SPACE.toUpperCase()),
     );
     await prepare();
     expect(staged).toHaveLength(1);
-  });
-
-  it('reads a Space under the id the step spelled, and labels it canonically', async () => {
-    const space = spaceOf({ 'notes/AGENTS.md': 'note rules\n' });
-    const { producer, staged, prepare } = attemptOf({ space });
-
-    producer.observeToolCall?.(
-      spaceCall('notes/x.md', 'read', SPACE.toUpperCase()),
-    );
-    await prepare();
-
-    // The audited read carries the spelling the model's own call used, so a
-    // `read` rule written against that locator is evaluated for this read
-    // exactly as it was for the model's — never under a second spelling.
-    expect(space.reads).toEqual([
-      `kb://${SPACE.toUpperCase()}/notes/AGENTS.md:raw:1-2000`,
-    ]);
-    // The model-visible block and the seen key stay canonical: one Space, one
-    // spelling in everything the owner and the transcript see.
-    expect(blockPaths(lastStaged(staged))).toEqual([
-      `kb://${SPACE}/notes/AGENTS.md`,
-    ]);
-    expect(seenKeys(lastStaged(staged))).toEqual([
-      `kb://${SPACE}/notes/AGENTS.md`,
-    ]);
   });
 
   it("loads the Space root's chain for a locator naming only the Space", async () => {

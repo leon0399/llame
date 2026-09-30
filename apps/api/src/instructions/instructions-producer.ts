@@ -95,16 +95,14 @@ interface TriggerTarget {
 }
 
 /**
- * One `kb://` trigger's Space under two spellings. `id` is the canonical
- * lower-case form, so one Space is one group, one set of item labels, and one
- * seen key however its locator was written; `spelledId` is that id as the
- * triggering call wrote it, and it is the spelling every candidate of the
- * group is read under, so a `read` rule is evaluated for the candidate exactly
- * as it was for the model's own read of that Space.
+ * One `kb://` trigger's Space. Only the canonical lower-case id — the form
+ * llame itself formats and shows — ever forms a trigger, so one Space is one
+ * group, one set of item labels, one seen key, and one read spelling, and a
+ * `read` rule is evaluated for every candidate under exactly the locator the
+ * model wrote.
  */
 interface SpaceTrigger {
   readonly id: string;
-  readonly spelledId: string;
 }
 
 /** One pending trigger: the path it touches, and whether a read named it. */
@@ -167,12 +165,17 @@ function hostTarget(selectorPath: string): TriggerTarget {
 /**
  * One `kb://` locator as a Space and a Space-relative key: the selector is
  * dropped, the path is percent-decoded, and only a path the Knowledge
- * resolver itself accepts names anything. Any other scheme — `skill://`, a web
- * URL — is not a local file.
+ * resolver itself accepts names anything. A Space id that is not already
+ * canonical is not a trigger at all — the model's own read of it still runs,
+ * it just loads no instructions — so every other step of one Space resolves
+ * under the single spelling that can reach this point.
  */
 function spaceTarget(rest: string): TriggerTarget | undefined {
   const parsed = parseKnowledgeLocator(rest);
   if (parsed === undefined || !isKnowledgeSpaceId(parsed.knowledgeSpaceId)) {
+    return undefined;
+  }
+  if (parsed.knowledgeSpaceId !== parsed.knowledgeSpaceId.toLowerCase()) {
     return undefined;
   }
   const relativePath = parsed.relativePath;
@@ -180,14 +183,7 @@ function spaceTarget(rest: string): TriggerTarget | undefined {
     return undefined;
   }
   return {
-    // One Space, one spelling: an upper-case id and its lower-case form are one
-    // Space, so they share a group and a seen key. The read selector keeps the
-    // spelling of the call that named the Space first, so the permission group
-    // never sees a second, differently spelled read of the same Space.
-    space: {
-      id: parsed.knowledgeSpaceId.toLowerCase(),
-      spelledId: parsed.knowledgeSpaceId,
-    },
+    space: { id: parsed.knowledgeSpaceId },
     key: relativePath ?? '',
   };
 }
@@ -291,9 +287,8 @@ interface TriggerGroup {
   readonly knowledge: boolean;
 }
 
-/** One Space's triggers in a step, with the id spelling its first call used. */
+/** One Space's triggers in a step. */
 interface SpaceTriggers {
-  readonly spelledId: string;
   readonly triggers: Array<PendingTrigger>;
 }
 
@@ -316,13 +311,8 @@ function partitionTriggers(
       continue;
     }
     const owned = bySpace.get(space.id);
-    // The first trigger that named a Space fixes the spelling its candidates
-    // are read under, so one step reads one Space under one locator form.
     if (owned === undefined) {
-      bySpace.set(space.id, {
-        spelledId: space.spelledId,
-        triggers: [trigger],
-      });
+      bySpace.set(space.id, { triggers: [trigger] });
     } else {
       owned.triggers.push(trigger);
     }
@@ -359,7 +349,6 @@ async function resolveGroups(input: {
     if (space === undefined) continue;
     const scope = spaceInstructionScope({
       knowledgeSpaceId: spaceId,
-      readSpaceId: owned.spelledId,
       space,
     });
     groups.push({
