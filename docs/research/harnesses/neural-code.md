@@ -25,26 +25,26 @@ sources:
 
 - **Stack:** Python, OpenAI-compatible Chat Completions; educational implementation
 
-Moderate-confidence inclusion as a small comparison implementation. Its
-child loop[^neuralcode-subagent-py]
-starts fresh, caps execution at 12 turns, and returns a final report. That
-parent-facing result shape is useful for future delegation; llame would retain
-the child's underlying Chat/Run for inspection instead of discarding it.
+Moderate-confidence inclusion as a small comparison implementation. Its child
+loop[^neuralcode-subagent-py]
+starts fresh, caps execution at 12 turns, and returns a final report: a useful
+parent-facing result shape for future delegation, though llame would retain the
+child's underlying Chat/Run for inspection instead of discarding it.
 
 Context-pressure handling[^neuralcode-history-py]
 caps fresh tool output, spills full text temporarily, then strips or drops
-eligible older results while protecting a frozen prefix. Study the explicit
-stages and disclosed truncation, not its destructive history mutations: llame's
-source messages and declared compaction boundary remain authoritative. Spill
-files expire at turn end, so their paths are not durable citations.
+eligible older results while protecting a frozen prefix. Study the explicit stages
+and disclosed truncation, not its destructive history mutations: llame's source
+messages and declared compaction boundary remain authoritative. Spill files
+expire at turn end, so their paths are not durable citations.
 
 **Caution:** The child exclusion set names `write`, while the actual tool is
 `write_file`[^neuralcode-tools-py-l149-l160];
-it does not enforce read-only exploration. Sandbox selection[^neuralcode-sandbox-py-l30-l65]
-falls back to an ordinary shell on Linux without bubblewrap and on Windows.
-That fallback conflicts with VISION's rule against silently downgrading a
-requested Sandbox to native execution. Local JSONL sessions provide neither
-llame's tenant isolation nor durable Run recovery.
+so it does not enforce read-only exploration. Sandbox selection[^neuralcode-sandbox-py-l30-l65]
+falls back to an ordinary shell on Linux without bubblewrap and on Windows,
+conflicting with VISION's rule against silently downgrading a requested Sandbox to
+native execution. Local JSONL sessions provide neither llame's tenant isolation
+nor durable Run recovery.
 
 [^neuralcode-subagent-py]: [child loop](https://github.com/avbiswas/neural-code/blob/e3d2b9b96ffe95cd9d2da53510401bbd124bbcf2/neuralcode/subagent.py)
 

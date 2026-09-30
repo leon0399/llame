@@ -106,8 +106,8 @@ sources:
 
 - **Stack:** TypeScript monorepo (unified LLM API, agent loop, TUI, coding CLI); MIT
 
-Upstream of [oh-my-pi](./oh-my-pi.md), which forks it. Listed by OpenCode Go
-as a validated client[^packages-web-src-content-docs-go-mdx-l104-l120], and the
+Upstream of [oh-my-pi](./oh-my-pi.md), which forks it. OpenCode Go lists it as a
+validated client[^packages-web-src-content-docs-go-mdx-l104-l120], and the
 gateway reads `x-opencode-session` for routing and
 metrics[^packages-console-app-src-routes-zen-util-handler-ts-l125-l131]. Study
 it for the mechanisms OMP inherited unchanged; OMP remains the primary agentic
@@ -115,19 +115,14 @@ and tool-shape reference.
 
 **Study**
 
-1. **Composable provider session header.** One wrapper sets
-   `x-opencode-session` from the request's `sessionId` unless the caller
-   already supplied the header, and never fabricates one
+1. **Composable provider session header.** One wrapper sets `x-opencode-session`
+   from the request's `sessionId` unless the caller already supplied the header,
+   and never fabricates one
    (`withOpenCodeSessionHeader`[^packages-ai-src-providers-opencode-headers-ts-l9-l24]);
    the Go provider is an ordinary provider declaration wrapping the same
-   adapters[^packages-ai-src-providers-opencode-go-ts-l9-l19]. Subagent lanes
-   send `<sessionId>:<lane>` so each lane has its own routing and cache
-   identity[^packages-agent-src-harness-runtime-drive-generation-ts-l217-l219].
-   The User-Agent is a generic `pi (<platform>; <arch>)`
-   string[^packages-ai-src-utils-pi-user-agent-ts-l17-l19]. High confidence as
-   the shape for llame's Go provider (#809): header injection as a provider
-   wrapper, session id derived from Chat identity, per-child identity for
-   subagents.
+   adapters[^packages-ai-src-providers-opencode-go-ts-l9-l19]. The User-Agent is a
+   generic `pi (<platform>; <arch>)`
+   string[^packages-ai-src-utils-pi-user-agent-ts-l17-l19].
 2. **Lane-as-branch session tree.** Sessions are append-only entry trees; a
    single-writer mutation line serializes
    commits[^packages-agent-src-harness-session-session-ts-l225-l264], and
@@ -135,62 +130,58 @@ and tool-shape reference.
    top-level identities. Forking clones the whole tree or one branch and
    validates lane config and tip
    integrity[^packages-agent-src-harness-session-fork-ts-l29-l121]. Moderate
-   confidence as a comparison for how llame represents child agents (#765)
-   under one Chat without a second session system.
-3. **Four-phase tool execution.** Prepare, hook decision, gated execution,
+   confidence as a comparison for how llame represents child agents (#765) under
+   one Chat without a second session system.
+3. **Four-phase tool execution.** Prepare, hook decision, gated execution, and
    finalize are separate
-   steps[^packages-agent-src-harness-execution-tools-ts-l76-l176]; a
-   synchronous gate admits each effect and supports cooperative abort.
-   Moderate confidence for llame's `runTool()` structure, which already has
-   the same gates in one function.
+   steps[^packages-agent-src-harness-execution-tools-ts-l76-l176], and a
+   synchronous gate admits each effect and supports cooperative abort. Moderate
+   confidence for llame's `runTool()` structure, which already has the same
+   gates in one function.
 4. **Go and Zen are separate providers over one generated wire table.**
    `opencode-go` and `opencode` are distinct provider ids sharing
    `OPENCODE_API_KEY`; Go declares three wires (chat completions, Responses,
    Anthropic messages) under `https://opencode.ai/zen/go/v1`, while Zen adds
    Google[^packages-ai-src-providers-opencode-go-ts-l9-l21][^packages-ai-src-providers-opencode-ts-l13-l25].
-   Wire selection is a generated per-model column, not a request-time
-   decision: the catalogue generator maps models.dev `provider.npm` to a wire
+   Wire selection is a generated per-model column, not a request-time decision:
+   the catalogue generator maps models.dev `provider.npm` to a wire
    (`@ai-sdk/openai` to Responses, `@ai-sdk/anthropic` to Messages with the SDK
-   appending `/v1/messages`, `@ai-sdk/google` to Google, everything else to
-   chat completions)[^packages-ai-scripts-generate-models-ts-l2204-l2245], then
-   corrects stale metadata: Go's MiniMax M2.7 and Qwen 3.5/3.6 Plus move to
-   chat completions, Kimi K2.6 switches to the DeepSeek thinking dialect, chat
+   appending `/v1/messages`, `@ai-sdk/google` to Google, everything else to chat
+   completions)[^packages-ai-scripts-generate-models-ts-l2204-l2245], then
+   corrects stale metadata: Go's MiniMax M2.7 and Qwen 3.5/3.6 Plus move to chat
+   completions, Kimi K2.6 switches to the DeepSeek thinking dialect, chat
    completions ids pin `max_tokens`, and named ids opt out of long cache
    retention[^packages-ai-scripts-generate-models-ts-l2246-l2296].
    Responses-routed OpenCode models also set `sessionAffinityFormat` to
-   `openai-nosession` so `session_id` and `x-session-affinity` never ride
-   along with the OpenCode
+   `openai-nosession`, so `session_id` and `x-session-affinity` never ride along
+   with the OpenCode
    header[^packages-ai-scripts-generate-models-ts-l2225-l2235]. Models ship as
    generated shards from the bundled catalogue, with an overlay fetched from
    pi.dev at most every four hours and cached
    locally[^packages-coding-agent-src-core-remote-catalog-provider-ts-l6-l12][^packages-coding-agent-src-core-remote-catalog-provider-ts-l66-l83][^packages-coding-agent-src-core-model-runtime-ts-l185-l192].
-   Moderate confidence for llame's provider-type model: the transferable part
-   is the table, not the generation pipeline, and llame's
-   `openai-completions` type already carries the `baseUrl` this needs.
-5. **Three-layer session identity, two wire repairs, and fail-fast quota.**
-   The header is written twice by design: the provider wrapper adds
-   `x-opencode-session` from `options.sessionId` unless the caller already set
-   that name in any casing, and never fabricates
-   one[^packages-ai-src-providers-opencode-headers-ts-l3-l25]; the coding agent
-   adds `x-opencode-session` plus `x-opencode-client: pi` for OpenCode
-   providers and any `opencode.ai`
-   host[^packages-coding-agent-src-core-provider-attribution-ts-l67-l95],
-   running last through `transformHeaders` before
-   dispatch[^packages-coding-agent-src-core-sdk-ts-l325-l336][^packages-ai-src-models-ts-l663-l675].
-   A regression test pins the case-insensitive override and the
-   no-fabrication rule[^packages-ai-test-opencode-provider-headers-test-ts-l44-l86].
-   The value is the session's uuidv7 id; the agent harness namespaces it per
-   lane as
-   `<sessionId>:<lane>`[^packages-agent-src-harness-runtime-drive-generation-ts-l211-l222],
-   and compaction or summarization calls mint a fresh uuidv7 when the caller
-   passes none and request `cacheRetention: "none"`, so aux calls route on
-   their own
+   Moderate confidence for llame's provider-type model: the transferable part is
+   the table, not the generation pipeline, and llame's `openai-completions` type
+   already carries the `baseUrl` this needs.
+5. **Three-layer session identity, two wire repairs, and fail-fast quota.** The
+   header is written in three layers: the provider wrapper of item 1, which still
+   never fabricates a value[^packages-ai-src-providers-opencode-headers-ts-l3-l25];
+   the coding agent's `x-opencode-session` plus `x-opencode-client: pi` for
+   OpenCode providers and any `opencode.ai`
+   host[^packages-coding-agent-src-core-provider-attribution-ts-l67-l95], running
+   last through `transformHeaders` before
+   dispatch[^packages-coding-agent-src-core-sdk-ts-l325-l336][^packages-ai-src-models-ts-l663-l675];
+   and the value itself, the session's uuidv7 id, namespaced per lane as
+   `<sessionId>:<lane>`[^packages-agent-src-harness-runtime-drive-generation-ts-l211-l222][^packages-agent-src-harness-runtime-drive-generation-ts-l217-l219].
+   A regression test pins the case-insensitive override and the no-fabrication
+   rule[^packages-ai-test-opencode-provider-headers-test-ts-l44-l86]. Compaction
+   or summarization calls mint a fresh uuidv7 when the caller passes none and
+   request `cacheRetention: "none"`, so aux calls route on their own
    identity[^packages-coding-agent-src-core-compaction-compaction-ts-l591-l606].
    Client identification is the literal `pi (<platform> <release>; <arch>)`
    string[^packages-ai-src-utils-pi-user-agent-ts-l17-l19]. Two repairs are
    gated on `opencode-go`: chat completions stores a `reasoning` delta field as
-   the `reasoning_content` signature and rewrites that signature back on
-   replay, so DeepSeek-family lanes keep accepting replayed
+   the `reasoning_content` signature and rewrites that signature back on replay,
+   so DeepSeek-family lanes keep accepting replayed
    reasoning[^packages-ai-src-api-openai-completions-ts-l617-l625][^packages-ai-src-api-openai-completions-ts-l1330-l1338],
    while Responses models skip the generic session-affinity
    trio[^packages-ai-src-api-openai-completions-ts-l770-l782]. Failures are
@@ -206,13 +197,12 @@ and tool-shape reference.
 
 - Hooks fail open by default. Only `before_tool` and `before_drive` fail
   closed[^packages-agent-src-harness-hooks-ts-l156-l184]; every other hook
-  reports and swallows
-  errors[^packages-agent-src-harness-hooks-ts-l229-l330]. A misbehaving
-  extension degrades silently.
-- No sandbox and no MCP. Extensions are in-process TypeScript with the OS
-  user's full permissions; "project trust" gates whether project settings
-  load, not what a tool may do[^packages-coding-agent-docs-security-md-l9-l25].
-  llame's allowlist and tenancy model has no counterpart here.
+  reports and swallows errors[^packages-agent-src-harness-hooks-ts-l229-l330],
+  so a misbehaving extension degrades silently.
+- No sandbox and no MCP. Extensions are in-process TypeScript with the OS user's
+  full permissions; "project trust" gates whether project settings load, not
+  what a tool may do[^packages-coding-agent-docs-security-md-l9-l25]. llame's
+  allowlist and tenancy model has no counterpart here.
 
 [^packages-ai-src-providers-opencode-headers-ts-l9-l24]: [`withOpenCodeSessionHeader`](https://github.com/badlogic/pi-mono/blob/f9bcd351dc3cedf989bc5fc0f8aa012db5737df2/packages/ai/src/providers/opencode-headers.ts#L9-L24)
 

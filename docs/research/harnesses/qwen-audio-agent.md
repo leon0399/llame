@@ -30,7 +30,7 @@ sources:
 
 A meta-harness whose gateway owns task/session routing while backends retain
 execution state. High confidence for executor boundaries and declared environment
-flow; moderate for persistence because it remains a single-user application.
+flow; moderate for persistence, since it remains a single-user application.
 
 **Study**
 
@@ -38,8 +38,8 @@ flow; moderate for persistence because it remains a single-user application.
 2. **Secret and approval boundary.** Catalog-driven environment allowlisting[^shared-backend-environment-mjs-l3-l6] and owner-bound permission brokering[^server-src-agent-acp-permission-broker-mjs-l112-l214] inform llame's declared MCP environment and approval contracts.
 
 **Caution:** The architecture document labels behavior roadmap-provisional. Verify
-the cited implementation when defining an adapter contract, and retain llame's
-tenant isolation independently of the host's owner/session routing keys.
+the cited implementation when defining an adapter contract, and keep llame's
+tenant isolation independent of the host's owner/session routing keys.
 
 [^docs-architecture-deep-dive-md-l191-l214]: [Stable backend session semantics](https://github.com/QwenAudio/qwen-audio-agent/blob/94d6cd372379f9c889ea8d6f6190e4cd45122adb/docs/architecture/deep-dive.md#L191-L214)
 

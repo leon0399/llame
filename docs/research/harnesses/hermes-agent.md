@@ -115,114 +115,112 @@ sources:
 
 - **Stack:** Python; multi-platform gateway; FTS5 session search
 
-Self-improving agent with agent-curated memory, isolated subagents, and a pluggable memory-provider boundary. The useful comparison is lifecycle and context handling: llame owns Chat/Run identity and isolation, while any future memory implementation would be an adapter behind those boundaries.
+Self-improving agent with agent-curated memory, isolated subagents, and a pluggable memory-provider boundary. The useful comparison is lifecycle and context handling: llame owns Chat/Run identity and isolation, and any future memory implementation would be an adapter behind those boundaries.
 
 **Study**
 
-1. **Recall-time framing and scrubbing.** `sanitize_context()` and `StreamingContextScrubber`[^agent-memory-manager-py-l167-l285] remove fake memory/system framing, handle split tags in streams, and wrap recalled data as reference material. High confidence applicability to llame's model-visible context items; this is a framing control, not a write-time content scan.
+1. **Recall-time framing and scrubbing.** `sanitize_context()` and `StreamingContextScrubber`[^agent-memory-manager-py-l167-l285] remove fake memory/system framing, handle split tags in streams, and wrap recalled data as reference material. High confidence applicability to llame's model-visible context items; a framing control, not a write-time content scan.
 2. **Provider lifecycle and boundary ordering.** `MemoryProvider`[^agent-memory-provider-py-l58-l145] defines initialization, prefetch, turn sync, and session callbacks. The manager serializes background writes and queues end-of-session extraction before switching sessions (ordering[^agent-memory-manager-py-l480-l500]). Moderate confidence for future executor or memory adapters; Hermes' session lineage differs from llame's Chat/Run model.
 3. **Zen and Go are two providers over one relay, and the wire is per model.**
    Both register as separate built-in tuples with their own base URLs, key env
    vars, and comments explaining that Go mixes API
-   surfaces[^hermes-cli-auth-py-l225-l232]. Routing is a prefix table keyed by family:
-   Go sends `gpt-`/`grok-`/`muse-spark` to Responses and
-   `minimax-`/`qwen`/`union-alpha` to Messages, Zen adds `claude-`, and everything
-   else falls through to Chat
-   Completions[^hermes-cli-models-py-l2305-l2322]. Because a persisted wire format is
-   wrong for every model but the one it was saved for, the mode is re-derived from
-   the final model on the switch path[^hermes-cli-model-switch-py-l1653-l1661] and again
-   on session resume in the TUI gateway[^tui-gateway-server-py-l2321-l2333], and the base
-   URL is healed symmetrically per family and
-   wire[^hermes-cli-models-py-l2329-l2352]. Family membership also matches custom
-   entries named after a built-in family, and config ids are normalized to the bare
-   slug used in requests before the table
-   lookup[^hermes-cli-models-py-l2268-l2290]. High confidence for #809: never trust a
-   stored wire for a gateway that serves several.
+   surfaces[^hermes-cli-auth-py-l225-l232]. Routing is a prefix table keyed by
+   family: Go sends `gpt-`/`grok-`/`muse-spark` to Responses and
+   `minimax-`/`qwen`/`union-alpha` to Messages, Zen adds `claude-`, and
+   everything else falls through to Chat
+   Completions[^hermes-cli-models-py-l2305-l2322]. A persisted wire format is
+   wrong for every model but the one it was saved for, so the mode is re-derived
+   from the final model on the switch
+   path[^hermes-cli-model-switch-py-l1653-l1661] and again on session resume in
+   the TUI gateway[^tui-gateway-server-py-l2321-l2333], and the base URL is
+   healed symmetrically per family and wire[^hermes-cli-models-py-l2329-l2352].
+   Family membership also matches custom entries named after a built-in family,
+   and config ids are normalized to the bare slug used in requests before the
+   table lookup[^hermes-cli-models-py-l2268-l2290]. High confidence for #809:
+   never trust a stored wire for a gateway that serves several.
 4. **One merge point stamps the session header on every request.** The header
    name lives in one constant; the value is a normalized conversation scope
    (host-declared affinity scope, then the ambient conversation root, then the
    session id) and, when nothing resolves, an ephemeral
-   `oneshot-<hex>`[^agent-opencode-affinity-py-l92-l150]. The docstring states the reason
-   plainly: Go rejects requests without the header, HTTP 400
-   `MissingSessionID`[^agent-opencode-affinity-py-l92-l150]. The same module owns the
-   per-model transport decision, returning the re-derived wire and healed base URL
-   for relay targets and deferring to a custom entry that declares its own
-   `api_mode`[^agent-opencode-affinity-py-l30-l55]. Exactly two call sites
-   use the merge helper, the main builder for all three
-   transports[^agent-chat-completion-helpers-py-l1475-l1490] and the auxiliary client
-   used by compression, titles, vision, and MoA[^agent-auxiliary-client-py-l6622-l6624],
-   and existing per-call headers win so a caller-pinned value is never
-   overwritten[^agent-opencode-affinity-py-l92-l150]. High confidence for #809: the
-   value is ambient session state, not a call-site argument, and the fallback keeps
-   stateless calls from failing the gateway.
+   `oneshot-<hex>`[^agent-opencode-affinity-py-l92-l150]. The docstring gives
+   the reason: Go rejects requests without the header, HTTP 400
+   `MissingSessionID`[^agent-opencode-affinity-py-l92-l150]. The same module
+   returns the re-derived wire and healed base URL for relay targets, deferring to a
+   custom entry with its own `api_mode`[^agent-opencode-affinity-py-l30-l55]. Exactly two
+   call sites use the merge helper, the main builder for all three
+   transports[^agent-chat-completion-helpers-py-l1475-l1490] and the auxiliary
+   client used by compression, titles, vision, and
+   MoA[^agent-auxiliary-client-py-l6622-l6624], and per-call headers win, so a
+   caller-pinned value is never
+   overwritten[^agent-opencode-affinity-py-l92-l150]. High confidence for #809:
+   the value is ambient session state, not a call-site argument, and the
+   fallback keeps stateless calls from failing the gateway.
 5. **An operator-named affinity header for arbitrary gateways.** A custom
    provider entry may declare `session_affinity_header` (camelCase alias
-   `sessionAffinityHeader`)[^hermes-cli-config-providers-py-l110-l122], the name is read
-   back per route[^hermes-cli-config-providers-py-l512-l524], and the same merge point
-   sends the conversation key under that name
-   instead[^agent-opencode-affinity-py-l92-l150]. The documented framing is that the
-   identifier is never shipped to an endpoint that did not ask for it, and the
-   motivating case is a session-aware proxy re-classifying an agent-loop request as
-   a new conversation. High confidence for #881: this is a working prior art for a
-   generic per-provider header channel, with the value still owned by the
-   harness.
+   `sessionAffinityHeader`)[^hermes-cli-config-providers-py-l110-l122], the name
+   is read back per route[^hermes-cli-config-providers-py-l512-l524], and the
+   same merge point sends the conversation key under that name
+   instead[^agent-opencode-affinity-py-l92-l150]. The identifier is never
+   shipped to an endpoint that did not ask for it; the motivating case is a
+   session-aware proxy re-classifying an agent-loop request as a new
+   conversation. High confidence for #881: a working prior art for a generic
+   per-provider header channel, with the value still owned by the harness.
 6. **Go-aware caching and format repairs.** Alibaba-family routing clamps
-   `cache_control` TTLs to the five-minute tier by default, with Go as the only
-   wire-measured exception allowed to keep a one-hour
-   marker[^agent-prompt-caching-py-l91-l100]. Without Anthropic-style markers the Go Qwen
-   route reports zero cache hits and re-bills the prompt every
-   turn[^agent-agent-runtime-helpers-py-l1611-l1616], while Zen's relay rejects the
-   block-array content that markers produce, a 400 recorded against
-   it[^agent-agent-runtime-helpers-py-l1704-l1710]. Smaller repairs: a translation for
-   Zen's `x-preview-f-free` stealth model that accepts only low, high, and
-   max[^agent-reasoning-effort-py-l216-l224]; tool-content coercion patterns that name
-   the Go relay's pydantic-style 422 wording[^agent-error-classifier-py-l217-l224]; dot
-   preservation in non-Claude model ids on the Anthropic
-   wire[^agent-vision-message-prep-py-l298-l311]; and reserved tool names stripped on the
-   Responses backend behind an OpenCode-host
+   `cache_control` TTLs to the five-minute tier by default, with Go the only
+   wire-measured exception allowed a one-hour
+   marker[^agent-prompt-caching-py-l91-l100]. Without Anthropic-style markers
+   the Go Qwen route reports zero cache hits and re-bills the prompt every
+   turn[^agent-agent-runtime-helpers-py-l1611-l1616], while Zen's relay rejects
+   the block-array content that markers produce, a 400 recorded against
+   it[^agent-agent-runtime-helpers-py-l1704-l1710]. Smaller repairs: a
+   translation for Zen's `x-preview-f-free` stealth model accepting only low, high,
+   and max[^agent-reasoning-effort-py-l216-l224]; tool-content coercion
+   patterns naming the Go relay's pydantic-style 422
+   wording[^agent-error-classifier-py-l217-l224]; dot preservation in non-Claude
+   model ids on the Anthropic wire[^agent-vision-message-prep-py-l298-l311]; and
+   reserved tool names stripped on the Responses backend behind an OpenCode-host
    check[^agent-transports-codex-py-l88-l103]. The Go provider profile also caps
    `mimo-v2.5-pro` because the relay's default output budget exceeds what that
-   vendor accepts[^plugins-model-providers-opencode-zen-init-py-l58-l67], and declares
-   that tool messages cannot carry list-type content, since both the console relay
-   and the vendor reject it and the rejected row stays in
+   vendor accepts[^plugins-model-providers-opencode-zen-init-py-l58-l67], and
+   declares that tool messages cannot carry list-type content, since both the
+   console relay and the vendor reject it and the rejected row stays in
    history[^plugins-model-providers-opencode-zen-init-py-l120-l127]. Moderate to high
-   confidence that llame needs its own equivalents: caching and reasoning-field
-   behavior differ per model, not per provider.
+   confidence llame needs equivalents: caching and reasoning-field behavior differ per
+   model, not per provider.
 7. **Attribution headers through provider defaults, and a usage endpoint.** Both
-   relays get fixed `HTTP-Referer`, `X-Title`, and `User-Agent: HermesAgent/<version>`
-   headers installed as provider default headers, so they survive model switches
-   and credential rotation[^plugins-model-providers-opencode-zen-init-py-l16-l20][^plugins-model-providers-opencode-zen-init-py-l120-l127].
-   The Go profile also reads subscription windows from
-   `https://opencode.ai/zen/go/v1/usage` with the same bearer key, using the literal
-   URL because the runtime base URL loses its `/v1` suffix in Messages
-   mode[^plugins-model-providers-opencode-zen-init-py-l56-l76]. High confidence for
-   #809 and #765: this is the client-identification and quota pair a Go adapter
-   needs, and both belong to the provider profile rather than to individual call
-   sites.
+   relays get fixed `HTTP-Referer`, `X-Title`, and `User-Agent: HermesAgent/<version>` headers installed as provider default
+   headers, so they survive model switches and credential
+   rotation[^plugins-model-providers-opencode-zen-init-py-l16-l20][^plugins-model-providers-opencode-zen-init-py-l120-l127].
+   The Go profile also reads subscription windows from `https://opencode.ai/zen/go/v1/usage` with the same bearer
+   key, using the literal URL because the runtime base URL loses its `/v1` suffix
+   in Messages mode[^plugins-model-providers-opencode-zen-init-py-l56-l76]. High
+   confidence for #809 and #765: the client-identification and quota pair a Go
+   adapter needs, both provider-profile properties rather than call-site
+   decisions.
 8. **Catalogue: live-first with a curated floor, delisting filters, and no Go
-   probe.** Go and Zen map to distinct models.dev providers[^agent-models-dev-py-l115-l120];
-   both sit in the live-first picker set[^hermes-cli-providers-py-l524-l544] over curated
-   floors whose ranges carry their own sync comments[^hermes-cli-models-catalog-static-py-l223-l247];
-   retired ids that the relay still lists are filtered from the final
-   rows[^hermes-cli-models-py-l1590-l1597] together with free slugs the relay no longer
-   serves[^hermes-cli-models-py-l1520-l1532]. The doctor health check deliberately skips
-   Go's models endpoint while keeping Zen's[^hermes-cli-doctor-connectivity-py-l80-l84], yet
-   the earlier flat-namespace comment treats both as resellers whose live listing
-   returns bare model ids[^hermes-cli-providers-py-l266-l272]. Moderate confidence: copy
+   probe.** Go and Zen map to distinct models.dev
+   providers[^agent-models-dev-py-l115-l120]; both sit in the live-first picker
+   set[^hermes-cli-providers-py-l524-l544] over curated floors whose ranges
+   carry their own sync
+   comments[^hermes-cli-models-catalog-static-py-l223-l247]; retired ids the
+   relay still lists are filtered from the final
+   rows[^hermes-cli-models-py-l1590-l1597] together with free slugs it no longer
+   serves[^hermes-cli-models-py-l1520-l1532]. The doctor check skips Go's models
+   endpoint while keeping Zen's[^hermes-cli-doctor-connectivity-py-l80-l84], yet an earlier flat-namespace
+   comment treats both as resellers whose live listing returns bare model ids[^hermes-cli-providers-py-l266-l272]. Moderate confidence: copy
    the live-first merge and the delisting filter; verify Go's model listing
    yourself before depending on it.
 
 **Caution:** recalled data is described as authoritative reference data inside a known wrapper. That framing does not provide tenant authorization, provenance enforcement, or isolation between users.
 
-For a Go adapter, three things here are specific to Hermes and should not be copied
-blindly. Attribution headers are the only client identification, and they are
-inherited from the OpenRouter-style profile convention rather than chosen for the
-relay; a gateway that validates a specific product token should be given one
-explicitly. The `MissingSessionID` failure has no reactive path at all: every call
-site must go through the single merge helper, and any new call path that bypasses
-it fails closed at the gateway rather than at the harness. And the keyless
-`opencode-free` provider was removed after the relay began answering it with a
-403, so a free tier is not a stable design
+Three things here are specific to Hermes and should not be copied blindly for a
+Go adapter. Attribution headers are the only client identification, inherited
+from the OpenRouter-style profile convention rather than chosen for the relay; a
+gateway that validates a specific product token should be given one explicitly.
+The `MissingSessionID` failure has no reactive path, so any new call path that
+bypasses the single merge helper fails closed at the gateway rather than at the
+harness. And the keyless `opencode-free` provider was removed after the relay
+began answering it with a 403, so a free tier is not a stable design
 assumption[^hermes-cli-auth-py-l1149-l1154].
 
 [^agent-memory-manager-py-l167-l285]: [`sanitize_context()` and `StreamingContextScrubber`](https://github.com/NousResearch/hermes-agent/blob/6271d772d2dab79ec613c08038ecf3039ad27a0c/agent/memory_manager.py#L167-L285)

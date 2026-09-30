@@ -25,22 +25,12 @@ sources:
 
 - **Stack:** TypeScript npm-workspaces monorepo; Apache-2.0
 
-Google's terminal agent is a high-confidence reference for argument-aware policy
-and behavioral evaluation. Its policy engine can inform llame's future approval
-capability; hooks have a separate failure contract.
+Google's terminal agent is a high-confidence reference for argument-aware policy and behavioral evaluation. Its policy engine can inform llame's future approval capability; hooks have a separate failure contract.
 
 **Study**
 
-1. **Argument-aware policy.** Typed rules[^packages-core-src-policy-types-ts-l125-l166]
-   match MCP servers, subagents, argument patterns, annotations, and approval
-   modes. The engine[^packages-core-src-policy-policy-engine-ts-l247-l293]
-   sorts rules by descending priority and defaults to deny in non-interactive
-   mode. Compare this explicit evaluation order with llame's future policy needs.
-2. **Behavioral evaluation.** The behavioral-eval workflow separates structural validation from nightly
-   behavior: cases declare `ALWAYS_PASSES`, `USUALLY_PASSES`, or `USUALLY_FAILS`,
-   while `eval:validate` checks rule shape and tool-call assertions
-   (evaluation guide[^docs-behavioral-evals-md-l55-l143]). This is a useful promotion model for
-   llame's evals, provided reports retain the fixture and saved result.
+1. **Argument-aware policy.** Typed rules[^packages-core-src-policy-types-ts-l125-l166] match MCP servers, subagents, argument patterns, annotations, and approval modes. The engine[^packages-core-src-policy-policy-engine-ts-l247-l293] sorts rules by descending priority and defaults to deny in non-interactive mode. Compare this explicit evaluation order with llame's future policy needs.
+2. **Behavioral evaluation.** The behavioral-eval workflow separates structural validation from nightly behavior: cases declare `ALWAYS_PASSES`, `USUALLY_PASSES`, or `USUALLY_FAILS`, while `eval:validate` checks rule shape and tool-call assertions (evaluation guide[^docs-behavioral-evals-md-l55-l143]). A useful promotion model for llame's evals, provided reports retain the fixture and saved result.
 
 **Caution**
 

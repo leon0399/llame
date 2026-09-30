@@ -25,23 +25,12 @@ sources:
 
 - **Stack:** TypeScript monorepo on the Cordis plugin kernel; MIT; developer preview
 
-`dsh` is a localhost harness built on Cordis plugins. Moderate-confidence
-reference for documented session projections and explicit approval outcomes;
-its developer-preview contracts require implementation validation before reuse.
+`dsh` is a localhost harness built on Cordis plugins. Moderate-confidence reference for documented session projections and explicit approval outcomes; its developer-preview contracts require implementation validation before reuse.
 
 **Study**
 
-1. **Append-only context projection.** The append-only typed Session log is the single source of model context:
-   `deriveMessages()` projects model history and replay reconstructs it without
-   re-running tools (session contract[^docs-subsystems-session-md-l1-l25]).
-   Compaction[^docs-subsystems-compaction-md-l9-l21]
-   logs markers and a replacement message, retaining the original event history.
-2. **Explicit approval outcomes.** Approval is a closed, fail-closed outcome set: `allowed-once`, `rejected`,
-   `cancelled`, and `unavailable`; a missing or throwing answerer becomes
-   `unavailable`. Per-session `ask`/`never` policy is itself reconstructed by
-   replay (approval contract[^docs-subsystems-approval-md-l1-l58]). This is a useful approval
-   outcome contract for llame. llame must enforce authorization independently of
-   approval outcomes.
+1. **Append-only context projection.** The append-only typed Session log is the single source of model context: `deriveMessages()` projects model history and replay reconstructs it without re-running tools (session contract[^docs-subsystems-session-md-l1-l25]). Compaction[^docs-subsystems-compaction-md-l9-l21] logs markers and a replacement message, retaining the original event history.
+2. **Explicit approval outcomes.** Approval is a closed, fail-closed outcome set: `allowed-once`, `rejected`, `cancelled`, and `unavailable`; a missing or throwing answerer becomes `unavailable`, and per-session `ask`/`never` policy is itself reconstructed by replay (approval contract[^docs-subsystems-approval-md-l1-l58]). A useful approval outcome contract for llame, which must enforce authorization independently of approval outcomes.
 
 **Caution**
 

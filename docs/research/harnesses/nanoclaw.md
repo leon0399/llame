@@ -22,21 +22,12 @@ sources:
 
 - **Stack:** TypeScript personal bot host with Linux containers; MIT
 
-NanoClaw routes messaging channels into agent-group sessions and runs agent work
-inside per-session containers. Moderate-confidence reference for executor
-isolation and host/container messaging in a single-user bot host.
+NanoClaw routes messaging channels into agent-group sessions and runs agent work inside per-session containers. Moderate-confidence reference for executor isolation and host/container messaging in a single-user bot host.
 
 **Study**
 
-1. **Explicit executor mounts.** `container-runner.ts` composes a `SessionSpec` from explicit mounts: session
-   workspace and agent-group data are writable, while config, plugins, composed
-   instructions, and skills are mounted read-only; extra/provider mounts are
-   allowlisted (mount construction[^src-container-runner-ts-l808-l1015]). This is a concrete
-   executor isolation pattern if llame moves untrusted tools out of process.
-2. **Host/container mailbox.** Host/container messaging uses a per-session mailbox backed by separate SQLite
-   databases and sequence parity (mailbox contract[^docs-db-session-md-l72-l149]).
-   Self-modification requests are separately approval-gated and validated
-   (self-modification requests[^container-agent-runner-src-mcp-tools-self-mod-ts-l43-l210]).
+1. **Explicit executor mounts.** `container-runner.ts` composes a `SessionSpec` from explicit mounts: session workspace and agent-group data are writable, while config, plugins, composed instructions, and skills are mounted read-only; extra/provider mounts are allowlisted (mount construction[^src-container-runner-ts-l808-l1015]). A concrete executor isolation pattern if llame moves untrusted tools out of process.
+2. **Host/container mailbox.** Host/container messaging uses a per-session mailbox backed by separate SQLite databases and sequence parity (mailbox contract[^docs-db-session-md-l72-l149]). Self-modification requests are separately approval-gated and validated (self-modification requests[^container-agent-runner-src-mcp-tools-self-mod-ts-l43-l210]).
 
 **Caution**
 

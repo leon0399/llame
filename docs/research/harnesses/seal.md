@@ -35,18 +35,18 @@ reconnect test cases for the current stream contract.
 **Study**
 
 1. **F10: Durable parent/child completion.** A session workflow[^backend-agent-driver-py]
-   starts turn workflows and waits on typed hooks. The subagent tool[^backend-agent-turn-py-l210-l257]
-   starts a child turn, records its identity, and awaits durable completion.
-   Study the lifecycle mapping while retaining llame-owned Chat/Run identities.
+   starts turn workflows and waits on typed hooks, and the subagent tool[^backend-agent-turn-py-l210-l257]
+   starts a child turn, records its identity, and awaits durable completion. Study
+   the lifecycle mapping while retaining llame-owned Chat/Run identities.
 2. **F11: Cursor before resume.** Approval submission[^backend-app-chat-py-l101-l117]
-   calculates the continuation cursor before resuming a batch of decisions,
-   so resumed output cannot advance past the cursor before it is captured.
-   A concrete ordering invariant for a future persisted approval pause.
+   calculates the continuation cursor before resuming a batch of decisions, so
+   resumed output cannot advance past the cursor before it is captured: a concrete
+   ordering invariant for a future persisted approval pause.
 3. **F12: Reconnect and nested output.** The stream adapter[^backend-app-chat-py]
    tails child progress into preliminary nested output; completed child messages
    support reconstruction on reload. Contract tests cover parallel approvals[^backend-tests-test-contract-py-l194-l230]
-   and reload behavior. These are useful test scenarios, not evidence that
-   llame needs Vercel's workflow storage.
+   and reload behavior: useful test scenarios, not evidence that llame needs
+   Vercel's workflow storage.
 
 **Caution:** This demo has no authenticated approval identity or owner-scoped
 access model, and child turns explicitly set `gated=False` to run bash without

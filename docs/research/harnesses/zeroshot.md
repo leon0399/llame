@@ -32,14 +32,14 @@ sources:
 - **Stack:** Rust; SQLite local ledger; cluster protocol adapters; MIT
 
 High-confidence reference for deferred meta-harness orchestration. Codex and
-Claude execute nodes in a caller-authored graph. This is later work under
+Claude execute nodes in a caller-authored graph: later work under
 [VISION.md](../../../VISION.md#runs-are-the-unit-of-execution), not a dependency
 of llame's current single-agent knowledge loop.
 
 **Study**
 
 1. **F7: Validate control flow before execution.** The graph verifier[^crates-openengine-cluster-server-src-graph-verifier-rs-l20-l79]
-   checks a typed graph before worker lookup. Its bound analyzer[^crates-openengine-cluster-server-src-graph-verifier-analyzer-bounds-rs]
+   checks a typed graph before worker lookup, and its bound analyzer[^crates-openengine-cluster-server-src-graph-verifier-analyzer-bounds-rs]
    folds sequence, parallel, loop, and map structure into execution/concurrency
    ceilings. Borrow deterministic admission and bounded repair; adopting the
    entire graph language would be a separate architecture decision.
@@ -50,9 +50,8 @@ of llame's current single-agent knowledge loop.
    reconnect behavior; keep PostgreSQL and pg-boss as its current authority.
 3. **F9: Bind roles outside model output.** An immutable node role plan[^zeroshot-src-native-v2-runner-plan-rs-l3-l69]
    rejects changed worker/instruction/runtime bindings and assigns verifier
-   read-only versus worker/delivery exclusive workspace access. This informs
-   future peer adapters whose scope is resolved by llame, not by an agent's
-   claimed role.
+   read-only versus worker/delivery exclusive workspace access. Informs future
+   peer adapters whose scope is resolved by llame, not by an agent's claimed role.
 
 **Caution:** A read-only workspace role alone is not proof of OS confinement.
 The local target[^docs-concepts-targets-md]
