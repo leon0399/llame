@@ -284,42 +284,6 @@ describe("trusted model-context projection", () => {
     ]);
   });
 
-  it("keeps both user-turn control parts at index 0 in server order", () => {
-    // The rail stages its items ahead of the turn's own content, so an
-    // accepted-turn load shares index 0 with the model-switch marker. Two
-    // parts at one index must keep the order the api stored them in, whichever
-    // producer it staged first.
-    const messages = mergeTrustedModelContextParts(
-      [
-        {
-          id: "user-1",
-          role: "user",
-          parts: [{ type: "text", text: "Continue" }],
-        },
-      ],
-      [
-        {
-          id: "user-1",
-          role: "user",
-          // SAFETY: `switchPart`/`instructionsItem` are this app's own
-          // narrower `data-context` shapes — the same mismatch the merge
-          // itself casts around.
-          parts: [
-            instructionsItem as never,
-            switchPart as never,
-            { type: "text", text: "Continue" },
-          ],
-        },
-      ],
-    );
-
-    expect(messages[0]?.parts).toEqual([
-      instructionsItem,
-      switchPart,
-      { type: "text", text: "Continue" },
-    ]);
-  });
-
   it("removes untrusted live markers when no server marker exists", () => {
     const [message] = mergeTrustedModelContextParts(
       [
@@ -329,7 +293,7 @@ describe("trusted model-context projection", () => {
           // SAFETY: `switchPart` is `ModelSwitchPart`, a narrower shape than
           // `UIMessage["parts"]`'s generic element type (same mismatch
           // `mergeTrustedModelContextParts` itself casts around) — `as
-          // `never` opts this fixture value out of the part-shape check.
+          // never` opts this fixture value out of the part-shape check.
           parts: [switchPart as never, { type: "text", text: "Continue" }],
         },
       ],

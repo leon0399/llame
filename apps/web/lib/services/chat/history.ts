@@ -315,7 +315,8 @@ export function isInstructionsPart(value: unknown): value is InstructionsPart {
 
 /** Whether this app renders a server context item on that role: the
  *  model-switch marker the rail stages on a user message, and the
- *  instructions item, which rides either role. */
+ *  instructions item, which rides either role. A type predicate, so the
+ *  caller keeps the narrowed part. */
 function isRenderableControlPart(
   role: UIMessage["role"],
   part: unknown,
@@ -324,15 +325,6 @@ function isRenderableControlPart(
     ? isModelSwitchPart(part) || isInstructionsPart(part)
     : isInstructionsPart(part);
 }
-
-/** One server-vouched control part and where the server stored it: the
- *  count of non-context parts preceding it in that message. Context parts
- *  of other producers occupy no index — the merge drops them, so counting
- *  them would push a trusted part past parts the owner still sees. */
-type PlacedContextPart = {
-  index: number;
-  part: ModelSwitchPart | InstructionsPart;
-};
 
 /**
  * The control parts a server-fetched message is trusted to overlay, each with
@@ -349,8 +341,13 @@ type PlacedContextPart = {
 function trustedContextParts(message: {
   role: UIMessage["role"];
   parts: ReadonlyArray<unknown>;
-}): Array<PlacedContextPart> {
-  const placed: Array<PlacedContextPart> = [];
+}) {
+  // Each part's index is the count of non-context parts before it: the merge
+  // drops context parts of every other producer, so they occupy no index.
+  const placed: Array<{
+    index: number;
+    part: ModelSwitchPart | InstructionsPart;
+  }> = [];
   let index = 0;
   for (const part of message.parts) {
     if (!isContextItemPart(part)) {
@@ -393,18 +390,12 @@ export function mergeTrustedModelContextParts(
     const visibleParts: Array<unknown> = message.parts.filter(
       (part) => !isContextItemPart(part),
     );
-    let placed = 0;
-    for (const { index, part } of trustedByMessageId.get(message.id) ?? []) {
-      // Stored indices ascend, so every part inserted above sits ahead of the
-      // position this one names; counting them both offsets for the inserts
-      // and keeps two parts sharing one index in the order the api stored.
-      visibleParts.splice(
-        Math.min(index + placed, visibleParts.length),
-        0,
-        part,
-      );
-      placed += 1;
-    }
+    // Stored indices ascend, so offsetting by the parts already inserted keeps
+    // two parts sharing one index in server order; splice clamps a start past
+    // the end of a shorter live turn.
+    (trustedByMessageId.get(message.id) ?? []).forEach(
+      ({ index, part }, placed) => visibleParts.splice(index + placed, 0, part),
+    );
     return {
       ...message,
       // SAFETY: `part` is this app's own `data-context` part and
