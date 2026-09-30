@@ -1,3 +1,12 @@
+---
+type: Research
+title: "Cross-review: PRODUCT/ROADMAP lens"
+description: "Frozen product-lens cross-review flagging memory's absent roadmap footprint and sequencing the work into dependency-pinned phases with acceptance tests and an explicit defer list."
+tags:
+  [cross-review, memory-landscape, roadmap, phasing, delivery-risk, defer-list]
+status: deprecated
+---
+
 # Cross-review: PRODUCT/ROADMAP lens (independent reviewer, 2026-07-05)
 
 ## 0. Load-bearing gap first

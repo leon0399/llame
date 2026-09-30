@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Development pipeline measurements"
+description: "Records measured CI and local timings behind issue #730, showing incremental mutation reuse cut a cold API shard from 76m10s to 2m26s, plus the scope guarantees kept and nine ranked follow-up options."
+tags:
+  [
+    ci,
+    mutation-testing,
+    stryker,
+    performance,
+    measurement,
+    developer-experience,
+  ]
+status: stable
+---
+
 # Development pipeline measurements
 
 2026-09-08. [Issue #730](https://github.com/leon0399/llame/issues/730).

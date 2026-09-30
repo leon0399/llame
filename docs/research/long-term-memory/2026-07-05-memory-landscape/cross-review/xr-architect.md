@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Cross-review: ARCHITECT lens"
+description: "Frozen architect-lens cross-review scoring claims across the five agent finals and proposing a user-scoped memory_facts schema with FORCE RLS and a zero-LLM inline write path."
+tags:
+  [
+    cross-review,
+    memory-landscape,
+    architecture,
+    schema-design,
+    rls,
+    retrieval-design,
+  ]
+status: deprecated
+---
+
 # Cross-review: ARCHITECT lens (independent reviewer, 2026-07-05)
 
 ## 1. Convergence Matrix

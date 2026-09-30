@@ -1,3 +1,12 @@
+---
+type: Research
+title: "Agent: multiuser-memory — Multi-user shared memory research"
+description: "Frozen agent final proposing a three-tier scope hierarchy over existing groups and projects, with scope inherited from the conversation container and enforced at read time by Postgres RLS."
+tags:
+  [agent-final, memory-landscape, multi-user, scope-model, rls, access-control]
+status: deprecated
+---
+
 # Agent: multiuser-memory — Multi-user shared memory research (delivered 2026-07-05T13:53Z)
 
 ## (a) Synthesis — partitioning design for llame (Postgres+RLS, groups/projects as first-class entities)

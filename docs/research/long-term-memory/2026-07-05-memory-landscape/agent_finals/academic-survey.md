@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Agent: academic-survey — Academic state of the art 2023→2026-07"
+description: "Frozen agent final surveying the 2023 to July 2026 academic memory literature: persistent cross-session recall failures, verbatim-versus-extraction ablations, decay scoring, and unproven directions."
+tags:
+  [
+    agent-final,
+    memory-landscape,
+    academic-survey,
+    benchmarks,
+    verbatim-vs-extraction,
+    decay,
+  ]
+status: deprecated
+---
+
 # Agent: academic-survey — Academic state of the art 2023→2026-07 (delivered 2026-07-05T13:57Z)
 
 ## (a) Synthesis (2023 → July 2026)

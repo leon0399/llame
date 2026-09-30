@@ -1,3 +1,11 @@
+---
+type: Research
+title: "PostgreSQL-native multilingual chat search architecture"
+description: "Recommends a PostgreSQL-native chat search design: a derived projection with full-text, trigram and vector legs fused by Reciprocal Rank Fusion, provider-neutral embeddings and no language detection."
+tags: [chat-search, postgresql, pgvector, full-text-search, rrf, multilingual]
+status: stable
+---
+
 # PostgreSQL-Native Multilingual Chat Search Architecture
 
 **Status:** Present-day recommendation  

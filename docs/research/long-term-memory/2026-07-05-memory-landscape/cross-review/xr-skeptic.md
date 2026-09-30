@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Cross-review: ADVERSARIAL SKEPTIC lens"
+description: "Frozen skeptic-lens cross-review ranking evidence strength, naming internal contradictions and overclaims in the main report, and listing gaps including GDPR erasure and cost modeling."
+tags:
+  [
+    cross-review,
+    memory-landscape,
+    evidence-grade,
+    contradiction-check,
+    gdpr,
+    research-gaps,
+  ]
+status: deprecated
+---
+
 # Cross-review: ADVERSARIAL SKEPTIC lens (independent reviewer, 2026-07-05)
 
 ## 1. Evidence-strength ranking

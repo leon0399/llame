@@ -1,3 +1,19 @@
+---
+type: Research
+title: "#215 transport research — MCP Streamable HTTP: spec, client libraries, peers"
+description: "Reads the current MCP spec, the installed ai and @ai-sdk/mcp sources, and peer MCP consumers to name the Streamable HTTP gaps llame must build, and confirms no #214 decision needs reopening."
+tags:
+  [
+    mcp,
+    streamable-http,
+    transport,
+    client-libraries,
+    peer-comparison,
+    tool-calling,
+  ]
+status: stable
+---
+
 # #215 transport research — MCP Streamable HTTP: spec, client libraries, peers
 
 Noncanonical research. Date: 2026-08-07. Scope: issue #215 (instance-managed

@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Recency digest: how other systems actually do it"
+description: "Compares how ChatGPT, Claude.ai, Claude Code, Letta, Gemini and Open WebUI inject cross-conversation awareness, and finds only ChatGPT injects verbatim bodies, in the section with a published exfiltration exploit."
+tags:
+  [
+    recency-digest,
+    context-injection,
+    prior-art,
+    prompt-injection,
+    chatgpt,
+    letta,
+  ]
+status: stable
+---
+
 # Recency digest: how other systems actually do it
 
 Surveyed 2026-08-12, for #307. Noncanonical — evidence and alternatives, not a decision.

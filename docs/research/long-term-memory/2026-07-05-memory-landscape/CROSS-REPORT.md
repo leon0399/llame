@@ -1,3 +1,11 @@
+---
+type: Research
+title: "Cross-Report: Long-Term Memory for llame — Final Verdicts and Build Plan"
+description: "The maintained, canonical document for the 2026-07-05 memory-landscape run: corrected verdicts on memory designs, the Postgres-first build plan for llame, and later per-system deep dives."
+tags: [memory-landscape, llame-memory, verdicts, build-plan, rls, deep-dives]
+status: stable
+---
+
 # Cross-Report: Long-Term Memory for llame — Final Verdicts and Build Plan
 
 **Date:** 2026-07-05 · **Inputs:** main research report + 5 independent research syntheses (101 evidence items, 87 sources), independently reviewed by 3 cross-reviewers (architect / adversarial skeptic / product). Reviewer originals in `cross-review/`.

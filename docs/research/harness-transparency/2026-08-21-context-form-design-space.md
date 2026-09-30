@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Unshipped context forms: catalog, instructions, recall"
+description: "Catalogs three context-injection forms with no producer yet (catalog, instructions, recall) plus prior art and open questions for each, and argues none becomes normative before a real producer validates its fields."
+tags:
+  [
+    context-injection,
+    design-space,
+    skills,
+    episodic-recall,
+    prior-art,
+    disclosure,
+  ]
+status: stable
+---
+
 # Unshipped context forms: catalog, instructions, recall
 
 Surveyed 2026-08-21. Noncanonical — a proposed design space, not guidance and not a contract.

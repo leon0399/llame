@@ -1,3 +1,12 @@
+---
+type: Research
+title: "#214 harness audit — llame's tool loop vs. best practice and four peer harnesses"
+description: "Audits llame's tool loop against the agents-best-practices references and four peer harnesses, ranking findings by leverage and recording which open decisions were built, deferred, or settled elsewhere."
+tags:
+  [tool-calling, harness-audit, dynamic-tools, peer-comparison, mcp, opencode]
+status: stable
+---
+
 # #214 harness audit — llame's tool loop vs. best practice and four peer harnesses
 
 Noncanonical research. Date: 2026-08-07. Scope: issue #214 (catalog-driven dynamic

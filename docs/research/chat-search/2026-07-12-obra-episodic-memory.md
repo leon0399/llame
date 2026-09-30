@@ -1,3 +1,11 @@
+---
+type: Research
+title: "obra/episodic-memory deep-dive notes"
+description: "Examines obra/episodic-memory and concludes it validates the verbatim-as-index premise and lends borrowable patterns, but its retrieval is weaker than llame's plan and it has no recall-time injection framing."
+tags: [episodic-memory, prior-art, retrieval, mcp, sqlite-vec, injection-safety]
+status: stable
+---
+
 # obra/episodic-memory — deep-dive notes (2026-07-12)
 
 Source: <https://github.com/obra/episodic-memory> (Jesse Vincent, TypeScript, MIT). Reviewed at v1.4.2 (2026-05-21) from a shallow clone; ~123 commits / 9 releases, single author with an issue-driven contributor community (~15 credited handles). Single-user, local-first memory for **Claude Code / Codex CLI transcripts**: SQLite (`better-sqlite3`) + `sqlite-vec`, local ONNX embeddings (`Xenova/bge-small-en-v1.5`, 384-dim, q8), surfaced to the agent as an MCP server (`search` + `read` tools) plus a dispatch skill. No server, no tenancy, no network beyond the summarizer LLM call.

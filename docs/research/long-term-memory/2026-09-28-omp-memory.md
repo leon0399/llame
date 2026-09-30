@@ -1,3 +1,11 @@
+---
+type: Research
+title: "OMP memory: local pipeline, Mnemopi, Hindsight and a live installation"
+description: "Traces oh-my-pi's two memory channels in source and on one live workstation at v18.2.10, and finds the weakness is coverage: the extractor saw a median 1.8% of each session and most lessons never reach the prompt."
+tags: [oh-my-pi, memory-pipeline, mnemopi, hindsight, learned-md, prompt-budget]
+status: draft
+---
+
 # OMP memory: local pipeline, Mnemopi, Hindsight and a live installation
 
 Surveyed 2026-09-28. Noncanonical: evidence and transfer ideas, not a decision.

@@ -1,3 +1,19 @@
+---
+type: Research
+title: "Long-Term Cross-Chat Memory for AI Assistants: State of the Field, Hype Assessment, and Recommendations for llame"
+description: "The main synthesized report of the 2026-07-05 run, assessing real versus hype in LLM assistant cross-chat memory, benchmark trustworthiness, and what llame should build."
+tags:
+  [
+    memory-landscape,
+    cross-chat-memory,
+    benchmarks,
+    verbatim-vs-extraction,
+    decay,
+    llame-architecture,
+  ]
+status: deprecated
+---
+
 # Long-Term Cross-Chat Memory for AI Assistants: State of the Field, Hype Assessment, and Recommendations for llame
 
 **Date:** 2026-07-05 · **Mode:** deep (8-phase pipeline, 5 parallel retrieval agents) · **Sources:** 87 unique, 101 evidence items · **Audience:** staff-level technical, architecture-decision use case
