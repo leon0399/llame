@@ -151,7 +151,6 @@ import {
   createInRunContextItems,
   type InRunAttemptProducer,
   type InRunContextProducer,
-  type InRunTurnLoad,
 } from './in-run-context-items';
 import type { ReadPage } from '../instructions/instruction-files';
 import { instructionsSeenPaths } from '../chats/instructions-item';
@@ -284,11 +283,9 @@ type WorkspaceStagedContext = {
  * when a transition compaction rebuilds the history (design D5, D7).
  */
 type TurnInstructions = {
-  /** Whether the `read` gate lets any instruction file load in this Run. */
-  readonly loadable: boolean;
   /** The bound root the accepted-turn trigger loads; undefined without one. */
   readonly root: string | undefined;
-  /** The turn's audited page reader; undefined when gated off. */
+  /** The turn's audited page reader; undefined when the `read` gate bars it. */
   readonly readPage: ReadPage | undefined;
   /** Allocates the attempt-scoped tool-call id of one audited read. */
   readonly nextToolCallId: () => string;
@@ -503,9 +500,7 @@ function placeInstructionsPart(
   part: AuthoredContextItemPart | undefined,
 ): void {
   if (part === undefined) return;
-  const rank = CONTEXT_ITEM_PRODUCERS.findIndex(
-    (known) => known === 'instructions',
-  );
+  const rank = CONTEXT_ITEM_PRODUCERS.indexOf('instructions');
   const index = parts.findLastIndex(
     (staged) =>
       isContextItemPart(staged) &&
@@ -514,12 +509,6 @@ function placeInstructionsPart(
       ) < rank,
   );
   parts.splice(index + 1, 0, part);
-}
-
-/** Removes one staged part by identity, when it is still staged. */
-function removeStagedPart(parts: Array<MessagePart>, part: MessagePart): void {
-  const index = parts.indexOf(part);
-  if (index >= 0) parts.splice(index, 1);
 }
 
 /** A durably recorded tool request, with safe decision metadata once admitted. */
@@ -867,8 +856,8 @@ export class RunExecutionService {
         claim.nativeDeliverySequence,
         attemptId,
         context.seenInstructionPaths,
+        attemptStagedParts,
       );
-      placeInstructionsPart(attemptStagedParts, turnInstructions.part);
 
       // Inject staged context items into the model request: prepend their
       // rendered text to the triggering user message. Uses the same rendering
@@ -2315,59 +2304,60 @@ export class RunExecutionService {
     nativeDeliverySequence: number,
     attemptId: string,
     seenInstructionPaths: ReadonlySet<string>,
+    stagedParts: Array<MessagePart>,
   ): Promise<TurnInstructions> {
-    const loadable = this.instructionsLoadable();
-    const nextToolCallId = this.instructionReadIds(input.runId, attemptId);
-    const readPage = loadable
-      ? this.turnInstructionReadPage(
+    const toolContext = this.instructionsLoadable()
+      ? this.buildSystemReadContext(
           input,
-          this.buildSystemReadContext(
-            input,
-            nativeDeliverySequence,
-            workspaceRoot,
-            effectivePermissionMode,
-          ),
-          nextToolCallId,
+          nativeDeliverySequence,
+          workspaceRoot,
+          effectivePermissionMode,
         )
       : undefined;
+    // One allocator per attempt, shared by the accepted-turn load and the
+    // attempt's in-Run steps, so two reads never collide in the event log.
+    let ordinal = 0;
+    const nextToolCallId = (): string => {
+      ordinal += 1;
+      return `instructions-${input.runId}-${attemptId}-${ordinal}`;
+    };
     const turn: TurnInstructions = {
-      loadable,
       root: preparation.root,
-      readPage,
+      readPage:
+        toolContext === undefined
+          ? undefined
+          : (selectorPath) =>
+              this.readTurnInstructionPage(
+                input,
+                toolContext,
+                selectorPath,
+                nextToolCallId(),
+              ),
       nextToolCallId,
       part: undefined,
       seenCanonicalPaths: seenInstructionPaths,
     };
-    const load = await this.stageAcceptedTurn(
-      input,
+    // The load runs through the same door a compaction rebuild does, so
+    // "before the first request" and "against the rebuilt history" cannot
+    // drift apart.
+    await this.refreshTurnInstructions(
       turn,
+      stagedParts,
+      input,
       seenInstructionPaths,
     );
-    turn.part = load?.part;
-    turn.seenCanonicalPaths = load?.seenKeys ?? seenInstructionPaths;
     return turn;
   }
 
   /**
-   * Allocates the attempt-scoped tool-call id of one audited instruction read.
-   * One allocator per attempt is shared by the accepted-turn load and that
-   * attempt's in-Run steps, so two reads never collide in the event log.
-   */
-  private instructionReadIds(runId: string, attemptId: string): () => string {
-    let ordinal = 0;
-    return () => {
-      ordinal += 1;
-      return `instructions-${runId}-${attemptId}-${ordinal}`;
-    };
-  }
-
-  /**
-   * Recomputes the accepted-turn bundle against the history a transition
-   * compaction just rebuilt (D5, D7). The compaction absorbs every item that
-   * made these files seen, so the root chain returns to this very request; the
-   * staged item is replaced in place, where every holder of the staged array —
-   * the request prepend, the finish-time persistence, and the Run record —
-   * sees the same content.
+   * Recomputes the accepted-turn bundle against the attempt's effective
+   * history (D5, D7): once before the first request, and again when a
+   * transition compaction rebuilds the request. The rebuild decides the seen
+   * set — the item this attempt staged can no longer be what makes its files
+   * seen, and a file the rebuilt history discloses must not be staged again.
+   * The staged item is replaced in place, where every holder of the staged
+   * array — the request prepend, the finish-time persistence, and the Run
+   * record — sees the same content.
    */
   private async refreshTurnInstructions(
     turn: TurnInstructions,
@@ -2375,56 +2365,37 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     seenCanonicalPaths: ReadonlySet<string>,
   ): Promise<void> {
-    const load = await this.stageAcceptedTurn(input, turn, seenCanonicalPaths);
-    const previous = turn.part;
-    if (previous !== undefined) removeStagedPart(stagedParts, previous);
-    turn.part = load?.part;
-    turn.seenCanonicalPaths = load?.seenKeys ?? seenCanonicalPaths;
-    if (turn.part !== undefined) placeInstructionsPart(stagedParts, turn.part);
-  }
-
-  /**
-   * The item the accepted turn stages for its bound root's chain, if anything
-   * loads. The producer owns the walk and the item; the caller owns the gates
-   * (a producer, a page reader, and a live binding must all exist).
-   */
-  private async stageAcceptedTurn(
-    input: ExecuteRunInput,
-    turn: TurnInstructions,
-    seenKeys: ReadonlySet<string>,
-  ): Promise<InRunTurnLoad | undefined> {
     const producer = this.inRunProducer;
     const readPage = turn.readPage;
     const root = turn.root;
     if (
       producer === undefined ||
+      producer.prepareTurn === undefined ||
       readPage === undefined ||
       root === undefined
     ) {
-      return undefined;
+      return;
     }
-    return producer.prepareTurn?.({
+    const part = await producer.prepareTurn({
       runId: input.runId,
       workspaceRoot: root,
       readPage,
-      seenKeys,
+      seenKeys: seenCanonicalPaths,
       abortSignal: input.abortSignal,
     });
-  }
-
-  /** The accepted turn's page reader: one attempt-scoped tool-call id per page. */
-  private turnInstructionReadPage(
-    input: ExecuteRunInput,
-    toolContext: ToolContext,
-    nextToolCallId: () => string,
-  ): ReadPage {
-    return (selectorPath) =>
-      this.readTurnInstructionPage(
-        input,
-        toolContext,
-        selectorPath,
-        nextToolCallId(),
-      );
+    const previous = turn.part;
+    if (previous !== undefined) {
+      const index = stagedParts.indexOf(previous);
+      if (index >= 0) stagedParts.splice(index, 1);
+    }
+    turn.part = part;
+    // The item's `files` payload names the canonical paths it discloses; the
+    // producer keeps no per-attempt state for the caller to ask.
+    turn.seenCanonicalPaths =
+      part === undefined
+        ? seenCanonicalPaths
+        : new Set([...seenCanonicalPaths, ...instructionsSeenPaths([part])]);
+    if (part !== undefined) placeInstructionsPart(stagedParts, part);
   }
 
   /**
@@ -3082,7 +3053,7 @@ export class RunExecutionService {
       seenKeys: turn.seenCanonicalPaths,
       // A Run whose read gate is closed gets no page reader: the producer then
       // marks and loads nothing (spec: Read not allowlisted).
-      ...(turn.loadable && { readPage }),
+      ...(turn.readPage !== undefined && { readPage }),
       abortSignal: input.abortSignal,
     });
   }

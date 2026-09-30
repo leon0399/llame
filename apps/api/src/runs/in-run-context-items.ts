@@ -178,7 +178,7 @@ export function createInRunContextItems(): InRunContextItems {
 /** In-Run context producers registered with the Run executor. */
 export const IN_RUN_CONTEXT_PRODUCER = Symbol('IN_RUN_CONTEXT_PRODUCER');
 
-/** One accepted turn offered to a producer before its first request. */
+/** One accepted turn offered to a producer for the request it is building. */
 export interface InRunTurnContext {
   readonly runId: string;
   /** The bound Workspace root the turn starts from. */
@@ -192,13 +192,6 @@ export interface InRunTurnContext {
   readonly seenKeys: ReadonlySet<string>;
   /** The Run's own abort signal; a producer must stop loading once it fires. */
   readonly abortSignal?: AbortSignal;
-}
-
-/** The item one accepted turn stages for a producer, and the keys it discloses. */
-export interface InRunTurnLoad {
-  readonly part: AuthoredContextItemPart;
-  /** The request's `seenKeys` extended with every key `part` discloses. */
-  readonly seenKeys: ReadonlySet<string>;
 }
 
 /** One tool call a producer observes. */
@@ -256,9 +249,15 @@ export interface InRunContextProducer {
   /** Called once per attempt before its first request. */
   beginAttempt(attempt: InRunAttempt): InRunAttemptProducer;
   /**
-   * Optional: authors the item this accepted turn stages before its first
-   * request, or undefined when the turn adds nothing. Called once per attempt,
-   * outside any database transaction.
+   * Optional: authors the item the accepted turn stages for its first
+   * request, or undefined when the turn adds nothing. Called before that
+   * request and again whenever a transition compaction rebuilds it — with the
+   * rebuilt history's `seenKeys` — where the returned item replaces the one
+   * before it. A producer must keep no per-attempt state here: only the
+   * returned item matters, and the caller derives the turn's seen set from its
+   * payload. Called outside any database transaction.
    */
-  prepareTurn?(context: InRunTurnContext): Promise<InRunTurnLoad | undefined>;
+  prepareTurn?(
+    context: InRunTurnContext,
+  ): Promise<AuthoredContextItemPart | undefined>;
 }

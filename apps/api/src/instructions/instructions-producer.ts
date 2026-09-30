@@ -43,7 +43,6 @@ import type {
   InRunContextProducer,
   InRunToolCall,
   InRunTurnContext,
-  InRunTurnLoad,
 } from '../runs/in-run-context-items';
 import {
   nativeEditTool,
@@ -306,16 +305,18 @@ export function createInstructionsProducer(): InRunContextProducer {
   return {
     async prepareTurn(
       context: InRunTurnContext,
-    ): Promise<InRunTurnLoad | undefined> {
-      const keys = new Set(context.seenKeys);
-      const part = await loadBundle({
+    ): Promise<AuthoredContextItemPart | undefined> {
+      return loadBundle({
         runId: context.runId,
         triggers: [{ path: context.workspaceRoot, excludeCandidate: false }],
         readPage: context.readPage,
-        keys,
+        // The caller derives the turn's seen set from the returned item, so
+        // this set is a scratch guard for the walk: the turn's seen keys plus
+        // every canonical path the load collects, so no candidate is read
+        // twice.
+        keys: new Set(context.seenKeys),
         abortSignal: context.abortSignal,
       });
-      return part === undefined ? undefined : { part, seenKeys: keys };
     },
 
     beginAttempt(attempt: InRunAttempt): InRunAttemptProducer {
