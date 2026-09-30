@@ -198,19 +198,41 @@ does not change the trigger directory, while a `file://` alias triggers as the
 path it decodes to. Each accepted turn on a Chat with a live binding re-stages
 the bound root's chain before the first model request when any file of it is
 not already in effective context; a Chat without a binding stages nothing.
-`bash`, `kb://`, `skill://`, `http://`, and `https://` never trigger a load,
-and a model read of a candidate file itself neither loads nor marks that file.
+`bash`, `skill://`, `http://`, and `https://` never trigger a load, and a model
+read of a candidate file itself neither loads nor marks that file.
 
-Loading requires `read` in `tools.allowed` and a configured native executor;
-it does not require `enter_workspace`.
+A `kb://` `read`, `edit`, or `write` triggers the same way, inside its Space:
+the walk starts at the Space's own directory and goes down to the touched
+directory, never above it, so a file in the `knowledge.root` itself is never a
+candidate. Only a Space identifier already in the canonical lower-case form
+llame formats and shows is a trigger; an identifier written with an upper-case
+hex digit is not one, so that call reads the file but loads no instruction file
+from the Space. Each loaded file is named by its
+`kb://<knowledgeSpaceId>/<path>` locator, its canonical key is that same
+locator, and its pages are read through the native `read` tool under the same
+`instructions` origin and `read` permission group under that exact locator, so
+a `read` reject rule is evaluated for those pages exactly as it is for the
+model's own read of that Space. `knowledge_search` hits never trigger. When
+host and Space files are pending at the same step, they resolve into one item
+with the host files first, each group broadest directory first. A Space that
+is missing, belongs to another owner, or is unavailable loads nothing and
+reveals nothing, and a locator whose own path the Knowledge resolver refuses
+names no candidate either. There is no accepted-turn load for Spaces: a Chat
+has no Space binding, and a Space chain returns on the next `kb://` touch
+after a compaction.
+
+Loading requires `read` in `tools.allowed` plus a configured native executor
+for host triggers or a configured `knowledge.root` for `kb://` triggers, and
+does not require `enter_workspace`.
 
 A file is loaded at most once per compaction epoch. The seen set is the set of
-canonical (`realpath`) paths recorded in the payload of `instructions` items
-in the Chat's effective history, and is never stored in a Chat column; a
-forked Chat inherits it through its copied history. A candidate whose
-canonical path is already seen is omitted, so a symlink and its target are one
-file and an edit to a loaded file is not re-announced; denied, failed, and
-empty candidates are not seen. All triggers pending at one model step, or one
+canonical paths recorded in the payload of `instructions` items in the Chat's
+effective history — a host `realpath`, or the `kb://` locator of a Space file —
+and is never stored in a Chat column; a forked Chat inherits it through its
+copied history. A candidate whose canonical path is already seen is omitted,
+so a symlink and its target are one file and an edit to a loaded file is not
+re-announced; denied, failed, and empty candidates are not seen.
+All triggers pending at one model step, or one
 accepted turn, resolve together into at most one item.
 After a compaction absorbs loaded items, only the bound root's chain is
 restaged on the next accepted turn; a nested chain returns on the next `read`,

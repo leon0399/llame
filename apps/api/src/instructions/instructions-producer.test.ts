@@ -23,9 +23,16 @@ import {
   isInstructionsPayload,
   instructionsSeenPaths,
 } from '../chats/instructions-item';
-import type { ReadPage } from './instruction-files';
+import { type ReadPage, parentKey } from './instruction-files';
 import type { InRunToolCall } from '../runs/in-run-context-items';
 import { enterWorkspaceTool, exitWorkspaceTool } from '../tools/workspace';
+import { KNOWLEDGE_MAX_PATH_COMPONENTS } from '../knowledge/knowledge-filesystem-limits';
+import {
+  createKnowledgeInstructionProbe,
+  type KnowledgeInstructionProbe,
+} from '../knowledge/knowledge-instruction-probe';
+import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
+import { type KnowledgeToolResolver } from '../tools/types';
 import { createInstructionsProducer } from './instructions-producer';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -66,6 +73,11 @@ function attemptOf(
     readonly seenKeys?: ReadonlySet<string>;
     /** `null` builds the attempt with no page reader at all. */
     readonly readPage?: ReadPage | null;
+    /** The Space capability; absent builds an attempt without one. */
+    readonly space?: {
+      readonly readPage: ReadPage;
+      readonly knowledge: KnowledgeInstructionProbe;
+    };
   } = {},
 ) {
   const staged: Array<AuthoredContextItemPart> = [];
@@ -73,12 +85,16 @@ function attemptOf(
     input.readPage === null
       ? undefined
       : (input.readPage ?? pageReader().readPage);
+  const space = input.space;
   const producer = createInstructionsProducer().beginAttempt({
     runId: RUN_ID,
     chatId: '22222222-2222-4222-8222-222222222222',
     userId: 'owner',
     ...(input.seenKeys !== undefined && { seenKeys: input.seenKeys }),
     ...(readPage !== undefined && { readPage }),
+    ...(space !== undefined && {
+      knowledge: { readPage: space.readPage, probe: space.knowledge },
+    }),
   });
   return {
     producer,
@@ -127,6 +143,410 @@ function readCall(path: string, toolName = 'read'): InRunToolCall {
   return { toolName, input: { path }, workspaceRoot: root };
 }
 
+const SPACE = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+const OTHER_SPACE = 'b6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+
+/** One in-memory Space, every key it was asked about, and its page reads. */
+function spaceOf(files: Readonly<Record<string, string>>) {
+  const reads: Array<string> = [];
+  const probes: Array<string> = [];
+  const asked: Array<string> = [];
+  const directories = new Set<string>(['']);
+  for (const key of Object.keys(files)) {
+    for (let parent = parentKey(key, ''); ; parent = parentKey(parent, '')) {
+      directories.add(parent);
+      if (parent === '') break;
+    }
+  }
+  const entries = [...directories, ...Object.keys(files)];
+  // A real probe resolves the Space under RLS, which matches an identifier
+  // whatever its case, so this one does too: an upper-case id names the same
+  // Space. Only the producer's own canonical-only rule keeps such a locator
+  // from ever reaching it.
+  const knowledge: KnowledgeInstructionProbe = (spaceId) => {
+    asked.push(spaceId);
+    return Promise.resolve(
+      spaceId.toLowerCase() === SPACE
+        ? {
+            probe(relativePath) {
+              probes.push(relativePath);
+              const body = files[relativePath];
+              if (body !== undefined) {
+                return Promise.resolve({
+                  kind: 'file' as const,
+                  size: Buffer.byteLength(body),
+                });
+              }
+              return Promise.resolve(
+                directories.has(relativePath)
+                  ? { kind: 'directory' as const, size: 0 }
+                  : { kind: 'missing' as const },
+              );
+            },
+            list(relativeDirectory) {
+              probes.push(relativeDirectory);
+              const prefix =
+                relativeDirectory === '' ? 0 : relativeDirectory.length + 1;
+              return Promise.resolve(
+                entries.flatMap((key) =>
+                  parentKey(key, '') === relativeDirectory
+                    ? [key.slice(prefix)]
+                    : [],
+                ),
+              );
+            },
+          }
+        : undefined,
+    );
+  };
+  const readPage: ReadPage = (selectorPath) => {
+    reads.push(selectorPath);
+    // Only a canonical lower-case id reaches a read at all, so the locator
+    // prefix strips a Space id that identifies this Space here.
+    const key = selectorPath
+      .replace(/^kb:\/\/[^/]+\//iu, '')
+      .replace(/:raw:\d+-\d+$/u, '');
+    const body = files[key];
+    return Promise.resolve(
+      body === undefined
+        ? { status: 'error', type: 'not_found', message: 'No such file.' }
+        : {
+            status: 'success',
+            kind: 'file',
+            content: body,
+            truncated: false,
+          },
+    );
+  };
+  return { knowledge, readPage, reads, probes, asked };
+}
+
+/** One `kb://` read call, in a Space that exists. */
+function spaceCall(
+  relativePath: string,
+  toolName = 'read',
+  spaceId = SPACE,
+): InRunToolCall {
+  return {
+    toolName,
+    input: { path: `kb://${spaceId}/${relativePath}` },
+    workspaceRoot: root,
+  };
+}
+
+describe('instructions producer Knowledge Space triggers', () => {
+  it("loads the Space root's chain and the touched directory's, labelled by locator", async () => {
+    await write(join(root, 'AGENTS.md'), 'host rules\n');
+    const space = spaceOf({
+      'CLAUDE.md': 'space rules\n',
+      'notes/AGENTS.md': 'note rules\n',
+      'notes/lore/x.md': 'lore\n',
+      'other/AGENTS.md': 'other rules\n',
+    });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    producer.observeToolCall?.(spaceCall('notes/lore/x.md'));
+    await prepare();
+
+    // Broadest directory first, base before local, and a sibling directory of
+    // the touched one is never visited.
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/CLAUDE.md`,
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+    expect(space.reads).toEqual([
+      `kb://${SPACE}/CLAUDE.md:raw:1-2000`,
+      `kb://${SPACE}/notes/AGENTS.md:raw:1-2000`,
+    ]);
+    // Nothing of the host Workspace leaks into a Space bundle.
+    expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([]);
+    // The keys are the locators, so a later touch of the same file is seen.
+    expect(seenKeys(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/CLAUDE.md`,
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+  });
+
+  it('probes nothing above the Space root', async () => {
+    const space = spaceOf({ 'notes/lore/AGENTS.md': 'lore rules\n' });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    producer.observeToolCall?.(spaceCall('notes/lore/x.md'));
+    await prepare();
+
+    // Every key the walk resolved is a Space-relative path under the Space:
+    // the broadest is its own directory, and nothing above it was ever asked
+    // for, so no host ancestor is reachable.
+    expect(space.probes).toContain('');
+    expect(
+      space.probes.filter((key) => key.startsWith('/') || key.includes('..')),
+    ).toEqual([]);
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/lore/AGENTS.md`,
+    ]);
+  });
+
+  it('stages nothing for a Space id that is not in canonical form', async () => {
+    const space = spaceOf({
+      'x.md': 'first\n',
+      'notes/y.md': 'second\n',
+      'notes/AGENTS.md': 'note rules\n',
+    });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    // Only the lower-case id llame itself formats is a trigger, so an
+    // upper-case locator names no instruction file to load: it asks the
+    // owner's resolver about no Space at all, reads nothing, and stages
+    // nothing — even though that resolver would happily resolve the id.
+    producer.observeToolCall?.(spaceCall('x.md', 'read', SPACE.toUpperCase()));
+    await prepare();
+
+    expect(staged).toEqual([]);
+    expect(space.asked).toEqual([]);
+    expect(space.probes).toEqual([]);
+    expect(space.reads).toEqual([]);
+  });
+
+  it('loads a canonical locator in the same step as an upper-case one', async () => {
+    const space = spaceOf({
+      'x.md': 'first\n',
+      'notes/y.md': 'second\n',
+      'notes/AGENTS.md': 'note rules\n',
+    });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    // The upper-case call is not a trigger and the lower-case one is, so the
+    // step stages the chain of the one directory it named.
+    producer.observeToolCall?.(spaceCall('x.md', 'read', SPACE.toUpperCase()));
+    producer.observeToolCall?.(spaceCall('notes/y.md'));
+    await prepare();
+
+    expect(staged).toHaveLength(1);
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+    // Every group, label, seen key, and read agrees on the canonical spelling,
+    // which is also the only one the `read` rule is evaluated under.
+    expect(space.reads).toEqual([`kb://${SPACE}/notes/AGENTS.md:raw:1-2000`]);
+    expect(seenKeys(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+
+    // The key is canonical, so a later touch of the same file is already seen
+    // and loads nothing.
+    producer.observeToolCall?.(
+      spaceCall('notes/AGENTS.md', 'read', SPACE.toUpperCase()),
+    );
+    await prepare();
+    expect(staged).toHaveLength(1);
+  });
+
+  it("loads the Space root's chain for a locator naming only the Space", async () => {
+    const space = spaceOf({ 'CLAUDE.md': 'space rules\n' });
+
+    // Both spellings of "the Space's own directory" walk it: the trigger has
+    // no relative path at all, so the only key the walk may ask the trusted
+    // resolver about is the Space root itself and its own candidates.
+    for (const locator of [`kb://${SPACE}`, `kb://${SPACE}/`]) {
+      const { producer, staged, prepare } = attemptOf({ space });
+      const before = space.probes.length;
+
+      producer.observeToolCall?.({
+        toolName: 'read',
+        input: { path: locator },
+        workspaceRoot: root,
+      });
+      await prepare();
+
+      expect(blockPaths(lastStaged(staged))).toEqual([
+        `kb://${SPACE}/CLAUDE.md`,
+      ]);
+      expect(space.probes.slice(before).filter((key) => key !== '')).toEqual([
+        'CLAUDE.md',
+      ]);
+    }
+  });
+
+  it('loads nothing for a locator the Knowledge resolver would refuse', async () => {
+    const space = spaceOf({
+      'notes/y.md': 'y\n',
+      'notes/AGENTS.md': 'note rules\n',
+    });
+    const { producer, staged, prepare } = attemptOf({ space });
+    const tooDeep = [
+      ...Array.from(
+        { length: KNOWLEDGE_MAX_PATH_COMPONENTS },
+        (_, index) => `d${index}`,
+      ),
+      'x.md',
+    ].join('/');
+
+    producer.observeToolCall?.(spaceCall(tooDeep));
+    producer.observeToolCall?.(spaceCall('notes/y.md'));
+    await prepare();
+
+    // Only the in-cap trigger marked a directory to walk; the deeper locator
+    // named no Space at all.
+    expect(space.probes).not.toContain(tooDeep);
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+  });
+
+  it('loads nothing when the Space binding cannot be resolved', async () => {
+    const failure = `Space directory ${root}/spaces/${SPACE} is unreadable`;
+    const resolver: KnowledgeToolResolver = {
+      listForOwnerPage: () => Promise.reject(new Error(failure)),
+      resolveBindingForOwnerById: () => Promise.reject(new Error(failure)),
+      createAdapter: () => {
+        throw new Error(failure);
+      },
+    };
+    const space = spaceOf({ 'CLAUDE.md': 'space rules\n' });
+    const { producer, staged, prepare } = attemptOf({
+      space: {
+        readPage: space.readPage,
+        knowledge: createKnowledgeInstructionProbe({
+          resolver,
+          ownerUserId: 'owner',
+        }),
+      },
+    });
+
+    producer.observeToolCall?.(spaceCall('CLAUDE.md'));
+    await prepare();
+
+    // The store failed, so no Space is resolved, nothing is probed, and the
+    // host path its message carries reaches no item at all.
+    expect(staged).toEqual([]);
+    expect(space.probes).toEqual([]);
+    expect(space.reads).toEqual([]);
+    expect(JSON.stringify(staged)).not.toContain(root);
+  });
+
+  it('loads nothing for a Space that is not this owner’s', async () => {
+    const space = spaceOf({ 'CLAUDE.md': 'space rules\n' });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    for (const locator of [
+      `kb://${OTHER_SPACE}/doc.md`,
+      `kb://${SPACE}/../${OTHER_SPACE}/doc.md`,
+      `kb://${SPACE}/notes//doc.md`,
+    ]) {
+      producer.observeToolCall?.({
+        toolName: 'read',
+        input: { path: locator },
+        workspaceRoot: root,
+      });
+    }
+    await prepare();
+
+    expect(staged).toEqual([]);
+    expect(space.reads).toEqual([]);
+  });
+
+  it('skips the candidate a Space read disclosed, by locator', async () => {
+    const space = spaceOf({
+      'notes/AGENTS.md': 'note rules\n',
+      'notes/CLAUDE.local.md': 'local rules\n',
+    });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    producer.observeToolCall?.(spaceCall('notes/AGENTS.md'));
+    await prepare();
+
+    // The read disclosed the base candidate of the touched directory; the
+    // local candidate beside it still loads, and nothing is marked seen.
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/CLAUDE.local.md`,
+    ]);
+    expect(seenKeys(lastStaged(staged))).not.toContain(
+      `kb://${SPACE}/notes/AGENTS.md`,
+    );
+  });
+
+  it('stages one bundle with the host files first for a host and Space touch', async () => {
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+    const space = spaceOf({ 'notes/lore/AGENTS.md': 'lore rules\n' });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    producer.observeToolCall?.(spaceCall('notes/lore/x.md'));
+    producer.observeToolCall?.(readCall(join(root, 'apps/api/src/x.ts')));
+    await prepare();
+
+    expect(staged).toHaveLength(1);
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      join(root, 'apps/api/AGENTS.md'),
+      `kb://${SPACE}/notes/lore/AGENTS.md`,
+    ]);
+    // The bundle carries owner-maintained Knowledge content, so the closed
+    // untrusted-and-may-be-stale notice is in it once.
+    expect(lastStaged(staged).data.text).toContain(KNOWLEDGE_CONTENT_NOTICE);
+    expect(
+      lastStaged(staged).data.text.split(KNOWLEDGE_CONTENT_NOTICE),
+    ).toHaveLength(2);
+  });
+
+  it('loads nothing for a Space id spelled under another scheme', async () => {
+    const space = spaceOf({ 'notes/AGENTS.md': 'note rules\n' });
+    const { producer, staged, prepare } = attemptOf({ space });
+
+    // `kb://` is the one scheme that names a Space: the same id and path under
+    // any other scheme is a remote resource, never a local candidate.
+    for (const scheme of ['https', 'mcp']) {
+      // A path that is not itself a candidate, so nothing here can be
+      // dismissed as a read that disclosed the file it named.
+      producer.observeToolCall?.(readCall(`${scheme}://${SPACE}/notes/x.md`));
+    }
+    await prepare();
+
+    expect(staged).toEqual([]);
+    expect(space.probes).toEqual([]);
+    expect(space.reads).toEqual([]);
+  });
+
+  it('ignores a knowledge search and any trigger without its Space capability', async () => {
+    await write(join(root, 'AGENTS.md'), 'host rules\n');
+    const space = spaceOf({ 'CLAUDE.md': 'space rules\n' });
+    const searched = attemptOf({ space });
+    searched.producer.observeToolCall?.({
+      toolName: 'knowledge_search',
+      input: { query: 'rules', space: SPACE },
+      workspaceRoot: root,
+    });
+    await searched.prepare();
+    expect(searched.staged).toEqual([]);
+
+    // A host-only process never probes the host filesystem for a Space
+    // trigger, and a Space-less attempt never loads a host file.
+    const hostOnly = attemptOf();
+    hostOnly.producer.observeToolCall?.(spaceCall('doc.md'));
+    await hostOnly.prepare();
+    expect(hostOnly.staged).toEqual([]);
+
+    const spaceOnly = attemptOf({ readPage: null, space });
+    spaceOnly.producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await spaceOnly.prepare();
+    expect(spaceOnly.staged).toEqual([]);
+    expect(space.reads).toEqual([]);
+  });
+
+  it('loads a Space trigger on an attempt with no host page reader', async () => {
+    const space = spaceOf({ 'notes/AGENTS.md': 'note rules\n' });
+    const { producer, staged, prepare } = attemptOf({ readPage: null, space });
+
+    producer.observeToolCall?.(spaceCall('notes/x.md'));
+    await prepare();
+
+    // Each world is gated by its own capability: no host page reader stops the
+    // host chain, not the Space one, which still walks and reads.
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+    expect(space.reads).toEqual([`kb://${SPACE}/notes/AGENTS.md:raw:1-2000`]);
+  });
+});
+
 describe('instructions producer triggers', () => {
   it('loads the chain from the filesystem root down to the touched directory', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
@@ -148,6 +568,8 @@ describe('instructions producer triggers', () => {
     expect(part.data.text.indexOf(join(root, 'AGENTS.md'))).toBeLessThan(
       part.data.text.indexOf(join(root, 'apps/api/AGENTS.md')),
     );
+    // Host files are repository content: no Knowledge notice.
+    expect(part.data.text).not.toContain(KNOWLEDGE_CONTENT_NOTICE);
     // A step with no pending trigger stages nothing new.
     await prepare();
     expect(staged).toHaveLength(1);
@@ -214,7 +636,7 @@ describe('instructions producer triggers', () => {
         input: { command: 'ls', cwd: 'apps/api' },
         workspaceRoot: root,
       },
-      readCall('kb://space/doc.md'),
+      readCall('kb://not-a-uuid/doc.md'),
       readCall('skill://name'),
       readCall('https://example.com/AGENTS.md'),
       readCall(join(root, 'apps/api/x.ts'), 'search_conversations'),
@@ -223,6 +645,23 @@ describe('instructions producer triggers', () => {
     for (const call of ignored) producer.observeToolCall?.(call);
     await prepare();
     expect(staged).toEqual([]);
+  });
+
+  it('loads a candidate its own edit or write named, which a read would skip', async () => {
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+
+    // Only a read discloses the file it named; a write discloses nothing, so
+    // the very file being written is announced.
+    for (const toolName of ['edit', 'write']) {
+      const { producer, staged, prepare } = attemptOf();
+      producer.observeToolCall?.(
+        readCall(join(root, 'apps/api/AGENTS.md'), toolName),
+      );
+      await prepare();
+      expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([
+        join(root, 'apps/api/AGENTS.md'),
+      ]);
+    }
   });
 
   it('marks an entry that established or switched the binding, and nothing else', async () => {
@@ -482,19 +921,29 @@ describe('instructions producer triggers', () => {
     ]);
   });
 
-  it('marks nothing for exit_workspace', async () => {
+  it('marks nothing for exit_workspace, or for another tool reporting a binding', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
-    const { producer, staged, prepare } = attemptOf();
 
-    producer.observeToolCall?.({
-      toolName: exitWorkspaceTool.id,
-      input: {},
-      workspaceRoot: root,
-      result: { status: 'success', state: 'exited' },
-    });
-    await prepare();
+    for (const [toolName, result] of [
+      [exitWorkspaceTool.id, { status: 'success', state: 'exited' }],
+      ['search_conversations', { status: 'success', state: 'bound', root }],
+      ['knowledge_search', { status: 'success', state: 'switched', root }],
+    ] as const) {
+      const { producer, staged, prepare } = attemptOf();
 
-    expect(staged).toEqual([]);
+      producer.observeToolCall?.({
+        toolName,
+        input: {},
+        workspaceRoot: root,
+        result,
+      });
+      await prepare();
+
+      // Only `enter_workspace` establishes a binding, so only it marks a
+      // directory to walk: another tool reporting the same shape is not read
+      // as one.
+      expect(staged).toEqual([]);
+    }
   });
 
   it('stays silent for a symlink whose target an earlier trigger loaded', async () => {

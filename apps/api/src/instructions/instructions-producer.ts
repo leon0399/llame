@@ -1,12 +1,16 @@
 /**
- * The `instructions` producer (workspace instruction files D3–D10).
+ * Every trigger resolves the same way: the candidate chains from the root of
+ * the world it names down to the touched directory, minus the files the
+ * attempt's effective context and its own items already named, read through
+ * the native `read` tool under the Run's own permission decision and audit
+ * trail, and staged as one item for the next model step — or, for the accepted
+ * turn of a bound Chat, for its first request.
  *
- * Every trigger resolves the same way: the candidate chains from the
- * filesystem root down to the touched directory, minus the files the attempt's
- * effective context and its own items already named, read through the native
- * `read` tool under the Run's own permission decision and audit trail, and
- * staged as one item for the next model step — or, for the accepted turn of a
- * bound Chat, for its first request.
+ * A world is either the host filesystem (keys are absolute paths, walked from
+ * `/`) or one Knowledge Space (keys are Space-relative paths, walked from the
+ * Space's own directory and never above it). Host files resolve into the same
+ * bundle first, then each Space's files, and a Space is labelled and keyed by
+ * its logical `kb://` locator, so no host Knowledge path reaches the model.
  *
  * The producer holds no state of its own. An attempt's pending triggers and
  * seen keys live in the object `beginAttempt` returns and are discarded with
@@ -14,12 +18,12 @@
  * work and a failed attempt leaves nothing seen.
  *
  * Triggers are marked by the Run executor through `observeToolCall`: a native
- * `read`/`edit`/`write` whose path resolves to a local host path (selector,
- * representation suffix, and `file:` alias included) at admission, and a
- * settled `enter_workspace` that established or switched the binding. The
- * projection — never the filesystem — happens at observation time, so the
- * Workspace root in effect for the call is the one it is resolved against;
- * the directory probe and the reads happen at the next step.
+ * `read`/`edit`/`write` whose path names a local file (a `kb://` locator, or a
+ * host path with selector, representation suffix, and `file:` alias resolved)
+ * at admission, and a settled `enter_workspace` that established or switched
+ * the binding. The projection — never the filesystem — happens at observation
+ * time, so the Workspace root in effect for the call is the one it is resolved
+ * against; the directory probe and the reads happen at the next step.
  */
 
 import { posix } from 'node:path';
@@ -27,7 +31,6 @@ import { posix } from 'node:path';
 import {
   parsePathScheme,
   splitSelectorSuffix,
-  statHostPath,
 } from '@workspace/native-file-tools';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
@@ -37,6 +40,15 @@ import {
   createInstructionsItem,
   type LoadedInstructionFile,
 } from '../chats/instructions-item';
+import {
+  KNOWLEDGE_LOCATOR_SCHEME,
+  parseKnowledgeLocator,
+} from '../knowledge/knowledge-locator';
+import {
+  isKnowledgeSpaceId,
+  validatePath,
+} from '../knowledge/knowledge-filesystem-validation';
+import { spaceInstructionScope } from '../knowledge/knowledge-instruction-probe';
 import type {
   InRunAttempt,
   InRunAttemptProducer,
@@ -57,13 +69,14 @@ import {
   resolveWorkspacePath,
 } from '../tools/workspace-path';
 import {
+  hostInstructionScope,
   readInstructionFile,
   selectCandidates,
   touchedPath,
-  walkDirectories,
+  walkFrom,
   type InstructionCandidate,
+  type InstructionScope,
   type ReadPage,
-  type StatHostPath,
 } from './instruction-files';
 
 /** The tool ids whose input names a local path to load for. */
@@ -73,11 +86,33 @@ const FILE_TOOL_IDS: ReadonlyArray<string> = [
   nativeWriteTool.id,
 ];
 
-/** One pending trigger: an absolute local path, and whether a read named it. */
-interface PendingTrigger {
-  readonly path: string;
-  /** A read disclosed the file it named, so that file is not loaded (D5). */
-  readonly excludeCandidate: boolean;
+/** Where one trigger's world is: a host path or a Space-relative path. */
+interface TriggerTarget {
+  /** The touched path in that world; `''` is a Space's own directory. */
+  readonly key: string;
+  /** The `kb://` trigger's Space; absent for a host path. */
+  readonly space?: SpaceTrigger;
+}
+
+/**
+ * One `kb://` trigger's Space. Only the canonical lower-case id — the form
+ * llame itself formats and shows — ever forms a trigger, so one Space is one
+ * group, one set of item labels, one seen key, and one read spelling, and a
+ * `read` rule is evaluated for every candidate under exactly the locator the
+ * model wrote.
+ */
+interface SpaceTrigger {
+  readonly id: string;
+}
+
+/** One pending trigger: the path it touches, and whether a read named it. */
+interface PendingTrigger extends TriggerTarget {
+  /**
+   * A read disclosed the file it named, so that file is not loaded (D5). Only
+   * a trigger that can name a file sets it: a directory trigger — an entry or
+   * an accepted turn's bound root — discloses nothing, so it carries none.
+   */
+  readonly excludeCandidate?: boolean;
 }
 
 /** The whole read budget of one trigger set, collected as it loads. */
@@ -89,33 +124,79 @@ interface BundleCollector {
 }
 
 /**
- * The absolute local path one native file tool's input names, projected the way
- * the tool itself projects it: a `file:` alias decodes, a scheme locator is not
- * local, and a relative path resolves against the Workspace root in effect for
- * the call — with no root bound there is nothing to resolve. Every branch
- * normalizes the result with `posix.resolve`, so `.` and `..` segments cannot
- * walk a directory the path merely spells or bypass the candidate exclusion.
+ * The one world a native file tool's input names, projected the way the tool
+ * itself projects it: a `file:` alias decodes, a `kb://` locator resolves
+ * inside its Space, another scheme names no local file, and a relative path
+ * resolves against the Workspace root in effect for the call — with no root
+ * bound there is nothing to resolve. Every branch normalizes a host path with
+ * `posix.resolve`, so `.` and `..` segments cannot walk a directory the path
+ * merely spells or bypass the candidate exclusion.
  */
-function projectLocalPath(input: {
+function projectTarget(input: {
   readonly args: unknown;
   readonly root: string | undefined;
-}): string | undefined {
+}): TriggerTarget | undefined {
   if (!isRecord(input.args)) return undefined;
   const path = input.args['path'];
   if (!isString(path) || path.length === 0) return undefined;
   if (isFileAlias(path)) {
     const alias = decodeFileAlias(path);
-    return alias.ok
-      ? posix.resolve(splitSelectorSuffix(alias.hostPath).path)
+    return alias.ok ? hostTarget(alias.hostPath) : undefined;
+  }
+  const scheme = parsePathScheme(path);
+  if (scheme !== undefined) {
+    return scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME
+      ? spaceTarget(scheme.rest)
       : undefined;
   }
-  if (parsePathScheme(path) !== undefined) return undefined;
-  if (!isWorkspaceRelative(path)) {
-    return posix.resolve(splitSelectorSuffix(path).path);
+  if (isWorkspaceRelative(path)) {
+    return input.root === undefined
+      ? undefined
+      : hostTarget(resolveWorkspacePath(input.root, path));
   }
-  return input.root === undefined
-    ? undefined
-    : splitSelectorSuffix(resolveWorkspacePath(input.root, path)).path;
+  return hostTarget(path);
+}
+
+/** One host path, selector and representation suffix split off. */
+function hostTarget(selectorPath: string): TriggerTarget {
+  return { key: posix.resolve(splitSelectorSuffix(selectorPath).path) };
+}
+
+/**
+ * One `kb://` locator as a Space and a Space-relative key: the selector is
+ * dropped, the path is percent-decoded, and only a path the Knowledge
+ * resolver itself accepts names anything. A Space id that is not already
+ * canonical is not a trigger at all — the model's own read of it still runs,
+ * it just loads no instructions — so every other step of one Space resolves
+ * under the single spelling that can reach this point.
+ */
+function spaceTarget(rest: string): TriggerTarget | undefined {
+  const parsed = parseKnowledgeLocator(rest);
+  if (parsed === undefined || !isKnowledgeSpaceId(parsed.knowledgeSpaceId)) {
+    return undefined;
+  }
+  if (parsed.knowledgeSpaceId !== parsed.knowledgeSpaceId.toLowerCase()) {
+    return undefined;
+  }
+  const relativePath = parsed.relativePath;
+  if (relativePath !== undefined && !isSpaceKey(relativePath)) {
+    return undefined;
+  }
+  return {
+    space: { id: parsed.knowledgeSpaceId },
+    key: relativePath ?? '',
+  };
+}
+
+/** A Space key the trusted resolver would accept: plain names, no traversal,
+ * and no deeper than its component cap. */
+function isSpaceKey(relativePath: string): boolean {
+  try {
+    validatePath(relativePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The canonical root a successful `enter_workspace` established or switched to. */
@@ -133,19 +214,17 @@ function observedTrigger(call: InRunToolCall): PendingTrigger | undefined {
     // A file tool marks at admission; its settled observation repeats the very
     // same call and input, so it adds nothing.
     if (call.result !== undefined) return undefined;
-    const path = projectLocalPath({
+    const target = projectTarget({
       args: call.input,
       root: call.workspaceRoot,
     });
-    return path === undefined
+    return target === undefined
       ? undefined
-      : { path, excludeCandidate: call.toolName === nativeReadTool.id };
+      : { ...target, excludeCandidate: call.toolName === nativeReadTool.id };
   }
   if (call.toolName !== enterWorkspaceTool.id) return undefined;
   const root = enteredRoot(call.result);
-  return root === undefined
-    ? undefined
-    : { path: root, excludeCandidate: false };
+  return root === undefined ? undefined : { key: root };
 }
 
 /** One directory's pending exclusions, collected across the trigger set. */
@@ -156,24 +235,26 @@ interface PendingDirectory {
   readonly disclosedCanonicalPaths: Set<string>;
 }
 
-/** The directories the pending triggers resolve to, and their exclusions. */
+/**
+ * The directories the pending triggers resolve to in one world, and their
+ * exclusions. A read of an existing file neither loads nor marks that file,
+ * compared by canonical identity, so a link the model read under another name
+ * discloses the candidate it resolves to; other candidates in the directory
+ * still load. An edit, a write, an entry, or a read of a directory or missing
+ * path clears these exclusions and loads the directory's whole chain.
+ */
 async function resolveDirectories(
   triggers: ReadonlyArray<PendingTrigger>,
-  stat: StatHostPath,
+  scope: InstructionScope,
 ): Promise<Map<string, ReadonlySet<string>>> {
   const pending = new Map<string, PendingDirectory>();
   for (const trigger of triggers) {
-    const touched = await touchedPath(trigger.path, stat);
+    const touched = await touchedPath(scope, trigger.key);
     const entry = pending.get(touched.directory) ?? {
       plainTouch: false,
       disclosedCanonicalPaths: new Set<string>(),
     };
     pending.set(touched.directory, entry);
-    // A read of an existing file neither loads nor marks that file, compared by
-    // canonical path, so a link the model read under another name discloses the
-    // candidate it resolves to; other candidates in the directory still load.
-    // An edit, a write, an entry, or a read of a directory or missing path
-    // clears these exclusions and loads the directory's whole chain.
     if (trigger.excludeCandidate && touched.canonicalPath !== undefined) {
       entry.disclosedCanonicalPaths.add(touched.canonicalPath);
     } else {
@@ -190,14 +271,108 @@ async function resolveDirectories(
   return resolved;
 }
 
-/** Every directory the resolved triggers walk, broadest first and once each. */
-function walkOrder(
-  directories: ReadonlyMap<string, ReadonlySet<string>>,
-): Array<string> {
+/**
+ * The trusted capabilities one attempt may read candidates through: a world
+ * absent from this record may not load at all, so its triggers are ignored
+ * before any filesystem is probed.
+ */
+type AttemptWorlds = Pick<InRunAttempt, 'readPage' | 'knowledge'>;
+
+/** One world a trigger set walks, with the exclusions of each directory. */
+interface TriggerGroup {
+  readonly scope: InstructionScope;
+  readonly page: ReadPage;
+  readonly directories: Map<string, ReadonlySet<string>>;
+  /** A Space group's files are owner-maintained Knowledge content. */
+  readonly knowledge: boolean;
+}
+
+/** One Space's triggers in a step. */
+interface SpaceTriggers {
+  readonly triggers: Array<PendingTrigger>;
+}
+
+/** The trigger set's host triggers and each Space's own, in first-mention order. */
+interface TriggerPartition {
+  readonly onHost: Array<PendingTrigger>;
+  readonly bySpace: Map<string, SpaceTriggers>;
+}
+
+/** Splits a step's triggers into the host world and one group per Space. */
+function partitionTriggers(
+  triggers: ReadonlyArray<PendingTrigger>,
+): TriggerPartition {
+  const bySpace = new Map<string, SpaceTriggers>();
+  const onHost: Array<PendingTrigger> = [];
+  for (const trigger of triggers) {
+    const space = trigger.space;
+    if (space === undefined) {
+      onHost.push(trigger);
+      continue;
+    }
+    const owned = bySpace.get(space.id);
+    if (owned === undefined) {
+      bySpace.set(space.id, { triggers: [trigger] });
+    } else {
+      owned.triggers.push(trigger);
+    }
+  }
+  return { onHost, bySpace };
+}
+
+/**
+ * The worlds one trigger set resolves into, host first and then each Space in
+ * the order its first trigger named it. A world without its trusted capability
+ * — no native executor, no configured Knowledge root, a Space that is not the
+ * owner's — contributes nothing, so no filesystem is probed for it.
+ */
+async function resolveGroups(input: {
+  readonly triggers: ReadonlyArray<PendingTrigger>;
+  readonly worlds: AttemptWorlds;
+}): Promise<Array<TriggerGroup>> {
+  const { onHost, bySpace } = partitionTriggers(input.triggers);
+  const groups: Array<TriggerGroup> = [];
+  const hostPage = input.worlds.readPage;
+  if (hostPage !== undefined) {
+    const scope = hostInstructionScope();
+    groups.push({
+      scope,
+      page: hostPage,
+      directories: await resolveDirectories(onHost, scope),
+      knowledge: false,
+    });
+  }
+  const knowledge = input.worlds.knowledge;
+  if (knowledge === undefined) return groups;
+  for (const [spaceId, owned] of bySpace) {
+    const space = await knowledge.probe(spaceId);
+    if (space === undefined) continue;
+    const scope = spaceInstructionScope({
+      knowledgeSpaceId: spaceId,
+      space,
+    });
+    groups.push({
+      scope,
+      page: knowledge.readPage,
+      directories: await resolveDirectories(owned.triggers, scope),
+      knowledge: true,
+    });
+  }
+  return groups;
+}
+
+/**
+ * Every directory one group walks, broadest first and once each. A key's
+ * segment count is its depth in both worlds — an absolute host key counts one
+ * segment more than it has, every Space key counts exactly its depth — so
+ * counting segments orders both; code points break the one tie a world's own
+ * root has with its top-level directories.
+ */
+function walkOrder(group: TriggerGroup): Array<string> {
   const walked = new Set<string>();
-  for (const directory of directories.keys()) {
-    for (const walkedDirectory of walkDirectories(directory)) {
-      walked.add(walkedDirectory);
+  for (const directory of group.directories.keys()) {
+    for (const entry of walkFrom(group.scope.root, directory)) {
+      walked.add(entry);
     }
   }
   return [...walked].sort(
@@ -212,11 +387,11 @@ async function collectCandidate(
   collector: BundleCollector,
   candidate: InstructionCandidate,
   disclosed: ReadonlySet<string>,
-  readPage: ReadPage,
+  group: TriggerGroup,
 ): Promise<void> {
   if (collector.keys.has(candidate.canonicalPath)) return;
   if (disclosed.has(candidate.canonicalPath)) return;
-  const read = await readInstructionFile(candidate, readPage);
+  const read = await readInstructionFile(candidate, group.page);
   if (read.kind === 'denied') {
     collector.denied.push(candidate.path);
     return;
@@ -232,6 +407,7 @@ async function collectCandidate(
     content: read.content,
     truncated: read.truncated,
     omittedBytes: read.omittedBytes,
+    knowledge: group.knowledge,
   });
 }
 
@@ -239,28 +415,21 @@ async function collectCandidate(
 async function loadBundle(input: {
   readonly runId: string;
   readonly triggers: ReadonlyArray<PendingTrigger>;
-  readonly readPage: ReadPage;
+  readonly worlds: AttemptWorlds;
   /** The attempt's seen keys; each file is added as it loads. */
   readonly keys: Set<string>;
   readonly abortSignal: AbortSignal | undefined;
 }): Promise<AuthoredContextItemPart | undefined> {
-  const directories = await resolveDirectories(input.triggers, statHostPath);
   const collector: BundleCollector = {
     keys: input.keys,
     files: [],
     denied: [],
   };
-  for (const directory of walkOrder(directories)) {
-    // The exclusions of one directory, never those of another: a sibling
-    // directory whose candidate is the same canonical file still loads it.
-    const disclosed = directories.get(directory) ?? new Set<string>();
-    const candidates = await selectCandidates(directory, statHostPath);
-    for (const candidate of candidates) {
-      // An aborted Run stops loading at the next candidate instead of walking
-      // a whole chain to the filesystem root.
-      input.abortSignal?.throwIfAborted();
-      await collectCandidate(collector, candidate, disclosed, input.readPage);
-    }
+  for (const group of await resolveGroups({
+    triggers: input.triggers,
+    worlds: input.worlds,
+  })) {
+    await loadGroup(group, collector, input.abortSignal);
   }
   if (collector.files.length === 0) return undefined;
   return createInstructionsItem({
@@ -270,11 +439,28 @@ async function loadBundle(input: {
   });
 }
 
+/** Loads one world's chain into the shared collector, broadest directory first. */
+async function loadGroup(
+  group: TriggerGroup,
+  collector: BundleCollector,
+  abortSignal: AbortSignal | undefined,
+): Promise<void> {
+  for (const directory of walkOrder(group)) {
+    // The exclusions of one directory, never those of another: a sibling
+    // directory whose candidate is the same canonical file still loads it.
+    const disclosed = group.directories.get(directory) ?? new Set<string>();
+    const candidates = await selectCandidates(group.scope, directory);
+    for (const candidate of candidates) {
+      // An aborted Run stops loading at the next candidate instead of walking
+      // a whole chain to the filesystem root.
+      abortSignal?.throwIfAborted();
+      await collectCandidate(collector, candidate, disclosed, group);
+    }
+  }
+}
+
 /** One attempt's pending triggers and seen keys; discarded with the attempt. */
-function createAttemptProducer(
-  attempt: InRunAttempt,
-  readPage: ReadPage,
-): InRunAttemptProducer {
+function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
   const keys = new Set(attempt.seenKeys);
   let pending: Array<PendingTrigger> = [];
   return {
@@ -290,7 +476,7 @@ function createAttemptProducer(
       const part = await loadBundle({
         runId: attempt.runId,
         triggers,
-        readPage,
+        worlds: attempt,
         keys,
         abortSignal: attempt.abortSignal,
       });
@@ -308,8 +494,10 @@ export function createInstructionsProducer(): InRunContextProducer {
     ): Promise<AuthoredContextItemPart | undefined> {
       return loadBundle({
         runId: context.runId,
-        triggers: [{ path: context.workspaceRoot, excludeCandidate: false }],
-        readPage: context.readPage,
+        triggers: [{ key: context.workspaceRoot }],
+        // An accepted turn starts from a bound Workspace root, so only the
+        // host world has a directory to walk: no Space is probed for it.
+        worlds: { readPage: context.readPage },
         // The caller derives the turn's seen set from the returned item, so
         // this set is a scratch guard for the walk: the turn's seen keys plus
         // every canonical path the load collects, so no candidate is read
@@ -320,12 +508,10 @@ export function createInstructionsProducer(): InRunContextProducer {
     },
 
     beginAttempt(attempt: InRunAttempt): InRunAttemptProducer {
-      const readPage = attempt.readPage;
-      // Without a page reader the producer may not load at all — the `read`
-      // tool or the native executor is absent — so every trigger is a no-op.
-      return readPage === undefined
-        ? { prepareStep: () => {} }
-        : createAttemptProducer(attempt, readPage);
+      // An attempt with no page reader for any world it may load in — the
+      // `read` tool, the native executor, and the Knowledge root all absent —
+      // resolves no world at all, so its triggers load nothing.
+      return createAttemptProducer(attempt);
     },
   };
 }

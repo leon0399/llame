@@ -119,6 +119,7 @@ import {
 } from './run-execution.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
+import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
 import {
   TOOL_REGISTRY,
   registerTestOnlyTool,
@@ -337,6 +338,8 @@ type ExecutionServiceOptions = {
   workspaceMcp?: WorkspaceMcpClients;
   inRunProducer?: InRunContextProducer;
   permissionModes?: InstanceConfigReader['config']['tools']['permissionModes'];
+  knowledgeRoot?: string;
+  knowledgeResolver?: KnowledgeToolResolver;
 };
 
 function makeExecutionService(
@@ -375,6 +378,10 @@ function makeExecutionService(
         ...BUILT_IN_DEFAULTS.skills,
         directories: options.skillDirectories ?? [],
       },
+      knowledge:
+        options.knowledgeRoot === undefined
+          ? BUILT_IN_DEFAULTS.knowledge
+          : { root: options.knowledgeRoot },
     },
   };
   // Held separately so tests can rescript them with their inferred Mock type
@@ -421,7 +428,7 @@ function makeExecutionService(
     instanceConfig,
     searchIndex,
     reindexDispatch,
-    knowledgeResolver,
+    options.knowledgeResolver ?? knowledgeResolver,
     options.skillCatalog ?? noopSkillCatalog(),
     embedDispatch,
     noopQueryEmbedder(),
@@ -8322,6 +8329,7 @@ describe('RunExecutionService instruction files', () => {
           content: 'run the tests\n',
           truncated: false,
           omittedBytes: 0,
+          knowledge: false,
         },
       ],
       denied: [],
@@ -8700,6 +8708,189 @@ describe('RunExecutionService instruction files', () => {
       expect(storedInstructionPart(repositories)).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores host triggers on a Space-only worker with no native executor', async () => {
+    const root = instructionsRoot();
+    const touch = touchFile(root);
+    const knowledgeRoot = mkdtempSync(path.join(tmpdir(), 'instructions-kb-'));
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      // The Space gate is open, so the attempt does get a page reader — for
+      // Knowledge candidates. A host trigger must still be ignored: this
+      // process has no accepted native host and may not probe the host tree.
+      const { client } = readThenAnswerClient(touch);
+      const execution = makeExecutionService(client, undefined, undefined, {
+        allowed: ['enter_workspace', 'read'],
+        knowledgeRoot,
+        inRunProducer: createInstructionsProducer(),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+      expect(eventsForCall(append, 'read-trigger')).toContain('tool.requested');
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+      expect(instructionItems(repositories)).toEqual([]);
+      expect(storedInstructionPart(repositories)).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(knowledgeRoot, { recursive: true, force: true });
+    }
+  });
+
+  /** A Knowledge root holding one owner-accessible Space with a base chain. */
+  function knowledgeRootWith(spaceId: string) {
+    const knowledgeRoot = mkdtempSync(path.join(tmpdir(), 'instructions-kb-'));
+    const directory = path.join(knowledgeRoot, spaceId);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(path.join(directory, 'AGENTS.md'), 'space rules\n');
+    writeFileSync(path.join(directory, 'main.ts'), 'export const main = 1;\n');
+    return {
+      knowledgeRoot,
+      remove: () => rmSync(knowledgeRoot, { recursive: true, force: true }),
+      resolver: {
+        listForOwnerPage: () => Promise.resolve({ spaces: [] }),
+        resolveBindingForOwnerById: (_ownerUserId: string, requested: string) =>
+          Promise.resolve(
+            requested === spaceId
+              ? { id: spaceId, root: knowledgeRoot, directory }
+              : undefined,
+          ),
+        createAdapter: (binding: {
+          id: string;
+          root: string;
+          directory: string;
+        }) => new KnowledgeFilesystemAdapter(binding),
+      } satisfies KnowledgeToolResolver,
+    };
+  }
+
+  it('loads a Space chain for a kb:// read when a Knowledge root is configured', async () => {
+    const spaceId = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+    const space = knowledgeRootWith(spaceId);
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      // The Space gate is the only one open here: no native executor, so the
+      // model's own read of a `kb://` note is what triggers the chain.
+      const { client } = readThenAnswerClient(`kb://${spaceId}/main.ts`);
+      const execution = makeExecutionService(client, undefined, undefined, {
+        allowed: ['enter_workspace', 'read'],
+        knowledgeRoot: space.knowledgeRoot,
+        knowledgeResolver: space.resolver,
+        inRunProducer: createInstructionsProducer(),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+
+      // The candidate is read through the audited `read` path under the
+      // instructions origin, and the item is stored on the assistant turn.
+      const reads = eventsWithOrigin(append, 'instructions').filter(
+        (event) => event.type === 'tool.requested',
+      );
+      expect(reads.length).toBeGreaterThan(0);
+      expect(JSON.stringify(reads)).toContain(`kb://${spaceId}/AGENTS.md`);
+      expect(instructionItems(repositories)).not.toEqual([]);
+      expect(JSON.stringify(storedInstructionPart(repositories))).toContain(
+        `kb://${spaceId}/AGENTS.md`,
+      );
+    } finally {
+      space.remove();
+    }
+  });
+
+  it('loads nothing for a kb:// read with no Knowledge root configured', async () => {
+    const spaceId = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+    const space = knowledgeRootWith(spaceId);
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const { client } = readThenAnswerClient(`kb://${spaceId}/main.ts`);
+      const execution = makeExecutionService(client, undefined, undefined, {
+        allowed: ['enter_workspace', 'read'],
+        knowledgeResolver: space.resolver,
+        inRunProducer: createInstructionsProducer(),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+
+      // Without `knowledge.root` the Run has no Knowledge capability at all:
+      // the call was admitted, and nothing loaded, marked, or audited.
+      expect(eventsForCall(append, 'read-trigger')).toContain('tool.requested');
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+      expect(instructionItems(repositories)).toEqual([]);
+      expect(storedInstructionPart(repositories)).toBeUndefined();
+    } finally {
+      space.remove();
+    }
+  });
+
+  it('loads nothing for a kb:// write when read is not allowlisted', async () => {
+    const spaceId = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+    const space = knowledgeRootWith(spaceId);
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      // The trigger fires at admission; the write's own execution is not
+      // under test here.
+      vi.spyOn(nativeWriteTool, 'execute').mockResolvedValue({
+        status: 'success',
+      });
+      // `write` is a trigger like any other, and `read` is what every load
+      // needs: without it the Space chain must not even be attempted.
+      const { client } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: 'write-trigger',
+              toolName: 'write',
+              input: JSON.stringify({
+                path: `kb://${spaceId}/main.ts`,
+                content: 'export const y = 2;\n',
+              }),
+            },
+          ],
+          'tool-calls',
+        ),
+        providerText('answer'),
+      ]);
+      const execution = makeExecutionService(client, undefined, undefined, {
+        allowed: ['enter_workspace', 'write'],
+        permissionPolicy: compileTestPermissionPolicy(['write']),
+        knowledgeRoot: space.knowledgeRoot,
+        knowledgeResolver: space.resolver,
+        inRunProducer: createInstructionsProducer(),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+
+      expect(eventsForCall(append, 'write-trigger')).toContain(
+        'tool.requested',
+      );
+      // No page reader exists, so not one audited read is even attempted.
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+      expect(instructionItems(repositories)).toEqual([]);
+      expect(storedInstructionPart(repositories)).toBeUndefined();
+    } finally {
+      space.remove();
     }
   });
 

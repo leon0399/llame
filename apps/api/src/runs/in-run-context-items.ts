@@ -16,6 +16,7 @@
 import type { ModelMessage } from 'ai';
 
 import type { AuthoredContextItemPart } from '../chats/context-item';
+import { type KnowledgeInstructionProbe } from '../knowledge/knowledge-instruction-probe';
 import type { ReadPage } from '../instructions/instruction-files';
 import type { ToolResult } from '../tools/types';
 
@@ -217,9 +218,22 @@ export interface InRunAttempt {
   readonly seenKeys?: ReadonlySet<string>;
   /**
    * Reads one audited page for this attempt. Absent when the producer may not
-   * load at all — the `read` tool or a native executor is missing.
+   * load host instruction files — the `read` tool or the native executor is
+   * missing.
    */
   readonly readPage?: ReadPage;
+  /**
+   * The Knowledge capability this attempt may load Space candidates with.
+   * Absent when it may not: `read` is not allowlisted or no `knowledge.root`
+   * is configured. Both halves are present or neither, so a `kb://` trigger
+   * loads nothing at all without it.
+   */
+  readonly knowledge?: {
+    /** The same audited page reader as `readPage`. */
+    readonly readPage: ReadPage;
+    /** The trusted owner-scoped view of one Space. */
+    readonly probe: KnowledgeInstructionProbe;
+  };
   /** The Run's own abort signal; a producer must stop loading once it fires. */
   readonly abortSignal?: AbortSignal;
 }

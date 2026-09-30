@@ -135,6 +135,7 @@ import {
   type ToolContext,
   type ToolResult,
 } from '../tools/types';
+import { createKnowledgeInstructionProbe } from '../knowledge/knowledge-instruction-probe';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
 import {
@@ -2247,15 +2248,29 @@ export class RunExecutionService {
   }
 
   /**
-   * Whether instruction files may load at all: the `read` tool must be in the
-   * operator allowlist and a native executor configured, so no trigger can
+   * Whether HOST instruction files may load at all: the `read` tool must be in
+   * the operator allowlist and a native executor configured, so no trigger can
    * disclose a file the model could not have read itself (spec: Read not
    * allowlisted / Missing candidates leave no audit trail).
    */
-  private instructionsLoadable(): boolean {
+  private hostInstructionsLoadable(): boolean {
     const tools = this.instanceConfig.config.tools;
     return (
       tools.nativeExecutorId !== undefined && tools.allowed.includes('read')
+    );
+  }
+
+  /**
+   * Whether KNOWLEDGE SPACE instruction files may load: the same `read`
+   * allowlist, and a configured `knowledge.root`. No native executor is needed,
+   * because a Space candidate is resolved and read through the owner-scoped
+   * Knowledge capability rather than the host executor.
+   */
+  private knowledgeInstructionsLoadable(): boolean {
+    const config = this.instanceConfig.config;
+    return (
+      config.knowledge.root !== undefined &&
+      config.tools.allowed.includes('read')
     );
   }
 
@@ -2306,7 +2321,7 @@ export class RunExecutionService {
     seenInstructionPaths: ReadonlySet<string>,
     stagedParts: Array<MessagePart>,
   ): Promise<TurnInstructions> {
-    const toolContext = this.instructionsLoadable()
+    const toolContext = this.hostInstructionsLoadable()
       ? this.buildSystemReadContext(
           input,
           nativeDeliverySequence,
@@ -3038,7 +3053,13 @@ export class RunExecutionService {
     }
   }
 
-  /** The configured in-Run producer's state for one attempt, if any producer is registered. */
+  /**
+   * The configured in-Run producer's state for one attempt, if any producer is
+   * registered. Each world gets its own reader: the host chain only with a
+   * native executor, the Space chain only with a configured Knowledge root, so
+   * a trigger whose world this Run may not load is ignored before anything is
+   * probed (spec: Read not allowlisted).
+   */
   private beginInRunAttempt(
     input: ExecuteRunInput,
     turn: TurnInstructions,
@@ -3051,9 +3072,17 @@ export class RunExecutionService {
       // The accepted-turn load's keys count as disclosed: a file it staged
       // must not reload on the attempt's first in-Run trigger.
       seenKeys: turn.seenCanonicalPaths,
-      // A Run whose read gate is closed gets no page reader: the producer then
-      // marks and loads nothing (spec: Read not allowlisted).
-      ...(turn.readPage !== undefined && { readPage }),
+      ...(this.hostInstructionsLoadable() && { readPage }),
+      ...(this.knowledgeInstructionsLoadable() && {
+        knowledge: {
+          readPage,
+          probe: createKnowledgeInstructionProbe({
+            resolver: this.knowledgeResolver,
+            ownerUserId: input.userId,
+            signal: input.abortSignal,
+          }),
+        },
+      }),
       abortSignal: input.abortSignal,
     });
   }

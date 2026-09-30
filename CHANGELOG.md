@@ -7,12 +7,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   context on Workspace entry, on a native `read`, `edit`, or `write` touch,
   and when the bound root's chain is missing from effective context on an
   accepted turn, walking each touched directory's chain from the filesystem
-  root. Loading is once per compaction epoch, read through the `read`
-  permission group under system origin `instructions`, cut at 32 KiB per file
-  with a named omitted-byte count, and disclosed to the owner by a chip on the
-  carrying message — the triggering user turn for an accepted-turn load, the
-  assistant turn for an in-Run item — listing loaded, truncated, and denied
-  paths ([#975](https://github.com/leon0399/llame/issues/975)).
+  root. A `kb://` `read`, `edit`, or `write` loads the same chain from its own
+  Knowledge Space's directory down to the touched directory — never above it,
+  never a host path — with every loaded file named and keyed by its
+  `kb://<knowledgeSpaceId>/<path>` locator and resolved under the Run owner, so
+  another owner's Space loads nothing. Loading is once per compaction epoch,
+  read through the `read` permission group under system origin `instructions`,
+  cut at 32 KiB per file with a named omitted-byte count, and disclosed to the
+  owner by a chip on the carrying message — the triggering user turn for an
+  accepted-turn load, the assistant turn for an in-Run item — listing loaded,
+  truncated, and denied paths ([#975](https://github.com/leon0399/llame/issues/975)).
 
 # 2026-09-29
 

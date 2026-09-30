@@ -210,7 +210,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 6. `instruction-files/knowledge`: Knowledge locator loading
 
-- [ ] 6.1 Wire the `kb://` trigger into the producer's pending set, project a Knowledge
+- [x] 6.1 Wire the `kb://` trigger into the producer's pending set, project a Knowledge
       locator to its Space and touched directory, and resolve that Space under the Run owner's
       identity through the owner-scoped Knowledge resolver (design D12). Trigger only on a
       locator whose Space identifier is already the canonical lower-case form, and use that
@@ -224,7 +224,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       touched directory, that a file above the Space root is never loaded, that a locator
       naming another owner's Space, a missing Space, or an unavailable Space loads nothing and
       probes nothing, and that a symlinked candidate is skipped.
-- [ ] 6.2 Split the gating: loading requires `read` in `tools.allowed`, plus a native executor
+- [x] 6.2 Split the gating: loading requires `read` in `tools.allowed`, plus a native executor
       for a host-path trigger or a configured `knowledge.root` for a `kb://` trigger, and
       `enter_workspace` for neither. Read Space candidates through the layer-3 in-Run system
       read helper with `kb://` locators and `:raw` pages under origin `instructions`, and order
@@ -233,14 +233,14 @@ Re-estimate authored size at each layer boundary and before publication; split a
       a native executor loads its chain, a step touching both a host path and a `kb://` locator
       produces exactly one item with the host file first, and a second touch in the epoch is
       silent.
-- [ ] 6.3 Verify the negative isolation cases: a locator naming another owner's Space loads
+- [x] 6.3 Verify the negative isolation cases: a locator naming another owner's Space loads
       nothing, issues no candidate probe, and records no `instructions` event; a locator whose
       Space identifier contains an upper-case letter loads nothing and records no
       `instructions` event while the model's own read of that locator proceeds; the item text,
       payload, metadata, audit events, and owner chip contain no host path; a bundle holding a
       Space file carries the closed Knowledge untrusted-content notice exactly once and a
       host-only bundle carries none; and a `knowledge_search` hit loads nothing.
-- [ ] 6.4 Document the Space-scoped walk, the logical labels, and the non-triggers in
+- [x] 6.4 Document the Space-scoped walk, the logical labels, and the non-triggers in
       `docs/knowledge.md` and `docs/native-files.md`, update the `SPEC.md` sentence for
       Knowledge loading, and add a dated `CHANGELOG.md` entry. Run `pnpm --filter api lint`,
       `typecheck`, and `unit`, the focused integration files touched above, `pnpm format:check`,
