@@ -404,6 +404,42 @@ describe('readInstructionFile', () => {
     });
   });
 
+  it('ends the file when a page adds no complete line', async () => {
+    // A reader may report progress past bytes it never rendered. Asking for
+    // another page then restarts after the same last complete line and joins
+    // text across the hole, so a page that adds no line ends the file.
+    const body = 'partial line without newline';
+    let calls = 0;
+    const readPage: ReadPage = () => {
+      calls += 1;
+      if (calls > 1) throw new Error('unexpected page request');
+      return Promise.resolve({
+        status: 'success',
+        kind: 'file',
+        path: '/srv/AGENTS.md',
+        content: body,
+        nextOffset: 5,
+      });
+    };
+
+    const result = await readInstructionFile(
+      {
+        path: '/srv/AGENTS.md',
+        canonicalPath: '/srv/AGENTS.md',
+        size: Buffer.byteLength(body, 'utf8'),
+      },
+      readPage,
+    );
+
+    expect(result).toEqual({
+      kind: 'loaded',
+      content: body,
+      truncated: false,
+      omittedBytes: 0,
+    });
+    expect(calls).toBe(1);
+  });
+
   it('reports truncation when a page carries more than the probed size', async () => {
     // The file grew between the probe and the read, so the collected bytes are
     // past the stale size: the cut still has to be reported as a truncation.
