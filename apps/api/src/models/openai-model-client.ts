@@ -111,16 +111,22 @@ export function applyToolCallingOptions(
   // the next step — the model is forced to answer from
   // accumulated context in the SAME streamText() call, rather
   // than the run ending mid tool-call.
-  streamOptions.prepareStep = ({ steps }) => {
-    input.onStepStart?.();
+  streamOptions.prepareStep = async ({ messages, stepNumber, steps }) => {
+    const messagesOverride = await input.onStepStart?.({
+      messages,
+      stepNumber,
+    });
     const priorToolSteps = steps.filter(
       (step) => step.toolCalls.length > 0,
     ).length;
-    if (priorToolSteps >= (input.maxSteps ?? 8)) {
+    const capReached = priorToolSteps >= (input.maxSteps ?? 8);
+    if (capReached) {
       input.onCapReached?.();
-      return { activeTools: [] };
     }
-    return {};
+    return {
+      ...(messagesOverride && { messages: messagesOverride }),
+      ...(capReached && { activeTools: [] }),
+    };
   };
   // A model can request a tool name it wasn't declared (gate
   // refusal / hallucination) or pass arguments its schema

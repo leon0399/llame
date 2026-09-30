@@ -23,6 +23,7 @@ import {
   NoSuchToolError,
   stepCountIs,
   streamText,
+  type ModelMessage,
   type StepResult,
   type ToolSet,
 } from 'ai';
@@ -113,6 +114,8 @@ import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import { turnTelemetryLogger } from './turn-telemetry';
 import { createModelChangeItem } from './context-item-producers';
+import { createContextItemPart, isContextItemPart } from './context-item';
+import { type InRunContextProducer } from '../runs/in-run-context-items';
 
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from './recency-digest.service';
@@ -166,7 +169,15 @@ const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
  * non-vacuous: the SAME cap/refusal plumbing openai-model-client.ts ships is
  * exercised here against a real multi-step AI SDK loop.
  */
-function createMockModelClient(model: MockLanguageModelV3): ModelClient {
+function createMockModelClient(
+  model: MockLanguageModelV3,
+  options?: { retainStepOverride?: boolean },
+): ModelClient {
+  // A newer AI SDK keeps a prepareStep `messages` override as the base of
+  // later steps; ai@6.0.256 rebuilds them from its own initial + response
+  // messages (the default here). The service's remove-then-insert splice must
+  // be idempotent under both, so this option simulates the retaining SDK.
+  const retainStepOverride = options?.retainStepOverride ?? false;
   return {
     model: 'mock',
     provider: 'mock',
@@ -174,6 +185,9 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
     streamText(input: ModelStreamInput) {
       if (input.tools) {
         const tools = input.tools;
+        let retained:
+          | { messages: Array<ModelMessage>; sdkLength: number }
+          | undefined;
         return streamText({
           model,
           system: input.system,
@@ -181,16 +195,39 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
           abortSignal: input.abortSignal,
           tools,
           stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
-          prepareStep: ({ steps }: { steps: Array<StepResult<ToolSet>> }) => {
-            input.onStepStart?.();
+          prepareStep: async ({
+            steps,
+            stepNumber,
+            messages,
+          }: {
+            steps: Array<StepResult<ToolSet>>;
+            stepNumber: number;
+            messages: Array<ModelMessage>;
+          }) => {
+            // A retaining SDK carries the previous override forward as the
+            // base and appends only the response messages produced since.
+            const stepMessages =
+              retainStepOverride && retained !== undefined
+                ? [...retained.messages, ...messages.slice(retained.sdkLength)]
+                : messages;
+            const override = await input.onStepStart?.({
+              messages: stepMessages,
+              stepNumber,
+            });
+            if (retainStepOverride && override !== undefined) {
+              retained = { messages: override, sdkLength: messages.length };
+            }
             const priorToolSteps = steps.filter(
               (step) => step.toolCalls.length > 0,
             ).length;
-            if (priorToolSteps >= (input.maxSteps ?? 8)) {
+            const capReached = priorToolSteps >= (input.maxSteps ?? 8);
+            if (capReached) {
               input.onCapReached?.();
-              return { activeTools: [] };
             }
-            return {};
+            return {
+              ...(override && { messages: override }),
+              ...(capReached && { activeTools: [] }),
+            };
           },
           experimental_repairToolCall: ({
             toolCall,
@@ -503,6 +540,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     embedDispatch?: ChatEmbedDispatcher;
     dynamicToolResolver?: DynamicToolExecutorResolver;
     dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
+    inRunProducer?: InRunContextProducer;
   };
 
   function resolveServiceWithTools(
@@ -553,6 +591,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ]),
       snapshotCandidates: () => resolved.dynamicCandidates ?? [],
       dynamicToolResolver: resolved.dynamicToolResolver,
+      inRunProducer: resolved.inRunProducer,
     };
   }
 
@@ -592,6 +631,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       new MemoryService(tenantDb),
       new RecencyDigestService(tenantDb),
       resolved.dynamicToolResolver,
+      undefined,
+      resolved.inRunProducer,
     );
   }
 
@@ -4786,5 +4827,376 @@ describeIfDb('executeRun tool-loop persistence', () => {
     } finally {
       await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
     }
+  });
+
+  it('replays a stored metadata-only context item into the Run record with empty text in stored order', async () => {
+    // A rail row on a persisted message is a receipt even when it never
+    // carried text: `text` is absent on metadata-only rows and explicitly
+    // empty on others, and neither form may be dropped on the way into the
+    // Run record. Seeded by hand because seedBoundRun always creates the
+    // triggering message first — this history must precede it in stored order.
+    const metadataOnlyPart = {
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'legacy-history',
+        runId: crypto.randomUUID(),
+        payload: { marker: 'metadata-only' },
+      },
+    };
+    const explicitlyEmptyPart = {
+      type: 'data-context',
+      data: {
+        v: 1,
+        producer: 'legacy-history-empty',
+        runId: crypto.randomUUID(),
+        payload: { marker: 'explicitly-empty' },
+        text: '',
+      },
+    };
+    // Guard the fixture itself: a part the envelope rejects would make the
+    // assertions below vacuous.
+    expect(isContextItemPart(metadataOnlyPart)).toBe(true);
+    expect(isContextItemPart(explicitlyEmptyPart)).toBe(true);
+
+    const key = `replayed-item-${crypto.randomUUID()}`;
+    const chatId = crypto.randomUUID();
+    const messageId = crypto.randomUUID();
+    const seeded = await tenantDb.runAs(userId, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: chatId,
+        ownerUserId: userId,
+        title: 'Replayed rail receipts',
+      });
+      const messagesRepo = new MessagesRepository(tx);
+      await messagesRepo.create({
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [metadataOnlyPart, explicitlyEmptyPart],
+      });
+      const userMessage = await messagesRepo.create({
+        id: messageId,
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'use the bound context' }],
+      });
+      const run = await new RunsRepository(tx).create({
+        chatId,
+        messageId,
+        userId,
+        modelId: `test:${key}`,
+        permissionMode: 'default',
+      });
+      return { chatId, messageId, key, userMessage, run };
+    });
+
+    const service = serviceWithTools();
+    const model = new MockLanguageModelV3({
+      doStream: () => Promise.resolve(textResponse('Acknowledged.')),
+    });
+
+    try {
+      const execution = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+      await execution.consumeStream?.();
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+
+      const run = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(seeded.run.id, userId),
+      );
+      // Both inert rows survive into the record as `text: ''` receipts in
+      // stored part order; attempt staging (the temporal receipt) is
+      // appended after the replayed history.
+      expect(
+        (run?.contextItems ?? []).filter((item) =>
+          ['legacy-history', 'legacy-history-empty'].includes(item.producer),
+        ),
+      ).toEqual([
+        { producer: 'legacy-history', residency: 'rail', text: '' },
+        { producer: 'legacy-history-empty', residency: 'rail', text: '' },
+      ]);
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+    }
+  });
+
+  describe('in-Run context items', () => {
+    const IN_RUN_ITEM_TEXT =
+      '<system-reminder producer="workspace" form="notice">synthetic item</system-reminder>';
+
+    /**
+     * Stages one item at the step-1 boundary — the boundary whose live
+     * messages already carry the `call-1` tool result that triggered it.
+     */
+    function syntheticItemProducer(): InRunContextProducer {
+      return {
+        beginAttempt: ({ runId }) => ({
+          prepareStep: ({ stepNumber, stage }) => {
+            if (stepNumber !== 1) return;
+            stage(
+              createContextItemPart({
+                producer: 'workspace',
+                form: 'notice',
+                runId,
+                payload: { marker: 'synthetic' },
+                text: IN_RUN_ITEM_TEXT,
+              }),
+            );
+          },
+        }),
+      };
+    }
+
+    /**
+     * The provider prompt a step received must carry the item exactly once,
+     * as a user message directly after the tool-result entry of `toolCallId`.
+     */
+    function assertItemDirectlyAfterToolResult(
+      prompt: ReadonlyArray<unknown> | undefined,
+      toolCallId: string,
+    ): void {
+      if (prompt === undefined) {
+        throw new Error('the model step was never dispatched');
+      }
+      const toolIndex = prompt.findIndex(
+        (message) =>
+          isRecord(message) &&
+          message.role === 'tool' &&
+          Array.isArray(message.content) &&
+          message.content.some(
+            (part) =>
+              isRecord(part) &&
+              part.type === 'tool-result' &&
+              part.toolCallId === toolCallId,
+          ),
+      );
+      expect(toolIndex).toBeGreaterThanOrEqual(0);
+      const carryingIndexes = prompt.flatMap((message, index) => {
+        if (
+          !isRecord(message) ||
+          message.role !== 'user' ||
+          !Array.isArray(message.content)
+        ) {
+          return [];
+        }
+        return message.content.some(
+          (part) =>
+            isRecord(part) &&
+            part.type === 'text' &&
+            part.text === IN_RUN_ITEM_TEXT,
+        )
+          ? [index]
+          : [];
+      });
+      expect(carryingIndexes).toEqual([toolIndex + 1]);
+    }
+
+    it.each([[false], [true]])(
+      'splices an item staged between steps directly after its triggering tool result on every later step (retainStepOverride: %s)',
+      async (retainStepOverride) => {
+        const seeded = await seedBoundRun(`in-run-item-${crypto.randomUUID()}`);
+        const service = serviceWithTools({
+          inRunProducer: syntheticItemProducer(),
+        });
+        let turn = 0;
+        const model = new MockLanguageModelV3({
+          doStream: () => {
+            turn += 1;
+            if (turn === 1) {
+              return Promise.resolve(
+                jsonToolCallResponse('call-1', 'search_conversations', {
+                  mode: 'content',
+                  query: 'budget',
+                }),
+              );
+            }
+            if (turn === 2) {
+              return Promise.resolve(
+                jsonToolCallResponse('call-2', 'search_conversations', {
+                  mode: 'content',
+                  query: 'annual budget',
+                }),
+              );
+            }
+            return Promise.resolve(
+              textResponse('Answered with the synthetic item.'),
+            );
+          },
+        });
+
+        try {
+          const execution = await executeSeeded(
+            seeded,
+            service,
+            createMockModelClient(model, { retainStepOverride }),
+          );
+          await execution.consumeStream?.();
+          await waitFor(async () => {
+            const events = await tenantDb.runAs(userId, (tx) =>
+              new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+            );
+            return events.some((event) => event.eventType === 'run.completed');
+          });
+
+          // The step before the item existed never carries it …
+          expect(model.doStreamCalls).toHaveLength(3);
+          expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).not.toContain(
+            IN_RUN_ITEM_TEXT,
+          );
+          // … the triggering step and every later step carry it exactly once,
+          // directly after call-1's tool result — whether or not the SDK
+          // retained the earlier override (double-insert would fail here).
+          for (const call of model.doStreamCalls.slice(1)) {
+            assertItemDirectlyAfterToolResult(call?.prompt, 'call-1');
+          }
+
+          // Stored on the assistant message after the triggering step's tool
+          // part and before the next step's tool part.
+          const messages = await tenantDb.runAs(userId, (tx) =>
+            new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+          );
+          const assistant = messages.find(
+            (message) =>
+              message.role === 'assistant' &&
+              message.inReplyTo === seeded.userMessage.id,
+          );
+          const parts = (assistant?.parts ?? []).filter(isTypedPart);
+          expect(parts.map((part) => part.type)).toEqual([
+            'tool-search_conversations',
+            'data-context',
+            'tool-search_conversations',
+            'text',
+          ]);
+          expect(parts[0]).toMatchObject({ toolCallId: 'call-1' });
+          expect(parts[1]).toMatchObject({
+            data: {
+              producer: 'workspace',
+              form: 'notice',
+              text: IN_RUN_ITEM_TEXT,
+            },
+          });
+          expect(parts[2]).toMatchObject({ toolCallId: 'call-2' });
+
+          // The Run record ends with the in-Run item, after the pre-dispatch
+          // items, and remains owner-scoped.
+          const run = await tenantDb.runAs(userId, (tx) =>
+            new RunsRepository(tx).findById(seeded.run.id, userId),
+          );
+          expect(run?.contextItems?.at(-1)).toEqual({
+            producer: 'workspace',
+            form: 'notice',
+            residency: 'rail',
+            text: IN_RUN_ITEM_TEXT,
+          });
+          const otherUserId = crypto.randomUUID();
+          expect(
+            await tenantDb.runAs(otherUserId, (tx) =>
+              new RunsRepository(tx).findById(seeded.run.id, otherUserId),
+            ),
+          ).toBeUndefined();
+        } finally {
+          await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        }
+      },
+    );
+
+    it('publishes no in-Run item when the attempt fails after staging it', async () => {
+      const seeded = await seedBoundRun(
+        `in-run-item-failed-${crypto.randomUUID()}`,
+      );
+      const service = serviceWithTools({
+        inRunProducer: syntheticItemProducer(),
+      });
+      let turn = 0;
+      const model = new MockLanguageModelV3({
+        doStream: () => {
+          turn += 1;
+          if (turn === 1) {
+            return Promise.resolve(
+              jsonToolCallResponse('call-1', 'search_conversations', {
+                mode: 'content',
+                query: 'budget',
+              }),
+            );
+          }
+          if (turn === 2) {
+            return Promise.resolve(
+              jsonToolCallResponse('call-2', 'search_conversations', {
+                mode: 'content',
+                query: 'annual budget',
+              }),
+            );
+          }
+          const chunks: Array<LanguageModelV3StreamPart> = [
+            { type: 'stream-start', warnings: [] },
+            {
+              type: 'error',
+              error: new Error('provider dropped the stream'),
+            },
+          ];
+          return Promise.resolve({
+            stream: simulateReadableStream({ chunks }),
+          });
+        },
+      });
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitFor(async () => {
+          const events = await tenantDb.runAs(userId, (tx) =>
+            new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+          );
+          return events.some((event) => event.eventType === 'run.failed');
+        });
+
+        // The item was genuinely in flight: the failing step's own request
+        // carried it directly after call-1's tool result.
+        assertItemDirectlyAfterToolResult(
+          model.doStreamCalls[2]?.prompt,
+          'call-1',
+        );
+
+        // A failed attempt publishes neither the item nor a Run-record entry:
+        // the persisted transcript keeps only the tool activity that ran.
+        const messages = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+        );
+        const assistant = messages.find(
+          (message) =>
+            message.role === 'assistant' &&
+            message.inReplyTo === seeded.userMessage.id,
+        );
+        const parts = (assistant?.parts ?? []).filter(isTypedPart);
+        expect(parts.map((part) => part.type)).toEqual([
+          'tool-search_conversations',
+          'tool-search_conversations',
+        ]);
+        const run = await tenantDb.runAs(userId, (tx) =>
+          new RunsRepository(tx).findById(seeded.run.id, userId),
+        );
+        expect(
+          (run?.contextItems ?? []).filter(
+            (item) => item.producer === 'workspace',
+          ),
+        ).toEqual([]);
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      }
+    });
   });
 });

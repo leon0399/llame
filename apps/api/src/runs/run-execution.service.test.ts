@@ -1,6 +1,6 @@
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
-import { streamText } from 'ai';
+import { streamText, type ModelMessage } from 'ai';
 import type { OpenAICompatibleProvider } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
 import type { MockInstance } from 'vitest';
@@ -67,9 +67,18 @@ import {
 import { ActivationPartsRepository } from '../chats/activation-parts.repository';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
-import { isContextItemPart, type ContextItemPart } from '../chats/context-item';
+import {
+  createContextItemPart,
+  isContextItemPart,
+  type AuthoredContextItemPart,
+  type ContextItemPart,
+} from '../chats/context-item';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { createModelChangeItem } from '../chats/context-item-producers';
+import type {
+  InRunAttemptProducer,
+  InRunContextProducer,
+} from './in-run-context-items';
 import {
   hashToolDeclaration,
   type TurnToolCandidate,
@@ -318,6 +327,7 @@ type ExecutionServiceOptions = {
   configPath?: string;
   toolPromptFiles?: Readonly<Record<string, string | null>>;
   workspaceMcp?: WorkspaceMcpClients;
+  inRunProducer?: InRunContextProducer;
 };
 
 function makeExecutionService(
@@ -414,6 +424,7 @@ function makeExecutionService(
     recencyDigest,
     dynamicToolResolver,
     options.workspaceMcp,
+    options.inRunProducer,
   );
   return {
     service,
@@ -443,6 +454,9 @@ function mockNormalExecutionRepositories() {
   const updateForAttempt = vi
     .spyOn(RunsRepository.prototype, 'updateForAttempt')
     .mockResolvedValue({ ...run });
+  const recordContextItems = vi
+    .spyOn(RunsRepository.prototype, 'recordContextItems')
+    .mockResolvedValue({ ...run, status: 'completed' });
   const createReceipt = vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'create')
     .mockResolvedValue({
@@ -494,6 +508,7 @@ function mockNormalExecutionRepositories() {
     createAssistantReplyIfAbsent,
     updateUserMessageParts,
     updateForAttempt,
+    recordContextItems,
     createReceipt,
     findById,
     hasMutation,
@@ -1403,10 +1418,262 @@ describe('RunExecutionService executeRun', () => {
     await execution.service.executeRun(executionInput(execution.client));
     const options = capturing.streamOptions();
     await executeBoundTool(options, { q: 'first' }, 'workspace-step-1');
-    options.onStepStart?.();
+    await options.onStepStart?.({ messages: [], stepNumber: 1 });
     await executeBoundTool(options, { q: 'second' }, 'workspace-step-2');
 
     expect(seenRoots).toEqual([undefined, '/workspace/new']);
+  });
+
+  describe('in-Run context items', () => {
+    /** Adapts one `prepareStep` callback into a registered producer. */
+    function stepProducer(
+      prepareStep: InRunAttemptProducer['prepareStep'],
+    ): InRunContextProducer {
+      return { beginAttempt: () => ({ prepareStep }) };
+    }
+
+    /** The item these tests stage: one workspace notice bound to `runId`. */
+    function workspaceNotice(runId: string): AuthoredContextItemPart {
+      return createContextItemPart({
+        producer: 'workspace',
+        form: 'notice',
+        runId,
+        payload: {},
+        text: '<system-reminder producer="workspace" form="notice">x</system-reminder>',
+      });
+    }
+
+    /**
+     * Executes one attempt with a single in-Run producer and an executable
+     * declared tool, so the captured stream carries both a tool result to
+     * anchor on and the step callbacks. Callers rescript the returned spies
+     * before driving the captured callbacks.
+     */
+    async function runWithInRunProducer(
+      prepareStep: InRunAttemptProducer['prepareStep'],
+    ) {
+      const spies = mockNormalExecutionRepositories();
+      const executor: Tool = {
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => ({ status: 'success' as const }),
+      };
+      const capturing = makeCapturingClient();
+      const execution = makeExecutionService(
+        capturing.client,
+        makeDynamicResolver(executor),
+        undefined,
+        { ...withDeclaredTool(), inRunProducer: stepProducer(prepareStep) },
+      );
+      await execution.service.executeRun(executionInput(execution.client));
+      return { spies, options: capturing.streamOptions() };
+    }
+
+    it('publishes a staged in-Run item after the step tool part and records it on completion', async () => {
+      const notice = workspaceNotice(runId);
+      const { spies, options } = await runWithInRunProducer((step) => {
+        if (step.stepNumber !== 1) return;
+        step.stage(notice);
+      });
+      const stepMessages: Array<ModelMessage> = [
+        { role: 'user', content: 'hello' },
+        {
+          role: 'tool',
+          content: [
+            {
+              type: 'tool-result',
+              toolCallId: 'in-run-call',
+              toolName: toolDeclaration.id,
+              output: { type: 'text', value: 'ok' },
+            },
+          ],
+        },
+      ];
+
+      await executeBoundTool(options, { q: 'first' }, 'in-run-call');
+      // The returned override is the step's messages with the item spliced
+      // directly after the tool result it was staged on.
+      const override = await options.onStepStart?.({
+        messages: stepMessages,
+        stepNumber: 1,
+      });
+      expect(override).toEqual([
+        ...stepMessages,
+        {
+          role: 'user',
+          content: [{ type: 'text', text: notice.data.text }],
+        },
+      ]);
+      // No streamed text: the persisted turn is exactly the tool part and the
+      // item staged after it.
+      await options.onFinish?.({
+        text: '',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 2,
+      });
+
+      const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+      if (!turn) throw new Error('Expected persisted assistant turn');
+      expect(turn.parts).toEqual([
+        expect.objectContaining({
+          type: `tool-${toolDeclaration.id}`,
+          toolCallId: 'in-run-call',
+          state: 'output-available',
+        }),
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'workspace',
+            form: 'notice',
+            runId,
+            payload: {},
+            text: notice.data.text,
+          },
+        },
+      ]);
+      // The pre-dispatch write keeps the request's own items; the finish-time
+      // write appends the in-Run item in emission order.
+      expect(spies.updateForAttempt).toHaveBeenCalledWith(
+        runId,
+        userId,
+        testAttemptId,
+        {
+          contextItems: [expect.objectContaining({ producer: 'temporal' })],
+        },
+      );
+      expect(spies.recordContextItems).toHaveBeenCalledWith(runId, userId, [
+        expect.objectContaining({ producer: 'temporal', residency: 'rail' }),
+        {
+          producer: 'workspace',
+          form: 'notice',
+          residency: 'rail',
+          text: notice.data.text,
+        },
+      ]);
+    });
+
+    it('publishes no staged rail part when the attempt fails after staging', async () => {
+      const notice = workspaceNotice(runId);
+      const { spies, options } = await runWithInRunProducer((step) => {
+        if (step.stepNumber !== 1) return;
+        step.stage(notice);
+      });
+
+      await executeBoundTool(options, { q: 'first' }, 'in-run-call');
+      await options.onStepStart?.({ messages: [], stepNumber: 1 });
+      await options.onError?.({ error: new Error('provider exploded') });
+
+      const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+      if (!turn) throw new Error('Expected persisted assistant turn');
+      expect(turn.parts.some(isContextItemPart)).toBe(false);
+      expect(turn.parts).toEqual([
+        expect.objectContaining({
+          type: `tool-${toolDeclaration.id}`,
+          toolCallId: 'in-run-call',
+        }),
+      ]);
+      expect(spies.recordContextItems).not.toHaveBeenCalled();
+    });
+
+    it('fails the step when an in-Run producer throws after staging', async () => {
+      const notice = workspaceNotice(runId);
+      const { spies, options } = await runWithInRunProducer((step) => {
+        step.stage(notice);
+        throw new Error('producer failed after staging');
+      });
+
+      await executeBoundTool(options, { q: 'first' }, 'in-run-call');
+      await expect(
+        options.onStepStart?.({ messages: [], stepNumber: 1 }),
+      ).rejects.toThrow('producer failed after staging');
+      // The SDK surfaces that rejection as the stream's failure: nothing the
+      // producer staged may reach the published turn.
+      await options.onError?.({
+        error: new Error('producer failed after staging'),
+      });
+
+      const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+      if (!turn) throw new Error('Expected persisted assistant turn');
+      expect(turn.parts.some(isContextItemPart)).toBe(false);
+      expect(spies.recordContextItems).not.toHaveBeenCalled();
+    });
+
+    it('publishes no in-Run item when a lost finish keeps the streamed turn for an expired run', async () => {
+      const notice = workspaceNotice(runId);
+      const { spies, options } = await runWithInRunProducer((step) => {
+        if (step.stepNumber !== 1) return;
+        step.stage(notice);
+      });
+      // Another writer expired the run before this finish landed: the
+      // streamed turn is kept, but nothing the attempt staged may be
+      // published or recorded.
+      spies.markFinished.mockResolvedValue(undefined);
+      spies.findById.mockResolvedValue({ ...run, status: 'expired' });
+
+      await executeBoundTool(options, { q: 'first' }, 'in-run-call');
+      // The item really was in the step this attempt sent …
+      expect(
+        await options.onStepStart?.({ messages: [], stepNumber: 1 }),
+      ).toEqual([
+        { role: 'user', content: [{ type: 'text', text: notice.data.text }] },
+      ]);
+      await options.onFinish?.({
+        text: '',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 2,
+      });
+
+      const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+      if (!turn) throw new Error('Expected persisted assistant turn');
+      expect(turn.parts.some(isContextItemPart)).toBe(false);
+      expect(turn.parts).toEqual([
+        expect.objectContaining({
+          type: `tool-${toolDeclaration.id}`,
+          toolCallId: 'in-run-call',
+          state: 'output-available',
+        }),
+      ]);
+      expect(spies.recordContextItems).not.toHaveBeenCalled();
+    });
+
+    it('salvages the answer without the in-Run item when the terminal write rolls back', async () => {
+      const notice = workspaceNotice(runId);
+      const { spies, options } = await runWithInRunProducer((step) => {
+        if (step.stepNumber !== 1) return;
+        step.stage(notice);
+      });
+      spies.markFinished.mockRejectedValue(new Error('run row unavailable'));
+
+      await executeBoundTool(options, { q: 'first' }, 'in-run-call');
+      // The item really was in the step this attempt sent …
+      expect(
+        await options.onStepStart?.({ messages: [], stepNumber: 1 }),
+      ).toEqual([
+        { role: 'user', content: [{ type: 'text', text: notice.data.text }] },
+      ]);
+      await options.onFinish?.({
+        text: '',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 2,
+      });
+
+      const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+      if (!turn) throw new Error('Expected salvaged assistant turn');
+      expect(turn.parts.some(isContextItemPart)).toBe(false);
+      expect(turn.parts).toEqual([
+        expect.objectContaining({
+          type: `tool-${toolDeclaration.id}`,
+          toolCallId: 'in-run-call',
+          state: 'output-available',
+        }),
+      ]);
+    });
   });
 
   it('does not resolve Workspace skills after a stale detach re-check', async () => {

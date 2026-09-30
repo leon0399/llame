@@ -2,6 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-29
 
+- Context items can now be carried between the model steps of one Run: such an
+  item is stored as a `data-context` part on the Run's assistant message
+  directly after the tool part whose result triggered it, replayed as a
+  user-role message after that tool result on every later step, and listed
+  after the final request's items in the Run's context-item record
+  ([#975](https://github.com/leon0399/llame/issues/975)).
+
 - A web `read` whose `:outline` or `:raw` member, or comma list, carries a
   range outside the grammar (for example `:outline:49,119`) now names the
   forms that selector accepts, and offers the percent-encoded literal-colon

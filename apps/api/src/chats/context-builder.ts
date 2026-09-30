@@ -121,6 +121,14 @@ function isReasoningPart(part: unknown): part is ReasoningPart {
 }
 
 /**
+ * A stored `data-context` part with text is model-bearing content of its own:
+ * replay emits it as a user-role message, unlike a metadata-only or empty one.
+ */
+function hasModelContextText(part: MessagePart): boolean {
+  return isContextItemPart(part) && !!part.data.text;
+}
+
+/**
  * The subset of a stored DB message that ContextBuilder needs.
  * Mirrors the `messages` table columns used here.
  */
@@ -423,6 +431,19 @@ class AssistantHistoryEmitter {
     });
   }
 
+  /**
+   * An item stored on the assistant message replays as its own user-role
+   * message at the stored position: the walk has already flushed the tool pair
+   * (or its omission notice) the item follows, so anything still pending here
+   * belongs before it. An item without text contributes nothing.
+   */
+  appendContextItem(text: string | undefined): void {
+    if (!text) return;
+    this.flushPendingText();
+    this.flushPendingReasoning();
+    this.result.push({ role: 'user', content: [{ type: 'text', text }] });
+  }
+
   appendOmissionWhenDue(partIndex: number): void {
     const { projection } = this;
     if (
@@ -499,11 +520,13 @@ function pushAssistantHistory(
       }
       continue;
     }
-
     const pair = pairsByPartIndex.get(partIndex);
-    if (!pair) continue;
-    emitter.flushPendingText();
-    emitter.flushPendingToolPair(pair);
+    if (pair) {
+      emitter.flushPendingText();
+      emitter.flushPendingToolPair(pair);
+    } else if (isContextItemPart(part)) {
+      emitter.appendContextItem(part.data.text);
+    }
   }
 
   emitter.appendOmissionWhenDue(Number.POSITIVE_INFINITY);
@@ -560,7 +583,7 @@ export function buildContext(
     if (m.role === 'user') {
       appendUserMessage(result, contextItems, m);
     } else {
-      appendAssistantMessage(result, m, requestKind);
+      appendAssistantMessage(result, contextItems, m, requestKind);
     }
   }
 
@@ -581,9 +604,13 @@ function appendUserMessage(
 
 function appendAssistantMessage(
   result: Array<ModelMessage>,
+  contextItems: Array<RunContextItem>,
   m: StoredMessage,
   requestKind: ContextRequestKind,
 ): void {
+  // Recorded whether or not the part reaches the model: an empty or
+  // metadata-only item still marks a declared omission in the Run record.
+  contextItems.push(...readContextItems(m.parts));
   const visibleText = partsToText(m.parts);
   const projected =
     m.role === 'assistant' ? projectToolObservations(m.parts) : null;
@@ -592,12 +619,18 @@ function appendAssistantMessage(
   // request summarizes the same turns with no reasoning in reach (D16).
   const hasReasoning =
     requestKind === 'continuation' && m.parts.some(isReasoningPart);
+  const hasContextText = m.parts.some(hasModelContextText);
 
-  if (visibleText.length === 0 && !projected && !hasReasoning) {
+  if (
+    visibleText.length === 0 &&
+    !projected &&
+    !hasReasoning &&
+    !hasContextText
+  ) {
     return;
   }
 
-  if (projected || hasReasoning) {
+  if (projected || hasReasoning || hasContextText) {
     pushAssistantHistory(result, m.parts, projected, requestKind);
     return;
   }

@@ -17,7 +17,11 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
-import { type ModelObjectInput, type ChatIdentity } from './model-client';
+import {
+  type ChatIdentity,
+  type ModelObjectInput,
+  type ModelStreamInput,
+} from './model-client';
 import { createOpenAIModelClient } from './openai-model-client';
 import { createAssistantPartCollector } from '../runs/assistant-transcript';
 
@@ -433,7 +437,7 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
       textResponse(),
     ]);
     const client = buildClient(model);
-    const onStepStart = vi.fn();
+    const onStepStart = vi.fn<NonNullable<ModelStreamInput['onStepStart']>>();
 
     await expect(
       client.streamText({
@@ -446,6 +450,43 @@ describe('createOpenAIModelClient — step-cap enforcement (prepareStep)', () =>
     ).resolves.toBe('done');
 
     expect(onStepStart).toHaveBeenCalledTimes(3);
+    expect(onStepStart.mock.calls.map(([step]) => step.stepNumber)).toEqual([
+      0, 1, 2,
+    ]);
+    // The callback sees the SDK's live step messages: the previous step's
+    // tool result is present from the second step on.
+    expect(onStepStart.mock.calls[0]?.[0].messages).toEqual(messages);
+    expect(onStepStart.mock.calls[1]?.[0].messages).toContainEqual(
+      expect.objectContaining({ role: 'tool' }),
+    );
+  });
+
+  it('applies an onStepStart messages override to that step only', async () => {
+    const model = scriptedModel([
+      toolResponse([{ toolName: 'echo', input: '{"value":"first"}' }]),
+      toolResponse([{ toolName: 'echo', input: '{"value":"second"}' }]),
+      textResponse(),
+    ]);
+    const client = buildClient(model);
+    const injected = {
+      role: 'user',
+      content: [{ type: 'text', text: 'injected' }],
+    } satisfies ModelMessage;
+
+    await expect(
+      client.streamText({
+        chat: CHAT,
+        messages,
+        tools,
+        maxSteps: 3,
+        onStepStart: ({ messages, stepNumber }) =>
+          stepNumber === 1 ? [...messages, injected] : undefined,
+      }).text,
+    ).resolves.toBe('done');
+
+    expect(model.doStreamCalls[0]?.prompt).not.toContainEqual(injected);
+    expect(model.doStreamCalls[1]?.prompt.at(-1)).toEqual(injected);
+    expect(model.doStreamCalls[2]?.prompt).not.toContainEqual(injected);
   });
 
   it('disables tools and fires onCapReached when maxSteps prior tool-steps have run', async () => {
