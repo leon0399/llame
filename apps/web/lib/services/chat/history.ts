@@ -95,6 +95,35 @@ export type ModelSwitchPart = {
   };
 };
 
+/**
+ * A server-authored context item carrying the project instruction files one
+ * trigger loaded. `payload.files` is the model-visible set — the API's seen
+ * set keys on `canonicalPath` — and `payload.denied` is owner-only metadata:
+ * the paths the `read` permission group rejected, which the model-visible
+ * text never names.
+ */
+export type InstructionsPart = {
+  type: "data-context";
+  data: {
+    v: 1;
+    producer: "instructions";
+    form: "notice";
+    runId: string;
+    payload: {
+      files: ReadonlyArray<{
+        path: string;
+        canonicalPath: string;
+        truncated: boolean;
+      }>;
+      denied: ReadonlyArray<string>;
+    };
+    text?: string;
+  };
+};
+
+/** The private payload of an instructions item: what the owner chip renders. */
+export type InstructionsPayload = InstructionsPart["data"]["payload"];
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -204,40 +233,159 @@ export function modelSwitchPart(message: {
   return message.parts.find(isModelSwitchPart) ?? null;
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return isString(value) && value.trim().length > 0;
+}
+
+/** One `payload.files` entry, validated on its own — the owner chip renders
+ *  these, so a shape mismatch must not reach it. */
+function isInstructionsFileEntry(
+  value: unknown,
+): value is InstructionsPart["data"]["payload"]["files"][number] {
+  if (
+    !isNonNullObject(value) ||
+    !keysMatch(Object.keys(value), ["path", "canonicalPath", "truncated"])
+  ) {
+    return false;
+  }
+  // SAFETY: `keysMatch` above confirmed `value` has exactly these three keys;
+  // each field is validated individually below.
+  const { path, canonicalPath, truncated } = value as {
+    path: unknown;
+    canonicalPath: unknown;
+    truncated: unknown;
+  };
+  return (
+    isNonEmptyString(path) &&
+    isNonEmptyString(canonicalPath) &&
+    typeof truncated === "boolean"
+  );
+}
+
+/** The `data.payload` shape of an instructions context item, validated on its
+ *  own — a real sub-boundary of `isInstructionsPart`, not an arbitrary split.
+ *  `files` is non-empty because the api authors an item only for a bundle
+ *  that loaded at least one file; an empty list is a shape this build does
+ *  not know, and rendering a chip from it would claim disclosure of nothing. */
+function isInstructionsPayload(
+  value: unknown,
+): value is InstructionsPart["data"]["payload"] {
+  if (
+    !isNonNullObject(value) ||
+    !keysMatch(Object.keys(value), ["files", "denied"])
+  ) {
+    return false;
+  }
+  // SAFETY: `keysMatch` above confirmed `value` has exactly the `files` and
+  // `denied` keys; both stay `unknown` and are validated individually below.
+  const { files, denied } = value as { files: unknown; denied: unknown };
+  return (
+    Array.isArray(files) &&
+    files.length > 0 &&
+    files.every(isInstructionsFileEntry) &&
+    Array.isArray(denied) &&
+    denied.every(isNonEmptyString)
+  );
+}
+
+export function isInstructionsPart(value: unknown): value is InstructionsPart {
+  if (!isContextItemPart(value)) return false;
+  const requiredKeys = ["v", "producer", "form", "runId", "payload"];
+  if (
+    !isNonNullObject(value.data) ||
+    (!keysMatch(Object.keys(value.data), requiredKeys) &&
+      !keysMatch(Object.keys(value.data), [...requiredKeys, "text"]))
+  ) {
+    return false;
+  }
+  // SAFETY: the checks above confirmed `value.data` is a non-null object
+  // with exactly these keys (optionally plus `text`); each field is
+  // validated individually below before being trusted.
+  const { v, producer, form, runId, payload, text } = value.data as {
+    v: unknown;
+    producer: unknown;
+    form: unknown;
+    runId: unknown;
+    payload: unknown;
+    text?: unknown;
+  };
+  return (
+    v === 1 &&
+    producer === "instructions" &&
+    form === "notice" &&
+    isString(runId) &&
+    UUID_PATTERN.test(runId) &&
+    (text === undefined || isString(text)) &&
+    isInstructionsPayload(payload)
+  );
+}
+
+export function instructionsPart(message: {
+  parts: ReadonlyArray<unknown>;
+}): InstructionsPart | null {
+  return message.parts.find(isInstructionsPart) ?? null;
+}
+
+/**
+ * The control parts a server-fetched message is trusted to overlay: exactly
+ * the producers this app renders from stored parts — the model-switch marker
+ * the rail stages on a user message, and the instructions item, which rides
+ * the assistant turn of an in-Run load and the triggering user turn of the
+ * accepted-turn load (design D5, D9). Every other producer stays invisible,
+ * and a part no server message vouches for is dropped.
+ *
+ * Server order is kept: a turn the rail both switched models on and loaded
+ * instructions for carries both parts, in the order the api stored them.
+ */
+function trustedContextParts(message: {
+  role: UIMessage["role"];
+  parts: ReadonlyArray<unknown>;
+}): Array<ModelSwitchPart | InstructionsPart> {
+  return message.parts.filter(
+    (part): part is ModelSwitchPart | InstructionsPart =>
+      message.role === "user"
+        ? isModelSwitchPart(part) || isInstructionsPart(part)
+        : isInstructionsPart(part),
+  );
+}
+
 /**
  * useChat freezes its initial history, while the authoritative message query
  * refreshes after a completed turn. Overlay only server-fetched control parts
  * by message id; client/stream-authored copies are removed unconditionally.
+ *
+ * The trusted copies are prepended in server order: the model-switch item
+ * already changes the turn it introduces, and the instructions chip reads as
+ * a header disclosing the files the turn loaded, on whichever message the api
+ * stored it — in both the live and the reloaded transcript.
  */
 export function mergeTrustedModelContextParts(
   liveMessages: ReadonlyArray<UIMessage>,
   serverMessages: ReadonlyArray<UIMessage>,
 ): Array<UIMessage> {
   const trustedByMessageId = new Map(
-    serverMessages.flatMap((message) => {
-      const part = message.role === "user" ? modelSwitchPart(message) : null;
-      return part ? [[message.id, part] as const] : [];
-    }),
+    serverMessages.map(
+      (message) => [message.id, trustedContextParts(message)] as const,
+    ),
   );
 
   return liveMessages.map((message) => {
-    // Every context item is server-authored control metadata, never visible
-    // chat content — one branch covers every producer, including ones this
-    // app does not know about.
+    // Every context item is server-authored control metadata — one branch
+    // covers every producer, including ones this app does not know about —
+    // so only the trusted copies looked up by id survive the merge.
     const visibleParts = message.parts.filter(
       (part) => !isContextItemPart(part),
     );
-    const trusted = trustedByMessageId.get(message.id);
+    const trusted = trustedByMessageId.get(message.id) ?? [];
     return {
       ...message,
-      // SAFETY: `trusted` is a `ModelSwitchPart` (one of this app's own
-      // `data-context` parts) and `visibleParts` is `message.parts` with
-      // those context parts filtered out — both are already
-      // `UIMessage["parts"]`-shaped content; the cast is only needed
-      // because `ModelSwitchPart`'s literal-typed `data` doesn't
+      // SAFETY: `trusted` is this app's own `data-context` parts and
+      // `visibleParts` is `message.parts` with every context part filtered
+      // out — both are already `UIMessage["parts"]`-shaped content; the cast
+      // is only needed because the part's literal-typed `data` doesn't
       // structurally match the SDK's wider generic `data-*` part type.
-      parts: (trusted
-        ? [trusted, ...visibleParts]
+      parts: (trusted.length > 0
+        ? [...trusted, ...visibleParts]
         : visibleParts) as UIMessage["parts"],
     };
   });

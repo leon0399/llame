@@ -28,6 +28,7 @@ import {
   type GroupedAssistantPart,
   type NonReasoningPart,
 } from "./group-assistant-parts";
+import { InstructionsPart, parseInstructionsPart } from "./instructions-part";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
@@ -38,6 +39,7 @@ import {
 
 import type { AvailableModel } from "@/lib/services/models/queries";
 import {
+  isInstructionsPart,
   messageSeqFromMetadata,
   modelSwitchPart,
   runIdFromMessageMetadata,
@@ -108,7 +110,9 @@ function ReasoningPanel({
 }
 
 /** Renders one non-reasoning message part — text, a tool call/result, a
- *  step-cap notice, or a server-authored context item (never visible). */
+ *  step-cap notice, the instructions chip, or a server-authored context item
+ *  this build does not render (the walk withholds those before they reach
+ *  here). */
 function MessagePartView({
   part,
   renderers,
@@ -130,6 +134,10 @@ function MessagePartView({
     const capNotice = parseCapNoticePart(part);
     return capNotice ? <ToolCapNoticePart {...capNotice} /> : null;
   }
+  const instructions = parseInstructionsPart(part);
+  if (instructions) {
+    return <InstructionsPart {...instructions} />;
+  }
   return <span>unsupported part type: {part.type}</span>;
 }
 
@@ -143,14 +151,20 @@ function MessagePartView({
  *
  *  `data-context` covers every server-authored context item, whatever its
  *  producer. They are rendered into the MODEL's prompt by the api's
- *  context-builder and are never visible chat content; the model-change
- *  boundary above the message is the only owner-facing surface today. One
- *  branch rather than a list of producers, so a producer this build does not
- *  know about cannot fall through to the "unsupported part type" span and
- *  print debug text into the owner's transcript on reload. */
+ *  context-builder and are never visible chat content, except the
+ *  `instructions` producer: its chip is the owner's disclosure of the files
+ *  a trigger loaded, truncated, or had denied (design D9). The model-change
+ *  boundary above the message remains the only owner-facing surface for the
+ *  other producers. One branch rather than a list of producers, so a
+ *  producer this build does not know about cannot fall through to the
+ *  "unsupported part type" span and print debug text into the owner's
+ *  transcript on reload. */
 function isVisibleSegment(segment: GroupedAssistantPart): boolean {
   if (segment.kind === "reasoning") return segment.text.trim() !== "";
-  return segment.part.type !== "data-context";
+  if (segment.part.type === "data-context") {
+    return isInstructionsPart(segment.part);
+  }
+  return true;
 }
 
 /**

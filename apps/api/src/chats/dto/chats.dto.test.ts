@@ -565,6 +565,46 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
     ]);
   });
 
+  it('strips instructions items, so a share exposes neither loaded paths nor a denial', () => {
+    // The chip's metadata is owner-only disclosure (design D9): a public
+    // share keeps the model-visible text out along with every path, the
+    // canonical target, and the denied list.
+    const message = fakeMessage({
+      parts: [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'instructions',
+            form: 'notice',
+            runId: '33333333-3333-4333-8333-333333333333',
+            payload: {
+              files: [
+                {
+                  path: '/srv/PRIVATE_OWNER_WORKSPACE/AGENTS.md',
+                  canonicalPath: '/srv/PRIVATE_DOTFILES/AGENTS.md',
+                  truncated: true,
+                },
+              ],
+              denied: ['/srv/PRIVATE_DENIED_AGENTS.md'],
+            },
+            text: '<system-reminder>PRIVATE_INSTRUCTIONS_TEXT</system-reminder>',
+          },
+        },
+        { type: 'text', text: 'the visible answer' },
+      ],
+    });
+
+    const dto = toSharedChatResponse(fakeChat, [message]);
+
+    expect(dto.messages[0].parts).toEqual([
+      { type: 'text', text: 'the visible answer' },
+    ]);
+    expect(JSON.stringify(dto)).not.toMatch(
+      /PRIVATE_|canonicalPath|instructions|data-context|system-reminder/i,
+    );
+  });
+
   it('strips model-switch metadata and every effective-context reference from public shares', () => {
     const message = fakeMessage({
       role: 'user',

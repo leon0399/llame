@@ -307,6 +307,139 @@ export const HiddenPlaceholderKeepsBoundary: Story = {
   },
 };
 
+/** The paths one in-Run bundle touched: two loaded files (one cut at the
+ *  per-file cap) and the one the `read` permission group denied. */
+const LOADED_INSTRUCTION_PATH = "/home/operator/repo/AGENTS.md";
+const TRUNCATED_INSTRUCTION_PATH = "/home/operator/repo/apps/api/AGENTS.md";
+const DENIED_INSTRUCTION_PATH = "/srv/AGENTS.md";
+
+/** A completed turn whose Run loaded project instruction files while reading
+ *  a file, so the assistant message carries the item after the tool part. */
+const INSTRUCTIONS_MESSAGE: UIMessage = {
+  id: "assistant-instructions",
+  role: "assistant",
+  parts: [
+    { type: "text", text: "Answered with the project rules in hand." },
+    {
+      type: "dynamic-tool",
+      toolCallId: "call-read-instructions",
+      toolName: "read",
+      state: "output-available",
+      input: { path: "apps/api/src/x.ts" },
+      output: { status: "success" },
+    },
+    {
+      type: "data-context",
+      data: {
+        v: 1,
+        producer: "instructions",
+        form: "notice",
+        runId: "11111111-1111-4111-8111-111111111111",
+        payload: {
+          files: [
+            {
+              path: LOADED_INSTRUCTION_PATH,
+              canonicalPath: LOADED_INSTRUCTION_PATH,
+              truncated: false,
+            },
+            {
+              path: TRUNCATED_INSTRUCTION_PATH,
+              canonicalPath: TRUNCATED_INSTRUCTION_PATH,
+              truncated: true,
+            },
+          ],
+          denied: [DENIED_INSTRUCTION_PATH],
+        },
+        text: '<system-reminder producer="instructions" form="notice">project instructions</system-reminder>',
+      },
+    },
+  ],
+};
+
+/**
+ * The owner chip on the assistant turn that carries an instructions item: the
+ * loaded paths, the truncated marker, and the muted denied path — while the
+ * item's model-visible text stays prompt input, never transcript content
+ * (design D9).
+ *
+ * @summary the instructions chip renders on the carrying turn
+ */
+export const InstructionsDisclosure: Story = {
+  tags: ["ai-generated"],
+  args: { message: INSTRUCTIONS_MESSAGE },
+  play: async ({ canvas }) => {
+    // The row withholds the transcript until the Streamdown-backed renderers
+    // load, so the first query waits on that chunk like the sibling stories.
+    await waitFor(
+      () => expect(canvas.getByText(LOADED_INSTRUCTION_PATH)).toBeVisible(),
+      { timeout: 15_000 },
+    );
+    await expect(canvas.getByText(TRUNCATED_INSTRUCTION_PATH)).toBeVisible();
+    await expect(canvas.getByText(DENIED_INSTRUCTION_PATH)).toBeVisible();
+    await expect(canvas.getByText("truncated")).toBeVisible();
+    await expect(canvas.getByText("denied")).toBeVisible();
+
+    // The item's model-visible text is prompt input, not chat content.
+    await expect(canvas.queryByText(/system-reminder/)).toBeNull();
+  },
+};
+
+/** A triggering user turn whose accepted-turn load staged the bound root's
+ *  chain: the item rides the user message, ahead of the user's own text. */
+const USER_INSTRUCTIONS_MESSAGE: UIMessage = {
+  id: "user-instructions",
+  role: "user",
+  parts: [
+    {
+      type: "data-context",
+      data: {
+        v: 1,
+        producer: "instructions",
+        form: "notice",
+        runId: "11111111-1111-4111-8111-111111111111",
+        payload: {
+          files: [
+            {
+              path: LOADED_INSTRUCTION_PATH,
+              canonicalPath: LOADED_INSTRUCTION_PATH,
+              truncated: false,
+            },
+          ],
+          denied: [DENIED_INSTRUCTION_PATH],
+        },
+        text: '<system-reminder producer="instructions" form="notice">project instructions</system-reminder>',
+      },
+    },
+    { type: "text", text: "Continue with the plan." },
+  ],
+};
+
+/**
+ * The same owner chip on the other carrier: an accepted-turn load stages its
+ * item on the triggering user message (design D5, D9), so the chip renders
+ * there too — above the user's own text, with the denied path still owner-only.
+ *
+ * @summary the instructions chip renders on the triggering user turn
+ */
+export const UserTurnInstructionsDisclosure: Story = {
+  tags: ["ai-generated"],
+  args: { message: USER_INSTRUCTIONS_MESSAGE },
+  play: async ({ canvas }) => {
+    // The row withholds the transcript until the Streamdown-backed renderers
+    // load, so the first query waits on that chunk like the sibling stories.
+    await waitFor(
+      () => expect(canvas.getByText(LOADED_INSTRUCTION_PATH)).toBeVisible(),
+      { timeout: 15_000 },
+    );
+    await expect(canvas.getByText(DENIED_INSTRUCTION_PATH)).toBeVisible();
+    await expect(canvas.getByText("denied")).toBeVisible();
+    await expect(canvas.getByText("Continue with the plan.")).toBeVisible();
+
+    // The item's model-visible text is prompt input, not chat content.
+    await expect(canvas.queryByText(/system-reminder/)).toBeNull();
+  },
+};
+
 /** The catalog entry an operator-declared Claude model resolves to, so the
  *  badge and the Cost & model column name the model instead of echoing its id. */
 const CLAUDE_SONNET_MODEL: AvailableModel = {

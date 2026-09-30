@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 import {
   adoptServerHistory,
+  instructionsPart,
+  isInstructionsPart,
   messageRenderKey,
   mergeTrustedModelContextParts,
   messageSeqFromMetadata,
@@ -117,6 +119,27 @@ describe("messageSeqFromMetadata", () => {
   );
 });
 
+const instructionsItem = {
+  type: "data-context" as const,
+  data: {
+    v: 1 as const,
+    producer: "instructions" as const,
+    form: "notice" as const,
+    runId: "a5dc235e-1de8-4aad-84d8-e0e247b6a135",
+    payload: {
+      files: [
+        {
+          path: "/home/u/repo/apps/api/AGENTS.md",
+          canonicalPath: "/home/u/repo/AGENTS.md",
+          truncated: true,
+        },
+      ],
+      denied: ["/srv/AGENTS.md"],
+    },
+    text: '<system-reminder producer="instructions" form="notice">loaded</system-reminder>',
+  },
+};
+
 describe("trusted model-context projection", () => {
   const switchPart = {
     type: "data-context" as const,
@@ -216,6 +239,52 @@ describe("trusted model-context projection", () => {
     ]);
   });
 
+  it("overlays the server-fetched instructions item onto its user turn", () => {
+    // The accepted-turn load stages its item on the triggering USER message
+    // (design D5), a turn the rail may also have marked with a model switch —
+    // both control parts are owner-visible and must survive the merge in the
+    // order the server stored them.
+    const messages = mergeTrustedModelContextParts(
+      [
+        {
+          id: "user-1",
+          role: "user",
+          // SAFETY: this fixture deliberately doesn't match the SDK's
+          // `UIMessage["parts"]` union — it exercises an untrusted/forged
+          // context-item shape the merge must strip, so `as never` opts
+          // this one value out of the part-shape check.
+          parts: [
+            {
+              type: "data-context",
+              data: { producer: "instructions", forged: true },
+            } as never,
+            { type: "text", text: "Continue" },
+          ],
+        },
+      ],
+      [
+        {
+          id: "user-1",
+          role: "user",
+          // SAFETY: `switchPart`/`instructionsItem` are this app's own
+          // narrower `data-context` shapes — the same mismatch the merge
+          // itself casts around.
+          parts: [
+            switchPart as never,
+            instructionsItem as never,
+            { type: "text", text: "Continue" },
+          ],
+        },
+      ],
+    );
+
+    expect(messages[0]?.parts).toEqual([
+      switchPart,
+      instructionsItem,
+      { type: "text", text: "Continue" },
+    ]);
+  });
+
   it("removes untrusted live markers when no server marker exists", () => {
     const [message] = mergeTrustedModelContextParts(
       [
@@ -242,6 +311,191 @@ describe("trusted model-context projection", () => {
     expect(runIdFromMessageMetadata({ usage: { runId: "not-a-uuid" } })).toBe(
       null,
     );
+  });
+});
+
+describe("instructions context items", () => {
+  /** The same item with one nested value replaced, so each rejection below
+   *  differs from a valid part in exactly one way. */
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- test fixture: each case deliberately hands the parser a malformed payload it must reject, so there is no valid domain type to accept here.
+  const withPayload = (payload: unknown) => ({
+    ...instructionsItem,
+    data: { ...instructionsItem.data, payload },
+  });
+
+  it("parses only the exact persisted instructions shape", () => {
+    expect(instructionsPart({ parts: [instructionsItem] })).toEqual(
+      instructionsItem,
+    );
+    expect(
+      instructionsPart({ parts: [{ type: "text", text: "hello" }] }),
+    ).toBeNull();
+  });
+
+  it("keeps metadata-only historical items owner-visible", () => {
+    const { v, producer, form, runId, payload } = instructionsItem.data;
+    const metadataOnly = {
+      ...instructionsItem,
+      data: { v, producer, form, runId, payload },
+    };
+
+    expect(instructionsPart({ parts: [metadataOnly] })).toEqual(metadataOnly);
+    expect(
+      instructionsPart({
+        parts: [
+          { ...instructionsItem, data: { ...instructionsItem.data, text: 42 } },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects an extra key at every level rather than rendering an unknown shape", () => {
+    expect(isInstructionsPart({ ...instructionsItem, extra: "leak" })).toBe(
+      false,
+    );
+    expect(
+      isInstructionsPart({
+        ...instructionsItem,
+        data: { ...instructionsItem.data, extra: "leak" },
+      }),
+    ).toBe(false);
+    expect(
+      isInstructionsPart(
+        withPayload({ ...instructionsItem.data.payload, extra: "leak" }),
+      ),
+    ).toBe(false);
+    expect(
+      isInstructionsPart(
+        withPayload({
+          ...instructionsItem.data.payload,
+          files: [{ ...instructionsItem.data.payload.files[0], extra: "leak" }],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects every other producer's data-context item", () => {
+    expect(
+      isInstructionsPart({
+        ...instructionsItem,
+        data: { ...instructionsItem.data, producer: "temporal" },
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects payloads whose paths or flags are not trustworthy", () => {
+    // Non-empty files is the api's own invariant (an item exists only for a
+    // bundle that loaded something), and a malformed entry must not reach
+    // the chip as if it were disclosure.
+    expect(isInstructionsPart(withPayload({ files: [], denied: [] }))).toBe(
+      false,
+    );
+    expect(
+      isInstructionsPart(
+        withPayload({
+          files: [{ path: "/srv/AGENTS.md", truncated: false }],
+          denied: [],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isInstructionsPart(
+        withPayload({
+          files: [
+            {
+              path: "/srv/AGENTS.md",
+              canonicalPath: "/srv/AGENTS.md",
+              truncated: "yes",
+            },
+          ],
+          denied: [],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isInstructionsPart(
+        withPayload({
+          files: [
+            {
+              path: "   ",
+              canonicalPath: "/srv/AGENTS.md",
+              truncated: false,
+            },
+          ],
+          denied: [],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isInstructionsPart(
+        withPayload({
+          files: [
+            {
+              path: "/srv/AGENTS.md",
+              canonicalPath: "/srv/AGENTS.md",
+              truncated: false,
+            },
+          ],
+          denied: [""],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("overlays the server-fetched item onto its assistant turn", () => {
+    // The transcript always renders through the merge, so the item must
+    // survive it: the live copy is replaced by the one the server vouches
+    // for, the same way a user turn's model-switch item is.
+    const messages = mergeTrustedModelContextParts(
+      [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          // SAFETY: a forged/live-streamed context part is deliberately not
+          // `UIMessage["parts"]`-shaped — it exercises what the merge must
+          // strip, so `as never` opts this one value out of the part check.
+          parts: [
+            {
+              type: "data-context",
+              data: { producer: "instructions", forged: true },
+            } as never,
+            { type: "text", text: "Answer." },
+          ],
+        },
+      ],
+      [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          // SAFETY: `instructionsItem` is `InstructionsPart`, a narrower shape
+          // than the SDK's generic `data-*` part — the same mismatch the
+          // merge itself casts around.
+          parts: [instructionsItem as never, { type: "text", text: "Answer." }],
+        },
+      ],
+    );
+
+    expect(messages[0]?.parts).toEqual([
+      instructionsItem,
+      { type: "text", text: "Answer." },
+    ]);
+  });
+
+  it("strips a live instructions copy no server message vouches for", () => {
+    const [message] = mergeTrustedModelContextParts(
+      [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          // SAFETY: `instructionsItem` is `InstructionsPart`, narrower than
+          // the SDK's generic `data-*` part shape the merge casts around.
+          parts: [instructionsItem as never, { type: "text", text: "Answer." }],
+        },
+      ],
+      [],
+    );
+
+    expect(message?.parts).toEqual([{ type: "text", text: "Answer." }]);
   });
 });
 
