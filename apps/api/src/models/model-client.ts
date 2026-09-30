@@ -91,8 +91,14 @@ export interface ModelStreamInput {
    * prior steps have called a tool, the client stops offering tools for the
    * next step (forcing a text-only answer from accumulated context) rather
    * than ending the run mid tool-call — see `onCapReached`.
+   *
+   * `null` is the operator's explicit "no cap" (design D1): the loop then runs
+   * as many steps as the model asks for, and `onCapReached` never fires. An
+   * absent value means no cap either — every caller that supplies `tools`
+   * either runs them under an operator-configured cap or never executes a
+   * tool at all.
    */
-  maxSteps?: number;
+  maxSteps?: number | null;
   /**
    * Receives the exact mutable tool record assigned to the SDK request.
    * Trusted in-Run Workspace additions mutate this record between steps.

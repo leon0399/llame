@@ -49,7 +49,10 @@ function makeService(models?: {
     createUiMessageStreamResponse: vi.fn(),
   };
   const aborts: RunAborter = { abort: vi.fn() };
-  const dispatch: RunDispatcher = { dispatch: dispatchRun };
+  const dispatch: RunDispatcher = {
+    dispatch: dispatchRun,
+    jobState: () => Promise.resolve('absent'),
+  };
 
   return {
     service: new ChatLoopService(

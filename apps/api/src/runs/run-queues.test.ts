@@ -1,9 +1,10 @@
 import {
   heartbeatSeconds,
-  runTimeoutSeconds,
+  RUN_EXECUTION_CEILING_SECONDS,
   runsQueueDefinition,
+  runTimeoutSeconds,
+  RUNS_JOB_EXPIRE_SECONDS,
   RUNS_QUEUE,
-  stuckRunThresholdMs,
 } from './run-queues';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 
@@ -48,10 +49,30 @@ describe('runs queue timing definition', () => {
 
     expect(runTimeoutSeconds(config)).toBe(90);
     expect(heartbeatSeconds(config)).toBe(30);
-    expect(stuckRunThresholdMs(config)).toBe(120_000);
     expect(runsQueueDefinition(config)).toMatchObject({
       name: RUNS_QUEUE.name,
-      options: { heartbeatSeconds: 30 },
+      options: {
+        heartbeatSeconds: 30,
+        expireInSeconds: RUNS_JOB_EXPIRE_SECONDS,
+      },
     });
+  });
+
+  it('has no wall-clock budget by default', () => {
+    expect(runTimeoutSeconds(BUILT_IN_DEFAULTS)).toBeNull();
+    expect(runsQueueDefinition(BUILT_IN_DEFAULTS).options).toMatchObject({
+      heartbeatSeconds: 15,
+      expireInSeconds: RUNS_JOB_EXPIRE_SECONDS,
+    });
+  });
+
+  it('falls short of the job duration the queue itself enforces', () => {
+    // pg-boss rejects an expiry of 24 h or more, so 86,399 s is the largest
+    // declarable duration. The worker's own ceiling must land BEFORE it, with
+    // room to settle the run's terminal state — otherwise the queue fails and
+    // re-executes a live long run instead of the worker ending it.
+    expect(RUNS_JOB_EXPIRE_SECONDS).toBe(86_399);
+    expect(RUN_EXECUTION_CEILING_SECONDS).toBe(86_100);
+    expect(RUN_EXECUTION_CEILING_SECONDS).toBeLessThan(RUNS_JOB_EXPIRE_SECONDS);
   });
 });

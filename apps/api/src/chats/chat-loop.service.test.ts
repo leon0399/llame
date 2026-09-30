@@ -16,7 +16,7 @@ import { type ModelSelectionValidator } from '../models/models.service';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
-import { stuckRunThresholdMs } from '../runs/run-queues';
+import { heartbeatSeconds } from '../runs/run-queues';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
@@ -157,7 +157,10 @@ function makeService(options?: {
   const abort = vi.fn();
   const aborts: RunAborter = { abort };
   const dispatchRun = vi.fn(async () => {});
-  const dispatch: RunDispatcher = { dispatch: dispatchRun };
+  const jobState = vi.fn<RunDispatcher['jobState']>(() =>
+    Promise.resolve('absent'),
+  );
+  const dispatch: RunDispatcher = { dispatch: dispatchRun, jobState };
 
   const findById = vi
     .spyOn(ChatsRepository.prototype, 'findById')
@@ -237,6 +240,7 @@ function makeService(options?: {
     streamResponse,
     findById,
     createIfAbsent,
+    jobState,
     touch,
     createUserMessageIfAbsent,
     findActiveByChatId,
@@ -306,6 +310,8 @@ describe('isInflightUniqueViolation', () => {
     expect(isInflightUniqueViolation(undefined)).toBe(false);
   });
 });
+
+const SECOND_MS = 1000;
 
 describe('ChatLoopService.createMessageStream', () => {
   it('rejects a message that sanitizes to no text parts with the exact 400', async () => {
@@ -504,24 +510,25 @@ describe('ChatLoopService.createMessageStream', () => {
     );
   });
 
-  it('expires a stuck in-flight run and appends run.expired', async () => {
+  it('expires a blocker whose job the queue can no longer execute and appends run.expired', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
-    const stuckAfterMs = stuckRunThresholdMs(BUILT_IN_DEFAULTS);
     const blocking: Run = {
       ...run,
       id: 'blocking-run',
-      createdAt: new Date(now.getTime() - stuckAfterMs),
+      createdAt: new Date(now.getTime() - 60_000),
       startedAt: null,
     };
     const expired: Run = { ...blocking, status: 'expired' };
-    const { service, findActiveByChatId, markFinished, appendEvent } =
+    const { service, findActiveByChatId, markFinished, appendEvent, jobState } =
       makeService();
     findActiveByChatId.mockResolvedValue(blocking);
+    jobState.mockResolvedValue('completed');
     markFinished.mockResolvedValue(expired);
 
     await service.createMessageStream(input);
 
+    expect(jobState).toHaveBeenCalledWith(blocking.id);
     expect(markFinished).toHaveBeenCalledWith(
       blocking.id,
       chat.ownerUserId,
@@ -540,18 +547,46 @@ describe('ChatLoopService.createMessageStream', () => {
     });
   });
 
+  it.each(['failed', 'cancelled'] as const)(
+    'expires a blocker whose job is %s, whatever the run age',
+    async (settled) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      const blocking: Run = {
+        ...run,
+        id: 'blocking-run',
+        createdAt: now,
+        startedAt: now,
+      };
+      const { service, findActiveByChatId, markFinished, jobState } =
+        makeService();
+      findActiveByChatId.mockResolvedValue(blocking);
+      jobState.mockResolvedValue(settled);
+      markFinished.mockResolvedValue(blocking);
+
+      await service.createMessageStream(input);
+
+      expect(markFinished).toHaveBeenCalledWith(
+        blocking.id,
+        chat.ownerUserId,
+        'expired',
+        expect.any(Object),
+      );
+    },
+  );
+
   it('skips the expired event when markFinished loses the race', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
-    const stuckAfterMs = stuckRunThresholdMs(BUILT_IN_DEFAULTS);
     const blocking: Run = {
       ...run,
       id: 'blocking-run',
-      createdAt: new Date(now.getTime() - stuckAfterMs),
+      createdAt: new Date(now.getTime() - 60_000),
     };
-    const { service, findActiveByChatId, markFinished, appendEvent } =
+    const { service, findActiveByChatId, markFinished, appendEvent, jobState } =
       makeService();
     findActiveByChatId.mockResolvedValue(blocking);
+    jobState.mockResolvedValue('failed');
     markFinished.mockResolvedValue(undefined);
 
     await service.createMessageStream(input);
@@ -561,17 +596,80 @@ describe('ChatLoopService.createMessageStream', () => {
     ]);
   });
 
-  it('conflicts on a fresh in-flight run that is still inside the grace window', async () => {
+  it('conflicts on a blocker whose job is queued, however old the run is', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
+    // Older than any configured budget: a queued job is still work the queue
+    // will execute, so the run is live and the chat must 409.
     const blocking: Run = {
       ...run,
       id: 'blocking-run',
-      createdAt: now,
-      startedAt: now,
+      createdAt: new Date(now.getTime() - 86_400_000),
+      startedAt: null,
     };
-    const { service, findActiveByChatId, markFinished } = makeService();
+    const { service, findActiveByChatId, markFinished, jobState } =
+      makeService();
     findActiveByChatId.mockResolvedValue(blocking);
+    jobState.mockResolvedValue('queued');
+
+    await expect(service.createMessageStream(input)).rejects.toMatchObject({
+      constructor: ConflictException,
+      message: 'Another run is already in flight for this chat',
+    });
+    expect(markFinished).not.toHaveBeenCalled();
+    // One bounded read per send: the re-check reads only the row.
+    expect(jobState).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['the read rejects', () => Promise.reject(new Error('pool timeout'))],
+    ['the read never answers', () => new Promise<never>(() => undefined)],
+  ])(
+    'conflicts, and never expires, when %s',
+    async (_label, read: () => Promise<never>) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+      // Old enough that a readable 'absent' would expire it: only the
+      // unreadable state keeps it live.
+      const blocking: Run = {
+        ...run,
+        id: 'blocking-run',
+        createdAt: new Date(now.getTime() - 86_400_000),
+        startedAt: null,
+      };
+      const { service, findActiveByChatId, markFinished, jobState } =
+        makeService();
+      findActiveByChatId.mockResolvedValue(blocking);
+      jobState.mockImplementation(read);
+
+      // Settle the rejection now so the timer advance cannot surface it early.
+      const outcome = service
+        .createMessageStream(input)
+        .catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const error = await outcome;
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error).toMatchObject({
+        message: 'Another run is already in flight for this chat',
+      });
+      expect(markFinished).not.toHaveBeenCalled();
+    },
+  );
+
+  it('conflicts on a job-less run younger than one liveness window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const heartbeatMs = heartbeatSeconds(BUILT_IN_DEFAULTS) * 1000;
+    const blocking: Run = {
+      ...run,
+      id: 'blocking-run',
+      createdAt: new Date(now.getTime() - heartbeatMs + SECOND_MS),
+      startedAt: null,
+    };
+    const { service, findActiveByChatId, markFinished, jobState } =
+      makeService();
+    findActiveByChatId.mockResolvedValue(blocking);
+    jobState.mockResolvedValue('absent');
 
     await expect(service.createMessageStream(input)).rejects.toMatchObject({
       constructor: ConflictException,
@@ -580,32 +678,20 @@ describe('ChatLoopService.createMessageStream', () => {
     expect(markFinished).not.toHaveBeenCalled();
   });
 
-  it('proceeds when the blocker finishes between the two reads', async () => {
+  it('expires a job-less run older than one liveness window, using startedAt when present', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
-    const blocking: Run = { ...run, id: 'blocking-run', createdAt: now };
-    const { service, findActiveByChatId, markFinished } = makeService();
-    findActiveByChatId
-      .mockResolvedValueOnce(blocking)
-      .mockResolvedValueOnce(undefined);
-
-    await service.createMessageStream(input);
-
-    expect(markFinished).not.toHaveBeenCalled();
-  });
-
-  it('treats a run as stuck at exactly the threshold, using startedAt when present', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
-    const stuckAfterMs = stuckRunThresholdMs(BUILT_IN_DEFAULTS);
+    const heartbeatMs = heartbeatSeconds(BUILT_IN_DEFAULTS) * 1000;
     const blocking: Run = {
       ...run,
       id: 'blocking-run',
       createdAt: now,
-      startedAt: new Date(now.getTime() - stuckAfterMs),
+      startedAt: new Date(now.getTime() - heartbeatMs),
     };
-    const { service, findActiveByChatId, markFinished } = makeService();
+    const { service, findActiveByChatId, markFinished, jobState } =
+      makeService();
     findActiveByChatId.mockResolvedValue(blocking);
+    jobState.mockResolvedValue('absent');
     markFinished.mockResolvedValue(blocking);
 
     await service.createMessageStream(input);
@@ -616,5 +702,21 @@ describe('ChatLoopService.createMessageStream', () => {
       'expired',
       expect.any(Object),
     );
+  });
+
+  it('proceeds when the blocker finishes between the two reads', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const blocking: Run = { ...run, id: 'blocking-run', createdAt: now };
+    const { service, findActiveByChatId, markFinished, jobState } =
+      makeService();
+    findActiveByChatId
+      .mockResolvedValueOnce(blocking)
+      .mockResolvedValueOnce(undefined);
+    jobState.mockResolvedValue('active');
+
+    await service.createMessageStream(input);
+
+    expect(markFinished).not.toHaveBeenCalled();
   });
 });

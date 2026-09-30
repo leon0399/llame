@@ -7,6 +7,10 @@ import {
   createOpenAICodexModelClient,
 } from './openai-codex-model-client';
 import type { ChatIdentity } from './model-client';
+import {
+  ModelStreamIdleError,
+  STREAM_IDLE_TIMEOUT_MS,
+} from './stream-idle-watchdog';
 
 const messages = [
   { role: 'user', content: 'Use the configured transport.' },
@@ -373,18 +377,19 @@ describe('createOpenAICodexModelClient', () => {
       );
       expect(provider).toHaveBeenCalledWith('gpt-test');
       expect(chat).not.toHaveBeenCalled();
-      expect(streamTextMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          model: providerModel,
-          providerOptions: {
-            openai: {
-              reasoningSummary: 'auto',
-              reasoningEffort: 'high',
-              store: false,
-            },
+      const [streamOptions] = streamTextMock.mock.calls.at(0) ?? [];
+      expect(streamOptions).toMatchObject({
+        // The client wraps the wire's model in its own middlewares, so
+        // identity is the adapter's own provider and model id.
+        model: { provider: 'openai.responses', modelId: 'gpt-test' },
+        providerOptions: {
+          openai: {
+            reasoningSummary: 'auto',
+            reasoningEffort: 'high',
+            store: false,
           },
-        }),
-      );
+        },
+      });
 
       const [createOptions] = createOpenAIMock.mock.calls.at(0) ?? [];
       const transportFetch = createOptions?.fetch;
@@ -710,5 +715,62 @@ describe('createOpenAICodexModelClient', () => {
         }),
       );
     });
+  });
+});
+
+/** A Responses stream that delivers one delta, then never sends again. */
+const createdThenDeltaThenSilence = [
+  'event: response.created\ndata: {"type":"response.created","response":{"id":"r1"}}\n\n',
+  'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","item_id":"i1","delta":"partial"}\n\n',
+];
+
+describe('createOpenAICodexModelClient — stream-idle watchdog (design D4)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps the watchdog error and its code through the subscription sanitizer', async () => {
+    // A 200 whose SSE body delivers a delta and then goes silent: the
+    // provider answered, started, and stopped — the watchdog's case.
+    globalThis.fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            for (const event of createdThenDeltaThenSilence) {
+              controller.enqueue(new TextEncoder().encode(event));
+            }
+          },
+        }),
+        { headers: { 'content-type': 'text/event-stream' } },
+      ),
+    );
+    const client = createOpenAICodexModelClient({
+      credential: 'access-token',
+      accountId: 'account-id',
+      providerModelId: 'gpt-test',
+      modelId: 'system:codex:gpt-test',
+      contextWindowTokens: 128_000,
+      userAgent: USER_AGENT,
+    });
+    const reported: Array<unknown> = [];
+
+    const result = client.streamText({
+      chat: CHAT,
+      messages,
+      onError: ({ error }) => {
+        reported.push(error);
+      },
+    });
+    // The SDK streams nothing until a result accessor is read.
+    const drained = result.fullStream.pipeTo(new WritableStream());
+    await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
+    await drained;
+
+    expect(reported[0]).toBeInstanceOf(ModelStreamIdleError);
+    expect(reported[0]).toMatchObject({ code: 'model_stream_idle' });
   });
 });

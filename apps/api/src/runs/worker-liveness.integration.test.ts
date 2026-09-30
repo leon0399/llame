@@ -17,8 +17,8 @@
  * scenario needs `runs.timeoutSeconds` tuned down to 1s, which would race a
  * genuine cancel issued against a DIFFERENT run in the SAME process (that
  * run's own in-process budget would also be ticking down from 1s) — keeping
- * the cancel-distinctness and retry-exhaustion scenarios on a harness with
- * the default (300s) budget removes that race entirely rather than trying to
+ * the cancel-distinctness and retry-exhaustion scenarios on a harness with NO
+ * configured budget removes that race entirely rather than trying to
  * out-race it with tighter timing assertions.
  *
  * Worker-death -> retry -> re-execute, and a paused-but-not-dead worker's
@@ -116,8 +116,9 @@ describeIfDb(
     let userId: string;
 
     beforeAll(async () => {
-      // Default (built-in) timeoutSeconds — generous, so a genuine cancel here
-      // never races the in-process budget the way a 1s budget would.
+      // No configured budget at all (the built-in default), so the only limit
+      // on this harness is the 23 h 55 m execution ceiling — a genuine cancel
+      // here can never race it.
       harness = await bootWorkerHarness({ runsConcurrency: 2 });
       userId = await createUser(harness.db, 'liveness-cancel');
     });

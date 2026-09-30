@@ -25,6 +25,10 @@ import {
 } from './provider-options';
 import { consumeReasoningStream } from './reasoning-stream';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
+import {
+  applyStreamIdleWatchdog,
+  ModelStreamIdleError,
+} from './stream-idle-watchdog';
 
 /**
  * Non-empty placeholder credential for a keyless provider (#162): a genuinely
@@ -81,6 +85,20 @@ function disableStrictToolSchemas(tools: ToolSet): ToolSet {
 }
 
 /**
+ * The configured error sanitizer with llame's own stream-idle failure exempt
+ * (design D4): its message is authored here, so replacing it would destroy
+ * the diagnostic the run keeps.
+ */
+function streamSanitizer(
+  config: OpenAIModelClientConfig,
+): OpenAIModelClientConfig['sanitizeError'] {
+  const sanitize = config.sanitizeError;
+  if (sanitize === undefined) return undefined;
+  return (error) =>
+    error instanceof ModelStreamIdleError ? error : sanitize(error);
+}
+
+/**
  * Tool-calling loop: the SDK auto-executes tools and re-calls the model.
  * Only wired when tools are present — an answer-only turn keeps the single-
  * generation path unchanged. Mutates `streamOptions` in place, matching the
@@ -88,12 +106,42 @@ function disableStrictToolSchemas(tools: ToolSet): ToolSet {
  * by every wire's client (exported for `openai-completions-model-client`),
  * so step-cap accounting and refusal reporting stay single-sourced.
  */
+/**
+ * Records a tool call the model requested but that never passed the gate:
+ * an undeclared/hallucinated name, or arguments the tool's own schema
+ * rejects. The SDK's own non-crashing fallback then synthesizes the
+ * model-visible tool error, so the run never crashes.
+ */
+function refuseUnavailableToolCalls(
+  toolCall: { toolCallId: string; toolName: string; input: string },
+  error: unknown,
+  report: ModelStreamInput['onUnavailableToolCall'],
+): Promise<null> {
+  report?.({
+    toolCallId: toolCall.toolCallId,
+    toolName: toolCall.toolName,
+    // `LanguageModelV3ToolCall.input` is ALWAYS a stringified JSON object at
+    // this provider-level layer (never pre-parsed — there's no schema to parse
+    // against for a NoSuchToolError, and InvalidToolInputError is exactly
+    // "didn't match one"), so parse it best-effort for a structured,
+    // human-readable persisted/streamed record; a model that sent malformed
+    // JSON gets the raw string instead of a thrown error here.
+    input: parseToolCallInput(toolCall.input),
+    reason: NoSuchToolError.isInstance(error)
+      ? 'not_available'
+      : 'invalid_input',
+  });
+  return Promise.resolve(null);
+}
+
 export function applyToolCallingOptions(
   streamOptions: Parameters<typeof streamText>[0],
   input: ModelStreamInput,
 ): void {
   if (!input.tools) return;
 
+  // `null` and absent both mean "no cap" (design D1).
+  const cap = input.maxSteps ?? undefined;
   // Always set strict: false — Responses may rewrite omitted strict into
   // required-nullable optionals; Chat Completions ignores the flag.
   streamOptions.tools = disableStrictToolSchemas(input.tools);
@@ -101,25 +149,24 @@ export function applyToolCallingOptions(
   if (input.toolChoice !== undefined) {
     streamOptions.toolChoice = input.toolChoice;
   }
-  // Backstop only: prepareStep below disables tools once the
-  // cap is reached, which naturally ends the loop on the next
-  // (tool-free, text-only) step — this just bounds the
-  // worst case if a step somehow still requests a tool after that.
-  streamOptions.stopWhen = stepCountIs((input.maxSteps ?? 8) + 1);
-  // Step-cap enforcement (SPEC tool-calling): once `maxSteps`
-  // PRIOR steps have requested a tool, stop declaring tools for
-  // the next step — the model is forced to answer from
-  // accumulated context in the SAME streamText() call, rather
-  // than the run ending mid tool-call.
+  // The SDK keeps every step's request body in `recordedSteps` for the whole
+  // call by default, and an uncapped call can run for hours (design D1).
+  streamOptions.experimental_include = { requestBody: false };
+  // A configured cap stops one step past the forced text-only answer; with no
+  // cap the predicate never fires and the loop runs as many steps as asked.
+  streamOptions.stopWhen =
+    cap === undefined ? () => false : stepCountIs(cap + 1);
+  // Step-cap enforcement (SPEC tool-calling): once `maxSteps` PRIOR steps have
+  // requested a tool, stop declaring tools for the next step — the model is
+  // forced to answer from accumulated context in the SAME streamText() call.
   streamOptions.prepareStep = async ({ messages, stepNumber, steps }) => {
     const messagesOverride = await input.onStepStart?.({
       messages,
       stepNumber,
     });
-    const priorToolSteps = steps.filter(
-      (step) => step.toolCalls.length > 0,
-    ).length;
-    const capReached = priorToolSteps >= (input.maxSteps ?? 8);
+    const capReached =
+      cap !== undefined &&
+      steps.filter((step) => step.toolCalls.length > 0).length >= cap;
     if (capReached) {
       input.onCapReached?.();
     }
@@ -128,30 +175,8 @@ export function applyToolCallingOptions(
       ...(capReached && { activeTools: [] }),
     };
   };
-  // A model can request a tool name it wasn't declared (gate
-  // refusal / hallucination) or pass arguments its schema
-  // rejects. Record the refusal for durability, then return
-  // null so the SDK's own non-crashing fallback (a synthesized
-  // tool-error result) still runs — the run never crashes.
-  streamOptions.experimental_repairToolCall = ({ toolCall, error }) => {
-    input.onUnavailableToolCall?.({
-      toolCallId: toolCall.toolCallId,
-      toolName: toolCall.toolName,
-      // `LanguageModelV3ToolCall.input` is ALWAYS a stringified
-      // JSON object at this provider-level layer (never
-      // pre-parsed — there's no schema to parse against for a
-      // NoSuchToolError, and InvalidToolInputError is exactly
-      // "didn't match one"), so parse it best-effort for a
-      // structured, human-readable persisted/streamed record; a
-      // model that sent malformed JSON gets the raw string
-      // instead of a thrown error here.
-      input: parseToolCallInput(toolCall.input),
-      reason: NoSuchToolError.isInstance(error)
-        ? 'not_available'
-        : 'invalid_input',
-    });
-    return Promise.resolve(null);
-  };
+  streamOptions.experimental_repairToolCall = ({ toolCall, error }) =>
+    refuseUnavailableToolCalls(toolCall, error, input.onUnavailableToolCall);
 }
 
 export interface AbortSettlement {
@@ -573,6 +598,7 @@ function buildOpenAIStreamOptions(
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
 ): Parameters<typeof streamText>[0] & { model: LanguageModelV3 } {
+  const sanitize = streamSanitizer(config);
   const streamOptions: Parameters<typeof streamText>[0] & {
     model: LanguageModelV3;
   } = {
@@ -581,12 +607,9 @@ function buildOpenAIStreamOptions(
     system: input.system,
     abortSignal: input.abortSignal,
     onError:
-      config.sanitizeError === undefined
+      sanitize === undefined
         ? input.onError
-        : ({ error }) =>
-            input.onError?.({
-              error: config.sanitizeError?.(error) ?? error,
-            }),
+        : ({ error }) => input.onError?.({ error: sanitize(error) }),
     onFinish: createModelStreamFinishCallback(input.onFinish),
     ...(config.maxOutputTokens !== undefined && {
       maxOutputTokens: config.maxOutputTokens,
@@ -596,6 +619,7 @@ function buildOpenAIStreamOptions(
   applyToolCallingOptions(streamOptions, input);
   applyTextDeltaCallback(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
+  applyStreamIdleWatchdog(streamOptions, input);
   return streamOptions;
 }
 
@@ -618,7 +642,7 @@ function runOpenAIStream(
   return awaitSettlementAfter(
     result,
     settlement,
-    config.sanitizeError,
+    streamSanitizer(config),
     terminals,
   );
 }

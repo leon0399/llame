@@ -404,14 +404,18 @@
   //   }
   // },
 
-  // Run limits. Interpolated numbers must be whole-value quoted tokens.
+  // Run limits — every one is OPT-IN. Interpolated numbers must be
+  // whole-value quoted tokens.
   "runs": {
     // Reserved from the context window when checking request fit.
     "maxOutputTokens": null,
     // pg-boss worker-liveness window (minimum 10 seconds).
     "heartbeatSeconds": "{env:RUN_HEARTBEAT_SECONDS:-15}",
-    // Wall-clock budget for an active run.
-    "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-900}",
+    // Optional wall-clock budget for an active run, in seconds (must stay
+    // below the 23 h 55 m execution ceiling). Unset (as here) or null means
+    // NO budget: a run that keeps making progress is never ended by age. Set
+    // it to cap how long one run may take.
+    "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-}",
   },
 
   "http": {
@@ -697,8 +701,9 @@
         "allow": true
       },
     },
-    // Maximum tool-requesting steps per run.
-    "maxStepsPerRun": 100,
+    // Maximum tool-requesting steps per run. Unset (as here) or null means NO
+    // cap: the loop runs as many steps as the model requests. Set it to force
+    // the model to answer from accumulated context after that many steps.
     // Per-tool-call timeout in seconds.
     "callTimeoutSeconds": 120,
   },

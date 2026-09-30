@@ -79,8 +79,14 @@ export function deadLetterQueue<T extends object>(
 ): QueueDefinition<T> {
   return { name: deadLetterQueueName(queue.name), parse: queue.parse };
 }
-
 export interface EnqueueOptions {
+  /**
+   * The job id the producer chooses, unique within the queue. Naming a job
+   * lets a later `jobState(queue, id)` read that one job's lifecycle state,
+   * and makes a repeated enqueue under the same id a no-op rather than a
+   * duplicate. Omitted (the default) leaves the engine to generate one.
+   */
+  id?: string;
   /** Higher numbers are picked up first within a queue. */
   priority?: number;
   /** Delay the job: seconds from now, or an absolute Date. */
@@ -144,6 +150,12 @@ export interface QueueOptions {
    * means NULL/disabled — no liveness monitoring, today's behavior.
    */
   heartbeatSeconds?: number;
+  /**
+   * The longest a job on this queue may stay active, in seconds. Declaring it
+   * keeps the substrate from failing a live, liveness-signalling job for its
+   * age; a queue that declares none keeps the engine's default expiry.
+   */
+  expireInSeconds?: number;
 }
 
 export interface ConsumeOptions {
@@ -161,6 +173,20 @@ export interface JobMeta {
   id: string;
   queue: string;
 }
+
+/**
+ * A job's lifecycle state, engine-neutral: `created` and `retry` are both
+ * waiting to run again (`queued` / `retrying`), and an id no job holds is
+ * `absent` — the queue can no longer execute that work.
+ */
+export type JobState =
+  | 'queued'
+  | 'retrying'
+  | 'active'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'absent';
 
 export type JobHandler<T> = (data: T, meta: JobMeta) => Promise<void>;
 
@@ -183,6 +209,16 @@ export interface Queue {
     data: T,
     options?: EnqueueOptions,
   ): Promise<string | null>;
+
+  /**
+   * Read one job's lifecycle state by the id the producer chose, without its
+   * payload: `absent` when no job carries that id on that queue. Addressing
+   * is by (queue, id) alone — it never scans and never returns another job.
+   */
+  jobState<T extends object>(
+    queue: QueueDefinition<T>,
+    id: string,
+  ): Promise<JobState>;
 
   /**
    * Start consuming a queue. The handler settles one job at a time: resolving

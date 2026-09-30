@@ -37,12 +37,15 @@ import {
   type RunStreamResponder,
 } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { stuckRunThresholdMs } from '../runs/run-queues';
+import { heartbeatSeconds } from '../runs/run-queues';
 import {
   RunDispatchService,
   type RunDispatcher,
 } from '../runs/run-dispatch.service';
 import { sanitizeClientMessageParts } from './context-item';
+
+/** How long admission waits on the blocking run's job state (see blockerIsLive). */
+const JOB_STATE_READ_TIMEOUT_MS = 5000;
 
 /**
  * Narrows a read-back message's `unknown[]` JSONB `parts` to `MessagePart[]`:
@@ -468,30 +471,67 @@ export class ChatLoopService {
     }
   }
 
+  /**
+   * Whether a run still in flight is one the queue can execute, judged by its
+   * own job's state rather than by its age: a queued, retrying, or active job
+   * is live however long the run has existed. A job-less run is still treated
+   * as live for one liveness window, because the enqueue can legitimately
+   * land just after the run row committed. Anything else — absent and older
+   * than that, or a settled job — means the queue can no longer execute it.
+   *
+   * The read runs inside the accepted-turn transaction, which holds the chat
+   * row, so it is bounded; a state it cannot read in time, or at all, cannot
+   * prove the run wedged and counts as live (409), never as expirable.
+   */
+  private async blockerIsLive(run: Run): Promise<boolean> {
+    let timer: NodeJS.Timeout | undefined;
+    const state = await Promise.race([
+      this.dispatch.jobState(run.id),
+      new Promise<'unreadable'>((resolve) => {
+        timer = setTimeout(
+          () => resolve('unreadable'),
+          JOB_STATE_READ_TIMEOUT_MS,
+        );
+      }),
+    ])
+      .catch(() => 'unreadable' as const)
+      .finally(() => clearTimeout(timer));
+    if (state !== 'absent') {
+      return (
+        state === 'unreadable' ||
+        state === 'queued' ||
+        state === 'retrying' ||
+        state === 'active'
+      );
+    }
+    const lastSignOfLife = run.startedAt ?? run.createdAt;
+    return (
+      Date.now() - lastSignOfLife.getTime() <
+      heartbeatSeconds(this.instanceConfig.config) * 1000
+    );
+  }
+
   private async clearActiveRunSlot(input: {
     runsRepo: RunsRepository;
     eventsRepo: RunEventsRepository;
     chatId: string;
     userId: string;
   }): Promise<void> {
-    const stuckAfterMs = stuckRunThresholdMs(this.instanceConfig.config);
-    const isStuck = (run: Run) =>
-      Date.now() - (run.startedAt ?? run.createdAt).getTime() >= stuckAfterMs;
     const findActive = () =>
       input.runsRepo.findActiveByChatId(input.chatId, input.userId);
-
-    let blocking = await findActive();
+    const blocking = await findActive();
     if (!blocking) return;
-    if (!isStuck(blocking)) {
-      // Re-check once: `blocking` may have finished between the read above
-      // and now, or genuinely still be within its grace window.
-      blocking = await findActive();
-      if (!blocking) return;
-      if (!isStuck(blocking)) {
+    if (await this.blockerIsLive(blocking)) {
+      // Re-check the row once: `blocking` may have finished between the read
+      // above and now, in which case the chat is simply free. Its job state
+      // is not read again, so one send holds the chat row for at most one
+      // bounded wait.
+      if (await findActive()) {
         throw new ConflictException(
           'Another run is already in flight for this chat',
         );
       }
+      return;
     }
 
     const message =

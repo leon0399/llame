@@ -444,7 +444,15 @@ export type LlameConfig = {
      * stale-heartbeat threshold it used to pair with, are deleted).
      */
     heartbeatSeconds: number;
-    timeoutSeconds: number;
+    /**
+     * The operator's opt-in in-process wall-clock budget, in seconds. `null`
+     * (the built-in default) means NO budget: a progressing Run is never
+     * ended by age. A configured value must be a positive integer below
+     * `RUN_EXECUTION_CEILING_SECONDS` (the runs domain's execution ceiling),
+     * which the loader enforces so a budget the ceiling would silently
+     * truncate cannot be configured.
+     */
+    timeoutSeconds: number | null;
   };
   http: {
     trustProxy: string | null;
@@ -484,8 +492,12 @@ export type LlameConfig = {
      * `tools.permissions` evaluation instance-wide.
      */
     permissionModes: ReadonlyArray<PermissionMode>;
-    /** Hard step cap for the tool-calling loop. */
-    maxStepsPerRun: number;
+    /**
+     * Hard step cap for the tool-calling loop. `null` (the built-in default)
+     * means no cap — the loop lets the model take as many steps as it asks
+     * for.
+     */
+    maxStepsPerRun: number | null;
     /** Global per-tool-call timeout, in seconds (a tool may override at registration). */
     callTimeoutSeconds: number;
     /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs; null falls through to packaged defaults. */
@@ -559,7 +571,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   runs: {
     maxOutputTokens: null,
     heartbeatSeconds: 15,
-    timeoutSeconds: 900,
+    timeoutSeconds: null,
   },
   http: {
     trustProxy: null,
@@ -571,7 +583,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
     allowed: [],
     permissions: {},
     permissionModes: ['default'],
-    maxStepsPerRun: 100,
+    maxStepsPerRun: null,
     callTimeoutSeconds: 120,
     promptFiles: {},
     webAdapters: [],

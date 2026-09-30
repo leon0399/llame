@@ -50,6 +50,8 @@ describeIfDb(
     // Unique queue names per run: pg-boss archives completed jobs rather than
     // deleting them, so re-running against the same database must not collide.
     const tag = `q${Date.now()}`;
+    // pg-boss job ids are uuids; a caller-chosen name has to be one.
+    const NAMED_JOB_ID = '11111111-2222-4333-8444-555555555555';
 
     const consume = async <T extends object>(
       def: QueueDefinition<T>,
@@ -445,6 +447,77 @@ describeIfDb(
       expect(seenByFirst.length + seenBySecond.length).toBe(3);
       expect([...seenByFirst, ...seenBySecond].sort()).toEqual(
         ['a-job', 'shared-1', 'shared-2'].sort(),
+      );
+    });
+
+    it('re-declares a job duration on an existing queue and stamps it onto later jobs', async () => {
+      const name = `${tag}-expiry`;
+      // First created with NO declared duration: the engine's own default.
+      await queue.ensureQueue(defineQueue<object>({ name }));
+      const before = await pgBoss.boss.getQueue(name);
+      expect(before?.expireInSeconds).not.toBe(86_399);
+
+      // Re-declared with one. createQueue is INSERT ... ON CONFLICT DO NOTHING,
+      // so only the updateQueue path can apply this to a live queue.
+      await queue.ensureQueue(
+        defineQueue<object>({ name, options: { expireInSeconds: 86_399 } }),
+      );
+      expect((await pgBoss.boss.getQueue(name))?.expireInSeconds).toBe(86_399);
+
+      const jobId = await queue.enqueue(defineQueue<object>({ name }), {
+        after: true,
+      });
+      expect(jobId).toEqual(expect.any(String));
+      // The queue's declared duration is copied onto each job at insert.
+      const job = await pgBoss.boss.getJobById(name, jobId!);
+      expect(job?.expireInSeconds).toBe(86_399);
+    });
+
+    it('names a job by the producer id and reads back its state', async () => {
+      const named = defineQueue<{ n: number }>({ name: `${tag}-named` });
+      await queue.ensureQueue(named);
+
+      // An id the engine's uuid column accepts, but no job carries.
+      await expect(
+        queue.jobState(named, '99999999-8888-4777-8666-555555555555'),
+      ).resolves.toBe('absent');
+
+      let release = (): void => {};
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const jobId = await queue.enqueue(named, { n: 1 }, { id: NAMED_JOB_ID });
+      expect(jobId).toBe(NAMED_JOB_ID);
+      await expect(queue.jobState(named, NAMED_JOB_ID)).resolves.toBe('queued');
+
+      await consume(named, () => held);
+      await waitFor(
+        async () =>
+          (await queue.jobState(named, NAMED_JOB_ID)) === 'active'
+            ? true
+            : undefined,
+        20_000,
+        'the named job to be claimed',
+      );
+      release();
+      await waitFor(
+        async () =>
+          (await queue.jobState(named, NAMED_JOB_ID)) === 'completed'
+            ? true
+            : undefined,
+        20_000,
+        'the named job to complete',
+      );
+
+      // A second enqueue under the same id creates NO second job and reports
+      // that nothing was created; the original keeps its state and payload.
+      await expect(
+        queue.enqueue(named, { n: 2 }, { id: NAMED_JOB_ID }),
+      ).resolves.toBeNull();
+      const job = await pgBoss.boss.getJobById(named.name, NAMED_JOB_ID);
+      expect(job?.data).toEqual({ n: 1 });
+      await expect(queue.jobState(named, NAMED_JOB_ID)).resolves.toBe(
+        'completed',
       );
     });
 

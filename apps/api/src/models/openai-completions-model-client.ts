@@ -40,6 +40,7 @@ import {
   trackAbortSettlement,
 } from './openai-model-client';
 import { applyRequestUsageCallback } from './request-usage';
+import { applyStreamIdleWatchdog } from './stream-idle-watchdog';
 
 /**
  * Wire identity of this adapter: `@ai-sdk/openai-compatible` is Chat
@@ -48,6 +49,11 @@ import { applyRequestUsageCallback } from './request-usage';
  * no name of its own.
  */
 const COMPATIBLE_PROVIDER_NAME = 'openai-completions';
+
+/** The `streamText` options this client builds, with its model named. */
+type StreamOptions = Parameters<typeof streamText>[0] & {
+  model: LanguageModelV3;
+};
 
 export type OpenAICompletionsModelClientConfig = {
   credential?: string;
@@ -317,11 +323,8 @@ function runOpenAICompatibleStream(
 ) {
   const settlement = trackAbortSettlement(input);
   const providerOptions = composeCompletionsOptions(config, input);
-  const streamOptions: Parameters<typeof streamText>[0] & {
-    model: LanguageModelV3;
-  } = {
-    // Chat Completions at the entry's required base URL (design D1): the
-    // compatible provider callable is that wire's chat model.
+  const streamOptions: StreamOptions = {
+    // The entry's declared wire, at its required base URL (design D1).
     model: provider(config.providerModelId),
     messages: input.messages,
     system: input.system,
@@ -329,21 +332,17 @@ function runOpenAICompatibleStream(
     onError: reportBoundedFailure(input.onError),
     onAbort: settlement.onAbort,
     onFinish: createModelStreamFinishCallback(input.onFinish),
-    // llame's identity rides every request (design D6), per call: the
-    // provider-level headers cannot carry it on structured requests.
+    // llame's identity, per call (design D6).
     headers: perCallHeaders(config, input.chat),
     ...providerOptions,
-    // The catalog output limit, provider-neutral like `providerOptions`:
-    // the adapter derives the wire's `max_tokens` from this setting.
     ...(config.maxOutputTokens !== undefined && {
       maxOutputTokens: config.maxOutputTokens,
     }),
   };
-  // The shared tool loop (the SDK auto-executes tools and re-calls the
-  // model): without these settings `streamText` stops after one step, so a
-  // tool-requesting step would end the turn with no text at all.
+  // The shared tool loop: without it `streamText` stops after one step.
   applyToolCallingOptions(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
+  applyStreamIdleWatchdog(streamOptions, input);
   if (input.onTextDelta || input.onReasoningDelta) {
     streamOptions.onChunk = ({ chunk }) => {
       if (chunk.type === 'text-delta') {

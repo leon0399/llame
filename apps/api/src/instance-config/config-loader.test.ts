@@ -30,6 +30,7 @@ import {
   BUILT_IN_DEFAULTS,
   DEFAULT_EMBEDDING_BATCH_SIZE,
 } from './llame-config';
+import { RUN_EXECUTION_CEILING_SECONDS } from '../runs/run-queues';
 
 /** Narrows a `catch`-clause `unknown` to its message without a cast; fails the test loudly if the caught value is not an `Error`. */
 function errorMessage(err: unknown): string {
@@ -256,6 +257,10 @@ describe('loadInstanceConfig — file presence', () => {
     const config = loadInstanceConfig();
     expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
     expect(config.tools.allowed).toContain('search_conversations');
+    // Run limits are opt-in: the shipped example configures none, so a fresh
+    // `cp`-and-boot instance runs with no budget and no step cap.
+    expect(config.runs.timeoutSeconds).toBeNull();
+    expect(config.tools.maxStepsPerRun).toBeNull();
   });
 
   it('accepts comments and trailing commas (JSONC)', () => {
@@ -431,10 +436,12 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
   });
 
   it('rejects an empty token resolution on a required numeric setting', () => {
-    writeConfig('{ "runs": { "timeoutSeconds": "{env:EMPTY_TIMEOUT:-}" } }');
+    // runs.timeoutSeconds is opt-in and resolves empty to null; db.poolSize is
+    // required, so the same empty token must still fail loudly.
+    writeConfig('{ "db": { "poolSize": "{env:EMPTY_TIMEOUT:-}" } }');
 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
-    expect(() => loadInstanceConfig()).toThrow(/runs\.timeoutSeconds/);
+    expect(() => loadInstanceConfig()).toThrow(/db\.poolSize/);
     expect(() => loadInstanceConfig()).toThrow(/empty value/);
   });
 
@@ -495,6 +502,72 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
   it('a padded literal value on another nullable-string setting (http.trustProxy) is normalized too', () => {
     writeConfig('{ "http": { "trustProxy": " 1 " } }');
     expect(loadInstanceConfig().http.trustProxy).toBe('1');
+  });
+});
+
+describe('loadInstanceConfig — opt-in Run limits (opt-in-run-limits D1)', () => {
+  it('resolves both limits to null when the file omits them', () => {
+    writeConfig('{ "tools": { "allowed": [] } }');
+    const config = loadInstanceConfig();
+    expect(config.runs.timeoutSeconds).toBeNull();
+    expect(config.tools.maxStepsPerRun).toBeNull();
+  });
+
+  it('resolves an explicit null and an empty-resolving token to null', () => {
+    writeConfig(`{
+      "runs": { "timeoutSeconds": null },
+      "tools": { "maxStepsPerRun": null, "allowed": [] },
+    }`);
+    expect(loadInstanceConfig().runs.timeoutSeconds).toBeNull();
+    expect(loadInstanceConfig().tools.maxStepsPerRun).toBeNull();
+
+    // The shipped example's own token: an unset env var resolves to an empty
+    // string, which must read as "no limit" rather than a parse failure.
+    writeConfig(`{
+      "runs": { "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS:-}" },
+      "tools": { "maxStepsPerRun": "{env:EMPTY_TOKEN:-}", "allowed": [] },
+    }`);
+    const fromTokens = loadInstanceConfig();
+    expect(fromTokens.runs.timeoutSeconds).toBeNull();
+    expect(fromTokens.tools.maxStepsPerRun).toBeNull();
+  });
+
+  it.each([
+    ['{ "runs": { "timeoutSeconds": 2.5 } }', /runs\/timeoutSeconds/],
+    ['{ "tools": { "maxStepsPerRun": -1 } }', /tools\/maxStepsPerRun/],
+    ['{ "tools": { "maxStepsPerRun": 1.5 } }', /tools\/maxStepsPerRun/],
+  ])('fails startup naming the path for %s', (config, path) => {
+    writeConfig(config);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(path);
+  });
+
+  it('fails startup naming the path when a budget is at or above the execution ceiling', () => {
+    // A budget the ceiling would silently truncate is a budget the operator
+    // would believe applies and it would not.
+    writeConfig(
+      `{ "runs": { "timeoutSeconds": ${RUN_EXECUTION_CEILING_SECONDS} } }`,
+    );
+    expect(() => loadInstanceConfig()).toThrow(/runs\.timeoutSeconds/);
+    expect(() => loadInstanceConfig()).toThrow(
+      new RegExp(String(RUN_EXECUTION_CEILING_SECONDS)),
+    );
+
+    writeConfig(
+      '{ "runs": { "timeoutSeconds": "{env:RUN_TIMEOUT_SECONDS_SRC}" } }',
+    );
+    process.env.RUN_TIMEOUT_SECONDS_SRC = '90000';
+    expect(() => loadInstanceConfig()).toThrow(/runs\.timeoutSeconds/);
+    delete process.env.RUN_TIMEOUT_SECONDS_SRC;
+  });
+
+  it('accepts the largest budget below the ceiling', () => {
+    writeConfig(
+      `{ "runs": { "timeoutSeconds": ${RUN_EXECUTION_CEILING_SECONDS - 1} } }`,
+    );
+    expect(loadInstanceConfig().runs.timeoutSeconds).toBe(
+      RUN_EXECUTION_CEILING_SECONDS - 1,
+    );
   });
 });
 
@@ -3216,7 +3289,9 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
       belowBound: '0',
       boundMessage: 'runs.timeoutSeconds: must be a positive integer',
       atBound: '1',
-      nullable: false,
+      // Opt-in: absent, null, or an empty-resolving token all mean "no
+      // budget" (opt-in-run-limits D1).
+      nullable: true,
     },
     {
       group: 'db',
@@ -3234,7 +3309,8 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
       belowBound: '0',
       boundMessage: 'tools.maxStepsPerRun: must be a positive integer',
       atBound: '1',
-      nullable: false,
+      // Opt-in: null means no step cap.
+      nullable: true,
     },
     {
       group: 'tools',

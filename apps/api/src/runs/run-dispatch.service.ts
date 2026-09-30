@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { QUEUE, type Queue } from '../queue/queue';
+import { QUEUE, type JobState, type Queue } from '../queue/queue';
 import { failRunTransactionally } from './runs-repository';
 import { RUNS_QUEUE, runsQueueDefinition, type RunJob } from './run-queues';
 
@@ -12,8 +12,9 @@ import { RUNS_QUEUE, runsQueueDefinition, type RunJob } from './run-queues';
  * queue-facing detail so callers (the chat loop) know nothing about queue
  * names or payload shapes — dispatching a run is one call.
  */
-/** The chat send path's view: enqueue a committed run (#268). */
-export type RunDispatcher = Pick<RunDispatchService, 'dispatch'>;
+/** The chat send path's view of the publish side: enqueue a committed run and
+ *  read that run's job state (#268). */
+export type RunDispatcher = Pick<RunDispatchService, 'dispatch' | 'jobState'>;
 
 @Injectable()
 export class RunDispatchService {
@@ -28,17 +29,16 @@ export class RunDispatchService {
   ) {}
 
   /**
-   * Enqueue a committed run for execution.
+   * Enqueue a committed run for execution, NAMED BY THE RUN'S OWN ID.
    *
    * Enqueue is NOT transactional with the run row (#48 design constraint 1):
    * pg-boss writes through its own pool, so a crash between the committed run
-   * and this call leaves a 'queued' run with no job. The queue can only
-   * recover an ACTIVE job (worker-death heartbeat → retry → dead-letter), so
-   * it cannot free this orphan — that is exactly why chat-loop's single-flight
-   * path expires a blocker whose last sign of life is older than the longest a
-   * real run could take (`timeoutSeconds + heartbeatSeconds`): a next message
-   * to the chat unwedges it. If that window ever matters, the stronger fix is
-   * pg-boss's external-transaction `db` option (enqueue in the run row's txn).
+   * and this call leaves a 'queued' run with no job. Single-flight admission
+   * reads that job's state through `jobState` instead of guessing from the
+   * run's age, which is what lets it tell "the queue can still execute this
+   * run" from "this run is wedged". If that window ever matters, the stronger
+   * fix is pg-boss's external-transaction `db` option (enqueue in the run
+   * row's txn).
    *
    * On enqueue/bootstrap failure the run is failed in a best-effort
    * transaction (freeing the chat's single-flight slot immediately) and the
@@ -48,7 +48,7 @@ export class RunDispatchService {
   async dispatch(job: RunJob): Promise<void> {
     try {
       await this.ensureQueues();
-      await this.queue.enqueue(RUNS_QUEUE, job);
+      await this.queue.enqueue(RUNS_QUEUE, job, { id: job.runId });
     } catch (error) {
       this.logger.error(
         `Failed to enqueue run ${job.runId}`,
@@ -58,6 +58,16 @@ export class RunDispatchService {
       await failRunTransactionally(this.tenantDb, job, message);
       throw error;
     }
+  }
+
+  /**
+   * The state of the job this run is named by, for single-flight admission:
+   * `queued`/`retrying`/`active` mean the queue can still execute it, and
+   * `absent`/`completed`/`failed`/`cancelled` mean it cannot. The payload is
+   * never read — the caller only ever learns whether the queue can act.
+   */
+  jobState(runId: string): Promise<JobState> {
+    return this.queue.jobState(RUNS_QUEUE, runId);
   }
 
   /** Publisher-side queue declaration, once per process (idempotent upsert). */
