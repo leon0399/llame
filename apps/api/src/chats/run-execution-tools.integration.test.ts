@@ -33,7 +33,13 @@ import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import type { CompiledPolicy } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
@@ -120,7 +126,10 @@ import {
 import { turnTelemetryLogger } from './turn-telemetry';
 import { createModelChangeItem } from './context-item-producers';
 import { createContextItemPart, isContextItemPart } from './context-item';
-import { instructionsSeenPaths } from './instructions-item';
+import {
+  instructionsSeenPaths,
+  isInstructionsPayload,
+} from './instructions-item';
 import { type InRunContextProducer } from '../runs/in-run-context-items';
 
 import { createInstructionsProducer } from '../instructions/instructions-producer';
@@ -565,6 +574,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
     searchIndex?: ChatSearchIndexer;
     reindexDispatch?: ChatReindexDispatcher;
     knowledgeResolver?: KnowledgeToolResolver;
+    /** Sets `knowledge.root`; absent keeps the built-in default (no root). */
+    knowledgeRoot?: string;
     embedDispatch?: ChatEmbedDispatcher;
     dynamicToolResolver?: DynamicToolExecutorResolver;
     dynamicCandidates?: ReadonlyArray<TurnToolCandidate>;
@@ -584,6 +595,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
           directories:
             resolved.skillDirectories ?? BUILT_IN_DEFAULTS.skills.directories,
         },
+        knowledge:
+          resolved.knowledgeRoot === undefined
+            ? BUILT_IN_DEFAULTS.knowledge
+            : { root: resolved.knowledgeRoot },
         tools: {
           nativeExecutorId: resolved.nativeExecutorId,
           allowed,
@@ -5227,6 +5242,209 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ...overrides,
       });
     }
+
+    /**
+     * A worker with a Knowledge root but no accepted native host, where a
+     * `kb://` read is the only instruction trigger. `root` is the Knowledge
+     * root and holds every owner's Spaces.
+     */
+    function knowledgeInstructionsFixture() {
+      const root = mkdtempSync(path.join(tmpdir(), 'instructions-kb-'));
+      const spaces = new KnowledgeSpaceService(
+        tenantDb,
+        new KnowledgeSpaceLocalResolver(root),
+      );
+      const hostPath = (spaceId: string, relativePath: string) =>
+        path.join(root, spaceId, ...relativePath.split('/'));
+      return {
+        root,
+        spaces,
+        hostPath,
+        service: () =>
+          instructionsService({
+            // No `nativeExecutorId`: a Space chain must load without one.
+            nativeExecutorId: undefined,
+            allowed: ['read'],
+            knowledgeRoot: root,
+            knowledgeResolver: new KnowledgeToolRuntimeResolver(spaces),
+          }),
+      };
+    }
+
+    it("loads a Space's chain for a kb:// read and never the Knowledge root", async () => {
+      const fixture = knowledgeInstructionsFixture();
+      const { root, spaces, hostPath } = fixture;
+      const space = await spaces.provisionForOwner(userId);
+      // Directly in the Knowledge root, above every Space: never a candidate.
+      writeFileSync(path.join(root, 'AGENTS.md'), 'above-the-space rules\n');
+      // A link whose target is outside every Space: refused, never selected.
+      writeFileSync(path.join(root, 'linked.md'), 'linked rules\n');
+      symlinkSync(
+        path.join(root, 'linked.md'),
+        path.join(root, space.id, 'LLAME.md'),
+      );
+      writeFileSync(hostPath(space.id, 'CLAUDE.md'), 'space rules\n');
+      mkdirSync(path.dirname(hostPath(space.id, 'notes/lore/x.md')), {
+        recursive: true,
+      });
+      writeFileSync(hostPath(space.id, 'notes/lore/AGENTS.md'), 'lore rules\n');
+      writeFileSync(hostPath(space.id, 'notes/lore/x.md'), 'the lore\n');
+      const seeded = await seedBoundRun(
+        `instructions-kb-${crypto.randomUUID()}`,
+      );
+      const model = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'read-lore',
+            toolName: 'read',
+            input: { path: `kb://${space.id}/notes/lore/x.md` },
+          },
+        ],
+        'Read the lore.',
+      );
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          fixture.service(),
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // One bundle after the triggering tool result: the Space root first,
+        // then the touched directory, each named by its logical locator.
+        const prompt = model.doStreamCalls[1]?.prompt ?? [];
+        const toolIndex = toolResultIndex(prompt, 'read-lore');
+        const bundleIndex = instructionsIndexes(prompt)[0];
+        expect(toolIndex).toBeGreaterThanOrEqual(0);
+        expect(bundleIndex).toBe(toolIndex + 1);
+        const bundle = promptText(prompt[bundleIndex]);
+        expect(bundle).toContain(`<file path="kb://${space.id}/CLAUDE.md">`);
+        expect(bundle).toContain(
+          `<file path="kb://${space.id}/notes/lore/AGENTS.md">`,
+        );
+        expect(bundle).toContain('space rules');
+        expect(bundle).toContain('lore rules');
+        // The walk starts at the Space: nothing above it is probed or loaded,
+        // and a candidate reached through a link is not selected at all.
+        expect(bundle).not.toContain('above-the-space rules');
+        expect(bundle).not.toContain('linked rules');
+        expect(bundle).not.toContain('LLAME.md');
+
+        // The candidate reads are audited under `instructions` with the same
+        // kb locators.
+        const audited = await instructionEvents(seeded.run.id);
+        expect(audited.map((entry) => entry.type)).toEqual([
+          'tool.requested',
+          'tool.completed',
+          'tool.requested',
+          'tool.completed',
+        ]);
+        expect(audited[0]?.payload).toMatchObject({
+          toolName: 'read',
+          input: { path: `kb://${space.id}/CLAUDE.md:raw:1-2000` },
+          permission: { decision: 'allow' },
+        });
+        expect(audited[2]?.payload).toMatchObject({
+          input: { path: `kb://${space.id}/notes/lore/AGENTS.md:raw:1-2000` },
+          permission: { decision: 'allow' },
+        });
+
+        // No host Knowledge path reaches the stored part, the Run record, or
+        // the event log: only the locator does.
+        const stored = await storedInstructionPart(seeded.chatId);
+        const storedFiles =
+          stored !== undefined &&
+          isContextItemPart(stored) &&
+          isInstructionsPayload(stored.data.payload)
+            ? stored.data.payload.files.map((file) => file.path)
+            : [];
+        expect(storedFiles).toEqual([
+          `kb://${space.id}/CLAUDE.md`,
+          `kb://${space.id}/notes/lore/AGENTS.md`,
+        ]);
+        const run = await tenantDb.runAs(userId, (tx) =>
+          new RunsRepository(tx).findById(seeded.run.id, userId),
+        );
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        for (const value of [stored, run, events, bundle]) {
+          expect(JSON.stringify(value)).not.toContain(root);
+        }
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("loads nothing for another owner's Space", async () => {
+      const fixture = knowledgeInstructionsFixture();
+      const { root, spaces, hostPath } = fixture;
+      const otherOwnerId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${otherOwnerId}, 'Foreign Space', ${`foreign-space-${otherOwnerId}@test.com`})`;
+      const foreign = await spaces.provisionForOwner(otherOwnerId);
+      writeFileSync(hostPath(foreign.id, 'CLAUDE.md'), 'foreign space rules\n');
+      mkdirSync(path.dirname(hostPath(foreign.id, 'notes/foreign.md')), {
+        recursive: true,
+      });
+      writeFileSync(
+        hostPath(foreign.id, 'notes/foreign.md'),
+        'the foreign note\n',
+      );
+      const seeded = await seedBoundRun(
+        `instructions-kb-foreign-${crypto.randomUUID()}`,
+      );
+      const model = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'read-foreign',
+            toolName: 'read',
+            input: { path: `kb://${foreign.id}/notes/foreign.md` },
+          },
+        ],
+        'The foreign Space was refused.',
+      );
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          fixture.service(),
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // The Run's own read is refused, and the refusal discloses nothing:
+        // no item, no `instructions` event, no foreign content anywhere.
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        const readEvents = events.filter(
+          (event) =>
+            isRecord(event.payload) &&
+            event.payload['toolCallId'] === 'read-foreign',
+        );
+        expect(readEvents.at(-1)?.payload).toMatchObject({
+          output: { status: 'error', type: 'knowledge_space_not_found' },
+        });
+        expect(await instructionEvents(seeded.run.id)).toEqual([]);
+        expect(await instructionItems(seeded.run.id)).toEqual([]);
+        expect(await storedInstructionPart(seeded.chatId)).toBeUndefined();
+        const prompt = model.doStreamCalls[1]?.prompt ?? [];
+        // Control: the call really ran and its result reached the next step.
+        expect(toolResultIndex(prompt, 'read-foreign')).toBeGreaterThanOrEqual(
+          0,
+        );
+        expect(instructionsIndexes(prompt)).toEqual([]);
+        expect(JSON.stringify(events)).not.toContain('foreign space rules');
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        await sql`DELETE FROM users WHERE id = ${otherOwnerId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
 
     /** A Workspace root holding a root file, a nested package file, and a source file. */
     function instructionFixture(): string {

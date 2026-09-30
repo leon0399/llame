@@ -26,6 +26,7 @@ import {
 import type { ReadPage } from './instruction-files';
 import type { InRunToolCall } from '../runs/in-run-context-items';
 import { enterWorkspaceTool, exitWorkspaceTool } from '../tools/workspace';
+import { type KnowledgeInstructionProbe } from '../knowledge/knowledge-instruction-probe';
 import { createInstructionsProducer } from './instructions-producer';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -66,6 +67,11 @@ function attemptOf(
     readonly seenKeys?: ReadonlySet<string>;
     /** `null` builds the attempt with no page reader at all. */
     readonly readPage?: ReadPage | null;
+    /** Space capabilities; `null` builds the attempt without them. */
+    readonly space?: {
+      readonly readPage: ReadPage;
+      readonly knowledge: KnowledgeInstructionProbe;
+    } | null;
   } = {},
 ) {
   const staged: Array<AuthoredContextItemPart> = [];
@@ -73,12 +79,17 @@ function attemptOf(
     input.readPage === null
       ? undefined
       : (input.readPage ?? pageReader().readPage);
+  const space = input.space === null ? undefined : input.space;
   const producer = createInstructionsProducer().beginAttempt({
     runId: RUN_ID,
     chatId: '22222222-2222-4222-8222-222222222222',
     userId: 'owner',
     ...(input.seenKeys !== undefined && { seenKeys: input.seenKeys }),
     ...(readPage !== undefined && { readPage }),
+    ...(space !== undefined && {
+      spaceReadPage: space.readPage,
+      knowledge: space.knowledge,
+    }),
   });
   return {
     producer,
@@ -126,6 +137,237 @@ function lastStaged(
 function readCall(path: string, toolName = 'read'): InRunToolCall {
   return { toolName, input: { path }, workspaceRoot: root };
 }
+
+const SPACE = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+const OTHER_SPACE = 'b6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+
+/** The Space-relative parent of a key; the Space's own directory is `''`. */
+function spaceParent(key: string): string {
+  const cut = key.lastIndexOf('/');
+  return cut < 0 ? '' : key.slice(0, cut);
+}
+
+/** One in-memory Space and the selectors its pages were read with. */
+function spaceOf(files: Readonly<Record<string, string>>) {
+  const reads: Array<string> = [];
+  const directories = new Set<string>(['']);
+  for (const key of Object.keys(files)) {
+    for (let parent = spaceParent(key); ; parent = spaceParent(parent)) {
+      directories.add(parent);
+      if (parent === '') break;
+    }
+  }
+  const entries = [...directories, ...Object.keys(files)];
+  const knowledge: KnowledgeInstructionProbe = (spaceId) =>
+    Promise.resolve(
+      spaceId === SPACE
+        ? {
+            probe(relativePath) {
+              const body = files[relativePath];
+              if (body !== undefined) {
+                return Promise.resolve({
+                  kind: 'file' as const,
+                  size: Buffer.byteLength(body),
+                });
+              }
+              return Promise.resolve(
+                directories.has(relativePath)
+                  ? { kind: 'directory' as const }
+                  : { kind: 'missing' as const },
+              );
+            },
+            list(relativeDirectory) {
+              const prefix =
+                relativeDirectory === '' ? 0 : relativeDirectory.length + 1;
+              return Promise.resolve(
+                entries.flatMap((key) =>
+                  spaceParent(key) === relativeDirectory
+                    ? [key.slice(prefix)]
+                    : [],
+                ),
+              );
+            },
+          }
+        : undefined,
+    );
+  const readPage: ReadPage = (selectorPath) => {
+    reads.push(selectorPath);
+    const key = selectorPath
+      .slice(`kb://${SPACE}/`.length)
+      .replace(/:raw:\d+-\d+$/u, '');
+    const body = files[key];
+    return Promise.resolve(
+      body === undefined
+        ? { status: 'error', type: 'not_found', message: 'No such file.' }
+        : {
+            status: 'success',
+            kind: 'file',
+            content: body,
+            truncated: false,
+          },
+    );
+  };
+  return { knowledge, readPage, reads };
+}
+
+/** One `kb://` read call, in a Space that exists. */
+function spaceCall(relativePath: string, toolName = 'read'): InRunToolCall {
+  return {
+    toolName,
+    input: { path: `kb://${SPACE}/${relativePath}` },
+    workspaceRoot: root,
+  };
+}
+
+describe('instructions producer Knowledge Space triggers', () => {
+  it("loads the Space root's chain and the touched directory's, labelled by locator", async () => {
+    await write(join(root, 'AGENTS.md'), 'host rules\n');
+    const space = spaceOf({
+      'CLAUDE.md': 'space rules\n',
+      'notes/AGENTS.md': 'note rules\n',
+      'notes/lore/x.md': 'lore\n',
+      'other/AGENTS.md': 'other rules\n',
+    });
+    const { producer, staged, prepare } = attemptOf({
+      space: { readPage: space.readPage, knowledge: space.knowledge },
+    });
+
+    producer.observeToolCall?.(spaceCall('notes/lore/x.md'));
+    await prepare();
+
+    // Broadest directory first, base before local, and a sibling directory of
+    // the touched one is never visited.
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/CLAUDE.md`,
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+    expect(space.reads).toEqual([
+      `kb://${SPACE}/CLAUDE.md:raw:1-2000`,
+      `kb://${SPACE}/notes/AGENTS.md:raw:1-2000`,
+    ]);
+    // Nothing of the host Workspace leaks into a Space bundle.
+    expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([]);
+    // The keys are the locators, so a later touch of the same file is seen.
+    expect(seenKeys(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/CLAUDE.md`,
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+  });
+
+  it('probes nothing above the Space root', async () => {
+    const space = spaceOf({ 'notes/lore/AGENTS.md': 'lore rules\n' });
+    const { producer, staged, prepare } = attemptOf({
+      space: { readPage: space.readPage, knowledge: space.knowledge },
+    });
+
+    producer.observeToolCall?.(spaceCall('notes/lore/x.md'));
+    await prepare();
+
+    // The Space's own directory is the broadest key walked; the locator never
+    // carries a parent segment, so no host ancestor is reachable.
+    for (const path of [...blockPaths(lastStaged(staged)), ...space.reads]) {
+      expect(path.startsWith(`kb://${SPACE}/`)).toBe(true);
+      expect(path).not.toContain('..');
+    }
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/lore/AGENTS.md`,
+    ]);
+  });
+
+  it('loads nothing for a Space that is not this owner’s', async () => {
+    const space = spaceOf({ 'CLAUDE.md': 'space rules\n' });
+    const { producer, staged, prepare } = attemptOf({
+      space: { readPage: space.readPage, knowledge: space.knowledge },
+    });
+
+    for (const locator of [
+      `kb://${OTHER_SPACE}/doc.md`,
+      `kb://${SPACE}/../${OTHER_SPACE}/doc.md`,
+      `kb://${SPACE}/notes//doc.md`,
+    ]) {
+      producer.observeToolCall?.({
+        toolName: 'read',
+        input: { path: locator },
+        workspaceRoot: root,
+      });
+    }
+    await prepare();
+
+    expect(staged).toEqual([]);
+    expect(space.reads).toEqual([]);
+  });
+
+  it('skips the candidate a Space read disclosed, by locator', async () => {
+    const space = spaceOf({
+      'notes/AGENTS.md': 'note rules\n',
+      'notes/CLAUDE.local.md': 'local rules\n',
+    });
+    const { producer, staged, prepare } = attemptOf({
+      space: { readPage: space.readPage, knowledge: space.knowledge },
+    });
+
+    producer.observeToolCall?.(spaceCall('notes/AGENTS.md'));
+    await prepare();
+
+    // The read disclosed the base candidate of the touched directory; the
+    // local candidate beside it still loads, and nothing is marked seen.
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/notes/CLAUDE.local.md`,
+    ]);
+    expect(seenKeys(lastStaged(staged))).not.toContain(
+      `kb://${SPACE}/notes/AGENTS.md`,
+    );
+  });
+
+  it('stages one bundle with the host files first for a host and Space touch', async () => {
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+    const space = spaceOf({ 'notes/lore/AGENTS.md': 'lore rules\n' });
+    const { producer, staged, prepare } = attemptOf({
+      space: { readPage: space.readPage, knowledge: space.knowledge },
+    });
+
+    producer.observeToolCall?.(spaceCall('notes/lore/x.md'));
+    producer.observeToolCall?.(readCall(join(root, 'apps/api/src/x.ts')));
+    await prepare();
+
+    expect(staged).toHaveLength(1);
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      join(root, 'apps/api/AGENTS.md'),
+      `kb://${SPACE}/notes/lore/AGENTS.md`,
+    ]);
+  });
+
+  it('ignores a knowledge search and any trigger without its Space capability', async () => {
+    await write(join(root, 'AGENTS.md'), 'host rules\n');
+    const space = spaceOf({ 'CLAUDE.md': 'space rules\n' });
+    const searched = attemptOf({
+      space: { readPage: space.readPage, knowledge: space.knowledge },
+    });
+    searched.producer.observeToolCall?.({
+      toolName: 'knowledge_search',
+      input: { query: 'rules', space: SPACE },
+      workspaceRoot: root,
+    });
+    await searched.prepare();
+    expect(searched.staged).toEqual([]);
+
+    // A host-only process never probes the host filesystem for a Space
+    // trigger, and a Space-less attempt never loads a host file.
+    const hostOnly = attemptOf({ space: null });
+    hostOnly.producer.observeToolCall?.(spaceCall('doc.md'));
+    await hostOnly.prepare();
+    expect(hostOnly.staged).toEqual([]);
+
+    const spaceOnly = attemptOf({
+      readPage: null,
+      space: { readPage: space.readPage, knowledge: space.knowledge },
+    });
+    spaceOnly.producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await spaceOnly.prepare();
+    expect(spaceOnly.staged).toEqual([]);
+    expect(space.reads).toEqual([]);
+  });
+});
 
 describe('instructions producer triggers', () => {
   it('loads the chain from the filesystem root down to the touched directory', async () => {
@@ -214,7 +456,7 @@ describe('instructions producer triggers', () => {
         input: { command: 'ls', cwd: 'apps/api' },
         workspaceRoot: root,
       },
-      readCall('kb://space/doc.md'),
+      readCall('kb://not-a-uuid/doc.md'),
       readCall('skill://name'),
       readCall('https://example.com/AGENTS.md'),
       readCall(join(root, 'apps/api/x.ts'), 'search_conversations'),

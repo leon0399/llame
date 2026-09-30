@@ -2,18 +2,21 @@
  * Candidate resolution and bounded reading for per-directory instruction files
  * (openspec/changes/instruction-files, design D3/D4/D6/D8).
  *
- * The probe and the page reader are injected: existence is probed on the native
- * executor without a permission decision, and each existing candidate is then
- * read through the native `read` tool, so the `read` permission group stays the
- * only authority over what may enter the model's context.
+ * Every world a trigger can name is addressed by an `InstructionScope`: keys
+ * are absolute host paths for the filesystem and Space-relative paths for a
+ * Knowledge Space, and the scope decides what an entry is labelled and keyed
+ * by. The probe and the page reader are injected: existence is probed without
+ * a permission decision, and each existing candidate is then read through the
+ * native `read` tool, so the `read` permission group stays the only authority
+ * over what may enter the model's context.
  */
 
 import { readdir } from 'node:fs/promises';
-import { posix } from 'node:path';
 
 import {
   type HostPathStat,
   MAX_READ_LINES,
+  statHostPath,
 } from '@workspace/native-file-tools';
 import { isNumber, isString } from '@workspace/runtime-safety';
 
@@ -42,35 +45,87 @@ export const INSTRUCTION_FILE_BYTE_LIMIT = 32 * 1024;
 export type StatHostPath = (path: string) => Promise<HostPathStat>;
 
 /**
- * Every directory from the filesystem root down to `directory`, inclusive and
- * broadest first. `directory` is absolute and normalized.
+ * How one trigger's world is addressed. A key is an absolute host path for the
+ * filesystem and a Space-relative path for a Knowledge Space, where the empty
+ * key is the Space's own directory. The scope supplies the label an entry is
+ * named by, the canonical identity it is keyed by, and the listing the chain
+ * is selected from, so every world shares one selection and read contract.
  */
-export function walkDirectories(directory: string): Array<string> {
-  const directories = ['/'];
+export interface InstructionScope {
+  /** The broadest directory this world walks: `/`, or a Space's own directory. */
+  readonly root: string;
+  /** The logical label of one key: an absolute host path or a `kb://` locator. */
+  readonly label: (key: string) => string;
+  /**
+   * One key, resolved. `canonicalPath` is the identity a seen set and a
+   * self-read exclusion compare: a host realpath, or the logical locator for a
+   * Knowledge Space, which resolves no links.
+   */
+  readonly probe: (key: string) => Promise<HostPathStat>;
+  /** The exact entry names one directory key holds; empty when it cannot be listed. */
+  readonly list: (key: string) => Promise<ReadonlyArray<string>>;
+}
+
+/** The host filesystem: keys are absolute paths, identities are realpaths. */
+export function hostInstructionScope(
+  stat: StatHostPath = statHostPath,
+): InstructionScope {
+  return {
+    root: '/',
+    label: (key) => key,
+    probe: stat,
+    list: listDirectoryNames,
+  };
+}
+
+/** One entry's key inside `key`; a root directory holds the bare name. */
+export function joinKey(key: string, name: string): string {
+  return key === '' || key === '/' ? `${key}${name}` : `${key}/${name}`;
+}
+
+/** The directory holding `key`, or the world's own root for a top-level key. */
+export function parentKey(key: string, root: string): string {
+  const cut = key.lastIndexOf('/');
+  const parent = cut < 0 ? '' : key.slice(0, cut);
+  return parent.length === 0 ? root : parent;
+}
+
+/** How deep a directory key sits; the world's own root is depth 0. */
+export function directoryDepth(key: string): number {
+  return key.split('/').filter((segment) => segment !== '').length;
+}
+
+/**
+ * Every directory from `root` down to `key`, inclusive and broadest first. The
+ * walk never leaves `root`, so a Space never reaches a host ancestor.
+ */
+export function walkFrom(root: string, key: string): Array<string> {
+  const directories = [root];
   let current = '';
-  for (const segment of directory.split('/')) {
+  for (const segment of key.split('/')) {
     if (segment === '') continue;
-    current += `/${segment}`;
-    directories.push(current);
+    current = current === '' ? segment : `${current}/${segment}`;
+    directories.push(joinKey(root, current));
   }
   return directories;
 }
 
 /**
  * The directory a native read/edit/write path touches, together with the file
- * identity of that one probe.
+ * identity of that one probe. `directory` is a key of the same scope.
  */
 export interface TouchedPath {
   /**
-   * The path itself when it is an existing directory, else its parent, whether
+   * The key itself when it is an existing directory, else its parent, whether
    * or not that parent exists.
    */
   readonly directory: string;
   /**
-   * The canonical path of the regular file the path names, following symlinks;
-   * undefined for a directory, a non-regular entry, and a path that does not
-   * exist. The producer compares it against candidate canonical paths, so one
-   * probe answers both questions.
+   * The canonical identity of the regular file the key names — a host realpath
+   * with symlinks followed, or the logical locator in a Space, which resolves
+   * no links. Undefined for a directory, a non-regular entry, and a key that
+   * does not exist. The producer compares it against candidate canonical paths,
+   * so one probe answers both questions.
    */
   readonly canonicalPath: string | undefined;
 }
@@ -80,21 +135,20 @@ export interface TouchedPath {
  * when it names a regular file.
  */
 export async function touchedPath(
-  absolutePath: string,
-  stat: StatHostPath,
+  scope: InstructionScope,
+  key: string,
 ): Promise<TouchedPath> {
-  const probe = await stat(absolutePath);
+  const probe = await scope.probe(key);
   return {
-    directory:
-      probe.kind === 'directory' ? absolutePath : posix.dirname(absolutePath),
+    directory: probe.kind === 'directory' ? key : parentKey(key, scope.root),
     canonicalPath: probe.kind === 'file' ? probe.canonicalPath : undefined,
   };
 }
 
 export interface InstructionCandidate {
-  /** The absolute path as selected in the walk; it labels the model-visible block. */
+  /** The label as selected in the walk; it names the model-visible block. */
   readonly path: string;
-  /** The canonical path; the seen-set key that collapses symlink duplicates. */
+  /** The canonical identity; the seen-set key that collapses duplicates. */
   readonly canonicalPath: string;
   /** The probed byte size, the baseline for the omitted-byte count. */
   readonly size: number;
@@ -117,25 +171,25 @@ async function listDirectoryNames(
 }
 
 /**
- * One base candidate and, independently, one local candidate for `directory`,
- * base first. Only names the listing carries are probed, matched exactly in
- * chain order; a non-regular entry continues the chain; an empty regular file
- * is selected and ends it.
+ * One base candidate and, independently, one local candidate for `key`, base
+ * first. Only names the listing carries are probed, matched exactly in chain
+ * order; a non-regular entry continues the chain; an empty regular file is
+ * selected and ends it.
  */
 export async function selectCandidates(
-  directory: string,
-  stat: StatHostPath,
+  scope: InstructionScope,
+  key: string,
 ): Promise<Array<InstructionCandidate>> {
-  const listed = await listDirectoryNames(directory);
+  const listed = await scope.list(key);
   const candidates: Array<InstructionCandidate> = [];
   for (const chain of [BASE_CHAIN, LOCAL_CHAIN]) {
     for (const name of chain) {
       if (!listed.includes(name)) continue;
-      const path = posix.join(directory, name);
-      const probe = await stat(path);
+      const entry = joinKey(key, name);
+      const probe = await scope.probe(entry);
       if (probe.kind !== 'file') continue;
       candidates.push({
-        path,
+        path: scope.label(entry),
         canonicalPath: probe.canonicalPath,
         size: probe.size,
       });

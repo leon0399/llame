@@ -23,14 +23,21 @@ import { runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import {
   INSTRUCTION_FILE_BYTE_LIMIT,
+  directoryDepth,
+  hostInstructionScope,
+  joinKey,
+  parentKey,
   readInstructionFile,
   selectCandidates,
   touchedPath,
-  walkDirectories,
+  walkFrom,
   type InstructionCandidate,
   type ReadPage,
   type StatHostPath,
 } from './instruction-files';
+
+/** The host world every case below selects through. */
+const host = hostInstructionScope();
 
 let root: string;
 
@@ -78,13 +85,27 @@ async function candidateOf(file: string): Promise<InstructionCandidate> {
   return { path: file, canonicalPath: probe.canonicalPath, size: probe.size };
 }
 
-describe('walkDirectories', () => {
+describe('walkFrom', () => {
   it('lists the filesystem root down to the directory', () => {
-    expect(walkDirectories('/a/b/c')).toEqual(['/', '/a', '/a/b', '/a/b/c']);
+    expect(walkFrom('/', '/a/b/c')).toEqual(['/', '/a', '/a/b', '/a/b/c']);
+    expect(walkFrom('/', '/')).toEqual(['/']);
   });
 
-  it('lists only the root for the root directory', () => {
-    expect(walkDirectories('/')).toEqual(['/']);
+  it('lists a Space from its own directory and never above it', () => {
+    expect(walkFrom('', 'notes/lore')).toEqual(['', 'notes', 'notes/lore']);
+    expect(walkFrom('', '')).toEqual(['']);
+    expect(directoryDepth('')).toBe(0);
+    expect(directoryDepth('notes/lore')).toBe(2);
+  });
+
+  it('joins and parents a key inside each world', () => {
+    expect(joinKey('', 'AGENTS.md')).toBe('AGENTS.md');
+    expect(joinKey('notes', 'lore')).toBe('notes/lore');
+    expect(joinKey('/', 'srv')).toBe('/srv');
+    expect(parentKey('notes/lore/x.md', '')).toBe('notes/lore');
+    expect(parentKey('AGENTS.md', '')).toBe('');
+    expect(parentKey('/srv/app', '/')).toBe('/srv');
+    expect(parentKey('/srv', '/')).toBe('/');
   });
 });
 
@@ -93,7 +114,7 @@ describe('touchedPath', () => {
     const nested = join(root, 'apps', 'api');
     await mkdir(nested, { recursive: true });
 
-    expect(await touchedPath(nested, statHostPath)).toEqual({
+    expect(await touchedPath(host, nested)).toEqual({
       directory: nested,
       canonicalPath: undefined,
     });
@@ -106,7 +127,7 @@ describe('touchedPath', () => {
     const link = join(root, 'AGENTS.md');
     await symlink(target, link);
 
-    expect(await touchedPath(link, statHostPath)).toEqual({
+    expect(await touchedPath(host, link)).toEqual({
       directory: root,
       canonicalPath: await realpath(target),
     });
@@ -115,7 +136,7 @@ describe('touchedPath', () => {
   it('returns the parent of a path that does not exist', async () => {
     const missing = join(root, 'apps', 'web', 'src', 'new.tsx');
 
-    expect(await touchedPath(missing, statHostPath)).toEqual({
+    expect(await touchedPath(host, missing)).toEqual({
       directory: join(root, 'apps', 'web', 'src'),
       canonicalPath: undefined,
     });
@@ -128,7 +149,7 @@ describe('selectCandidates', () => {
     await writeFile(llame, '# Llame\n');
     await writeFile(join(root, 'AGENTS.md'), '# Agents\n');
 
-    expect(await selectCandidates(root, statHostPath)).toEqual([
+    expect(await selectCandidates(host, root)).toEqual([
       { path: llame, canonicalPath: await realpath(llame), size: 8 },
     ]);
   });
@@ -140,7 +161,7 @@ describe('selectCandidates', () => {
     await writeFile(join(root, 'CLAUDE.override.md'), 'claude override\n');
     await writeFile(join(root, 'CLAUDE.md'), 'claude\n');
 
-    expect(await selectCandidates(root, statHostPath)).toEqual([
+    expect(await selectCandidates(host, root)).toEqual([
       {
         path: override,
         canonicalPath: await realpath(override),
@@ -155,7 +176,7 @@ describe('selectCandidates', () => {
     await writeFile(join(root, 'LLAME.md'), '# Llame\n');
     await writeFile(join(root, 'AGENTS.md'), '# Agents\n');
 
-    const candidates = await selectCandidates(root, statHostPath);
+    const candidates = await selectCandidates(host, root);
 
     expect(candidates.map((candidate) => candidate.path)).toEqual([override]);
   });
@@ -166,7 +187,7 @@ describe('selectCandidates', () => {
     await writeFile(base, '# Agents\n');
     await writeFile(local, '# Local\n');
 
-    const candidates = await selectCandidates(root, statHostPath);
+    const candidates = await selectCandidates(host, root);
 
     expect(candidates.map((candidate) => candidate.path)).toEqual([
       base,
@@ -181,7 +202,7 @@ describe('selectCandidates', () => {
     await writeFile(local, '# Local\n');
     await writeFile(join(root, 'AGENTS.local.md'), '# Other local\n');
 
-    const candidates = await selectCandidates(root, statHostPath);
+    const candidates = await selectCandidates(host, root);
 
     expect(candidates.map((candidate) => candidate.path)).toEqual([
       base,
@@ -194,7 +215,7 @@ describe('selectCandidates', () => {
     await mkdir(join(root, 'AGENTS.md'));
     await writeFile(claude, '# Claude\n');
 
-    expect(await selectCandidates(root, statHostPath)).toEqual([
+    expect(await selectCandidates(host, root)).toEqual([
       { path: claude, canonicalPath: await realpath(claude), size: 9 },
     ]);
   });
@@ -204,7 +225,7 @@ describe('selectCandidates', () => {
     await writeFile(empty, '');
     await writeFile(join(root, 'AGENTS.md'), '# Agents\n');
 
-    expect(await selectCandidates(root, statHostPath)).toEqual([
+    expect(await selectCandidates(host, root)).toEqual([
       { path: empty, canonicalPath: await realpath(empty), size: 0 },
     ]);
   });
@@ -215,7 +236,7 @@ describe('selectCandidates', () => {
     await writeFile(target, '# Shared\n');
     await symlink(target, join(root, 'AGENTS.md'));
 
-    expect(await selectCandidates(root, statHostPath)).toEqual([
+    expect(await selectCandidates(host, root)).toEqual([
       {
         path: join(root, 'AGENTS.md'),
         canonicalPath: await realpath(target),
@@ -227,7 +248,7 @@ describe('selectCandidates', () => {
   it('does not select a lowercase agents.md for AGENTS.md', async () => {
     await writeFile(join(root, 'agents.md'), '# Lowercase\n');
 
-    expect(await selectCandidates(root, statHostPath)).toEqual([]);
+    expect(await selectCandidates(host, root)).toEqual([]);
   });
 
   it('probes only the names the directory lists, matched exactly', async () => {
@@ -240,15 +261,13 @@ describe('selectCandidates', () => {
     const resolvesEveryName: StatHostPath = (path) =>
       Promise.resolve({ kind: 'file', size: 9, canonicalPath: path });
 
-    expect(await selectCandidates(root, resolvesEveryName)).toEqual([
-      { path: claude, canonicalPath: claude, size: 9 },
-    ]);
+    expect(
+      await selectCandidates(hostInstructionScope(resolvesEveryName), root),
+    ).toEqual([{ path: claude, canonicalPath: claude, size: 9 }]);
   });
 
   it('selects nothing from a directory that cannot be listed', async () => {
-    expect(await selectCandidates(join(root, 'missing'), statHostPath)).toEqual(
-      [],
-    );
+    expect(await selectCandidates(host, join(root, 'missing'))).toEqual([]);
   });
 });
 

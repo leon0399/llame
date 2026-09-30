@@ -337,6 +337,7 @@ type ExecutionServiceOptions = {
   workspaceMcp?: WorkspaceMcpClients;
   inRunProducer?: InRunContextProducer;
   permissionModes?: InstanceConfigReader['config']['tools']['permissionModes'];
+  knowledgeRoot?: string;
 };
 
 function makeExecutionService(
@@ -375,6 +376,10 @@ function makeExecutionService(
         ...BUILT_IN_DEFAULTS.skills,
         directories: options.skillDirectories ?? [],
       },
+      knowledge:
+        options.knowledgeRoot === undefined
+          ? BUILT_IN_DEFAULTS.knowledge
+          : { root: options.knowledgeRoot },
     },
   };
   // Held separately so tests can rescript them with their inferred Mock type
@@ -8700,6 +8705,38 @@ describe('RunExecutionService instruction files', () => {
       expect(storedInstructionPart(repositories)).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores host triggers on a Space-only worker with no native executor', async () => {
+    const root = instructionsRoot();
+    const touch = touchFile(root);
+    const knowledgeRoot = mkdtempSync(path.join(tmpdir(), 'instructions-kb-'));
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      // The Space gate is open, so the attempt does get a page reader — for
+      // Knowledge candidates. A host trigger must still be ignored: this
+      // process has no accepted native host and may not probe the host tree.
+      const { client } = readThenAnswerClient(touch);
+      const execution = makeExecutionService(client, undefined, undefined, {
+        allowed: ['enter_workspace', 'read'],
+        knowledgeRoot,
+        inRunProducer: createInstructionsProducer(),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+      expect(eventsForCall(append, 'read-trigger')).toContain('tool.requested');
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+      expect(instructionItems(repositories)).toEqual([]);
+      expect(storedInstructionPart(repositories)).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(knowledgeRoot, { recursive: true, force: true });
     }
   });
 
