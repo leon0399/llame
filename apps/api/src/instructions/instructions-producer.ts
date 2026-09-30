@@ -24,8 +24,8 @@
 import { posix } from 'node:path';
 
 import {
-  isSelectorSuffix,
   parsePathScheme,
+  splitSelectorSuffix,
   statHostPath,
 } from '@workspace/native-file-tools';
 import { isRecord, isString } from '@workspace/runtime-safety';
@@ -86,65 +86,21 @@ interface PendingTrigger {
   readonly excludeCandidate: boolean;
 }
 
-/** One directory a trigger set resolves to, and the candidates it disclosed. */
-interface TriggerDirectory {
-  readonly directory: string;
-  readonly excludedPaths: ReadonlySet<string>;
-}
-
 /** The whole read budget of one trigger set, collected as it loads. */
 interface BundleCollector {
-  /** The request's seen keys, plus every canonical path loaded so far. */
+  /** The attempt's seen keys, plus every canonical path loaded so far. */
   readonly keys: Set<string>;
   readonly files: Array<LoadedInstructionFile>;
   readonly denied: Array<string>;
-}
-
-/** The result one trigger set produced, or nothing when it loaded no file. */
-interface InstructionBundle {
-  readonly part: AuthoredContextItemPart;
-  /** Every key the bundle discloses, on top of the request's own. */
-  readonly keys: ReadonlyArray<string>;
-}
-
-/**
- * Allocates the Run-scoped tool-call id of one audited instruction read. One
- * allocator per Run, so two reads of the same Run never collide in the event
- * log.
- */
-export function instructionReadIds(runId: string): () => string {
-  let ordinal = 0;
-  return () => {
-    ordinal += 1;
-    return `instructions-${runId}-${ordinal}`;
-  };
-}
-
-/**
- * The path a native read would open, with any read selector or representation
- * suffix removed: the trigger directory is the one the unselected path names
- * (spec: A ranged read triggers like a plain read).
- */
-function withoutSelector(path: string): string {
-  const raw = /:raw(?::[^:/]*)?$/u.exec(path);
-  if (raw) return path.slice(0, raw.index);
-  const outline = /:outline(?::[^:/]*)?$/u.exec(path);
-  if (outline) return path.slice(0, outline.index);
-  const colon = path.lastIndexOf(':');
-  if (
-    colon > path.lastIndexOf('/') &&
-    isSelectorSuffix(path.slice(colon + 1))
-  ) {
-    return path.slice(0, colon);
-  }
-  return path;
 }
 
 /**
  * The absolute local path one native file tool's input names, projected the way
  * the tool itself projects it: a `file:` alias decodes, a scheme locator is not
  * local, and a relative path resolves against the Workspace root in effect for
- * the call — with no root bound there is nothing to resolve.
+ * the call — with no root bound there is nothing to resolve. Every branch
+ * normalizes the result with `posix.resolve`, so `.` and `..` segments cannot
+ * walk a directory the path merely spells or bypass the candidate exclusion.
  */
 function projectLocalPath(input: {
   readonly args: unknown;
@@ -155,13 +111,17 @@ function projectLocalPath(input: {
   if (!isString(path) || path.length === 0) return undefined;
   if (isFileAlias(path)) {
     const alias = decodeFileAlias(path);
-    return alias.ok ? withoutSelector(alias.hostPath) : undefined;
+    return alias.ok
+      ? posix.resolve(splitSelectorSuffix(alias.hostPath).path)
+      : undefined;
   }
   if (parsePathScheme(path) !== undefined) return undefined;
-  if (!isWorkspaceRelative(path)) return withoutSelector(path);
+  if (!isWorkspaceRelative(path)) {
+    return posix.resolve(splitSelectorSuffix(path).path);
+  }
   return input.root === undefined
     ? undefined
-    : withoutSelector(resolveWorkspacePath(input.root, path));
+    : splitSelectorSuffix(resolveWorkspacePath(input.root, path)).path;
 }
 
 /** The canonical root a successful `enter_workspace` established or switched to. */
@@ -201,11 +161,11 @@ interface PendingDirectory {
   readonly excludedPaths: Set<string>;
 }
 
-/** The directories the pending triggers resolve to, in trigger order. */
+/** The directories the pending triggers resolve to, and their exclusions. */
 async function resolveDirectories(
   triggers: ReadonlyArray<PendingTrigger>,
   stat: StatHostPath,
-): Promise<Array<TriggerDirectory>> {
+): Promise<Map<string, ReadonlySet<string>>> {
   const pending = new Map<string, PendingDirectory>();
   for (const trigger of triggers) {
     const directory = await touchedDirectory(trigger.path, stat);
@@ -223,20 +183,24 @@ async function resolveDirectories(
     if (disclosed) entry.excludedPaths.add(trigger.path);
     else entry.plainTouch = true;
   }
-  return [...pending].map(([directory, entry]) => ({
-    directory,
-    excludedPaths: entry.plainTouch ? new Set<string>() : entry.excludedPaths,
-  }));
+  const resolved = new Map<string, ReadonlySet<string>>();
+  for (const [directory, entry] of pending) {
+    resolved.set(
+      directory,
+      entry.plainTouch ? new Set<string>() : entry.excludedPaths,
+    );
+  }
+  return resolved;
 }
 
 /** Every directory the resolved triggers walk, broadest first and once each. */
 function walkOrder(
-  directories: ReadonlyArray<TriggerDirectory>,
+  directories: ReadonlyMap<string, ReadonlySet<string>>,
 ): Array<string> {
   const walked = new Set<string>();
-  for (const trigger of directories) {
-    for (const directory of walkDirectories(trigger.directory)) {
-      walked.add(directory);
+  for (const directory of directories.keys()) {
+    for (const walkedDirectory of walkDirectories(directory)) {
+      walked.add(walkedDirectory);
     }
   }
   return [...walked].sort(
@@ -279,20 +243,18 @@ async function loadBundle(input: {
   readonly runId: string;
   readonly triggers: ReadonlyArray<PendingTrigger>;
   readonly readPage: ReadPage;
-  readonly seenKeys: ReadonlyArray<string>;
+  /** The attempt's seen keys; each file is added as it loads. */
+  readonly keys: Set<string>;
   readonly abortSignal: AbortSignal | undefined;
-}): Promise<InstructionBundle | undefined> {
+}): Promise<AuthoredContextItemPart | undefined> {
   const directories = await resolveDirectories(input.triggers, statHostPath);
-  const excludedByDirectory = new Map(
-    directories.map((entry) => [entry.directory, entry.excludedPaths]),
-  );
   const collector: BundleCollector = {
-    keys: new Set(input.seenKeys),
+    keys: input.keys,
     files: [],
     denied: [],
   };
   for (const directory of walkOrder(directories)) {
-    const excluded = excludedByDirectory.get(directory) ?? new Set<string>();
+    const excluded = directories.get(directory) ?? new Set<string>();
     const candidates = await selectCandidates(directory, statHostPath);
     for (const candidate of candidates) {
       // An aborted Run stops loading at the next candidate instead of walking
@@ -302,14 +264,11 @@ async function loadBundle(input: {
     }
   }
   if (collector.files.length === 0) return undefined;
-  return {
-    part: createInstructionsItem({
-      runId: input.runId,
-      files: collector.files,
-      denied: collector.denied,
-    }),
-    keys: [...collector.keys],
-  };
+  return createInstructionsItem({
+    runId: input.runId,
+    files: collector.files,
+    denied: collector.denied,
+  });
 }
 
 /** One attempt's pending triggers and seen keys; discarded with the attempt. */
@@ -317,7 +276,7 @@ function createAttemptProducer(
   attempt: InRunAttempt,
   readPage: ReadPage,
 ): InRunAttemptProducer {
-  const keys = new Set(attempt.seenKeys ?? []);
+  const keys = new Set(attempt.seenKeys);
   let pending: Array<PendingTrigger> = [];
   return {
     observeToolCall(call): void {
@@ -329,16 +288,15 @@ function createAttemptProducer(
       if (pending.length === 0) return;
       const triggers = pending;
       pending = [];
-      const bundle = await loadBundle({
+      const part = await loadBundle({
         runId: attempt.runId,
         triggers,
         readPage,
-        seenKeys: [...keys],
+        keys,
         abortSignal: attempt.abortSignal,
       });
-      if (bundle === undefined) return;
-      for (const key of bundle.keys) keys.add(key);
-      step.stage(bundle.part);
+      if (part === undefined) return;
+      step.stage(part);
     },
   };
 }

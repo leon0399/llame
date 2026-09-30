@@ -27,12 +27,6 @@ export const ORIGIN_SKILL_ACTIVATION: ToolActivityOrigin = 'skill-activation';
 /** The run loop reading a candidate instruction file a trigger named. */
 export const ORIGIN_INSTRUCTIONS: ToolActivityOrigin = 'instructions';
 
-/** Every discriminator that means "the run loop, not the model". */
-const SYSTEM_ORIGINS: ReadonlyArray<ToolActivityOrigin> = [
-  ORIGIN_SKILL_ACTIVATION,
-  ORIGIN_INSTRUCTIONS,
-];
-
 /**
  * Whether a durable event payload records a system-origin call.
  *
@@ -42,5 +36,8 @@ const SYSTEM_ORIGINS: ReadonlyArray<ToolActivityOrigin> = [
  */
 export function isSystemOriginPayload(payload: unknown): boolean {
   if (!isRecord(payload)) return false;
-  return SYSTEM_ORIGINS.some((origin) => payload['origin'] === origin);
+  return (
+    payload['origin'] === ORIGIN_SKILL_ACTIVATION ||
+    payload['origin'] === ORIGIN_INSTRUCTIONS
+  );
 }

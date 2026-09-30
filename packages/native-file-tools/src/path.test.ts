@@ -5,6 +5,7 @@ import {
   applySelectorSuffix,
   parsePathScheme,
   resolveReadTarget,
+  splitSelectorSuffix,
 } from "./path";
 
 describe("native read selectors", () => {
@@ -359,4 +360,36 @@ describe("native path schemes", () => {
       );
     },
   );
+});
+
+describe("splitSelectorSuffix", () => {
+  it("returns a path with no selector key when nothing splits", () => {
+    expect(splitSelectorSuffix("/root/a.md")).toStrictEqual({
+      path: "/root/a.md",
+    });
+  });
+
+  it("keeps a colon inside a directory name on the path", () => {
+    expect(splitSelectorSuffix("/root/we:ird/a.md")).toStrictEqual({
+      path: "/root/we:ird/a.md",
+    });
+  });
+
+  it.each([
+    ["/root/a.md:41-53", "/root/a.md", "41-53"],
+    ["/root/a.md:raw", "/root/a.md", "raw"],
+    ["/root/a.md:raw:1-2000", "/root/a.md", "raw:1-2000"],
+    ["/root/a.md:outline", "/root/a.md", "outline"],
+    ["/root/a.md:outline:5+3", "/root/a.md", "outline:5+3"],
+    ["/root/a.md:outline:raw", "/root/a.md:outline", "raw"],
+  ])("splits %s", (input, path, selector) => {
+    expect(splitSelectorSuffix(input)).toStrictEqual({ path, selector });
+  });
+
+  it("splits a trailing suffix the caller must validate", () => {
+    expect(splitSelectorSuffix("/root/notes:nonsense")).toStrictEqual({
+      path: "/root/notes",
+      selector: "nonsense",
+    });
+  });
 });

@@ -16,6 +16,7 @@
 import type { ModelMessage } from 'ai';
 
 import type { AuthoredContextItemPart } from '../chats/context-item';
+import type { ReadPage } from '../instructions/instruction-files';
 import type { ToolResult } from '../tools/types';
 
 export interface InRunContextItems {
@@ -177,9 +178,6 @@ export function createInRunContextItems(): InRunContextItems {
 /** In-Run context producers registered with the Run executor. */
 export const IN_RUN_CONTEXT_PRODUCER = Symbol('IN_RUN_CONTEXT_PRODUCER');
 
-/** One audited, system-origin native read page a producer may request. */
-export type InRunReadPage = (selectorPath: string) => Promise<ToolResult>;
-
 /** One tool call a producer observes. */
 export interface InRunToolCall {
   readonly toolName: string;
@@ -200,12 +198,12 @@ export interface InRunAttempt {
   readonly chatId: string;
   readonly userId: string;
   /** Keys already disclosed to the attempt's effective context. */
-  readonly seenKeys?: ReadonlyArray<string>;
+  readonly seenKeys?: ReadonlySet<string>;
   /**
    * Reads one audited page for this attempt. Absent when the producer may not
    * load at all — the `read` tool or a native executor is missing.
    */
-  readonly readPage?: InRunReadPage;
+  readonly readPage?: ReadPage;
   /** The Run's own abort signal; a producer must stop loading once it fires. */
   readonly abortSignal?: AbortSignal;
 }

@@ -27,7 +27,11 @@ import {
   createDerivedAdmission,
   type DerivedDecisionRecord,
 } from '../tools/web-read/admission';
-import { nativeEditTool, nativeReadTool } from '../tools/native-files';
+import {
+  nativeEditTool,
+  nativeReadTool,
+  nativeWriteTool,
+} from '../tools/native-files';
 import { searchConversationsTool } from '../tools/search-conversations';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { NativeFilesRepository } from './native-files-repository';
@@ -76,6 +80,7 @@ import {
 } from '../chats/context-item';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { createModelChangeItem } from '../chats/context-item-producers';
+import { createInstructionsItem } from '../chats/instructions-item';
 import { createInstructionsProducer } from '../instructions/instructions-producer';
 import type {
   InRunAttemptProducer,
@@ -8274,27 +8279,51 @@ describe('RunExecutionService instruction files', () => {
     );
   }
 
-  /** One `read` of `readPath` as the model's first step. */
-  function providerReadCall(readPath: string) {
-    return providerResponse(
-      [
+  /** One stored instructions part naming the root's `AGENTS.md`. */
+  function instructionItem(root: string): AuthoredContextItemPart {
+    const file = path.join(root, 'AGENTS.md');
+    return createInstructionsItem({
+      runId,
+      files: [
         {
-          type: 'tool-call',
-          toolCallId: 'read-trigger',
-          toolName: 'read',
-          input: JSON.stringify({ path: readPath }),
+          path: file,
+          canonicalPath: file,
+          content: 'run the tests\n',
+          truncated: false,
+          omittedBytes: 0,
         },
       ],
-      'tool-calls',
-    );
+      denied: [],
+    });
   }
 
   /** A model that reads `readPath` in its first step, then answers. */
   function readThenAnswerClient(readPath: string) {
     return createToolLoopClient([
-      providerReadCall(readPath),
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'read-trigger',
+            toolName: 'read',
+            input: JSON.stringify({ path: readPath }),
+          },
+        ],
+        'tool-calls',
+      ),
       providerText('answer'),
     ]);
+  }
+
+  /** Drives the captured stream's bound `read` tool as one model call. */
+  async function executeModelRead(
+    options: StreamOptions,
+    readPath: string,
+    toolCallId: string,
+  ): Promise<void> {
+    const bound = options.tools?.['read'];
+    if (!bound?.execute) throw new Error('read was not offered to the model');
+    await bound.execute({ path: readPath }, { toolCallId, messages: [] });
   }
 
   /** The `instructions` items the completed Run record carries, in order. */
@@ -8409,76 +8438,6 @@ describe('RunExecutionService instruction files', () => {
     }
   });
 
-  it('keeps a denied in-Run candidate out of the text and audits the denial', async () => {
-    const root = instructionsRoot('AGENTS.md');
-    writeFileSync(path.join(root, 'CLAUDE.local.md'), 'local rules\n');
-    const touch = touchFile(root);
-    try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChatTo(root);
-      serveNativeReads();
-      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
-      const { client } = readThenAnswerClient(touch);
-      const execution = makeExecutionService(
-        client,
-        undefined,
-        'host-a',
-        executionOptions(
-          compileToolPermissionMap(
-            {
-              read: {
-                allow: true,
-                reject: [
-                  { field: 'path', literal: path.join(root, 'AGENTS.md') },
-                ],
-              },
-              enter_workspace: { allow: true },
-            },
-            'instructions-test-policy',
-          ),
-        ),
-      );
-
-      const result = await execution.service.executeRun(executionInput(client));
-      await expect(result.text).resolves.toBe('answer');
-      await vi.waitFor(() =>
-        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
-      );
-      const instruction = storedInstructionPart(repositories);
-      expect(instruction).toBeDefined();
-      // The denied path is owner-only metadata: never in the model's text.
-      expect(instruction?.data.payload).toMatchObject({
-        denied: [path.join(root, 'AGENTS.md')],
-      });
-      expect(instruction?.data.text).not.toContain('AGENTS.md');
-      expect(instruction?.data.text).toContain('local rules');
-      const reads = eventsWithOrigin(append, 'instructions');
-      expect(reads.map((record) => record.type)).toEqual([
-        'tool.requested',
-        'tool.completed',
-        'tool.requested',
-        'tool.completed',
-      ]);
-      expect(reads[0]?.payload).toMatchObject({
-        input: { path: `${path.join(root, 'AGENTS.md')}:raw:1-2000` },
-        permission: { decision: 'reject' },
-      });
-      expect(reads[1]?.payload).toMatchObject({ status: 'error' });
-      // A rejected call never started; the allowed sibling did.
-      expect(eventsForCall(append, callIdOf(reads[0]?.payload))).toEqual([
-        'tool.requested',
-        'tool.completed',
-      ]);
-      expect(eventsForCall(append, callIdOf(reads[2]?.payload))).toEqual([
-        'tool.requested',
-        'tool.started',
-        'tool.completed',
-      ]);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
   it('loads nothing in-Run when no native executor is configured', async () => {
     const root = instructionsRoot();
     const touch = touchFile(root);
@@ -8504,6 +8463,306 @@ describe('RunExecutionService instruction files', () => {
       expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
       expect(instructionItems(repositories)).toEqual([]);
       expect(storedInstructionPart(repositories)).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('loads nothing in-Run when read is not allowlisted', async () => {
+    const root = instructionsRoot();
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      // The trigger fires at admission; the write's own execution is not
+      // under test here.
+      vi.spyOn(nativeWriteTool, 'execute').mockResolvedValue({
+        status: 'success',
+      });
+      // `write` is a trigger like any other, but `read` absent from the
+      // operator allowlist closes the gate on the whole producer.
+      const { client } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: 'write-trigger',
+              toolName: 'write',
+              input: JSON.stringify({
+                path: path.join(root, 'new.ts'),
+                content: 'export const y = 2;\n',
+              }),
+            },
+          ],
+          'tool-calls',
+        ),
+        providerText('answer'),
+      ]);
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'write'],
+        permissionPolicy: compileTestPermissionPolicy(['write']),
+        inRunProducer: createInstructionsProducer(),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+      // The trigger fired on admission, but no page reader exists: nothing
+      // may load, mark, or audit.
+      expect(eventsForCall(append, 'write-trigger')).toContain(
+        'tool.requested',
+      );
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+      expect(instructionItems(repositories)).toEqual([]);
+      expect(storedInstructionPart(repositories)).toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps instruction read ids distinct across attempts of one Run', async () => {
+    const root = instructionsRoot();
+    const touch = touchFile(root);
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const attemptIds = [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ];
+      const callIds: Array<string> = [];
+      for (const attemptId of attemptIds) {
+        repositories.markStarted.mockResolvedValue({
+          ...run,
+          activeAttemptId: attemptId,
+        });
+        append.mockClear();
+        const { client } = readThenAnswerClient(touch);
+        const execution = makeExecutionService(
+          client,
+          undefined,
+          'host-a',
+          executionOptions(),
+        );
+
+        const result = await execution.service.executeRun(
+          executionInput(client),
+        );
+        await expect(result.text).resolves.toBe('answer');
+        await vi.waitFor(() =>
+          expect(eventsWithOrigin(append, 'instructions')).toHaveLength(2),
+        );
+        const reads = eventsWithOrigin(append, 'instructions');
+        callIds.push(callIdOf(reads[0]?.payload));
+      }
+      expect(callIds).toEqual([
+        `instructions-${runId}-${attemptIds[0]}-1`,
+        `instructions-${runId}-${attemptIds[1]}-1`,
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reloads a file whose item a compaction absorbed', async () => {
+    const root = instructionsRoot();
+    const touch = touchFile(root);
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const item = instructionItem(root);
+      vi.spyOn(
+        CompactionsRepository.prototype,
+        'findLatestByChatId',
+      ).mockResolvedValue({
+        id: '99999999-9999-4999-8999-999999999999',
+        chatId,
+        uptoSeq: 1,
+        parentId: null,
+        summary: 'Earlier turns, summarized.',
+        replacementHistory: [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'Summarized prefix request' }],
+          },
+        ],
+        usage: null,
+        createdAt: now,
+      });
+      // The item sits before the cutoff, so the effective history read (the
+      // one carrying `sinceSeq`) does not return it.
+      const findByChatId = vi
+        .spyOn(MessagesRepository.prototype, 'findByChatId')
+        .mockImplementation((_chatId, _ownerUserId, options) =>
+          Promise.resolve(
+            options?.sinceSeq === undefined
+              ? [{ ...userMessage, parts: [item] }]
+              : [userMessage],
+          ),
+        );
+      const { client } = readThenAnswerClient(touch);
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+
+      expect(findByChatId).toHaveBeenCalledWith(
+        chatId,
+        userId,
+        expect.objectContaining({ sinceSeq: 1 }),
+      );
+      // The item is gone from effective history: the trigger reloads the file.
+      expect(instructionItems(repositories)).toHaveLength(1);
+      expect(storedInstructionPart(repositories)?.data.text).toContain(
+        'run the tests',
+      );
+      expect(eventsWithOrigin(append, 'instructions')).toHaveLength(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rebuilds the seen set when a transition compaction replaces the history', async () => {
+    const root = instructionsRoot();
+    const touch = touchFile(root);
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const item = instructionItem(root);
+      // The first build's history names the file; the rebuilt history, read
+      // after the transition compaction, does not.
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId')
+        .mockResolvedValueOnce([{ ...userMessage, parts: [item] }])
+        .mockResolvedValue([userMessage]);
+      const { client } = readThenAnswerClient(touch);
+      let contextWindowTokens = 1;
+      const mutableClient: ModelClient = {
+        ...client,
+        get contextWindowTokens() {
+          return contextWindowTokens;
+        },
+      };
+      const execution = makeExecutionService(
+        mutableClient,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+      execution.compactForTransition.mockImplementation(() => {
+        contextWindowTokens = 128_000;
+        return Promise.resolve('created' as const);
+      });
+
+      const result = await execution.service.executeRun({
+        ...executionInput(mutableClient),
+        userMessage: {
+          id: messageId,
+          seq: 1,
+          parts: [
+            createModelChangeItem({
+              oldModel: { id: 'old-model' },
+              newModel: { id: 'fake-model' },
+              runId,
+            }),
+          ],
+        },
+      });
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+
+      expect(execution.compactForTransition).toHaveBeenCalledTimes(1);
+      // The rebuilt history dropped the item, so the trigger loads the file
+      // again — the pre-compaction seen set does not survive the rebuild.
+      expect(instructionItems(repositories)).toHaveLength(1);
+      expect(storedInstructionPart(repositories)?.data.text).toContain(
+        'run the tests',
+      );
+      expect(
+        eventsWithOrigin(append, 'instructions')[0]?.payload,
+      ).toMatchObject({
+        input: { path: `${path.join(root, 'AGENTS.md')}:raw:1-2000` },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('settles an in-flight instruction read when the run aborts', async () => {
+    const root = instructionsRoot();
+    const touch = touchFile(root);
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      const controller = new AbortController();
+      // The instruction read never settles on its own: only the abort (and
+      // the runner's signal race) can end it.
+      vi.spyOn(nativeReadTool, 'execute').mockImplementation(
+        (_context, input) =>
+          input.path.includes(':raw:')
+            ? new Promise<ToolResult>(() => {})
+            : Promise.resolve({
+                status: 'success' as const,
+                kind: 'file' as const,
+                content: 'export const main = 1;\n',
+                truncated: false,
+              }),
+      );
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const capturing = makeCapturingClient();
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+      const options = capturing.streamOptions();
+      await executeModelRead(options, touch, 'read-trigger');
+      const step = options.onStepStart?.({ messages: [], stepNumber: 1 });
+      await vi.waitFor(() =>
+        expect(eventsWithOrigin(append, 'instructions')).toHaveLength(1),
+      );
+      const instructionCall = callIdOf(
+        eventsWithOrigin(append, 'instructions')[0]?.payload,
+      );
+
+      controller.abort();
+      await Promise.resolve(step).catch(() => {});
+      await vi.waitFor(() =>
+        expect(repositories.markFinished).toHaveBeenCalledWith(
+          runId,
+          userId,
+          'cancelled',
+          expect.anything(),
+        ),
+      );
+      // The reserved call is settled exactly once, by the abort: the
+      // in-flight read never publishes a second completion.
+      expect(eventsForCall(append, instructionCall)).toEqual([
+        'tool.requested',
+        'tool.started',
+        'tool.completed',
+      ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

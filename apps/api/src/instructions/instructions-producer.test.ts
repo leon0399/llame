@@ -23,12 +23,9 @@ import {
   isInstructionsPayload,
   instructionsSeenPaths,
 } from '../chats/instructions-item';
-import type {
-  InRunAttemptProducer,
-  InRunReadPage,
-  InRunToolCall,
-} from '../runs/in-run-context-items';
-import { enterWorkspaceTool } from '../tools/workspace';
+import type { ReadPage } from './instruction-files';
+import type { InRunToolCall } from '../runs/in-run-context-items';
+import { enterWorkspaceTool, exitWorkspaceTool } from '../tools/workspace';
 import { createInstructionsProducer } from './instructions-producer';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -50,23 +47,10 @@ async function write(path: string, content: string): Promise<void> {
   await writeFile(path, content);
 }
 
-/** A page reader over real files, plus the selectors it was asked for. */
-interface PageReaderFixture {
-  readonly readPage: InRunReadPage;
-  readonly reads: Array<string>;
-}
-
-/** One attempt's producer, plus the items each step staged. */
-interface AttemptFixture {
-  readonly producer: InRunAttemptProducer;
-  readonly staged: Array<AuthoredContextItemPart>;
-  readonly prepare: () => Promise<void>;
-}
-
 /** A page reader over the real files, recording every selector it was asked for. */
-function pageReader(): PageReaderFixture {
+function pageReader() {
   const reads: Array<string> = [];
-  const readPage: InRunReadPage = async (selectorPath) => {
+  const readPage: ReadPage = async (selectorPath) => {
     reads.push(selectorPath);
     const marker = selectorPath.lastIndexOf(':raw:');
     const path = marker < 0 ? selectorPath : selectorPath.slice(0, marker);
@@ -77,17 +61,24 @@ function pageReader(): PageReaderFixture {
 }
 
 /** One attempt's producer plus the items it stages at each step. */
-function attemptOf(input: {
-  readonly seenKeys?: ReadonlyArray<string>;
-  readonly readPage?: InRunReadPage;
-}): AttemptFixture {
+function attemptOf(
+  input: {
+    readonly seenKeys?: ReadonlySet<string>;
+    /** `null` builds the attempt with no page reader at all. */
+    readonly readPage?: ReadPage | null;
+  } = {},
+) {
   const staged: Array<AuthoredContextItemPart> = [];
+  const readPage =
+    input.readPage === null
+      ? undefined
+      : (input.readPage ?? pageReader().readPage);
   const producer = createInstructionsProducer().beginAttempt({
     runId: RUN_ID,
     chatId: '22222222-2222-4222-8222-222222222222',
     userId: 'owner',
     ...(input.seenKeys !== undefined && { seenKeys: input.seenKeys }),
-    ...(input.readPage !== undefined && { readPage: input.readPage }),
+    ...(readPage !== undefined && { readPage }),
   });
   return {
     producer,
@@ -142,9 +133,7 @@ describe('instructions producer triggers', () => {
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
     // A sibling of the touched directory is never visited.
     await write(join(root, 'apps/web/AGENTS.md'), 'web rules\n');
-    const { producer, staged, prepare } = attemptOf({
-      readPage: pageReader().readPage,
-    });
+    const { producer, staged, prepare } = attemptOf();
 
     producer.observeToolCall?.(readCall(join(root, 'apps/api/src/x.ts')));
     await prepare();
@@ -169,9 +158,7 @@ describe('instructions producer triggers', () => {
     await write(join(root, 'apps/api/src/AGENTS.md'), 'src rules\n');
 
     for (const suffix of [':40-80', ':outline', ':raw:1-2000']) {
-      const { producer, staged, prepare } = attemptOf({
-        readPage: pageReader().readPage,
-      });
+      const { producer, staged, prepare } = attemptOf();
       producer.observeToolCall?.(
         readCall(`${join(root, 'apps/api/src/x.ts')}${suffix}`),
       );
@@ -186,7 +173,7 @@ describe('instructions producer triggers', () => {
   it('projects a relative path against the root and a file alias to its host path', async () => {
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
 
-    const relative = attemptOf({ readPage: pageReader().readPage });
+    const relative = attemptOf();
     relative.producer.observeToolCall?.({
       toolName: 'read',
       input: { path: 'apps/api/src/x.ts' },
@@ -197,7 +184,7 @@ describe('instructions producer triggers', () => {
       join(root, 'apps/api/AGENTS.md'),
     ]);
 
-    const aliased = attemptOf({ readPage: pageReader().readPage });
+    const aliased = attemptOf();
     aliased.producer.observeToolCall?.(
       readCall(`file://${join(root, 'apps/api/src/x.ts')}`),
     );
@@ -211,9 +198,7 @@ describe('instructions producer triggers', () => {
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
 
     for (const toolName of ['edit', 'write']) {
-      const { producer, staged, prepare } = attemptOf({
-        readPage: pageReader().readPage,
-      });
+      const { producer, staged, prepare } = attemptOf();
       producer.observeToolCall?.(
         readCall(join(root, 'apps/api/x.ts'), toolName),
       );
@@ -234,9 +219,7 @@ describe('instructions producer triggers', () => {
       readCall('https://example.com/AGENTS.md'),
       readCall(join(root, 'apps/api/x.ts'), 'search_conversations'),
     ];
-    const { producer, staged, prepare } = attemptOf({
-      readPage: pageReader().readPage,
-    });
+    const { producer, staged, prepare } = attemptOf();
     for (const call of ignored) producer.observeToolCall?.(call);
     await prepare();
     expect(staged).toEqual([]);
@@ -251,9 +234,7 @@ describe('instructions producer triggers', () => {
       ['unchanged', 0],
       ['fence_lost', 0],
     ] as const) {
-      const { producer, staged, prepare } = attemptOf({
-        readPage: pageReader().readPage,
-      });
+      const { producer, staged, prepare } = attemptOf();
       producer.observeToolCall?.({
         toolName: enterWorkspaceTool.id,
         input: { path: root },
@@ -269,9 +250,7 @@ describe('instructions producer triggers', () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
     await write(join(root, 'apps/web/AGENTS.md'), 'web rules\n');
-    const { producer, staged, prepare } = attemptOf({
-      readPage: pageReader().readPage,
-    });
+    const { producer, staged, prepare } = attemptOf();
 
     // Touched widest-first: the bundle still walks broadest-first.
     producer.observeToolCall?.(readCall(join(root, 'apps/web/b.ts')));
@@ -291,7 +270,7 @@ describe('instructions producer triggers', () => {
     const canonical = await realpath(join(root, 'AGENTS.md'));
     const { readPage, reads } = pageReader();
     const { producer, staged, prepare } = attemptOf({
-      seenKeys: [canonical],
+      seenKeys: new Set([canonical]),
       readPage,
     });
 
@@ -305,9 +284,7 @@ describe('instructions producer triggers', () => {
   it('skips a candidate the read itself disclosed without marking it seen', async () => {
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
     await write(join(root, 'apps/api/CLAUDE.local.md'), 'local rules\n');
-    const { producer, staged, prepare } = attemptOf({
-      readPage: pageReader().readPage,
-    });
+    const { producer, staged, prepare } = attemptOf();
 
     producer.observeToolCall?.(readCall(join(root, 'apps/api/AGENTS.md')));
     await prepare();
@@ -329,22 +306,10 @@ describe('instructions producer triggers', () => {
     ]);
   });
 
-  it('loads nothing for a denied call and nothing without a page reader', async () => {
+  it('loads nothing without a page reader', async () => {
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
-    const denied = attemptOf({ readPage: pageReader().readPage });
-    denied.producer.observeToolCall?.({
-      ...readCall(join(root, 'apps/api/x.ts')),
-      result: {
-        status: 'error',
-        type: 'permission_denied',
-        message: 'Denied by policy.',
-      },
-    });
-    await denied.prepare();
-    expect(denied.staged).toEqual([]);
-
     // The read gate: no page reader means no trigger can load anything.
-    const gated = attemptOf({});
+    const gated = attemptOf({ readPage: null });
     gated.producer.observeToolCall?.(readCall(join(root, 'apps/api/x.ts')));
     await gated.prepare();
     expect(gated.staged).toEqual([]);
@@ -358,9 +323,7 @@ describe('instructions producer triggers', () => {
       join(root, 'apps/api/AGENTS.md'),
       join(root, 'apps/api/src/AGENTS.md'),
     );
-    const { producer, staged, prepare } = attemptOf({
-      readPage: pageReader().readPage,
-    });
+    const { producer, staged, prepare } = attemptOf();
 
     producer.observeToolCall?.(readCall(join(root, 'apps/api/src/x.ts')));
     await prepare();
@@ -374,9 +337,7 @@ describe('instructions producer triggers', () => {
   it("loads a directory read as that directory's own chain", async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
-    const { producer, staged, prepare } = attemptOf({
-      readPage: pageReader().readPage,
-    });
+    const { producer, staged, prepare } = attemptOf();
 
     producer.observeToolCall?.(readCall(join(root, 'apps/api')));
     await prepare();
@@ -390,9 +351,7 @@ describe('instructions producer triggers', () => {
   it('loads nothing for an empty candidate and does not mark it seen', async () => {
     await write(join(root, 'AGENTS.md'), '');
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
-    const { producer, staged, prepare } = attemptOf({
-      readPage: pageReader().readPage,
-    });
+    const { producer, staged, prepare } = attemptOf();
 
     // The empty root file ends its chain: the nested chain still loads.
     producer.observeToolCall?.(readCall(join(root, 'apps/api/x.ts')));
@@ -404,5 +363,148 @@ describe('instructions producer triggers', () => {
     // Being absent from the payload, the empty file stays unseen.
     const later = await realpath(join(root, 'AGENTS.md'));
     expect(seenKeys(lastStaged(staged))).not.toContain(later);
+  });
+
+  it('resolves a relative read against the root in effect for the call', async () => {
+    await write(join(root, 'AGENTS.md'), 'old root rules\n');
+    await write(join(root, 'apps/api/AGENTS.md'), 'old api rules\n');
+    const newRoot = await mkdtemp(join(tmpdir(), 'llame-instructions-new-'));
+    await write(join(newRoot, 'AGENTS.md'), 'new root rules\n');
+    await write(join(newRoot, 'apps/api/AGENTS.md'), 'new api rules\n');
+    try {
+      const { producer, staged, prepare } = attemptOf();
+
+      // The entry names the new root, but the same step's relative read still
+      // resolves against the root in effect for its own call.
+      producer.observeToolCall?.({
+        toolName: enterWorkspaceTool.id,
+        input: { path: newRoot },
+        workspaceRoot: undefined,
+        result: { status: 'success', root: newRoot, state: 'bound' },
+      });
+      producer.observeToolCall?.({
+        toolName: 'read',
+        input: { path: 'apps/api/x.ts' },
+        workspaceRoot: root,
+      });
+      await prepare();
+
+      const paths = blockPaths(lastStaged(staged));
+      expect(paths).toContain(join(root, 'AGENTS.md'));
+      expect(paths).toContain(join(root, 'apps/api/AGENTS.md'));
+      expect(paths).toContain(join(newRoot, 'AGENTS.md'));
+      expect(paths).not.toContain(join(newRoot, 'apps/api/AGENTS.md'));
+    } finally {
+      await rm(newRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('normalizes dot segments before resolving the touched directory', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await write(join(root, 'apps/AGENTS.md'), 'apps rules\n');
+    const { producer, staged, prepare } = attemptOf();
+
+    // The model read the root candidate through a `..` detour: the trigger is
+    // the root directory, not a directory the raw spelling passes through.
+    // (`join` would normalize the path, so the literal keeps the detour.)
+    producer.observeToolCall?.(readCall(`${root}/apps/../AGENTS.md`));
+    await prepare();
+
+    // Nothing loads: no `/apps` chain, and the root candidate itself is
+    // excluded because the read named it.
+    expect(staged).toEqual([]);
+
+    // Excluded, not marked seen: a later touch loads the root file.
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+    expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([
+      join(root, 'AGENTS.md'),
+    ]);
+  });
+
+  it('loads the ancestors for an allowed call that fails', async () => {
+    await write(join(root, 'apps/web/AGENTS.md'), 'web rules\n');
+    const { producer, staged, prepare } = attemptOf();
+
+    // A write into a directory that does not exist yet: the call fails, and
+    // the trigger still loads the parents' chain from the next step.
+    producer.observeToolCall?.(
+      readCall(join(root, 'apps/web/src/new.tsx'), 'write'),
+    );
+    await prepare();
+
+    expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([
+      join(root, 'apps/web/AGENTS.md'),
+    ]);
+  });
+
+  it('marks nothing for exit_workspace', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    const { producer, staged, prepare } = attemptOf();
+
+    producer.observeToolCall?.({
+      toolName: exitWorkspaceTool.id,
+      input: {},
+      workspaceRoot: root,
+      result: { status: 'success', state: 'exited' },
+    });
+    await prepare();
+
+    expect(staged).toEqual([]);
+  });
+
+  it('stays silent for a symlink whose target an earlier trigger loaded', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await mkdir(join(root, 'apps/api'), { recursive: true });
+    await symlink(join(root, 'AGENTS.md'), join(root, 'apps/api/AGENTS.md'));
+    const { producer, staged, prepare } = attemptOf();
+
+    // The first trigger loads the target under its own path.
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+    expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([
+      join(root, 'AGENTS.md'),
+    ]);
+
+    // The link is the same file: the second trigger produces nothing new.
+    producer.observeToolCall?.(readCall(join(root, 'apps/api/y.ts')));
+    await prepare();
+    expect(staged).toHaveLength(1);
+  });
+
+  it('re-evaluates a denied candidate on a later trigger', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    let deny = true;
+    const reads: Array<string> = [];
+    const readPage: ReadPage = (selectorPath) => {
+      reads.push(selectorPath);
+      if (deny) {
+        return Promise.resolve({
+          status: 'error',
+          type: 'permission_denied',
+          message: 'Denied by policy.',
+        });
+      }
+      return Promise.resolve({
+        status: 'success',
+        kind: 'file',
+        content: 'root rules\n',
+        truncated: false,
+      });
+    };
+    const { producer, staged, prepare } = attemptOf({ readPage });
+
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+    expect(staged).toEqual([]);
+
+    // A denial is not seen, so the next trigger evaluates the candidate again.
+    deny = false;
+    producer.observeToolCall?.(readCall(join(root, 'y.ts')));
+    await prepare();
+    expect(reads).toHaveLength(2);
+    expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([
+      join(root, 'AGENTS.md'),
+    ]);
   });
 });

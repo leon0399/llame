@@ -150,6 +150,36 @@ describe('createRunEventTranslator', () => {
     ).toEqual([]);
   });
 
+  it('emits no UI chunk for an instructions-origin system read', () => {
+    const t = createRunEventTranslator('run-instructions');
+
+    // The instruction-file reads are llame's own, so they have no tool part
+    // in the UI either: both events must be inert.
+    expect(
+      t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'instructions-1',
+          toolName: 'read',
+          input: { path: '/repo/AGENTS.md:raw:1-2000' },
+          origin: 'instructions',
+        },
+      }),
+    ).toEqual([]);
+    expect(
+      t.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'instructions-1',
+          toolName: 'read',
+          status: 'success',
+          output: { status: 'success', content: 'repo rules' },
+          origin: 'instructions',
+        },
+      }),
+    ).toEqual([]);
+  });
+
   it('a run that fails before any delta emits start + error only', () => {
     const t = createRunEventTranslator('run-2');
 

@@ -4,6 +4,7 @@ export {
   NativeFileError,
   parsePathScheme,
   resolveReadTarget,
+  splitSelectorSuffix,
 } from "./path";
 export type { ReadTarget } from "./path";
 export {
