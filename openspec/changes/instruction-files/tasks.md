@@ -66,7 +66,9 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [ ] 1.4 Append in-Run items to the Run context-item record after the final request's items in
       step order, with producer, form, and residency, committed with turn publication. Verify
       `GET /api/v1/runs/:id/context-items` returns them for the owner and 404 for another
-      owner, and that a Run whose preparation fails records `null`.
+      owner, that the recorded text equals the stored part text exactly, that an item with empty
+      text stays in the record with empty text, and that a Run whose preparation fails records
+      `null`.
 - [ ] 1.5 Update `SPEC.md`'s context-rail lines for the second carrier and add a dated
       `CHANGELOG.md` entry. Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the
       focused integration files touched above, `pnpm format:check`, `pnpm lint:markdown`,
@@ -75,7 +77,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [ ] 1.6 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix accepted
       findings, and rerun affected checks before marking ready.
 - [ ] 1.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head CI
-      and zero actionable unresolved feedback before adding the `producer` layer.
+      and zero actionable unresolved feedback before adding the `loading` layer.
 
 ## 2. `instruction-files/loading`: probe, chains, walk, reader, and template
 
@@ -100,8 +102,8 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [ ] 2.3 Add the paged candidate reader over an injected page reader: bounded
       `:raw:<from>-<to>` pages of at most 2,000 lines, each starting after the last complete line
       collected, until the file ends, 32 KiB of UTF-8 is collected, or a page returns no new
-      line; a denial on any page is a denied file and any other failure a failed file (design
-      D6). Verify with the real native `read`: a 20 KiB file read in two pages and returned whole,
+      line; a continuation page past the end of the file ends collection, a denial on any page is
+      a denied file, and any other failure a failed file (design D6). Verify with the real native `read`: a 20 KiB file read in two pages and returned whole,
       a 40 KiB file cut at 32 KiB on a UTF-8 boundary with the omitted count from the probed
       size, a file whose third line exceeds a result cut after two lines, a reject rule denied,
       and a missing file failed.
@@ -147,7 +149,8 @@ Re-estimate authored size at each layer boundary and before publication; split a
       events create no assistant tool part on the live, reconstructed, and recovered paths
       (design D6). Read each existing candidate through it with the layer-2 reader; drop denied
       and failed files without naming them; require `read` in `tools.allowed` and a configured
-      native executor. Verify the audit events and origin for an allowed read, a reject-rule
+      native executor. Verify the audit events and origin for an allowed read, one audited read
+      per page for a file longer than one read result, a reject-rule
       denial recorded as a denied read and absent from the text, no events for missing
       candidates, bypass mode recorded as bypass, no assistant tool part on any of the three
       paths, and a negative isolation test that owner B cannot read owner A's resulting activity

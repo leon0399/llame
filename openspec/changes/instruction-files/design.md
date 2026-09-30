@@ -189,7 +189,7 @@ boundary, so entry's own step never loads.
 Probing nine names per directory through the permission evaluator would write dozens of
 `not_found` audit rows per trigger. The runner has no probe today: every read passes
 `admitToolCall` and `evaluateToolPermission` before execution
-(`apps/api/src/tools/runner.ts:247-270`). Layer 2 adds one executor-side `stat` (following
+(`apps/api/src/tools/runner.ts:247-270`). The `loading` layer adds one executor-side `stat` (following
 symlinks, returning existence, kind, size, and canonical path) to the native-files module,
 outside the runner, with no decision and no audit row; it reveals nothing to the model, and
 the owner learns only of a candidate that exists and is then denied. Each existing candidate
@@ -197,7 +197,7 @@ is then read through `runTool(nativeReadTool)`. `runTool` itself only admits and
 (`apps/api/src/tools/runner.ts:247-285`); the origin tag and the
 `tool.requested`/`started`/`completed` events come from the caller, as skill activation does
 by passing `activity.admitted` and calling `activity.completed` around the call
-(`apps/api/src/skills/skill-activation.ts:279-282`). Layer 2 therefore adds an in-Run
+(`apps/api/src/skills/skill-activation.ts:279-282`). The `producer` layer therefore adds an in-Run
 system-read helper on the worker closure that already holds the Run's tool context and
 event machinery (`run-execution.service.ts:978-1000,1407-1458`): it reserves an
 origin-tagged call, awaits ordered admission persistence, invokes `runTool`, records
@@ -313,11 +313,13 @@ skills.
 ## Migration Plan
 
 No schema change. Deploy by process upgrade in stack order: the carrier layer
-(`in-run-context-items`) merges and deploys to every API and worker process before the
-producer layer (`producer`) authors any `instructions` item, so no process ever meets an
-assistant-message `data-context` part it cannot replay. Old assistant messages carry no such
-part and replay unchanged. Rollback stops at the carrier: revert or hold back the producer
-layer, which ends new authoring while the carrier keeps replaying parts already stored.
+(`in-run-context-items`) merges and deploys to every API and worker process before any layer
+that authors `instructions` items (`producer` in-Run, `turn-load` at accepted turns), so no
+process ever meets an assistant-message `data-context` part it cannot replay. `loading`
+authors nothing and is safe to deploy at any point after the carrier. Old assistant messages
+carry no such part and replay unchanged. Rollback stops at the carrier: revert or hold back
+every layer from `producer` up, which ends new authoring while the carrier keeps replaying
+parts already stored.
 Downgrading below the carrier is not a supported rollback, because a pre-carrier worker
 replays an assistant-message `data-context` part as an unknown part and omits its text from
 model context; the stored history survives, its model-facing meaning does not.
@@ -337,7 +339,9 @@ rule.
   downgrade was harmless. D7 records the transition-compaction reset; D8 states that the
   payload is the private metadata. D6 and the spec now continue paging after the last complete
   line collected rather than at `nextOffset`, which skips a line the reader cannot render; the
-  cut at that line is what the spec already required. No other behavior changes.
+  cut at that line is what the spec already required. A continuation page past the end of the file ends
+  collection rather than failing it. The Migration Plan covers every implementation layer. No
+  other behavior changes.
 - **v3 (2026-09-29, review round 2):** Paging uses bounded one-based `:raw:<from>-<to>`
   selectors, since no open-ended form exists, and stops on an oversized line (D6). The
   in-Run system-read helper and the `instructions` origin are named as layer-2 work, since
