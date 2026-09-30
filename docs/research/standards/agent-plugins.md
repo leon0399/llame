@@ -39,8 +39,8 @@ sources:
 A directory package with a root `plugin.json`. The portable core bundles
 exactly two component types: Agent Skills under `skills/<name>/SKILL.md` and MCP
 servers in a root `mcp.json`[^agent-plugins-spec]. Google announced on
-2026-08-06 that it joins as a core maintainer[^google-agent-plugins]; the pinned
-maintainers file does not list that person yet.
+2026-08-06 that it joins as a core maintainer[^google-agent-plugins]; the
+pinned maintainers file does not list that person yet.
 
 **Mechanics**[^agent-plugins-spec]
 
@@ -57,8 +57,8 @@ maintainers file does not list that person yet.
    reverse-domain `extensions` namespaces.
 5. **Adoption.** Listed clients include VS Code, GitHub Copilot, Cursor,
    ChatGPT and Codex, Kiro, Hermes Agent, OpenClaw and OpenHands[^agent-plugins-clients].
-   Claude Code keeps its own `.claude-plugin/plugin.json`
-   layout[^claude-code-plugins] and is not listed.
+   Claude Code keeps its own `.claude-plugin/plugin.json` layout and is not
+   listed[^claude-code-plugins].
 
 **llame fit: study.** Both components map onto shipped surfaces: the skill
 catalog and operator MCP servers, whose `.mcp.json`-shaped `mcpServers` map
@@ -66,11 +66,10 @@ already uses the same transport names. An operator-installed plugin could feed
 both, with llame's allowlist, permission groups and runtime tool resolution
 unchanged. Owner-installed plugins would be a new tenancy surface.
 
-**Caution:** the core defines no installer, registry, permission model,
-sandbox, provenance or signing; those remain future
-considerations[^agent-plugins-future]. A plugin can start arbitrary stdio
-processes, so for a multi-user host the missing trust model is the whole
-problem, not a detail.
+**Caution:** the core defines no installer, registry, permission model, sandbox,
+provenance or signing; those remain future considerations[^agent-plugins-future].
+A plugin can start arbitrary stdio processes, so on a multi-user host the
+missing trust model is the whole problem, not a detail.
 
 [^agent-plugins-spec]: [Agent Plugins specification 1.0.0](https://github.com/agentplugins/agent-plugins-spec/blob/ff8ab5e392cc87bd88d87c060815a87490e51003/spec/1.0.0.md)
 

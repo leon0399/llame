@@ -44,10 +44,9 @@ sources:
   founding projects[^lf-aaif]. New contributions are Apache-2.0; older ones
   remain MIT.
 
-Only two dated revisions follow `2025-06-18`[^mcp-schema-tree]. llame's
-transport choices are studied in
-[MCP transport](../tool-harness/2026-08-07-mcp-transport.md) and
-[MCP stdio](../tool-harness/2026-08-12-mcp-stdio.md); this note records the
+Only two dated revisions follow `2025-06-18`[^mcp-schema-tree]. llame's transport
+choices are studied in [MCP transport](../tool-harness/2026-08-07-mcp-transport.md)
+and [MCP stdio](../tool-harness/2026-08-12-mcp-stdio.md); this note records the
 protocol deltas since then.
 
 **2025-11-25**[^mcp-changelog-2025-11-25]
@@ -78,30 +77,30 @@ protocol deltas since then.
 5. **Deprecations.** Roots, Sampling, Logging and HTTP+SSE, under a new
    twelve-month deprecation policy.
 
-**Skills over MCP.** The AAIF post (2026-06-18) names the gap: a server ships
-tool names but not the manual for using them, and separately installed skills
-drift from their server[^aaif-skills-over-mcp]. It proposed serving Agent
-Skills as `skill://` resources behind a `skill://index.json` catalog. The final
-design, SEP-2640 (`io.modelcontextprotocol/skills`, merged 2026-09-13), instead
-adds `skills/list` and `skills/get`[^sep-2640]. A listing carries verbatim
-frontmatter and a `{uri, digest, size}` manifest; hosts verify the bytes, keep
-the server identity with the URI, and bind approval to the manifest so that
-changed content needs fresh approval[^ext-skills-spec]. `SKILL.md` format stays
-owned by Agent Skills. Client support is still sparse[^mcp-client-matrix].
+**Skills over MCP.** The AAIF post (2026-06-18) names the gap: a server ships tool
+names but not the manual for using them, and separately installed skills drift
+from their server[^aaif-skills-over-mcp]. It proposed serving Agent Skills as
+`skill://` resources behind a `skill://index.json` catalog. The final design,
+SEP-2640 (`io.modelcontextprotocol/skills`, merged 2026-09-13), instead adds
+`skills/list` and `skills/get`[^sep-2640]. A listing carries verbatim frontmatter
+and a `{uri, digest, size}` manifest; hosts verify the bytes, keep the server
+identity with the URI, and bind approval to the manifest so changed content needs
+fresh approval[^ext-skills-spec]. `SKILL.md` format stays owned by Agent Skills.
+Client support is still sparse[^mcp-client-matrix].
 
 **llame fit: consumed.** Operator MCP servers ship over stdio and Streamable
 HTTP; the newer revisions raise three points:
 
 - **Upgrade gap.** The pinned `@modelcontextprotocol/sdk` 1.29.0 negotiates at
   most `2025-11-25`. A server that speaks only `2026-07-28` cannot complete the
-  old handshake with it; how many servers keep dual support is unmeasured.
-  Watch SDK releases before operators hit this.
-- **Skills over MCP: study.** It would feed llame's skill catalog from
-  operator MCP servers. The digest-bound approval model fits llame's provenance
-  rules; server-supplied instructions are untrusted input and cannot inherit
-  the trust of operator-authored skills.
-- **Tasks and multi-round-trip requests** overlap Run lifecycle and approval.
-  Map them onto Runs, never beside them.
+  old handshake with it; how many servers keep dual support is unmeasured. Watch
+  SDK releases before operators hit this.
+- **Skills over MCP: study.** It would feed llame's skill catalog from operator
+  MCP servers. The digest-bound approval model fits llame's provenance rules;
+  server-supplied instructions are untrusted input and cannot inherit the trust
+  of operator-authored skills.
+- **Tasks and multi-round-trip requests** overlap Run lifecycle and approval. Map
+  them onto Runs, never beside them.
 
 **Caution:** date-based versions hide how breaking `2026-07-28` is. Extensions
 are opt-in and version independently of the core.

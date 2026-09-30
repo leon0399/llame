@@ -57,7 +57,7 @@ implementation-defined[^webmcp-spec].
    user. Schema synthesis details are still open[^webmcp-declarative].
 3. **Lifetime.** Registrations are document-scoped and vanish on navigation;
    a page must be loaded before its tools exist.
-4. **Cloudflare.** An edge bridge injects scripts that register WebMCP tools,
+4. **Cloudflare.** An edge bridge injects scripts registering WebMCP tools,
    including one that proxies an origin's real MCP server under the visitor's
    session[^cloudflare-webmcp]. Browser Run exposes page tools to agents over
    CDP with optional human confirmation[^cloudflare-browser-run-webmcp].

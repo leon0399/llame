@@ -41,25 +41,21 @@ in Chats/Runs and its Knowledge in files.
 **Study**
 
 1. **F1: Readiness and claiming.** Typed dependencies distinguish blockers,
-   hierarchy, and `discovered-from` provenance. Ready-work computation[^internal-storage-issueops-ready-work-go-l44-l72]
+   hierarchy and `discovered-from` provenance. Ready-work computation[^internal-storage-issueops-ready-work-go-l44-l72]
    expands parent descendants before building SQL; ready-and-claim[^internal-storage-issueops-claim-go-l245-l300]
-   uses one transaction. Useful for future goal scheduling without making the
-   model responsible for concurrency.
+   uses one transaction, which suits future goal scheduling without making the model responsible for concurrency.
 2. **F2: Liveness separate from history.** Clone-local leases avoid recording
    every heartbeat in Dolt history. The co-mutation invariant[^internal-storage-issueops-lease-go-l45-l87]
-   names which claim/status writers must serialize with reclaim. Study the
-   invariant; llame already has PostgreSQL locking and pg-boss recovery.
+   names which claim/status writers must serialize with reclaim; llame already
+   has PostgreSQL locking and pg-boss recovery.
 3. **F3: Explicit trace retention.** Wisps[^docs-workflows-wisps-md]
    can be discarded or squashed into a durable digest[^cmd-bd-mol-squash-go-l268-l300]. A future llame digest
    could summarize an outcome, but must not replace source messages or the
    event history required by its replay/provenance contract.
 
 **Caution:** Memory injection[^cmd-bd-prime-go-l519-l587]
-is alphabetic flat KV without timestamps. Its elision count and browse command
-are useful; its byte cap can be exceeded by the first entry. The
-HTTP authentication[^internal-httpapi-auth-go-l16-l27]
-accepts shared bearer tokens for the whole surface, without user identity or
-per-record authorization.
+is alphabetic flat KV without timestamps. Its elision count and browse command are useful; its byte cap can be exceeded by the first entry. The HTTP authentication[^internal-httpapi-auth-go-l16-l27]
+accepts shared bearer tokens for the whole surface, without user identity or per-record authorization.
 
 **Deep dives**
 

@@ -34,14 +34,14 @@ sources:
 
 - **Stack:** Go; Markdown stores; SQLite FTS5; git; MCP stdio server
 
-Small, current reference for staged Markdown memory, imported-store pinning, inline provenance, and write-time secret/PII rejection. Its retrieval evaluation is a deterministic search regression fixture[^docs-eval-retrieval-md-l1-l13]; its behavioral evaluation is explicitly a scaffold with no published number[^eval-behavioural-readme-md-l11-l37]. Applicability is moderate for llame's owner-scoped Knowledge operations and any later imported-store capability.
+Small, current reference for staged Markdown memory, imported-store pinning, inline provenance and write-time secret/PII rejection. Its retrieval evaluation is a deterministic search regression fixture[^docs-eval-retrieval-md-l1-l13]; its behavioral evaluation is explicitly a scaffold with no published number[^eval-behavioural-readme-md-l11-l37]. Applicability is moderate for llame's owner-scoped Knowledge operations and any later imported-store capability.
 
 **Study**
 
-1. **Imported versus local pinning.** `stores.lock`[^internal-config-stores-lock-go-l12-l75] records resolved commits for imported stores and marks non-git local paths `Unlocked`; federation skips unrecorded material[^internal-memory-fetch-stores-go-l10-l25]. High confidence applicability to llame's Knowledge imports and explicit uncertainty.
-2. **Provenance and write gates.** Rendered chunks carry origin and evidence framing[^internal-memory-fetch-go-l540-l559], while secret/PII findings reject the final bytes[^internal-memory-update-go-l464-l492] before staging. Moderate confidence for comparison with llame's native file operations; llame's owner and approval model remains separate.
+1. **Imported versus local pinning.** `stores.lock`[^internal-config-stores-lock-go-l12-l75] records resolved commits for imported stores and marks non-git local paths `Unlocked`; federation skips unrecorded material[^internal-memory-fetch-stores-go-l10-l25]. High confidence applicability to llame's Knowledge imports, with explicit uncertainty.
+2. **Provenance and write gates.** Rendered chunks carry origin and evidence framing[^internal-memory-fetch-go-l540-l559], while secret/PII findings reject the final bytes[^internal-memory-update-go-l464-l492] before staging. Moderate confidence against llame's native file operations; llame's owner and approval model stays separate.
 
-**Caution:** local memory is not content-addressed: `Commit`[^internal-git-commit-go-l45-l86] returns an informational SHA and can swallow `rev-parse` failure. Do not treat it as a verified read snapshot.
+**Caution:** local memory is not content-addressed: `Commit`[^internal-git-commit-go-l45-l86] returns an informational SHA and can swallow `rev-parse` failure. Not a verified read snapshot.
 
 [^docs-eval-retrieval-md-l1-l13]: [deterministic retrieval regression evaluation](https://github.com/xChuCx/agent-memory/blob/e42f455865538a59110c6510ae8e340969feb810/docs/eval/retrieval.md#L1-L13)
 

@@ -29,11 +29,11 @@ sources:
 - **Status:** informal community proposal by Jeremy Howard (Answer.AI), v2
   dated 2026-08-10; v1 was published September 2024; Apache-2.0[^llms-txt-license]
 
-A Markdown file at `/llms.txt`, or at any subpath, that indexes the site
-content beneath it for model consumption[^llmstxt-org]. The most specific
-applicable file wins. Only the H1 is required; a blockquote summary, free
-Markdown sections and H2 link lists (`[name](url): notes`) are optional. v2
-mostly codifies observed practice: link relations, path scoping, both
+A Markdown file at `/llms.txt`, or at any subpath, indexing the site content
+beneath it for model consumption[^llmstxt-org]; the most specific applicable
+file wins. Only the H1 is required; a blockquote summary, free Markdown
+sections and H2 link lists (`[name](url): notes`) are optional. v2 mostly
+codifies observed practice: link relations, path scoping, both
 Markdown-companion URL forms and direct agent consumption[^llmstxt-changes].
 
 **Mechanics**
@@ -53,7 +53,7 @@ Markdown-companion URL forms and direct agent consumption[^llmstxt-changes].
 and walks `llms.txt` from the deepest path segment to the root; see
 [adapter order](../../web-read.md#adapter-order). Two v2 details are not
 followed: the suffix probe tries one companion form per URL shape, and a
-`describedby` link is not used to locate the index. Neither gap has a reported
+`describedby` link does not locate the index. Neither gap has a reported
 failure; treat them as notes, not work.
 
 **Caution:** `llms-full.txt` is not part of the proposal. It is a platform
