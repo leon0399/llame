@@ -13,21 +13,15 @@ approved OpenSpec scope changes.
   inputs for exact values, dates, routing, effort, completion, evidence and memory.
 - [Permission-classifier report](./report.md) - Models, policy ordering, local
   configuration and the original prompt-design trial, with its later correction.
-- [Sources](./sources.jsonl), [evidence](./evidence.jsonl) and
-  [claims](./claims.jsonl) - Source identities and traceable findings.
 - [Sanitized configuration observation](./local-config-observation.json) -
   Relevant settings and versions; no credentials or private infrastructure names.
-- [Manifest](./run_manifest.json), [verification](./verification.json) and
-  [review disposition](./review.json) - Scope, executed checks and the explicit
-  decision not to request another review round.
 - [Frozen fixtures](./experiments/fixtures.mjs) - Policy, expected labels and
   synthetic command/script/evidence cases. Labels are not sent to the model.
 - [Native HTTP runner](./experiments/run.mjs) - No SDK upgrade; no candidate
   command execution; bounded calls, explicit resume and no model fallback.
 - [Primary requests and responses](./experiments/results.jsonl) - 95 successful
   evaluations with exact request hashes, answers, usage and cost metadata.
-- [Failed attempts](./experiments/failed-attempts.jsonl) and
-  [transport record](./experiments/transport.json) - 95 ZDR setup rejections,
+- [Transport record](./experiments/transport.json) - 95 ZDR setup rejections,
   five capacity failures and their resolution. Missing billing cost stays unknown.
 - [Run plans](./experiments/run-plans.json) and [initial smoke](./experiments/smoke.json) -
   Frozen dataset hash, original thresholds, scheduling changes and protocol proof.

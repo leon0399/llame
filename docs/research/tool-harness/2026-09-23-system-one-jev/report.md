@@ -166,9 +166,6 @@ sources:
   - id: "88d63eea2eea07c2"
     resource: "https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/coding-agent/src/session/unexpected-stop-classifier.ts"
     title: "OMP unexpected-stop judgment caller"
-  - id: "9761e6144ef53ed9"
-    resource: "./verification.json"
-    title: "Research execution and verification record"
   - id: "2eec27a5b96e8046"
     resource: "https://github.com/leon0399/llame/blob/e70228485042967fd9545ad0cb133faae1be2268/openspec/specs/tool-calling/spec.md"
     title: "llame tool-observation replay and compaction contract"
@@ -228,7 +225,7 @@ OMP provides useful prior art: a separate JUDGE role, typed callers, bounded fan
 
 This report covers all supplied articles, repositories and X threads, including available replies through the requested Markdown mirror. It evaluates the five supplied applications and proposes six additional uses in llame's retrieval, response-quality and knowledge workflows. Findings distinguish interface documentation, executable source, author-run measurements, social demonstrations and this investigation's own offline experiments.
 
-Research did not change application behavior or proposals, transmit private chat history, install an integration, or send a controlled benchmark workload to Jev/OpenAI inference endpoints. Repository exploration used the harness's own search tools; their internal inference is not a controlled Jev benchmark. The llame source baseline is `e70228485042967fd9545ad0cb133faae1be2268`; pre-existing working-tree edits were excluded. Issue #338 establishes proposal approval; inspected runtime code has no tool-search implementation. Current code and SPEC take precedence over the proposal's older architecture assumptions. [^9761e6144ef53ed9][^4f89b26cf16ee239][^03aec42edc684f81][^a69dcdc3e454f59a]
+Research did not change application behavior or proposals, transmit private chat history, install an integration, or send a controlled benchmark workload to Jev/OpenAI inference endpoints. Repository exploration used the harness's own search tools; their internal inference is not a controlled Jev benchmark. The llame source baseline is `e70228485042967fd9545ad0cb133faae1be2268`; pre-existing working-tree edits were excluded. Issue #338 establishes proposal approval; inspected runtime code has no tool-search implementation. Current code and SPEC take precedence over the proposal's older architecture assumptions. [^4f89b26cf16ee239][^03aec42edc684f81][^a69dcdc3e454f59a]
 
 Evidence confidence uses high for directly inspected behavior or documentation, moderate for bounded synthesis or reproducible-but-not-rerun third-party measurements, and low/unknown for adoption scale, transferable quality and deployment promises. A high-confidence statement that an author reported a result is not high confidence that llame will reproduce it.
 
@@ -610,7 +607,7 @@ Four independent source investigations covered OMP, the compaction repository, c
 | Coding-tool routing can reduce task success                               | Paired author-run benchmark with stated limits [^f3bfeb233b8e7523]                                            |
 | Project assignment is relevance, not authority                            | Current Project capability and vision research [^b2618f474b296d21][^89ed2f298996bdac]                         |
 
-Reproduction commands from the bundle directory: `node probes/adapter-probe.mjs` and `pnpm exec tsx probes/compaction-probe.mjs /path/to/fast-jev-compaction`. The first uses this repository's installed API dependencies; the second uses the repository-installed TypeScript runner, requires upstream revision `e3f262a7f4d42bd8dd32ced30d26176f7cb545b0` and checks that revision before import. Both intercept or inject the model boundary and make no external inference request. Both reproduction commands passed with the repository's Node/pnpm toolchain; Bun is not a prerequisite. [^9761e6144ef53ed9]
+Reproduction commands from the bundle directory: `node probes/adapter-probe.mjs` and `pnpm exec tsx probes/compaction-probe.mjs /path/to/fast-jev-compaction`. The first uses this repository's installed API dependencies; the second uses the repository-installed TypeScript runner, requires upstream revision `e3f262a7f4d42bd8dd32ced30d26176f7cb545b0` and checks that revision before import. Both intercept or inject the model boundary and make no external inference request. Both reproduction commands passed with the repository's Node/pnpm toolchain; Bun is not a prerequisite.
 
 The source/evidence ledgers use stable source IDs; OKF footnotes join to those same IDs in frontmatter. A numeric-citation projection is used only for legacy research validators. Evidence records distinguish paraphrase from direct quotes/data points. Automated report, citation and claim-link checks supplement independent review; lexical overlap is not semantic proof.
 
@@ -731,8 +728,6 @@ The source/evidence ledgers use stable source IDs; OKF footnotes join to those s
 [^fff5f685407e9767]: [OMP AI-assisted staging judgment caller](https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/coding-agent/src/cli/git-tui/ai-stage.ts)
 
 [^88d63eea2eea07c2]: [OMP unexpected-stop judgment caller](https://github.com/can1357/oh-my-pi/blob/f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7/packages/coding-agent/src/session/unexpected-stop-classifier.ts)
-
-[^9761e6144ef53ed9]: [Research execution and verification record](./verification.json)
 
 [^2eec27a5b96e8046]: [llame tool-observation replay and compaction contract](https://github.com/leon0399/llame/blob/e70228485042967fd9545ad0cb133faae1be2268/openspec/specs/tool-calling/spec.md)
 

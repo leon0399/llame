@@ -1820,5 +1820,5 @@ claims.
 - Decision policy: only choices explicitly agreed in the design discussion are
   marked **Decision**.
 - Cutoff: 2026-07-15.
-- Durable artifacts: report.md, sources.jsonl, evidence.jsonl, claims.jsonl,
-  run_manifest.json.
+- Durable artifact: report.md. The run's source, evidence and claim ledgers and
+  manifest remain in git history at [`ed959f31`](https://github.com/leon0399/llame/tree/ed959f31c3f1bcdb9cb7e5945b0dd195e70b4b8d/docs/research/product-vision/2026-07-15-working-synthesis).

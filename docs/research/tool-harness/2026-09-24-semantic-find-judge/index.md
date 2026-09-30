@@ -11,12 +11,6 @@ Noncanonical; no feature implementation or scope approval.
 - [Source-aware investigation extension](../2026-09-23-question-directed-read/source-aware-investigation.md) -
   Task-specific evidence intents, OKF/repository navigation and bounded area
   workers; incorporates the supplied analysis without assuming proposed APIs ship.
-- [Sources](./sources.jsonl) and [evidence](./evidence.jsonl) - Pinned source and
-  dated provider documentation, with explicit observation boundaries.
-- [Claims](./claims.jsonl) - Typed report claims joined to evidence.
-- [Manifest](./run_manifest.json) - Scope and bundle-relative artifact paths.
-- [Verification](./verification.json) and [review](./review.json) - Checks,
-  independently assessed findings and source-claim corrections.
 - [OMP mechanics probe](./probes/omp-find.mjs) and
   [output](./probes/omp-find-result.json) - Unchanged pinned source with explicit
   native-I/O/model/auth/timer doubles. No model-quality claim.
