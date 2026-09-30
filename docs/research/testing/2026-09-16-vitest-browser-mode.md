@@ -73,18 +73,11 @@ and the `component` job executes it inside
 `mcr.microsoft.com/playwright:v1.55.1-noble`[^llame-ci-workflow]. There is no
 harness to migrate **to**.
 
-What is worth doing is not adopting a tool; it is deleting the second DOM
-testing stack sitting next to the one already in browser mode. `apps/web`
-carries 59 files that opt into jsdom with a `// @vitest-environment jsdom`
-comment, 55 of which render through `@testing-library/react`, against 19 story
-files for the same app. `docs/testing.md` rule 5 already says DOM and
-interaction assertions belong in story play functions, and its tracked
-follow-ups already say to move them[^llame-testing-doc]. The blocker is not
-Browser Mode's maturity — it is that `apps/web`'s coverage ratchet
-(`thresholds: { lines: 88, statements: 86 }`)[^llame-web-vitest-config] is
-measured by `pnpm --filter web test:coverage`, which never sees the story
-project's coverage. Every migrated file removes coverage from a threshold the
-repository rules forbid lowering.
+The available simplification is deleting the second DOM stack beside it, and
+`docs/testing.md` rule 5 plus its tracked follow-ups already say to do
+that[^llame-testing-doc] (see
+[F1](#f1-the-duplication-is-inside-appsweb-not-between-tools)). The blocker is
+coverage accounting, not Browser Mode's maturity (see [R1](#risks)).
 
 ## Measured baseline
 
@@ -101,37 +94,32 @@ than wall time)[^vitest-performance]:
 - web: `transform 19.74s, import 206.09s, tests 151.20s, environment 109.31s`
 - storybook: `transform 0ms, setup 142.03s, import 92.09s, tests 106.18s`
 
-Three readings matter more than the headline ratio:
-
-1. Browser mode costs about 2.7x per test and 1.8x per file here. That is a
-   real cost, not a cliff. Both suites finish in under a minute.
+1. Browser mode costs about 2.7x per test and 1.8x per file here: a real cost,
+   not a cliff. Both suites finish in under a minute.
 2. jsdom is not free. 109s of cumulative `environment` time across 59 jsdom
    files is ~1.8s per file, consistent with Vitest's documented 200-500ms per
-   jsdom import plus window construction[^vitest-performance]. Moving a file
-   from jsdom to a browser iframe trades that cost for a browser-side one
-   rather than adding a new one.
-3. `import 206.09s` dominates the web run. That is isolation re-evaluating a
-   shared module graph per file, and it is independent of this question. See
-   [F4](#f4-the-web-suite-has-a-cheaper-win-than-any-of-this).
+   jsdom import plus window construction[^vitest-performance]. Moving a file to
+   a browser iframe trades that cost for a browser-side one.
+3. `import 206.09s` dominates the web run, which is a cheaper problem to have
+   ([F4](#f4-the-web-suite-has-a-cheaper-win-than-any-of-this)).
 
 The browser run could not execute on this host: `browserType.launch` fails with
 23 missing system libraries (`libglib-2.0.so.0`, `libnss3.so`, `libX11.so.6`,
-and the rest of the Chromium set). It was measured inside the same Playwright
-container CI uses. Nix manages this workstation, so those libraries are a
-dotfiles change, not `playwright install --with-deps`.
+and the rest of the Chromium set), so it was measured inside the same Playwright
+container CI uses. Nix manages this workstation, making those libraries a
+dotfiles change rather than `playwright install --with-deps`.
 
 ## What Browser Mode is
 
 Vitest serves test files to a real browser through the Vite dev server and
-drives them with a provider; each test file runs in its own iframe while the
-Node side orchestrates and collects results[^vitest-browser-guide]. Since
-Vitest 4 the provider is a separate package — `@vitest/browser-playwright`,
-`@vitest/browser-webdriverio`, or `@vitest/browser-preview` — and 4.0
-(2025-10-22) removed the experimental tag, replacing the provider string with a
-function call[^vitest-4-announcement]. That is the shape
-`apps/storybook/vitest.config.ts` already uses.
+drives them with a provider; each test file runs in its own iframe while Node
+orchestrates and collects results[^vitest-browser-guide]. Since Vitest 4 the
+provider is a separate package (`@vitest/browser-playwright`,
+`@vitest/browser-webdriverio`, `@vitest/browser-preview`), and 4.0 (2025-10-22)
+removed the experimental tag for a function call[^vitest-4-announcement], which
+is the shape `apps/storybook/vitest.config.ts` already uses.
 
-The parts relevant to a repository that already owns Playwright and Storybook:
+What matters for a repository that already owns Playwright and Storybook:
 
 - **Locators and retrying assertions.** `page.getByRole(...)`,
   `expect.element(...)`, and a `userEvent` backed by CDP rather than
@@ -141,10 +129,9 @@ The parts relevant to a repository that already owns Playwright and Storybook:
   events[^vitest-browser-guide].
 - **Visual regression.** `toMatchScreenshot` with `pixelmatch`, references in
   `__screenshots__/<file>/<name>-<browser>-<platform>.png`, `--update` to
-  rebaseline. Vitest's own guidance: keep the visual suite in a separate
-  project, run it headless with a pinned viewport, and expect environment
-  sensitivity; stale references are not pruned
-  automatically[^vitest-visual-regression].
+  rebaseline. Vitest's guidance: keep the visual suite in a separate project,
+  run it headless with a pinned viewport, expect environment sensitivity; stale
+  references are not pruned automatically[^vitest-visual-regression].
 - **Playwright traces.** `--browser.trace=on` (also `on-first-retry`,
   `retain-on-failure`), surfaced as test annotations and openable in the
   Playwright trace viewer[^vitest-4-announcement].
@@ -154,20 +141,18 @@ The parts relevant to a repository that already owns Playwright and Storybook:
 - **Cross-run merging.** `--reporter=blob` plus `vitest run --merge-reports`
   merges results, and coverage, from separate runs[^vitest-performance]. This
   is the mechanism that could make a split unit/browser coverage gate work.
-
-Limitations that are structural rather than teething:
-
-- **Not an E2E runner.** Vitest states that Browser Mode "does not completely
-  replace standalone end-to-end test runners" and recommends keeping
-  one[^vitest-browser-why].
-- **No module-namespace spying.** `vi.spyOn(namespaceImport, "method")` throws,
-  because native ESM namespace objects are sealed; the workaround is
-  `vi.mock("./mod.js", { spy: true })`. `vi.mock` itself
+- **Limitation, not an E2E runner.** Vitest states that Browser Mode "does not
+  completely replace standalone end-to-end test runners" and recommends
+  keeping one[^vitest-browser-why].
+- **Limitation, no module-namespace spying.** `vi.spyOn(namespaceImport,
+"method")` throws, because native ESM namespace objects are sealed; the
+  workaround is `vi.mock("./mod.js", { spy: true })`. `vi.mock` itself
   works[^vitest-browser-guide][^vitest-mocking].
-- **Blocking dialogs.** `alert`, `confirm` and `print` are auto-mocked because a
-  blocking dialog deadlocks the runner[^vitest-browser-guide].
-- **Longer initialization** than a Node pool, and the browser must exist on the
-  machine[^vitest-browser-why].
+- **Limitation, blocking dialogs.** `alert`, `confirm` and `print` are
+  auto-mocked because a blocking dialog deadlocks the
+  runner[^vitest-browser-guide].
+- **Limitation, longer initialization** than a Node pool, and the browser must
+  exist on the machine[^vitest-browser-why].
 
 ## What llame already runs
 
@@ -179,29 +164,27 @@ Limitations that are structural rather than teething:
 | Integration | Vitest + Testcontainers Postgres                                                                                     | apps/api 66                                                                                               |
 | Product E2E | Playwright 1.55.1                                                                                                    | 14 specs, 5,034 lines including a 1,102-line mock model server; 6 web servers plus Postgres               |
 
-The addon is the same architecture as raw Browser Mode: it transforms stories
-into Vitest tests through portable stories and runs them in Playwright's
-Chromium, smoke-testing each story and executing its play
+The addon follows the same architecture: portable stories become Vitest tests
+run in Playwright's Chromium, smoke-testing each story and executing its play
 function[^storybook-vitest-addon].
 
 ### F1 the duplication is inside `apps/web`, not between tools
 
 41 `.test.tsx` files call `render`/`screen` in jsdom; 19 story files cover the
-same app in a real browser. Several pairs are the same component twice, with
-the jsdom copy larger: `chat-item.test.tsx` (~530 lines) beside
+same app in a real browser. Several pairs are the same component twice with the
+jsdom copy larger: `chat-item.test.tsx` (~530 lines) beside
 `chat-item.stories.tsx`, `command-palette.render.test.tsx` (~505 lines),
 `chat-page.target.test.tsx` (~530 lines). Two styles, two environments and two
-sets of assertions for one component is the actual cost, and it is what rule 5
-forbids for new work[^llame-testing-doc].
+sets of assertions per component is the cost rule 5 forbids[^llame-testing-doc].
 
 ### F2 the jsdom residue is legitimate and should stay jsdom
 
 Roughly 20 of the 59 files are `renderHook` against TanStack Query caches and
 headless hooks (`lib/services/**/queries.test.ts`,
-`lib/services/**/mutations.test.*`, `hooks/use-cookie.test.ts`). They render no
-component tree and assert no DOM; a browser gives them nothing. A further
-handful mock `next/headers` and `next/server` for App Router page modules and
-cannot run in a browser at all.
+`lib/services/**/mutations.test.*`, `hooks/use-cookie.test.ts`): no component
+tree, no DOM assertions, so a browser gives them nothing. A further handful
+mock `next/headers` and `next/server` for App Router page modules and cannot run
+in a browser at all.
 
 ### F3 migration friction is lower than the folklore suggests
 
@@ -218,32 +201,32 @@ request-mocking layer to port.
 
 `import 206.09s` against `tests 151.20s` says isolation is re-evaluating a
 shared module graph 101 times. `vitest doctor` measures `isolate: false` and
-pool alternatives directly instead of estimating them, and
-`experimental.diagnostics` prints a hint when a configuration change would
-help[^vitest-performance]. That is a one-command experiment with no test
-rewrites and no bearing on Browser Mode.
+pool alternatives directly, and `experimental.diagnostics` prints a hint when a
+configuration change would help[^vitest-performance]: one command, no test
+rewrites, no bearing on Browser Mode.
 
 ### F5 Playwright moved its component story in a direction llame should ignore
 
 Playwright 1.62 replaced `@playwright/experimental-ct-*` with a
-stories-and-gallery model: you serve a gallery page from your own dev server,
-and `mount('components/Button/Primary')` navigates to it. 1.63 stopped updating
-the experimental packages entirely[^playwright-release-notes]. The stated
-reason for the rewrite — owning the bundler pipeline was untenable, and module
-mocks silently did not apply[^playwright-component-testing] — is the same
-reason `@storybook/addon-vitest` runs stories through Vite. llame already has a
-gallery: Storybook. Adopting Playwright CT would add a third component-test
+stories-and-gallery model: serve a gallery page from your own dev server and
+`mount('components/Button/Primary')` navigates to it. 1.63 stopped updating the
+experimental packages entirely[^playwright-release-notes]. The stated reason for
+the rewrite, that owning the bundler pipeline was untenable and module mocks
+silently did not apply[^playwright-component-testing], is the same reason
+`@storybook/addon-vitest` runs stories through Vite, and llame already has a
+gallery in Storybook. Adopting Playwright CT would add a third component-test
 pattern with no capability llame lacks. Separately, the repo is 8 minors behind
 on Playwright (1.55.1 against 1.63), and the pin is coupled to the CI container
 digest[^llame-catalog][^llame-ci-workflow].
 
 ## Risks
 
-**R1 coverage accounting blocks the migration the docs already mandate.**
-`apps/web`'s 88%/86% ratchet comes from `vitest run --coverage` inside
-`apps/web`[^llame-web-vitest-config]; story coverage is produced by the
-`storybook` workspace in a different CI job[^llame-ci-workflow]. Moving a jsdom
-render test into a story removes its contribution from the gate, and `AGENTS.md`
+**R1 coverage accounting blocks the migration the docs already mandate.** The
+ratchet (`thresholds: { lines: 88, statements: 86 }`)[^llame-web-vitest-config]
+is measured by `pnpm --filter web test:coverage`, which runs `vitest run --coverage`
+inside `apps/web` while the `storybook` workspace produces story coverage in a
+different CI job[^llame-ci-workflow]. Moving a jsdom render
+test into a story removes its contribution from the gate, and `AGENTS.md`
 prohibits lowering the threshold to admit it. This is the only mechanical
 obstacle I can find to the tracked follow-up, so it is most likely why the
 follow-up has not moved (inference). Resolving it is a deliberate decision, not
@@ -252,21 +235,21 @@ a config tweak: merge coverage across projects with `--reporter=blob` plus
 `apps/web` so coverage stays in that workspace's run.
 
 **R2 more browser tests means more of the suite is CI-only on this
-workstation.** The component layer cannot run here today. Every file moved from
-jsdom to a browser project becomes unrunnable locally until the Chromium system
+workstation.** The component layer cannot run here today, so every file moved
+from jsdom to a browser project is unrunnable locally until the Chromium system
 libraries land in the Nix profile. E2E is already effectively CI-only on this
 box per `CLAUDE.local.md`.
 
-**R3 visual regression overlap.** Vitest 4 ships `toMatchScreenshot`, and
-addon-vitest stories already execute in browser mode, so a play function could
-call it directly. `storyproof` (first-party, `0.0.1-alpha.1`) covers the same
-ground with Storybook UI integration. Two screenshot mechanisms in one suite is
-a decision to make consciously, not to discover later.
+**R3 visual regression overlap.** Vitest 4 ships `toMatchScreenshot` and
+addon-vitest stories already run in browser mode, so a play function could call
+it directly. `storyproof` (first-party, `0.0.1-alpha.1`) covers the same ground
+with Storybook UI integration. Two screenshot mechanisms in one suite is a
+decision to make consciously, not to discover later.
 
 **R4 rewriting tests is the risk, not switching environments.** A jsdom test
 translated into a story play function is a new test with a new oracle. Done in
-bulk without reading each assertion, it launders coverage into tautologies —
-precisely what rule 11 rejects[^llame-testing-doc].
+bulk without reading each assertion, it launders coverage into tautologies,
+which is what rule 11 rejects[^llame-testing-doc].
 
 ## Options
 
@@ -282,32 +265,29 @@ precisely what rule 11 rejects[^llame-testing-doc].
 ## Recommendation
 
 **A1. Settle R1 first, as a standalone change.** Decide where web component
-coverage is measured before moving a single test: either run the `web` and
-`storybook` projects with `--reporter=blob` and gate on
-`vitest run --merge-reports --coverage`, or accept O2's in-workspace browser
-project. Everything else queues behind this one decision.
+coverage is measured (blob merge, or O2's in-workspace browser project) before
+moving a single test. Everything else queues behind this one decision.
 
 **A2. Then execute O1 on the clearest duplicates only.** `chat-item`,
-`command-palette`, `chat-list`, `project-item` — components whose jsdom test is
+`command-palette`, `chat-list`, `project-item`, components whose jsdom test is
 longer than the component and whose story already exists. Read each assertion,
-port the ones with an independent oracle, and delete the rest instead of
-translating them. Expect roughly +13s on the component job and a comparable cut
-to the unit job (inference, extrapolated from the measured per-file costs).
+port those with an independent oracle, delete the rest instead of translating
+them. Expect roughly +13s on the component job and a comparable cut to the
+unit job (inference, extrapolated from the measured per-file costs).
 
 **A3. Run O4 independently, this week.** `vitest doctor` in `apps/web` is a
 single command, the `import`-phase number says it will find something, and it
 carries no migration risk.
 
-**A4. Do not adopt Playwright component testing, and do not move E2E.** Keep
-Playwright for the product flow and Storybook as the gallery. Bump Playwright
-1.55.1 to 1.63 as ordinary maintenance, remembering that `playwright`,
+**A4. Do not adopt Playwright component testing, and do not move E2E** (see
+F5). Keep Playwright for the product flow and Storybook as the gallery. Bump
+Playwright 1.55.1 to 1.63 as ordinary maintenance, remembering that `playwright`,
 `@playwright/test` and the CI container digest move together.
 
-**A5. Leave O5 alone until `storyproof` has a reason to go.** Vitest's own
-guidance treats visual tests as a complementary layer with environment
-sensitivity worth isolating[^vitest-visual-regression], which argues for
-keeping a dedicated visual mechanism rather than folding screenshots into
-behavior tests.
+**A5. Leave O5 alone until `storyproof` has a reason to go.** Vitest's guidance
+treats visual tests as a complementary layer worth isolating[^vitest-visual-regression],
+which argues for a dedicated visual mechanism rather than folding screenshots
+into behavior tests.
 
 **A6. Install the Chromium system libraries on this workstation** through the
 Nix dotfiles. Not urgent for the harness; decisive for whether R2 gets worse.
@@ -316,15 +296,14 @@ Nix dotfiles. Not urgent for the harness; decisive for whether R2 gets worse.
 
 Upstream evidence comes from the cited Vitest, Storybook and Playwright
 documentation. Repository facts come from a read-only inventory of
-`pnpm-workspace.yaml`, every `vitest.config.*`, workspace `package.json`
-scripts, `turbo.json`, `.github/workflows/ci.yml`, `apps/storybook/.storybook/*`,
-and file censuses over `apps/web`, `packages/ui`, `apps/api` and `e2e/`.
-
-Timings are single runs on one WSL2 workstation; the browser figure additionally
+`pnpm-workspace.yaml`, every `vitest.config.*`, workspace `package.json` scripts,
+`turbo.json`, `.github/workflows/ci.yml`, `apps/storybook/.storybook/*`, and
+file censuses over `apps/web`, `packages/ui`, `apps/api` and `e2e/`. Timings
+are single runs on one WSL2 workstation, and the browser figure additionally
 carries Docker overhead on a bind-mounted `node_modules`, so it is an upper
 bound rather than a CI prediction. No CI measurement was taken. The per-file
-extrapolation in A2 is inference. Individual test-file line counts in F1 are
-approximate, derived from file size.
+extrapolation in A2 is inference, and the individual test-file line counts in F1
+are approximate, derived from file size.
 
 [^vitest-4-announcement]: [Vitest 4.0 announcement](https://vitest.dev/blog/vitest-4)
 
