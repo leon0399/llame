@@ -1,7 +1,3 @@
----
-okf_version: "0.2"
----
-
 # Live Jev applications and permission classifiers
 
 Noncanonical development research across ten llame application families, plus

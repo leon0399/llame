@@ -1,7 +1,3 @@
----
-okf_version: "0.2"
----
-
 # Question-directed read research
 
 Second research layer after the [System One/Jev study](../2026-09-23-system-one-jev/index.md),

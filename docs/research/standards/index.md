@@ -1,7 +1,3 @@
----
-okf_version: "0.2"
----
-
 # Protocols and format standards
 
 Noncanonical references for open protocols, file formats and publishing

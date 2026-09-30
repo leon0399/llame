@@ -1,7 +1,3 @@
----
-okf_version: "0.2"
----
-
 # System One and Jev research
 
 Noncanonical research on TypeSafe Jev, OMP's JUDGE role, extractive compaction,
