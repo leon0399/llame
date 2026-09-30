@@ -284,6 +284,42 @@ describe("trusted model-context projection", () => {
     ]);
   });
 
+  it("keeps both user-turn control parts at index 0 in server order", () => {
+    // The rail stages its items ahead of the turn's own content, so an
+    // accepted-turn load shares index 0 with the model-switch marker. Two
+    // parts at one index must keep the order the api stored them in, whichever
+    // producer it staged first.
+    const messages = mergeTrustedModelContextParts(
+      [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Continue" }],
+        },
+      ],
+      [
+        {
+          id: "user-1",
+          role: "user",
+          // SAFETY: `switchPart`/`instructionsItem` are this app's own
+          // narrower `data-context` shapes — the same mismatch the merge
+          // itself casts around.
+          parts: [
+            instructionsItem as never,
+            switchPart as never,
+            { type: "text", text: "Continue" },
+          ],
+        },
+      ],
+    );
+
+    expect(messages[0]?.parts).toEqual([
+      instructionsItem,
+      switchPart,
+      { type: "text", text: "Continue" },
+    ]);
+  });
+
   it("removes untrusted live markers when no server marker exists", () => {
     const [message] = mergeTrustedModelContextParts(
       [
@@ -293,7 +329,7 @@ describe("trusted model-context projection", () => {
           // SAFETY: `switchPart` is `ModelSwitchPart`, a narrower shape than
           // `UIMessage["parts"]`'s generic element type (same mismatch
           // `mergeTrustedModelContextParts` itself casts around) — `as
-          // never` opts this fixture value out of the part-shape check.
+          // `never` opts this fixture value out of the part-shape check.
           parts: [switchPart as never, { type: "text", text: "Continue" }],
         },
       ],
@@ -321,6 +357,17 @@ describe("instructions context items", () => {
     ...instructionsItem,
     data: { ...instructionsItem.data, payload },
   });
+
+  /** The read call of the step that loaded the files — an in-Run item is
+   *  stored directly after the last tool part of that step. */
+  const toolPart = {
+    type: "dynamic-tool" as const,
+    toolCallId: "call-read-instructions",
+    toolName: "read",
+    state: "output-available" as const,
+    input: { path: "apps/api/src/x.ts" },
+    output: { status: "success" },
+  };
 
   it("parses only the exact persisted instructions shape", () => {
     expect(isInstructionsPart(instructionsItem)).toBe(true);
@@ -437,10 +484,12 @@ describe("instructions context items", () => {
     ).toBe(false);
   });
 
-  it("overlays the server-fetched item onto its assistant turn", () => {
+  it("overlays the server-fetched item at the position the store kept it", () => {
     // The transcript always renders through the merge, so the item must
     // survive it: the live copy is replaced by the one the server vouches
-    // for, the same way a user turn's model-switch item is.
+    // for. An in-Run load stored its item AFTER the step's last tool part —
+    // where the model actually received it — so the chip must render there
+    // too, not at the top of the turn.
     const messages = mergeTrustedModelContextParts(
       [
         {
@@ -455,6 +504,7 @@ describe("instructions context items", () => {
               data: { producer: "instructions", forged: true },
             } as never,
             { type: "text", text: "Answer." },
+            toolPart,
           ],
         },
       ],
@@ -465,14 +515,72 @@ describe("instructions context items", () => {
           // SAFETY: `instructionsItem` is `InstructionsPart`, a narrower shape
           // than the SDK's generic `data-*` part — the same mismatch the
           // merge itself casts around.
-          parts: [instructionsItem as never, { type: "text", text: "Answer." }],
+          parts: [
+            { type: "text", text: "Answer." },
+            toolPart,
+            instructionsItem as never,
+          ],
         },
       ],
     );
 
     expect(messages[0]?.parts).toEqual([
-      instructionsItem,
       { type: "text", text: "Answer." },
+      toolPart,
+      instructionsItem,
+    ]);
+  });
+
+  it("places each in-Run item between the parts the store put it between", () => {
+    // Two loads on one turn, at two different positions: the first after the
+    // opening text, the second at the end. A context item from a producer
+    // this app drops occupies no index either — it is invisible in the merged
+    // parts, so it must not push the first item one slot to the right.
+    const secondItem = {
+      ...instructionsItem,
+      data: {
+        ...instructionsItem.data,
+        runId: "b7ea1c02-9f2d-4b7e-9b0e-1d2f3a4b5c6d",
+      },
+    };
+    const messages = mergeTrustedModelContextParts(
+      [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Reading." },
+            toolPart,
+            { type: "text", text: "Applying." },
+          ],
+        },
+      ],
+      [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          // SAFETY: as above — the app's own narrower `data-context` shapes.
+          parts: [
+            { type: "text", text: "Reading." },
+            {
+              type: "data-context",
+              data: { producer: "digest", v: 1 },
+            } as never,
+            instructionsItem as never,
+            toolPart,
+            { type: "text", text: "Applying." },
+            secondItem as never,
+          ],
+        },
+      ],
+    );
+
+    expect(messages[0]?.parts).toEqual([
+      { type: "text", text: "Reading." },
+      instructionsItem,
+      toolPart,
+      { type: "text", text: "Applying." },
+      secondItem,
     ]);
   });
 

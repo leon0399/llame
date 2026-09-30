@@ -314,12 +314,22 @@ const TRUNCATED_INSTRUCTION_PATH = "/home/operator/repo/apps/api/AGENTS.md";
 const DENIED_INSTRUCTION_PATH = "/srv/AGENTS.md";
 
 /** A completed turn whose Run loaded project instruction files while reading
- *  a file. The item comes first because the transcript merge prepends the
- *  server-vouched copy, so the chip reads as a header in the app. */
+ *  a file. The item sits after that step's tool part — the position the api
+ *  stored it in and the transcript merge restores, so the chip renders where
+ *  the model received it. */
 const INSTRUCTIONS_MESSAGE: UIMessage = {
   id: "assistant-instructions",
   role: "assistant",
   parts: [
+    { type: "text", text: "Answered with the project rules in hand." },
+    {
+      type: "dynamic-tool",
+      toolCallId: "call-read-instructions",
+      toolName: "read",
+      state: "output-available",
+      input: { path: "apps/api/src/x.ts" },
+      output: { status: "success" },
+    },
     {
       type: "data-context",
       data: {
@@ -344,15 +354,6 @@ const INSTRUCTIONS_MESSAGE: UIMessage = {
         },
         text: '<system-reminder producer="instructions" form="notice">project instructions</system-reminder>',
       },
-    },
-    { type: "text", text: "Answered with the project rules in hand." },
-    {
-      type: "dynamic-tool",
-      toolCallId: "call-read-instructions",
-      toolName: "read",
-      state: "output-available",
-      input: { path: "apps/api/src/x.ts" },
-      output: { status: "success" },
     },
   ],
 };

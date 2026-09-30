@@ -96,9 +96,10 @@ function InstructionFileChip({ entry }: { entry: InstructionFileChipEntry }) {
  * paths a trigger loaded, each marked when the file was cut at the per-file
  * cap or denied by the `read` permission group. It reads the part's private
  * payload, which never reaches the model text or a public share. The
- * transcript renders it on the message carrying the item — the triggering
- * user turn for an accepted-turn load, the assistant turn for an in-Run item
- * — and live and reloaded history show the same disclosure.
+ * transcript renders it where the item was stored — after the step that
+ * loaded the files on an in-Run item, at the top of the triggering user turn
+ * on an accepted-turn one — and live and reloaded history show the same
+ * disclosure at the same spot.
  *
  * @summary owner chip for loaded, truncated, and denied instruction files
  */

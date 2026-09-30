@@ -212,6 +212,9 @@ canonical path is already seen is omitted, so a symlink and its target are one
 file and an edit to a loaded file is not re-announced; denied, failed, and
 empty candidates are not seen. All triggers pending at one model step, or one
 accepted turn, resolve together into at most one item.
+After a compaction absorbs loaded items, only the bound root's chain is
+restaged on the next accepted turn; a nested chain returns on the next `read`,
+`edit`, or `write` in its directory.
 
 Each existing candidate is read as a native `read` call with system origin
 `instructions`, under the `read` permission group and the Run's effective
@@ -226,12 +229,13 @@ A file larger than 32 KiB is cut at 32 KiB on a UTF-8 character boundary and
 followed by one line naming the path and the byte count omitted; there is no
 aggregate cap across files.
 
-The owner transcript shows a chip on the message that carries the item — the
-triggering user message for an accepted-turn load, the assistant message for
-an in-Run item — listing the loaded paths and marking truncated and denied
-ones from the item's private metadata. Non-owners, public shares, transcript
-exports, and search projections expose neither the item's text nor its
-metadata.
+The owner transcript shows a chip on the message that carries the item, at the
+position the item was stored: on the assistant message it follows the step that
+loaded the files, and on the triggering user message of an accepted-turn load
+it leads the turn. The chip lists the loaded paths and marks truncated and
+denied ones from the item's private metadata. Non-owners, public shares,
+transcript exports, and search projections expose neither the item's text nor
+its metadata.
 
 Imports are not supported; instruction files are loaded only from the
 directory chains above ([#1029](https://github.com/leon0399/llame/issues/1029)).

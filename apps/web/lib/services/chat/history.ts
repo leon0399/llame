@@ -313,13 +313,35 @@ export function isInstructionsPart(value: unknown): value is InstructionsPart {
   return isInstructionsPayload(noticePayload(value, "instructions"));
 }
 
+/** Whether this app renders a server context item on that role: the
+ *  model-switch marker the rail stages on a user message, and the
+ *  instructions item, which rides either role. */
+function isRenderableControlPart(
+  role: UIMessage["role"],
+  part: unknown,
+): part is ModelSwitchPart | InstructionsPart {
+  return role === "user"
+    ? isModelSwitchPart(part) || isInstructionsPart(part)
+    : isInstructionsPart(part);
+}
+
+/** One server-vouched control part and where the server stored it: the
+ *  count of non-context parts preceding it in that message. Context parts
+ *  of other producers occupy no index — the merge drops them, so counting
+ *  them would push a trusted part past parts the owner still sees. */
+type PlacedContextPart = {
+  index: number;
+  part: ModelSwitchPart | InstructionsPart;
+};
+
 /**
- * The control parts a server-fetched message is trusted to overlay: exactly
- * the producers this app renders from stored parts — the model-switch marker
- * the rail stages on a user message, and the instructions item, which rides
- * the assistant turn of an in-Run load and the triggering user turn of the
- * accepted-turn load (design D5, D9). Every other producer stays invisible,
- * and a part no server message vouches for is dropped.
+ * The control parts a server-fetched message is trusted to overlay, each with
+ * its stored position: exactly the producers this app renders from stored
+ * parts — the model-switch marker the rail stages on a user message, and the
+ * instructions item, which rides the assistant turn of an in-Run load and the
+ * triggering user turn of the accepted-turn load (design D5, D9). Every other
+ * producer stays invisible, and a part no server message vouches for is
+ * dropped.
  *
  * Server order is kept: a turn the rail both switched models on and loaded
  * instructions for carries both parts, in the order the api stored them.
@@ -327,13 +349,17 @@ export function isInstructionsPart(value: unknown): value is InstructionsPart {
 function trustedContextParts(message: {
   role: UIMessage["role"];
   parts: ReadonlyArray<unknown>;
-}): Array<ModelSwitchPart | InstructionsPart> {
-  return message.parts.filter(
-    (part): part is ModelSwitchPart | InstructionsPart =>
-      message.role === "user"
-        ? isModelSwitchPart(part) || isInstructionsPart(part)
-        : isInstructionsPart(part),
-  );
+}): Array<PlacedContextPart> {
+  const placed: Array<PlacedContextPart> = [];
+  let index = 0;
+  for (const part of message.parts) {
+    if (!isContextItemPart(part)) {
+      index += 1;
+    } else if (isRenderableControlPart(message.role, part)) {
+      placed.push({ index, part });
+    }
+  }
+  return placed;
 }
 
 /**
@@ -341,10 +367,13 @@ function trustedContextParts(message: {
  * refreshes after a completed turn. Overlay only server-fetched control parts
  * by message id; client/stream-authored copies are removed unconditionally.
  *
- * The trusted copies are prepended in server order: the model-switch item
- * already changes the turn it introduces, and the instructions chip reads as
- * a header disclosing the files the turn loaded, on whichever message the api
- * stored it — in both the live and the reloaded transcript.
+ * Each trusted part goes back where the server stored it, measured in the
+ * non-context parts that precede it: the model-switch marker and an
+ * accepted-turn instructions item stay at the top of the user turn they
+ * introduce, while an in-Run item lands right after the triggering step's
+ * last tool part — the position the model actually received it in. Stored
+ * indices ascend, and a live turn carrying fewer parts than the server copy
+ * clamps the insert to its end.
  */
 export function mergeTrustedModelContextParts(
   liveMessages: ReadonlyArray<UIMessage>,
@@ -359,19 +388,31 @@ export function mergeTrustedModelContextParts(
   return liveMessages.map((message) => {
     // Every context item is server-authored control metadata — one branch
     // covers every producer, including ones this app does not know about —
-    // so only the trusted copies looked up by id survive the merge.
-    const visibleParts = message.parts.filter(
+    // so only the trusted copies looked up by id survive the merge, each
+    // re-inserted at the index the server stored it at.
+    const visibleParts: Array<unknown> = message.parts.filter(
       (part) => !isContextItemPart(part),
     );
-    const trusted = trustedByMessageId.get(message.id) ?? [];
+    let placed = 0;
+    for (const { index, part } of trustedByMessageId.get(message.id) ?? []) {
+      // Stored indices ascend, so every part inserted above sits ahead of the
+      // position this one names; counting them both offsets for the inserts
+      // and keeps two parts sharing one index in the order the api stored.
+      visibleParts.splice(
+        Math.min(index + placed, visibleParts.length),
+        0,
+        part,
+      );
+      placed += 1;
+    }
     return {
       ...message,
-      // SAFETY: `trusted` is this app's own `data-context` parts and
+      // SAFETY: `part` is this app's own `data-context` part and
       // `visibleParts` is `message.parts` with every context part filtered
       // out — both are already `UIMessage["parts"]`-shaped content; the cast
       // is only needed because the part's literal-typed `data` doesn't
       // structurally match the SDK's wider generic `data-*` part type.
-      parts: [...trusted, ...visibleParts] as UIMessage["parts"],
+      parts: visibleParts as UIMessage["parts"],
     };
   });
 }
