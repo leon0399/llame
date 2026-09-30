@@ -73,7 +73,12 @@ import {
   deriveToolAvailabilityPayload,
   deriveToolAvailabilityPayloadFromStates,
 } from '../chats/context-item-producers';
-import { isContextItemPart, resolveForm } from '../chats/context-item';
+import {
+  CONTEXT_ITEM_PRODUCERS,
+  isContextItemPart,
+  resolveForm,
+  type AuthoredContextItemPart,
+} from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { createDeltaBuffer } from './delta-buffer';
 import {
@@ -146,6 +151,7 @@ import {
   createInRunContextItems,
   type InRunAttemptProducer,
   type InRunContextProducer,
+  type InRunTurnLoad,
 } from './in-run-context-items';
 import type { ReadPage } from '../instructions/instruction-files';
 import { instructionsSeenPaths } from '../chats/instructions-item';
@@ -271,6 +277,25 @@ type WorkspaceStagedContext = {
   readonly writes?: WorkspaceWrites;
 };
 
+/**
+ * The accepted-turn instructions load: what the turn's binding could stage
+ * before its first request, plus the read identity every later system read of
+ * the same Run reuses. `part` and `seenCanonicalPaths` are replaced in place
+ * when a transition compaction rebuilds the history (design D5, D7).
+ */
+type TurnInstructions = {
+  /** Whether the `read` gate lets any instruction file load in this Run. */
+  readonly loadable: boolean;
+  /** The bound root the accepted-turn trigger loads; undefined without one. */
+  readonly root: string | undefined;
+  /** The turn's audited page reader; undefined when gated off. */
+  readonly readPage: ReadPage | undefined;
+  /** Allocates the attempt-scoped tool-call id of one audited read. */
+  readonly nextToolCallId: () => string;
+  part: AuthoredContextItemPart | undefined;
+  seenCanonicalPaths: ReadonlySet<string>;
+};
+
 /** Context resolved inside the worker transaction before the model request. */
 type PreparedAttemptContext = BuiltContext & {
   /** Receipt-only data persisted before target-model I/O. */
@@ -357,12 +382,6 @@ type PreparedExecutionContext = {
   untitled: boolean;
   toolDeclarations: Array<ModelToolDeclaration>;
   tools: Array<BoundExecutableTool>;
-  /**
-   * Canonical instruction paths the effective history discloses; a transition
-   * compaction rebuild replaces it, so a file the rebuilt history no longer
-   * names can load again (design D7).
-   */
-  seenInstructionPaths: ReadonlySet<string>;
 };
 
 type ExecuteRunInput = {
@@ -472,6 +491,35 @@ function toTurnToolAvailability(
   return [...manifest.entries]
     .map(({ id, state }) => ({ id, state }))
     .sort((left, right) => compareCodePoints(left.id, right.id));
+}
+
+/**
+ * Places a staged instructions item at its rail position: directly after every
+ * item whose producer precedes it — the workspace snapshot is the last of
+ * those — and before the notices that follow (design D10).
+ */
+function placeInstructionsPart(
+  parts: Array<MessagePart>,
+  part: AuthoredContextItemPart | undefined,
+): void {
+  if (part === undefined) return;
+  const rank = CONTEXT_ITEM_PRODUCERS.findIndex(
+    (known) => known === 'instructions',
+  );
+  const index = parts.findLastIndex(
+    (staged) =>
+      isContextItemPart(staged) &&
+      CONTEXT_ITEM_PRODUCERS.findIndex(
+        (known) => known === staged.data.producer,
+      ) < rank,
+  );
+  parts.splice(index + 1, 0, part);
+}
+
+/** Removes one staged part by identity, when it is still staged. */
+function removeStagedPart(parts: Array<MessagePart>, part: MessagePart): void {
+  const index = parts.indexOf(part);
+  if (index >= 0) parts.splice(index, 1);
 }
 
 /** A durably recorded tool request, with safe decision metadata once admitted. */
@@ -788,6 +836,7 @@ export class RunExecutionService {
     let attemptSkillCatalogWrites: SkillCatalogWrites | undefined;
     let attemptWorkspaceWrites: WorkspaceWrites | undefined;
     let attemptToolAvailability: Array<TurnToolAvailabilityEntry> = [];
+    let turnInstructions: TurnInstructions;
     try {
       const context = await this.prepareAttemptContext(
         input,
@@ -804,6 +853,22 @@ export class RunExecutionService {
       attemptToolAvailability = toTurnToolAvailability(
         context.toolCatalog.availabilityManifest,
       );
+
+      // The accepted turn stages its bound root's instruction chain before the
+      // first request (D5). It runs after the binding re-check and outside
+      // every transaction, because probing and reading candidates is
+      // filesystem and tool work; the item takes its rail slot directly after
+      // the workspace snapshot.
+      turnInstructions = await this.loadTurnInstructions(
+        input,
+        workspacePreparation,
+        workspaceRoot,
+        effectivePermissionMode,
+        claim.nativeDeliverySequence,
+        attemptId,
+        context.seenInstructionPaths,
+      );
+      placeInstructionsPart(attemptStagedParts, turnInstructions.part);
 
       // Inject staged context items into the model request: prepend their
       // rendered text to the triggering user message. Uses the same rendering
@@ -828,7 +893,6 @@ export class RunExecutionService {
             context.toolCatalog.sourceById ?? new Map(),
           ),
         ),
-        seenInstructionPaths: context.seenInstructionPaths,
       };
 
       // Transition compaction replaces the request wholesale when it runs, so
@@ -839,6 +903,7 @@ export class RunExecutionService {
         contextItems,
         attemptStagedParts,
         input,
+        turnInstructions,
       );
       attemptContextItems = contextItems;
       // Recorded only once the request is final: before this point a
@@ -1273,14 +1338,12 @@ export class RunExecutionService {
     // reserved before admission, settled through `recordToolCompleted`, and
     // carrying the `instructions` origin so abort and finish settlement close
     // them and the assistant transcript never gains a fabricated tool part.
-    // The attempt id keeps two attempts of one Run from colliding in the
-    // event log; the ordinal keeps one attempt's reads apart.
-    let instructionReadOrdinal = 0;
+    // The attempt-scoped allocator is shared with the accepted-turn load, so
+    // the two never collide in the event log.
     const readInstructionPage = async (
       selectorPath: string,
     ): Promise<ToolResult> => {
-      instructionReadOrdinal += 1;
-      const toolCallId = `instructions-${input.runId}-${attemptId}-${instructionReadOrdinal}`;
+      const toolCallId = turnInstructions.nextToolCallId();
       const toolInput = { path: selectorPath };
       reserveToolRequest(toolCallId, 'read', toolInput, ORIGIN_INSTRUCTIONS);
       const result = await runTool(
@@ -1302,7 +1365,7 @@ export class RunExecutionService {
     };
     const inRunProducer = this.beginInRunAttempt(
       input,
-      prepared.seenInstructionPaths,
+      turnInstructions,
       readInstructionPage,
     );
 
@@ -2139,7 +2202,7 @@ export class RunExecutionService {
     const text = partsToText(input.userMessage.parts);
     const mentions = parseSkillMentions(text);
     if (mentions.length === 0) return new Set();
-    const baseContext = this.buildSkillReadContext(
+    const baseContext = this.buildSystemReadContext(
       input,
       nativeDeliverySequence,
       workspaceRoot,
@@ -2164,9 +2227,20 @@ export class RunExecutionService {
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
       activity: {
         admitted: (toolCallId, decision) =>
-          this.recordSkillAdmission(input, toolCallId, decision),
+          this.recordSystemReadAdmission(
+            input,
+            toolCallId,
+            { path: 'skill://' },
+            ORIGIN_SKILL_ACTIVATION,
+            decision,
+          ),
         completed: (toolCallId, result) =>
-          this.recordSkillCompletion(input, toolCallId, result),
+          this.recordSystemReadCompletion(
+            input,
+            toolCallId,
+            ORIGIN_SKILL_ACTIVATION,
+            result,
+          ),
       },
     });
 
@@ -2197,11 +2271,12 @@ export class RunExecutionService {
   }
 
   /**
-   * The trusted context for activation reads: the same fields the model's own
-   * tool context carries, built from the RUN's identity, plus the Run's
-   * remaining wall-clock deadline so a slow package cannot outlive the turn.
+   * The trusted context for a system-origin read (skill activation, the
+   * accepted-turn instructions load): the same fields the model's own tool
+   * context carries, built from the RUN's identity, plus the Run's remaining
+   * wall-clock deadline so a slow read cannot outlive the turn.
    */
-  private buildSkillReadContext(
+  private buildSystemReadContext(
     input: ExecuteRunInput,
     nativeDeliverySequence: number,
     workspaceRoot: WorkspaceRootCell,
@@ -2227,7 +2302,170 @@ export class RunExecutionService {
   }
 
   /**
-   * Durable audit for one activation read.
+   * The accepted-turn instructions load (D5): the live binding's root chain,
+   * staged before the first request when any file of it is not already in
+   * effective context. Computed outside every database transaction, because
+   * probing and reading candidates is filesystem and tool work.
+   */
+  private async loadTurnInstructions(
+    input: ExecuteRunInput,
+    preparation: WorkspacePreparation,
+    workspaceRoot: WorkspaceRootCell,
+    effectivePermissionMode: PermissionMode,
+    nativeDeliverySequence: number,
+    attemptId: string,
+    seenInstructionPaths: ReadonlySet<string>,
+  ): Promise<TurnInstructions> {
+    const loadable = this.instructionsLoadable();
+    const nextToolCallId = this.instructionReadIds(input.runId, attemptId);
+    const readPage = loadable
+      ? this.turnInstructionReadPage(
+          input,
+          this.buildSystemReadContext(
+            input,
+            nativeDeliverySequence,
+            workspaceRoot,
+            effectivePermissionMode,
+          ),
+          nextToolCallId,
+        )
+      : undefined;
+    const turn: TurnInstructions = {
+      loadable,
+      root: preparation.root,
+      readPage,
+      nextToolCallId,
+      part: undefined,
+      seenCanonicalPaths: seenInstructionPaths,
+    };
+    const load = await this.stageAcceptedTurn(
+      input,
+      turn,
+      seenInstructionPaths,
+    );
+    turn.part = load?.part;
+    turn.seenCanonicalPaths = load?.seenKeys ?? seenInstructionPaths;
+    return turn;
+  }
+
+  /**
+   * Allocates the attempt-scoped tool-call id of one audited instruction read.
+   * One allocator per attempt is shared by the accepted-turn load and that
+   * attempt's in-Run steps, so two reads never collide in the event log.
+   */
+  private instructionReadIds(runId: string, attemptId: string): () => string {
+    let ordinal = 0;
+    return () => {
+      ordinal += 1;
+      return `instructions-${runId}-${attemptId}-${ordinal}`;
+    };
+  }
+
+  /**
+   * Recomputes the accepted-turn bundle against the history a transition
+   * compaction just rebuilt (D5, D7). The compaction absorbs every item that
+   * made these files seen, so the root chain returns to this very request; the
+   * staged item is replaced in place, where every holder of the staged array —
+   * the request prepend, the finish-time persistence, and the Run record —
+   * sees the same content.
+   */
+  private async refreshTurnInstructions(
+    turn: TurnInstructions,
+    stagedParts: Array<MessagePart>,
+    input: ExecuteRunInput,
+    seenCanonicalPaths: ReadonlySet<string>,
+  ): Promise<void> {
+    const load = await this.stageAcceptedTurn(input, turn, seenCanonicalPaths);
+    const previous = turn.part;
+    if (previous !== undefined) removeStagedPart(stagedParts, previous);
+    turn.part = load?.part;
+    turn.seenCanonicalPaths = load?.seenKeys ?? seenCanonicalPaths;
+    if (turn.part !== undefined) placeInstructionsPart(stagedParts, turn.part);
+  }
+
+  /**
+   * The item the accepted turn stages for its bound root's chain, if anything
+   * loads. The producer owns the walk and the item; the caller owns the gates
+   * (a producer, a page reader, and a live binding must all exist).
+   */
+  private async stageAcceptedTurn(
+    input: ExecuteRunInput,
+    turn: TurnInstructions,
+    seenKeys: ReadonlySet<string>,
+  ): Promise<InRunTurnLoad | undefined> {
+    const producer = this.inRunProducer;
+    const readPage = turn.readPage;
+    const root = turn.root;
+    if (
+      producer === undefined ||
+      readPage === undefined ||
+      root === undefined
+    ) {
+      return undefined;
+    }
+    return producer.prepareTurn?.({
+      runId: input.runId,
+      workspaceRoot: root,
+      readPage,
+      seenKeys,
+      abortSignal: input.abortSignal,
+    });
+  }
+
+  /** The accepted turn's page reader: one attempt-scoped tool-call id per page. */
+  private turnInstructionReadPage(
+    input: ExecuteRunInput,
+    toolContext: ToolContext,
+    nextToolCallId: () => string,
+  ): ReadPage {
+    return (selectorPath) =>
+      this.readTurnInstructionPage(
+        input,
+        toolContext,
+        selectorPath,
+        nextToolCallId(),
+      );
+  }
+
+  /**
+   * One audited page of the accepted-turn load. Preparation has no attempt
+   * tool closure to join, so this records the same requested/started/completed
+   * triple a model read does directly, carrying the `instructions` origin; an
+   * attempt aborted here publishes neither the item nor an open call.
+   */
+  private async readTurnInstructionPage(
+    input: ExecuteRunInput,
+    toolContext: ToolContext,
+    selectorPath: string,
+    toolCallId: string,
+  ): Promise<ToolResult> {
+    const toolInput = { path: selectorPath };
+    const result = await runTool(
+      nativeReadTool,
+      toolInput,
+      { ...toolContext, toolCallId },
+      this.instanceConfig.config.tools.callTimeoutSeconds,
+      (decision) =>
+        this.recordSystemReadAdmission(
+          input,
+          toolCallId,
+          toolInput,
+          ORIGIN_INSTRUCTIONS,
+          decision,
+        ),
+    );
+    await this.recordSystemReadCompletion(
+      input,
+      toolCallId,
+      ORIGIN_INSTRUCTIONS,
+      result,
+    );
+    return result;
+  }
+
+  /**
+   * Durable audit for one system-origin read (skill activation, the
+   * accepted-turn instructions load).
    *
    * The `requested` write is awaited BEFORE the read dispatches — the awaited
    * admission callback #763 already supplies for model-origin calls — so an
@@ -2240,9 +2478,11 @@ export class RunExecutionService {
    * call never genuinely ran, and the same convention holds for the model's own
    * refused calls.
    */
-  private async recordSkillAdmission(
+  private async recordSystemReadAdmission(
     input: ExecuteRunInput,
     toolCallId: string,
+    toolInput: { readonly path: string },
+    origin: ToolActivityOrigin,
     decision: PermissionDecision,
   ): Promise<void> {
     await this.tenantDb.runAs(input.userId, async (tx) => {
@@ -2250,9 +2490,9 @@ export class RunExecutionService {
       await events.append(input.runId, 'tool.requested', {
         toolCallId,
         toolName: 'read',
-        input: { path: 'skill://' },
+        input: toolInput,
         permission: decision,
-        origin: ORIGIN_SKILL_ACTIVATION,
+        origin,
       });
       // Started only for an allowed call, and only after the request is
       // durable — the same ordering the model-initiated path uses.
@@ -2265,9 +2505,10 @@ export class RunExecutionService {
     });
   }
 
-  private async recordSkillCompletion(
+  private async recordSystemReadCompletion(
     input: ExecuteRunInput,
     toolCallId: string,
+    origin: ToolActivityOrigin,
     result: ToolResult,
   ): Promise<void> {
     await this.tenantDb.runAs(input.userId, (tx) =>
@@ -2276,7 +2517,7 @@ export class RunExecutionService {
         toolName: 'read',
         status: result.status,
         output: result,
-        origin: ORIGIN_SKILL_ACTIVATION,
+        origin,
       }),
     );
   }
@@ -2291,8 +2532,9 @@ export class RunExecutionService {
   private async ensureRequestFitsContextWindow(
     prepared: PreparedExecutionContext,
     contextItems: ReturnType<typeof buildContext>['contextItems'],
-    stagedParts: ReadonlyArray<MessagePart>,
+    stagedParts: Array<MessagePart>,
     input: ExecuteRunInput,
+    turnInstructions: TurnInstructions,
   ): Promise<ReturnType<typeof buildContext>['contextItems']> {
     const reservedOutputTokens =
       this.instanceConfig.config.runs.maxOutputTokens;
@@ -2320,6 +2562,7 @@ export class RunExecutionService {
       input,
       reservedOutputTokens,
       stagedParts,
+      turnInstructions,
     );
   }
 
@@ -2327,15 +2570,17 @@ export class RunExecutionService {
    * Attempts one transition compaction and context rebuild, then re-checks;
    * throws `ContextIncompatibleError` if compaction itself fails (unless the
    * abort signal fired, which rethrows) or the rebuilt request still doesn't
-   * fit. Mutates `prepared.messages` and `prepared.seenInstructionPaths` in
-   * place and returns the rebuilt context items to record — the initial
+   * fit. Mutates `prepared.messages` and the staged parts in place — the
+   * accepted turn's instructions item is recomputed against the rebuilt
+   * history — and returns the rebuilt context items to record: the initial
    * build's items were never sent.
    */
   private async compactAndRebuildForContextWindow(
     prepared: PreparedExecutionContext,
     input: ExecuteRunInput,
     reservedOutputTokens: number | null,
-    stagedParts: ReadonlyArray<MessagePart>,
+    stagedParts: Array<MessagePart>,
+    turnInstructions: TurnInstructions,
   ): Promise<ReturnType<typeof buildContext>['contextItems']> {
     try {
       await this.compaction.compactForTransition({
@@ -2355,9 +2600,14 @@ export class RunExecutionService {
     const rebuilt = await this.tenantDb.runAs(input.userId, (tx) =>
       this.rebuildContextForChat(tx, input, prepared.system),
     );
-    // The rebuilt history decides the instructions seen set: a file the
-    // attempt's first request disclosed may no longer be named by it.
-    prepared.seenInstructionPaths = rebuilt.seenInstructionPaths;
+    // The rebuilt history decides the accepted-turn bundle: the item this
+    // attempt had staged can no longer be what made its files seen.
+    await this.refreshTurnInstructions(
+      turnInstructions,
+      stagedParts,
+      input,
+      rebuilt.seenInstructionPaths,
+    );
     this.prependStagedContextItems(rebuilt.context.messages, stagedParts);
     prepared.messages = rebuilt.context.messages;
     if (
@@ -2820,17 +3070,19 @@ export class RunExecutionService {
   /** The configured in-Run producer's state for one attempt, if any producer is registered. */
   private beginInRunAttempt(
     input: ExecuteRunInput,
-    seenInstructionPaths: ReadonlySet<string>,
+    turn: TurnInstructions,
     readPage: ReadPage,
   ): InRunAttemptProducer | undefined {
     return this.inRunProducer?.beginAttempt({
       runId: input.runId,
       chatId: input.chatId,
       userId: input.userId,
-      seenKeys: seenInstructionPaths,
+      // The accepted-turn load's keys count as disclosed: a file it staged
+      // must not reload on the attempt's first in-Run trigger.
+      seenKeys: turn.seenCanonicalPaths,
       // A Run whose read gate is closed gets no page reader: the producer then
       // marks and loads nothing (spec: Read not allowlisted).
-      ...(this.instructionsLoadable() && { readPage }),
+      ...(turn.loadable && { readPage }),
       abortSignal: input.abortSignal,
     });
   }

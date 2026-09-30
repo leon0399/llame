@@ -5,7 +5,8 @@
  * filesystem root down to the touched directory, minus the files the attempt's
  * effective context and its own items already named, read through the native
  * `read` tool under the Run's own permission decision and audit trail, and
- * staged as one item for the next model step.
+ * staged as one item for the next model step — or, for the accepted turn of a
+ * bound Chat, for its first request.
  *
  * The producer holds no state of its own. An attempt's pending triggers and
  * seen keys live in the object `beginAttempt` returns and are discarded with
@@ -41,6 +42,8 @@ import type {
   InRunAttemptProducer,
   InRunContextProducer,
   InRunToolCall,
+  InRunTurnContext,
+  InRunTurnLoad,
 } from '../runs/in-run-context-items';
 import {
   nativeEditTool,
@@ -301,6 +304,20 @@ function createAttemptProducer(
 /** The `instructions` producer: stateless between attempts (see the module doc). */
 export function createInstructionsProducer(): InRunContextProducer {
   return {
+    async prepareTurn(
+      context: InRunTurnContext,
+    ): Promise<InRunTurnLoad | undefined> {
+      const keys = new Set(context.seenKeys);
+      const part = await loadBundle({
+        runId: context.runId,
+        triggers: [{ path: context.workspaceRoot, excludeCandidate: false }],
+        readPage: context.readPage,
+        keys,
+        abortSignal: context.abortSignal,
+      });
+      return part === undefined ? undefined : { part, seenKeys: keys };
+    },
+
     beginAttempt(attempt: InRunAttempt): InRunAttemptProducer {
       const readPage = attempt.readPage;
       // Without a page reader the producer may not load at all — the `read`

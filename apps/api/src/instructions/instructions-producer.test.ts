@@ -24,7 +24,10 @@ import {
   instructionsSeenPaths,
 } from '../chats/instructions-item';
 import type { ReadPage } from './instruction-files';
-import type { InRunToolCall } from '../runs/in-run-context-items';
+import type {
+  InRunToolCall,
+  InRunTurnLoad,
+} from '../runs/in-run-context-items';
 import { enterWorkspaceTool, exitWorkspaceTool } from '../tools/workspace';
 import { createInstructionsProducer } from './instructions-producer';
 
@@ -125,6 +128,21 @@ function lastStaged(
 
 function readCall(path: string, toolName = 'read'): InRunToolCall {
   return { toolName, input: { path }, workspaceRoot: root };
+}
+
+/** One accepted-turn load, failing loudly when the turn loaded nothing. */
+async function turnLoad(input: {
+  readonly workspaceRoot: string;
+  readonly seenKeys: ReadonlySet<string>;
+}): Promise<InRunTurnLoad> {
+  const load = await createInstructionsProducer().prepareTurn?.({
+    runId: RUN_ID,
+    workspaceRoot: input.workspaceRoot,
+    readPage: pageReader().readPage,
+    seenKeys: input.seenKeys,
+  });
+  if (load === undefined) throw new Error('the accepted turn loaded nothing');
+  return load;
 }
 
 describe('instructions producer triggers', () => {
@@ -550,5 +568,36 @@ describe('instructions producer triggers', () => {
     expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([
       join(root, 'AGENTS.md'),
     ]);
+  });
+});
+
+describe('instructions producer accepted turn', () => {
+  it('stages the bound root chain and reports the keys it establishes', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+
+    const load = await turnLoad({
+      workspaceRoot: join(root, 'apps/api'),
+      seenKeys: new Set(),
+    });
+
+    const loaded = withinRoot(blockPaths(load.part));
+    expect(loaded).toEqual([
+      join(root, 'AGENTS.md'),
+      join(root, 'apps/api/AGENTS.md'),
+    ]);
+    for (const path of loaded) expect(load.seenKeys).toContain(path);
+  });
+
+  it('adds nothing when every root-chain file is already seen', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    const load = await createInstructionsProducer().prepareTurn?.({
+      runId: RUN_ID,
+      workspaceRoot: root,
+      readPage: pageReader().readPage,
+      seenKeys: new Set([await realpath(join(root, 'AGENTS.md'))]),
+    });
+
+    expect(load).toBeUndefined();
   });
 });
