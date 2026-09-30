@@ -55,26 +55,24 @@ sources:
 
 # Provider prompt caching and llame's dynamic context
 
-Short answer: the per-turn reminders (current time, digest deltas, tool
-availability, model switch) do not hurt caching, within or across
-conversations. They ride the newest user message and are persisted in place.
-What limits cross-conversation sharing is two other things: per-chat values
-inside the system prompt (the chat's temporal anchor and the frozen digest
-baseline), and, on Anthropic and current OpenAI models, the absence of any
-cache write at the end of the shared head. On those two wires placement alone
-changes nothing. A chat can only read another chat's cached head if some
-request wrote an entry ending exactly at that head, and llame never asks for
-one.
+Short answer: the per-turn reminders (current time, digest deltas, tool availability,
+model switch) do not hurt caching, within or across conversations. They ride the newest
+user message and are persisted in place. What limits cross-conversation sharing is two
+other things: per-chat values inside the system prompt (the chat's temporal anchor and
+the frozen digest baseline), and, on Anthropic and current OpenAI models, the absence of
+any cache write at the end of the shared head. On those two wires placement alone
+changes nothing: a chat can only read another chat's cached head if some request wrote
+an entry ending exactly at that head, and llame never asks for one.
 
-Evidence below is source and documentation reading on 2026-09-26 at master
-`f689ad1e`. No cache-hit rates were measured.
+Evidence below is source and documentation reading on 2026-09-26 at master `f689ad1e`.
+No cache-hit rates were measured.
 
 ## How provider caches decide what is reusable
 
-All of them cache the KV state of a token prefix. Each block's hash chains over
-every token before it, so one changed byte invalidates everything after
-it[^vllm-prefix-caching]. The providers differ on three points: where an entry
-is written, which positions a later request checks, and who shares the cache.
+All of them cache the KV state of a token prefix. Each block's hash chains over every
+token before it, so one changed byte invalidates everything after
+it[^vllm-prefix-caching]. They differ on three points: where an entry is written, which
+positions a later request checks, and who shares the cache.
 
 | Provider                    | Render order                                                  | Where entries are written                                                                                                      | Lookup                                                                                              | Min / lifetime                                          | Sharing scope                                                                                                 |
 | --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -86,24 +84,22 @@ is written, which positions a later request checks, and who shares the cache.
 
 Two rules determine the answer for llame:
 
-1. **Writes happen only at breakpoints on Anthropic and in GPT-5.6+ implicit
-   mode.** Anthropic says so directly: "The lookback does not find stable
-   content behind your breakpoint and cache it. It finds entries that prior
-   requests already wrote, and writes happen only at
-   breakpoints"[^anthropic-prompt-caching]. OpenAI lists it as a gotcha: "A
-   shared prefix is not always a cached prefix." A static developer message
-   followed by a dynamic user message writes through the dynamic content, so
-   the static part is reusable only if an explicit breakpoint sits after
-   it[^openai-prompt-caching].
-2. **Where sharing is automatic** (fixed-interval breakpoints on older OpenAI
-   models, DeepSeek's common-prefix detection, vLLM/SGLang-style block
-   caches), any two requests share everything up to their first differing
-   token. There, placement is the only lever.
+1. **Writes happen only at breakpoints on Anthropic and in GPT-5.6+ implicit mode.**
+   Anthropic says so directly: "The lookback does not find stable content behind your
+   breakpoint and cache it. It finds entries that prior requests already wrote, and
+   writes happen only at breakpoints"[^anthropic-prompt-caching]. OpenAI lists it as a
+   gotcha: "A shared prefix is not always a cached prefix." A static developer message
+   followed by a dynamic user message writes through the dynamic content, so the static
+   part is reusable only if an explicit breakpoint sits after it[^openai-prompt-caching].
+2. **Where sharing is automatic** (fixed-interval breakpoints on older OpenAI models,
+   DeepSeek's common-prefix detection, vLLM/SGLang-style block caches), any two requests
+   share everything up to their first differing token. There, placement is the only
+   lever.
 
 ## What llame sends
 
-Every wire gets the same logical layout. The volatility tier of each segment is
-in brackets.
+Every wire gets the same logical layout. The volatility tier of each segment is in
+brackets.
 
 ```text
 tools        sorted by id, admitted set only          [instance + owner]
@@ -120,16 +116,16 @@ messages     history, replayed byte-identically       [per chat, append-only]
                user text
 ```
 
-- The anchor is the chat's (or latest compaction's) creation instant, not the
-  current time
+- The anchor is the chat's (or latest compaction's) creation instant, not the current
+  time
   ([run-execution.service.ts L2670-L2673](../../../apps/api/src/runs/run-execution.service.ts#L2670-L2673),
   [chat-default.md L27](../../../apps/api/src/prompts/chat-default.md#L27)).
 - The per-turn clock is a staged context item built with `new Date()`
-  ([L3019-L3025](../../../apps/api/src/runs/run-execution.service.ts#L3019-L3025)).
-  It is prepended to the triggering user message
-  ([L3042-L3071](../../../apps/api/src/runs/run-execution.service.ts#L3042-L3071))
-  and, on a completed run, persisted ahead of that message's parts in the same
-  order ([L2271](../../../apps/api/src/runs/run-execution.service.ts#L2271)).
+  ([L3019-L3025](../../../apps/api/src/runs/run-execution.service.ts#L3019-L3025)),
+  prepended to the triggering user message
+  ([L3042-L3071](../../../apps/api/src/runs/run-execution.service.ts#L3042-L3071)) and,
+  on a completed run, persisted ahead of that message's parts in the same order
+  ([L2271](../../../apps/api/src/runs/run-execution.service.ts#L2271)).
 - The tool declarations are sorted by id, and unavailable tools are left out
   ([turn-tool-catalog.ts L492-L506](../../../apps/api/src/tools/turn-tool-catalog.ts#L492-L506)).
   `knowledge_search` depends on the owner's Knowledge Spaces
@@ -138,33 +134,31 @@ messages     history, replayed byte-identically       [per chat, append-only]
   ([anthropic-model-client.ts L69-L71](../../../apps/api/src/models/anthropic-model-client.ts#L69-L71)),
   as its spec requires
   ([anthropic-messages-provider](../../../openspec/specs/anthropic-messages-provider/spec.md)).
-  The Responses and Codex clients send no `prompt_cache_key` and no
-  breakpoint. The system prompt reaches every SDK call as one string.
+  The Responses and Codex clients send no `prompt_cache_key` and no breakpoint, and the
+  system prompt reaches every SDK call as one string.
 
-Size estimate at chars ÷ 4, with no tokenizer run: the default tool
-descriptions are about 16.3k characters (≈4.1k tokens) before JSON schemas and
-MCP tools. The static system text before the anchor is about 3.5k characters
-(≈0.9k tokens). The static tail after the dynamic blocks is about 1.5k
-characters (≈0.4k tokens).
+Size estimate at chars ÷ 4, with no tokenizer run: the default tool descriptions are
+about 16.3k characters (≈4.1k tokens) before JSON schemas and MCP tools; the static
+system text before the anchor about 3.5k characters (≈0.9k tokens); the static tail
+after the dynamic blocks about 1.5k characters (≈0.4k tokens).
 
 ## Findings
 
-**F1: Per-turn reminders do not hurt caching.** They sit after all history, in
-the only message that is new anyway. The existing specs already require this
-placement: a per-turn value must not sit in the system prompt
-([temporal-anchor spec](../../../openspec/specs/temporal-anchor/spec.md)),
-and frequently changing state goes into rail deltas
-([context-injection spec](../../../openspec/specs/context-injection/spec.md)).
-OpenAI's guidance says the same: put timestamps and user-specific content at
-the end or in later messages[^openai-prompt-caching]. They are persisted in
-the order they were sent, so the next turn's replay matches byte for byte. One
-exception: a run that does not complete does not persist its reminders, so the
-next request's replay of that user message differs from what was sent. This
-costs one prefix miss from that message on (high confidence from the code at
-L2257-L2271).
+**F1: Per-turn reminders do not hurt caching.** They sit after all history, in the only
+message that is new anyway. The existing specs already require this placement: a
+per-turn value must not sit in the system prompt
+([temporal-anchor spec](../../../openspec/specs/temporal-anchor/spec.md)), and
+frequently changing state goes into rail deltas
+([context-injection spec](../../../openspec/specs/context-injection/spec.md)). OpenAI's
+guidance says the same: put timestamps and user-specific content at the end or in later
+messages[^openai-prompt-caching]. They are persisted in the order they were sent, so the
+next turn's replay matches byte for byte. One exception: a run that does not complete
+does not persist its reminders, so the next request's replay of that user message
+differs from what was sent. This costs one prefix miss from that message on (high
+confidence from the code at L2257-L2271).
 
-**F2: The shared head ends at the anchor.** Each templated item in the system
-prompt and in the tool descriptions, in request order:
+**F2: The shared head ends at the anchor.** Each templated item in the system prompt and
+in the tool descriptions, in request order:
 
 | Item                                      | Varies by                                             | Changes when                         | Size (chars ÷ 4)                            | Effect on sharing between chats                                                                                             |
 | ----------------------------------------- | ----------------------------------------------------- | ------------------------------------ | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
@@ -176,85 +170,79 @@ prompt and in the tool descriptions, in request order:
 | Skill catalog, L89-107                    | Instance; frozen per chat                             | Compaction, if the catalog changed   | Instance-dependent                          | Identical across most chats, but sits after the anchor and the digest                                                       |
 | Reminder and transparency rules, L109-119 | Nothing                                               | Never                                | ~0.4k                                       | Static, but lost because it sits last                                                                                       |
 
-Between compactions, only the personalization block changes inside a
-conversation. The anchor, digest and skills change only at compaction, which
-replaces the history anyway, so they cost nothing extra there. Between
-conversations, the current order leaves about 0.4k static tokens plus the
-skill catalog outside the shareable head. For one owner's chats, it also
-leaves out the personalization. No spec fixes the order within the template:
-the temporal-anchor spec requires only that the anchor be deterministic
+Between compactions, only the personalization block changes inside a conversation. The
+anchor, digest and skills change only at compaction, which replaces the history anyway,
+so they cost nothing extra there. Between conversations, the current order leaves about
+0.4k static tokens plus the skill catalog outside the shareable head; for one owner's
+chats it also leaves out the personalization. No spec fixes the order within the
+template: the temporal-anchor spec requires only that the anchor be deterministic
 between compactions and that no per-request clock precede the cached prefix.
 
-**F3: On Anthropic and GPT-5.6+, cross-conversation reuse is likely zero with
-any ordering.** Automatic caching writes at the last block of each request.
-GPT-5.6+ implicit mode writes at the end of the latest user or tool message. No
-request writes an entry that ends at the tools/system boundary, so a new chat
-has nothing to read there. The docs describe this failure case
-explicitly[^anthropic-prompt-caching][^openai-prompt-caching]. OpenAI's
-lookup set includes "the endpoint of the initial consecutive block of
-developer messages". An entry there can only exist if something wrote it. The
-docs describe writes only at the implicit and explicit breakpoints (moderate
-confidence; hit rates not measured).
+**F3: On Anthropic and GPT-5.6+, cross-conversation reuse is likely zero with any
+ordering.** Automatic caching writes at the last block of each request. GPT-5.6+
+implicit mode writes at the end of the latest user or tool message. No request writes
+an entry that ends at the tools/system boundary, so a new chat has nothing to read
+there. The docs describe this failure case
+explicitly[^anthropic-prompt-caching][^openai-prompt-caching]. OpenAI's lookup set
+includes "the endpoint of the initial consecutive block of developer messages". An entry
+there can only exist if something wrote it. The docs describe writes only at the implicit
+and explicit breakpoints (moderate confidence; hit rates not measured).
 
-**F4: Where sharing is automatic, the anchor sets the limit today.** On GPT-5.5
-and earlier, implicit breakpoints fall at fixed intervals, so chats of the same
-model already share the head, rounded down to the last interval before the
-anchor[^openai-prompt-caching]. DeepSeek persists detected common prefixes the
-same way[^deepseek-kv-cache]. On these backends, moving per-chat content later
-in the template extends the shared head with no other change.
+**F4: Where sharing is automatic, the anchor sets the limit today.** On GPT-5.5 and
+earlier, implicit breakpoints fall at fixed intervals, so chats of the same model already
+share the head, rounded down to the last interval before the
+anchor[^openai-prompt-caching]. DeepSeek persists detected common prefixes the same
+way[^deepseek-kv-cache]. On these backends, moving per-chat content later in the
+template extends the shared head with no other change.
 
-**F5: Tool-set changes hurt more than the reminders.** A tool that becomes
-unavailable (MCP server down, Knowledge Space unmounted) is removed from
-`tools`. On Anthropic, that invalidates the tools, system, and message caches:
-the whole conversation is re-prefilled[^anthropic-prompt-caching]. OpenAI
-treats a changed `tools` array the same way; its diagnostics report such a
-miss as `reason: "tools_changed"`[^openai-gpt6-caching].
-Owner-dependent admission (`knowledge_search`) also splits the shared head by
-owner partway through the tools block. How often availability changes is
-unmeasured. Both providers now support changing availability without editing
-`tools` (F10).
+**F5: Tool-set changes hurt more than the reminders.** A tool that becomes unavailable
+(MCP server down, Knowledge Space unmounted) is removed from `tools`. On Anthropic, that
+invalidates the tools, system, and message caches: the whole conversation is
+re-prefilled[^anthropic-prompt-caching]. OpenAI treats a changed `tools` array the same
+way; its diagnostics report such a miss as `reason: "tools_changed"`[^openai-gpt6-caching].
+Owner-dependent admission (`knowledge_search`) also splits the shared head by owner
+partway through the tools block. How often availability changes is unmeasured. Both
+providers now support changing availability without editing `tools` (F10).
 
-**F6: The Responses and Codex clients send no `prompt_cache_key`.** Codex CLI
-sends its session id as `prompt_cache_key`, and a forked thread keeps its
-parent's key[^codex-prompt-cache-key]. For models before GPT-5.6, OpenAI routes
-by the hash of the initial tokens (tools come first) plus the key. Without a
-key, all llame chats of one model land in one routing group. That is harmless
-below about 15 requests per minute and overflows above it. Whether the ChatGPT
-Codex backend routes the same way is undocumented (low confidence).
+**F6: The Responses and Codex clients send no `prompt_cache_key`.** Codex CLI sends its
+session id as `prompt_cache_key`, and a forked thread keeps its parent's
+key[^codex-prompt-cache-key]. For models before GPT-5.6, OpenAI routes by the hash of
+the initial tokens (tools come first) plus the key. Without a key, all llame chats of
+one model land in one routing group. That is harmless below about 15 requests per minute
+and overflows above it. Whether the ChatGPT Codex backend routes the same way is
+undocumented (low confidence).
 
-**F7: The money at stake is small per chat opening.** Head sharing saves about
-0.9 × (tools + static system) input tokens, roughly 5k, on three kinds of
-request: the first request of a chat, the first request after compaction (the
-anchor and history both change), and the first request after the cache
-expires. At Opus 5.5 input pricing ($4/MTok) that is about $0.02 per
-qualifying request. The bigger loss is the history re-prefill after a 5-minute
-TTL lapse, which head sharing cannot recover. For personal chat usage, TTL
-lapse is probably the main cause of misses (inference, not measured).
+**F7: The money at stake is small per chat opening.** Head sharing saves about 0.9 ×
+(tools + static system) input tokens, roughly 5k, on three kinds of request: the first
+request of a chat, the first request after compaction (the anchor and history both
+change), and the first request after the cache expires. At Opus 5.5 input pricing
+($4/MTok) that is about $0.02 per qualifying request. The bigger loss is the history
+re-prefill after a 5-minute TTL lapse, which head sharing cannot recover. For personal
+chat usage, TTL lapse is probably the main cause of misses (inference, not measured).
 
-**F8: Cross-owner probing is already blocked by the layout.** Caches are shared
-at the provider organization or workspace level, so every llame owner shares
-the operator's cache. Owners see `cachedInputTokens` in the usage panel.
-Probing another owner's history would require reproducing that owner's anchor
-minute, personalization and digest, all of which precede the history. OpenAI
-recommends per-customer `prompt_cache_key` values against probing, but on
-GPT-5.6+ a key also separates reuse, which would give up instance-wide head
-sharing[^openai-prompt-caching]. Any reordering must keep owner-specific
-blocks ahead of owner content.
+**F8: Cross-owner probing is already blocked by the layout.** Caches are shared at the
+provider organization or workspace level, so every llame owner shares the operator's
+cache. Owners see `cachedInputTokens` in the usage panel. Probing another owner's
+history would require reproducing that owner's anchor minute, personalization and
+digest, all of which precede the history. OpenAI recommends per-customer
+`prompt_cache_key` values against probing, but on GPT-5.6+ a key also separates reuse,
+which would give up instance-wide head sharing[^openai-prompt-caching]. Any reordering
+must keep owner-specific blocks ahead of owner content.
 
 **F9: Smaller sources of prefix change.**
 
-- Line 3 renders llame's catalog `model.id`, so two catalog entries for the
-  same upstream model stop sharing about 30 tokens into the system prompt.
-  Tools stay shared because they come first.
-- llame sends effort as a request-level setting. A mid-chat effort change
-  therefore invalidates Anthropic's message cache, and OpenAI's entire prefix
-  through the hidden system content. Both providers now offer an in-conversation
-  effort change that avoids this (F10).
+- Line 3 renders llame's catalog `model.id`, so two catalog entries for the same upstream
+  model stop sharing about 30 tokens into the system prompt. Tools stay shared because
+  they come first.
+- llame sends effort as a request-level setting. A mid-chat effort change therefore
+  invalidates Anthropic's message cache, and OpenAI's entire prefix through the hidden
+  system content. Both providers now offer an in-conversation effort change that avoids
+  this (F10).
 
-**F10: GPT-6 and current Claude models can change tools, instructions and
-effort without breaking the cache.** Neither provider made editing the `tools`
-array or the top-level system prompt cache-safe. Both instead let the full set
-be declared once and changed from a point in the conversation onward.
+**F10: GPT-6 and current Claude models can change tools, instructions and effort without
+breaking the cache.** Neither provider made editing the `tools` array or the top-level
+system prompt cache-safe. Both instead let the full set be declared once and changed
+from a point in the conversation onward.
 
 | Change            | OpenAI GPT-6 Sol/Luna/Astra                                                                                  | Anthropic Opus 5.5 and other current flagships, not Sonnet 5                                                                          |
 | ----------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -262,117 +250,104 @@ be declared once and changed from a point in the conversation onward.
 | New instructions  | Append developer messages toward the end of the context                                                      | Append a mid-conversation `role: "system"` message; generally available, no beta header                                               |
 | Effort            | Append a `configuration_update` item; keep request-level effort unchanged                                    | `effort` on a mid-conversation system message (beta)                                                                                  |
 
-Sources: the GPT-6 announcement promises that effort and tool availability now
-"preserve earlier context for cache reuse"[^openai-gpt6-sol-luna], and the
-caching post gives the mechanics[^openai-gpt6-caching]. Anthropic's page
-covers the Claude side[^anthropic-mid-conversation-system]. The Anthropic tool
-beta is `inline-tools-2026-09-15`, which also accepts full definitions inside
-`tool_addition`. The older `mid-conversation-tool-changes-2026-07-01` accepts
-only references to declared tools.
+Sources: the GPT-6 announcement promises that effort and tool availability now "preserve
+earlier context for cache reuse"[^openai-gpt6-sol-luna], and the caching post gives the
+mechanics[^openai-gpt6-caching]. Anthropic's page covers the Claude
+side[^anthropic-mid-conversation-system]. The Anthropic tool beta is
+`inline-tools-2026-09-15`, which also accepts full definitions inside `tool_addition`. The
+older `mid-conversation-tool-changes-2026-07-01` accepts only references to declared
+tools.
 
 The installed SDKs can express all of it:
 
-- `@ai-sdk/openai` 3.0.97 emits `tool_choice: { type: "allowed_tools" }` from
-  its `allowedTools` option. llame strips `allowedTools` from operator
-  `providerOptions` as a reserved key, so the client would have to set it
-  itself.
-- `@ai-sdk/anthropic` 3.0.118 turns a `role: "system"` message inside
-  `messages` into a mid-conversation system message, with `toolChanges`,
-  `effort` and `clearAt` provider options. It adds the matching beta headers
-  itself, using the older reference-only tool-change header.
-- AI SDK 6.0.256 accepts system messages in `messages` behind
-  `allowSystemInMessages`: unset allows them with a warning. The comment in
-  `context-builder.ts` that "AI SDK v6 rejects those" does not match this
-  version.
+- `@ai-sdk/openai` 3.0.97 emits `tool_choice: { type: "allowed_tools" }` from its
+  `allowedTools` option. llame strips `allowedTools` from operator `providerOptions` as
+  a reserved key, so the client would have to set it itself.
+- `@ai-sdk/anthropic` 3.0.118 turns a `role: "system"` message inside `messages` into a
+  mid-conversation system message, with `toolChanges`, `effort` and `clearAt` provider
+  options. It adds the matching beta headers itself, using the older reference-only
+  tool-change header.
+- AI SDK 6.0.256 accepts system messages in `messages` behind `allowSystemInMessages`:
+  unset allows them with a warning. The comment in `context-builder.ts` that "AI SDK v6
+  rejects those" does not match this version.
 - Chat Completions, OpenCode Go and the Codex backend are unchecked.
 
 ## Prior art
 
-- **OMP** sets a breakpoint on the last non-deferred tool and on the last
-  stable system block. Volatile `<memories>` blocks go after it, and the
-  remaining breakpoints go to the message tail. The inline comment states the
-  reason: without the head breakpoints, "tail churn re-writes the whole head
-  uncached"[^omp-apply-head-caching]. Its Claude Code OAuth path also sends a
-  `scope: "global"` field under the `prompt-caching-scope-2026-01-05`
-  beta, described as sharing the breakpoint across
-  sessions[^omp-cache-scope]. The public caching page does not document it,
-  and it is not available to llame's API-key wire (inference).
-- **OpenClaw** splits the system prompt at a literal
-  `<!-- OPENCLAW_CACHE_BOUNDARY -->` marker into `stablePrefix` and
-  `dynamicSuffix`. It appends a boundary when an override has none, so hook
-  additions land in the uncached suffix[^openclaw-cache-boundary].
-- **OpenAI's own example** for GPT-5.6 has the same shape: stable developer
-  text carrying an explicit breakpoint, then a separate developer message with
-  user-specific content and timestamps[^openai-prompt-caching]. Its GPT-6
-  guidance extends the same append-only idea to tools, instructions and
-  effort[^openai-gpt6-caching].
+- **OMP** sets a breakpoint on the last non-deferred tool and on the last stable system
+  block. Volatile `<memories>` blocks go after it, and the remaining breakpoints go to
+  the message tail. The inline comment gives the reason: without the head breakpoints,
+  "tail churn re-writes the whole head uncached"[^omp-apply-head-caching]. Its Claude
+  Code OAuth path also sends a `scope: "global"` field under the
+  `prompt-caching-scope-2026-01-05` beta, described as sharing the breakpoint across
+  sessions[^omp-cache-scope]. The public caching page does not document it, and it is
+  not available to llame's API-key wire (inference).
+- **OpenClaw** splits the system prompt at a literal `<!-- OPENCLAW_CACHE_BOUNDARY -->`
+  marker into `stablePrefix` and `dynamicSuffix`. It appends a boundary when an override
+  has none, so hook additions land in the uncached suffix[^openclaw-cache-boundary].
+- **OpenAI's own example** for GPT-5.6 has the same shape: stable developer text
+  carrying an explicit breakpoint, then a separate developer message with user-specific
+  content and timestamps[^openai-prompt-caching]. Its GPT-6 guidance extends the same
+  append-only idea to tools, instructions and effort[^openai-gpt6-caching].
 
 ## Options
 
-- **O1: Measure first.** Group recorded `cachedInputTokens / inputTokens` by
-  request class: first turn of a chat, first turn after compaction, first turn
-  after a gap longer than the TTL, and the rest. If the gap class dominates,
-  the lever is TTL (Anthropic 1 h at 2× write; OpenAI `24h` retention on older
-  models), not layout.
-- **O2: Order the default template by volatility.** Static sections first
-  (L1-26, reminders, transparency), then the instance skill catalog, then
-  per-owner personalization, then the per-chat anchor and digest. This is a
-  template-only change. It extends the shared head immediately on
-  automatic-sharing backends (F4) and is required before O3 can help. Risk:
-  untrusted data blocks move to the end of the system prompt, where they may
-  carry more weight. Their framing text moves with them, but instruction
-  following needs an eval, not an assumption. Operator override templates keep
-  their own order.
+- **O1: Measure first.** Group recorded `cachedInputTokens / inputTokens` by request
+  class: first turn of a chat, first turn after compaction, first turn after a gap longer
+  than the TTL, and the rest. If the gap class dominates, the lever is TTL (Anthropic 1 h
+  at 2× write; OpenAI `24h` retention on older models), not layout.
+- **O2: Order the default template by volatility.** Static sections first (L1-26,
+  reminders, transparency), then the instance skill catalog, then per-owner
+  personalization, then the per-chat anchor and digest. This is a template-only change. It
+  extends the shared head immediately on automatic-sharing backends (F4) and is required
+  before O3 can help. Risk: untrusted data blocks move to the end of the system prompt,
+  where they may carry more weight. Their framing text moves with them, but instruction
+  following needs an eval, not an assumption. Operator override templates keep their own
+  order.
 - **O3: Explicit head breakpoints.** Send the system prompt as two
-  `SystemModelMessage`s (AI SDK 6 accepts an array). The static and instance
-  head gets `providerOptions.anthropic.cacheControl`, and the last tool gets
-  the same. That uses 2 of Anthropic's 4 slots, with automatic caching keeping
-  the tail. On OpenAI GPT-5.6+, `providerOptions.openai.promptCacheBreakpoint`
-  goes on the head message; installed `@ai-sdk/openai` 3.0.97 maps it onto
-  system and developer messages. Every request from any chat then refreshes the
-  shared head, so it stays warm while any chat on the instance is active. This
-  changes the Anthropic spec's "no block-level breakpoints" requirement, so it
-  needs an OpenSpec change. Unverified: whether the extra write is charged when
+  `SystemModelMessage`s (AI SDK 6 accepts an array). The static and instance head gets
+  `providerOptions.anthropic.cacheControl`, and the last tool gets the same. That uses 2
+  of Anthropic's 4 slots, with automatic caching keeping the tail. On OpenAI GPT-5.6+,
+  `providerOptions.openai.promptCacheBreakpoint` goes on the head message; installed
+  `@ai-sdk/openai` 3.0.97 maps it onto system and developer messages. Every request from
+  any chat then refreshes the shared head, so it stays warm while any chat on the instance
+  is active. This changes the Anthropic spec's "no block-level breakpoints" requirement,
+  so it needs an OpenSpec change. Unverified: whether the extra write is charged when
   the tail write misses as well.
-- **O4: Keep tool declarations fixed across availability changes.** Declare
-  every allowlisted tool in `tools` and express availability through F10's
-  controls: `allowed_tools` on GPT-6, `tool_removal`/`tool_addition` on
-  Anthropic. Where neither exists, fail the call with the availability reason.
-  The tools block then stops varying by owner as well (F5). Cost: the
-  `{{#if tools.*}}` conditionals in the tool descriptions must go, because
-  they rewrite description text whenever the tool set changes. The change
-  touches the tool-availability contract, which today reports availability as
-  a rail item beside a changed declaration.
-- **O5: Leave it.** The in-conversation design is already correct. The
-  cross-conversation gain is about 5k tokens per chat opening.
-- **O6: Move the per-chat items out of the system prompt.** The anchor and
-  the digest baseline are the only items that differ between any two chats
-  without an owner or operator action. Every user turn already carries a
-  persisted temporal receipt, so in an uncompacted chat the anchor repeats
-  the first message's receipt. Its one unique job is dating the compaction
-  summary, which a receipt at the head of the replacement history can do.
-  The digest baseline can leave the system prompt in one of two ways. On wires
-  with mid-conversation system messages (Anthropic, and developer messages on
-  GPT-6), it can be a system-role message ahead of the first user message of
-  each context window: the chat's first turn, and the first turn after a
-  compaction re-bake. It then keeps its system-role authority while staying
-  out of the shared head. On other wires, it can be a persisted
-  `<system-reminder>` context item on that same user message. Its deltas
-  already ride the rail. The system prompt then becomes identical across an
-  owner's chats. This conflicts with context-injection residency rule 3, which
-  requires a prefix-resident baseline, and with the temporal-anchor spec, so
-  it needs an OpenSpec change. Like O2, it pays on Anthropic and GPT-5.6+ only
-  together with O3.
-- **O7: Change effort in the conversation.** Send a mid-chat effort change as
-  a `configuration_update` on GPT-6 and as a mid-conversation system message's
-  `effort` on Anthropic, keeping the request-level effort at the chat's first
-  value. Compaction already reuses the source run's effort for the same cache
-  reason (available-models spec).
+- **O4: Keep tool declarations fixed across availability changes.** Declare every
+  allowlisted tool in `tools` and express availability through F10's controls:
+  `allowed_tools` on GPT-6, `tool_removal`/`tool_addition` on Anthropic. Where neither
+  exists, fail the call with the availability reason. The tools block then stops varying
+  by owner as well (F5). Cost: the `{{#if tools.*}}` conditionals in the tool
+  descriptions must go, because they rewrite description text whenever the tool set
+  changes. The change touches the tool-availability contract, which today reports
+  availability as a rail item beside a changed declaration.
+- **O5: Leave it.** The in-conversation design is already correct. The cross-conversation
+  gain is about 5k tokens per chat opening.
+- **O6: Move the per-chat items out of the system prompt.** The anchor and the digest
+  baseline are the only items that differ between any two chats without an owner or
+  operator action. Every user turn already carries a persisted temporal receipt, so in an
+  uncompacted chat the anchor repeats the first message's receipt. Its one unique job is
+  dating the compaction summary, which a receipt at the head of the replacement history
+  can do. The digest baseline can leave the system prompt in one of two ways. On wires
+  with mid-conversation system messages (Anthropic, and developer messages on GPT-6), it
+  can be a system-role message ahead of the first user message of each context window:
+  the chat's first turn, and the first turn after a compaction re-bake. It then keeps
+  its system-role authority while staying out of the shared head. On other wires, it can
+  be a persisted `<system-reminder>` context item on that same user message. Its deltas
+  already ride the rail. The system prompt then becomes identical across an owner's
+  chats. This conflicts with context-injection residency rule 3, which requires a
+  prefix-resident baseline, and with the temporal-anchor spec, so it needs an OpenSpec
+  change. Like O2, it pays on Anthropic and GPT-5.6+ only together with O3.
+- **O7: Change effort in the conversation.** Send a mid-chat effort change as a
+  `configuration_update` on GPT-6 and as a mid-conversation system message's `effort` on
+  Anthropic, keeping the request-level effort at the chat's first value. Compaction
+  already reuses the source run's effort for the same cache reason (available-models
+  spec).
 
-Recommended order: O1, then O6 with O3 if openings and compactions are a
-material share of input cost. O6 supersedes O2. O4 and O7 now use supported
-provider mechanisms; take them when O1 shows availability or effort changes
-are frequent.
+Recommended order: O1, then O6 with O3 if openings and compactions are a material share
+of input cost. O6 supersedes O2. O4 and O7 now use supported provider mechanisms; take
+them when O1 shows availability or effort changes are frequent.
 
 [^anthropic-prompt-caching]: [Anthropic prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
 
