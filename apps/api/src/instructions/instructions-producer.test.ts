@@ -306,6 +306,50 @@ describe('instructions producer triggers', () => {
     ]);
   });
 
+  it('skips the candidate a read disclosed through a symlink', async () => {
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+    await symlink(
+      join(root, 'apps/api/AGENTS.md'),
+      join(root, 'apps/api/CLAUDE.md'),
+    );
+    const { producer, staged, prepare } = attemptOf();
+
+    // The link resolves to the very candidate this directory would select, so
+    // the read already disclosed it: the chain contributes nothing.
+    producer.observeToolCall?.(readCall(join(root, 'apps/api/CLAUDE.md')));
+    await prepare();
+    expect(staged).toEqual([]);
+
+    // Excluded, not marked seen: a later plain touch loads it.
+    producer.observeToolCall?.(readCall(join(root, 'apps/api/x.ts')));
+    await prepare();
+    expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([
+      join(root, 'apps/api/AGENTS.md'),
+    ]);
+  });
+
+  it('loads the same file for a sibling directory that did not disclose it', async () => {
+    const target = join(root, 'shared/RULES.md');
+    await write(target, 'shared rules\n');
+    await mkdir(join(root, 'apps/api'), { recursive: true });
+    await mkdir(join(root, 'apps/web'), { recursive: true });
+    await symlink(target, join(root, 'apps/api/CLAUDE.md'));
+    await symlink(target, join(root, 'apps/web/AGENTS.md'));
+    const { producer, staged, prepare } = attemptOf();
+
+    // One step, two touches: the disclosure is scoped to the directory its
+    // read resolved to, so the sibling's identical file still loads.
+    producer.observeToolCall?.(readCall(join(root, 'apps/api/CLAUDE.md')));
+    producer.observeToolCall?.(readCall(join(root, 'apps/web/index.ts')));
+    await prepare();
+
+    expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([
+      join(root, 'apps/web/AGENTS.md'),
+    ]);
+    // Loaded once, under the path it was selected at.
+    expect(seenKeys(lastStaged(staged))).toEqual([await realpath(target)]);
+  });
+
   it('loads nothing without a page reader', async () => {
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
     // The read gate: no page reader means no trigger can load anything.

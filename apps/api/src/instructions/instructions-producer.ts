@@ -55,8 +55,6 @@ import {
   resolveWorkspacePath,
 } from '../tools/workspace-path';
 import {
-  BASE_CHAIN,
-  LOCAL_CHAIN,
   readInstructionFile,
   selectCandidates,
   touchedDirectory,
@@ -65,12 +63,6 @@ import {
   type ReadPage,
   type StatHostPath,
 } from './instruction-files';
-
-/** The nine names a directory may contribute, in chain order. */
-const INSTRUCTION_FILE_NAMES: ReadonlyArray<string> = [
-  ...BASE_CHAIN,
-  ...LOCAL_CHAIN,
-];
 
 /** The tool ids whose input names a local path to load for. */
 const FILE_TOOL_IDS: ReadonlyArray<string> = [
@@ -82,7 +74,7 @@ const FILE_TOOL_IDS: ReadonlyArray<string> = [
 /** One pending trigger: an absolute local path, and whether a read named it. */
 interface PendingTrigger {
   readonly path: string;
-  /** A read of a candidate file itself neither loads nor marks that file (D5). */
+  /** A read disclosed the file it named, so that file is not loaded (D5). */
   readonly excludeCandidate: boolean;
 }
 
@@ -156,9 +148,10 @@ function observedTrigger(call: InRunToolCall): PendingTrigger | undefined {
 
 /** One directory's pending exclusions, collected across the trigger set. */
 interface PendingDirectory {
-  /** A trigger that named no candidate loads the directory's whole chain. */
+  /** A trigger that named no file loads the directory's whole chain. */
   plainTouch: boolean;
-  readonly excludedPaths: Set<string>;
+  /** Canonical paths this step's own reads already disclosed to the model. */
+  readonly disclosedCanonicalPaths: Set<string>;
 }
 
 /** The directories the pending triggers resolve to, and their exclusions. */
@@ -168,26 +161,26 @@ async function resolveDirectories(
 ): Promise<Map<string, ReadonlySet<string>>> {
   const pending = new Map<string, PendingDirectory>();
   for (const trigger of triggers) {
-    const directory = await touchedDirectory(trigger.path, stat);
-    const entry = pending.get(directory) ?? {
+    const touched = await touchedDirectory(trigger.path, stat);
+    const entry = pending.get(touched.directory) ?? {
       plainTouch: false,
-      excludedPaths: new Set<string>(),
+      disclosedCanonicalPaths: new Set<string>(),
     };
-    pending.set(directory, entry);
-    // A read of a candidate file in its own directory neither loads nor marks
-    // that file; every other trigger loads the directory's whole chain.
+    pending.set(touched.directory, entry);
+    // A read of an existing file in a directory neither loads nor marks that
+    // file, and the comparison is canonical: a link the model read under
+    // another name discloses the candidate it resolves to. Every other trigger
+    // loads the directory's whole chain.
     const disclosed =
-      trigger.excludeCandidate &&
-      posix.dirname(trigger.path) === directory &&
-      INSTRUCTION_FILE_NAMES.includes(posix.basename(trigger.path));
-    if (disclosed) entry.excludedPaths.add(trigger.path);
+      trigger.excludeCandidate && touched.canonicalPath !== undefined;
+    if (disclosed) entry.disclosedCanonicalPaths.add(touched.canonicalPath);
     else entry.plainTouch = true;
   }
   const resolved = new Map<string, ReadonlySet<string>>();
   for (const [directory, entry] of pending) {
     resolved.set(
       directory,
-      entry.plainTouch ? new Set<string>() : entry.excludedPaths,
+      entry.plainTouch ? new Set<string>() : entry.disclosedCanonicalPaths,
     );
   }
   return resolved;
@@ -210,15 +203,15 @@ function walkOrder(
   );
 }
 
-/** Reads one candidate into the collector, unless it is excluded or seen. */
+/** Reads one candidate into the collector, unless it is disclosed or seen. */
 async function collectCandidate(
   collector: BundleCollector,
   candidate: InstructionCandidate,
-  excluded: ReadonlySet<string>,
+  disclosed: ReadonlySet<string>,
   readPage: ReadPage,
 ): Promise<void> {
   if (collector.keys.has(candidate.canonicalPath)) return;
-  if (excluded.has(candidate.path)) return;
+  if (disclosed.has(candidate.canonicalPath)) return;
   const read = await readInstructionFile(candidate, readPage);
   if (read.kind === 'denied') {
     collector.denied.push(candidate.path);
@@ -254,13 +247,15 @@ async function loadBundle(input: {
     denied: [],
   };
   for (const directory of walkOrder(directories)) {
-    const excluded = directories.get(directory) ?? new Set<string>();
+    // The exclusions of one directory, never those of another: a sibling
+    // directory whose candidate is the same canonical file still loads it.
+    const disclosed = directories.get(directory) ?? new Set<string>();
     const candidates = await selectCandidates(directory, statHostPath);
     for (const candidate of candidates) {
       // An aborted Run stops loading at the next candidate instead of walking
       // a whole chain to the filesystem root.
       input.abortSignal?.throwIfAborted();
-      await collectCandidate(collector, candidate, excluded, input.readPage);
+      await collectCandidate(collector, candidate, disclosed, input.readPage);
     }
   }
   if (collector.files.length === 0) return undefined;

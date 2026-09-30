@@ -89,26 +89,36 @@ describe('walkDirectories', () => {
 });
 
 describe('touchedDirectory', () => {
-  it('returns an existing directory itself', async () => {
+  it('returns an existing directory itself, with no file identity', async () => {
     const nested = join(root, 'apps', 'api');
     await mkdir(nested, { recursive: true });
 
-    expect(await touchedDirectory(nested, statHostPath)).toBe(nested);
+    expect(await touchedDirectory(nested, statHostPath)).toEqual({
+      directory: nested,
+      canonicalPath: undefined,
+    });
   });
 
-  it('returns the parent of a file', async () => {
-    const file = join(root, 'AGENTS.md');
-    await writeFile(file, '# Rules\n');
+  it('returns the parent of a file and the canonical path it resolved to', async () => {
+    const target = join(root, 'shared', 'RULES.md');
+    await mkdir(join(root, 'shared'), { recursive: true });
+    await writeFile(target, '# Rules\n');
+    const link = join(root, 'AGENTS.md');
+    await symlink(target, link);
 
-    expect(await touchedDirectory(file, statHostPath)).toBe(root);
+    expect(await touchedDirectory(link, statHostPath)).toEqual({
+      directory: root,
+      canonicalPath: await realpath(target),
+    });
   });
 
   it('returns the parent of a path that does not exist', async () => {
     const missing = join(root, 'apps', 'web', 'src', 'new.tsx');
 
-    expect(await touchedDirectory(missing, statHostPath)).toBe(
-      join(root, 'apps', 'web', 'src'),
-    );
+    expect(await touchedDirectory(missing, statHostPath)).toEqual({
+      directory: join(root, 'apps', 'web', 'src'),
+      canonicalPath: undefined,
+    });
   });
 });
 
