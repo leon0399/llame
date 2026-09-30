@@ -19,22 +19,18 @@ read through a read-only SQLite handle on `~/.omp/agent/agent.db` and the files 
 
 ## Summary
 
-OMP's default memory (`local`) is two independent channels that never block a turn:
+OMP's default memory (`local`) is two independent channels that never block a turn.
+**Offline distillation**: at startup, a background job extracts each idle past session
+into a raw memory, then a second model consolidates them into `MEMORY.md`, a short
+`memory_summary.md` and generated skill playbooks. **In-loop capture**: the `learn` tool
+appends explicit lessons to `learned.md`; with `autoContinue`, a detached agent is asked
+to capture lessons after a tool-heavy turn.
 
-1. **Offline distillation.** At startup, a background job extracts each idle past
-   session into a raw memory, then a second model consolidates them into
-   `MEMORY.md`, a short `memory_summary.md` and generated skill playbooks.
-2. **In-loop capture.** The `learn` tool appends explicit lessons to `learned.md`;
-   with `autoContinue`, a detached agent is asked to capture lessons after a
-   tool-heavy turn.
-
-Both surface in the next session as one capped `Memory Guidance` block. The
-lessons are snapshotted for the session, so a `learn` write never churns the
-prompt-cache prefix; the summary is not, and a consolidation that finishes after
-the session starts rebuilds the prompt (M6, D2). The design is cheap and
-unobtrusive. On this machine, its measured weakness is coverage: the extractor
-saw a median 1.8% of each session, and about 73% of captured lessons never reach
-the prompt.
+Both surface in the next session as one capped `Memory Guidance` block. Lessons are
+snapshotted for the session, so a `learn` write never churns the prompt-cache prefix;
+the summary is not, and a consolidation that finishes after the session starts rebuilds
+the prompt (M6, D2). Cheap and unobtrusive, but its measured weakness here is
+coverage: see O2 and O5.
 
 ```text
 session JSONL ──(startup, idle ≥12h)──▶ stage 1 (default role) ──▶ agent.db stage1_outputs
@@ -56,11 +52,11 @@ learn / auto-capture ──▶ learned.md                                     �
 ([index.ts L1292–L1293, L1434–L1436](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L1434-L1436)).
 POSIX paths are not normalized; Windows paths are only lowercased
 ([storage.ts L55–L64](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/storage.ts#L55-L64)).
-The Hindsight backend, by contrast, folds every linked worktree to the primary
-checkout root ([docs/memory.md L148](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/docs/memory.md#L148)).
+Hindsight instead folds every linked worktree to the primary checkout root
+([docs/memory.md L148](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/docs/memory.md#L148)).
 
 **M2 — Gating.** The pipeline runs only for the top-level, persisted session
-(`taskDepth === 0` plus a session file) and never for subagents
+(`taskDepth === 0` plus a session file), never for subagents
 ([index.ts L133–L151](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L133-L151)).
 Stage 1 considers sessions idle for at least 12 hours and younger than 30 days,
 and excludes the active one.
@@ -70,9 +66,9 @@ and excludes the active one.
 retry counter, input watermark and last-success watermark
 ([storage.ts L67–L109](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/storage.ts#L67-L109)).
 A session is re-extracted only when its file mtime passes the stored
-`source_updated_at`. A job that fails three times becomes terminal until the
-session file changes again, and a "no durable signal" answer completes the job
-and deletes any old output
+`source_updated_at`. A job failing three times stays terminal until the session
+file changes again, and a "no durable signal" answer completes the job and
+deletes any old output
 ([storage.ts L319–L408](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/storage.ts#L319-L408)).
 Phase 2 claims only `global:<current cwd>`
 ([index.ts L489–L507](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L489-L507)).
@@ -83,10 +79,10 @@ for `bash`, `eval`, `read` and `grep` and only under 32,000 characters
 ([index.ts L719–L731](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L719-L731)).
 The kept messages are serialized to one JSON string and cut to
 `min(phase1InputTokenLimit = 4000, 0.7 × context)` approximate tokens
-([index.ts L770–L781](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L770-L781)).
-The cut keeps the first 60% and last 40% of the character budget
+([index.ts L770–L781](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L770-L781)),
+keeping the first 60% and last 40% of the character budget
 ([index.ts L1236–L1243](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L1236-L1243)):
-at the default, 9,600 characters of the opening and 6,400 of the ending. The
+by default 9,600 characters of the opening and 6,400 of the ending. The
 prompt asks for strict JSON with `rollout_summary`, `rollout_slug` and
 `raw_memory`, keeping "constraints, decisions, workflows, pitfalls, resolved
 failures" and dropping "transient chatter"
@@ -98,11 +94,11 @@ Output is secret-redacted before it is stored.
 consolidator gets them truncated to about 20,000 and 12,000 tokens, with an
 8,192-token answer budget
 ([index.ts L918–L938](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L918-L938)).
-It returns `memory_md`, `memory_summary` and `skills[]`; skills it omits are
+It returns `memory_md`, `memory_summary` and `skills[]`; omitted skills are
 pruned from disk, and outputs are redacted
 ([index.ts L952–L1040](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L952-L1040)).
-A lease with a 30-second heartbeat prevents two processes from consolidating the
-same scope; losing ownership aborts the write
+A lease with a 30-second heartbeat stops two processes consolidating one
+scope; losing ownership aborts the write
 ([index.ts L555–L599](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L555-L599)).
 The previous `MEMORY.md` is not an input.
 
@@ -110,18 +106,18 @@ The previous `MEMORY.md` is not an input.
 lessons get whatever remains of `summaryInjectionTokenLimit` (5,000 approximate
 tokens at 4 characters per token), cut with the same 60/40 head–tail rule
 ([index.ts L211–L231](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L211-L231)).
-The block itself tells the model that memory is heuristic, that repo state and
-user instructions win, and that memory alone is never proof
+The block tells the model that memory is heuristic, that repo state and user
+instructions win, and that memory alone is never proof
 ([read-path.md](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/prompts/memories/read-path.md)).
 The snapshot is cached per session: `learn` writes never refresh it, so a lesson
-appears from the next session on. Only phase-2 completion triggers a refresh of
-the summary and a prompt rebuild
+appears from the next session on. Only phase-2 completion refreshes the summary
+and rebuilds the prompt
 ([index.ts L268–L352](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L268-L352)).
 
 **M7 — `learn` and auto-capture.** A lesson is stored as
 `- <content> _(context: …)_`, content up to 2,000 and context up to 400
-characters, sanitized and redacted. Dedupe drops only exact-duplicate lines;
-the newest goes first and the file keeps 100 entries
+characters, sanitized and redacted. Dedupe drops only exact-duplicate lines,
+the newest goes first, and the file keeps 100 entries
 ([index.ts L1304–L1410](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts#L1304-L1410)).
 The controller counts tool calls per turn and, with `autoContinue`, starts a
 detached capture agent after a non-aborted turn with at least 5 tool calls,
@@ -138,7 +134,7 @@ authored skills always override, and rejects symlinks and hard links
 Subpaths are decoded and realpath-checked against the root to block traversal and
 symlink escape
 ([memory-protocol.ts L137–L201](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/internal-urls/memory-protocol.ts#L137-L201)).
-Generated skills under `memory://root/skills/` are not listed in the session's
+Generated skills under `memory://root/skills/` are absent from the session's
 skill index; the model reaches them only by following the read-path instruction.
 
 ## Live observations
@@ -170,7 +166,7 @@ forwarding another turn's reasoning to an Anthropic model with an "extract"
 instruction is the trigger; the classifier is not deterministic across inputs of
 the same kind. Those sessions stay out of memory until their files change. No
 setting moves stage 1 off the `default` role: a `memory` role exists, but only
-the Mnemopi backend reads it, and this is unchanged through `v18.4.2`
+the Mnemopi backend reads it, unchanged through `v18.4.2`
 ([model-roles.ts L64](https://github.com/can1357/oh-my-pi/blob/8ce7e959b9c33ee5443311a34b53d1a8986c0b34/packages/coding-agent/src/config/model-roles.ts#L64)).
 Upstream tracks the same refusal class for compaction and primary turns
 ([#12854](https://github.com/can1357/oh-my-pi/issues/12854),
@@ -183,9 +179,10 @@ memories exist but never merge into the main checkout's `MEMORY.md`.
 
 **O5 — Most captured lessons never reach the prompt.** `learned.md` holds 49
 lessons, about 69.7k characters or 17.4k approximate tokens. After the 877-character
-summary, lessons get about 19.1k characters, roughly 27%. The 60/40 cut keeps the
-newest and the oldest lessons and drops the middle, which is visible as
-`...[truncated]...` inside this session's own system prompt. Three lessons restate
+summary, lessons get about 19.1k characters, roughly 27%, so about 73% of captured
+lessons never reach the prompt. The 60/40 cut keeps the newest and the oldest
+lessons and drops the middle, visible as `...[truncated]...` inside this
+session's own system prompt. Three lessons restate
 the same PR #1001 conventions and two restate the same workspace-entry stack
 lessons in different words, so exact-line dedupe keeps all of them. Moderate
 confidence the paraphrases come from repeated auto-captures over the same
@@ -214,15 +211,13 @@ restore sequence.
 
 ## Mnemopi backend
 
-Source only: this workstation runs `local`, so nothing in this section was
-observed running. Two further read-only subagent passes traced the OMP wrapper
-and the `@oh-my-pi/pi-mnemopi` package, and the claims about dormant code and
-`reflect` were spot-checked directly.
-
-Mnemopi is the retrieval design. Instead of injecting one consolidated document,
-it stores transcript slices and facts in SQLite and recalls a ranked handful for
-each query. The three backends side by side, with Hindsight covered in the next
-section:
+Source only: this workstation runs `local`, so nothing here was observed running.
+Two further read-only subagent passes traced the OMP wrapper and the
+`@oh-my-pi/pi-mnemopi` package; the claims about dormant code and `reflect` were
+spot-checked directly. Mnemopi is the retrieval design: instead of injecting one
+consolidated document, it stores transcript slices and facts in SQLite and recalls a
+ranked handful for each query. The three backends side by side, with Hindsight covered
+in the next section:
 
 |                   | `local`                                                  | Mnemopi                                                | Hindsight                                                                          |
 | ----------------- | -------------------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
@@ -264,8 +259,8 @@ per category. Without a model it falls back to phrase heuristics such as "my nam
 is" and first-person always/never instructions
 ([backend.ts L528–L655](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/mnemopi/backend.ts#L528-L655),
 [extraction.ts L372–L468](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/mnemopi/src/core/extraction.ts#L372-L468)).
-Because extraction input is user text, the reasoning-block refusal in O3 cannot
-arise on this path.
+Because extraction input is user text, the O3 reasoning-block refusal cannot arise
+on this path.
 
 **N5 — Recall enters on the first turn.** The query is the latest prompt plus the
 three previous user-bounded turns, capped at 4,000 characters. Up to 8 results,
@@ -328,8 +323,6 @@ therefore unreachable. Intent weighting and MMR are always on. `reflect` recalls
 and formats; it makes no synthesis call
 ([memory-reflect.ts L44–L59](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/tools/memory-reflect.ts#L44-L59)).
 
-Documentation disagreements specific to Mnemopi:
-
 - **D5** — The settings table says `polyphonicRecall` and `enhancedRecall` enable
   their features; neither changes OMP's recall path (N10).
 - **D6** — The guide calls `reflect` synthesis and describes LLM-backed
@@ -342,15 +335,15 @@ Documentation disagreements specific to Mnemopi:
 
 ## Hindsight backend
 
-Source only, like Mnemopi. Two read-only subagent passes traced the OMP client
-at `v18.2.10` and the Hindsight server at
+Source only, like Mnemopi. Two read-only subagent passes traced the OMP client at
+`v18.2.10` and the Hindsight server at
 [`26981c6b`](https://github.com/vectorize-io/hindsight/tree/26981c6b4e00bcc391a49c1f418e758dbae80171)
 (MIT), and the redaction, queue-disposal, consolidation, tenancy and default-model
 claims were spot-checked directly. OMP does not pin a server version, so the
 server findings describe current upstream, not necessarily what a given
 installation runs.
 
-Hindsight is the service design. OMP is a thin HTTP client; extraction,
+Hindsight is the service design: OMP is a thin HTTP client, and extraction,
 embeddings, linking, consolidation and synthesis all happen on the server.
 
 **H1 — Scope is a bank plus a project tag.** The default bank is `omp`. The
@@ -445,8 +438,6 @@ filter.
 ([agent-memory-benchmark.mdx L92–L138](https://github.com/vectorize-io/hindsight/blob/26981c6b4e00bcc391a49c1f418e758dbae80171/hindsight-docs/blog/2026-03-23-agent-memory-benchmark.mdx#L92-L138)).
 Not reproduced here.
 
-Documentation disagreement specific to Hindsight:
-
 - **D8** — The guide says session disposal drains queued retains; only the
   backend's clear and rebuild paths flush first, and the queue's own `dispose`
   discards pending items (H3)
@@ -462,8 +453,7 @@ a delta from each user prompt with exact-quote evidence, then admits it into
 constraint or a repeated correction, capped at 120 lines per file
 ([consolidate.ts L99–L174](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/sharpshooter/consolidate.ts#L99-L174)).
 One gap: `redact.ts` covers AWS, GitHub, npm, Slack, Google and JWT shapes plus
-keyword-delimited runs; the Hindsight client (H2) and managed-skill bodies bypass
-it
+keyword-delimited runs; the Hindsight client (H2) and managed-skill bodies bypass it
 ([learn.ts L94–L97](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/tools/learn.ts#L94-L97)).
 
 ## Transfer to llame
@@ -519,10 +509,10 @@ it
 
 ## Method and limits
 
-Source claims are from reading `v18.2.10` with seven read-only subagent passes and
-direct spot checks of the cited ranges; the Hindsight server was read at
-`26981c6b`. Live numbers come from one workstation's database and files; stage-1
-coverage was recomputed with a Python port of the filter and 60/40 truncation,
-not by instrumenting OMP. The refusal cause in O3 is inferred, not reproduced.
-Mnemopi and Hindsight were not run, so their recall quality is unknown.
-No model quality or cost measurement was made.
+Source claims come from reading `v18.2.10` with seven read-only subagent passes and
+direct spot checks of the cited ranges; the Hindsight server was read at `26981c6b`.
+Live numbers come from one workstation's database and files; stage-1 coverage was
+recomputed with a Python port of the filter and 60/40 truncation, not by instrumenting
+OMP. The refusal cause in O3 is inferred, not reproduced. Mnemopi and Hindsight were
+not run, so their recall quality is unknown. No model quality or cost measurement was
+made.

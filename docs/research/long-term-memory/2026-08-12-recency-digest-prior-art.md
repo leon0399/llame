@@ -19,11 +19,10 @@ status: stable
 Surveyed 2026-08-12, for #307. Noncanonical — evidence and alternatives, not a decision.
 
 Prior note [2026-07-27-user-context-injection.md](2026-07-27-user-context-injection.md) analyzed one
-ChatGPT snapshot and reasoned from llame's own invariants. This note asks a narrower question:
-**when other systems inject cross-conversation awareness, what rail, what content, what freshness,
-and is the injection template-driven?** It exists because #307's design was derived from first
-principles against a single observed product, and first-principles arguments deserve a check against
-what shipped.
+ChatGPT snapshot. This note asks a narrower question: **when other systems inject cross-conversation
+awareness, what rail, what content, what freshness, and is the injection template-driven?** #307's
+design was derived from first principles against a single observed product, and first-principles
+arguments deserve a check against what shipped.
 
 ---
 
@@ -41,13 +40,14 @@ what shipped.
 Three distinct strategies, not one consensus:
 
 ```text
-   INJECT RAW BODIES          INJECT CURATED STATE           RETRIEVE ON DEMAND
-   ─────────────────          ────────────────────           ──────────────────
-        ChatGPT               Letta   (agent-curated)             Claude.ai
-                              ClaudeCode (summarized)         (llame today, #198)
-                              Gemini  (summarized)
-        n = 1                       n = 3                          n = 1
-   published exfil exploit
+  INJECT RAW BODIES          INJECT CURATED STATE           RETRIEVE ON DEMAND
+  ─────────────────          ────────────────────           ──────────────────
+       ChatGPT               Letta   (agent-curated)             Claude.ai
+                             ClaudeCode (summarized)         (llame today, #198)
+                             Gemini  (summarized)
+
+       n = 1                       n = 3                          n = 1
+  published exfil exploit
 ```
 
 **Nobody but ChatGPT injects verbatim other-conversation message bodies, and ChatGPT is the one
@@ -74,9 +74,9 @@ RECENT CONVERSATION CONTENT
 - ~40 conversations.
 - **Only user-typed messages. No assistant replies.** Halves volume and removes model-generated text
   — which may itself carry laundered instructions from earlier tool output — from the system role.
-- Delimiter is `||||`, chosen because it is vanishingly rare in prose rather than impossible — user
-  content can contain it, so the choice reduces collision probability rather than eliminating it. llame already has
-  a tag-balance sanitizer, so tags are the cheaper choice here.
+- Delimiter is `||||`, chosen because it is vanishingly rare in prose rather than impossible: user
+  content can contain it, so the choice reduces collision probability rather than eliminating it. llame
+  already has a tag-balance sanitizer, so tags are the cheaper choice here.
 - Top ~5 entries carry second precision; the rest are truncated to the hour.
 - Other blocks carry explicit framing prose (`These notes reflect assumed user preferences based on
 past conversations`, `Auto-generated from ChatGPT request activity… may be imprecise and not
@@ -90,11 +90,10 @@ the system prompt in one shot.
 Important qualification, because it cuts both ways: **exfiltration risk is rail-independent.**
 Anything in the context window is exfiltratable, whether it sits in the system role or immediately
 before the user turn. This exploit therefore argues about _what volume of sensitive content is in
-context at all_, not about placement. The placement-dependent risk is a different one —
-_escalation_, conversation-derived text acquiring system-role authority.
-
-Corollary for #307: the content decision (titles vs. bodies) drives the exfiltration surface; the
-rail decision drives the escalation surface. They are separable and should be decided separately.
+context at all_, not about placement. The placement-dependent risk is _escalation_:
+conversation-derived text acquiring system-role authority. So for #307: the content decision
+(titles vs. bodies) drives the exfiltration surface, the rail decision drives the escalation
+surface, and they are separable.
 
 ---
 
@@ -110,10 +109,10 @@ message-rail deltas), and it runs three rails deliberately:
 3. Topic files (`debugging.md`, `patterns.md`) **not** loaded at startup — read on demand with
    ordinary file tools.
 
-Observed first-hand: this session's own system prompt carries the `MEMORY.md` index plus the
-instruction that reminder-delivered memories are background context and may be stale — "if one names
-a file, function, or flag, verify it still exists." Introspective evidence, flagged as such, but it
-matches the public docs.
+Observed first-hand: this session's own system prompt carries the `MEMORY.md` index plus the instruction
+that reminder-delivered memories are background context and may be stale — "if one names a file,
+function, or flag, verify it still exists." Introspective evidence, flagged as such, matching the
+public docs.
 
 Three transferable properties:
 
@@ -133,11 +132,9 @@ split by volatility and size, and the split is the design rather than an acciden
 Directly on point for the _unification and control_ argument. Letta compiles memory blocks into the
 system prompt on every agent step; blocks render into XML-style tags replacing a placeholder in a
 system-prompt template, and **the template is customizable with Jinja**. Blocks are char-capped per
-block. Agents edit them through tools (`memory_insert` / `memory_replace`) — mutation is **rewrite,
-not append-delta**.
-
-So: templated injection of mutable per-user state into the system prompt is an established,
-widely-cited pattern, not an aberration. Two caveats:
+block. Agents edit them through tools (`memory_insert` / `memory_replace`) — mutation is **rewrite, not
+append-delta**. So templated injection of mutable per-user state into the system prompt is an
+established, widely-cited pattern, not an aberration. Two caveats:
 
 - Letta pays the full prefix-cache cost and this is publicly discussed as a known tension — dynamic
   recompilation into the system prompt conflicts with byte-identical-prefix caching, and every
@@ -156,11 +153,9 @@ Open WebUI is the conservative end of the same idea: templating exists but only 
 ## 5. Claude.ai and Gemini — the two counterexamples
 
 **Claude.ai chose tools.** `recent_chats` and `conversation_search` are visible RAG tool calls, on by
-default for paid plans, scoped to all-chats-outside-projects or within a single project, with
-incognito chats excluded from search. Product framing is explicit: information is retrieved only
-when needed rather than the assistant ambiently knowing everything.
-
-Two consequences for #307:
+default for paid plans, scoped to all-chats-outside-projects or within a single project, with incognito
+chats excluded from search. Product framing is explicit: information is retrieved only when needed
+rather than the assistant ambiently knowing everything. Two consequences for #307:
 
 - Its premise — retrieval-only recall systematically under-fires — is a bet **against** the design
   Anthropic shipped for the same problem.
