@@ -552,3 +552,37 @@ describe('instructions producer triggers', () => {
     ]);
   });
 });
+
+describe('instructions producer accepted turn', () => {
+  it('stages the bound root chain with a payload naming the keys it establishes', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+
+    const part = await createInstructionsProducer().prepareTurn?.({
+      runId: RUN_ID,
+      workspaceRoot: join(root, 'apps/api'),
+      readPage: pageReader().readPage,
+      seenKeys: new Set(),
+    });
+    if (part === undefined) throw new Error('the accepted turn loaded nothing');
+
+    const loaded = withinRoot(blockPaths(part));
+    expect(loaded).toEqual([
+      join(root, 'AGENTS.md'),
+      join(root, 'apps/api/AGENTS.md'),
+    ]);
+    for (const path of loaded) expect(seenKeys(part)).toContain(path);
+  });
+
+  it('adds nothing when every root-chain file is already seen', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    const part = await createInstructionsProducer().prepareTurn?.({
+      runId: RUN_ID,
+      workspaceRoot: root,
+      readPage: pageReader().readPage,
+      seenKeys: new Set([await realpath(join(root, 'AGENTS.md'))]),
+    });
+
+    expect(part).toBeUndefined();
+  });
+});

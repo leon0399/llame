@@ -8,6 +8,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -1774,6 +1775,7 @@ describe('RunExecutionService executeRun', () => {
       const appendActivation = vi
         .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
         .mockResolvedValue({ applied: true });
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
       const execution = makeExecutionService(
         createFakeModelClient(['answer']),
         undefined,
@@ -1801,6 +1803,35 @@ describe('RunExecutionService executeRun', () => {
         kind: 'activation',
         skill: 'pdf',
       });
+      // The system read is durably audited under its own origin: the request
+      // names the locator scheme, not the resolved package path, and the
+      // completion closes the triple the request/start opened.
+      const activationReads = append.mock.calls.flatMap(([, eventType, p]) =>
+        isRecord(p) && p['origin'] === 'skill-activation'
+          ? [{ type: eventType, payload: p }]
+          : [],
+      );
+      expect(activationReads.map((record) => record.type)).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+      expect(activationReads[0]?.payload).toMatchObject({
+        toolName: 'read',
+        input: { path: 'skill://' },
+        permission: { decision: 'allow' },
+      });
+      expect(activationReads[1]?.payload).toMatchObject({
+        toolName: 'read',
+        status: 'success',
+      });
+      // The start carries no origin — it discloses nothing — so the triple is
+      // asserted through the call id the request opened.
+      const callId = activationReads[0]?.payload['toolCallId'];
+      expect(
+        append.mock.calls.flatMap(([, eventType, p]) =>
+          isRecord(p) && p['toolCallId'] === callId ? [eventType] : [],
+        ),
+      ).toEqual(['tool.requested', 'tool.started', 'tool.completed']);
     } finally {
       rmSync(source, { recursive: true, force: true });
     }
@@ -8315,17 +8346,6 @@ describe('RunExecutionService instruction files', () => {
     ]);
   }
 
-  /** Drives the captured stream's bound `read` tool as one model call. */
-  async function executeModelRead(
-    options: StreamOptions,
-    readPath: string,
-    toolCallId: string,
-  ): Promise<void> {
-    const bound = options.tools?.['read'];
-    if (!bound?.execute) throw new Error('read was not offered to the model');
-    await bound.execute({ path: readPath }, { toolCallId, messages: [] });
-  }
-
   /** The `instructions` items the completed Run record carries, in order. */
   function instructionItems(
     repositories: ReturnType<typeof mockNormalExecutionRepositories>,
@@ -8334,6 +8354,14 @@ describe('RunExecutionService instruction files', () => {
     return items.flatMap((item) =>
       item.producer === 'instructions' ? [item] : [],
     );
+  }
+
+  /** The producer of every item the completed Run record lists, in order. */
+  function recordedProducers(
+    repositories: ReturnType<typeof mockNormalExecutionRepositories>,
+  ): Array<string> {
+    const items = repositories.recordContextItems.mock.calls.at(-1)?.[2] ?? [];
+    return items.map((item) => item.producer);
   }
 
   /** The instructions part the completed assistant turn persisted. */
@@ -8348,7 +8376,45 @@ describe('RunExecutionService instruction files', () => {
     );
   }
 
-  it('records the in-Run instruction reads under the instructions origin', async () => {
+  /** The parts the winning turn wrote onto its triggering user message. */
+  function stagedParts(
+    repositories: ReturnType<typeof mockNormalExecutionRepositories>,
+  ): Array<unknown> {
+    return (
+      repositories.updateUserMessageParts.mock.calls.at(-1)?.[0].parts ?? []
+    );
+  }
+
+  /** The instructions part the winning turn staged onto its user message. */
+  function stagedInstructionPart(
+    repositories: ReturnType<typeof mockNormalExecutionRepositories>,
+  ): AuthoredContextItemPart | undefined {
+    return stagedParts(repositories).find(
+      (part): part is AuthoredContextItemPart =>
+        isContextItemPart(part) && part.data.producer === 'instructions',
+    );
+  }
+
+  /** The producer name of every staged context item, in request order. */
+  function stagedProducers(
+    repositories: ReturnType<typeof mockNormalExecutionRepositories>,
+  ): Array<string> {
+    return stagedParts(repositories).flatMap((part) =>
+      isContextItemPart(part) ? [part.data.producer] : [],
+    );
+  }
+
+  /** A root with a root instruction file and a nested one under `apps/api`. */
+  function nestedInstructionsRoot() {
+    const root = instructionsRoot();
+    mkdirSync(path.join(root, 'apps/api'), { recursive: true });
+    writeFileSync(path.join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+    const touch = path.join(root, 'apps/api/main.ts');
+    writeFileSync(touch, 'export const main = 1;\n');
+    return { root, touch };
+  }
+
+  it('records the accepted-turn instruction reads under the instructions origin', async () => {
     const root = instructionsRoot();
     const touch = touchFile(root);
     try {
@@ -8367,6 +8433,8 @@ describe('RunExecutionService instruction files', () => {
       const result = await execution.service.executeRun(executionInput(client));
       await expect(result.text).resolves.toBe('answer');
 
+      // The bound root's chain loaded before the first request; the model's
+      // touch of the root then finds every file already seen and adds nothing.
       const reads = eventsWithOrigin(append, 'instructions');
       expect(reads.map((record) => record.type)).toEqual([
         'tool.requested',
@@ -8381,19 +8449,23 @@ describe('RunExecutionService instruction files', () => {
         status: 'success',
         output: { status: 'success' },
       });
-      // The audited read is the full request/start/completion triple.
+      // The audited read is the full request/start/completion triple, under
+      // one attempt-scoped id.
+      expect(callIdOf(reads[0]?.payload)).toBe(
+        `instructions-${runId}-${testAttemptId}-1`,
+      );
       expect(eventsForCall(append, callIdOf(reads[0]?.payload))).toEqual([
         'tool.requested',
         'tool.started',
         'tool.completed',
       ]);
-      // The staged bundle is the Run's own record and the assistant turn —
-      // and the system read fabricates no tool part of its own.
+      // The staged bundle is the Run's own record and the user message — and
+      // the system read fabricates no tool part of its own.
       await vi.waitFor(() =>
         expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
       expect(instructionItems(repositories)).toHaveLength(1);
-      expect(storedInstructionPart(repositories)?.data.text).toContain(
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
         'run the tests',
       );
       const assistantTurn =
@@ -8407,9 +8479,107 @@ describe('RunExecutionService instruction files', () => {
     }
   });
 
-  it('records the bypass decision on an in-Run instruction read', async () => {
+  it('publishes no instructions item when the model call fails after the load', async () => {
     const root = instructionsRoot();
-    const touch = touchFile(root);
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const client: ModelClient = {
+        model: 'fake-model',
+        provider: 'fake',
+        contextWindowTokens: 128_000,
+        streamText: () => {
+          throw new Error('provider misconfigured');
+        },
+      };
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+
+      await expect(
+        execution.service.executeRun(executionInput(client)),
+      ).rejects.toThrow('provider misconfigured');
+
+      // The accepted-turn load itself succeeded, and its read is durable...
+      expect(
+        eventsWithOrigin(append, 'instructions').map((record) => record.type),
+      ).toEqual(['tool.requested', 'tool.completed']);
+      // ...but a Run the model never received publishes nothing: the item
+      // never reaches the user message, and there is no Run record listing it.
+      expect(repositories.updateUserMessageParts).not.toHaveBeenCalled();
+      expect(repositories.recordContextItems).not.toHaveBeenCalled();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('records the in-Run instruction reads under the instructions origin', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const { client } = readThenAnswerClient(touch);
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+
+      // The accepted turn stages the root file, and the in-Run trigger stages
+      // the nested directory's file the touch resolved to; the second read
+      // takes the next id of the one attempt-scoped allocator.
+      const reads = eventsWithOrigin(append, 'instructions');
+      expect(reads.map((record) => record.type)).toEqual([
+        'tool.requested',
+        'tool.completed',
+        'tool.requested',
+        'tool.completed',
+      ]);
+      expect(reads[0]?.payload).toMatchObject({
+        input: { path: `${path.join(root, 'AGENTS.md')}:raw:1-2000` },
+      });
+      expect(reads[2]?.payload).toMatchObject({
+        input: { path: `${path.join(root, 'apps/api/AGENTS.md')}:raw:1-2000` },
+      });
+      expect(callIdOf(reads[2]?.payload)).toBe(
+        `instructions-${runId}-${testAttemptId}-2`,
+      );
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+      const stores = repositories.createAssistantReplyIfAbsent.mock.calls;
+      expect(instructionItems(repositories)).toHaveLength(2);
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
+        'run the tests',
+      );
+      expect(storedInstructionPart(repositories)?.data.text).toContain(
+        'api rules',
+      );
+      // Only the model's own read fabricates a tool part: neither system read
+      // does, on the live path.
+      const assistantTurn = stores.at(-1)?.[0];
+      const toolReads = (assistantTurn?.parts ?? []).flatMap((part) =>
+        isRecord(part) && part['type'] === 'tool-read' ? [part] : [],
+      );
+      expect(toolReads).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('records the bypass decision on instruction reads', async () => {
+    const { root, touch } = nestedInstructionsRoot();
     try {
       const repositories = mockNormalExecutionRepositories();
       repositories.markStarted.mockResolvedValue({
@@ -8428,11 +8598,22 @@ describe('RunExecutionService instruction files', () => {
 
       const result = await execution.service.executeRun(executionInput(client));
       await expect(result.text).resolves.toBe('answer');
-      expect(
-        eventsWithOrigin(append, 'instructions')[0]?.payload,
-      ).toMatchObject({
-        permission: { decision: 'allow', reason: 'permission_mode_bypass' },
-      });
+      // The accepted-turn read and the in-Run read of the nested directory
+      // were both judged by the Run's bypass mode.
+      const reads = eventsWithOrigin(append, 'instructions');
+      expect(reads.map((record) => record.type)).toEqual([
+        'tool.requested',
+        'tool.completed',
+        'tool.requested',
+        'tool.completed',
+      ]);
+      // Both requested events — the accepted turn's read and the nested
+      // directory's in-Run read — were judged by the Run's bypass mode.
+      for (const read of [reads[0], reads[2]]) {
+        expect(read?.payload).toMatchObject({
+          permission: { decision: 'allow', reason: 'permission_mode_bypass' },
+        });
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -8625,9 +8806,10 @@ describe('RunExecutionService instruction files', () => {
         userId,
         expect.objectContaining({ sinceSeq: 1 }),
       );
-      // The item is gone from effective history: the trigger reloads the file.
+      // The item is gone from effective history: the accepted turn reloads
+      // the file for its first request.
       expect(instructionItems(repositories)).toHaveLength(1);
-      expect(storedInstructionPart(repositories)?.data.text).toContain(
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
         'run the tests',
       );
       expect(eventsWithOrigin(append, 'instructions')).toHaveLength(2);
@@ -8689,10 +8871,10 @@ describe('RunExecutionService instruction files', () => {
       );
 
       expect(execution.compactForTransition).toHaveBeenCalledTimes(1);
-      // The rebuilt history dropped the item, so the trigger loads the file
-      // again — the pre-compaction seen set does not survive the rebuild.
+      // The rebuilt history dropped the item, so the accepted-turn bundle is
+      // recomputed against it — the pre-compaction seen set does not survive.
       expect(instructionItems(repositories)).toHaveLength(1);
-      expect(storedInstructionPart(repositories)?.data.text).toContain(
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
         'run the tests',
       );
       expect(
@@ -8705,9 +8887,8 @@ describe('RunExecutionService instruction files', () => {
     }
   });
 
-  it('settles an in-flight instruction read when the run aborts', async () => {
+  it('settles an in-flight accepted-turn read when the run aborts', async () => {
     const root = instructionsRoot();
-    const touch = touchFile(root);
     try {
       const repositories = mockNormalExecutionRepositories();
       bindChatTo(root);
@@ -8715,15 +8896,7 @@ describe('RunExecutionService instruction files', () => {
       // The instruction read never settles on its own: only the abort (and
       // the runner's signal race) can end it.
       vi.spyOn(nativeReadTool, 'execute').mockImplementation(
-        (_context, input) =>
-          input.path.includes(':raw:')
-            ? new Promise<ToolResult>(() => {})
-            : Promise.resolve({
-                status: 'success' as const,
-                kind: 'file' as const,
-                content: 'export const main = 1;\n',
-                truncated: false,
-              }),
+        () => new Promise<ToolResult>(() => {}),
       );
       const append = vi.spyOn(RunEventsRepository.prototype, 'append');
       const capturing = makeCapturingClient();
@@ -8733,12 +8906,9 @@ describe('RunExecutionService instruction files', () => {
         'host-a',
         executionOptions(),
       );
-      await execution.service.executeRun(
+      const pending = execution.service.executeRun(
         executionInput(capturing.client, controller.signal),
       );
-      const options = capturing.streamOptions();
-      await executeModelRead(options, touch, 'read-trigger');
-      const step = options.onStepStart?.({ messages: [], stepNumber: 1 });
       await vi.waitFor(() =>
         expect(eventsWithOrigin(append, 'instructions')).toHaveLength(1),
       );
@@ -8747,7 +8917,7 @@ describe('RunExecutionService instruction files', () => {
       );
 
       controller.abort();
-      await Promise.resolve(step).catch(() => {});
+      await expect(pending).rejects.toBeInstanceOf(RunNotRunnableError);
       await vi.waitFor(() =>
         expect(repositories.markFinished).toHaveBeenCalledWith(
           runId,
@@ -8756,13 +8926,435 @@ describe('RunExecutionService instruction files', () => {
           expect.anything(),
         ),
       );
-      // The reserved call is settled exactly once, by the abort: the
-      // in-flight read never publishes a second completion.
+      // The call is settled exactly once, by the abort: the in-flight read
+      // never publishes a second completion, and an aborted load stages
+      // neither the item nor a fabricated tool part.
       expect(eventsForCall(append, instructionCall)).toEqual([
         'tool.requested',
         'tool.started',
         'tool.completed',
       ]);
+      expect(instructionItems(repositories)).toEqual([]);
+      expect(repositories.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stages the accepted turn root chain after the workspace item and before the skill notice', async () => {
+    const root = instructionsRoot();
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      vi.spyOn(
+        ChatsRepository.prototype,
+        'setSkillCatalogBaseline',
+      ).mockResolvedValue(undefined);
+      vi.spyOn(
+        ChatsRepository.prototype,
+        'updateSkillCatalogTold',
+      ).mockResolvedValue(undefined);
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'host-a',
+        workspaceGeneration: 4,
+        skillCatalogBaseline: {
+          entries: [{ name: 'pdf', description: 'Extract text' }],
+          omitted: 0,
+        },
+        skillCatalogTold: ['pdf'],
+      });
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        {
+          ...executionOptions(),
+          skillCatalog: skillCatalogOf([
+            skillEntry('pdf', 'Extract text'),
+            skillEntry('research', 'Plan it'),
+          ]),
+          skillDirectories: ['/opt/skills'],
+          model: { ...testModelEntry, referencesSkills: true },
+        },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+
+      await expect(result.text).resolves.toBe('answer');
+      // The completed Run's own record lists the item in rail position: after
+      // the workspace snapshot and before the skill notice.
+      await vi.waitFor(() =>
+        expect(repositories.recordContextItems).toHaveBeenCalled(),
+      );
+      const producers = recordedProducers(repositories);
+      const workspace = producers.indexOf('workspace');
+      expect(workspace).toBeGreaterThanOrEqual(0);
+      expect(producers.indexOf('instructions')).toBe(workspace + 1);
+      expect(producers.indexOf('skill-catalog')).toBeGreaterThan(
+        producers.indexOf('instructions'),
+      );
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
+        'run the tests',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stages nothing without a live binding or on a detaching attempt', async () => {
+    const root = instructionsRoot();
+    try {
+      const unbound = mockNormalExecutionRepositories();
+      const unboundExecution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+      const unboundResult = await unboundExecution.service.executeRun(
+        executionInput(unboundExecution.client),
+      );
+      await expect(unboundResult.text).resolves.toBe('answer');
+      expect(stagedProducers(unbound)).not.toContain('instructions');
+      expect(instructionItems(unbound)).toEqual([]);
+
+      // A bound root whose executor is no longer configured detaches the Chat
+      // before any trigger runs, so its chain must not load.
+      const detaching = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'detach',
+      ).mockResolvedValue('detached');
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'gone-host',
+        workspaceGeneration: 2,
+      });
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const detachExecution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+
+      const detachResult = await detachExecution.service.executeRun(
+        executionInput(detachExecution.client),
+      );
+
+      await expect(detachResult.text).resolves.toBe('answer');
+      expect(stagedProducers(detaching)).not.toContain('instructions');
+      expect(instructionItems(detaching)).toEqual([]);
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('loads the root chain for a binding that predates this change', async () => {
+    const root = instructionsRoot();
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      serveNativeReads();
+      // A Chat bound before this feature: its snapshot was disclosed in an
+      // earlier turn, so this turn stages no workspace item — and no
+      // instructions item sits anywhere in its history.
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'host-a',
+        workspaceGeneration: 4,
+        workspaceTold: root,
+        workspaceToldFrom: null,
+      });
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'setTold',
+      ).mockResolvedValue(undefined);
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.recordContextItems).toHaveBeenCalled(),
+      );
+      // The load reads effective history, never a told column: the snapshot is
+      // not due, yet the chain the history does not name still loads.
+      expect(stagedProducers(repositories)).not.toContain('workspace');
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
+        'run the tests',
+      );
+      expect(instructionItems(repositories)).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('recomputes the accepted turn bundle against the rebuilt history after a transition compaction', async () => {
+    // The seen keys the walk produces are canonical, so the history item that
+    // names the root file must be canonical too.
+    const root = realpathSync(instructionsRoot());
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      let contextWindowTokens = 1;
+      const captured: CapturedStream = {};
+      const base = createFakeModelClient(['answer']);
+      const mutableClient: ModelClient = {
+        ...base,
+        get contextWindowTokens() {
+          return contextWindowTokens;
+        },
+        streamText: (options) => {
+          captured.options = options;
+          return base.streamText(options);
+        },
+      };
+      const execution = makeExecutionService(
+        mutableClient,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+      // The first build's history names the root file, so the accepted turn
+      // stages nothing. The rebuilt history, read after the transition
+      // compaction, does not — and the bundle recomputed against it must reach
+      // the rebuilt request itself, before any in-Run trigger could.
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId')
+        .mockResolvedValueOnce([
+          { ...userMessage, parts: [instructionItem(root)] },
+        ])
+        .mockResolvedValue([userMessage]);
+      execution.compactForTransition.mockImplementation(() => {
+        contextWindowTokens = 128_000;
+        return Promise.resolve('created' as const);
+      });
+
+      const result = await execution.service.executeRun({
+        ...executionInput(mutableClient),
+        userMessage: {
+          id: messageId,
+          seq: 1,
+          parts: [
+            createModelChangeItem({
+              oldModel: { id: 'old-model' },
+              newModel: { id: 'fake-model' },
+              runId,
+            }),
+          ],
+        },
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(execution.compactForTransition).toHaveBeenCalledTimes(1);
+      // The only model call is the rebuilt request. Skipping the refresh would
+      // leave it carrying no copy of the chain at all; the first build had
+      // staged nothing, so exactly one copy can only come from the recompute.
+      const rootFile = path.join(root, 'AGENTS.md');
+      const prompt = JSON.stringify(captured.options?.messages);
+      expect(prompt.split(rootFile)).toHaveLength(2);
+      // The recomputed item is what the turn publishes: one item on the user
+      // message, and one in the Run record that mirrors the request.
+      await vi.waitFor(() =>
+        expect(repositories.recordContextItems).toHaveBeenCalled(),
+      );
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
+        'run the tests',
+      );
+      expect(instructionItems(repositories)).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("drops the first build's staged chain when the rebuilt history names it", async () => {
+    // The seen keys the walk produces are canonical, so the history item that
+    // names the root file must be canonical too.
+    const root = realpathSync(instructionsRoot());
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      // The workspace snapshot was disclosed in an earlier turn, so nothing
+      // precedes the instructions item on the rail: it sits at index 0, the
+      // position the removal must still find.
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'host-a',
+        workspaceGeneration: 4,
+        workspaceTold: root,
+        workspaceToldFrom: null,
+      });
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'setTold',
+      ).mockResolvedValue(undefined);
+      serveNativeReads();
+      let contextWindowTokens = 1;
+      const base = createFakeModelClient(['answer']);
+      const mutableClient: ModelClient = {
+        ...base,
+        get contextWindowTokens() {
+          return contextWindowTokens;
+        },
+      };
+      const execution = makeExecutionService(
+        mutableClient,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+      // The first build's history names nothing, so the accepted turn stages
+      // the root chain. The rebuilt history names the root file — the bundle
+      // recomputed against it loads nothing, and the stale first-build item
+      // must leave the rail rather than ride beside the rebuilt request.
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId')
+        .mockResolvedValueOnce([userMessage])
+        .mockResolvedValue([
+          { ...userMessage, parts: [instructionItem(root)] },
+        ]);
+      execution.compactForTransition.mockImplementation(() => {
+        contextWindowTokens = 128_000;
+        return Promise.resolve('created' as const);
+      });
+
+      const result = await execution.service.executeRun({
+        ...executionInput(mutableClient),
+        userMessage: {
+          id: messageId,
+          seq: 1,
+          parts: [
+            createModelChangeItem({
+              oldModel: { id: 'old-model' },
+              newModel: { id: 'fake-model' },
+              runId,
+            }),
+          ],
+        },
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(execution.compactForTransition).toHaveBeenCalledTimes(1);
+      // The recomputed bundle loaded nothing, so the rail keeps exactly the
+      // temporal item — the recompute removed the item the first build had
+      // staged first on the rail.
+      expect(stagedProducers(repositories)).toEqual(['temporal']);
+      expect(stagedInstructionPart(repositories)).toBeUndefined();
+      await vi.waitFor(() =>
+        expect(repositories.recordContextItems).toHaveBeenCalled(),
+      );
+      // The rebuilt history's own item is the only one the Run record carries:
+      // the stale first-build item did not ride along.
+      expect(instructionItems(repositories)).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("replaces the first build's staged item when the rebuilt history changes the bundle", async () => {
+    // The seen keys the walk produces are canonical, so the history item that
+    // names the root file must be canonical too.
+    const root = realpathSync(instructionsRoot());
+    const baseFile = path.join(root, 'AGENTS.md');
+    const localFile = path.join(root, 'AGENTS.local.md');
+    writeFileSync(localFile, 'local overrides\n');
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      let contextWindowTokens = 1;
+      const captured: CapturedStream = {};
+      const base = createFakeModelClient(['answer']);
+      const mutableClient: ModelClient = {
+        ...base,
+        get contextWindowTokens() {
+          return contextWindowTokens;
+        },
+        streamText: (options) => {
+          captured.options = options;
+          return base.streamText(options);
+        },
+      };
+      const execution = makeExecutionService(
+        mutableClient,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+      // The first build's history names the base file, so the accepted turn
+      // stages the local file alone. The rebuilt history, read after the
+      // transition compaction, names nothing — and the bundle recomputed
+      // against it adds the base file back, so it must replace the first
+      // build's item in place.
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId')
+        .mockResolvedValueOnce([
+          { ...userMessage, parts: [instructionItem(root)] },
+        ])
+        .mockResolvedValue([userMessage]);
+      execution.compactForTransition.mockImplementation(() => {
+        contextWindowTokens = 128_000;
+        return Promise.resolve('created' as const);
+      });
+
+      const result = await execution.service.executeRun({
+        ...executionInput(mutableClient),
+        userMessage: {
+          id: messageId,
+          seq: 1,
+          parts: [
+            createModelChangeItem({
+              oldModel: { id: 'old-model' },
+              newModel: { id: 'fake-model' },
+              runId,
+            }),
+          ],
+        },
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(execution.compactForTransition).toHaveBeenCalledTimes(1);
+      // The only model call is the rebuilt request. The recomputed bundle is
+      // both root files: the first build's item named the local file alone,
+      // so a surviving copy of it would make the local file appear twice.
+      const prompt = JSON.stringify(captured.options?.messages);
+      expect(prompt).toContain('run the tests');
+      expect(prompt).toContain('local overrides');
+      expect(prompt.split(baseFile)).toHaveLength(2);
+      expect(prompt.split(localFile)).toHaveLength(2);
+      // The first build's item was replaced in place, not added to: the turn
+      // stages one instructions item, and it is the recomputed one — the only
+      // one that names the base file.
+      expect(
+        stagedProducers(repositories).filter(
+          (producer) => producer === 'instructions',
+        ),
+      ).toHaveLength(1);
+      const staged = stagedInstructionPart(repositories);
+      expect(staged?.data.text).toContain('run the tests');
+      expect(staged?.data.text).toContain('local overrides');
+      // The Run record mirrors the request: one item, the recomputed one.
+      await vi.waitFor(() =>
+        expect(repositories.recordContextItems).toHaveBeenCalled(),
+      );
+      const items = instructionItems(repositories);
+      expect(items).toHaveLength(1);
+      expect(items[0]?.text).toContain('run the tests');
+      expect(items[0]?.text).toContain('local overrides');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

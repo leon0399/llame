@@ -59,6 +59,7 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { CompactionsRepository } from './compactions-repository';
 import {
   buildContext,
   isTextPart,
@@ -5531,6 +5532,99 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(toolResultIndex(prompt, 'read-y')).toBeGreaterThanOrEqual(0);
         expect(instructionsIndexes(prompt)).not.toContain(
           toolResultIndex(prompt, 'read-y') + 1,
+        );
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('stages the root chain again on an accepted turn after a compaction absorbs it', async () => {
+      const root = instructionFixture();
+      const seeded = await seedBoundRun(
+        `instructions-compaction-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+      const first = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'read-x-enter',
+            toolName: 'enter_workspace',
+            input: { path: root },
+          },
+          {
+            toolCallId: 'read-x',
+            toolName: 'read',
+            input: { path: path.join(root, 'apps/api/src/x.ts') },
+          },
+        ],
+        'Read the file.',
+      );
+
+      try {
+        const firstExecution = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(first),
+        );
+        await firstExecution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // The next accepted turn sees the chain in history and stages nothing.
+        const secondSeeded = await seedRunOnChat(
+          seeded,
+          `instructions-compaction-2-${crypto.randomUUID()}`,
+        );
+        const secondExecution = await executeSeeded(
+          secondSeeded,
+          service,
+          createMockModelClient(
+            new MockLanguageModelV3({
+              doStream: () => Promise.resolve(textResponse('Nothing new.')),
+            }),
+          ),
+        );
+        await secondExecution.consumeStream?.();
+        await waitForCompleted(secondSeeded.run.id);
+        expect(await instructionEvents(secondSeeded.run.id)).toEqual([]);
+        expect(await stagedInstructionParts(secondSeeded)).toEqual([]);
+
+        // A compaction absorbs every message that carried the item.
+        await tenantDb.runAs(userId, (tx) =>
+          new CompactionsRepository(tx).create({
+            chatId: seeded.chatId,
+            uptoSeq: secondSeeded.userMessage.seq,
+            summary: 'Earlier turns.',
+            replacementHistory: [
+              {
+                role: 'user',
+                parts: [{ type: 'text', text: 'Earlier turns.' }],
+              },
+            ],
+          }),
+        );
+
+        const thirdSeeded = await seedRunOnChat(
+          seeded,
+          `instructions-compaction-3-${crypto.randomUUID()}`,
+        );
+        const third = new MockLanguageModelV3({
+          doStream: () => Promise.resolve(textResponse('Working again.')),
+        });
+        const thirdExecution = await executeSeeded(
+          thirdSeeded,
+          service,
+          createMockModelClient(third),
+        );
+        await thirdExecution.consumeStream?.();
+        await waitForCompleted(thirdSeeded.run.id);
+
+        const staged = await stagedInstructionParts(thirdSeeded);
+        expect(staged).toHaveLength(1);
+        expect(await instructionItems(thirdSeeded.run.id)).toHaveLength(1);
+        // The bundle is staged before the first request of that turn.
+        expect(JSON.stringify(third.doStreamCalls[0]?.prompt)).toContain(
+          path.join(root, 'AGENTS.md'),
         );
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;

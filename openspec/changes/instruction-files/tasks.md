@@ -169,16 +169,16 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 4. `instruction-files/turn-load`: the accepted-turn root load
 
-- [ ] 4.1 Implement the accepted-turn trigger: after the attempt's binding re-check and not on
+- [x] 4.1 Implement the accepted-turn trigger: after the attempt's binding re-check and not on
       a detaching attempt, when the Chat has a live binding and any file of the root chain is
       absent from effective context, stage the root bundle before the first request, ordered
       after the `workspace` item (design D5, D7). Verify a post-compaction turn re-establishes
       the chain, an unchanged epoch stages nothing, an unbound Chat stages nothing, a detaching
       attempt stages nothing, and a binding that predates this change loads on its next turn.
-- [ ] 4.2 Recompute the accepted-turn bundle against the rebuilt history after a transition
+- [x] 4.2 Recompute the accepted-turn bundle against the rebuilt history after a transition
       compaction and replace the staged item (design D7). Verify a compaction that absorbs the
       root chain restages it before the rebuilt request.
-- [ ] 4.3 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused
+- [x] 4.3 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused
       integration files touched above, `pnpm format:check`, `git diff --check`, and
       `pnpm exec openspec validate instruction-files --strict`; record the commands in the PR
       body.
