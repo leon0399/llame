@@ -219,3 +219,70 @@ materialized replacement history required by `model-system-prompts` and
 - **THEN** those parts are passed to the AI SDK in their stored positions with any
   provider metadata they carry
 - **AND** every other declared display-only part is still omitted
+
+### Requirement: Workspace binding changes are rail-resident context items
+
+Before resolving effective skill sources, explicit `$skill` activation, Workspace MCP clients or catalog, the `workspace` producer's items, or the accepted-turn `instructions` load, attempt preparation SHALL finish the Workspace binding re-check and any detach. A detaching attempt SHALL contribute no Workspace skill activation, `skill://` resolution, Workspace tools, or accepted-turn `instructions` item and SHALL still narrate the detach. Skill-catalog baseline content already frozen at acceptance in the accepted-turn transaction before worker preparation MAY still list Workspace skills for that attempt; the next accepted turn's skill-catalog notice SHALL remove them.
+
+At each accepted user turn, accepted-turn preparation SHALL compare the Chat's current Workspace
+root, or its absence, with the root last narrated to the Chat, or the absence of any narration. For
+that comparison, the stored `workspace_told` SHALL be treated as null whenever its
+`workspace_told_from` differs from the Chat's latest compaction identity; when those identities
+match, the stored told root is used. When the current and comparison roots differ, the `workspace`
+producer SHALL emit a rail-resident item with form `snapshot`: it SHALL name the canonical root
+and state that the Workspace selects a working root but does not confine host authority, or, when a
+previously narrated root is no longer bound, it SHALL state that no Workspace is entered. A detach
+reason persisted during attempt preparation SHALL be consumed from the Chat's persisted state, not
+inferred from the current unbound state, by emitting a separate rail-resident item with form
+`notice` in the same turn. The notice SHALL name that reason, and the persisted reason SHALL be
+cleared only when the Run that narrates it completes. The producer SHALL stage the narrated root,
+or its absence, and the latest compaction identity as `workspace_told` and `workspace_told_from`;
+the same accepted-turn transaction SHALL write both values, and the compaction path SHALL NOT
+write Chat state. A Chat that has never been bound and has no narrated root SHALL receive no notice.
+Workspace state SHALL NOT be placed in the system prompt. Each successful Run that sends a
+Workspace snapshot or notice SHALL include each exact item text, producer, form, and rail residency
+in its owner-scoped Run context-item record under the existing recording rules.
+
+#### Scenario: Changed binding is narrated on the rail
+
+- **WHEN** an accepted turn observes a Workspace binding different from the last state narrated to the Chat
+- **THEN** a rail-resident `workspace` snapshot names the canonical root and states that host authority is not confined when the turn has a bound root, or states that no Workspace is entered only when a previously narrated root has been detached
+- **AND** if preparation detached the binding, a separate rail-resident `workspace` notice consumes the persisted detach reason in every case; when `workspace_told` named no root, no snapshot is emitted, and the Workspace state is not added to the system prompt
+
+#### Scenario: Unchanged binding is not repeated
+
+- **WHEN** an accepted turn observes the same Workspace state already narrated in the active context epoch
+- **THEN** the producer emits no duplicate state-change snapshot
+- **AND** the already-narrated state remains the comparison state
+
+#### Scenario: Compaction re-establishes Workspace state
+
+- **WHEN** a compaction becomes active for a Chat that is still bound and its stored
+  `workspace_told_from` names an earlier compaction or is null
+- **THEN** the next accepted turn treats the told state as null for comparison and emits a
+  snapshot re-establishing the current root
+- **AND** the snapshot remains rail-resident rather than changing the system prompt
+
+#### Scenario: A never-bound Chat receives no Workspace notice
+
+- **WHEN** a Chat that has never been bound to a Workspace accepts a turn, including the first turn after a compaction
+- **THEN** no `workspace` snapshot or notice is emitted
+
+#### Scenario: Run context record includes the Workspace notice
+
+- **WHEN** a successful Run sends a Workspace snapshot or detach notice in its final request
+- **THEN** the Run's owner-scoped context-item record contains each exact text with producer `workspace`, its form, and rail residency
+- **AND** the record remains subject to the ordinary owner-isolation rules
+
+#### Scenario: Detach reason waits for a completed narration
+
+- **WHEN** attempt preparation persists a detach reason and that attempt fails before the Run narrating it completes
+- **THEN** a retry consumes the reason from persisted Chat state and emits it as a separate `workspace` notice
+- **AND** the reason remains persisted until the narration Run completes, while the Chat remains unbound
+
+#### Scenario: Detach is ordered before Workspace contributions
+
+- **WHEN** attempt preparation detaches a binding before the accepted turn resolves Workspace sources or tools
+- **THEN** the turn contributes no Workspace skill activation, `skill://` resolution, or MCP tools
+- **AND** its skill-catalog baseline content already frozen at acceptance MAY still list Workspace skills, while the next accepted turn's skill-catalog notice removes them
+- **AND** it always emits the separate detach `notice`, while the snapshot stating that no Workspace is entered is emitted only when `workspace_told` names a root
