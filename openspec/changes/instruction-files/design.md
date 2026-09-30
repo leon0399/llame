@@ -261,7 +261,9 @@ model can act on, and naming the path invites a retry that is denied again.
 
 The web transcript renders a chip on the carrying message listing loaded paths and marking
 truncated and denied ones, read from the part's private metadata the way skill activation
-mirrors its permission record. The Run context-item record copies `data.text` only. No new
+mirrors its permission record. It renders where the item is stored: after the triggering step
+for an in-Run item, which is where the model received it, and at the top of the triggering user
+turn for an accepted-turn item. The Run context-item record copies `data.text` only. No new
 API: the part travels with the message the owner already receives.
 
 ### D10: Producer name and rail slot
@@ -307,8 +309,12 @@ skills.
 - [Symlink and path spelling duplicates] → canonical `realpath` keys; Claude Code's #94463
   and #87824 are the failure this avoids.
 - [Denied or empty root-chain files re-probe on every accepted turn] → one stat and, for a
-  denied file, one audited denied read per turn; visible in the owner's activity feed, bounded
-  by the chain length. Acceptable until a real deployment shows otherwise.
+  denied file, one audited denied read per turn, bounded by the chain length. Acceptable until
+  a real deployment shows otherwise.
+- [A step whose every candidate is denied discloses nothing in the chat] → no item exists, so
+  there is no chip; the denied `read` audit event is the only record, and no owner surface shows
+  audit events yet. Disclosure through the same chip, once per compaction epoch, is tracked in
+  [#1039](https://github.com/leon0399/llame/issues/1039).
 
 ## Migration Plan
 
@@ -332,6 +338,11 @@ rule.
 
 ## Revision history
 
+- **v6 (2026-09-30, post-review decisions):** Risks records that a fully denied step
+  discloses nothing in the chat and points to #1039; the earlier "visible in the owner's
+  activity feed" claim is removed, because no feed shows system-origin events. The chip renders
+  where the item is stored, after the triggering step (D9), and live streaming of rendered
+  context parts is tracked in [#1040](https://github.com/leon0399/llame/issues/1040).
 - **v5 (2026-09-30, finalize review):** The `workspace-entry` and `context-injection`
   requirements that own the Workspace binding re-check now list the accepted-turn
   `instructions` load among its consumers, and a detaching attempt contributes no accepted-turn
