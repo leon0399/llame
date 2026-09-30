@@ -80,11 +80,11 @@ sources:
 - **Stack:** Bun, TypeScript, Effect, Drizzle/SQLite; hard fork of OpenCode with a shared engine embedded by the CLI and the VS Code extension; MIT
 
 Listed by OpenCode Go as a validated client for the CLI after PR #13752. Both
-relays arrive as catalogue entries rather than code: `opencode` and `opencode-go`
-are models.dev providers distinguished by id and base URL, and the client's only
-special case for them is a provider-id prefix
-check[^packages-core-src-models-dev-ts-l170-l179][^packages-opencode-src-session-llm-request-ts-l233-l259]. The
-engine is one code path: the extension spawns `kilo serve` with
+relays arrive as catalogue entries rather than code: `opencode` and
+`opencode-go` are models.dev providers distinguished by id and base URL, and
+the client's only special case for them is a provider-id prefix
+check[^packages-core-src-models-dev-ts-l170-l179][^packages-opencode-src-session-llm-request-ts-l233-l259].
+The engine is one code path: the extension spawns `kilo serve` with
 `KILO_CLIENT=vscode`[^packages-kilo-vscode-src-services-cli-backend-server-manager-ts-l129-l153],
 so the CLI/extension distinction on the Go page is not a code-level branch at
 this revision. Compare with [OpenCode](./opencode.md) for the upstream.
@@ -108,46 +108,47 @@ this revision. Compare with [OpenCode](./opencode.md) for the upstream.
    `opencode*` ids and nothing otherwise[^packages-opencode-src-kilocode-provider-opencode-session-headers-ts-l3-l15].
    Three callers use it: memory consolidation with the real session
    id[^packages-opencode-src-kilocode-memory-ports-ts-l197-l199], the roll-call
-   diagnostic[^packages-opencode-src-kilocode-cli-cmd-roll-call-ts-l315-l338], and prompt
-   enhancement, which passes a fresh `randomUUID()` per
-   call[^packages-opencode-src-kilocode-enhance-prompt-ts-l56-l57]. PR #14015 is the
-   fix for those three call sites after "missing x-opencode-session" errors from
-   OpenCode-managed models[^packages-kilo-vscode-changelog-md-l44]. High
-   confidence for #809's auxiliary-call question: the header is per-request state
-   that must be re-established on every path, and a helper plus a lint-visible
-   name is how this harness keeps that honest.
+   diagnostic[^packages-opencode-src-kilocode-cli-cmd-roll-call-ts-l315-l338],
+   and prompt enhancement, which passes a fresh `randomUUID()` per
+   call[^packages-opencode-src-kilocode-enhance-prompt-ts-l56-l57]. PR #14015 is
+   the fix for those three call sites after "missing x-opencode-session" errors
+   from OpenCode-managed models[^packages-kilo-vscode-changelog-md-l44]. High
+   confidence for #809's auxiliary-call question: the header is per-request
+   state that must be re-established on every path, and a helper plus a
+   lint-visible name is how this harness keeps that honest.
 3. **The wire comes from the model entry, not the provider.** The native adapter
    switches on `model.api.npm` and returns Responses for `@ai-sdk/openai`,
    Messages for `@ai-sdk/anthropic`, and Chat Completions for
    `@ai-sdk/openai-compatible` with an explicit base URL
-   requirement[^packages-opencode-src-session-llm-native-request-ts-l165-l178]; models.dev
-   supplies `npm` and `api` per model, and an individual model may override its
-   provider package[^packages-core-src-models-dev-ts-l170-l179]. Both OpenCode families are
-   `@ai-sdk/openai-compatible` in the catalogue fixture, so Go starts on Chat
-   Completions and gains another wire only where the model entry says so. The
-   fixture in this repo mirrors what models.dev serves: the Go entry carries
-   `env: OPENCODE_API_KEY`, `npm: @ai-sdk/openai-compatible`, and
+   requirement[^packages-opencode-src-session-llm-native-request-ts-l165-l178];
+   models.dev supplies `npm` and `api` per model, and an individual model may
+   override its provider package[^packages-core-src-models-dev-ts-l170-l179].
+   Both OpenCode families are `@ai-sdk/openai-compatible` in the catalogue
+   fixture, so Go starts on Chat Completions and gains another wire only where
+   the model entry says so. That fixture mirrors what models.dev serves: the Go
+   entry carries `env: OPENCODE_API_KEY`, `npm: @ai-sdk/openai-compatible`, and
    `api: https://opencode.ai/zen/go/v1`[^packages-opencode-test-tool-fixtures-models-api-json-l33607-l33613],
-   alongside per-model costs, limits, and a `status: deprecated` field for legacy
-   ids kept in the list[^packages-opencode-test-tool-fixtures-models-api-json-l33652-l33672]. High
-   confidence for #809: the same "a base URL, not a second type" shape llame
-   uses, with the per-model override carried in the catalogue.
+   alongside per-model costs, limits, and a `status: deprecated` field for
+   legacy ids kept in the
+   list[^packages-opencode-test-tool-fixtures-models-api-json-l33652-l33672].
+   High confidence for #809: the same "a base URL, not a second type" shape
+   llame uses, with the per-model override carried in the catalogue.
 4. **Two Go-aware request transforms, one exact-id trap.** When the provider id
-   starts with `opencode`, the request sets `promptCacheKey` to the session id and
-   asks for encrypted reasoning with `reasoningSummary: "auto"`; opting out
+   starts with `opencode`, the request sets `promptCacheKey` to the session id
+   and asks for encrypted reasoning with `reasoningSummary: "auto"`; opting out
    through `providerOptions.setCacheKey === false` is
-   honored[^packages-opencode-src-provider-transform-ts-l1610-l1613]. A second transform
-   sets `chat_template_args.enable_thinking` for Kimi and GLM thinking models, but
-   it compares the provider id to the literal `opencode`, so Go models never get
-   it[^packages-opencode-src-provider-transform-ts-l1480-l1484]. Moderate confidence for
-   #809: gate on the relay family consistently, and treat an exact-id check as a
-   defect waiting to happen.
+   honored[^packages-opencode-src-provider-transform-ts-l1610-l1613]. A second
+   transform sets `chat_template_args.enable_thinking` for Kimi and GLM thinking
+   models, but it compares the provider id to the literal `opencode`, so Go
+   models never get it[^packages-opencode-src-provider-transform-ts-l1480-l1484].
+   Moderate confidence for #809: gate on the relay family consistently, and
+   treat an exact-id check as a defect waiting to happen.
 5. **Session affinity without the OpenCode header is a local transport detail.**
    A websocket pool for the OpenAI Responses path keys its connection on
    `x-session-affinity` or `session-id` and falls back to HTTP when neither is
    present[^packages-opencode-src-plugin-openai-ws-pool-ts-l69-l73]. That is the
    consumer of the else-branch header pair, and it never sees an `opencode*`
-   provider. Moderate confidence for #881: this is prior art for a reusable
+   provider. Moderate confidence for #881: prior art for a reusable
    session-keyed transport, not for Go traffic.
 6. **Permission ruleset on the session row and hard rules.** Sessions persist
    their permission ruleset[^packages-opencode-src-session-session-ts-l62-l260];
@@ -182,12 +183,9 @@ this revision. Compare with [OpenCode](./opencode.md) for the upstream.
   tasks[^packages-opencode-src-mcp-index-ts-l45-l56].
 - No immutable per-turn record of the system prompt and tool declarations;
   prompts are assembled fresh per request.
-- The auxiliary header shim does not preserve the contract it documents:
-  prompt enhancement mints a throwaway `randomUUID()` for `x-opencode-session`
-  while memory consolidation passes the real
-  one[^packages-opencode-src-kilocode-enhance-prompt-ts-l56-l57][^packages-opencode-src-kilocode-memory-ports-ts-l197-l199],
-  so a relay that keys cache or backend affinity on that header sees a new
-  conversation on every enhancement call.
+- The auxiliary header shim of item 2 does not preserve the contract it
+  documents, so a relay that keys cache or backend affinity on that header sees
+  a new conversation on every enhancement call.
 - No session-presence failure has a dedicated classifier here; a missing header
   would surface as whatever generic status the relay returns.
 

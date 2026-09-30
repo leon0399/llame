@@ -65,95 +65,93 @@ sources:
 - **Stack:** TypeScript; `apps/x` is the per-person Electron app, a headless `rowboat-server` build of the same core, and an Expo mobile client; `apps/harbor` is the shared Spaces server (Hono, Postgres); about 2.6k commits since 2025-01-13; Apache-2.0 (YC S24)
 
 Each teammate runs their own Rowboat with local Markdown knowledge, MCP
-config, and model keys. The only shared component is Harbor: a chat, file, and
-whiteboard server whose agent face is an MCP endpoint that Rowboat's own agent
-uses with "no privileged
-path"[^apps-harbor-packages-server-src-mcp-ts-l12-l20]; every call is
-authenticated to a member before any tool
+config, and model keys. The only shared component is Harbor, a chat, file, and
+whiteboard server whose agent face is an MCP endpoint Rowboat's own agent uses
+with "no privileged path"[^apps-harbor-packages-server-src-mcp-ts-l12-l20];
+every call authenticates to a member before any tool
 runs[^apps-harbor-packages-server-src-mcp-ts-l36-l46]. Runs are never owned by
-Harbor. This inverts llame's host-owned Run model and is the closest shipped
-analogue to the Personal Realm framing.
+Harbor. That inverts llame's host-owned Run model, and it is the closest
+shipped analogue to the Personal Realm framing.
 
 **Study**
 
 1. **Thin shared server, fat local agent.** Local keys and knowledge never
-   appear in the Spaces protocol schema; Harbor sees only what a local run
-   posts through the same member-authenticated MCP tools a human client
-   uses. High confidence for #757 as the shape of a synchronization or relay
-   surface that must not see model traffic or personal data.
-2. **Mention dispatch is sender-local.** `@rowboat` is detected on the
-   poster's own machine at send time and routed through an Electron IPC, not
-   observed from the live
+   appear in the Spaces protocol schema; Harbor sees only what a local run posts,
+   through the same MCP tools a human client uses. High confidence for #757: a
+   synchronization or relay surface that must not see model traffic or personal
+   data.
+2. **Mention dispatch is sender-local.** `@rowboat` is detected on the poster's
+   own machine at send time and routed through an Electron IPC, not observed
+   from the live
    feed[^apps-x-apps-renderer-src-lib-spaces-rowboat-ts-l22-l46]. A JSON
-   registry maps `(org, space, threadRoot)` to exactly one local session so
+   registry maps `(org, space, threadRoot)` to exactly one local session, so
    repeated mentions steer one run instead of forking
    it[^apps-x-packages-core-src-spaces-topic-agent-ts-l63-l88]. The only
    cross-machine signal that a run exists is an `agent_working` /
    `agent_idle` presence lease renewed on a
-   timer[^apps-x-packages-core-src-spaces-agent-activity-ts-l168-l186]. If
-   the addressed machine is off, nothing else picks the mention up. High
+   timer[^apps-x-packages-core-src-spaces-agent-activity-ts-l168-l186]. If the
+   addressed machine is off, nothing else picks the mention up. High
    confidence as a contrast case: llame's durable pg-boss Run exists
    precisely so identity outlives one device.
-3. **Agent-authored Markdown memory, indexed by scan.** A note-creation
-   agent is instructed to "create or update notes in 'knowledge' directory"
-   and merge same-entity notes across
+3. **Agent-authored Markdown memory, indexed by scan.** A note-creation agent
+   is instructed to "create or update notes in 'knowledge' directory" and merge
+   same-entity notes across
    sources[^apps-x-packages-core-src-knowledge-build-graph-ts-l363-l371];
-   retrieval is a recursive directory scan with a frontmatter-field regex
-   and an in-memory cache, with no embedding or vector store in
+   retrieval is a recursive directory scan with a frontmatter-field regex and
+   an in-memory cache; no embedding or vector store exists in
    `packages/core`[^apps-x-packages-core-src-knowledge-knowledge-index-ts-l190-l200].
-   The write format is the read format. High confidence for #212: a working
-   precedent that agent-written plain Markdown plus scan-time indexing is
-   enough for personal knowledge; llame adds Git recoverability on top.
+   The write format is the read format. High confidence for #212: agent-written
+   plain Markdown plus scan-time indexing is enough for personal knowledge;
+   llame adds Git recoverability on top.
 4. **Peer coding agents over ACP.** Code Mode drives Claude Code and Codex
    through the published ACP adapter packages
    (`@agentclientprotocol/claude-agent-acp`,
    `@agentclientprotocol/codex-acp`)[^apps-x-packages-core-src-code-mode-acp-agents-ts-l10-l14]
    and stores those sessions in the same session store as chat. Moderate
-   confidence for #29: the executor-adapter boundary matches llame's, the
-   client code itself is Electron-specific.
-5. **Two-tier approval with an explicit unattended fork.** A deterministic
-   gate (command allowlists, path grants) runs first; in `auto` mode an LLM
+   confidence for #29: the executor-adapter boundary matches llame's; the
+   client code is Electron-specific.
+5. **Two-tier approval with an explicit unattended fork.** A deterministic gate
+   (command allowlists, path grants) runs first; in `auto` mode an LLM
    classifier judges each remaining tool call once per model
    response[^apps-x-packages-core-src-runtime-turns-runtime-ts-l816-l830].
    `allow` resolves with no human; `deny` escalates to a human when
-   `humanAvailable`, otherwise it is a hard
+   `humanAvailable`, otherwise a hard
    deny[^apps-x-packages-core-src-runtime-turns-runtime-ts-l884-l910].
    Background tasks set `humanAvailable: false` so a turn "must fail fast
    instead of suspending for 90 minutes on an approval card nobody will
    answer"[^apps-x-packages-core-src-background-tasks-code-sessions-ts-l346-l354].
    High confidence for #778 on the suspend-versus-deny fork; see Caution on
-   the classifier itself.
+   the classifier.
 
 **Caution**
 
 - **A model is the approver by default.** Every mention turn runs with
   `autoPermission` unless the composer asked for manual
   prompts[^apps-x-packages-core-src-spaces-topic-agent-ts-l196-l206], so the
-  classifier's `allow` executes tools with a human nominally present and
-  never consulted. Prompt injection against the classifier is in scope
-  before this can count as a permission gate; llame's #763 policy must be
-  deterministic first.
+  classifier's `allow` executes tools with a human nominally present and never
+  consulted. Prompt injection against the classifier is in scope before this
+  can count as a permission gate; llame's #763 policy must be deterministic
+  first.
 - **The private-to-shared boundary is prompt text.** "Never paste emails,
   chats, or DM content into a shared space" lives in a skill
   prompt[^apps-x-packages-core-src-runtime-assembly-skills-spaces-procedures-ts-l40-l48];
   no server-side filter or scope check enforces it.
 - **MCP secrets are a plain env map** edited in
-  Settings[^apps-x-packages-shared-src-mcp-ts-l3-l16], with no redaction
-  path found in the MCP client. llame's declared-env and redaction rules
-  are the stronger bar.
-- **The hosted model gateway is a first-class path.** `getGatewayProvider`
-  is an OpenRouter client pointed at Rowboat's backend, authenticated with
-  the user's Rowboat account token and use-case
+  Settings[^apps-x-packages-shared-src-mcp-ts-l3-l16], with no redaction path
+  found in the MCP client. llame's declared-env and redaction rules are the
+  stronger bar.
+- **The hosted model gateway is a first-class path.** `getGatewayProvider` is
+  an OpenRouter client pointed at Rowboat's backend, authenticated with the
+  user's Rowboat account token and use-case
   headers[^apps-x-packages-core-src-models-gateway-ts-l10-l27]. Knowledge
-  context assembled locally transits that backend for anyone who has not
-  configured a direct provider, which weakens the README's "own model keys"
-  framing.
-- **Harbor tenancy is application-level.** One `PgStore` is constructed per
-  org over a shared
-  pool[^apps-harbor-packages-server-src-deployment-ts-l103-l105] with
-  `orgId` as a constructor field consumed by hand-written
+  context assembled locally transits that backend without a configured direct
+  provider, weakening the README's "own model keys" framing.
+- **Harbor tenancy is application-level.** One `PgStore` is constructed per org
+  over a shared
+  pool[^apps-harbor-packages-server-src-deployment-ts-l103-l105] with `orgId`
+  as a constructor field consumed by hand-written
   queries[^apps-harbor-packages-server-src-pg-store-ts-l250-l253]; no RLS
-  policy was found in the migrations. The opposite of llame's fail-closed
+  policy was found in the migrations, the opposite of llame's fail-closed
   posture.
 
 [^apps-harbor-packages-server-src-mcp-ts-l12-l20]: [agent face over MCP, no privileged path](https://github.com/rowboatlabs/rowboat/blob/649a5f1bd12b53455e4f22a0221a4d51e12f8261/apps/harbor/packages/server/src/mcp.ts#L12-L20)

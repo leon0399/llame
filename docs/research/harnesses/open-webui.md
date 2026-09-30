@@ -23,15 +23,15 @@ sources:
 - **Stack:** Python/FastAPI, SQLAlchemy, SvelteKit, SQLite or PostgreSQL; Open WebUI License
 
 A reference for application-level multi-user sharing and permission-filtered tool
-catalogs. Moderate confidence for reuse in future llame sharing capabilities;
-its access predicates need to coexist with llame's datastore-enforced isolation.
+catalogs. Moderate confidence for reuse in future llame sharing capabilities; its
+access predicates need to coexist with llame's datastore-enforced isolation.
 
 **Study**
 
 1. **Reusable resource grants.** `AccessGrant` and permission filtering[^backend-open-webui-models-access-grants-py-l25-l45] and owner, group, public access checks[^backend-open-webui-models-access-grants-py-l562-l620] provide a candidate shape for future Knowledge or project sharing.
-2. **Tool visibility.** MCP server access and per-user credential resolution[^backend-open-webui-routers-tools-py-l135-l190] demonstrates filtering the catalog before exposing server tools.
+2. **Tool visibility.** MCP server access and per-user credential resolution[^backend-open-webui-routers-tools-py-l135-l190] shows filtering the catalog before exposing server tools.
 
-**Caution:** Authorization is enforced in application queries, with administrative bypasses; omitting one filter is a security defect. This provides no evidence for tenant isolation or RLS.
+**Caution:** Authorization is enforced in application queries, with administrative bypasses; omitting one filter is a security defect. This is no evidence for tenant isolation or RLS.
 
 [^backend-open-webui-models-access-grants-py-l25-l45]: [`AccessGrant` and permission filtering](https://github.com/open-webui/open-webui/blob/0a7c15832fb30b1903753e83f81dc7d27e5b0944/backend/open_webui/models/access_grants.py#L25-L45)
 

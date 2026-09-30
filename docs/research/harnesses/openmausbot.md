@@ -39,8 +39,8 @@ Study selected boundaries rather than importing its bots/rooms/runtime model.
 1. **F16: Preserve unavailable provider instances.** The registry[^server-harness-registry-ts-l76-l124]
    retains unknown or failed drivers as unavailable entries with reasons. The
    event bus[^server-harness-bus-ts-l27-l90]
-   rejects cross-driver events and stamps provider-instance identity. Useful
-   adapter correlation and degradation behavior for future llame peer executors.
+   rejects cross-driver events and stamps provider-instance identity: adapter
+   correlation and degradation behavior for future llame peer executors.
 2. **F17: Small external control surface.** The MCP interface[^docs-mcp-server-md]
    excludes approval grants, credentials, deletion, and VM lifecycle. Its
    implementation[^scripts-mcp-server-ts]
@@ -51,7 +51,7 @@ Study selected boundaries rather than importing its bots/rooms/runtime model.
 3. **F18: Import descriptions without privileges.** Persona import[^server-team-manifest-ts-l210-l272]
    constructs an explicit field allowlist, excluding approval policy, connectors,
    computer access, and host paths. The package schema[^server-bot-package-ts]
-   validates local references and requires imported routines to remain disabled.
+   validates local references and requires imported routines to stay disabled.
    This directly informs future llame Profiles/Skills import: setup intent and
    human-readable instructions cannot carry an execution grant.
 
@@ -59,9 +59,9 @@ Study selected boundaries rather than importing its bots/rooms/runtime model.
 delivery, so its log is not sufficient for llame's authoritative durable Run
 record. Its redaction applies to the persisted copy; the bus passes the original
 event to live subscribers. Local JSON state and pairing/session checks do not
-establish llame's PostgreSQL/RLS boundary. In persona import, the caller must
-also force `composio: false`: omission alone enables that connector, as the
-import function's contract explicitly warns.
+establish llame's PostgreSQL/RLS boundary. In persona import, the caller must also
+force `composio: false`: omission alone enables that connector, as the import
+function's contract explicitly warns.
 
 [^server-harness-registry-ts-l76-l124]: [registry](https://github.com/milind-soni/OpenMausBot/blob/ca61118787f687749eb1251bc3007e4d7d7bdd93/server/harness/registry.ts#L76-L124)
 

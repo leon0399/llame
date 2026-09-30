@@ -22,8 +22,8 @@ sources:
 
 - **Stack:** Next.js, React, AI SDK, Drizzle, PostgreSQL, optional Redis; Apache-2.0
 
-A compact reference for role-plus-parts message persistence and request admission.
-High confidence in those implementation comparisons; its route-owned execution
+A compact reference for role-plus-parts message persistence and request
+admission. High confidence in those comparisons; its route-owned execution
 differs from llame's durable pg-boss Runs.
 
 **Study**

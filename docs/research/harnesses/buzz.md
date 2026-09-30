@@ -37,7 +37,7 @@ sources:
   ACP agent execution and shell/file-edit tools; this category check does not
   broaden the earlier security assessment.[^buzz-readme-agent-runtime]
 
-Buzz is a self-hosted Nostr workspace where humans and agents share a signed event log. Its useful material is the explicit security contract around tenant context and synchronization. The relay derives a community from the connection host before handlers run, and its formal model states the deployment assumptions needed for RLS. NIP-RS also treats completeness as a state that must be established before destructive synchronization. Borrow these boundaries while keeping llame's durable pg-boss Run model.
+Buzz is a self-hosted Nostr workspace where humans and agents share a signed event log. Its useful material is the explicit security contract around tenant context and synchronization. Borrow those boundaries while keeping llame's durable pg-boss Run model.
 
 **Study**
 

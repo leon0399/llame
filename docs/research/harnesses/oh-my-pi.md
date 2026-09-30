@@ -173,47 +173,47 @@ sources:
 - **Stack:** Bun/TypeScript coding agent with Rust support crates; MIT
 
 OMP is llame's primary reference for agentic capabilities and tool shape: the
-agent loop, tool contracts and behavior, and coding capabilities. Consult it first
-for those decisions; [OpenClaw](./openclaw.md) remains the reference for broader
-product behavior. llame's specs remain authoritative.
-OMP forks [pi-mono](./pi-mono.md), which covers the inherited session tree,
-provider wrappers, and hook registry.
+agent loop, tool contracts and behavior, and coding capabilities. Consult it
+first for those decisions; [OpenClaw](./openclaw.md) remains the reference for
+broader product behavior. llame's specs remain authoritative. OMP forks
+[pi-mono](./pi-mono.md), which covers the inherited session tree, provider
+wrappers, and hook registry.
 
-`oh-my-pi` is useful implementation prior art for a durable agent session, provider-boundary transformations, and stream-time policy. Its session tree keeps append-only entries behind a mutable leaf pointer. Compaction records an explicit `firstKeptEntryId`; rebuilding context replays entries from that boundary, so the source transcript and model view remain distinct. That is directly comparable to llame's stored `messages.parts` and explicit compaction boundary.
+`oh-my-pi` is useful implementation prior art for a durable agent session, provider-boundary transformations, and stream-time policy. Its session tree keeps append-only entries behind a mutable leaf pointer. Compaction records an explicit `firstKeptEntryId`; rebuilding context replays entries from that boundary, so the source transcript and model view stay distinct, as in llame's stored `messages.parts` and explicit compaction boundary.
 
 **Study**
 
-1. **F19: Anchored compaction.** Session compaction entries[^docs-compaction-md-l27-l55] and context replay[^packages-coding-agent-src-session-session-context-ts-l261-l341] provide a concrete anchored-prefix model.
+1. **F19: Anchored compaction.** Session compaction entries[^docs-compaction-md-l27-l55] and context replay[^packages-coding-agent-src-session-session-context-ts-l261-l341] give a concrete anchored-prefix model.
 2. **F20: Provider-boundary secret handling.** Reversible secret obfuscation[^docs-secrets-md-l1-l32] replaces provider-visible values, deep-restores model-authored tool arguments before execution, and re-obfuscates replayed context.
 3. **F21: Stream-time rules.** TTSR stream rules[^packages-coding-agent-src-export-ttsr-ts-l303-l365] and their coordinator[^packages-coding-agent-src-session-ttsr-coordinator-ts-l410-l455] can abort a streamed response, inject a rule message, and retry.
-4. **F22: Eval bridge with MCP parity.** Script code calls `tool.<name>(args)`; `callSessionTool`[^packages-coding-agent-src-eval-js-tool-bridge-ts-l232-l260] resolves the name through the same registry and permission gate as direct calls, so MCP tools registered as `mcp__<server>__<tool>` are callable with no special path (shared registry[^packages-coding-agent-src-session-session-tools-ts-l437-l455]). Python reaches the same handler through a loopback HTTP server with a per-run bearer token[^packages-coding-agent-src-eval-py-tool-bridge-ts-l90-l130]. Under Codex Code Mode the harness renders TypeScript signatures for bridged tools from JSON Schema[^packages-coding-agent-src-tools-eval-format-code-mode-declarations-ts-l50-l60]. High confidence as the bridge shape for llame's planned eval tool; see the [code-mode deep dive](../tool-harness/2026-09-14-code-mode-eval-tool.md).
-5. **F23: Go and Zen are catalog providers with rule-table routing.** `opencode-go` and `opencode-zen` are separate provider ids, each with its own login entry[^packages-catalog-src-compat-rules-auth-opencode-go-kdl-l1-l9], and both declare the same `OPENCODE_API_KEY` environment name[^packages-catalog-src-compat-rules-providers-opencode-go-kdl-l1-l30]; and the shared identity helper treats both as OpenCode for header purposes[^packages-ai-src-providers-inference-headers-ts-l35-l54]. Go is a credential-scoped built-in, so its discovered model slice survives provider reloads instead of being recomputed from static data[^packages-coding-agent-src-config-model-registry-ts-l2806-l2816]. Per-model wire choice lives in two cooperating tables instead of request-time branching: `api-routes` behavior rules pin the ids the gateway serves off the default route (Go: `muse-spark*` and `deepseek-v4-flash` to Responses; `minimax-m2.7`, `minimax-m3`, `qwen3.5-plus`, `qwen3.6-plus` to chat completions)[^packages-catalog-src-compat-rules-runtime-behavior-kdl-l193-l212], and the models.dev resolver carries the same pins plus `@ai-sdk/*` npm fallbacks with per-API base URLs (`anthropic-messages` uses the bare base path, every other wire appends `/v1`)[^packages-catalog-src-provider-models-openai-compat-ts-l6564-l6611][^packages-catalog-src-provider-models-openai-compat-ts-l6986-l7006]. Live discovery is authoritative (`dynamic-models-authoritative`) and registered as cache identity so rows cached under a corrected route are dropped[^packages-catalog-src-provider-models-openai-compat-ts-l3022-l3032], and the discovery request attributes itself with omp's User-Agent plus the install id as the session value[^packages-catalog-src-provider-models-openai-compat-ts-l3040-l3056]; an id models.dev has not picked up borrows a Responses route from the sibling gateway or from its billing-variant base id, and `-contributor`/`-free` suffixes never change transport[^packages-catalog-src-provider-models-openai-compat-ts-l2987-l3020][^packages-catalog-src-provider-models-openai-compat-ts-l2958-l2969]. The gateway's own Go catalogue is a bare id list with no capability metadata[^packages-console-app-src-routes-zen-go-v1-models-ts-l10-l14], so discovered rows fall back to bundled references. Go's wire rules also carry capability facts that are not inferable from ids: flash lanes accept images, DeepSeek V4 lanes reject `tool_choice` and need `max_tokens` plus `reasoning_content` replay, MiMo rejects `tool_choice` entirely, muse-spark cannot round-trip encrypted reasoning, and the provider opts into long usage-limit fallback[^packages-catalog-src-compat-rules-providers-opencode-go-kdl-l1-l30][^packages-catalog-src-compat-rules-providers-opencode-go-kdl-l36-l63]. High confidence for llame's catalogue design: per-model rows with per-id pins beat provider-id conditionals in transport code.
-6. **F24: One session header, per-agent session values, selective repairs, and a quota surface.** `applyInferenceHeaders` sets `x-opencode-session` for both OpenCode providers, adds omp's `User-Agent` only when the caller left it unset, and returns early when no session id exists, so an unidentified call goes out without the header rather than with a fabricated one[^packages-ai-src-providers-inference-headers-ts-l35-l54], and the gateway reads that header for routing and metrics[^packages-console-app-src-routes-zen-util-handler-ts-l125-l131]; every inference fetch also applies the `omp/<version>` User-Agent default per request[^packages-ai-src-utils-transport-fetch-ts-l29-l38][^packages-utils-src-dirs-ts-l33]. The value is a live getter rather than a captured string: a fresh id (after `/fresh` or a context reset) wins over a `--provider-session-id` override, which wins over the durable session id[^packages-coding-agent-src-session-agent-session-ts-l4547-l4577], and the same sync point assigns it to the agent and seeds credential pins so routing identity changes atomically[^packages-coding-agent-src-session-agent-session-ts-l4579-l4602]; `freshSession()` and the in-place context reset close provider sessions and mint a new uuidv7[^packages-coding-agent-src-session-agent-session-ts-l5040-l5058][^packages-coding-agent-src-session-agent-session-ts-l5121-l5126]. Auxiliary and child work gets its own namespace instead of inheriting the main id: side-channel turns send `<sid>:side:conversation:<key>` or `<sid>:side:<snowflake>`[^packages-coding-agent-src-session-agent-session-ts-l9291-l9310], the `/tan` child agent sends `<parent>:tan:<snowflake>`[^packages-coding-agent-src-modes-controllers-tan-command-controller-ts-l150-l158], and auto-title generation keeps one uuidv7 for the session's lifetime[^packages-coding-agent-src-session-agent-session-ts-l8083-l8092]. Go-shaped repairs are worth copying selectively: Responses input hoists assistant messages out of `function_call` to `function_call_output` runs because Console Go rejects the interleaved shape with `No tool output found for tool call`[^packages-ai-src-providers-openai-shared-ts-l1652-l1670]; a synthesized reasoning item carries a non-empty placeholder because DeepSeek-family targets reject a missing or empty `reasoning_text`[^packages-ai-src-providers-openai-shared-ts-l2166-l2176]; the Anthropic wire deletes `Authorization` so the client sends `X-Api-Key`, since bearer-only requests fail `401 Missing API key`[^packages-ai-src-providers-anthropic-ts-l3505-l3520]; and completions replay honors a configured `reasoningContentField` for OpenCode-served Kimi and DeepSeek[^packages-ai-src-providers-openai-completions-ts-l2192-l2210]. Quota is a first-class surface: `GET /zen/go/v1/usage` reports 5-hour, weekly, and monthly windows as percentages[^packages-ai-src-usage-opencode-go-ts-l16-l44]; the background poll attributes itself with the install id and treats 401/403 as a bad credential rather than an unknown[^packages-ai-src-usage-opencode-go-ts-l108-l124]; pooled keys rank by real headroom on the rolling and weekly windows with the monthly window display-only[^packages-ai-src-usage-opencode-go-ts-l180-l205]; wire-level `GoUsageLimitError` 429s classify as quota exhaustion[^packages-ai-test-rate-limit-utils-test-ts-l305-l320]; and a Go limit that resets beyond the retry cap may fall back to another provider[^packages-coding-agent-src-session-turn-recovery-ts-l2360-l2372]. The gateway's Go page names Pi, not oh-my-pi, in its validated-client list[^packages-web-src-content-docs-go-mdx-l104-l120]. High confidence for llame's Go adapter (#809): one header, a per-session value owned by Chat identity, per-child namespaces, and policy-driven per-model exceptions.
+4. **F22: Eval bridge with MCP parity.** Script code calls `tool.<name>(args)`; `callSessionTool`[^packages-coding-agent-src-eval-js-tool-bridge-ts-l232-l260] resolves the name through the same registry and permission gate as direct calls, so MCP tools registered as `mcp__<server>__<tool>` need no special path (shared registry[^packages-coding-agent-src-session-session-tools-ts-l437-l455]). Python reaches the same handler through a loopback HTTP server with a per-run bearer token[^packages-coding-agent-src-eval-py-tool-bridge-ts-l90-l130]. Under Codex Code Mode the harness renders TypeScript signatures for bridged tools from JSON Schema[^packages-coding-agent-src-tools-eval-format-code-mode-declarations-ts-l50-l60]. High confidence as the bridge shape for llame's planned eval tool; see the [code-mode deep dive](../tool-harness/2026-09-14-code-mode-eval-tool.md).
+5. **F23: Go and Zen are catalog providers with rule-table routing.** `opencode-go` and `opencode-zen` are separate provider ids, each with its own login entry[^packages-catalog-src-compat-rules-auth-opencode-go-kdl-l1-l9], and both declare the same `OPENCODE_API_KEY` environment name[^packages-catalog-src-compat-rules-providers-opencode-go-kdl-l1-l30]; the shared identity helper treats both as OpenCode for header purposes[^packages-ai-src-providers-inference-headers-ts-l35-l54]. Go is a credential-scoped built-in, so its discovered model slice survives provider reloads instead of being recomputed from static data[^packages-coding-agent-src-config-model-registry-ts-l2806-l2816]. Per-model wire choice lives in two cooperating tables, not request-time branching: `api-routes` behavior rules pin the ids the gateway serves off the default route (Go: `muse-spark*` and `deepseek-v4-flash` to Responses; `minimax-m2.7`, `minimax-m3`, `qwen3.5-plus`, `qwen3.6-plus` to chat completions)[^packages-catalog-src-compat-rules-runtime-behavior-kdl-l193-l212], and the models.dev resolver carries the same pins plus `@ai-sdk/*` npm fallbacks with per-API base URLs (`anthropic-messages` uses the bare base path, every other wire appends `/v1`)[^packages-catalog-src-provider-models-openai-compat-ts-l6564-l6611][^packages-catalog-src-provider-models-openai-compat-ts-l6986-l7006]. Live discovery is authoritative (`dynamic-models-authoritative`) and registered as cache identity, so rows cached under a corrected route are dropped[^packages-catalog-src-provider-models-openai-compat-ts-l3022-l3032], and the discovery request attributes itself with omp's User-Agent plus the install id as the session value[^packages-catalog-src-provider-models-openai-compat-ts-l3040-l3056]; an id models.dev has not picked up borrows a Responses route from the sibling gateway or from its billing-variant base id, and `-contributor`/`-free` suffixes never change transport[^packages-catalog-src-provider-models-openai-compat-ts-l2987-l3020][^packages-catalog-src-provider-models-openai-compat-ts-l2958-l2969]. The gateway's own Go catalogue is a bare id list with no capability metadata[^packages-console-app-src-routes-zen-go-v1-models-ts-l10-l14], so discovered rows fall back to bundled references. Go's wire rules also carry capability facts not inferable from ids: flash lanes accept images, DeepSeek V4 lanes reject `tool_choice` and need `max_tokens` plus `reasoning_content` replay, MiMo rejects `tool_choice` entirely, muse-spark cannot round-trip encrypted reasoning, and the provider opts into long usage-limit fallback[^packages-catalog-src-compat-rules-providers-opencode-go-kdl-l1-l30][^packages-catalog-src-compat-rules-providers-opencode-go-kdl-l36-l63]. High confidence for llame's catalogue design: per-model rows with per-id pins beat provider-id conditionals in transport code.
+6. **F24: One session header, per-agent session values, selective repairs, and a quota surface.** `applyInferenceHeaders` sets `x-opencode-session` for both OpenCode providers, adds omp's `User-Agent` only when the caller left it unset, and returns early when no session id exists, so an unidentified call goes out without the header rather than with a fabricated one[^packages-ai-src-providers-inference-headers-ts-l35-l54], and the gateway reads that header for routing and metrics[^packages-console-app-src-routes-zen-util-handler-ts-l125-l131]; every inference fetch also applies the `omp/<version>` User-Agent default per request[^packages-ai-src-utils-transport-fetch-ts-l29-l38][^packages-utils-src-dirs-ts-l33]. The value is a live getter, not a captured string: a fresh id (after `/fresh` or a context reset) wins over a `--provider-session-id` override, which wins over the durable session id[^packages-coding-agent-src-session-agent-session-ts-l4547-l4577], and the same sync point assigns it to the agent and seeds credential pins, so routing identity changes atomically[^packages-coding-agent-src-session-agent-session-ts-l4579-l4602]; `freshSession()` and the in-place context reset close provider sessions and mint a new uuidv7[^packages-coding-agent-src-session-agent-session-ts-l5040-l5058][^packages-coding-agent-src-session-agent-session-ts-l5121-l5126]. Auxiliary and child work gets its own namespace instead of inheriting the main id: side-channel turns send `<sid>:side:conversation:<key>` or `<sid>:side:<snowflake>`[^packages-coding-agent-src-session-agent-session-ts-l9291-l9310], the `/tan` child agent sends `<parent>:tan:<snowflake>`[^packages-coding-agent-src-modes-controllers-tan-command-controller-ts-l150-l158], and auto-title generation keeps one uuidv7 for the session's lifetime[^packages-coding-agent-src-session-agent-session-ts-l8083-l8092]. Go-shaped repairs are worth copying selectively: Responses input hoists assistant messages out of `function_call` into `function_call_output` runs because Console Go rejects the interleaved shape with `No tool output found for tool call`[^packages-ai-src-providers-openai-shared-ts-l1652-l1670]; a synthesized reasoning item carries a non-empty placeholder because DeepSeek-family targets reject a missing or empty `reasoning_text`[^packages-ai-src-providers-openai-shared-ts-l2166-l2176]; the Anthropic wire deletes `Authorization` so the client sends `X-Api-Key`, since bearer-only requests fail `401 Missing API key`[^packages-ai-src-providers-anthropic-ts-l3505-l3520]; and completions replay honors a configured `reasoningContentField` for OpenCode-served Kimi and DeepSeek[^packages-ai-src-providers-openai-completions-ts-l2192-l2210]. Quota is a first-class surface: `GET /zen/go/v1/usage` reports 5-hour, weekly, and monthly windows as percentages[^packages-ai-src-usage-opencode-go-ts-l16-l44]; the background poll attributes itself with the install id and treats 401/403 as a bad credential rather than an unknown[^packages-ai-src-usage-opencode-go-ts-l108-l124]; pooled keys rank by real headroom on the rolling and weekly windows, with the monthly window display-only[^packages-ai-src-usage-opencode-go-ts-l180-l205]; wire-level `GoUsageLimitError` 429s classify as quota exhaustion[^packages-ai-test-rate-limit-utils-test-ts-l305-l320]; and a Go limit that resets beyond the retry cap may fall back to another provider[^packages-coding-agent-src-session-turn-recovery-ts-l2360-l2372]. High confidence for llame's Go adapter (#809): one header, a per-session value owned by Chat identity, per-child namespaces, and policy-driven per-model exceptions.
 
-**Applicability:** High for compaction and the eval bridge; moderate for MCP argument redaction; exploratory for stream enforcement. **Confidence:** High for the cited current source paths; moderate for behavior outside those paths. **Caution:** secrets are disabled by default, the stdio transport still passes the whole `Bun.env` into child processes (code[^packages-coding-agent-src-mcp-transports-stdio-ts-l574-l584]), and eval kernels run as a Bun worker thread and a host Python subprocess with full filesystem, network, and environment access and no idle reaper. Keep llame's declared environment and trusted runtime boundaries. **Go:** OMP's fork is not named on OpenCode's validated-client list; the table names Pi only[^packages-web-src-content-docs-go-mdx-l104-l120]. Its Go adapter is the most complete prior art for #809, but copy the header, the session-value ownership, and the per-model rule rows, not the live-discovery authority or the cache-migration lists that exist to repair rows cached under older routes.
+**Applicability:** High for compaction and the eval bridge; moderate for MCP argument redaction; exploratory for stream enforcement. **Confidence:** High for the cited current source paths; moderate for behavior outside those paths. **Caution:** secrets are disabled by default, the stdio transport passes the whole `Bun.env` into child processes (code[^packages-coding-agent-src-mcp-transports-stdio-ts-l574-l584]), and eval kernels run as a Bun worker thread and a host Python subprocess with full filesystem, network, and environment access and no idle reaper. Keep llame's declared environment and trusted runtime boundaries. **Go:** OMP's fork is not named on OpenCode's validated-client list; the table names Pi only[^packages-web-src-content-docs-go-mdx-l104-l120]. Its Go adapter is the most complete prior art for #809, but skip the live-discovery authority and the cache-migration lists that repair rows cached under older routes.
 
 ## Typed judgments and Jev
 
-**Scoped observation:** this section was inspected on 2026-09-23 at
-`f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7`. The document's broader `observed`
-baseline above remains 2026-09-21; other sections were not refreshed.
+**Scoped observation:** inspected 2026-09-23 at
+`f89a6db15e9de4db1f08f6eb4ec8d1a901ca07f7`; the document's broader `observed`
+baseline above remains 2026-09-21, and other sections were not refreshed.
 
 - **J1 — Dedicated decision role.** JUDGE evaluates typed Choice, Score and
-  yes-probability questions over supplied state. It is separate from the
-  generative coding model. Native TypeSafe `/v1/systemone` and OpenRouter
-  `/api/alpha/decisions` share this request shape; dispatch follows API type,
-  not provider-name guessing.[^omp-judge-chain-20260923][^omp-judge-api-20260923]
+  yes-probability questions over supplied state, separately from the generative
+  coding model. Native TypeSafe `/v1/systemone` and OpenRouter
+  `/api/alpha/decisions` share this request shape; dispatch follows API type, not
+  provider-name guessing.[^omp-judge-chain-20260923][^omp-judge-api-20260923]
 - **J2 — Preserve native decision semantics on failure.** Once a native candidate
   occurs in the resolved chain, later prompted local/chat candidates are removed.
-  A configuration with no native candidate can still use prompted judgments, but
-  a failed native judgment is not silently replaced by chat-model probabilities.
+  A configuration with no native candidate can still use prompted judgments, but a
+  failed native judgment is never silently replaced by chat-model probabilities.
   This differs from the earlier inspected revision.[^omp-judge-chain-20260923]
 - **J3 — Concrete consumers, bounded lifecycle.** Semantic `find` uses a
   lexical-to-semantic verification cascade; automatic effort classification and
   unexpected-stop checks are other consumers. Eval `judge_batch` is a host-owned
   collection of per-state calls with item outcomes, bounded concurrency and
-  kernel-reset reattachment. It is not a database-durable Run or a single giant
-  provider request.[^llame-system-one-jev]
+  kernel-reset reattachment, not a database-durable Run or one giant provider
+  request.[^llame-system-one-jev]
 - **J4 — llame transfer.** Study a narrow judgment service for recall relevance
   (U1), main-Run effort selection (U2) and advisory premature-stop detection (U3).
   Keep authorization, cancellation, step limits and durable terminal outcomes
@@ -221,12 +221,12 @@ baseline above remains 2026-09-21; other sections were not refreshed.
   establish calibration on llame workloads.[^llame-system-one-jev]
 
 The [System One/Jev study](../tool-harness/2026-09-23-system-one-jev/report.md)
-owns the detailed F3 source trace, model/API limitations, compaction comparison
-and U1-U6 application proposals. In particular, OMP's JUDGE integration is not
-evidence that its anchored compaction above uses `fast-jev-compaction`; that
-separate library and its missing-result-content limitation are assessed in F4.
-For recovery and context-reduction comparisons, also read [SoL-Pi](../tools/sol-pi.md)
-and [Spotify Shunt](../tools/spotify-shunt.md).
+owns the F3 source trace, model/API limitations, compaction comparison and U1-U6
+application proposals. OMP's JUDGE integration is not evidence that its anchored
+compaction above uses `fast-jev-compaction`; that library and its
+missing-result-content limitation are assessed in F4. Recovery and
+context-reduction comparisons: [SoL-Pi](../tools/sol-pi.md) and
+[Spotify Shunt](../tools/spotify-shunt.md).
 
 **Confidence:** high for the inspected role/transport behavior; moderate for
 application fit. No controlled Jev quality or latency benchmark was run.
@@ -241,17 +241,17 @@ OMP's `read <image>?q=<question>` supplies an already-loaded image and question
 to a one-shot vision completion with its own prompt, cancellation/timeout and
 returned model/usage. Its preference chain starts with vision/default/active
 models and can fall through to other available vision models. The selector
-rejects non-image targets and leaves ordinary web URL queries alone; it is not
-a general neighboring-file or chat-history investigator.[^omp-image-question-20260923][^omp-image-question-target-20260923]
+rejects non-image targets and leaves ordinary web URL queries alone; it is not a
+general neighboring-file or chat-history investigator.[^omp-image-question-20260923][^omp-image-question-target-20260923]
 
 The [question-directed read study](../tool-harness/2026-09-23-question-directed-read/report.md)
 connects this mechanism to llame [#849](https://github.com/leon0399/llame/issues/849),
 compares LensVLM with text-first Qwen and hosted/free reader routes, and separates
-selected-source answers from explicitly scoped read-only investigation.
-Borrow the bounded subcall and accounting idea, not silent cross-provider
-selection: llame needs an accepted worker/data destination and per-source
-authorization. A fresh worker context does not imply cold-loading model weights
-for each call.[^llame-question-directed-read]
+selected-source answers from explicitly scoped read-only investigation. Borrow
+the bounded subcall and accounting idea, not silent cross-provider selection:
+llame needs an accepted worker/data destination and per-source authorization. A
+fresh worker context does not imply cold-loading model weights for each
+call.[^llame-question-directed-read]
 
 ## Semantic find and jegrep
 
@@ -259,19 +259,19 @@ for each call.[^llame-question-directed-read]
 `5fccbd0deee820049afa492dc3112272b163126f`; the older whole-document baseline
 is unchanged.
 
-`find` is a host-controlled lexical/name/sketch/window-verification cascade,
-not an autonomous reader. The JUDGE role supplies typed candidate scores; host
-code owns candidate budgets, reads and original-source ranges. Native Jev
-probabilities and the text bridge's parsed zero/one labels have different
+`find` is a host-controlled lexical/name/sketch/window-verification cascade, not
+an autonomous reader. The JUDGE role supplies typed candidate scores; host code
+owns candidate budgets, reads and original-source ranges. Native Jev
+probabilities and the text bridge's parsed zero/one labels differ in
 semantics.[^omp-find-cascade-20260924][^llame-semantic-find-judge]
 
 The [source-level study](../tool-harness/2026-09-24-semantic-find-judge/report.md)
 also analyzes [jegrep](../tools/jegrep.md), verifies shared default request wording,
-identifies actual implementation/transport differences, and audits the limits
-of its published benchmark. Offline probes expose shortlist omissions,
-clipped-line coverage and failure/accounting edge cases. Applications extend to
-chat evidence, code, admitted tools, skills and future Run/artifact sources;
-scores never establish authority or exhaustive coverage.[^llame-semantic-find-judge]
+identifies actual implementation/transport differences, and audits the limits of
+its published benchmark. Offline probes expose shortlist omissions, clipped-line
+coverage and failure/accounting edge cases. Applications extend to chat
+evidence, code, admitted tools, skills and future Run/artifact sources; scores
+never establish authority or exhaustive coverage.[^llame-semantic-find-judge]
 
 ## Memory
 
@@ -281,24 +281,23 @@ is unchanged.
 
 The `local` backend distills idle past sessions at startup into `MEMORY.md`, a
 short summary and generated skills, while the `learn` tool and an optional
-detached capture agent append explicit lessons. The summary and lessons enter the
+detached capture agent append explicit lessons. Summary and lessons enter the
 next session as one capped block. Lessons are snapshotted per session so writes
 do not churn the prompt-cache prefix, but a consolidation finishing mid-session
-rebuilds the prompt with the new summary. Queue state lives in SQLite with leases, heartbeats and
-source watermarks.[^omp-local-memory-20260928]
+rebuilds the prompt with the new summary. Queue state lives in SQLite with
+leases, heartbeats and source watermarks.[^omp-local-memory-20260928]
 
 The [source and live-installation study](../long-term-memory/2026-09-28-omp-memory.md)
-measures the costs on one workstation: stage 1 saw a median 1.8% of each
-session through a head–tail cut, three sessions were refused by the extraction
-model, worktree scopes never consolidated, and about 73% of captured lessons fell
-outside the injection cap. It also traces the Mnemopi retrieval backend from
-source: transcript slices and extracted facts in SQLite, recalled on the first
-turn by vector, full-text, importance and recency scoring. It traces the
-Hindsight client and its Postgres server as well: structured fact extraction,
-model-written observations, four-channel recall fused by reciprocal rank, and
-mental models re-answered through reflect. It maps the queue, lesson-snapshot and
-scoring ideas to llame and advises against copying the extraction
-window.[^llame-omp-local-memory]
+measures one workstation: stage 1 saw a median 1.8% of each session through a
+head-tail cut, the extraction model refused three sessions, worktree scopes never
+consolidated, and about 73% of captured lessons fell outside the injection cap.
+It also traces Mnemopi from source: transcript slices and extracted facts in
+SQLite, recalled on the first turn by vector, full-text, importance and recency
+scoring. And the Hindsight client and its Postgres server: structured fact
+extraction, model-written observations, four-channel recall fused by reciprocal
+rank, and mental models re-answered through reflect. It maps the queue,
+lesson-snapshot and scoring ideas to llame and advises against copying the
+extraction window.[^llame-omp-local-memory]
 
 [^omp-local-memory-20260928]: [Local memory pipeline and injection](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts)
 

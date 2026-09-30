@@ -25,7 +25,7 @@ sources:
 
 - **Stack:** Rust workspace with Python and Svelte/Tauri components; MIT; abandoned
 
-ELAI is an archive of an abandoned harness experiment. Its value is accounting discipline: the author separates design goals, existing source, recorded fixtures, and claims that were never rebuilt or rerun. The README explicitly says its enforcement model is a goal, not proof that every path enforced it. This makes ELAI a negative reference for llame's evidence and completion contracts, not a runtime architecture to adopt.
+ELAI is an archive of an abandoned harness experiment. Its value is accounting discipline: the author separates design goals, existing source, recorded fixtures, and claims that were never rebuilt or rerun, and the README explicitly says its enforcement model is a goal rather than proof that every path enforced it. That makes ELAI a negative reference for llame's evidence and completion contracts, not a runtime architecture to adopt.
 
 **Study**
 

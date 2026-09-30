@@ -51,22 +51,19 @@ example of a gateway with per-model
 overrides[^packages-kosong-src-catalog-ts-l26-l29]), and the User-Agent is a
 product-token rewrite of whatever host headers the embedding application supplied
 rather than a provider-specific
-string[^packages-agent-core-v2-src-app-agentidentity-agentidentity-ts-l42-l60]. The only
-header channel is a static per-provider `customHeaders` map from configuration,
-merged with any per-request headers when the wire client is
-built[^packages-node-sdk-src-config-schema-ts-l47-l58][^packages-kosong-src-providers-request-auth-ts-l18-l30];
-nothing derives a session value, so a Go adapter here is configuration, not code.
+string[^packages-agent-core-v2-src-app-agentidentity-agentidentity-ts-l42-l60].
+Nothing derives a session value, so a Go adapter here is configuration, not code
+(item 4).
 
 **Study**
 
-1. **Subagent type allowlist with inherited permission mode.** Spawning
-   enforces a caller-derived allowlist of subagent types, copies the
-   caller's permission mode onto the child, and gives forked children a
-   context reminder instead of a prompt
-   reset[^packages-agent-core-v2-src-session-subagent-subagentservice-ts-l80-l165].
+1. **Subagent type allowlist with inherited permission mode.** Spawning enforces
+   a caller-derived allowlist of subagent types, copies the caller's permission
+   mode onto the child, and gives forked children a context reminder instead of a
+   prompt reset[^packages-agent-core-v2-src-session-subagent-subagentservice-ts-l80-l165].
    Moderate confidence as a template for #765; single-process, not queued.
-2. **Approval round trip with session-scoped rules.** `requestToolApproval`
-   awaits a human response and records approved-for-session
+2. **Approval round trip with session-scoped rules.** `requestToolApproval` awaits
+   a human response and records approved-for-session
    rules[^packages-agent-core-v2-src-agent-toolapproval-toolapprovalservice-ts-l107-l176].
    Moderate confidence as a shape for #778.
 3. **Compaction as an origin-tagged message.** Summarized history becomes one
@@ -78,7 +75,7 @@ nothing derives a session value, so a Go adapter here is configuration, not code
    builder merges it under any per-request header map before constructing the wire
    client[^packages-node-sdk-src-config-schema-ts-l47-l58][^packages-kosong-src-providers-request-auth-ts-l18-l30].
    Every value is static, so the map can carry a fixed header but never a
-   conversation identifier, and the resolver below it remains catalog-driven. High
+   conversation identifier, and the resolver below it stays catalog-driven. High
    confidence for #881's boundary: an operator-facing header map is useful, but a
    session channel needs the call site that knows the Chat id.
 

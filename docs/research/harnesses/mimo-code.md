@@ -61,76 +61,75 @@ sources:
 
 - **Stack:** TypeScript, Bun, Effect, Drizzle/SQLite, Hono, SolidJS TUI; Xiaomi fork of OpenCode; MIT
 
-Listed by OpenCode Go as a problematic client. Confirmed at this revision: the
-model call builds its headers with `x-session-affinity` and
-`x-parent-session-id` for every non-ephemeral request and a
-`mimocode/<version>` User-Agent, never
+Listed by OpenCode Go as a problematic client. At this revision the model call
+builds its headers with `x-session-affinity` and `x-parent-session-id` on every
+non-ephemeral request plus a `mimocode/<version>` User-Agent, never
 `x-opencode-session`[^packages-opencode-src-session-llm-ts-l809-l816], while the
-vendored Zen handler reads that header, and only that one, when it keys its sticky
-provider, dumps request metadata, and attributes usage[^packages-console-app-src-routes-zen-util-handler-ts-l100-l120].
-The hook is not the missing piece: `chat.headers` is triggered on the agent
+vendored Zen handler reads that header, and only that one, to key its sticky
+provider, dump request metadata, and attribute
+usage[^packages-console-app-src-routes-zen-util-handler-ts-l100-l120].
+`chat.headers` fires on the agent
 path[^packages-opencode-src-session-llm-ts-l582-l583] and no bundled plugin claims an
-`opencode*` provider id, so nothing in this tree derives a session header for those
-ids. Its own providers stay on by default, including `opencode-go`, which only loads
+`opencode*` provider id, so nothing here derives a session header for those ids.
+Its own providers stay on by default, including `opencode-go`, which loads only
 once a subscription key exists[^packages-opencode-src-plugin-mimo-ts-l95-l98].
-`skipAll`, `autoApproveDelete`, and timeout-deny exist to keep an attended
-CLI from hanging; none transfer to a durable multi-user server unchanged.
 
 **Study**
 
-1. **Frozen prefix snapshots.** A `SessionPrefixSnapshotTable` stores the
-   system prompt and tool declarations per session, provider, model, and
-   agent with hashes[^packages-opencode-src-session-session-sql-ts-l15-l79];
-   pin, rotate, and advance move a revision-gated
-   watermark[^packages-opencode-src-session-prefix-snapshot-ts-l85-l191], and
-   compaction reuses the frozen tool set rather than recomputing
-   it[^packages-opencode-src-session-compaction-ts-l272-l420]. High
-   confidence as the closest peer analog to llame's immutable per-Run receipt
-   of prompt and tools.
-2. **Permission service with parent-grant inheritance.** Deny wins; a forced
-   ask for `bash_delete` cannot be pre-authorized by wildcard; background
-   subagents inherit a parent's approved ruleset without a human round trip;
-   unanswered forwarded asks deny after five
+1. **Frozen prefix snapshots.** A `SessionPrefixSnapshotTable` stores the system
+   prompt and tool declarations per session, provider, model, and agent with
+   hashes[^packages-opencode-src-session-session-sql-ts-l15-l79]; pin, rotate,
+   and advance move a revision-gated
+   watermark[^packages-opencode-src-session-prefix-snapshot-ts-l85-l191]; compaction
+   reuses the frozen tool set rather than recomputing
+   it[^packages-opencode-src-session-compaction-ts-l272-l420]. High confidence as
+   the closest peer analog to llame's immutable per-Run receipt of prompt and
+   tools.
+2. **Permission service with parent-grant inheritance.** Deny wins; a forced ask
+   for `bash_delete` cannot be pre-authorized by wildcard; background subagents
+   inherit a parent's approved ruleset without a human round trip; unanswered
+   forwarded asks deny after five
    minutes[^packages-opencode-src-permission-index-ts-l150-l300]. Moderate
    confidence for #765 and #778: inheritance bounded by the parent's grants,
    timeout as denial.
-3. **Declare only implemented MCP capabilities.** The client declares a
-   custom turn-lifecycle notification and empty sampling capabilities to
-   avoid server-pushed payloads it cannot
+3. **Declare only implemented MCP capabilities.** The client declares a custom
+   turn-lifecycle notification and empty sampling capabilities to avoid
+   server-pushed payloads it cannot
    honor[^packages-opencode-src-mcp-index-ts-l1-l93]. Moderate confidence for
    llame's MCP client advertisement.
-4. **Local self-improvement from trajectories.** `dream` consolidates
-   durable project memory from the local read-only trajectory
-   database[^packages-opencode-src-agent-prompt-dream-txt-l1-l73], and
-   `distill` mines it for repeated workflows to package as skills, subagents,
-   or commands[^packages-opencode-src-agent-prompt-distill-txt-l1-l43]. Both
-   are manual, user-watched subagents. Low confidence for direct reuse; a
-   design analog for agent-authored Knowledge and skills, not model training.
+4. **Local self-improvement from trajectories.** `dream` consolidates durable
+   project memory from the local read-only trajectory
+   database[^packages-opencode-src-agent-prompt-dream-txt-l1-l73]; `distill` mines
+   it for repeated workflows to package as skills, subagents, or
+   commands[^packages-opencode-src-agent-prompt-distill-txt-l1-l43]. Both are
+   manual, user-watched subagents. Low confidence for direct reuse: a design
+   analog for agent-authored Knowledge and skills, not model training.
 5. **The vendored relay shows what the header is for.** The Zen handler reads
    `x-opencode-session` plus the optional request, project, and client
-   companions[^packages-console-app-src-routes-zen-util-handler-ts-l100-l120], then
-   strips all four before forwarding upstream[^packages-console-app-src-routes-zen-util-handler-ts-l169-l175].
-   The session value is not authentication: it keys a sticky upstream provider in
-   KV for 24 hours[^packages-console-app-src-routes-zen-util-stickyprovidertracker-ts-l3-l16], which is
-   the behavior described in llame's brief as backend pinning, and it is truncated
-   to 30 characters for usage attribution. Go is not a separate code path here:
-   `zen/go/v1/chat/completions` and `zen/go/v1/messages` are thin wrappers that
-   pass `format: "oa-compat"` or `"anthropic"` with the lite model
-   list[^packages-console-app-src-routes-zen-go-v1-chat-completions-ts-l1-l10][^packages-console-app-src-routes-zen-go-v1-messages-ts-l1-l10], and the
-   handler rejects any model whose catalog entry lacks an entry for the requested
-   format[^packages-console-app-src-routes-zen-util-handler-ts-l403-l417] - that is the
-   pre-auth format gate. Note what is absent: an empty session id disables the
-   sticky tracker and falls back to the client IP rather than failing, so this
-   copy does not contain the enforcement that rejects a headerless request.
-   Moderate confidence: it establishes the accepted header name and its purpose,
-   not the deployed rejection behavior.
+   companions[^packages-console-app-src-routes-zen-util-handler-ts-l100-l120],
+   then strips all four before forwarding
+   upstream[^packages-console-app-src-routes-zen-util-handler-ts-l169-l175]. The
+   session value is not authentication: it keys a sticky upstream provider in KV
+   for 24 hours[^packages-console-app-src-routes-zen-util-stickyprovidertracker-ts-l3-l16],
+   which llame's brief calls backend pinning, and is truncated to 30 characters
+   for usage attribution. Go is not a separate code path: `zen/go/v1/chat/completions`
+   and `zen/go/v1/messages` are thin wrappers passing `format: "oa-compat"` or
+   `"anthropic"` with the lite model
+   list[^packages-console-app-src-routes-zen-go-v1-chat-completions-ts-l1-l10][^packages-console-app-src-routes-zen-go-v1-messages-ts-l1-l10],
+   and the handler rejects any model whose catalog entry lacks an entry for the
+   requested format[^packages-console-app-src-routes-zen-util-handler-ts-l403-l417],
+   the pre-auth format gate. An empty session id disables the sticky tracker and
+   falls back to the client IP rather than failing, so this copy lacks the
+   enforcement that rejects a headerless request. Moderate confidence: it
+   establishes the accepted header name and its purpose, not the deployed
+   rejection behavior.
 
 **Caution**
 
 - Single project directory is the trust boundary; permission state and the
   database are instance-scoped with no tenant model.
-- `skipAll`, `autoApproveDelete`, and timeout-deny exist to keep an attended
-  CLI from hanging; none transfer to a durable multi-user server unchanged.
+- `skipAll`, `autoApproveDelete`, and timeout-deny keep an attended CLI from
+  hanging; none transfer to a durable multi-user server unchanged.
 - The session-header gap is a live protocol defect at this revision: the client
   sends the legacy `x-session-affinity`/`X-Session-Id` pair while the relay reads
   `x-opencode-session`. The enforcement that rejects the client is not in this

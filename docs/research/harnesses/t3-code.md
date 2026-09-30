@@ -46,51 +46,51 @@ sources:
 
 - **Stack:** TypeScript/Effect; SQLite server, web, Electron, mobile, relay; MIT
 
-High-confidence reference for future Surface/Node and peer-executor contracts.
-Its execution environment owns local state and providers; clients reach that
+High-confidence reference for future Surface/Node and peer-executor contracts. Its
+execution environment owns local state and providers; clients reach that
 environment through different transports.
 
 **Study**
 
 1. **F13: Identity independent of endpoint.** The environment descriptor[^apps-server-src-environment-serverenvironment-ts-l82-l245]
-   exposes persisted identity and capabilities. Remote semantics[^docs-internals-remote-md-l3-l59]
+   exposes persisted identity and capabilities, and remote semantics[^docs-internals-remote-md-l3-l59]
    separate reachability from execution ownership. Useful for independently
    versioned llame surfaces without turning a transport URL into Node identity.
 2. **F14: Commit before notification.** The orchestration engine[^apps-server-src-orchestration-layers-orchestrationengine-ts-l273-l327]
    commits events, projections, and an accepted command receipt together before
    publishing events. Receipt reuse[^apps-server-src-orchestration-layers-orchestrationengine-ts-l144-l171]
    rejects a command ID reused against a different aggregate. Compare the
-   transaction boundary with llame's terminal Run/answer settlement; it does
-   not justify replacing PostgreSQL with an event-sourcing rewrite.
+   transaction boundary with llame's terminal Run/answer settlement; it does not
+   justify replacing PostgreSQL with an event-sourcing rewrite.
 3. **F15: Instance-scoped peer state.** The driver contract[^apps-server-src-provider-providerdriver-ts-l58-l172]
    requires separate provider instances to own their mutable state and lifetime.
    Adapter capabilities[^apps-server-src-provider-services-provideradapter-ts]
-   disclose conversation rollback support. Its checkpoint reactor[^apps-server-src-orchestration-layers-checkpointreactor-ts-l686-l815]
+   disclose conversation rollback support, and the checkpoint reactor[^apps-server-src-orchestration-layers-checkpointreactor-ts-l686-l815]
    coordinates Git workspace restoration with provider rollback. Future llame
    Workspace recovery must likewise distinguish file state from peer history;
    neither rollback implies reversal of external side effects.
 4. **Go quota read from the Zen API with the user's own key.** Go usage arrives
    from `GET https://opencode.ai/zen/go/v1/usage` with a bearer token, not from a
-   console session[^apps-server-src-provider-layers-opencodeusagelimits-ts-l63-l103]. The key
-   is resolved from `auth.json`'s `opencode-go` entry with environment
-   `OPENCODE_API_KEY` as fallback, the auth file may be replaced wholesale by
+   console session[^apps-server-src-provider-layers-opencodeusagelimits-ts-l63-l103].
+   The key is resolved from `auth.json`'s `opencode-go` entry with environment
+   `OPENCODE_API_KEY` as fallback; the auth file may be replaced wholesale by
    `OPENCODE_AUTH_CONTENT`, and a missing file degrades to
-   empty[^apps-server-src-provider-layers-opencodeusagelimits-ts-l46-l59]. `403` means the key is
-   valid but carries no Go subscription, so it maps to `unavailable` rather than an
-   error, the whole read is bounded by a five-second timeout and a total
+   empty[^apps-server-src-provider-layers-opencodeusagelimits-ts-l46-l59]. `403` means
+   the key is valid but carries no Go subscription, so it maps to `unavailable`
+   rather than an error; the read is bounded by a five-second timeout and a total
    fallback[^apps-server-src-provider-layers-opencodeusagelimits-ts-l63-l103], and the payload's
    rolling, weekly, and monthly windows become labeled usage
-   rows[^apps-server-src-provider-layers-opencodeusagelimits-ts-l18-l28]. Moderate confidence for
-   llame's quota and credential plumbing (#765): a documented JSON endpoint behind the
-   subscription key beats cookie scraping, and "valid key, no subscription" is a
-   distinct state from failure.
+   rows[^apps-server-src-provider-layers-opencodeusagelimits-ts-l18-l28]. Moderate
+   confidence for llame's quota and credential plumbing (#765): a documented JSON
+   endpoint behind the subscription key beats cookie scraping, and "valid key, no
+   subscription" is a distinct state from failure.
 
 **Caution:** Remote control targets one environment; it is not Personal Realm
 replication or cross-node execution routing. Its authorization documentation[^docs-internals-environment-auth-md-l40-l55]
 states that Projects do not sandbox the filesystem and read scope can reach
-host-readable absolute paths outside a Project. Provider-instance separation
-does not supply llame's datastore tenant isolation. Its OpenCode path also runs
-the peer CLI rather than the wire: the provider spawns `opencode serve` and reads
+host-readable absolute paths outside a Project. Provider-instance separation does
+not supply llame's datastore tenant isolation. Its OpenCode path also runs the
+peer CLI rather than the wire: the provider spawns `opencode serve` and reads
 `auth.json` only for usage probing, so client-identification and session-affinity
 headers on inference traffic belong to the peer process, not to this host.
 

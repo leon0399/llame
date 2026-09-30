@@ -107,22 +107,22 @@ sources:
 Moderate-confidence reference for future Workspace and sandbox execution. AX is
 a declarative control plane over isolated Agent Substrate actors; it does not
 own an authenticated Chat/Run lifecycle and cannot replace llame's tenant or
-provenance boundaries. This assessment inspected source and test code without
+provenance boundaries. The assessment inspected source and test code without
 executing upstream programs.
 
 **Study**
 
 F76 — **Four declarative resources feed one Task reconciler.** AX defines
 `Task`, `Workspace`, `Gateway`, and `Model` resources.[^ax-types-go-l30-l35]
-Task API handlers validate and persist desired state rather than calling the
+Task API handlers validate and persist desired state instead of calling the
 runtime inline,[^ax-server-go-l111-l198] and `SaveTask` atomically adds the
 reconcile event beside the stored value.[^ax-redis-store-go-l133-l179] The
 dependency graph stops there: saving a referenced Gateway or Workspace updates
 its own Redis indexes but does not requeue dependent Tasks.[^ax-redis-store-go-l346-l379][^ax-redis-store-go-l600-l636]
-The separation between API mutation and runtime work is useful for llame's
-future executor adapters. The missing dependency invalidation means llame
-should either bind immutable resource revisions into a Run or explicitly
-reconcile dependants when referenced policy changes.
+The separation between API mutation and runtime work suits llame's future
+executor adapters; the missing invalidation means llame should bind immutable
+resource revisions into a Run or explicitly reconcile dependants when
+referenced policy changes.
 
 F77 — **A fixed PID 1 is the sandbox contract, but completion stays local.**
 Every actor starts `/usr/local/bin/ax-task-runner`; task and workspace specs
@@ -130,12 +130,12 @@ arrive as `AX_TASK_YAML` and `AX_WORKSPACES_YAML`, and the runner exposes its
 metadata/readiness service on port 80.[^ax-task-runner-main-go-l15-l22][^ax-task-runner-main-go-l48-l80][^ax-substrate-client-go-l207-l275]
 It prepares workspaces, launches the declared command in a separate process
 group, forwards shutdown, and keeps the sandbox alive after the command exits
-so it remains inspectable.[^ax-runner-go-l106-l200][^ax-runner-go-l203-l235]
+so it stays inspectable.[^ax-runner-go-l106-l200][^ax-runner-go-l203-l235]
 The exit callback has no path back to Task status, while the API watch contract
-recognizes a `Completed` phase that the runner never writes.[^ax-server-go-l201-l237]
-For llame, keep this stable supervisor boundary but require a durable,
-correlated completion receipt from child exit through the executor adapter to
-the owning Run.
+recognizes a `Completed` phase the runner never writes.[^ax-server-go-l201-l237]
+Llame should keep this supervisor boundary but require a durable, correlated
+completion receipt from child exit through the executor adapter to the owning
+Run.
 
 F78 — **Snapshot-backed `/workspace` is a strong shape with a split-durability
 trap.** The actor template selects gVisor, mounts `/workspace`, and snapshots
@@ -147,33 +147,33 @@ forced checkout, over persisted work.[^ax-workspace-setup-go-l76-l127] The
 controller also treats a prior `WorkspaceReady` condition as sticky and skips a
 post-resume readiness probe.[^ax-reconciler-go-l234-l305] Llame should preserve
 runner metadata with the workspace or make setup idempotent against restored
-state, then verify readiness after resume rather than trusting an old control-
-plane condition.
+state, then verify readiness after resume instead of trusting an old
+control-plane condition.
 
 F79 — **The queue contract says at-least-once; the worker makes failures
 one-shot.** New Redis consumer groups start at the stream tail, workers read
 only new `>` entries, and entries remain pending until acknowledged.[^ax-redis-store-go-l727-l792]
 The controller nevertheless acknowledges every event after one processing
-attempt, including reconcile and delete failures, specifically to prevent a
-bad task from wedging the queue.[^ax-controller-worker-go-l64-l118] There is no
-periodic resync in the inspected controller. A transient substrate failure
-therefore needs a new mutation, while failed deletion needs manual retry.
-Llame's durable Run worker should retain retry ownership with bounded backoff or
-periodic desired-state resync; queue liveness must not erase recovery.
+attempt, including reconcile and delete failures, specifically to prevent a bad
+task from wedging the queue.[^ax-controller-worker-go-l64-l118] There is no
+periodic resync in the inspected controller, so a transient substrate failure
+needs a new mutation and failed deletion needs manual retry. Llame's durable
+Run worker should retain retry ownership with bounded backoff or periodic
+desired-state resync; queue liveness must not erase recovery.
 
 F80 — **Identity and network policy fail open.** The inbound control plane uses
 a bare `grpc.NewServer` and trusts the request's `atespace` value as the storage
 scope.[^ax-server-go-l38-l88] The server enables unencrypted HTTP/2, and the CLI
 strips `http[s]://` before always dialing with insecure credentials.[^ax-server-main-go-l32-l80][^ax-cli-main-go-l201-l208]
 A Task without a Gateway receives wildcard egress, and policy-application
-failure is logged but does not fail reconciliation.[^ax-reconciler-go-l188-l205]
+failure is logged without failing reconciliation.[^ax-reconciler-go-l188-l205]
 Although `HostRule` declares a port, the Substrate translation consumes only
 host strings and turns `*` into allow-all.[^ax-api-proto-l175-l182][^ax-substrate-client-go-l449-l482]
-High confidence: AX is a trusted, single-boundary control plane at this revision,
-not a tenant isolation authority. A llame adapter must derive identity from the
-authenticated Run, attach restrictive egress as a required invariant, fail
-closed when it cannot apply policy, and never expose caller-selected `atespace`
-as authorization.
+High confidence: AX is a trusted, single-boundary control plane at this
+revision, not a tenant isolation authority. A llame adapter must derive identity
+from the authenticated Run, attach restrictive egress as a required invariant,
+fail closed when it cannot apply policy, and never expose caller-selected
+`atespace` as authorization.
 
 F81 — **The declared integration surface is ahead of the runtime.** The README
 claims warm Git, MCP, and skill setup plus explicit host allowlisting,[^ax-readme-l45-l58]
@@ -185,9 +185,9 @@ not call its constructors.[^ax-workspace-planner-go-l26-l112] Its model client
 also converts missing credentials, transport failures, and
 `401`/`403`/`429`/`503` responses into the same canned successful plan instead
 of an error.[^ax-model-client-go-l458-l501][^ax-model-client-go-l557-l620]
-Treat these schemas as extension intent, not shipped capability. Llame should
-accept an executor feature only after the adapter produces evidence that the
-corresponding configuration was applied.
+Treat these schemas as extension intent, not shipped capability: accept an
+executor feature only after the adapter shows evidence that the configuration
+was applied.
 
 [^ax-go-mod-l1-l11]: [Go and Agent Substrate dependencies](https://github.com/google/ax/blob/d8ed0fe38bceb7842d3c47817d53d16ccdfcb601/go.mod#L1-L11)
 

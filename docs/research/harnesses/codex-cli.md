@@ -46,16 +46,16 @@ canonical Chat/Run identity.
 
 **Study**
 
-1. **Explicit execution lifecycle.** The protocol separates
-   thread start/resume[^codex-rs-app-server-protocol-src-protocol-common-rs-l556-l576],
+1. **Explicit execution lifecycle.** The protocol separates thread
+   start/resume[^codex-rs-app-server-protocol-src-protocol-common-rs-l556-l576],
    turn start/steer/interrupt[^codex-rs-app-server-protocol-src-protocol-common-rs-l1023-l1046],
    and turn/item notifications[^codex-rs-app-server-protocol-src-protocol-common-rs-l1919-l1930].
    These are concrete adapter operations and events; remote thread identifiers
-   should remain executor references under a llame Run.
+   stay executor references under a llame Run.
 2. **Compaction as an observable operation.** The
    token-budget path[^codex-rs-core-src-compact-token-budget-rs-l21-l25]
-   starts a fresh context window without model/server summarization.
-   Pre/post hooks and item events[^codex-rs-core-src-compact-token-budget-rs-l66-l92]
+   starts a fresh context window without model/server summarization, and
+   pre/post hooks and item events[^codex-rs-core-src-compact-token-budget-rs-l66-l92]
    still expose the transition. Compare that lifecycle with SPEC §2.1 while
    retaining llame's specified summary and provenance behavior.
 3. **Code-mode tool augmentation.** `collect_code_mode_tool_definitions`[^codex-rs-tools-src-code-mode-rs-l75-l99]
