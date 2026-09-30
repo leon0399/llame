@@ -130,7 +130,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 3. `instruction-files/producer`: in-Run loading
 
-- [ ] 3.1 Wire the triggers: mark the touched directory during `enter_workspace` (establish or
+- [x] 3.1 Wire the triggers: mark the touched directory during `enter_workspace` (establish or
       switch only), native `read`, `edit`, and `write` on local host paths regardless of call
       outcome but not on denial; drain the pending set in `prepareStep` into at most one bundle
       per step through the carrier interface; exclude `bash`, `knowledge_search`, `skill://`,
@@ -139,13 +139,13 @@ Re-estimate authored size at each layer boundary and before publication; split a
       step yielding one bundle, two selected candidates resolving to one canonical path loaded
       once under the first path in walk order, the same-step-no-load boundary matching the
       Workspace root cell, and that exit, same-root re-entry, and detach produce nothing.
-- [ ] 3.2 Derive the seen set from the `files` payload of instructions items in messages after
+- [x] 3.2 Derive the seen set from the `files` payload of instructions items in messages after
       the compaction cutoff plus the attempt's staged and emitted items, keyed by canonical
       path, reset on transition compaction inside a Run (design D7). Verify a second touch in
       the epoch is silent, a symlink to an already-loaded file is silent, an owner fork inherits
       the set through copied history with no column read, a failed attempt leaves nothing seen,
       a denied file is not seen, and a compacted item's file reloads on the next trigger.
-- [ ] 3.3 Add an in-Run system-read helper on the worker closure that reserves an
+- [x] 3.3 Add an in-Run system-read helper on the worker closure that reserves an
       origin-tagged call, awaits ordered `tool.requested` persistence, invokes
       `runTool(nativeReadTool)`, records `tool.started`/`tool.completed`, and takes part in
       abort and finish settlement; extend the system-origin union with `instructions` so those
@@ -158,7 +158,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       candidates, bypass mode recorded as bypass, no assistant tool part on any of the three
       paths, and a negative isolation test that owner B cannot read owner A's resulting activity
       or items.
-- [ ] 3.4 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused
+- [x] 3.4 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused
       integration files touched above, `pnpm format:check`, `git diff --check`, and
       `pnpm exec openspec validate instruction-files --strict`; record the commands in the PR
       body.
