@@ -223,16 +223,17 @@ export interface InRunAttempt {
    */
   readonly readPage?: ReadPage;
   /**
-   * Reads one audited page for this attempt's Knowledge Space candidates.
-   * Absent when the producer may not load them: `read` is not allowlisted or
-   * no `knowledge.root` is configured. It is the same reader as `readPage`.
+   * The Knowledge capability this attempt may load Space candidates with.
+   * Absent when it may not: `read` is not allowlisted or no `knowledge.root`
+   * is configured. Both halves are present or neither, so a `kb://` trigger
+   * loads nothing at all without it.
    */
-  readonly spaceReadPage?: ReadPage;
-  /**
-   * The trusted owner-scoped Knowledge view of one Space. Absent whenever
-   * `spaceReadPage` is, so a `kb://` trigger loads nothing at all without it.
-   */
-  readonly knowledge?: KnowledgeInstructionProbe;
+  readonly knowledge?: {
+    /** The same audited page reader as `readPage`. */
+    readonly readPage: ReadPage;
+    /** The trusted owner-scoped view of one Space. */
+    readonly probe: KnowledgeInstructionProbe;
+  };
   /** The Run's own abort signal; a producer must stop loading once it fires. */
   readonly abortSignal?: AbortSignal;
 }

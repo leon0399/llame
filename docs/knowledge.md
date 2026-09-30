@@ -69,8 +69,9 @@ its pages are read through the native `read` tool under system origin
 `instructions` and the `read` permission group, so a `read` reject rule on
 `path` applies to the locator exactly as it does to a host path. Space
 resolution and every probe use the Run owner: a Space that is missing, another
-owner's, or unavailable loads nothing and reveals nothing. `knowledge_search`
-hits never trigger. See
+owner's, or unavailable loads nothing and reveals nothing, and so does a
+locator whose own path the Knowledge resolver refuses — a traversal, or one
+deeper than its component cap. `knowledge_search` hits never trigger. See
 [native files](native-files.md#instruction-files) for the chain names and the
 host-path rules that apply unchanged.
 

@@ -5256,10 +5256,18 @@ describeIfDb('executeRun tool-loop persistence', () => {
       );
       const hostPath = (spaceId: string, relativePath: string) =>
         path.join(root, spaceId, ...relativePath.split('/'));
+      /** Writes one file into a Space, creating its parent directories. */
+      const put = (spaceId: string, relativePath: string, body: string) => {
+        mkdirSync(path.dirname(hostPath(spaceId, relativePath)), {
+          recursive: true,
+        });
+        writeFileSync(hostPath(spaceId, relativePath), body);
+      };
       return {
         root,
         spaces,
         hostPath,
+        put,
         service: () =>
           instructionsService({
             // No `nativeExecutorId`: a Space chain must load without one.
@@ -5273,7 +5281,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     it("loads a Space's chain for a kb:// read and never the Knowledge root", async () => {
       const fixture = knowledgeInstructionsFixture();
-      const { root, spaces, hostPath } = fixture;
+      const { root, spaces, put } = fixture;
       const space = await spaces.provisionForOwner(userId);
       // Directly in the Knowledge root, above every Space: never a candidate.
       writeFileSync(path.join(root, 'AGENTS.md'), 'above-the-space rules\n');
@@ -5283,12 +5291,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
         path.join(root, 'linked.md'),
         path.join(root, space.id, 'LLAME.md'),
       );
-      writeFileSync(hostPath(space.id, 'CLAUDE.md'), 'space rules\n');
-      mkdirSync(path.dirname(hostPath(space.id, 'notes/lore/x.md')), {
-        recursive: true,
-      });
-      writeFileSync(hostPath(space.id, 'notes/lore/AGENTS.md'), 'lore rules\n');
-      writeFileSync(hostPath(space.id, 'notes/lore/x.md'), 'the lore\n');
+      put(space.id, 'CLAUDE.md', 'space rules\n');
+      put(space.id, 'notes/lore/AGENTS.md', 'lore rules\n');
+      put(space.id, 'notes/lore/x.md', 'the lore\n');
       const seeded = await seedBoundRun(
         `instructions-kb-${crypto.randomUUID()}`,
       );
@@ -5381,18 +5386,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     it("loads nothing for another owner's Space", async () => {
       const fixture = knowledgeInstructionsFixture();
-      const { root, spaces, hostPath } = fixture;
+      const { root, spaces, put } = fixture;
       const otherOwnerId = crypto.randomUUID();
       await sql`INSERT INTO users (id, name, email) VALUES (${otherOwnerId}, 'Foreign Space', ${`foreign-space-${otherOwnerId}@test.com`})`;
       const foreign = await spaces.provisionForOwner(otherOwnerId);
-      writeFileSync(hostPath(foreign.id, 'CLAUDE.md'), 'foreign space rules\n');
-      mkdirSync(path.dirname(hostPath(foreign.id, 'notes/foreign.md')), {
-        recursive: true,
-      });
-      writeFileSync(
-        hostPath(foreign.id, 'notes/foreign.md'),
-        'the foreign note\n',
-      );
+      put(foreign.id, 'CLAUDE.md', 'foreign space rules\n');
+      put(foreign.id, 'notes/foreign.md', 'the foreign note\n');
       const seeded = await seedBoundRun(
         `instructions-kb-foreign-${crypto.randomUUID()}`,
       );
@@ -5439,6 +5438,64 @@ describeIfDb('executeRun tool-loop persistence', () => {
         );
         expect(instructionsIndexes(prompt)).toEqual([]);
         expect(JSON.stringify(events)).not.toContain('foreign space rules');
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        await sql`DELETE FROM users WHERE id = ${otherOwnerId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('loads nothing for a directory reached through a link into another Space', async () => {
+      const fixture = knowledgeInstructionsFixture();
+      const { root, spaces, hostPath, put } = fixture;
+      const space = await spaces.provisionForOwner(userId);
+      const otherOwnerId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${otherOwnerId}, 'Linked Space', ${`linked-space-${otherOwnerId}@test.com`})`;
+      const foreign = await spaces.provisionForOwner(otherOwnerId);
+      // The other owner's Space holds a real candidate chain of its own.
+      put(foreign.id, 'notes/AGENTS.md', 'foreign space rules\n');
+      put(foreign.id, 'notes/x.md', 'the foreign note\n');
+      // This owner's Space reaches that directory through a link, and holds
+      // no candidate of its own anywhere.
+      symlinkSync(hostPath(foreign.id, 'notes'), hostPath(space.id, 'notes'));
+      const seeded = await seedBoundRun(
+        `instructions-kb-link-${crypto.randomUUID()}`,
+      );
+      const model = firstStepThenAnswer(
+        [
+          {
+            toolCallId: 'read-linked',
+            toolName: 'read',
+            input: { path: `kb://${space.id}/notes/x.md` },
+          },
+        ],
+        'The linked directory was refused.',
+      );
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          fixture.service(),
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        // Control: the call ran and its refusal reached the next step.
+        const prompt = model.doStreamCalls[1]?.prompt ?? [];
+        expect(toolResultIndex(prompt, 'read-linked')).toBeGreaterThanOrEqual(
+          0,
+        );
+        // The link is refused, so no chain in it is walked, probed, or loaded.
+        expect(instructionsIndexes(prompt)).toEqual([]);
+        expect(await instructionEvents(seeded.run.id)).toEqual([]);
+        expect(await instructionItems(seeded.run.id)).toEqual([]);
+        expect(await storedInstructionPart(seeded.chatId)).toBeUndefined();
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        expect(JSON.stringify(events)).not.toContain('foreign space rules');
+        expect(JSON.stringify(events)).not.toContain(root);
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         await sql`DELETE FROM users WHERE id = ${otherOwnerId}`;

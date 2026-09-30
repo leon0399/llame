@@ -9,10 +9,13 @@
  * the model's own text carry the logical `kb://` locator and never a host path.
  */
 
-import { lstat, readdir } from 'node:fs/promises';
-
-import { type InstructionScope } from '../instructions/instruction-files';
+import { lstat } from 'node:fs/promises';
+import {
+  listDirectoryNames,
+  type InstructionScope,
+} from '../instructions/instruction-files';
 import { formatKnowledgeLocator } from './knowledge-locator';
+import { KnowledgeFilesystemError } from './knowledge-filesystem-errors';
 import { type KnowledgeFilesystemAdapterPort } from './knowledge-filesystem';
 import { type KnowledgeToolResolver } from '../tools/types';
 
@@ -20,11 +23,11 @@ import { type KnowledgeToolResolver } from '../tools/types';
  * What one Space-relative path is. A symbolic link, a device, an absent entry,
  * and anything the trusted resolver refuses are all `missing`: the chain simply
  * continues past them, exactly as it does for a host path the probe declines.
+ * No host path is carried here; the scope names the entry by its locator.
  */
 export type KnowledgeEntryProbe =
-  | { readonly kind: 'directory' }
-  | { readonly kind: 'file'; readonly size: number }
-  | { readonly kind: 'missing' };
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'directory' | 'file'; readonly size: number };
 
 /** One Space, addressed by Space-relative path; no host path crosses it. */
 export interface KnowledgeInstructionScope {
@@ -61,9 +64,18 @@ export function createKnowledgeInstructionProbe(input: {
       );
       if (binding === undefined) return undefined;
       adapter = input.resolver.createAdapter(binding);
+      // The Space's own directory is resolved once, up front, and confirmed
+      // inside the Space: a root that is gone, moved, or no longer canonical
+      // yields no scope at all, so no candidate in it is ever probed.
+      const directory = await adapter.resolveHostPath(undefined, {
+        signal: input.signal,
+      });
+      if (!(await adapter.isInsideSpace(directory, input.signal))) {
+        return undefined;
+      }
     } catch {
-      // An unavailable store or a cancelled Run is not a Space: the trigger
-      // loads nothing and the model is told nothing about why.
+      // An unavailable store is not a Space: the trigger loads nothing, and a
+      // failure carrying a host path is a message that reaches no output.
       return undefined;
     }
     return spaceScope(adapter, input.signal);
@@ -83,23 +95,15 @@ export function spaceInstructionScope(
   space: KnowledgeInstructionScope,
 ): InstructionScope {
   const label = (key: string): string =>
-    formatKnowledgeLocator(
-      key === SPACE_ROOT
-        ? { knowledgeSpaceId }
-        : { knowledgeSpaceId, relativePath: key },
-    );
+    formatKnowledgeLocator({ knowledgeSpaceId, relativePath: key });
   return {
     root: SPACE_ROOT,
     label,
     probe: async (key) => {
-      const probe = await space.probe(key);
-      const identity = label(key);
-      if (probe.kind === 'directory') {
-        return { kind: 'directory', size: 0, canonicalPath: identity };
-      }
-      return probe.kind === 'file'
-        ? { kind: 'file', size: probe.size, canonicalPath: identity }
-        : { kind: 'missing' };
+      const entry = await space.probe(key);
+      return entry.kind === 'missing'
+        ? { kind: 'missing' }
+        : { kind: entry.kind, size: entry.size, canonicalPath: label(key) };
     },
     list: (key) => space.list(key),
   };
@@ -110,11 +114,22 @@ function spaceScope(
   adapter: KnowledgeFilesystemAdapterPort,
   signal: AbortSignal | undefined,
 ): KnowledgeInstructionScope {
+  /**
+   * One Space-relative path's host path, but only while it resolves inside the
+   * Space: a component swapped for a link after validation resolves outside,
+   * and the chain continues past it exactly as past a refused entry.
+   */
+  const inside = async (relativePath: string): Promise<string | undefined> => {
+    const host = await hostPathOf(adapter, signal, relativePath);
+    if (host === undefined) return undefined;
+    return (await adapter.isInsideSpace(host, signal)) ? host : undefined;
+  };
   return {
-    probe: async (relativePath) =>
-      probeEntry(await hostPathOf(adapter, signal, relativePath)),
-    list: async (relativeDirectory) =>
-      listEntries(await hostPathOf(adapter, signal, relativeDirectory)),
+    probe: async (relativePath) => probeEntry(await inside(relativePath)),
+    list: async (relativeDirectory) => {
+      const host = await inside(relativeDirectory);
+      return host === undefined ? [] : listDirectoryNames(host);
+    },
   };
 }
 
@@ -129,7 +144,15 @@ async function hostPathOf(
       relativePath === SPACE_ROOT ? undefined : relativePath,
       { allowMissing: true, signal },
     );
-  } catch {
+  } catch (error) {
+    // A cancelled Run is not a missing file: it ends the walk where the
+    // producer's own abort check would, instead of quietly loading nothing.
+    if (
+      error instanceof KnowledgeFilesystemError &&
+      error.code === 'knowledge_cancelled'
+    ) {
+      throw error;
+    }
     return undefined;
   }
 }
@@ -141,23 +164,12 @@ async function probeEntry(
   if (host === undefined) return { kind: 'missing' };
   try {
     const stats = await lstat(host);
-    if (stats.isDirectory()) return { kind: 'directory' };
-    return stats.isFile()
-      ? { kind: 'file', size: stats.size }
-      : { kind: 'missing' };
+    if (!stats.isFile() && !stats.isDirectory()) return { kind: 'missing' };
+    return {
+      kind: stats.isDirectory() ? 'directory' : 'file',
+      size: stats.size,
+    };
   } catch {
     return { kind: 'missing' };
-  }
-}
-
-/** The exact entry names one validated host directory holds. */
-async function listEntries(
-  host: string | undefined,
-): Promise<ReadonlyArray<string>> {
-  if (host === undefined) return [];
-  try {
-    return await readdir(host);
-  } catch {
-    return [];
   }
 }

@@ -31,9 +31,11 @@ import {
 
 /** One file the caller loaded, with the reader's truncation bookkeeping. */
 export interface LoadedInstructionFile {
-  /** The absolute path at which the candidate was selected in the walk. */
+  /** The identifier at which the candidate was selected: a host absolute path,
+   * or a logical `kb://` locator for a Knowledge candidate. */
   readonly path: string;
-  /** The loaded file's `realpath`: the seen-set key, never rendered. */
+  /** The file's identity: its host `realpath`, or its `kb://` locator, which
+   * resolves no links. The seen-set key, never rendered. */
   readonly canonicalPath: string;
   readonly content: string;
   readonly truncated: boolean;

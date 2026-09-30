@@ -23,10 +23,7 @@ import { runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import {
   INSTRUCTION_FILE_BYTE_LIMIT,
-  directoryDepth,
   hostInstructionScope,
-  joinKey,
-  parentKey,
   readInstructionFile,
   selectCandidates,
   touchedPath,
@@ -94,18 +91,6 @@ describe('walkFrom', () => {
   it('lists a Space from its own directory and never above it', () => {
     expect(walkFrom('', 'notes/lore')).toEqual(['', 'notes', 'notes/lore']);
     expect(walkFrom('', '')).toEqual(['']);
-    expect(directoryDepth('')).toBe(0);
-    expect(directoryDepth('notes/lore')).toBe(2);
-  });
-
-  it('joins and parents a key inside each world', () => {
-    expect(joinKey('', 'AGENTS.md')).toBe('AGENTS.md');
-    expect(joinKey('notes', 'lore')).toBe('notes/lore');
-    expect(joinKey('/', 'srv')).toBe('/srv');
-    expect(parentKey('notes/lore/x.md', '')).toBe('notes/lore');
-    expect(parentKey('AGENTS.md', '')).toBe('');
-    expect(parentKey('/srv/app', '/')).toBe('/srv');
-    expect(parentKey('/srv', '/')).toBe('/');
   });
 });
 

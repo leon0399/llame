@@ -210,9 +210,11 @@ native `read` tool under the same `instructions` origin and `read` permission
 group. `knowledge_search` hits never trigger. When host and Space files are
 pending at the same step, they resolve into one item with the host files first,
 each group broadest directory first. A Space that is missing, belongs to
-another owner, or is unavailable loads nothing and reveals nothing. There is no
-accepted-turn load for Spaces: a Chat has no Space binding, and a Space chain
-returns on the next `kb://` touch after a compaction.
+another owner, or is unavailable loads nothing and reveals nothing, and a
+locator whose own path the Knowledge resolver refuses names no candidate
+either. There is no accepted-turn load for Spaces: a Chat has no Space
+binding, and a Space chain returns on the next `kb://` touch after a
+compaction.
 
 Loading requires `read` in `tools.allowed` plus a configured native executor
 for host triggers or a configured `knowledge.root` for `kb://` triggers, and

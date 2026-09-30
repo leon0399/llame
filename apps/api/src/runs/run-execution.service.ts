@@ -3074,12 +3074,14 @@ export class RunExecutionService {
       seenKeys: turn.seenCanonicalPaths,
       ...(this.hostInstructionsLoadable() && { readPage }),
       ...(this.knowledgeInstructionsLoadable() && {
-        spaceReadPage: readPage,
-        knowledge: createKnowledgeInstructionProbe({
-          resolver: this.knowledgeResolver,
-          ownerUserId: input.userId,
-          signal: input.abortSignal,
-        }),
+        knowledge: {
+          readPage,
+          probe: createKnowledgeInstructionProbe({
+            resolver: this.knowledgeResolver,
+            ownerUserId: input.userId,
+            signal: input.abortSignal,
+          }),
+        },
       }),
       abortSignal: input.abortSignal,
     });

@@ -79,7 +79,7 @@ export function hostInstructionScope(
 }
 
 /** One entry's key inside `key`; a root directory holds the bare name. */
-export function joinKey(key: string, name: string): string {
+function joinKey(key: string, name: string): string {
   return key === '' || key === '/' ? `${key}${name}` : `${key}/${name}`;
 }
 
@@ -88,11 +88,6 @@ export function parentKey(key: string, root: string): string {
   const cut = key.lastIndexOf('/');
   const parent = cut < 0 ? '' : key.slice(0, cut);
   return parent.length === 0 ? root : parent;
-}
-
-/** How deep a directory key sits; the world's own root is depth 0. */
-export function directoryDepth(key: string): number {
-  return key.split('/').filter((segment) => segment !== '').length;
 }
 
 /**
@@ -160,7 +155,7 @@ export interface InstructionCandidate {
  * cannot match `AGENTS.md` to `agents.md`. A directory that cannot be listed
  * (missing, unreadable) yields no candidates.
  */
-async function listDirectoryNames(
+export async function listDirectoryNames(
   directory: string,
 ): Promise<ReadonlyArray<string>> {
   try {

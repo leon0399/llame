@@ -44,11 +44,11 @@ import {
   KNOWLEDGE_LOCATOR_SCHEME,
   parseKnowledgeLocator,
 } from '../knowledge/knowledge-locator';
-import { isKnowledgeSpaceId } from '../knowledge/knowledge-filesystem-validation';
 import {
-  spaceInstructionScope,
-  type KnowledgeInstructionProbe,
-} from '../knowledge/knowledge-instruction-probe';
+  isKnowledgeSpaceId,
+  validatePath,
+} from '../knowledge/knowledge-filesystem-validation';
+import { spaceInstructionScope } from '../knowledge/knowledge-instruction-probe';
 import type {
   InRunAttempt,
   InRunAttemptProducer,
@@ -69,7 +69,6 @@ import {
   resolveWorkspacePath,
 } from '../tools/workspace-path';
 import {
-  directoryDepth,
   hostInstructionScope,
   readInstructionFile,
   selectCandidates,
@@ -89,10 +88,9 @@ const FILE_TOOL_IDS: ReadonlyArray<string> = [
 
 /** Where one trigger's world is: a host path or a Space-relative path. */
 interface TriggerTarget {
-  readonly kind: 'host' | 'space';
   /** The touched path in that world; `''` is a Space's own directory. */
   readonly key: string;
-  /** A `kb://` trigger's Space; absent for a host path. */
+  /** A `kb://` trigger's Space, canonicalized; absent for a host path. */
   readonly spaceId?: string;
 }
 
@@ -146,16 +144,14 @@ function projectTarget(input: {
 
 /** One host path, selector and representation suffix split off. */
 function hostTarget(selectorPath: string): TriggerTarget {
-  return {
-    kind: 'host',
-    key: posix.resolve(splitSelectorSuffix(selectorPath).path),
-  };
+  return { key: posix.resolve(splitSelectorSuffix(selectorPath).path) };
 }
 
 /**
  * One `kb://` locator as a Space and a Space-relative key: the selector is
- * dropped, the path is percent-decoded, and a traversal or empty segment names
- * nothing. Any other scheme — `skill://`, a web URL — is not a local file.
+ * dropped, the path is percent-decoded, and only a path the Knowledge
+ * resolver itself accepts names anything. Any other scheme — `skill://`, a web
+ * URL — is not a local file.
  */
 function spaceTarget(rest: string): TriggerTarget | undefined {
   const parsed = parseKnowledgeLocator(rest);
@@ -163,21 +159,26 @@ function spaceTarget(rest: string): TriggerTarget | undefined {
     return undefined;
   }
   const relativePath = parsed.relativePath;
-  if (relativePath !== undefined && !isContainedSpacePath(relativePath)) {
+  if (relativePath !== undefined && !isSpaceKey(relativePath)) {
     return undefined;
   }
   return {
-    kind: 'space',
-    spaceId: parsed.knowledgeSpaceId,
+    // One Space, one spelling: an upper-case id and its lower-case form are one
+    // Space, so they share a group and a seen key.
+    spaceId: parsed.knowledgeSpaceId.toLowerCase(),
     key: relativePath ?? '',
   };
 }
 
-/** A Space path is a chain of plain names: no traversal, no empty segment. */
-function isContainedSpacePath(relativePath: string): boolean {
-  return relativePath
-    .split('/')
-    .every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+/** A Space key the trusted resolver would accept: plain names, no traversal,
+ * and no deeper than its component cap. */
+function isSpaceKey(relativePath: string): boolean {
+  try {
+    validatePath(relativePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The canonical root a successful `enter_workspace` established or switched to. */
@@ -207,7 +208,7 @@ function observedTrigger(call: InRunToolCall): PendingTrigger | undefined {
   const root = enteredRoot(call.result);
   return root === undefined
     ? undefined
-    : { kind: 'host', key: root, excludeCandidate: false };
+    : { key: root, excludeCandidate: false };
 }
 
 /** One directory's pending exclusions, collected across the trigger set. */
@@ -255,18 +256,11 @@ async function resolveDirectories(
 }
 
 /**
- * The trusted page readers one attempt may read candidates through: a world
+ * The trusted capabilities one attempt may read candidates through: a world
  * absent from this record may not load at all, so its triggers are ignored
  * before any filesystem is probed.
  */
-interface AttemptPages {
-  /** Host candidates, present only with an accepted native executor. */
-  readonly host?: ReadPage;
-  /** Space candidates, present only with a configured Knowledge root. */
-  readonly space?: ReadPage;
-  /** The owner-scoped Space view the Space candidates are selected through. */
-  readonly knowledge?: KnowledgeInstructionProbe;
-}
+type AttemptWorlds = Pick<InRunAttempt, 'readPage' | 'knowledge'>;
 
 /** One world a trigger set walks, with the exclusions of each directory. */
 interface TriggerGroup {
@@ -283,63 +277,52 @@ interface TriggerGroup {
  */
 async function resolveGroups(input: {
   readonly triggers: ReadonlyArray<PendingTrigger>;
-  readonly pages: AttemptPages;
+  readonly worlds: AttemptWorlds;
 }): Promise<Array<TriggerGroup>> {
-  const host = await hostGroup(input.triggers, input.pages.host);
-  const spaces = await spaceGroups(input.triggers, input.pages);
-  return host === undefined ? spaces : [host, ...spaces];
-}
-
-/** The host group, absent when this Run may not load host instruction files. */
-async function hostGroup(
-  triggers: ReadonlyArray<PendingTrigger>,
-  page: ReadPage | undefined,
-): Promise<TriggerGroup | undefined> {
-  if (page === undefined) return undefined;
-  const owned = triggers.filter((trigger) => trigger.kind === 'host');
-  if (owned.length === 0) return undefined;
-  const scope = hostInstructionScope();
-  return { scope, page, directories: await resolveDirectories(owned, scope) };
-}
-
-/** One group per Space a trigger named, in first-mention order. */
-async function spaceGroups(
-  triggers: ReadonlyArray<PendingTrigger>,
-  pages: AttemptPages,
-): Promise<Array<TriggerGroup>> {
-  const { space: page, knowledge } = pages;
-  if (page === undefined || knowledge === undefined) return [];
+  const bySpace = new Map<string, Array<PendingTrigger>>();
+  const onHost: Array<PendingTrigger> = [];
+  for (const trigger of input.triggers) {
+    const spaceId = trigger.spaceId;
+    if (spaceId === undefined) {
+      onHost.push(trigger);
+      continue;
+    }
+    const owned = bySpace.get(spaceId);
+    if (owned === undefined) bySpace.set(spaceId, [trigger]);
+    else owned.push(trigger);
+  }
   const groups: Array<TriggerGroup> = [];
-  for (const spaceId of spaceIdsOf(triggers)) {
-    const owned = triggers.filter(
-      (trigger) => trigger.kind === 'space' && trigger.spaceId === spaceId,
-    );
-    const space = await knowledge(spaceId);
+  const hostPage = input.worlds.readPage;
+  if (hostPage !== undefined && onHost.length > 0) {
+    const scope = hostInstructionScope();
+    groups.push({
+      scope,
+      page: hostPage,
+      directories: await resolveDirectories(onHost, scope),
+    });
+  }
+  const knowledge = input.worlds.knowledge;
+  if (knowledge === undefined) return groups;
+  for (const [spaceId, owned] of bySpace) {
+    const space = await knowledge.probe(spaceId);
     if (space === undefined) continue;
     const scope = spaceInstructionScope(spaceId, space);
     groups.push({
       scope,
-      page,
+      page: knowledge.readPage,
       directories: await resolveDirectories(owned, scope),
     });
   }
   return groups;
 }
 
-/** The Spaces a trigger set names, each once, in first-mention order. */
-function spaceIdsOf(
-  triggers: ReadonlyArray<PendingTrigger>,
-): ReadonlyArray<string> {
-  const ids = new Set<string>();
-  for (const trigger of triggers) {
-    if (trigger.kind === 'space' && trigger.spaceId !== undefined) {
-      ids.add(trigger.spaceId);
-    }
-  }
-  return [...ids];
-}
-
-/** Every directory one group walks, broadest first and once each. */
+/**
+ * Every directory one group walks, broadest first and once each. A key's
+ * segment count is its depth in both worlds — an absolute host key counts one
+ * segment more than it has, every Space key counts exactly its depth — so
+ * counting segments orders both; code points break the one tie a world's own
+ * root has with its top-level directories.
+ */
 function walkOrder(group: TriggerGroup): Array<string> {
   const walked = new Set<string>();
   for (const directory of group.directories.keys()) {
@@ -349,7 +332,7 @@ function walkOrder(group: TriggerGroup): Array<string> {
   }
   return [...walked].sort(
     (left, right) =>
-      directoryDepth(left) - directoryDepth(right) ||
+      left.split('/').length - right.split('/').length ||
       compareCodePoints(left, right),
   );
 }
@@ -386,7 +369,7 @@ async function collectCandidate(
 async function loadBundle(input: {
   readonly runId: string;
   readonly triggers: ReadonlyArray<PendingTrigger>;
-  readonly pages: AttemptPages;
+  readonly worlds: AttemptWorlds;
   /** The attempt's seen keys; each file is added as it loads. */
   readonly keys: Set<string>;
   readonly abortSignal: AbortSignal | undefined;
@@ -398,7 +381,7 @@ async function loadBundle(input: {
   };
   for (const group of await resolveGroups({
     triggers: input.triggers,
-    pages: input.pages,
+    worlds: input.worlds,
   })) {
     await loadGroup(group, collector, input.abortSignal);
   }
@@ -433,7 +416,7 @@ async function loadGroup(
 /** One attempt's pending triggers and seen keys; discarded with the attempt. */
 function createAttemptProducer(
   attempt: InRunAttempt,
-  pages: AttemptPages,
+  worlds: AttemptWorlds,
 ): InRunAttemptProducer {
   const keys = new Set(attempt.seenKeys);
   let pending: Array<PendingTrigger> = [];
@@ -450,7 +433,7 @@ function createAttemptProducer(
       const part = await loadBundle({
         runId: attempt.runId,
         triggers,
-        pages,
+        worlds,
         keys,
         abortSignal: attempt.abortSignal,
       });
@@ -468,12 +451,10 @@ export function createInstructionsProducer(): InRunContextProducer {
     ): Promise<AuthoredContextItemPart | undefined> {
       return loadBundle({
         runId: context.runId,
-        triggers: [
-          { kind: 'host', key: context.workspaceRoot, excludeCandidate: false },
-        ],
+        triggers: [{ key: context.workspaceRoot, excludeCandidate: false }],
         // An accepted turn starts from a bound Workspace root, so only the
         // host world has a directory to walk: no Space is probed for it.
-        pages: { host: context.readPage },
+        worlds: { readPage: context.readPage },
         // The caller derives the turn's seen set from the returned item, so
         // this set is a scratch guard for the walk: the turn's seen keys plus
         // every canonical path the load collects, so no candidate is read
@@ -484,24 +465,19 @@ export function createInstructionsProducer(): InRunContextProducer {
     },
 
     beginAttempt(attempt: InRunAttempt): InRunAttemptProducer {
-      const pages = attemptPages(attempt);
       // Without a page reader for any world this Run may load in — the `read`
       // tool, the native executor, or the Knowledge root is absent — no trigger
       // can load anything.
-      return pages.host === undefined && pages.space === undefined
-        ? { prepareStep: () => {} }
-        : createAttemptProducer(attempt, pages);
+      if (attempt.readPage === undefined && attempt.knowledge === undefined) {
+        return { prepareStep: () => {} };
+      }
+      const worlds: AttemptWorlds = {
+        ...(attempt.readPage !== undefined && { readPage: attempt.readPage }),
+        ...(attempt.knowledge !== undefined && {
+          knowledge: attempt.knowledge,
+        }),
+      };
+      return createAttemptProducer(attempt, worlds);
     },
-  };
-}
-
-/** The trusted page readers this Run's worlds may read candidates through. */
-function attemptPages(attempt: InRunAttempt): AttemptPages {
-  return {
-    ...(attempt.readPage !== undefined && { host: attempt.readPage }),
-    ...(attempt.spaceReadPage !== undefined && {
-      space: attempt.spaceReadPage,
-      knowledge: attempt.knowledge,
-    }),
   };
 }
