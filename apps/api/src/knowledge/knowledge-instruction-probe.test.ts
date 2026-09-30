@@ -7,7 +7,6 @@
  * fake, because that is the only authority the probe has.
  */
 
-import { execFileSync } from 'node:child_process';
 import {
   mkdirSync,
   mkdtempSync,
@@ -15,6 +14,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -225,11 +225,17 @@ describe('createKnowledgeInstructionProbe', () => {
     const scope = await probeOver(
       new KnowledgeFilesystemAdapter(bindingOf(SPACE)),
     )(SPACE);
-    // A FIFO is a real entry the reader could never open as a file: it is
+    // A socket is a real entry the reader could never open as a file: it is
     // skipped exactly like a device node, never selected as a candidate.
-    execFileSync('mkfifo', [path.join(root, SPACE, 'pipe')]);
-
-    expect(await scope?.probe('pipe')).toEqual({ kind: 'missing' });
+    const server = createServer();
+    await new Promise<void>((resolve) =>
+      server.listen(path.join(root, SPACE, 'socket'), resolve),
+    );
+    try {
+      expect(await scope?.probe('socket')).toEqual({ kind: 'missing' });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 
   it('reports an entry missing when the containment check itself fails', async () => {
