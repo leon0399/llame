@@ -40,8 +40,8 @@ system | tool` (`:201`), Chat-local `seq`, `parts` jsonb, and a
 
 **Goals:**
 
-- One representation for a checkpoint that a later mid-turn cut (#1068) can
-  reuse without a migration.
+- A checkpoint representation whose row shape a later mid-turn cut (#1068)
+  can reuse; #1068 owns how an in-flight assistant segment is persisted.
 - Replay derived from `messages` by `seq`, with no forward pointer, no reorder,
   and no re-rendering of stored text.
 - One compaction path with one trigger point.
@@ -108,20 +108,27 @@ Alternatives rejected:
 
 ### D2: The checkpoint records the `seq` through which it absorbed history
 
-The row stores `absorbedThroughSeq`. Replay selects the latest checkpoint with
-`seq` below the current position, emits it first, then every non-checkpoint
-`user`/`assistant` row with `seq > absorbedThroughSeq` in `seq` order. The
-field always points backward (`absorbedThroughSeq < seq`), so it cannot dangle
-forward and deleting absorbed rows changes nothing for replay.
+The row stores `absorbedThroughSeq`. A Run selects the latest checkpoint whose
+`absorbedThroughSeq` is below its triggering user message's `seq`, emits it
+first, then every non-checkpoint `user`/`assistant` row with
+`seq > absorbedThroughSeq` in `seq` order. Selection is by the boundary, not
+by the checkpoint row's own `seq`, because a pre-step checkpoint sits above
+the user row it was published for. The field always points backward
+(`absorbedThroughSeq < seq`), so it cannot dangle forward and deleting
+absorbed rows changes nothing for replay.
 
 The field is needed because the triggering user message is persisted at HTTP
 accept, before the worker runs, so a pre-step checkpoint always lands after
 the user row it must not absorb (`[user N, checkpoint N+1]` replays as
-`[checkpoint, user N]`). The same field lets #1068 record a cut after an
-assistant segment (`absorbedThroughSeq = N+1` for `[user N, assistant N+1,
-checkpoint N+2, assistant N+3]`). A partial unique index on
-`(chat_id, absorbed_through_seq) WHERE role = 'checkpoint'` makes publication
-idempotent across a worker-attempt cutover.
+`[checkpoint, user N]`). A mid-turn cut (#1068) would set the boundary at the
+last persisted row of the in-flight segment; today a Run writes one assistant
+row at finish and `in_reply_to` is unique per user turn, so #1068 owns the
+segment persistence and any index change, and this design only keeps the
+boundary column reusable for it. A partial unique index on
+`(chat_id, absorbed_through_seq) WHERE absorbed_through_seq IS NOT NULL`
+makes publication idempotent across a worker-attempt cutover; the predicate
+avoids the new enum value, which Postgres refuses to use in the transaction
+that adds it.
 
 Alternatives rejected:
 
@@ -159,19 +166,33 @@ condition over the prepared request:
 Measured size is the previous completed assistant message's persisted
 `usage.contextTokens` (new field: that attempt's final request input plus
 output, which `run-usage-accounting` already uses for the post-turn trigger
-but does not persist) plus the estimate of rows and rail items after it. When
-no completed assistant message carries the field, the whole request is
+but does not persist) plus the estimate of rows and rail items after it. The
+measurement counts only when that assistant row's `seq` is above the active
+checkpoint's `seq`; a measurement taken before a checkpoint describes the
+request the checkpoint already shrank, and counting it would fire the trigger
+again on a retry. When no counted measurement exists, the whole request is
 estimated as today.
 
-Compaction then runs once, in the attempt, through the request shape the
-current full-current mode uses: the attempt's system prompt, schema-only tool
-declarations, the compactable prefix (which already contains the prior
-checkpoint as user text), the single instruction as trailing user message,
-`toolChoice: 'none'`, the Run's resolved effort. If the request still does
-not fit after that one compaction, the attempt fails `context_incompatible`
-as today. `maybeCompact`, `compactForTransition`, the staleness guard and
-`createIfCutoffAbsent` are deleted; #866's two modes are one path with one
-input.
+Compaction then runs once, in the attempt, through one request shape:
+a system prompt, tool declarations, the compactable prefix (which already
+contains the prior checkpoint as user text), the single instruction as the
+trailing user message, `toolChoice: 'none'`, and an effort. Which prompt,
+declarations, model and effort fill that shape is data:
+
+- Threshold trigger: the attempt's own model, its system prompt as rendered
+  before the re-bake, its schema-only declarations and its resolved effort,
+  so the summary request is a cache-aligned continuation of the prefix.
+- Window trigger (the request does not fit the attempt's model): the prefix
+  cannot be summarized by a model it does not fit. The summary uses the
+  previous completed Run's model with that Run's system-prompt receipt and
+  effort and no tool declarations, which is today's transition contract. When
+  that model cannot execute or cannot fit the prefix either, the attempt fails
+  `context_incompatible`; #153 owns progressive folding.
+
+If the request still does not fit after that one compaction, the attempt
+fails `context_incompatible` as today. `maybeCompact`, `compactForTransition`,
+the staleness guard and `createIfCutoffAbsent` are deleted; #866's two modes
+are one path whose inputs differ.
 
 Alternatives rejected:
 
@@ -182,13 +203,21 @@ Alternatives rejected:
 
 ### D5: The checkpoint publishes before the step and survives a failed attempt
 
-The checkpoint row and the re-baked epoch state (digest baseline, temporal
-anchor, skill-catalog baseline, workspace told-set, and the three markers)
-commit in one transaction before the model step. A later failure of that
-attempt leaves them in place: the checkpoint describes committed history only,
-so it is correct regardless of the attempt's outcome, and a retry reuses it
-instead of paying a second summary call. This replaces the staged transition
-state that today is discarded on target failure.
+Ordering inside the attempt: load history and estimate; if the trigger fires,
+build the summary request from the pre-re-bake prompt, call the model, then
+commit the checkpoint row and the re-baked epoch state (digest baseline,
+temporal anchor, skill-catalog baseline, workspace told-set, and the three
+markers) in one transaction; only then resolve the attempt's own system
+prompt, staged rail items (`startsEpoch`, the digest supersession marker, the
+workspace snapshot, the accepted-turn instruction-file load) and bind the
+system-prompt receipt. The receipt therefore records the prompt actually sent,
+and every re-baked value takes effect for the request the checkpoint precedes.
+
+A later failure of that attempt leaves the checkpoint and its epoch state in
+place: the checkpoint describes committed history only, so it is correct
+regardless of the attempt's outcome, and a retry reuses it instead of paying a
+second summary call. This replaces the staged transition state that today is
+discarded on target failure.
 
 Alternative rejected: stage in memory and publish with attempt success (the
 current transition contract). Needs the staging machinery and a second code
@@ -196,12 +225,18 @@ path for the post-turn mode, and makes a retry re-summarize.
 
 ### D6: Isolation in the datastore
 
-`messages_public_read` gains `AND role <> 'checkpoint'`. Search projection,
-`conversation_read`, the public message DTO, the shared-fork text copy and
-ordinary exports exclude the role by column. The summary therefore never
-leaves owner scope through a row-level read, matching the protection the
-separate table had. Negative tests cover anonymous read, search,
-`conversation_read` and a shared fork of a compacted public chat.
+`messages_public_read` excludes checkpoint rows through `role::text <>
+'checkpoint'` (the text comparison keeps the new enum value out of the DDL
+that adds it; Drizzle generates the `ALTER POLICY` from the `pgPolicy` edit).
+Search projection, `conversation_read`, the public message DTO, the shared-fork
+text copy, ordinary exports, the chat-list preview (latest row per owned chat)
+and the recency-digest message count exclude the role by column. A checkpoint
+row whose stored text is empty or missing fails request preparation closed
+rather than replaying as an inert part, because an inert checkpoint would
+hide the rows it absorbed. The summary therefore never leaves owner scope
+through a row-level read, matching the protection the separate table had.
+Negative tests cover anonymous read, search, `conversation_read` and a shared
+fork of a compacted public chat.
 
 ### D7: Epoch markers name the checkpoint message; the epoch compares `seq`
 
@@ -213,19 +248,26 @@ than the previous completed Run's assistant message `seq`", replacing the
 
 ### D8: Forks copy checkpoint rows; shared forks exclude them
 
-The owner fork copies every row with `seq <= anchor`, checkpoint rows
-included, preserving `seq`; a copied checkpoint still absorbs exactly what it
-absorbed. The marker remap in `fork-copy.ts` targets the copied checkpoint's
-new message id; the separate compaction copy loop is deleted. A shared fork
-copies text-only user and assistant rows and never a checkpoint row.
+The owner fork copies every user and assistant row with `seq <= anchor` and
+every checkpoint row whose `absorbedThroughSeq <= anchor`, preserving `seq`
+and the boundary; a copied checkpoint still absorbs exactly what it absorbed,
+as today's copy of compactions with `upto_seq <= anchor` does. The marker
+remap in `fork-copy.ts` targets the copied checkpoint's new message id; the
+separate compaction copy loop is deleted. A shared fork copies text-only user
+and assistant rows and never a checkpoint row.
 
 ### D9: The owner UI reads the checkpoint row
 
-The owner's messages response carries checkpoint rows; the boundary component
-renders from the row, and the absorbed count is the number of `user` and
-`assistant` rows between the previous checkpoint's `absorbedThroughSeq` and
-this one's. The embedded "latest compaction" join and `chats-compaction.dto.ts`
-are deleted.
+The owner's messages response carries checkpoint rows. The API computes
+`absorbedMessageCount` (the user and assistant rows between the previous
+checkpoint's `absorbedThroughSeq` and this one's) and exposes it with
+`absorbedThroughSeq` on the owner checkpoint DTO, because the web client only
+holds a paginated window and drops non-user/assistant rows when it builds its
+transcript. The boundary component keeps today's placement rule keyed on the
+boundary: the marker renders before the first row above `absorbedThroughSeq`,
+which is the triggering user row, not after the checkpoint row's own `seq`.
+The embedded "latest compaction" join and `chats-compaction.dto.ts` are
+deleted.
 
 ### D10: One summarization instruction with amended structure and rules
 
@@ -298,17 +340,24 @@ backfill without request.
 - [Worker-attempt cutover publishes two checkpoints] -> partial unique index;
   the second insert is a no-op and the attempt reads the surviving row.
 - [Measured size absent after upgrade] -> estimate fallback as today.
+- [New enum value used in the migration that adds it] -> the index predicate
+  is `absorbed_through_seq IS NOT NULL` and the policy compares `role::text`;
+  Postgres rejects `role = 'checkpoint'` in that same transaction, and the
+  migrator runs every pending file in one.
 - [`space-bunny-free` disappears from the gateway] -> the eval config is one
   file; the runner reports the model error and exits nonzero.
 
 ## Migration Plan
 
 1. Generated migration: `message_role` adds `checkpoint`; `messages` gains
-   `absorbed_through_seq bigint NULL` with the partial unique index; the
-   `messages_public_read` policy is replaced (hand-authored SQL-comment step
-   per `apps/api/src/db/AGENTS.md`); `compactions` is dropped. The `chats`
-   markers keep their columns; a marker naming a dropped compaction id becomes
-   `NULL` in the same migration.
+   `absorbed_through_seq bigint NULL` with the partial unique index on
+   `absorbed_through_seq IS NOT NULL`; the `messages_public_read` policy is
+   regenerated from the `pgPolicy` edit with the `role::text` comparison;
+   `compactions` is dropped. The `chats` markers keep their columns; a marker
+   naming a dropped compaction id is left as is, because its only read
+   compares it for equality with the active checkpoint and a stale value never
+   matches (today's fail-safe), and an `UPDATE` on the FORCE-RLS `chats`
+   table would silently touch nothing from a migration without identity.
 2. Deploy API and worker together; no dual-read.
 3. Rollback: restore from the pre-migration backup; the dropped rows are not
    reconstructible from the new schema.

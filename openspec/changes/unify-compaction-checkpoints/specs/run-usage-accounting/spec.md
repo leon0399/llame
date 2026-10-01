@@ -43,7 +43,16 @@ Alongside the aggregate, the same persisted usage SHALL record the attempt's fin
 
 ### Requirement: Compaction uses the final request's size, not the aggregate
 
-The compaction trigger SHALL be evaluated inside a Run, before that Run's first model request, and SHALL use one measured context size: the previous completed assistant message's persisted final-request context size, plus the estimate of the rows and rail items recorded after it. The assistant message aggregate SHALL NOT be used as the measured size. When no completed assistant message carries a persisted final-request context size, the whole prepared request SHALL be estimated instead. A failed, cancelled, or expired Run SHALL NOT contribute a measured context size to a later trigger.
+The compaction trigger SHALL be evaluated inside a Run, before that Run's first
+model request, and SHALL use one measured context size: the previous completed
+assistant message's persisted final-request context size, plus the estimate of
+the rows and rail items recorded after it. The assistant message aggregate SHALL
+NOT be used as the measured size. When no completed assistant message carries a
+persisted final-request context size, the whole prepared request SHALL be
+estimated instead. A measurement from an assistant row at or below the active
+checkpoint's sequence SHALL NOT be counted, and the whole prepared request SHALL
+be estimated instead. A failed, cancelled, or expired Run SHALL NOT contribute a
+measured context size to a later trigger.
 
 #### Scenario: A long loop over a small context does not compact
 
@@ -65,6 +74,13 @@ The compaction trigger SHALL be evaluated inside a Run, before that Run's first 
 - **WHEN** the previous Run failed, was cancelled, or expired after requests whose final input plus output exceeded the compaction threshold
 - **THEN** it contributes no measured context size to the next Run's trigger
 - **AND** no compaction is triggered on its own behalf after its outcome
+
+#### Scenario: A measurement older than the active checkpoint is not counted
+
+- **WHEN** a checkpoint was published after the previous completed assistant
+  message and an attempt evaluates the compaction trigger
+- **THEN** that assistant row's persisted final-request context size is ignored
+- **AND** no second summary call is made on the basis of that measurement
 
 ### Requirement: Compaction and title spend stay separate categories
 

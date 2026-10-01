@@ -94,6 +94,12 @@ SHALL remain stored but contribute no model-visible part. It SHALL NOT be
 backfilled or rendered from metadata. Whitespace-only text SHALL survive
 unchanged.
 
+A `checkpoint` row is the one exception to that inertness. A checkpoint message
+whose `data.text` is empty or missing SHALL fail request preparation closed
+rather than replay as an inert part, because an inert checkpoint would hide every
+row it absorbed and silently shrink the model-visible history. It SHALL NOT be
+backfilled or reconstructed from its raw summary either.
+
 #### Scenario: Reader encounters unknown metadata with persisted text
 
 - **WHEN** a context part carries non-empty text and names an unrecognized
@@ -124,6 +130,8 @@ unchanged.
 - **WHEN** an existing context part carries metadata but no non-empty text
 - **THEN** it contributes no model-visible part
 - **AND** no current renderer is invoked to manufacture historical prose
+- **AND** a `checkpoint` row is not treated as one of those inert parts: its
+  request fails preparation instead of replaying without the rows it absorbed
 
 #### Scenario: Client supplies control metadata
 
@@ -399,11 +407,15 @@ assistant message SHALL be mapped to one user-role message containing one text
 part with `data.text`, emitted directly after the tool-result message of the
 tool part that precedes it in stored order, or in its stored position when that
 tool pair was omitted by the replay budget; it SHALL NOT be merged into the
-assistant message's own content or into the tool-result message. A `data-context` part on a `checkpoint` row SHALL be mapped to one user-role
-message containing one text part with `data.text`, emitted in place of the rows
-through that checkpoint's absorbed-through sequence and ahead of every later user
-and assistant row. It SHALL then pass the ordered
-parts to the AI SDK rather than manually constructing a joined transcript.
+assistant message's own content or into the tool-result message. A `data-context`
+part on a `checkpoint` row SHALL be mapped to one user-role message containing one
+text part with `data.text`, emitted in place of the rows through that checkpoint's
+absorbed-through sequence and ahead of every later user and assistant row.
+Selection is by that boundary rather than by the checkpoint row's own sequence: a
+Run SHALL take the latest checkpoint whose absorbed-through sequence is below the
+triggering user message's sequence, because a checkpoint published before the step
+sits above the user row it was published for. It SHALL then pass the ordered parts
+to the AI SDK rather than manually constructing a joined transcript.
 
 This SHALL be an application-level best-effort invariant, not a promise of
 provider-wire byte identity. SDK conversion, role grouping, and provider
@@ -418,8 +430,10 @@ no other stored form of superseded history is replayed.
 
 #### Scenario: A checkpoint row crosses the SDK boundary
 
-- **WHEN** a chat's effective history is replayed from its latest checkpoint row
-- **THEN** the row is supplied as one user-role message carrying its stored text
+- **WHEN** a chat's effective history is replayed for one triggering user message
+- **THEN** the checkpoint supplied as one user-role message carrying its stored
+  text is the latest checkpoint whose absorbed-through sequence is below that user
+  message's sequence
 - **AND** no user or assistant row through that checkpoint's absorbed-through
   sequence is supplied
 
@@ -515,8 +529,11 @@ cleared only when the Run that narrates it completes. The producer SHALL stage t
 or its absence, and the latest checkpoint message as `workspace_told` and `workspace_told_from`;
 the same accepted-turn transaction SHALL write both values, and the only other
 writer SHALL be a checkpoint's publication transaction, which advances
-`workspace_told_from` to name its own row and resets the told root, so the state is re-established on a later
-turn instead of being suppressed by a narration the checkpoint superseded. A Chat that has never been bound and has no narrated root SHALL receive no notice.
+`workspace_told_from` to name its own row and resets the told root, so the state
+is not left suppressed by a narration the checkpoint superseded. The `workspace`
+producer re-derives its snapshot after that transaction commits and before the
+model step the checkpoint precedes, so the re-established state takes effect for
+that very request rather than on a later turn.
 Workspace state SHALL NOT be placed in the system prompt. Each successful Run that sends a
 Workspace snapshot or notice SHALL include each exact item text, producer, form, and rail residency
 in its owner-scoped Run context-item record under the existing recording rules.
@@ -537,8 +554,8 @@ in its owner-scoped Run context-item record under the existing recording rules.
 
 - **WHEN** a checkpoint becomes active for a Chat that is still bound and its stored
   `workspace_told_from` names an earlier checkpoint message or is null
-- **THEN** the next accepted turn treats the told state as null for comparison and emits a
-  snapshot re-establishing the current root
+- **THEN** the first request the checkpoint precedes treats the told state as null
+  for comparison and carries a snapshot re-establishing the current root
 - **AND** the snapshot remains rail-resident rather than changing the system prompt
 
 #### Scenario: A never-bound Chat receives no Workspace notice

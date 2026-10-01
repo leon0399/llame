@@ -10,7 +10,7 @@ On the first turn of a model-facing availability disclosure epoch, the reminder 
 
 When an eligible tool keeps the same id and remains available but its canonical declaration changes, the current attempt SHALL advertise its fresh in-memory declaration through the provider's native tool contract. Declaration-only drift SHALL NOT produce an availability reminder and SHALL NOT be represented as a synthetic Removed-plus-Added transition.
 
-Only a successfully committed turn SHALL establish the comparison baseline. Its published reminder text remains model-visible until a context rewrite removes it. A failed, cancelled, expired, or superseded attempt SHALL publish no availability reminder to model history and SHALL not advance the baseline. Every retry compares with the same preceding committed turn, including after worker handoff.
+Only a successfully committed turn SHALL establish the comparison baseline. Its published reminder text remains model-visible until a context rewrite removes it. A failed, cancelled, expired, or superseded attempt SHALL publish no availability reminder to model history and SHALL not advance the baseline. Every retry compares with the same preceding committed turn, including after worker handoff, unless a checkpoint published before the step started a new epoch, in which case every retry of that Run uses the new epoch's initial semantics.
 
 When there is no successful observed baseline, including migrated non-observation, the attempt SHALL use initial-baseline semantics. Successful completion SHALL store only its sorted exact ids and available/unavailable states; empty observed state is distinct from no observation.
 
