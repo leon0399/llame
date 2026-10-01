@@ -84,14 +84,26 @@ export function slugify(text) {
     .replace(/\s/gu, "-");
 }
 
+/** Remove HTML tags until none remain, so a tag split by another cannot survive. */
+function stripTags(text) {
+  let previous;
+  let current = text;
+  do {
+    previous = current;
+    current = current.replace(/<\/?[A-Za-z][^>]*>/gu, "");
+  } while (current !== previous);
+  return current;
+}
+
 /** The heading text as GitHub reads it: markup holds no anchor character. */
 function headingText(heading) {
-  return heading
-    .replace(/`+([^`]*)`+/gu, "$1")
-    .replace(/!\[([^\]]*)\]\([^)]*\)/gu, "$1")
-    .replace(/\[([^\]]*)\]\([^)]*\)/gu, "$1")
-    .replace(/\[([^\]]*)\]\[[^\]]*\]/gu, "$1")
-    .replace(/<\/?[A-Za-z][^>]*>/gu, "")
+  return stripTags(
+    heading
+      .replace(/`+([^`]*)`+/gu, "$1")
+      .replace(/!\[([^\]]*)\]\([^)]*\)/gu, "$1")
+      .replace(/\[([^\]]*)\]\([^)]*\)/gu, "$1")
+      .replace(/\[([^\]]*)\]\[[^\]]*\]/gu, "$1"),
+  )
     .replace(/[*_~]+/gu, "")
     .trim();
 }
