@@ -67,7 +67,7 @@ goes), `knowledge-tools.ts` (`passageLocator` encodes conditionally),
 `apps/api/src/tools/native-files.ts` (reads resolve with the missing leaf
 allowed). `packages/native-file-tools/src/read.ts` (suggestions on the
 `ENOENT` path). Tool description, `apps/api/src/prompts/chat-default.md`,
-`docs/knowledge.md`, `docs/native-files.md`, changelog. No database change.
+`docs/product/operator/knowledge.md`, `docs/product/operator/native-files.md`, changelog. No database change.
 Issues: #736 and #737 under tracker #701. Does not touch `bash-executor`,
 `bash.ts`, or the bash spec, so it runs in parallel with
 `host-bash-context`; it shares the `native-file-tools` spec file with the

@@ -83,7 +83,7 @@ describeIfDb(
 
     beforeAll(async () => {
       // concurrency 3: enough to prove overlap without straining the dev
-      // Postgres pool (docs/scaling.md's concurrency x replicas sizing note).
+      // Postgres pool (docs/product/operator/scaling.md's concurrency x replicas sizing note).
       harness = await bootWorkerHarness({ runsConcurrency: 3 });
       userId = await createUser(harness.db, 'concurrency');
     });

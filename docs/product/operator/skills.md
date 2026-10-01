@@ -1,3 +1,12 @@
+---
+summary: "The skill catalog: skills.directories, package format, and invocation controls"
+read_when:
+  - you are configuring skills.directories or a package's invocation controls
+  - you are inspecting, paging, or advertising the catalog
+behavior:
+  - ../reference/locators/skill.md
+---
+
 # Operator skill catalog
 
 llame can publish an [Agent Skills](https://agentskills.io/specification) catalog
@@ -150,12 +159,10 @@ read-only and identical for every owner. Entries are ordered by name; pass
 to page through a large catalog. `nextCursor` is `null` on the last page.
 
 Manual-only packages appear in this listing. Loading instructions and package
-files happens through the native `read` tool's `skill://` locator: `skill://pdf`
-reads `SKILL.md`, `skill://pdf/<path>` reads a supporting file, `skill://pdf/`
-lists the package, and `skill://` lists the catalog. See
-[native-files.md](native-files.md) for the locator contract, the published
-`skillDirectory`/`resolvedPath` envelope, and how a manual-only package is
-selected explicitly.
+files happens through the native `read` tool's `skill://` locator; see
+[skill locators](../reference/locators/skill.md) for the locator forms, the
+published `skillDirectory`/`resolvedPath` envelope, and how a manual-only
+package is selected explicitly.
 
 ## Model advertisement
 

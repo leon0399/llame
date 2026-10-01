@@ -10,7 +10,7 @@
  * mutant. Both are already available, so the gate needs no stored state and
  * cannot go stale.
  *
- * `docs/mutation-gate-redesign.md` records why this replaced the per-file
+ * `docs/development/mutation-gate-redesign.md` records why this replaced the per-file
  * delta.
  */
 

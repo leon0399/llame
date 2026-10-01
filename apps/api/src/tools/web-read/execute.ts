@@ -45,8 +45,9 @@ export type WebReadDeps = {
 
 /**
  * The locator is parsed from `call.input.path` — the text the model
- * submitted, which is the text policy matched — never from a lower-cased
- * scheme, so an uppercase scheme is refused instead of fetched.
+ * submitted, which is the text policy matched — and the request uses its
+ * canonical serialization, so `HTTPS://Example.test` is fetched as
+ * `https://example.test/`.
  */
 export type WebReadExecutor = (
   context: ToolContext,

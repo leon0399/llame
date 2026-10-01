@@ -220,8 +220,8 @@ change the runbook's wording.
   summarization call behind `maybeCompact` and `compactForTransition`), and
   `apps/api/src/titles/title.service.ts` (both the structured and the text
   title paths).
-- `apps/api/llame.config.json.example`, `docs/opencode-go.md`, the README
-  provider section, the `apps/api/AGENTS.md` wire matrix, `docs/scaling.md`
+- `apps/api/llame.config.json.example`, `docs/product/operator/providers/opencode-go.md`, the README
+  provider section, the `apps/api/AGENTS.md` wire matrix, `docs/product/operator/scaling.md`
   (the manifest must sit beside `dist/`), and `CHANGELOG.md`.
 - Focused configuration, dispatch, header-rendering, and call-site tests, plus
   one bounded live proof recorded in the change directory.

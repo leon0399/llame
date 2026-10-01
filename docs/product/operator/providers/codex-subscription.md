@@ -1,3 +1,10 @@
+---
+summary: "Serving an operator's ChatGPT/Codex subscription through llame's declared models"
+read_when:
+  - you are configuring an openai-codex provider entry and its models
+  - you are re-logging in, disconnecting, or matching a quota failure
+---
+
 # Codex subscription provider
 
 `openai-codex` lets one trusted personal llame instance use an operator's
@@ -10,7 +17,8 @@ Run `codex login` with file credential storage before configuring llame. Set
 contains `auth.json`; keyring-only login cannot supply llame's startup
 snapshot.
 
-Add a provider and at least one model to `apps/api/llame.config.json`:
+Add a provider and at least one model to the instance configuration named in
+the [operator index](../index.md#operator):
 
 ```jsonc
 {

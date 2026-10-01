@@ -109,7 +109,7 @@
   },
   // fullyParallel browser workers need real `runs` concurrency (the default
   // profile's 1 backs up past assertion timeouts); poolSize >= concurrency
-  // per docs/scaling.md.
+  // per docs/product/operator/scaling.md.
   "workers": {
     "all": {
       "runs": 8

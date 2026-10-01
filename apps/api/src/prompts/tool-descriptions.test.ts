@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type * as NodeFs from 'node:fs';
 
@@ -88,3 +89,35 @@ describe('loadPackagedToolDescription', () => {
     );
   });
 });
+
+// The packaged prompt says what the tool is for; the reference page says how
+// it behaves. Both are read by the same model, so a tool id without a page is
+// a documented capability nothing can reach, and a page whose heading names
+// another tool documents the wrong one. The page lives at the repository
+// root, outside this package, so Stryker's sandbox (which holds the mutated
+// sources and symlinked node_modules only) cannot see it.
+describe.skipIf(process.env.STRYKER_MUTATOR_WORKER !== undefined)(
+  'reference documentation',
+  () => {
+    it('documents every packaged tool on its own reference page', () => {
+      // Four levels up from this module's directory is the repository root.
+      const repositoryRoot = path.resolve(__dirname, '..', '..', '..', '..');
+
+      for (const id of TOOL_PROMPT_IDS) {
+        const page = path.join(
+          repositoryRoot,
+          'docs/product/reference/tools',
+          `${id.replaceAll('_', '-')}.md`,
+        );
+        expect(existsSync(page), `missing reference page for ${id}`).toBe(true);
+
+        // The page's rendered title, so a page that drifted to another tool
+        // cannot pass as this one's.
+        expect(
+          readFileSync(page, 'utf8').match(/^# .+$/mu)?.[0],
+          `reference page for ${id} does not open with "# ${id}"`,
+        ).toBe(`# ${id}`);
+      }
+    });
+  },
+);

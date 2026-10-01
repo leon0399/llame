@@ -187,7 +187,8 @@ source.
 [`stella/stella`](https://github.com/stella/stella/tree/main/.oxlint-plugins),
 fetched 2026-08-31. Which rules were taken, which were rejected, and the
 evidence for each, are recorded in
-[`docs/research/lint/2026-08-31-stella-oxlint-plugins.md`](../../docs/research/lint/2026-08-31-stella-oxlint-plugins.md).
+[`docs/research/lint/2026-08-31-stella-oxlint-plugins.md`](https://github.com/leon0399/llame/blob/75735d28/docs/research/lint/2026-08-31-stella-oxlint-plugins.md),
+which was deleted from the tree and survives at that pinned commit only.
 
 | File                                   | Enforces                                                       |
 | -------------------------------------- | -------------------------------------------------------------- |

@@ -38,7 +38,7 @@ None. `durable-runs` keeps ownership of lifecycle, liveness, partial-output rete
 
 ## Assumptions
 
-- Mid-flight cancellation is relied on only where one process serves both the cancel request and the Run's execution, as `docs/scaling.md` already states for the split topology.
+- Mid-flight cancellation is relied on only where one process serves both the cancel request and the Run's execution, as `docs/product/operator/scaling.md` already states for the split topology.
 - Sonner 2.0.5 and `ai` 6.0.256 behave as inspected: a `start` chunk with a message id adds the message without leaving `submitted`, hovering a toast pauses its timer, and `position="top-right"` places toasts over header space on every route.
 
 ## Impact

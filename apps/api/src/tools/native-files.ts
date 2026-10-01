@@ -92,9 +92,8 @@ function executeNative(
       return executeSkill(context, call, scheme.rest);
     }
     if (scheme.scheme === 'http' || scheme.scheme === 'https') {
-      // The lower-cased scheme selects the branch; the branch itself re-reads
-      // the submitted text, so `HTTPS://` is refused there rather than
-      // fetched under a spelling policy never matched.
+      // The lower-cased scheme selects the branch; the branch re-parses the
+      // submitted text, which policy matched, and requests its canonical form.
       return executeWebRead(context, call);
     }
     return Promise.resolve(unknownSchemeResult());

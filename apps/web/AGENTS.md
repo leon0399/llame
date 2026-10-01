@@ -31,7 +31,7 @@ optional.
 
 ## Traps
 
-- Follow [docs/testing.md](../../docs/testing.md) for component-story versus
+- Follow [docs/development/testing.md](../../docs/development/testing.md) for component-story versus
   jsdom placement.
 - `proxy.ts` must not query the API or database. `useMe()` keeps `staleTime: 0`
   and `refetchOnMount: "always"`.

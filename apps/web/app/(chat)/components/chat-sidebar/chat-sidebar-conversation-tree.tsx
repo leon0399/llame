@@ -135,7 +135,7 @@ const SAMPLE_CONVERSATION_NODES: Array<ConversationNode> = [
  * The nodes visible when `selectedNodeId` is set: its ancestor chain plus its
  * descendant subtree (both traced through `nodes`, not the flat `conversations`
  * list). No selection means everything is visible. Pure so it is
- * unit-testable without the provider (docs/testing.md rule 5).
+ * unit-testable without the provider (docs/development/testing.md rule 5).
  */
 export function computeVisibleConversations(
   nodes: Record<string, ConversationNode>,
@@ -171,7 +171,7 @@ export function computeVisibleConversations(
 /**
  * Seeds the sample tree, tracks selection/hover/SVG sizing, and derives the
  * visible subset — the state driving `ChatSidebarConversationTree`'s render.
- * Exported for a headless renderHook test (docs/testing.md rule 5); the
+ * Exported for a headless renderHook test (docs/development/testing.md rule 5); the
  * rendered markup itself is covered by this file's story.
  */
 export function useConversationTreeData() {

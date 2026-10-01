@@ -45,7 +45,7 @@ See proposal.md for motivation. The state that shapes the approach:
 
 ## Risks / Trade-offs
 
-- [A source pointed at a third-party checkout could link to arbitrary host files] → Sources are operator-configured only; the same operator can allowlist host `read`. Documented in `docs/skills.md` and `docs/native-files.md`. A contained source class can arrive with #784 without reopening this decision.
+- [A source pointed at a third-party checkout could link to arbitrary host files] → Sources are operator-configured only; the same operator can allowlist host `read`. Documented in `docs/product/operator/skills.md` and `docs/product/operator/native-files.md`. A contained source class can arrive with #784 without reopening this decision.
 - [Inverting refusal tests hides a regression in the dangling-link path] → The dangling `SKILL.md` and sidecar tests stay unmodified and are asserted separately; every inverted or retargeted test is named in tasks with its new assertion and a name that matches it.
 - [Adding `followSymlinks` to the shared reader loosens `kb://`] → The option defaults to `false`, `kb://` never passes it, and the existing `kb://` link tests stay unmodified.
 - [Folding a directory-target link into `kind: 'directory'` would descend it] → `DirEntry` keeps the entry's own kind separate from the target kind; the descent filter and comparator read only the former (D6), and a listing test asserts a linked directory is not descended.
@@ -54,7 +54,7 @@ See proposal.md for motivation. The state that shapes the approach:
 
 ## Migration Plan
 
-Two implementation layers. Skills: extend `fileKind` to report a link's followed kind, add `followSymlinks` to `readResolvedFile`, delete the containment code and the `realPath` port, invert or retarget the named tests, update `docs/skills.md` and `docs/native-files.md`. Listing and details: extend `DirectoryPort` and `DirEntry`, render target kind and canonical target with the `kb://` carve-out, add `realPath` to host read results and `realSkillDirectory` to the skill envelope, update the listing tests and the read tool description. No data or configuration migration. An operator who added real roots as a workaround may remove them.
+Two implementation layers. Skills: extend `fileKind` to report a link's followed kind, add `followSymlinks` to `readResolvedFile`, delete the containment code and the `realPath` port, invert or retarget the named tests, update `docs/product/operator/skills.md` and `docs/product/operator/native-files.md`. Listing and details: extend `DirectoryPort` and `DirEntry`, render target kind and canonical target with the `kb://` carve-out, add `realPath` to host read results and `realSkillDirectory` to the skill envelope, update the listing tests and the read tool description. No data or configuration migration. An operator who added real roots as a workaround may remove them.
 
 ## Open Questions
 

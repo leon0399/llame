@@ -6,7 +6,7 @@
  * re-wire). Real hooks run against a stubbed globalThis.fetch — no
  * first-party module mocking. The role-change and grant-role pickers
  * (RolePicker's DropdownMenu) are DOM-render/interaction surface that
- * belongs in Storybook per docs/testing.md rule 5, so those two branches
+ * belongs in Storybook per docs/development/testing.md rule 5, so those two branches
  * (`role === "owner"` in the grant form and row role-change) are exercised
  * directly against their own exported confirm-dialog components instead of
  * by driving the floating-menu picker from here.

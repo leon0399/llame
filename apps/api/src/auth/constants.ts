@@ -16,7 +16,7 @@ export const SESSION_COOKIE_SECURE = process.env.NODE_ENV !== 'development';
 // it (many parallel browser workers log in from one IP); production keeps the
 // strict default.
 export const AUTH_RATE_LIMIT_PER_MINUTE = (() => {
-  // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- pending migration into llame.config.json: this is a product setting read as a bare env var, which skips schema validation and secret marking. Tracked in docs/research/lint/2026-08-31-stella-oxlint-plugins.md.
+  // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- pending migration into llame.config.json: this is a product setting read as a bare env var, which skips schema validation and secret marking. Recorded in the stella oxlint study, docs/research/lint/2026-08-31-stella-oxlint-plugins.md at commit 75735d28.
   const raw = Number(process.env.AUTH_RATE_LIMIT_PER_MINUTE);
   // Integer only: @nestjs/throttler expects a whole request count — a typo
   // like 10.5 falls back to the strict default instead of surprising limits.

@@ -5,7 +5,7 @@ context: |
   tenant isolation, durable history, and fail-closed authorization.
   Read CONTRIBUTING.md for approval, publication, Project tracking, CI,
   monitoring, and merge policy; CODING_STANDARDS.md for implementation scope;
-  REVIEW_GUIDE.md for review; docs/testing.md for the correct proof surface.
+  REVIEW_GUIDE.md for review; docs/development/testing.md for the correct proof surface.
   SPEC.md owns architecture; openspec/specs owns shipped capability behavior.
   Artifact readiness and checked tasks never confer approval or permission.
 

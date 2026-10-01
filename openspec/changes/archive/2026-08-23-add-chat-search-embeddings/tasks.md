@@ -89,7 +89,7 @@ inputs are one contract.
 The largest layer and the one where the concurrency invariants live. Three of its tasks assert
 silent-failure paths that a naive suite passes; they are not optional.
 
-- [x] 6.1 Add `search-embed` to `WORKER_GROUPS`, to the built-in `all` profile, and to the published config schema; update `docs/scaling.md` from three fixed groups to four, and verify `worker-profile.service.test.ts`, `config-loader.test.ts`, and `worker.module.integration.test.ts` pass with the new group
+- [x] 6.1 Add `search-embed` to `WORKER_GROUPS`, to the built-in `all` profile, and to the published config schema; update `docs/product/operator/scaling.md` from three fixed groups to four, and verify `worker-profile.service.test.ts`, `config-loader.test.ts`, and `worker.module.integration.test.ts` pass with the new group
 - [x] 6.2 Define `SEARCH_EMBED_QUEUE` in `apps/api/src/search/reindex-queues.ts` with `policy: 'stately'`, per-chat `singletonKey`, `retryLimit: 5`, and `retryBackoff: true`; confirm which fields pg-boss v12 treats as immutable after `createQueue` and verify the queue-contract test covers its parse function
 - [x] 6.3 Gate the embed consumer on `concurrencyFor('search-embed')`, and log at boot when embeddings are configured but this process consumes no `search-embed` — verified by test for both states
 - [x] 6.4 Enqueue embed work post-commit from **every** projection-changing path — the inline Tier-1 finalize rebuild, the reindex worker, and fork — and verify by integration test that an ordinary turn produces an embed job without any sweep or reindex job having run

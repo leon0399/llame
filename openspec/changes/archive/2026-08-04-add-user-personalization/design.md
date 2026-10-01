@@ -6,7 +6,7 @@ Meanwhile llame already owns three mechanisms this change can reuse rather than 
 
 This change **depends on** `adopt-handlebars-prompt-templates` (shipped and archived), which replaced the bespoke `${...}` grammar with Handlebars, established the boot-time AST allowlist, the narrow escaping, and the requirement that render context be a hand-built projection rather than a record. This change extends that allowlist with per-user paths and adds the data behind them; it introduces no templating mechanism of its own.
 
-Full comparative analysis, the surveyed product field sets, and the rejected alternatives are in [user-context injection](../../../docs/research/long-term-memory/2026-07-27-user-context-injection.md). Frontend work is deliberately excluded from this change and handled separately, so everything the UI will eventually need is exposed through the API instead.
+Full comparative analysis, the surveyed product field sets, and the rejected alternatives are in [user-context injection](../../../../docs/research/long-term-memory/2026-07-27-user-context-injection.md). Frontend work is deliberately excluded from this change and handled separately, so everything the UI will eventually need is exposed through the API instead.
 
 ## Goals / Non-Goals
 

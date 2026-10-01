@@ -84,7 +84,7 @@ afterEach(() => {
 
 describe("typedKeys", () => {
   it("returns the caps object's own keys in declaration order", () => {
-    // Literal anchor (docs/testing.md rule 11): pins the key set this hook's
+    // Literal anchor (docs/development/testing.md rule 11): pins the key set this hook's
     // dirty/overCap/isSaving checks all iterate over.
     expect(typedKeys(PERSONALIZATION_CAPS)).toEqual([
       "preferredName",

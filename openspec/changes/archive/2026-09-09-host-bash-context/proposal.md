@@ -74,7 +74,7 @@ boundary), `execute.ts` spawn environment,
 `timed_out` added). `apps/api/src/tools/bash.ts`: input schema, attempt
 recording through `NativeFilesRepository`, result mapping, tool description.
 `apps/api/src/runs/native-files-repository.ts`: `operation` admits `bash`.
-`apps/api/src/prompts/chat-default.md`, `docs/native-files.md`, `SPEC.md` §13.8,
+`apps/api/src/prompts/chat-default.md`, `docs/product/operator/native-files.md`, `SPEC.md` §13.8,
 README, and the changelog. No database migration: `native.attempt` and
 `native.result` already exist. Issues: closes #733, #734, #735. Permissions,
 approval policy, and the Sandbox stay unowned here.

@@ -104,7 +104,7 @@ the two OpenAI wires and for Messages, where an absent or empty resolution is
 keyless; `openai-codex` requires nonblank `key` and `accountId`, and
 `opencode-go` requires a nonblank `key`, because the gateway authenticates
 every request. Operator procedure:
-[docs/opencode-go.md](../../docs/opencode-go.md).
+[docs/product/operator/providers/opencode-go.md](../../docs/product/operator/providers/opencode-go.md).
 
 `openai-responses` is not "official OpenAI": Ollama >= 0.13.3,
 vLLM, and llama.cpp serve `/v1/responses`, while DeepSeek, GLM, LM Studio,
@@ -206,7 +206,7 @@ Specs: [instance config](../../openspec/specs/instance-config/spec.md),
 [model prompts](../../openspec/specs/model-system-prompts/spec.md),
 [models](../../openspec/specs/available-models/spec.md), and
 [personalization](../../openspec/specs/personalization/spec.md). Operator
-procedure: [docs/tool-prompts.md](../../docs/tool-prompts.md).
+procedure: [docs/product/operator/tool-prompts.md](../../docs/product/operator/tool-prompts.md).
 
 ## Model-context rail
 
@@ -262,7 +262,7 @@ source chat does not erase copies in prompts, appends, or receipts.
 
 Specs: [tool calling](../../openspec/specs/tool-calling/spec.md) and
 [MCP tools](../../openspec/specs/mcp-tools/spec.md). Operator procedure:
-[docs/mcp-tools.md](../../docs/mcp-tools.md).
+[docs/product/operator/mcp-tools.md](../../docs/product/operator/mcp-tools.md).
 
 ## Search and recall
 
@@ -281,7 +281,7 @@ provider. Removing an embedding model does not delete vectors; prune explicitly.
 time ranges, and timeline activity-pointer discovery) and always returns
 canonical results; HTTP admission and every `runs` consumer enforce projection
 coverage. `conversation_read` is independently allowlisted. See
-[the runbook](../../docs/conversation-recall.md) and the
+[the runbook](../../docs/product/operator/conversation-recall.md) and the
 chat-search/search-projection/conversation-read OpenSpecs.
 
 ## API conventions

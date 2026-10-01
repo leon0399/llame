@@ -20,7 +20,7 @@
 
 ## 4. Operator Contract and Release Records
 
-- [x] 4.1 Update `docs/mcp-tools.md`, `apps/api/AGENTS.md`, and `apps/api/llame.config.json.example` with the wildcard syntax, filter-only exact/wildcard semantics, exact-id safer default, future-tool authority risk, process-local offline limitation, and mixed-version rollout/rollback order.
+- [x] 4.1 Update `docs/product/operator/mcp-tools.md`, `apps/api/AGENTS.md`, and `apps/api/llame.config.json.example` with the wildcard syntax, filter-only exact/wildcard semantics, exact-id safer default, future-tool authority risk, process-local offline limitation, and mixed-version rollout/rollback order.
 - [x] 4.2 Update affected code comments and config descriptions that currently define `tools.allowed` as exact-id-only.
 - [x] 4.3 Add the dated `CHANGELOG.md` entry and update `ROADMAP.md` only if #318 is represented there.
 

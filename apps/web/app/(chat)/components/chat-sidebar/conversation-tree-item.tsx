@@ -6,7 +6,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { MessageType, type ConversationNode } from "./conversation-tree-model";
 
 /** The item's preview text: `message` verbatim under `maxLength`, else cut
- *  with a trailing ellipsis. Exported for unit tests (docs/testing.md rule 5). */
+ *  with a trailing ellipsis. Exported for unit tests (docs/development/testing.md rule 5). */
 export function truncateMessage(message: string, maxLength = 40) {
   if (!message) return "";
   if (message.length <= maxLength) return message;
@@ -14,7 +14,7 @@ export function truncateMessage(message: string, maxLength = 40) {
 }
 
 /** The item's type label, or "System" for any type the switch doesn't name.
- *  Exported for unit tests (docs/testing.md rule 5). */
+ *  Exported for unit tests (docs/development/testing.md rule 5). */
 export function getTypeLabel(type: ConversationNode["type"]) {
   switch (type) {
     case MessageType.USER:

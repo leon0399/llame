@@ -190,7 +190,7 @@ remain in force. This is an accepted audited-repository risk, not filesystem con
 - `apps/api/src/instance-config` and `llame.config.json.example`: allowlist validation and the
   nine-group policy with W1/W2.
 - `apps/web`: the owner's current binding field in the Chat API and a chat-header indicator.
-- Docs: `docs/native-files.md`, `docs/mcp-tools.md`, `docs/skills.md`, SPEC.md's MCP,
+- Docs: `docs/product/operator/native-files.md`, `docs/product/operator/mcp-tools.md`, `docs/product/operator/skills.md`, SPEC.md's MCP,
   native-host, skill-source, client-lifecycle, and classification lines, VISION.md's
   write-capable MCP deferral, one paragraph in the local-node research note recording the
   absolute-path exception to §5.4, and `CHANGELOG.md`.

@@ -48,7 +48,7 @@ None. The adapter contract is a web-source extension of `native-file-tools`, not
 
 ## Impact
 
-The implementation layers will extend `apps/api/src/tools/web-read/` (adapter types, dispatch, provenance, the GitHub document and renderer, the rewrite route), instance-config types/schema/loader, and focused fixture-server integration tests in `apps/api/src/tools/web-read.integration.test.ts`. `docs/web-read.md`, the example config, `CHANGELOG.md`, and the packaged `read` description will document the absent-means-none default, declared origins, token tenancy, the x.com rewrite example, and domain-allowlist consequences. No HTTP or parser dependency is added. The result remains the native read object plus web fields, and no database or public HTTP API changes.
+The implementation layers will extend `apps/api/src/tools/web-read/` (adapter types, dispatch, provenance, the GitHub document and renderer, the rewrite route), instance-config types/schema/loader, and focused fixture-server integration tests in `apps/api/src/tools/web-read.integration.test.ts`. `docs/product/operator/web-read.md`, the example config, `CHANGELOG.md`, and the packaged `read` description will document the absent-means-none default, declared origins, token tenancy, the x.com rewrite example, and domain-allowlist consequences. No HTTP or parser dependency is added. The result remains the native read object plus web fields, and no database or public HTTP API changes.
 
 ## Acceptance
 

@@ -46,8 +46,8 @@ sources:
     resource: "../../../apps/web/vitest.config.ts"
     title: "apps/web Vitest config and coverage ratchet"
   - id: llame-testing-doc
-    resource: "../../testing.md"
-    title: "docs/testing.md layers, rule 5, rule 11, tracked follow-ups"
+    resource: "../../development/testing.md"
+    title: "docs/development/testing.md layers, rule 5, rule 11, tracked follow-ups"
   - id: llame-ci-workflow
     resource: "../../../.github/workflows/ci.yml"
     title: "CI jobs, including the Playwright-container component job"
@@ -331,7 +331,7 @@ are approximate, derived from file size.
 
 [^llame-web-vitest-config]: [apps/web/vitest.config.ts](../../../apps/web/vitest.config.ts)
 
-[^llame-testing-doc]: [docs/testing.md](../../testing.md)
+[^llame-testing-doc]: [docs/development/testing.md](../../development/testing.md)
 
 [^llame-ci-workflow]: [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)
 

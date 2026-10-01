@@ -27,7 +27,7 @@ function isNegated(node: ESTree.Expression): boolean {
  * passing after the code starts failing for an entirely unrelated reason — a
  * typo in the test's own setup, a renamed import, a null dereference three
  * frames down. It reports that an error path is covered while proving only that
- * something, somewhere, threw. That is `docs/testing.md` rule 11's shape: a test
+ * something, somewhere, threw. That is `docs/development/testing.md` rule 11's shape: a test
  * that cannot fail for the reason it claims to check.
  *
  * Pass the expected message, a substring, a regular expression, or the error

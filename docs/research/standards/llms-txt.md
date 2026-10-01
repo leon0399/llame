@@ -51,7 +51,7 @@ Markdown-companion URL forms and direct agent consumption[^llmstxt-changes].
 **llame fit: consumed.** The shipped native web `read` already sends
 `Accept: text/markdown`, follows announced alternates, probes a `.md` suffix
 and walks `llms.txt` from the deepest path segment to the root; see
-[adapter order](../../web-read.md#adapter-order). Two v2 details are not
+[adapter order](../../product/reference/locators/web.md#behavior). Two v2 details are not
 followed: the suffix probe tries one companion form per URL shape, and a
 `describedby` link does not locate the index. Neither gap has a reported
 failure; treat them as notes, not work.

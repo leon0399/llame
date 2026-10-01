@@ -1,3 +1,10 @@
+---
+summary: "API and worker topology around one Postgres: profiles, capacity, and limits"
+read_when:
+  - you are sizing API and worker replicas or choosing a worker profile
+  - you are planning the database pool and job-group coverage
+---
+
 # Horizontal scaling
 
 llame scales API and worker processes around one Postgres database containing
@@ -90,7 +97,7 @@ does not receive a cross-process signal and may spend until completion. A
 LISTEN/NOTIFY or control-queue channel is required; do not claim full split
 cancellation before it ships. Owner-facing Stop from acceptance (start frame,
 held Stop, settlement) is specified in
-[`run-cancellation`](../openspec/specs/run-cancellation/spec.md);
+[`run-cancellation`](../../../openspec/specs/run-cancellation/spec.md);
 issue 207 tracks cross-process abort.
 
 A Run has no default time or step limit: `runs.timeoutSeconds` and

@@ -192,7 +192,7 @@ Path and file: native `FileFailure` types. One vocabulary per tool.
   cannot see] → search already ignores non-Markdown and warns per space on an
   oversized `.md`; recorded as expected behavior, not a bug.
 - [`tools.allowed` with `knowledge_read` breaks boot after deploy] → pre-launch
-  rule; `docs/knowledge.md` and the changelog say to remove the entry.
+  rule; `docs/product/operator/knowledge.md` and the changelog say to remove the entry.
 - [`knowledge-submit` D2 contradicts D7] → its design is edited here; its spec
   delta already says "regular-file paths".
 - [A Knowledge path containing `:` has no locator, so search must skip it] →

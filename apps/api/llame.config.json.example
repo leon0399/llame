@@ -73,7 +73,7 @@
     },
     // A ChatGPT/Codex subscription uses fixed transport settings and a
     // file-backed `codex login` credential snapshot. See
-    // docs/codex-subscription.md for the required stop/re-login/restart flow.
+    // docs/product/operator/providers/codex-subscription.md for the required stop/re-login/restart flow.
     // {
     //   "id": "personal-codex",
     //   "type": "openai-codex",
@@ -88,7 +88,7 @@
     // required key cannot boot. Uncomment every line between the two
     // `opencode-go block` markers in this file (this provider and the two
     // models in `models[]`), set OPENCODE_GO_API_KEY, and restart. See
-    // docs/opencode-go.md for the credential, the fixed endpoint, the route
+    // docs/product/operator/providers/opencode-go.md for the credential, the fixed endpoint, the route
     // ceiling, and the per-model privacy divergence.
     // --- opencode-go block: start ---
     // {
@@ -110,7 +110,7 @@
       // "systemPromptFile": "./prompts/gpt-5.6-sol.md",
       // Optional whole-file replacement for one llame-owned tool description
       // on this model, keyed by tool id. Wins over tools.promptFiles below;
-      // see docs/tool-prompts.md.
+      // see docs/product/operator/tool-prompts.md.
       // "toolPromptFiles": { "bash": "./prompts/gpt-5.6-sol-bash.md" },
       "name": "GPT-5.6 Sol",
       "description": "Flagship frontier reasoning model for complex agentic and scientific tasks.",
@@ -358,7 +358,7 @@
     // `contextWindowTokens` below is an operator-declared estimate — check it
     // against the model's own documentation before relying on compaction
     // thresholds derived from it. The Contributor models are deliberately
-    // absent — they train on prompts; see docs/opencode-go.md.
+    // absent — they train on prompts; see docs/product/operator/providers/opencode-go.md.
     // --- opencode-go block: start ---
     // {
     //   "id": "system:opencode-go:glm-5.3-flash",
@@ -441,7 +441,7 @@
   // immediate child directories are Agent Skills packages (pdf/SKILL.md).
   // Later entries override earlier entries by package name. Entries are
   // literal, intentionally public paths: interpolation is rejected here.
-  // Relative entries resolve against this file's directory. See docs/skills.md.
+  // Relative entries resolve against this file's directory. See docs/product/operator/skills.md.
   // "skills": {
   //   "directories": ["/opt/skills", "~/.agents/skills"]
   // },
@@ -458,7 +458,7 @@
     // and now fails boot as an unknown id.
     // Allowlisting search_conversations makes complete canonical projection
     // coverage a startup gate. Add conversation_read independently for exact
-    // line reads; see docs/conversation-recall.md.
+    // line reads; see docs/product/operator/conversation-recall.md.
     // To enable Workspace entry/exit on a native host, also add
     // "enter_workspace" and "exit_workspace" to this allowlist.
     "allowed": ["search_conversations"],
@@ -488,7 +488,7 @@
     // rejected. A models[].toolPromptFiles entry above wins over this one,
     // which wins over the packaged default. Paths are literal, resolve against
     // this file, and are read when an execution process starts — editing one
-    // needs a restart. See docs/tool-prompts.md.
+    // needs a restart. See docs/product/operator/tool-prompts.md.
     // "promptFiles": { "search_conversations": "./prompts/search.md" },
     // Allow/reject rules per exact tool id. There is NO built-in policy:
     // omitting this property rejects every call. This block is the recommended
@@ -567,7 +567,7 @@
           // including a redirect hop, alternate, or probe a public page chooses.
           // Operators who want every cleartext read refused keep `^http://`.
           // Upgrade every API and Run worker before replacing it; see
-          // docs/web-read.md.
+          // docs/product/operator/web-read.md.
           {
             "field": "path",
             "regex": "^http://(?:[1-9]|1[1-9]|[2-9]\\d|10[1-9]|11\\d|12[0-689]|1[3-5]\\d|16[0-8]|17[013-9]|18\\d|19[013-9]|2[0-4]\\d|25[0-5])\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}[:/]"
@@ -708,7 +708,7 @@
     "callTimeoutSeconds": 120,
   },
 
-  // Optional worker-profile concurrency overrides. See docs/scaling.md.
+  // Optional worker-profile concurrency overrides. See docs/product/operator/scaling.md.
   // "workers": {
   //   "all": { "runs": 4 },
   //   "heavy": { "search-reindex": 2 }

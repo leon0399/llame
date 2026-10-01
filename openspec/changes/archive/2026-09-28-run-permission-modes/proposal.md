@@ -81,5 +81,5 @@ such as accept-edits or plan.
 - A new `GET /api/v1/permission-modes` controller and regenerated OpenAPI client.
 - `apps/web`: a `PermissionModeSelector`, `ChatContext` state, the send transport, and the usage
   badge.
-- Docs: `README.md`, `SPEC.md` §8 and §13, `docs/native-files.md`, and `CHANGELOG.md` on ship.
+- Docs: `README.md`, `SPEC.md` §8 and §13, `docs/product/operator/native-files.md`, and `CHANGELOG.md` on ship.
 - Closes [#977](https://github.com/leon0399/llame/issues/977).

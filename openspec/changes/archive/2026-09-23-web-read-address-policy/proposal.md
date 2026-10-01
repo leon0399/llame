@@ -123,7 +123,7 @@ master <- web-read-address-policy/proposal <- web-read-address-policy/admission 
   authored lines. Closes nothing.
 - `admission` (~900 lines): resolution, address admission, pinning,
   unreserved-escape normalization, the `address` record and message, the
-  recommended rows and their boundary test, `docs/web-read.md`, changelog,
+  recommended rows and their boundary test, `docs/product/operator/web-read.md`, changelog,
   README line. `Closes #914`.
 - `finalize`: spec sync and archive only.
 
@@ -134,7 +134,7 @@ master <- web-read-address-policy/proposal <- web-read-address-policy/admission 
 its reconstruction in `apps/api/src/runs/{run-execution.service,assistant-transcript}.ts`,
 `apps/api/llame.config.json.example` with its mirror
 `apps/api/src/testing/portable-tool-policy.ts`, `apps/api/package.json`,
-`docs/web-read.md`, `CHANGELOG.md`, `README.md`. No migration, HTTP API
+`docs/product/operator/web-read.md`, `CHANGELOG.md`, `README.md`. No migration, HTTP API
 surface, or database schema change.
 
 ## Acceptance
@@ -151,7 +151,7 @@ Each row is a delta-spec scenario; `tasks.md` names the owning layer.
 - A resolver answer that changes after the decision is never dialed.
 - Under the recommended example, `http://localhost:3000/` and a LAN host are
   read, `http://example.com/` and `http://169.254.169.254/` are refused, and
-  the domain allowlist from `docs/web-read.md` still admits its host.
+  the domain allowlist from `docs/product/operator/web-read.md` still admits its host.
 - `read https://host/%70rivate` is refused by a reject naming `/private`, and
   `/%%370rivate` is requested as `/%2570rivate`, never as `/private`.
 - `pnpm exec openspec validate web-read-address-policy --strict`,

@@ -367,7 +367,7 @@ their own source design is approved. `ssh://` remains #936.
 
 **Decision.** The single implementation layer owns the shared classifier and
 decoder, the dispatch and projection call sites, focused tests, `read.md`,
-`edit.md`, `write.md`, `docs/native-files.md`, one `SPEC.md` §13.7 sentence
+`edit.md`, `write.md`, `docs/product/operator/native-files.md`, one `SPEC.md` §13.7 sentence
 naming the `file://` alias and its host-path permission identity, and the dated
 `CHANGELOG.md` entry. The proposal branch owns only planning artifacts. The
 native and mutation prompts and operator docs explain local file alias

@@ -55,7 +55,7 @@ Contained and additive. Code: `packages/native-file-tools` (one mutation mode
 beside `createFile`, reusing the existing atomic publish path), and
 `apps/api/src/tools/native-files.ts` (schema, dispatch, and `kb://` leaf
 resolution). Tests at the package, tool-integration, and fence-acceptance
-seams. Docs: `docs/native-files.md`, the root `AGENTS.md` capability line, and
+seams. Docs: `docs/product/operator/native-files.md`, the root `AGENTS.md` capability line, and
 a `CHANGELOG.md` entry. No database, tenancy, client, or UI change (no surface
 consumes the write result's `created` marker today). Not breaking: existing
 callers that omit the flag behave identically.

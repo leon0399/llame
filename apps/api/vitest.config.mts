@@ -87,14 +87,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       // Write the report even when a test fails: the metric targets in
-      // docs/code-quality-targets.md need a number from every run, and a
+      // docs/development/code-quality-targets.md need a number from every run, and a
       // single unrelated failure otherwise yields none at all.
       reportOnFailure: true,
       reporter: ['text-summary', 'json'],
       reportsDirectory: './coverage',
       // Ratchet, not an allowance (api measured 91.1% lines): raise these when coverage
       // rises, never lower one to admit a regression. The 85% target
-      // lives in docs/code-quality-targets.md.
+      // lives in docs/development/code-quality-targets.md.
       thresholds: { lines: 90, statements: 88 },
       // Product source only: generated clients, migrations, vendored
       // code, and the test scaffolding itself are not what the 85%

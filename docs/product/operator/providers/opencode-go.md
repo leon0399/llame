@@ -1,3 +1,10 @@
+---
+summary: "Serving an OpenCode Go subscription through llame's fixed Chat Completions route"
+read_when:
+  - you are configuring an opencode-go provider entry and its models
+  - you are matching a gateway failure message on a Go request
+---
+
 # OpenCode Go provider
 
 `opencode-go` lets one llame instance use an OpenCode Go subscription: a
@@ -13,8 +20,8 @@ the only issuer of a Go credential; the console's catalogue and usage windows
 are visible once you are signed in. Create a subscription key there, then
 store it for llame like any other provider credential.
 
-Add one provider entry and one model entry per model to
-`apps/api/llame.config.json`:
+Add one provider entry and one model entry per model to the instance
+configuration named in the [operator index](../index.md#operator):
 
 ```jsonc
 {

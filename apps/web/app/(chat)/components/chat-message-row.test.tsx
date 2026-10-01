@@ -4,7 +4,7 @@
  * `messageBoundaries`, inspect the returned element tree structurally). The
  * surrounding `ChatMessageRow`/`ChatMessageFooter` components are pure
  * markup composition with zero first-party mocks, so they stay Storybook
- * territory (docs/testing.md rule 5) rather than a jsdom render test.
+ * territory (docs/development/testing.md rule 5) rather than a jsdom render test.
  */
 
 import { isValidElement } from "react";

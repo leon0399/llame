@@ -29,15 +29,18 @@ depend on it.
   archives.
 - [CHANGELOG.md](CHANGELOG.md): shipped chronology.
 - [DESIGN.md](DESIGN.md): UI language.
-- [docs/testing.md](docs/testing.md), [docs/scaling.md](docs/scaling.md): test
+- [docs/index.md](docs/index.md) and [docs/AGENTS.md](docs/AGENTS.md): documentation tree and authoring rules;
+  [docs/development/testing.md](docs/development/testing.md) and
+  [docs/product/operator/scaling.md](docs/product/operator/scaling.md): test
   placement and runtime topology.
 - [`docs/research`](docs/research): noncanonical evidence.
 - [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
   prior-art index for peer harnesses and protocols.
 
 Put commands and traps in the closest `AGENTS.md`, capability behavior in
-OpenSpec, architecture in `SPEC.md`, and operator procedures in `docs/`. The
-spec wins any disagreement.
+OpenSpec, architecture in `SPEC.md`, owner-visible tool and locator behavior in
+`docs/product/reference/`, operator procedures in `docs/product/operator/`, and
+contributor process in `docs/development/`. The spec wins any disagreement.
 
 ## Repository
 
@@ -129,7 +132,7 @@ deterministic; secrets never reach logs, errors, model context, or owner output.
   `as unknown as T`, are banned; narrow or validate the boundary.
 - Product Markdown is part of `pnpm lint` and available directly through
   `pnpm lint:markdown`; lint commands reject unused disables.
-- Follow [docs/testing.md](docs/testing.md). DB suites never skip silently.
+- Follow [docs/development/testing.md](docs/development/testing.md). DB suites never skip silently.
 - UI uses [DESIGN.md](DESIGN.md), shared primitives, and semantic tokens.
   `@shadcn/lint` enforces this through oxlint: components own their color,
   typography, spacing, shape, effects, and motion, and call sites may only add

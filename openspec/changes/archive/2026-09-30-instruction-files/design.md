@@ -324,7 +324,7 @@ in that Space, else its parent within the Space.
 exactly the agent that most needs the rules without them.
 
 **Why logical locators:** Knowledge results never expose host paths, owner IDs, credentials,
-or raw filesystem errors (`docs/knowledge.md`). A bundle that labelled a Space candidate with
+or raw filesystem errors (`docs/product/operator/knowledge.md`). A bundle that labelled a Space candidate with
 its host path would break that promise in the model context, the payload, the audit events,
 and the owner chip. Each candidate is therefore labelled and keyed by
 `formatKnowledgeLocator`'s output, `kb://<spaceId>/<relative path>`; that string is also the

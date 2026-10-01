@@ -1,4 +1,4 @@
-Track [#154](https://github.com/leon0399/llame/issues/154) and its PRs through the delivery Project under [CONTRIBUTING.md](../../../CONTRIBUTING.md). Local drafting or commits do not change Project status. [#806](https://github.com/leon0399/llame/issues/806) and [#170](https://github.com/leon0399/llame/issues/170) are separate work, not native blockers of this change.
+Track [#154](https://github.com/leon0399/llame/issues/154) and its PRs through the delivery Project under [CONTRIBUTING.md](../../../../CONTRIBUTING.md). Local drafting or commits do not change Project status. [#806](https://github.com/leon0399/llame/issues/806) and [#170](https://github.com/leon0399/llame/issues/170) are separate work, not native blockers of this change.
 
 Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation. Carry forward approval of the actual proposal revision (v6) and recheck native blockers before creating the implementation branch. Publication and merge each require separate permission.
 

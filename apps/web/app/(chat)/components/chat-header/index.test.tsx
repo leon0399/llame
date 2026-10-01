@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 /**
- * ChatHeader mocks next/navigation (the router, docs/testing.md rule 5's own
+ * ChatHeader mocks next/navigation (the router, docs/development/testing.md rule 5's own
  * carve-out for staying jsdom over a story) but otherwise runs its real
  * useChatQuery/useChatsQuery hooks against a stubbed globalThis.fetch, no
  * first-party module mocking. Reduced-motion is forced on so useTypewriter

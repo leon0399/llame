@@ -613,7 +613,7 @@ prompts and are not zero-retention, and retention also differs inside the
 provider: most models are 0 days while `grok-4.6` and `gpt-5.6-luna` retain 30
 days for abuse monitoring. A per-model retention and training field in the
 owner-facing catalogue is a genuine product question, so it does not ride in on
-a provider slice; the divergence is explained in `docs/opencode-go.md`
+a provider slice; the divergence is explained in `docs/product/operator/providers/opencode-go.md`
 instead.
 
 Note for the runbook: `deepseek-v4.1-flash`'s $60 monthly cap was promotional
@@ -813,7 +813,7 @@ no chat history needs reprocessing.
   echo request values the gateway names; "names no workspace" is hedged and
   handed to the live proof; the redirect rationale is restated (session header
   and request body follow a redirect; the credential on a same-origin hop) and
-  the helper is exported rather than duplicated; `docs/scaling.md` gains the
+  the helper is exported rather than duplicated; `docs/product/operator/scaling.md` gains the
   manifest-beside-`dist/` prerequisite; the latent `experimental_telemetry`
   header export is recorded under D3; stale "two misreports" counts and
   citations are corrected. No round-1 finding regressed; no new blocking or

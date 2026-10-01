@@ -43,9 +43,9 @@ over ordinary HTTP content negotiation, not a new format.
 **llame fit: consumed.** llame's web `read` sends `Accept: text/markdown` on
 every request, so an enabled zone is served through the existing `negotiated`
 adapter without vendor code; see
-[adapter order](../../web-read.md#adapter-order). The result omits
+[adapter order](../../product/reference/locators/web.md#behavior). The result omits
 `markdownTokens` and response headers, and `content-signal` is neither
-consulted nor reported ([what is not read](../../web-read.md#what-is-not-read)).
+consulted nor reported ([what is not read](../../product/reference/locators/web.md#what-is-not-read)).
 Using the token estimate for context budgeting would be a result-contract
 change; nothing asks for it yet.
 

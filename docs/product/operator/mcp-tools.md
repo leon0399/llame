@@ -1,8 +1,17 @@
+---
+summary: "MCP servers: remote HTTP and stdio configuration, Workspace MCP, and deployment"
+read_when:
+  - you are configuring mcpServers, an MCP allowlist, or its permission groups
+  - you are deploying or troubleshooting MCP discovery and availability
+behavior:
+  - ../reference/tools/mcp-tools.md
+---
+
 # MCP tools
 
 llame connects to operator-managed MCP servers and exposes allowlisted tools
-whose calls pass per-tool permissions. Put `mcpServers` in
-`apps/api/llame.config.json`; `LLAME_CONFIG_PATH` overrides that path.
+whose calls pass per-tool permissions. Put `mcpServers` in the instance
+configuration named in the [operator index](index.md#operator).
 Configuration is restart-applied, and every API/worker process owns its clients
 and sessions.
 
@@ -241,16 +250,10 @@ step. MCP calls have no automatic retry.
 
 ## Workspace entry migration
 
-**Breaking:** Existing MCP allowlists no longer attest that tools are read-only.
-Add a `tools.permissions` group for every allowlisted MCP tool and use rejects
-for operations that must not mutate, send, execute, or administer.
-
-Permitting `enter_workspace` on a directory that any allowlisted tool can write
-— `bash`, native `write`/`edit` without the W1/W2 rejects described in
-[Native file tools](native-files.md#workspace-entry), or write-capable operator
-or Workspace MCP tools — is equivalent to `execute_code` and host-secret
-exfiltration. Treat such a directory as host authority and keep the entry
-policy plus W1/W2 rejects aligned with the tools it admits.
+**Breaking:** an MCP allowlist no longer attests that a tool is read-only. What
+it selects, and the permission group every call needs, are described in
+[MCP tools](../reference/tools/mcp-tools.md); the Workspace entry policy and
+its W1/W2 rejects are in [Native file tools](native-files.md#workspace-entry).
 
 Tool arguments leave llame. Trust the server for any conversation data the
 model may send. Redirects are disabled. Private/loopback endpoints are allowed;

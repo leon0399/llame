@@ -1,6 +1,6 @@
 /**
  * `formatTokens`/`formatUsd`/`formatDate` are pure formatting logic
- * (docs/testing.md rule 5's "pure logic" carve-out). Both are pinned to
+ * (docs/development/testing.md rule 5's "pure logic" carve-out). Both are pinned to
  * "en-US"/"UTC" rather than the host locale/timezone (see the JSDoc on
  * these in model-preview-card.tsx) — these expectations hold on every host,
  * which is exactly what the pin buys. The card's render itself is covered by

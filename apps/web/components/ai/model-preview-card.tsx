@@ -15,7 +15,7 @@ export type ModelPreviewCardProps = {
 // `timeZone: "UTC"` — `knowledgeCutoff`/`releasedAt` are date-only ISO
 // strings, which `new Date()` parses at UTC midnight; a host-timezone format
 // would otherwise shift the day for any UTC-negative client, on top of the
-// same locale mismatch. Exported for unit tests (docs/testing.md rule 5).
+// same locale mismatch. Exported for unit tests (docs/development/testing.md rule 5).
 
 export function formatTokens(tokens: number): string {
   return Intl.NumberFormat("en-US", { style: "decimal" }).format(tokens);
