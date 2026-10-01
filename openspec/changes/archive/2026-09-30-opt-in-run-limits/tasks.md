@@ -1,6 +1,6 @@
 # Tasks
 
-Track [#1038](https://github.com/leon0399/llame/issues/1038) and its PR through the delivery Project under [CONTRIBUTING.md](../../../CONTRIBUTING.md). Local drafting and commits do not change Project status. The follow-ups #1047–#1051 are out of scope.
+Track [#1038](https://github.com/leon0399/llame/issues/1038) and its PR through the delivery Project under [CONTRIBUTING.md](../../../../CONTRIBUTING.md). Local drafting and commits do not change Project status. The follow-ups #1047–#1051 are out of scope.
 
 **Named delivery exception (Leo, 2026-09-30):** this change ships as one PR on one branch. The proposal, the implementation, and finalize (spec sync and archive) are successive commits instead of a linear stack. The gates still apply in order:
 
