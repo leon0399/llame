@@ -33,8 +33,12 @@ the next accepted turn. See [instruction files](../instruction-files.md).
 
 ## Errors
 
-Exit takes no path, so it has no path failure of its own; it fails only when the
-host executor is unavailable or the `exit_workspace` group refuses the call.
+Exit takes no path, so it has no path failure of its own. It returns
+`executor_unavailable` when the host executor or the current-delivery fence is
+missing, `permission_denied` when the `exit_workspace` group refuses the call,
+`workspace_transition_conflict` when an `enter_workspace` or `exit_workspace`
+call already took this model step's single transition slot, and `cancelled`
+when the Run is aborted.
 
 ## Configured by
 

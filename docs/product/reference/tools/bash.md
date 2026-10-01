@@ -32,10 +32,12 @@ with truncation reported.
 ## Behavior
 
 `bash` accepts an optional literal `cwd` and string-record `env`. An absolute
-`cwd` is used as given; a relative `cwd` resolves from the trusted bash working
-directory or the API cwd. When omitted, the default directory is used. The
-directory must be enterable before the attempt is recorded, and no shell
-expansion is applied to the argument.
+`cwd` is used as given; a relative `cwd` resolves from the Workspace root while
+a Workspace is entered and from the trusted bash working directory or the API
+cwd otherwise. When omitted, that same default directory is used. A `cwd` that
+names a locator scheme is refused with `invalid_path` while a Workspace is
+entered. The directory must be enterable before the attempt is recorded, and no
+shell expansion is applied to the argument.
 
 Each call starts a fresh process, so its working directory, environment, and
 shell state do not persist. The child receives the fixed managed base (`PATH`,
@@ -44,8 +46,7 @@ plus the call's additions as its initial environment; base variables cannot be
 replaced. Bash, its launcher, or the runtime may add variables such as `PWD`,
 `SHLVL`, and `_` before a command prints its environment.
 
-Host-known protected values are redacted before the result leaves the executor,
-and the shared model-facing neutralizer escapes reserved tool delimiters in the
+The shared model-facing neutralizer escapes reserved tool delimiters in the
 copy sent to the model. Host `bash` can also discover a mounted Knowledge root
 through ordinary filesystem commands; that is separate from the owner-scoped
 `knowledge_search` and `kb://` capabilities.

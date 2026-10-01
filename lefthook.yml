@@ -47,6 +47,10 @@ pre-commit:
       glob: &markdown-config-glob "{.markdownlint-cli2.jsonc,scripts/check-markdown-links.mjs}"
       run: pnpm lint:markdown
 
+    - name: markdown links
+      glob: *markdown-glob
+      run: node scripts/check-markdown-links.mjs
+
     - name: format
       glob: &format-glob "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,md,mdx,json,jsonc,css,scss,yaml,yml,html}"
       files: git diff --name-only --cached --diff-filter=ACMR
@@ -70,6 +74,10 @@ pre-push:
     - name: markdown lint config
       glob: *markdown-config-glob
       run: pnpm lint:markdown
+
+    - name: markdown links
+      glob: *markdown-glob
+      run: node scripts/check-markdown-links.mjs
 
     - name: code lint
       glob: [*code-glob, "{pnpm-workspace.yaml,**/turbo.json}"]

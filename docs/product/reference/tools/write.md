@@ -21,14 +21,21 @@ entire contents. It is the tool for a whole-file change; use
 
 | Argument  | Meaning                                                          |
 | --------- | ---------------------------------------------------------------- |
-| `path`    | a locator; a selector is not accepted                            |
+| `path`    | a locator; a `kb://` locator takes no selector                   |
 | `content` | the file's new contents; an empty string truncates to zero bytes |
 | `replace` | optional; `true` replaces an existing file instead of creating   |
 
 ## Locators
 
-An absolute host path, a `file://` alias, or a `kb://` locator; see
-[locators](../locators/index.md). A selector is rejected on `write`.
+An absolute host path, a `file://` alias, or a `kb://` locator; while a
+Workspace is entered, a relative path is resolved beneath its root. See
+[locators](../locators/index.md) and
+[enter_workspace](enter-workspace.md#bounds).
+
+The selector grammar is not part of `write`. A `kb://` locator that carries one
+is refused with `invalid_selector`; on a host `path` or `file://` alias a
+trailing `:N-M` or `:raw` is part of the filename, so such a write creates or
+replaces a file whose name ends in that text.
 
 ## Result
 
@@ -74,7 +81,8 @@ chain of the directory it touches; see
 
 `file_exists` for an existing target in create mode, `not_regular_file` for an
 intermediate component that is a regular file, `not_found` for an absent replace
-target or a refused `kb://` symbolic-link component. The shared vocabulary is in
+target or a refused `kb://` symbolic-link component, and `invalid_selector` for
+a `kb://` locator carrying a selector. The shared vocabulary is in
 [read](read.md#errors).
 
 ## Configured by

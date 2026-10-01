@@ -16,5 +16,5 @@ read_when:
   touch loads into context, and when.
 - [Permission modes](permission-modes.md): what `default` and `bypass` change
   for one Run.
-- [Mutation recovery](mutation-recovery.md): how `edit`, `write`, `bash`, and
-  MCP calls are fenced so a redelivered Run never repeats an effect.
+- [Mutation recovery](mutation-recovery.md): how `edit`, `write`, and `bash`
+  attempts are fenced so a redelivered Run never repeats an effect.

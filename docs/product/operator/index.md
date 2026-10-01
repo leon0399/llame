@@ -6,10 +6,11 @@ read_when:
 
 # Operator
 
-`llame.config.json` and every file it references are read when an API or worker
-process starts. A change applies only after every API and worker process that
-accepts or executes Runs restarts on the same configuration. Pages below state
-additional ordering where a change needs it.
+The instance configuration is `apps/api/llame.config.json`, overridable with
+`LLAME_CONFIG_PATH`. It and every file it references are read when an API or
+worker process starts, so a change applies only after every API and worker
+process that accepts or executes Runs restarts on the same configuration. Pages
+below state additional ordering where a change needs it.
 
 ## Tools and permissions
 

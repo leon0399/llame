@@ -55,8 +55,10 @@ snapshot.
 Scanning is case-insensitive and literal: no regex, subprocess, Markdown
 parser, index, or embeddings. Each occurrence includes at most one adjacent
 line on each side; touching windows merge and split at 2,000 lines. Only
-Markdown is indexed, and an oversized or invalid-UTF-8 `.md` file warns per
-Space.
+Markdown is indexed. A `.md` file whose content is not valid UTF-8 warns per
+Space and the walk continues with the remaining spaces; a `.md` file that
+exceeds the per-file or shared search byte budget fails the whole call with
+`knowledge_limit_exceeded` and no passage is returned.
 
 A search hit never triggers an instruction file. `knowledge_search` is a
 bounded Markdown scanner, not an index, an embeddings store, or a Git revision

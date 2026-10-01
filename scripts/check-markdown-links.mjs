@@ -10,31 +10,41 @@
  * docs listing prints, including the pages it points at and the capability it
  * belongs to.
  *
- * The scope mirrors `.markdownlint-cli2.jsonc`: what that file ignores is not
- * documentation, so its links belong to another contract (the provider prompt
- * contract, upstream agent skills). `docs/research/**` is in scope for links
- * like everything else — a research bundle that renames a document leaves a
- * dangling citation behind — while its external citations are untouched,
- * since this checker resolves relative paths only. Frontmatter obligations
- * stay scoped to `docs/product/`, the tree the `llame://docs/` listing prints.
+ * The scope is read from `.markdownlint-cli2.jsonc` rather than restated, so
+ * the two cannot drift: what Markdownlint ignores is not documentation, so
+ * its links belong to another contract (the provider prompt contract, upstream
+ * agent skills). `docs/research/**` is in scope for links like everything else
+ * — a research bundle that renames a document leaves a dangling citation
+ * behind — while its external citations are untouched, since this checker
+ * resolves relative paths only. Frontmatter obligations stay scoped to
+ * `docs/product/`, the tree the `llame://docs/` listing prints.
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import jsoncParse from "markdownlint-cli2/parsers/jsonc";
 
-/** The documents markdownlint-cli2 ignores: other contracts, not docs. */
-export const ignoredGlobs = [
-  ".agents/skills/**",
-  ".claude/skills/**",
-  ".codex/skills/**",
-  ".opencode/skills/**",
-  "**/CLAUDE.md",
-  "**/GEMINI.md",
-  "apps/api/src/prompts/**",
-  "apps/api/src/*/prompts/**",
-];
+/** The repository this script checks: its own parent's parent. */
+export const repositoryRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+
+/** Where Markdownlint records which documents are not documentation. */
+const markdownlintConfig = ".markdownlint-cli2.jsonc";
+
+/** The documents Markdownlint ignores, read from its own configuration. */
+export const ignoredGlobs = readIgnoredGlobs();
+
+function readIgnoredGlobs() {
+  const file = path.join(repositoryRoot, markdownlintConfig);
+  const { ignores } = jsoncParse(readFileSync(file, "utf8"));
+  if (!Array.isArray(ignores))
+    throw new Error(`${markdownlintConfig} lists no "ignores" array`);
+  return ignores;
+}
 
 /** Pages whose frontmatter the `llame://docs/` listing prints. */
 export const productPrefix = "docs/product/";
@@ -56,16 +66,33 @@ const gitStdoutMaxBuffer = Number.MAX_SAFE_INTEGER;
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
-/** Matches one `.markdownlint-cli2.jsonc` ignore pattern against a path. */
+/**
+ * Matches one `.markdownlint-cli2.jsonc` ignore pattern against a path, with
+ * the `**` of GitHub's ignore semantics: it spans any number of directories,
+ * so a pattern prefixed with a globstar and a slash covers the loader alias at
+ * the repository root as well as the ones beside every package.
+ */
 function matchesGlob(glob, file) {
-  const source = escapeRegExp(glob)
-    .replace(/\\\*\\\*/gu, "@@")
-    .replace(/\\\*/gu, "[^/]*")
-    .replace(/@@/gu, ".*");
+  let source = "";
+  for (let index = 0; index < glob.length; ) {
+    const rest = glob.slice(index);
+    if (rest.startsWith("**/")) {
+      source += "(?:[^/]+/)*";
+      index += 3;
+      continue;
+    }
+    if (rest.startsWith("**")) {
+      source += ".*";
+      index += 2;
+      continue;
+    }
+    source += glob[index] === "*" ? "[^/]*" : escapeRegExp(glob[index]);
+    index += 1;
+  }
   return new RegExp(`^${source}$`, "u").test(file);
 }
 
-/** Whether markdownlint's configuration already skips the document. */
+/** Whether Markdownlint's configuration already skips the document. */
 export function isIgnored(file) {
   return ignoredGlobs.some((glob) => matchesGlob(glob, file));
 }
@@ -128,10 +155,36 @@ function contentStart(lines) {
   return end < 0 ? 0 : end + 1;
 }
 
+const listItem = /^(\s*)(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$)/u;
+
+/** A list item's own content starts after its marker, where its blocks live. */
+const itemContentIndent = (line) => {
+  const item = listItem.exec(line);
+  return item ? item[0].length : null;
+};
+
+/** Leading whitespace counted in columns, the way CommonMark indents. */
+const indentOf = (line) => line.length - line.trimStart().length;
+
+/** An ATX heading, with the list-item marker GitHub reads before it. */
+const atxHeading =
+  /^\s*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)?(#{1,6})\s+(.*?)\s*#*\s*$/u;
+
+/** A setext underline: up to three spaces, then only rule characters. */
+const setextUnderline = /^\s{0,3}(?:=+|-+)\s*$/u;
+
+/** A heading is code, not a heading, once it is indented four past its block. */
+const isHeadingIndent = (indent, listIndent) =>
+  indent <= 3 ||
+  (listIndent !== null && indent >= listIndent && indent < listIndent + 4);
+
 /**
  * Every anchor a document offers: the ATX and setext headings outside fenced
  * code, a repeated slug numbered `-1`, `-2`, ... the way GitHub numbers them,
- * so the second `## Purpose` is `purpose-1`.
+ * so the second `## Purpose` is `purpose-1`. A heading inside a list item is a
+ * heading to GitHub too, so the list container is tracked: its item content
+ * indent is what tells an indented heading from indented code, and an
+ * underline that dedents out of the item is a thematic break.
  */
 export function headingAnchors(text) {
   const anchors = new Set();
@@ -146,6 +199,8 @@ export function headingAnchors(text) {
   const lines = text.split("\n");
   const first = contentStart(lines);
   let fence = null;
+  /** The content indent of the innermost open list, `null` outside one. */
+  let listIndent = null;
   for (const [index, line] of lines.entries()) {
     if (index < first) continue;
     if (fence) {
@@ -157,18 +212,30 @@ export function headingAnchors(text) {
       fence = marker;
       continue;
     }
-    const atx = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/u.exec(line);
-    if (atx) {
-      add(atx[1]);
+    // A marker opens or continues a list item; a line indented less than the
+    // item's content has left the list, as a blank line never does.
+    const content = itemContentIndent(line);
+    if (content !== null) listIndent = content;
+    else if (
+      line.trim() !== "" &&
+      listIndent !== null &&
+      indentOf(line) < listIndent
+    )
+      listIndent = null;
+
+    const atx = atxHeading.exec(line);
+    if (atx && isHeadingIndent(indentOf(line), listIndent)) {
+      add(atx[2]);
       continue;
     }
     const underline = lines[index + 1];
     if (
       underline !== undefined &&
-      /^\s{0,3}(?:=+|-+)\s*$/u.test(underline) &&
-      line.trim().length > 0
+      line.trim().length > 0 &&
+      setextUnderline.test(underline) &&
+      (listIndent === null || indentOf(underline) >= listIndent)
     )
-      add(line);
+      add(listItem.test(line) ? line.replace(listItem, "") : line);
   }
   return anchors;
 }
@@ -216,13 +283,17 @@ const inlineLink = new RegExp(
   "gu",
 );
 
-const referenceDefinition = /^ {0,3}\[[^\]\n]+\]:[ \t]*(.*)$/gmu;
+/**
+ * A link reference definition, not a footnote: GitHub reads `[^id]: prose` as
+ * a footnote, and a footnote body may itself be a bare path, so the label's
+ * leading caret is what separates the two forms.
+ */
+const referenceDefinition = /^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(.*)$/gmu;
 
 /**
  * CommonMark reads `[label]: destination "title"` and nothing else as a link
- * definition. A GitHub footnote is `[^id]: prose`, and a footnote wrapping a
- * citation is `[^id]: [text](url)`: the inner link is an ordinary link the
- * inline scan already read, and neither the label nor its wrapper is a path.
+ * definition, so a body that is itself a link is a paragraph, not a
+ * destination -- the inline scan has already read any link inside it.
  */
 const definitionBody =
   /^(?:<[^<>\n]*>|\S+)(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t]*$/u;
@@ -327,22 +398,39 @@ const lineAnchor = /^L\d+(?:-L\d+)?$/u;
 /** A heading anchor means something only in a Markdown document. */
 const isMarkdown = (file) => /\.(?:md|markdown)$/iu.test(file);
 
+/** Whether a resolved path is the root itself or inside it. */
+const isWithinRoot = (root, file) => {
+  const relative = path.relative(root, file);
+  return !relative.startsWith("..") && !path.isAbsolute(relative);
+};
+
 /**
  * What is wrong with one relative link, or `null` when it resolves: the target
- * must exist, and a fragment must name a heading in it or a line in a file
- * GitHub renders with line numbers.
+ * must exist inside this repository, and a fragment must name a heading in it
+ * or a line in a file GitHub renders with line numbers.
  */
 function linkProblem(context, line, target) {
-  const { name, file, text, readFile } = context;
+  const { name, file, text, readFile, root } = context;
   if (target === "" || isExternal(target)) return null;
   const hash = target.indexOf("#");
-  const locator = decode(hash < 0 ? target : target.slice(0, hash));
+  const query = target.indexOf("?");
+  const end = hash < 0 ? target.length : hash;
+  const queryAt = query < 0 || query > end ? end : query;
+  // A query selects a representation of the target, never another file, so it
+  // is dropped before the path is resolved and never reaches the fragment.
+  const locator = decode(target.slice(0, queryAt));
   const fragment = hash < 0 ? "" : decode(target.slice(hash + 1));
   if (locator === "" && fragment === "") return null;
   const sameFile = locator === "";
   const resolved = sameFile ? file : path.resolve(path.dirname(file), locator);
+  // A target outside the repository is not this checker's to resolve: what it
+  // finds depends on the lint host, and `..` can leave through a symlink too.
+  if (!isWithinRoot(root, resolved))
+    return { file: name, line, message: `outside the repository: ${target}` };
   const stats = statSync(resolved, { throwIfNoEntry: false });
   if (!stats) return { file: name, line, message: `no such file: ${target}` };
+  if (!sameFile && !isWithinRoot(realpathSync(root), realpathSync(resolved)))
+    return { file: name, line, message: `outside the repository: ${target}` };
   if (fragment === "") return null;
   if (!stats.isFile())
     return {
@@ -438,7 +526,9 @@ function frontmatterProblems(context) {
         for (const entry of items)
           if (
             entry.value &&
-            !existsSync(path.join(root, capabilityRoot, entry.value))
+            !statSync(path.join(root, capabilityRoot, entry.value), {
+              throwIfNoEntry: false,
+            })?.isDirectory()
           )
             report(
               entry.line,
@@ -498,7 +588,7 @@ export function trackedDocuments(root) {
 }
 
 function main() {
-  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const root = repositoryRoot;
   // Every document is read once, and every link target once more at most.
   const cache = new Map();
   const readFile = (file) => {

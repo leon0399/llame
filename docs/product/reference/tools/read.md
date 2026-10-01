@@ -88,10 +88,11 @@ traversal budget, in [host-path](../locators/host-path.md#listing).
 
 Knowledge identifier failures — `knowledge_space_not_found` and
 `knowledge_space_unavailable` — are specific to `kb://`; see
-[kb](../locators/kb.md#errors). Every other path and file failure —
-`invalid_path`, `not_found`, `not_regular_file`, `file_exists`,
+[kb](../locators/kb.md#errors). Every other path and file failure a read can
+return — `invalid_path`, `not_found`, `not_regular_file`, `invalid_utf8`,
 `executor_unavailable`, `directory_too_large`, ... — is the same native
-vocabulary regardless of scheme.
+vocabulary regardless of scheme. `file_exists` is not one of them: it belongs to
+the mutations, in [write](write.md#errors).
 
 A selector the source does not accept fails with `invalid_selector`; see
 [selectors](../selectors.md). `unsupported_operation` is a `skill://` mutation

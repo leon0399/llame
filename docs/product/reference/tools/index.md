@@ -7,10 +7,12 @@ read_when:
 
 # Tools
 
-Every tool is advertised only when the operator allowlists it, and every call
-is admitted by the permission group keyed by the tool's exact id. A tool marked
-"host executor" needs the operator's native executor identity; the others run
-wherever the Run runs.
+Every tool is advertised only when the operator allowlists it. In the default
+permission mode every call is admitted only by the permission group keyed to
+the tool's exact id; in bypass mode a call is admitted without one, as
+[permission modes](../permission-modes.md) describes. A tool marked "host
+executor" needs the operator's native executor identity; the others run wherever
+the Run runs.
 
 | Tool                                              | Executor                          | Locators                                                                                                                                               | Permission group        | Configured by                                                                                                                                                         |
 | ------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

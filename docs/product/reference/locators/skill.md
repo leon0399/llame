@@ -37,7 +37,8 @@ rather than serving stale bytes.
 
 ## Authority
 
-Every successful result carries `locator`, `sourceDirectory`, absolute
+Every successful package read — `SKILL.md`, a supporting file, or a package
+directory listing — carries `locator`, `sourceDirectory`, absolute
 `resolvedPath`, absolute `skillDirectory`, and `skillPathInstruction`; the
 envelope also carries `realSkillDirectory` when the real package directory
 differs from `skillDirectory`. Package-relative paths still resolve against
@@ -61,12 +62,20 @@ writing `$review`. Without that selection its body and resource reads return
 paging through `nextOffset` like a directory listing. A manual-only package is
 omitted from the catalog until the user selects it.
 
+The listing carries `locator`, `skillCount`, `skills`, and
+`skillPathInstruction`, with `nextOffset` only when the listing continues; it
+carries no `sourceDirectory`, `resolvedPath`, or `skillDirectory`, because no
+single package was opened.
+
 ## Errors
 
 `unsupported_operation` for `edit` or `write`; `skill_requires_explicit_selection`
 for an unselected manual-only package; `invalid_path` for a malformed locator;
-`not_found` for a package or supporting file that is absent. The shared
-vocabulary is in [read](../tools/read.md#errors).
+`not_found` for a package that no installed source publishes or a supporting
+file that is absent; `skill_unavailable` for a package the catalog discovered
+whose files no longer validate; `skill_catalog_unavailable` for a catalog that
+cannot be read. The shared vocabulary is in
+[read](../tools/read.md#errors).
 
 ## Configured by
 

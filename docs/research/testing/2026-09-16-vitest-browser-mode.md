@@ -46,8 +46,8 @@ sources:
     resource: "../../../apps/web/vitest.config.ts"
     title: "apps/web Vitest config and coverage ratchet"
   - id: llame-testing-doc
-    resource: "../../testing.md"
-    title: "docs/testing.md layers, rule 5, rule 11, tracked follow-ups"
+    resource: "../../development/testing.md"
+    title: "docs/development/testing.md layers, rule 5, rule 11, tracked follow-ups"
   - id: llame-ci-workflow
     resource: "../../../.github/workflows/ci.yml"
     title: "CI jobs, including the Playwright-container component job"

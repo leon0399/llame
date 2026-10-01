@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -61,6 +67,21 @@ test("markup inside a heading contributes no anchor characters", () => {
   const anchors = headingAnchors("## `kb://` and [skill.md](skill.md)\n");
 
   assert.ok(anchors.has("kb-and-skillmd"));
+});
+
+test("an underline that dedents out of a list is a thematic break", () => {
+  assert.deepEqual([...headingAnchors("* apple\n* banana\n---\n")], []);
+  assert.deepEqual([...headingAnchors("- banana\n---\n")], []);
+  // The same underline, indented into the item, is a heading GitHub creates.
+  assert.deepEqual([...headingAnchors("- banana\n  ---\n")], ["banana"]);
+});
+
+test("a heading nested in a list item carries GitHub's anchor", () => {
+  assert.deepEqual([...headingAnchors("- ## Nested\n")], ["nested"]);
+  assert.deepEqual([...headingAnchors("1. ## Nested\n")], ["nested"]);
+  // Four columns past the item content is code, not a heading.
+  assert.deepEqual([...headingAnchors("- item\n\n    ## deep\n")], ["deep"]);
+  assert.deepEqual([...headingAnchors("- item\n\n      ## code\n")], []);
 });
 
 test("a heading inside a fenced block is not an anchor", () => {
@@ -179,6 +200,25 @@ test("a footnote definition is a paragraph, not a destination", (t) => {
   const root = repository(t, {
     "docs/report.md":
       "# Report\n\n[^note]: User-provided `analysis.md`, received 2026-09-24.\n\n[^citation]: [Harness](https://example.invalid/harness.md)\n",
+  });
+
+  assert.deepEqual(check(root, "docs/report.md"), []);
+});
+
+test("a footnote naming a path is prose, not a dangling destination", (t) => {
+  const root = repository(t, {
+    "docs/report.md":
+      "# Report\n\n[^note]: gone.md\n\n[^src]: ../src/keep.ts\n",
+  });
+
+  assert.deepEqual(check(root, "docs/report.md"), []);
+});
+
+test("a query string is not part of the file it selects", (t) => {
+  const root = repository(t, {
+    "docs/report.md":
+      "# Report\n\n[raw](harness/index.md?raw=1) [section](harness/index.md?x=1#tools)\n",
+    "docs/harness/index.md": "# Harnesses\n\n## Tools\n",
   });
 
   assert.deepEqual(check(root, "docs/report.md"), []);
@@ -325,6 +365,23 @@ test("a spec naming no capability directory is reported on its line", (t) => {
   ]);
 });
 
+test("a spec naming a file where a capability directory belongs is reported", (t) => {
+  const root = repository(t, {
+    "openspec/specs/native-file-tools": "# not a directory\n",
+    "docs/product/reference/tools/read.md": page(
+      `${summary}${reasons}spec: native-file-tools\n`,
+    ),
+  });
+
+  assert.deepEqual(check(root, "docs/product/reference/tools/read.md"), [
+    problem(
+      "docs/product/reference/tools/read.md",
+      5,
+      "no capability directory: openspec/specs/native-file-tools",
+    ),
+  ]);
+});
+
 test("a page points at pages that exist, one key or a list of them", (t) => {
   const root = repository(t, {
     "openspec/specs/native-file-tools/spec.md": "# native-file-tools\n",
@@ -369,6 +426,29 @@ test("a document outside docs/product carries no frontmatter obligation", (t) =>
   });
 
   assert.deepEqual(check(root, "docs/index.md"), []);
+});
+
+test("the ignore list is the markdownlint configuration's own", () => {
+  assert.equal(isIgnored("CLAUDE.md"), true);
+  assert.equal(isIgnored("GEMINI.md"), true);
+  // Prompt prose Markdownlint still lints is this checker's to resolve too.
+  assert.equal(isIgnored("apps/api/src/prompts/chat-default.md"), false);
+});
+
+test("a target outside the repository is rejected, symlink or not", (t) => {
+  const root = repository(t, {
+    "docs/index.md":
+      "# Docs\n\n[out](../../outside.md) [via link](escape.md)\n",
+  });
+  const outside = path.join(path.dirname(root), "outside.md");
+  writeFileSync(outside, "# Outside\n");
+  symlinkSync(outside, path.join(root, "docs", "escape.md"));
+  t.after(() => rmSync(outside, { force: true }));
+
+  assert.deepEqual(check(root, "docs/index.md"), [
+    problem("docs/index.md", 3, "outside the repository: ../../outside.md"),
+    problem("docs/index.md", 3, "outside the repository: escape.md"),
+  ]);
 });
 
 test("the documents markdownlint ignores are not this checker's to read", () => {

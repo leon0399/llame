@@ -22,8 +22,9 @@ authority.
 { "tools": { "allowed": ["search_conversations", "conversation_read"] } }
 ```
 
-Each tool is independently exact-allowlisted. Search always uses canonical
-content; obsolete `search.chats.canonicalModelExcerpts` config is rejected.
+Each tool goes in `tools.allowed` in the instance configuration named in the
+[operator index](index.md#operator). Search always uses canonical content;
+obsolete `search.chats.canonicalModelExcerpts` config is rejected.
 
 Before an HTTP process accepts search Runs or any process registers `runs`
 consumption, `pnpm --filter api search:projection-coverage` must report complete

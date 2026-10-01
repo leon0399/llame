@@ -3,6 +3,8 @@ summary: "Replacing a tool description with a template and reading the receipts 
 read_when:
   - you are overriding a tool description for one model or for the instance
   - you are reading a context receipt or diagnosing a rendered-empty Run
+behavior:
+  - ../reference/tools/index.md
 ---
 
 # Tool prompt templates
@@ -12,9 +14,10 @@ every execution attempt. An operator can replace any description with a template
 file, instance-wide or for a single model. The same template subset that renders
 `systemPromptFile` renders these, against the same variable projection.
 
-The seven llame-owned tool ids are `bash`, `conversation_read`, `edit`,
-`knowledge_search`, `read`, `search_conversations`, and `write`. MCP tool
-descriptions come from their server and are never templated.
+The nine llame-owned tool ids are `bash`, `conversation_read`, `edit`,
+`enter_workspace`, `exit_workspace`, `knowledge_search`, `read`,
+`search_conversations`, and `write`. MCP tool descriptions come from their
+server and are never templated.
 
 ## Configure overrides
 
@@ -205,7 +208,7 @@ it makes no claim about context produced by failed pre-cutover Runs.
 
 | Symptom                                       | Check                                                                                                                         |
 | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Startup rejects a tool id                     | The key is not one of the seven llame-owned ids; MCP ids are never valid                                                      |
+| Startup rejects a tool id                     | The key is not one of the nine llame-owned ids; MCP ids are never valid                                                       |
 | Startup rejects a path                        | Relative paths resolve against the config file's directory; the file exists, is readable, is a regular file, and is not empty |
 | Startup rejects a construct                   | The template uses a path, helper, or output form outside the subset above                                                     |
 | A Run fails with `description rendered empty` | The description's text is gated on a tool that is not advertised for that attempt                                             |

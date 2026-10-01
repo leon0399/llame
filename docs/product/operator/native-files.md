@@ -35,8 +35,9 @@ representation selectors in [selectors](../reference/selectors.md).
 
 ## Enabling
 
-Absolute-path access and `bash` need a trusted host identity in
-`llame.config.json`, then a restart of the API and worker:
+Absolute-path access and `bash` need a trusted host identity in the instance
+configuration named in the [operator index](index.md#operator), then a restart
+of the API and worker:
 
 ```json
 {
@@ -53,7 +54,9 @@ still gates each tool id. A process with `knowledge.root` and no
 locator — an absolute path argument on that process fails closed with
 `executor_unavailable` instead of resolving through the Knowledge root.
 
-Optional trusted bash cwd (defaults to the API process cwd):
+Optional trusted bash cwd (defaults to the cwd of the process that executes the
+Run, so a split web/worker deployment resolves it in the worker, and a bound
+Workspace root overrides it):
 
 ```bash
 BASH_WORKING_DIRECTORY=/absolute/project
@@ -99,7 +102,7 @@ What an effective `bypass` mode admits and records for one Run is documented in
 require a trusted host identity, their own `tools.allowed` entry, and their own
 `tools.permissions` group.
 
-The recommended policy in `llame.config.json.example` uses an
+The recommended policy in `apps/api/llame.config.json.example` uses an
 operator-edited `enter_workspace.path` field allow such as
 `^/home/operator/projects/[^/]+/?$`, plus F1-F3 credential rejects and E1-E3
 rejects for `node_modules`, temporary roots, and `Downloads`. Every directory

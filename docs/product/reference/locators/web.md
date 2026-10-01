@@ -107,12 +107,13 @@ anything it already has, including a Knowledge file or a page it read earlier.
 
 ## Behavior
 
-Each successful read reports `method`, the adapter that produced the content.
-The result is otherwise the native read object — `content`, the requested and
-shown range or ranges, `nextOffset`, `truncated`, and `path` as the locator
-with its selector stripped — plus `finalUrl` and `notes` only when there is
-something to report; there is no `url`, `contentType`, `markdownTokens`,
-`realPath`, text header, or frontmatter block.
+Each successful read reports `method`, the adapter that produced the content,
+and `finalUrl`, the URL whose response produced it: the call's own URL unless a
+redirect or a winning probe named a different one. The result is otherwise the
+native read object — `content`, the requested and shown range or ranges,
+`nextOffset`, `truncated`, and `path` as the locator with its selector stripped
+— plus `notes` only when the render reported something; there is no `url`,
+`contentType`, `markdownTokens`, `realPath`, text header, or frontmatter block.
 
 The web adapter stage runs after the source locator passes `read` permission
 admission and before the source is fetched: a claimed URL whose adapter renders

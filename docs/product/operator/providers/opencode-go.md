@@ -20,8 +20,8 @@ the only issuer of a Go credential; the console's catalogue and usage windows
 are visible once you are signed in. Create a subscription key there, then
 store it for llame like any other provider credential.
 
-Add one provider entry and one model entry per model to
-`apps/api/llame.config.json`:
+Add one provider entry and one model entry per model to the instance
+configuration named in the [operator index](../index.md#operator):
 
 ```jsonc
 {

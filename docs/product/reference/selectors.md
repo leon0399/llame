@@ -93,11 +93,12 @@ A setext heading remains verbatim, including its underline:
 9: ===
 ```
 
-Every emitted source line is cut after 120 UTF-16 code units and gets a trailing
-`…` when it is longer. A line of exactly 120 code units is unchanged. The only
-generated text is that marker and the frontmatter elision marker below. A
-document without root headings returns its frontmatter and root excerpt, while an
-empty document returns empty content with null ranges.
+Every emitted source line is cut at 120 UTF-16 code units with a trailing `…`
+when it is longer, backing up one unit rather than splitting a surrogate pair.
+A line of exactly 120 code units is unchanged. The only generated text is that
+marker and the frontmatter elision marker below. A document without root
+headings returns its frontmatter and root excerpt, while an empty document
+returns empty content with null ranges.
 
 ### Frontmatter
 
@@ -106,11 +107,15 @@ Only a block that starts on line 1 with `---` and closes with the first later
 Between them, the outline emits up to 32 top-level key lines: lines beginning in
 column zero with a character other than whitespace, `#`, or `-`. Indented lines,
 comments, and sequence items are omitted. After 32 key lines, the remaining keys
-are replaced by one unprefixed generated line, with no source coordinate:
+are replaced by one unprefixed generated line that counts what it replaced, with
+no source coordinate:
 
 ```text
-[… 28 more frontmatter lines]
+[… N more frontmatter lines]
 ```
+
+`N` is the number of key lines beyond the first 32, so a block of 60 key lines
+elides 28 of them.
 
 For example, the specification's frontmatter case produces:
 

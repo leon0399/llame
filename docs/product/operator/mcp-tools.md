@@ -10,8 +10,8 @@ behavior:
 # MCP tools
 
 llame connects to operator-managed MCP servers and exposes allowlisted tools
-whose calls pass per-tool permissions. Put `mcpServers` in
-`apps/api/llame.config.json`; `LLAME_CONFIG_PATH` overrides that path.
+whose calls pass per-tool permissions. Put `mcpServers` in the instance
+configuration named in the [operator index](index.md#operator).
 Configuration is restart-applied, and every API/worker process owns its clients
 and sessions.
 

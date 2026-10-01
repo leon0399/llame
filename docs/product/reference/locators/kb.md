@@ -16,9 +16,11 @@ configured_by:
 `read`, `edit`, and `write` accept `kb://<knowledgeSpaceId>/<path>[:selector]`;
 a selector selects lines to read and is rejected on `edit` and `write`.
 
-`<path>` follows the same component rules as an absolute host path — no empty
-components, `.`/`..`, backslashes, or NUL/control characters, and no more than
-1,024 UTF-8 bytes or 32 components. Split the locator before decoding each path
+`<path>` applies component rules of its own: no empty component, no `.` or
+`..`, no backslash, no absolute form, and no NUL or other control character,
+with at most 1,024 UTF-8 bytes over 32 components — where a host path keeps `.`
+and `..` as ordinary segments and bounds nothing that way. Split the locator
+before decoding each path
 segment exactly once. Encode a literal `:`, `?`, `#`, or `%` as `%3A`, `%3F`,
 `%23`, or `%25`; other characters, including spaces, may be literal or encoded.
 Never encode `/`: an encoded separator and malformed encoding return
