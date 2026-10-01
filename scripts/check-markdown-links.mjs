@@ -61,6 +61,22 @@ const capabilityRoot = "openspec/specs";
 /** Frontmatter keys that hold links to the pages configuring this one. */
 const pointerKeys = ["configured_by", "behavior"];
 
+/**
+ * The capability directory a `spec` value names, when it is one: a direct
+ * child of `openspec/specs`. The real path is what counts, so a `..`, a nested
+ * path and a symlink pointing out of the tree are all rejected rather than
+ * resolving to some other directory that happens to exist.
+ */
+function capabilityDirectory(root, value) {
+  const base = path.join(root, capabilityRoot);
+  if (!statSync(base, { throwIfNoEntry: false })?.isDirectory()) return null;
+  const candidate = path.join(base, value);
+  if (!statSync(candidate, { throwIfNoEntry: false })?.isDirectory())
+    return null;
+  const directory = realpathSync(candidate);
+  return path.dirname(directory) === realpathSync(base) ? directory : null;
+}
+
 /** `git ls-files` on a wide tree is not a pipe-sized answer. */
 const gitStdoutMaxBuffer = Number.MAX_SAFE_INTEGER;
 
@@ -170,8 +186,19 @@ const indentOf = (line) => line.length - line.trimStart().length;
 const atxHeading =
   /^\s*(?:(?:[-+*]|\d{1,9}[.)])[ \t]+)?(#{1,6})\s+(.*?)\s*#*\s*$/u;
 
-/** A setext underline: up to three spaces, then only rule characters. */
-const setextUnderline = /^\s{0,3}(?:=+|-+)\s*$/u;
+/** A setext underline: any indentation, then nothing but rule characters. */
+const setextUnderline = /^\s*(?:=+|-+)\s*$/u;
+
+/**
+ * A setext underline may sit within three columns of the content it
+ * underlines, so inside a list item that allowance is measured from the item's
+ * content column, not from the margin: an underline short of it has left the
+ * item and is a thematic break instead.
+ */
+const isUnderlineIndent = (indent, listIndent) => {
+  const floor = listIndent ?? 0;
+  return indent >= floor && indent < floor + 4;
+};
 
 /** A heading is code, not a heading, once it is indented four past its block. */
 const isHeadingIndent = (indent, listIndent) =>
@@ -233,7 +260,7 @@ export function headingAnchors(text) {
       underline !== undefined &&
       line.trim().length > 0 &&
       setextUnderline.test(underline) &&
-      (listIndent === null || indentOf(underline) >= listIndent)
+      isUnderlineIndent(indentOf(underline), listIndent)
     )
       add(listItem.test(line) ? line.replace(listItem, "") : line);
   }
@@ -524,12 +551,7 @@ function frontmatterProblems(context) {
         report(spec.line, '"spec" must name a capability');
       else
         for (const entry of items)
-          if (
-            entry.value &&
-            !statSync(path.join(root, capabilityRoot, entry.value), {
-              throwIfNoEntry: false,
-            })?.isDirectory()
-          )
+          if (entry.value && !capabilityDirectory(root, entry.value))
             report(
               entry.line,
               `no capability directory: ${capabilityRoot}/${entry.value}`,

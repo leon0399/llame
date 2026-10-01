@@ -26,7 +26,7 @@ import { PermissionModesModule } from './permission-modes/permission-modes.modul
 // from ONE IP, so the production-strict default starves it. Read once at
 // boot, like its auth counterpart; production keeps the default.
 const API_RATE_LIMIT_PER_MINUTE = (() => {
-  // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- pending migration into llame.config.json: this is a product setting read as a bare env var, which skips schema validation and secret marking. Tracked in docs/research/lint/2026-08-31-stella-oxlint-plugins.md.
+  // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- pending migration into llame.config.json: this is a product setting read as a bare env var, which skips schema validation and secret marking. Recorded in the stella oxlint study, docs/research/lint/2026-08-31-stella-oxlint-plugins.md at commit 75735d28.
   const raw = Number(process.env.API_RATE_LIMIT_PER_MINUTE);
   return Number.isInteger(raw) && raw > 0 ? raw : 300;
 })();

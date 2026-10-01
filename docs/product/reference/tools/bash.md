@@ -33,8 +33,9 @@ with truncation reported.
 
 `bash` accepts an optional literal `cwd` and string-record `env`. An absolute
 `cwd` is used as given; a relative `cwd` resolves from the Workspace root while
-a Workspace is entered and from the trusted bash working directory or the API
-cwd otherwise. When omitted, that same default directory is used. A `cwd` that
+a Workspace is entered and otherwise from the trusted bash working directory,
+or, when none is configured, the working directory of the process that executes
+the Run. When omitted, that same default directory is used. A `cwd` that
 names a locator scheme is refused with `invalid_path` while a Workspace is
 entered. The directory must be enterable before the attempt is recorded, and no
 shell expansion is applied to the argument.

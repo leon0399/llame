@@ -76,6 +76,24 @@ test("an underline that dedents out of a list is a thematic break", () => {
   assert.deepEqual([...headingAnchors("- banana\n  ---\n")], ["banana"]);
 });
 
+test("a setext underline is measured from the item's content column", () => {
+  // CommonMark allows three columns past the block it underlines, so an
+  // underline indented further into a list item still names its heading.
+  assert.deepEqual([...headingAnchors("- Child\n    ---\n")], ["child"]);
+  assert.deepEqual([...headingAnchors("1. Child\n    ---\n")], ["child"]);
+  assert.deepEqual(
+    [...headingAnchors("- Parent\n    - Child\n      ---\n")],
+    ["child"],
+  );
+  // Dedenting out of the item leaves it a thematic break again.
+  assert.deepEqual([...headingAnchors("- Parent\n    - Child\n    ---\n")], []);
+  assert.deepEqual(
+    [...headingAnchors("- Child\n      ---\n")],
+    [],
+    "four columns past the content is an indented code block",
+  );
+});
+
 test("a heading nested in a list item carries GitHub's anchor", () => {
   assert.deepEqual([...headingAnchors("- ## Nested\n")], ["nested"]);
   assert.deepEqual([...headingAnchors("1. ## Nested\n")], ["nested"]);
@@ -380,6 +398,60 @@ test("a spec naming a file where a capability directory belongs is reported", (t
       "no capability directory: openspec/specs/native-file-tools",
     ),
   ]);
+});
+
+test("a spec must name a capability directory, not a path that reaches one", (t) => {
+  const escapes = {
+    "parent.md": "../../docs",
+    "grouped.md": "grouped/shared",
+  };
+  const root = repository(t, {
+    "openspec/specs/native-file-tools/spec.md": "# native-file-tools\n",
+    "docs/index.md": "# Docs\n",
+    ...Object.fromEntries(
+      Object.entries(escapes).map(([file, spec]) => [
+        `docs/product/reference/tools/${file}`,
+        page(`${summary}${reasons}spec: ${spec}\n`),
+      ]),
+    ),
+  });
+  mkdirSync(path.join(root, "openspec/specs/grouped/shared"), {
+    recursive: true,
+  });
+  // A capability directory reached by a symlink is not the capability itself.
+  symlinkSync(
+    path.join(root, "docs"),
+    path.join(root, "openspec/specs/escape"),
+    "dir",
+  );
+  writeFileSync(
+    path.join(root, "docs/product/reference/tools/symlink.md"),
+    page(`${summary}${reasons}spec: escape\n`),
+  );
+  escapes["symlink.md"] = "escape";
+
+  // A path that lands back on a capability directory names one, `..` or not.
+  writeFileSync(
+    path.join(root, "docs/product/reference/tools/sibling.md"),
+    page(`${summary}${reasons}spec: ../specs/native-file-tools\n`),
+  );
+  assert.deepEqual(check(root, "docs/product/reference/tools/sibling.md"), []);
+
+  for (const [file, spec] of Object.entries(escapes))
+    assert.deepEqual(check(root, `docs/product/reference/tools/${file}`), [
+      problem(
+        `docs/product/reference/tools/${file}`,
+        5,
+        `no capability directory: openspec/specs/${spec}`,
+      ),
+    ]);
+
+  // A capability directory by name still resolves.
+  writeFileSync(
+    path.join(root, "docs/product/reference/tools/read.md"),
+    page(`${summary}${reasons}spec: native-file-tools\n`),
+  );
+  assert.deepEqual(check(root, "docs/product/reference/tools/read.md"), []);
 });
 
 test("a page points at pages that exist, one key or a list of them", (t) => {

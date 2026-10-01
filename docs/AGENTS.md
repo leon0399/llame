@@ -1,9 +1,10 @@
 # Documentation instructions
 
-Rules for writing under `docs/`. [index.md](index.md) is the map of the tree.
-`research/` follows its own [AGENTS.md](research/AGENTS.md) in addition to the
-placement rule below; the other rules here govern `product/` and
-`development/`.
+Rules for writing under `docs/`. [index.md](index.md) is the map of the tree
+and says which subtrees are served to the assistant and which source wins a
+disagreement. `research/` follows its own [AGENTS.md](research/AGENTS.md) in
+addition to the placement rule below; the other rules here govern `product/`
+and `development/`.
 
 ## Placement
 
@@ -14,11 +15,6 @@ placement rule below; the other rules here govern `product/` and
 | Testing, quality gates, runtime choices, design records that outlive their change             | `development/`               |
 | Noncanonical prior art and studies                                                            | `research/`                  |
 | A plan in progress                                                                            | its GitHub issue, not a page |
-
-`product/` is written to be served to the assistant through `llame://docs/`
-([#1063](https://github.com/leon0399/llame/issues/1063)); `development/` and
-`research/` are not. OpenSpec owns behavior and wins any disagreement; a
-reference page is its readable projection.
 
 ## Rules
 
@@ -34,8 +30,10 @@ reference page is its readable projection.
 - **Every `product/` page opens with frontmatter.** `summary` is the one line a
   listing prints; `read_when` lists the reasons to open the page. Reference
   pages add `spec` (the owning OpenSpec capability directory, or a list) and
-  `configured_by`; operator pages add `behavior`, linking the reference pages
-  they configure. `index.md` pages need only `summary` and `read_when`.
+  `configured_by`. An operator page that configures behavior documented under
+  `product/reference/` adds `behavior`, linking those pages; a page with
+  nothing to link, such as a provider runbook, omits it. `index.md` pages need
+  only `summary` and `read_when`.
 - **Fixed section order.** Pages under `product/reference/tools/` use Purpose,
   Arguments, Locators, Result, Behavior, Bounds, Errors, Configured by. Pages
   under `product/reference/locators/` use Form, Accepted by, Authority,
