@@ -49,10 +49,16 @@ assistant message's persisted final-request context size, plus the estimate of
 the rows and rail items recorded after it. The assistant message aggregate SHALL
 NOT be used as the measured size. When no completed assistant message carries a
 persisted final-request context size, the whole prepared request SHALL be
-estimated instead. A measurement from an assistant row at or below the active
-checkpoint's sequence SHALL NOT be counted, and the whole prepared request SHALL
-be estimated instead. A failed, cancelled, or expired Run SHALL NOT contribute a
-measured context size to a later trigger.
+estimated instead. A measurement SHALL NOT be counted when the user turn its
+assistant row answers is at or below the active checkpoint's absorbed-through
+sequence, and the whole prepared request SHALL be estimated instead. That
+judgement SHALL be by the user turn rather than by the assistant row's own
+sequence, because a retried assistant row is rewritten in place and keeps its
+sequence below a checkpoint published between its attempts. A failed, cancelled,
+or expired Run SHALL NOT contribute a measured context size to a later trigger.
+The trigger SHALL NOT fire at all when no user or assistant row has a sequence
+between the active checkpoint's absorbed-through sequence and the triggering user
+message's sequence, because there is nothing left to absorb.
 
 #### Scenario: A long loop over a small context does not compact
 
@@ -77,10 +83,19 @@ measured context size to a later trigger.
 
 #### Scenario: A measurement older than the active checkpoint is not counted
 
-- **WHEN** a checkpoint was published after the previous completed assistant
-  message and an attempt evaluates the compaction trigger
+- **WHEN** the active checkpoint's absorbed-through sequence is at or above the
+  sequence of the user turn the previous completed assistant message answers
 - **THEN** that assistant row's persisted final-request context size is ignored
 - **AND** no second summary call is made on the basis of that measurement
+
+#### Scenario: A retry after a cancelled attempt keeps its measurement
+
+- **WHEN** an attempt was cancelled, a checkpoint published before its retry,
+  and the retried assistant row kept its own sequence below that checkpoint
+- **THEN** its measurement is judged by the sequence of the user turn it answers,
+  counted when that turn is above the checkpoint's absorbed-through sequence
+- **AND** it is not excluded merely because the assistant row's own sequence sits
+  below the checkpoint
 
 ### Requirement: Compaction and title spend stay separate categories
 

@@ -24,15 +24,16 @@ A model catalog entry MAY declare an optional `compactionThresholdTokens`. The c
 
 ### Requirement: Model use for compaction and title generation is explicit
 
-Compaction and title-generation work SHALL use explicit model selection. A
-compaction whose trigger is the prepared request reaching the Run model's
-threshold SHALL use the model id stored on that Run. A compaction whose trigger
-is that prepared request not fitting the Run model's window SHALL use the
-previous completed Run's model id, because the model the attempt precedes
-cannot summarize a prefix it does not fit. Title generation SHALL use a separate
-server-side `TITLE_GENERATION_MODEL_ID` that names a valid active system catalog
-id. The implementation SHALL NOT introduce a separate title-only model registry
-for this change.
+Compaction and title-generation work SHALL use explicit model selection, and
+one compaction selects exactly one of its two model sources. A prepared request
+that does not fit the Run model's window SHALL use the previous completed Run's
+model id whether or not the measured context size also reaches the threshold,
+because the model the attempt precedes cannot summarize a prefix it does not
+fit. A request that does fit and reaches the Run model's threshold SHALL use the
+model id stored on that Run. No compaction SHALL use both model ids. Title
+generation SHALL use a separate server-side `TITLE_GENERATION_MODEL_ID` that
+names a valid active system catalog id. The implementation SHALL NOT introduce
+a separate title-only model registry for this change.
 
 #### Scenario: Compaction uses triggering run model
 
@@ -73,14 +74,17 @@ still warm. Sending a different effort would invalidate the cache the request
 shape exists to exploit.
 
 A compaction that runs before a Run's first model request is a continuation of
-that Run's request rather than work after a completed turn. A threshold trigger
-SHALL send the resolved effort of the attempt it precedes. A window trigger,
-where the prepared request does not fit the Run model's window, SHALL send the
-previous completed Run's effort — the Run whose model and system-prompt receipt
-the summary request reuses — and SHALL NOT send the effort submitted with the
-incoming turn, which was validated against a different model's declared levels
-and is not part of the reused prefix. There SHALL be no separate transition
-mode with a different effort source.
+that Run's request rather than work after a completed turn, and its effort
+source is selected once. A window trigger, where the prepared request does not
+fit the Run model's window, SHALL send the previous completed Run's effort — the
+Run whose model and system-prompt receipt the summary request reuses — and
+SHALL NOT send the effort submitted with the incoming turn, which was validated
+against a different model's declared levels and is not part of the reused
+prefix. That window trigger SHALL apply whether or not the measured context size
+also reaches the threshold. Only when the request fits the Run model's window
+and the measured context size reaches the threshold SHALL the threshold trigger
+send the resolved effort of the attempt it precedes. There SHALL be no separate
+transition mode with a different effort source.
 
 The inherited effort SHALL be sent as persisted, without re-validation against
 current configuration, on the same receipt grounds as run execution.

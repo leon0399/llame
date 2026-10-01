@@ -158,20 +158,32 @@ re-budgeting, the hoist rule and the role-ordering exception; #865 judged it
 Before the first model request of an attempt, the worker evaluates one
 condition over the prepared request:
 
-- measured context size at or above the Run model's threshold
-  (`compactionThresholdTokens`, else `0.8 × contextWindowTokens`); or
 - the prepared request does not fit the Run model's window (the model-switch
-  case today).
+  case today); or, otherwise,
+- measured context size at or above the Run model's threshold
+  (`compactionThresholdTokens`, else `0.8 × contextWindowTokens`).
+
+The window condition takes precedence: a request that does not fit is also
+over the default threshold, and only the window variant below can summarize
+it. The trigger is a no-op when no user or assistant row lies between the
+active checkpoint's boundary and the triggering user message: there is
+nothing to absorb, so a retry whose estimate is still over the threshold
+proceeds on the published checkpoint, and a first turn that is large on its
+own never publishes a vacuous checkpoint (today's planner returns no plan for
+an empty absorb set). On the window condition with nothing to absorb the
+attempt fails `context_incompatible`.
 
 Measured size is the previous completed assistant message's persisted
 `usage.contextTokens` (new field: that attempt's final request input plus
 output, which `run-usage-accounting` already uses for the post-turn trigger
 but does not persist) plus the estimate of rows and rail items after it. The
-measurement counts only when that assistant row's `seq` is above the active
-checkpoint's `seq`; a measurement taken before a checkpoint describes the
-request the checkpoint already shrank, and counting it would fire the trigger
-again on a retry. When no counted measurement exists, the whole request is
-estimated as today.
+measurement counts only when the user turn that assistant row answers has a
+`seq` above the active checkpoint's boundary; a measurement taken before a
+checkpoint describes the request the checkpoint already shrank, and counting
+it would fire the trigger again on a retry. The comparison is by turn, not by
+the assistant row's own `seq`, because a retried assistant row is rewritten in
+place and keeps a `seq` below a checkpoint published between its attempts.
+When no counted measurement exists, the whole request is estimated as today.
 
 Compaction then runs once, in the attempt, through one request shape:
 a system prompt, tool declarations, the compactable prefix (which already
@@ -242,16 +254,23 @@ fork of a compacted public chat.
 
 `recency_digest_rebaked_from`, `skill_catalog_rebaked_from` and
 `workspace_told_from` keep their names and nullability and store the checkpoint
-message id. `startsEpoch` becomes "the active checkpoint's `seq` is greater
-than the previous completed Run's assistant message `seq`", replacing the
-`createdAt` comparison. Dropping the columns is #1070.
+message id. `startsEpoch` becomes "the active checkpoint's boundary is at or
+above the previous completed Run's triggering user `seq`", replacing the
+`createdAt` comparison. The comparison is by turn for the same reason as the
+measured-size gate: a retried assistant row keeps its `seq`, and a checkpoint
+published between a cancelled attempt and its retry would otherwise start the
+epoch twice. The re-key ships with the trigger layer, because a checkpoint
+published inside Run R's attempt has a `createdAt` after R's own, and the
+`createdAt` rule would make the next Run start a second epoch. Dropping the
+columns is #1070.
 
 ### D8: Forks copy checkpoint rows; shared forks exclude them
 
 The owner fork copies every user and assistant row with `seq <= anchor` and
-every checkpoint row whose `absorbedThroughSeq <= anchor`, preserving `seq`
-and the boundary; a copied checkpoint still absorbs exactly what it absorbed,
-as today's copy of compactions with `upto_seq <= anchor` does. The marker
+every checkpoint row whose `absorbedThroughSeq <= anchor`, in source order
+with dense sequences from 1 as today, remapping `absorbedThroughSeq` onto the
+copied row it named; a copied checkpoint still absorbs exactly what it
+absorbed, as today's copy of compactions with `upto_seq <= anchor` does. The marker
 remap in `fork-copy.ts` targets the copied checkpoint's new message id; the
 separate compaction copy loop is deleted. A shared fork copies text-only user
 and assistant rows and never a checkpoint row.
@@ -300,21 +319,24 @@ verification call, both unmeasured cost.
 
 ### D11: An on-demand eval under `apps/api/evals/compaction/`
 
-Layout: `llame.config.json` (one `opencode-go` provider resolved from
+Layout: `eval.config.json` (one `opencode-go` provider resolved from
 `OPENCODE_GO_API_KEY`, one model `space-bunny-free`), `fixtures/*.json` (five
 synthetic transcripts: a user correction, a cancelled task, a pasted secret, a
-non-English chat, a dangling question), and a runner invoked through
-`pnpm --filter api eval:compaction`. The runner loads the eval config through
-the production loader, renders the production instruction over each fixture,
+non-English chat, a dangling question), and a `tsx` runner, not a
+`*.test.ts` file, invoked through `pnpm --filter api eval:compaction`. The
+runner points the production loader at the config through
+`LLAME_CONFIG_PATH` (the name `llame.config.json` is gitignored at any depth
+under `apps/api`), renders the production instruction over each fixture,
 calls the model once per fixture, and asserts deterministically on the
 returned summary: the secret string is absent and `[REDACTED]` present; the
 cancelled task is not under `Active` or `Open Questions`; the dangling
 question is quoted verbatim under `Latest Request`; the correction appears
 under `Errors and Corrections`; the non-English summary body contains no
 English heading-body text outside code spans (checked by a small
-language-marker list, not a classifier). Not part of `pnpm lint`, `test` or
-CI; documented in `docs/development/`. Each eval directory owns its config;
-there is no shared eval configuration.
+language-marker list, not a classifier). Not executed by `pnpm lint`, `test`
+or CI (the vitest integration project includes `evals/**/*.test.ts`, which is
+why the runner is a script); documented in `docs/development/`. Each eval
+directory owns its config; there is no shared eval configuration.
 
 ### D12: Drop `compactions` without conversion
 

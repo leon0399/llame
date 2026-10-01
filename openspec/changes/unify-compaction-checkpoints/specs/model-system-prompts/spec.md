@@ -188,14 +188,29 @@ rewrite model replay.
 ### Requirement: Compaction publishes a summary-only checkpoint before the Run's first model step
 
 Before the Run's first model step, compaction SHALL be evaluated once against
-that attempt's prepared request. It SHALL fire when the measured context size is
-at or above the Run model's threshold, or when the prepared request does not fit
-the Run model's context window or reserved output budget, which covers a switch
-to a smaller-context target. Measured context size SHALL be the previous
-completed assistant message's persisted final-request context size plus the
-estimate of the rows and rail items after it, and SHALL be counted only when
-that assistant row's sequence is above the active checkpoint's sequence;
-otherwise the whole request SHALL be estimated.
+that attempt's prepared request, and exactly one variant SHALL be selected. A
+prepared request that does not fit the Run model's context window or reserved
+output budget, which covers a switch to a smaller-context target, SHALL select
+the window variant whether or not the measured context size also reaches the
+threshold, because a request that does not fit is also over the default
+threshold and only the window variant can summarize it. Otherwise a measured
+context size at or above the Run model's threshold SHALL select the threshold
+variant. No request SHALL be compacted by both variants.
+
+Measured context size SHALL be the previous completed assistant message's
+persisted final-request context size plus the estimate of the rows and rail
+items after it, and SHALL be counted only when the user turn that assistant row
+answers has a sequence above the active checkpoint's absorbed-through sequence;
+otherwise the whole request SHALL be estimated. That comparison SHALL be by the
+user turn rather than by the assistant row's own sequence, because a retried
+assistant row is rewritten in place and keeps its sequence below a checkpoint
+published between its attempts.
+
+Compaction SHALL NOT fire when no user or assistant row has a sequence between
+the active checkpoint's absorbed-through sequence and the triggering user
+message's sequence, because there is nothing left to absorb. On the threshold
+condition the attempt SHALL proceed on the published checkpoint; on the window
+condition the attempt SHALL fail `context_incompatible`.
 
 The summarizing model, prompt, tool declarations, and effort SHALL be data on
 the one path. A threshold-triggered compaction SHALL use that attempt's own
@@ -302,6 +317,24 @@ work.
   its compactable history, and the single trailing instruction
 - **AND** the checkpoint message and its raw summary commit atomically before
   that model step
+
+#### Scenario: A request over both the window and the threshold takes the window variant
+
+- **WHEN** a prepared request exceeds the Run model's threshold and also does not
+  fit that model's context window or reserved output budget
+- **THEN** only the window variant runs, with the previous completed Run's model,
+  its system-prompt receipt and effort, and no tool declarations
+- **AND** the threshold variant is not applied to the same request
+
+#### Scenario: A retry with a large triggering message does not compact again
+
+- **WHEN** an attempt evaluates the trigger with no user or assistant row
+  between the active checkpoint's absorbed-through sequence and the triggering
+  user message's sequence
+- **THEN** no checkpoint is published for the absent absorb set
+- **AND** a threshold-condition attempt proceeds on the published checkpoint
+- **AND** a window-condition attempt fails `context_incompatible` instead of
+  summarizing nothing
 
 #### Scenario: Compaction excludes standing and digest rail context
 
@@ -452,6 +485,87 @@ work.
   around a retained historical boundary
 - **THEN** it does not reuse this compaction
 - **AND** it requires a separately specified summary contract
+
+### Requirement: Every execution attempt resolves its effective context in the worker
+
+API acceptance SHALL persist the user message, selected public model/effort, and
+Run identity without resolving or persisting an effective prompt/tool catalog.
+Remove the old `modelContextSnapshotId` Run FK and required create input after
+historical system receipts have been migrated; no placeholder snapshot SHALL be
+created for acceptance. Source-context lookup SHALL follow the successful
+Run's system-only receipt.
+Each queue-authorized attempt SHALL resolve those fixed model choices through
+its executing worker's configuration, reread the owner's safe variable
+projection, and admit its worker-local current tool inventory. It SHALL render
+the complete system prompt and admitted llame-owned descriptions together from
+that one context. Existing digest and temporal lifecycles SHALL retain their
+meaning. A missing selected model SHALL fail explicitly without fallback.
+
+The system prompt and admitted declarations SHALL stay fixed in memory for
+that attempt's target-model loop after the pre-step checkpoint publication and
+final rendering. A trusted Workspace action admitted under `tool-calling` MAY
+extend the in-memory declarations without replacing existing declarations; each
+such addition SHALL take effect from the next model step, and Workspace exit,
+switch, or detach SHALL leave its declaration in the attempt-local catalog with
+an unavailable executor. The trusted executors and source declarations SHALL
+stay bound together in that memory; current invocation permissions,
+tenant/resource authority, and native recovery fences SHALL still apply. Source
+loss or drift during an MCP attempt SHALL use the existing unavailable-call
+behavior without substituting newer definitions.
+
+Before target-model I/O, the worker SHALL persist its finalized system-only prompt receipt
+under a still-current attempt identity. The pre-step compaction summary request
+is not target-model I/O for that attempt: the attempt's receipt is bound after
+the checkpoint publishes and records the prompt actually sent, and the summary
+request's pre-re-bake render SHALL NOT become a receipt. The window variant of
+that publication uses the previous completed Run's successful system receipt
+and separately identified operational events. Full tool catalogs, templates, schemas,
+descriptions, and source/declaration hashes SHALL NOT be persisted as execution
+context. Minimal successful-turn id/state comparison records SHALL follow
+`tool-calling`. Any permitted retry SHALL resolve and render again rather than
+using its predecessor's receipt, catalog, or model context.
+
+#### Scenario: Settings change while queued
+
+- **WHEN** the owner changes personalization after queue acceptance but before worker execution
+- **THEN** the attempt uses the current owner projection in both prompt surfaces
+- **AND** its receipt records its actual rendered system prompt
+
+#### Scenario: Catalog changes before retry
+
+- **WHEN** an infrastructure retry runs with a changed worker catalog
+- **THEN** it admits and renders the new attempt's catalog
+- **AND** it never loads a catalog or rendered description from the database
+
+#### Scenario: Tool definitions change during an attempt
+
+- **WHEN** an MCP source disconnects or changes its declaration after attempt preparation
+- **THEN** the existing in-memory declaration is not replaced
+- **AND** a requested incompatible call settles through the unavailable-tool path
+
+#### Scenario: Selected model is no longer executable
+
+- **WHEN** the worker cannot resolve the queued Run's selected model or effort
+- **THEN** preparation fails before target-model I/O
+- **AND** another model is not substituted
+
+#### Scenario: Render fails after scheduling
+
+- **WHEN** current attempt inputs produce an invalid or empty effective prompt
+- **THEN** that attempt fails final preparation with a safe error and no target-model request
+- **AND** the scheduled message/Run remains recorded without a new comparison baseline
+
+#### Scenario: Superseded attempt tries to publish context
+
+- **WHEN** an earlier worker tries to write a receipt, model context, or completion after a newer attempt owns the Run
+- **THEN** the stale write is refused under trusted attempt fencing
+- **AND** it cannot replace the winning attempt or advance availability state
+
+#### Scenario: Trusted Workspace addition extends the attempt catalog
+
+- **WHEN** a trusted Workspace action adds an admitted declaration during a Run
+- **THEN** that declaration joins the attempt-local model-facing catalog from the next model step without replacing an existing declaration
+- **AND** a later Workspace exit, switch, or detach leaves the declaration present with an unavailable executor, as specified by `tool-calling`
 
 ### Requirement: Summarization instructions and the title prompts are packaged templates
 
