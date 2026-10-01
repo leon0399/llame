@@ -10,6 +10,7 @@ import {
   deadLetterQueueName,
   type ConsumeOptions,
   type EnqueueOptions,
+  type JobState,
   type JobHandler,
   type PayloadOf,
   type Queue,
@@ -18,15 +19,33 @@ import {
 } from './queue';
 
 /**
+ * pg-boss's own job states mapped onto the engine-neutral `JobState`. The
+ * engine keeps a retrying job in `retry` and a not-yet-claimed one in
+ * `created`; llame reads both as "the queue can still execute it".
+ */
+const PG_BOSS_JOB_STATES: Record<
+  'created' | 'retry' | 'active' | 'completed' | 'failed' | 'cancelled',
+  JobState
+> = {
+  created: 'queued',
+  retry: 'retrying',
+  active: 'active',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled',
+};
+
+/**
  * Failure policy applied when a definition carries no options.
  *
- * heartbeatSeconds is deliberately EXCLUDED (unlike the other QueueOptions
- * fields): its contract is "omitted = NULL = disabled", so a default
- * `Required<QueueOptions>` value would force every queue onto liveness
- * monitoring whether the definition asked for it or not.
+ * heartbeatSeconds and expireInSeconds are deliberately EXCLUDED (unlike the
+ * other QueueOptions fields): their contract is "omitted = the substrate's own
+ * default", so a default `Required<QueueOptions>` value would force every queue
+ * onto liveness monitoring and a 15-minute job expiry whether the definition
+ * asked for them or not.
  */
 export const DEFAULT_QUEUE_OPTIONS: Required<
-  Omit<QueueOptions, 'heartbeatSeconds'>
+  Omit<QueueOptions, 'heartbeatSeconds' | 'expireInSeconds'>
 > = {
   retryLimit: 3,
   retryDelay: 2,
@@ -102,6 +121,11 @@ export class PgBossQueueService implements Queue {
     if (opts.heartbeatSeconds !== undefined) {
       updatable.heartbeatSeconds = opts.heartbeatSeconds;
     }
+    // Declared job duration: same discipline as heartbeatSeconds — absent
+    // leaves the queue's own default rather than opting every queue in.
+    if (opts.expireInSeconds !== undefined) {
+      updatable.expireInSeconds = opts.expireInSeconds;
+    }
     // With deadLetter disabled the field is omitted, which leaves any
     // previously-configured dead-letter target in place — detaching a live
     // queue's DLQ is an explicit migration, not a boot-time default.
@@ -125,8 +149,12 @@ export class PgBossQueueService implements Queue {
     options?: EnqueueOptions,
   ): Promise<string | null> {
     const sendOptions: EnqueueOptions = {};
-    if (options?.priority !== undefined)
+    if (options?.id !== undefined) {
+      sendOptions.id = options.id;
+    }
+    if (options?.priority !== undefined) {
       sendOptions.priority = options.priority;
+    }
     if (options?.startAfter !== undefined) {
       sendOptions.startAfter = options.startAfter;
     }
@@ -145,6 +173,14 @@ export class PgBossQueueService implements Queue {
       sendOptions.singletonKey = options.singletonKey;
     }
     return this.boss.send(queue.name, data, sendOptions);
+  }
+
+  async jobState<T extends object>(
+    queue: QueueDefinition<T>,
+    id: string,
+  ): Promise<JobState> {
+    const job = await this.boss.getJobById(queue.name, id);
+    return job === null ? 'absent' : PG_BOSS_JOB_STATES[job.state];
   }
 
   // Mirrors the interface's variance-escape bound (see queue.ts).

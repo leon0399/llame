@@ -28,7 +28,7 @@ import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 
 import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
@@ -53,10 +53,12 @@ import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { type DynamicToolExecutorResolver } from '../runs/snapshot-tool-execution';
 import { ChatLoopService } from './chat-loop.service';
+import type { Mock } from 'vitest';
 import { MemoryService } from '../memory/memory.service';
 import { RecencyDigestService } from './recency-digest.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { heartbeatSeconds } from '../runs/run-queues';
 import { createModelPromptLoader } from '../instance-config/prompt-loader';
 import { type CompactionCapability } from '../compaction/compaction.service';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
@@ -186,6 +188,8 @@ describeIfDb(
     let tenantDb: TenantDbService;
     let userId: string;
     let dispatchCalls: Array<RunJob>;
+    /** The job-state admission read; scripted per blocker scenario. */
+    let jobState: Mock<RunDispatcher['jobState']>;
     let chatLoop: ChatLoopService;
     let systemPrompt: string;
     let allowedTools: Array<string>;
@@ -383,11 +387,17 @@ describeIfDb(
           .mockReturnValue(new Response()),
       };
       const aborts = new RunAbortRegistry();
+      // A blocker this suite creates was just dispatched, so its job is LIVE;
+      // each wedging scenario scripts the state it is actually about.
+      jobState = vi.fn<RunDispatcher['jobState']>(() =>
+        Promise.resolve('active'),
+      );
       const dispatch: RunDispatcher = {
         dispatch: vi.fn<RunDispatcher['dispatch']>((job) => {
           dispatchCalls.push(job);
           return Promise.resolve();
         }),
+        jobState,
       };
 
       const instanceConfig: InstanceConfigReader = {
@@ -459,9 +469,20 @@ describeIfDb(
         message: { id: messageId, parts: [{ type: 'text', text }] },
       });
 
+    const SECOND_MS = 1000;
+
     const activeRun = (chatId: string) =>
       tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findActiveByChatId(chatId, userId),
+      );
+
+    /** Backdate a run so admission sees it as older than any live window. */
+    const ageRun = (runId: string, ageMs: number) =>
+      tenantDb.runAs(userId, (tx) =>
+        tx
+          .update(schema.runs)
+          .set({ createdAt: new Date(Date.now() - ageMs), startedAt: null })
+          .where(eq(schema.runs.id, runId)),
       );
 
     const seedEligibleChat = async (
@@ -778,71 +799,155 @@ describeIfDb(
       expect(dispatchCalls).toHaveLength(1);
     });
 
-    it('409s a DIFFERENT message while a non-terminal run is in flight for the chat, and leaves the blocker untouched', async () => {
-      const chatId = crypto.randomUUID();
-      const rejectedMessageId = crypto.randomUUID();
+    // One table, one test: a blocker the queue can still execute is live and
+    // 409s the chat — at any age, and whether its job is actively running,
+    // still waiting to be claimed, or not yet written while the run row is
+    // already committed.
+    it.each([
+      { state: 'active', ageMs: 0, why: 'a live job, fresh' },
+      // Far older than the 300 s budget this instance configures: age alone
+      // must never end a run the queue can execute.
+      {
+        state: 'active',
+        ageMs: 400_000,
+        why: 'a live job, long past any budget',
+      },
+      {
+        state: 'queued',
+        ageMs: 400_000,
+        why: 'a job still waiting for a worker',
+      },
+      {
+        state: 'retrying',
+        ageMs: 400_000,
+        why: 'a job awaiting its next attempt',
+      },
+      {
+        state: 'absent',
+        // Under one liveness window: the enqueue may still be in flight after
+        // the run row committed.
+        ageMs: heartbeatSeconds(BUILT_IN_DEFAULTS) * 1000 - 2 * SECOND_MS,
+        why: 'no job yet, younger than one heartbeat window',
+      },
+    ] as const)(
+      '409s a second message when the blocker has $why',
+      async ({ state, ageMs }) => {
+        const chatId = crypto.randomUUID();
+        const rejectedMessageId = crypto.randomUUID();
 
-      await send(chatId, crypto.randomUUID(), 'blocker');
-      const blocker = await activeRun(chatId);
-      expect(blocker).toBeDefined();
+        await send(chatId, crypto.randomUUID(), 'blocker');
+        const blocker = await activeRun(chatId);
+        expect(blocker).toBeDefined();
+        jobState.mockResolvedValue(state);
+        if (ageMs > 0) await ageRun(blocker!.id, ageMs);
 
-      await expect(
-        send(chatId, rejectedMessageId, 'a different message'),
-      ).rejects.toBeInstanceOf(ConflictException);
+        await expect(
+          send(chatId, rejectedMessageId, 'a different message'),
+        ).rejects.toBeInstanceOf(ConflictException);
 
-      // The blocker is exactly as it was — a FRESH blocker (well within the
-      // run budget) is never expired here; only a blocker stuck past
-      // timeoutSeconds + heartbeatSeconds is (see the next test).
-      const stillBlocking = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(blocker!.id, userId),
-      );
-      expect(stillBlocking?.status).toBe(blocker!.status);
-      const messages = await tenantDb.runAs(userId, (tx) =>
-        new MessagesRepository(tx).findByChatId(chatId, userId),
-      );
-      expect(messages.some(({ id }) => id === rejectedMessageId)).toBe(false);
-      expect(dispatchCalls).toHaveLength(1);
-    });
+        // The blocker is exactly as it was, and the rejected message was never
+        // persisted: nothing about a live run changes under a second message.
+        const stillBlocking = await tenantDb.runAs(userId, (tx) =>
+          new RunsRepository(tx).findById(blocker!.id, userId),
+        );
+        expect(stillBlocking?.status).toBe(blocker!.status);
+        const messages = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findByChatId(chatId, userId),
+        );
+        expect(messages.some(({ id }) => id === rejectedMessageId)).toBe(false);
+        expect(dispatchCalls).toHaveLength(1);
+      },
+    );
 
-    it('expires a STUCK blocker (no active job, aged past the run budget) and admits the new message', async () => {
-      const chatId = crypto.randomUUID();
+    it.each(['absent', 'completed', 'failed', 'cancelled'] as const)(
+      'expires a blocker whose job reads %s once it is older than one liveness window, and admits the new message',
+      async (state) => {
+        const chatId = crypto.randomUUID();
 
-      await send(chatId, crypto.randomUUID(), 'blocker that will get stuck');
-      const blocker = await activeRun(chatId);
-      expect(blocker).toBeDefined();
+        await send(chatId, crypto.randomUUID(), 'blocker that gets stuck');
+        const blocker = await activeRun(chatId);
+        expect(blocker).toBeDefined();
+        await ageRun(blocker!.id, 400_000);
+        jobState.mockResolvedValue(state);
 
-      // Simulate the "no active job" wedge (a crash between the run-row commit
-      // and enqueue, or a job never picked up): the run is non-terminal but its
-      // last sign of life is older than the longest a real run could take
-      // (timeoutSeconds + heartbeatSeconds = 315s). pg-boss can't recover it —
-      // there is no active job — so the admission path must free the slot.
-      await tenantDb.runAs(userId, (tx) =>
-        tx
-          .update(schema.runs)
-          .set({ createdAt: new Date(Date.now() - 400_000), startedAt: null })
-          .where(eq(schema.runs.id, blocker!.id)),
-      );
+        const retryMessageId = crypto.randomUUID();
+        await expect(
+          send(chatId, retryMessageId, 'a different message unwedges the chat'),
+        ).resolves.toBeDefined();
 
-      const retryMessageId = crypto.randomUUID();
-      await expect(
-        send(chatId, retryMessageId, 'a different message unwedges the chat'),
-      ).resolves.toBeDefined();
+        const expired = await tenantDb.runAs(userId, (tx) =>
+          new RunsRepository(tx).findById(blocker!.id, userId),
+        );
+        expect(expired?.status).toBe('expired');
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(blocker!.id, userId),
+        );
+        expect(events.map((e) => e.eventType)).toContain('run.expired');
+        const messages = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findByChatId(chatId, userId),
+        );
+        expect(messages.map(({ seq }) => seq)).toEqual([1, 2]);
+        expect(dispatchCalls).toHaveLength(2);
+      },
+    );
 
-      // The stuck blocker is now terminal (expired by the admission path) with
-      // a run.expired event, and a fresh run was created + dispatched.
-      const expired = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(blocker!.id, userId),
-      );
-      expect(expired?.status).toBe('expired');
-      const events = await tenantDb.runAs(userId, (tx) =>
-        new RunEventsRepository(tx).listByRunId(blocker!.id, userId),
-      );
-      expect(events.map((e) => e.eventType)).toContain('run.expired');
-      const messages = await tenantDb.runAs(userId, (tx) =>
-        new MessagesRepository(tx).findByChatId(chatId, userId),
-      );
-      expect(messages.map(({ seq }) => seq)).toEqual([1, 2]);
-      expect(dispatchCalls).toHaveLength(2);
+    it("never judges another owner's run: a forged chat id is a 404 that reads no job state", async () => {
+      const otherUserId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Other Owner', ${`other-owner-${otherUserId}@test.com`})`;
+      try {
+        // The other owner's chat, with a live queued run to protect.
+        const theirChatId = crypto.randomUUID();
+        const theirRunId = crypto.randomUUID();
+        const theirMessageId = crypto.randomUUID();
+        await tenantDb.runAs(otherUserId, async (tx) => {
+          await tx.insert(schema.chats).values({
+            id: theirChatId,
+            ownerUserId: otherUserId,
+            title: 'Theirs',
+            visibility: 'private',
+          });
+          await tx.insert(schema.messages).values({
+            id: theirMessageId,
+            chatId: theirChatId,
+            role: 'user',
+            senderUserId: otherUserId,
+            seq: 1,
+            parts: [{ type: 'text', text: 'theirs' }],
+          });
+          await tx.insert(schema.runs).values({
+            id: theirRunId,
+            chatId: theirChatId,
+            messageId: theirMessageId,
+            userId: otherUserId,
+            modelId: 'system:openai:gpt-5.4-mini',
+            status: 'queued',
+          });
+        });
+
+        // Their run is judged live: if the caller could reach it, nothing would
+        // be expired and a 409 would leak that the chat exists.
+        jobState.mockResolvedValue('active');
+
+        await expect(
+          chatLoop.createMessageStream({
+            chatId: theirChatId,
+            userId,
+            modelId: 'system:openai:gpt-5.4-mini',
+            message: {
+              id: crypto.randomUUID(),
+              parts: [{ type: 'text', text: 'not mine' }],
+            },
+          }),
+        ).rejects.toBeInstanceOf(NotFoundException);
+
+        expect(jobState).not.toHaveBeenCalled();
+        const untouched = await tenantDb.runAs(otherUserId, (tx) =>
+          new RunsRepository(tx).findById(theirRunId, otherUserId),
+        );
+        expect(untouched?.status).toBe('queued');
+      } finally {
+        await sql`DELETE FROM users WHERE id = ${otherUserId}`;
+      }
     });
 
     it('succeeds when the blocker vanishes during the pre-allocation admission check', async () => {
@@ -851,6 +956,8 @@ describeIfDb(
       await send(chatId, crypto.randomUUID(), 'blocker');
       const blocker = await activeRun(chatId);
       expect(blocker).toBeDefined();
+      // Live on the first read, so admission really does take the re-check.
+      jobState.mockResolvedValue('active');
 
       // Deterministically stand in for a blocker that becomes terminal between
       // the pre-allocation observation and its conflict decision: return the
@@ -942,6 +1049,7 @@ describeIfDb(
         .mockResolvedValue(undefined);
       const dispatch: RunDispatcher = {
         dispatch: dispatchRun,
+        jobState: () => Promise.resolve('completed'),
       };
       const instanceConfig: InstanceConfigReader = {
         config: {

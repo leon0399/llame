@@ -141,7 +141,9 @@ describe('ModelClient', () => {
     expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
     const streamTextCall = streamTextMock.mock.calls[0]?.[0];
     expect(streamTextCall).toMatchObject({
-      model: providerModel,
+      // The client wraps the wire's model in its own middlewares, so
+      // identity is the adapter's own provider and model id.
+      model: { provider: 'openai.responses', modelId: 'gpt-test' },
       messages,
       system: 'stable system',
       abortSignal,
@@ -186,7 +188,9 @@ describe('ModelClient', () => {
     expect(openaiProvider).toHaveBeenCalledWith('gpt-local');
     const streamTextCall = streamTextMock.mock.calls[0]?.[0];
     expect(streamTextCall).toMatchObject({
-      model: providerModel,
+      // The client wraps the wire's model in its own middlewares, so
+      // identity is the adapter's own provider and model id.
+      model: { provider: 'openai.responses', modelId: 'gpt-local' },
       messages,
       system: undefined,
       abortSignal: undefined,
@@ -284,12 +288,11 @@ describe('ModelClient', () => {
     client.streamText({ chat: CHAT, messages });
 
     expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
-    expect(streamTextMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: providerModel,
-        providerOptions: { openai: { reasoningSummary: 'auto' } },
-      }),
-    );
+    const [streamOptions] = streamTextMock.mock.calls[0] ?? [];
+    expect(streamOptions).toMatchObject({
+      model: { provider: 'openai.responses', modelId: 'gpt-test' },
+      providerOptions: { openai: { reasoningSummary: 'auto' } },
+    });
     // With no catalog cap configured the setting stays absent, so the
     // request is the pre-provider-options-layer one byte for byte.
     expect(streamTextMock.mock.calls[0]?.[0]?.maxOutputTokens).toBeUndefined();

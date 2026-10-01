@@ -39,6 +39,7 @@ describe('SessionCleanupService', () => {
       schedule: () => Promise.resolve(),
       unschedule: () => Promise.resolve(),
       cancel: () => Promise.resolve(),
+      jobState: () => Promise.resolve('absent'),
     };
     const ensureQueue = vi.spyOn(queue, 'ensureQueue');
     const consume = vi.spyOn(queue, 'consume');

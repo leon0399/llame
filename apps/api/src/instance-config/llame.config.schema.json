@@ -499,8 +499,8 @@
           "description": "The job-queue's native worker-liveness window, in seconds: while a run's job is in flight the worker auto-signals liveness at half this interval, and the queue's monitor fails+retries the job if the signal lapses this long — worker-death detection, not an application heartbeat. Falls back to RUN_HEARTBEAT_SECONDS, then 15."
         },
         "timeoutSeconds": {
-          "$ref": "#/$defs/numberOrToken",
-          "description": "In-process wall-clock budget, in seconds: while its worker is alive, a run exceeding this is aborted in-process and recorded as a terminal run.expired (distinct from a user run.cancelled). Falls back to RUN_TIMEOUT_SECONDS, then 900."
+          "$ref": "#/$defs/nullableNumberOrToken",
+          "description": "Optional in-process wall-clock budget, in seconds: while its worker is alive, a run exceeding this is aborted in-process and recorded as a terminal run.expired (distinct from a user run.cancelled). Omitted or null = NO budget: a progressing run runs until the model answers or the owner cancels it. Must be a positive integer below the 23 h 55 m execution ceiling."
         }
       }
     },
@@ -555,8 +555,8 @@
           "description": "Ordered per-Run permission modes enabled by the operator. Default: [\"default\"]."
         },
         "maxStepsPerRun": {
-          "$ref": "#/$defs/numberOrToken",
-          "description": "Hard cap on tool-requesting steps per run before the loop stops offering tools and drives the model to answer from accumulated context. Falls back to the built-in default, 100."
+          "$ref": "#/$defs/nullableNumberOrToken",
+          "description": "Optional hard cap on tool-requesting steps per run: at the cap the loop stops offering tools and drives the model to answer from accumulated context, recording a cap notice. Omitted or null = no cap — the loop runs as many steps as the model requests."
         },
         "callTimeoutSeconds": {
           "$ref": "#/$defs/numberOrToken",

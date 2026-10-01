@@ -234,12 +234,15 @@ function createMockModelClient(model: MockLanguageModelV3): ModelClient {
         abortSignal: input.abortSignal,
         ...(input.tools && {
           tools: input.tools,
-          stopWhen: stepCountIs((input.maxSteps ?? 8) + 1),
+          stopWhen:
+            input.maxSteps == null
+              ? () => false
+              : stepCountIs(input.maxSteps + 1),
           prepareStep: ({ steps }: { steps: Array<StepResult<ToolSet>> }) => {
             const used = steps.filter(
               (step) => step.toolCalls.length > 0,
             ).length;
-            if (used >= (input.maxSteps ?? 8)) {
+            if (input.maxSteps != null && used >= input.maxSteps) {
               input.onCapReached?.();
               return { activeTools: [] };
             }

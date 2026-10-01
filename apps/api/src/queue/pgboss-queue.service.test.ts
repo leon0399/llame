@@ -37,6 +37,7 @@ function makeQueueService() {
   const schedule = vi.fn().mockResolvedValue(undefined);
   const unschedule = vi.fn().mockResolvedValue(undefined);
   const cancel = vi.fn().mockResolvedValue(undefined);
+  const getJobById = vi.fn().mockResolvedValue(null);
   const boss = {
     createQueue,
     updateQueue,
@@ -45,6 +46,7 @@ function makeQueueService() {
     schedule,
     unschedule,
     cancel,
+    getJobById,
   };
   const pgBoss = { boss };
   // SAFETY: PgBossQueueService only reads `boss` from this double, and every
@@ -60,8 +62,19 @@ function makeQueueService() {
     schedule,
     unschedule,
     cancel,
+    getJobById,
   };
 }
+
+/** pg-boss's own states, spelled as the adapter receives them. */
+const PG_BOSS_STATES = [
+  ['created', 'queued'],
+  ['retry', 'retrying'],
+  ['active', 'active'],
+  ['completed', 'completed'],
+  ['failed', 'failed'],
+  ['cancelled', 'cancelled'],
+] as const;
 
 /** What `@Inject(TOKEN)` accepts: a class, a string, or a symbol. */
 type InjectionToken =
@@ -135,6 +148,7 @@ describe('PgBossQueueService queue operations', () => {
         deadLetter: true,
         policy: 'stately',
         heartbeatSeconds: 20,
+        expireInSeconds: 86_399,
       },
     });
 
@@ -155,7 +169,7 @@ describe('PgBossQueueService queue operations', () => {
         retryBackoff: false,
         deadLetter: 'work.dead',
         heartbeatSeconds: 20,
-        policy: 'stately',
+        expireInSeconds: 86_399,
       }),
     );
     expect(updateQueue).toHaveBeenNthCalledWith(
@@ -167,6 +181,7 @@ describe('PgBossQueueService queue operations', () => {
         retryBackoff: false,
         deadLetter: 'work.dead',
         heartbeatSeconds: 20,
+        expireInSeconds: 86_399,
       }),
     );
     expect(updateQueue.mock.calls[1]?.[1]).not.toHaveProperty('policy');
@@ -196,6 +211,9 @@ describe('PgBossQueueService queue operations', () => {
     expect(updateQueue.mock.calls[0]?.[1]).not.toHaveProperty(
       'heartbeatSeconds',
     );
+    expect(updateQueue.mock.calls[0]?.[1]).not.toHaveProperty(
+      'expireInSeconds',
+    );
   });
 
   it('forwards every enqueue option and sends an empty options object by default', async () => {
@@ -214,6 +232,7 @@ describe('PgBossQueueService queue operations', () => {
           retryDelay: 3,
           retryBackoff: false,
           singletonKey: 'same-work',
+          id: 'run-1',
         },
       ),
     ).resolves.toBe('job-1');
@@ -232,6 +251,7 @@ describe('PgBossQueueService queue operations', () => {
         retryDelay: 3,
         retryBackoff: false,
         singletonKey: 'same-work',
+        id: 'run-1',
       },
     );
     expect(send).toHaveBeenNthCalledWith(2, 'work', { value: 'second' }, {});
@@ -340,5 +360,30 @@ describe('PgBossQueueService queue operations', () => {
     });
     expect(unschedule).toHaveBeenCalledWith('scheduled');
     expect(cancel).toHaveBeenCalledWith('scheduled', 'job-1');
+  });
+
+  it.each(PG_BOSS_STATES)(
+    'maps the pg-boss %s state to %s for one named job',
+    async (pgBossState, expected) => {
+      const { service, getJobById } = makeQueueService();
+      const queue = defineQueue<{ value: string }>({ name: 'named' });
+      getJobById.mockResolvedValue({
+        state: pgBossState,
+        data: { value: 'x' },
+      });
+
+      await expect(service.jobState(queue, 'run-1')).resolves.toBe(expected);
+      expect(getJobById).toHaveBeenCalledWith('named', 'run-1');
+    },
+  );
+
+  it('reads an unknown id as absent without touching any other job', async () => {
+    const { service, getJobById } = makeQueueService();
+    const queue = defineQueue<{ value: string }>({ name: 'named' });
+    getJobById.mockResolvedValue(null);
+
+    await expect(service.jobState(queue, 'never-enqueued')).resolves.toBe(
+      'absent',
+    );
   });
 });

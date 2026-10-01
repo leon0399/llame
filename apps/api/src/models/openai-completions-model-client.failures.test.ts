@@ -9,6 +9,10 @@ import type { ModelMessage } from 'ai';
 
 import type { ChatIdentity, ModelClient } from './model-client';
 import { createOpenAICompletionsModelClient } from './openai-completions-model-client';
+import {
+  ModelStreamIdleError,
+  STREAM_IDLE_TIMEOUT_MS,
+} from './stream-idle-watchdog';
 
 const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
 const messages = [
@@ -279,5 +283,55 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     } finally {
       consoleError.mockRestore();
     }
+  });
+});
+
+describe('createOpenAICompletionsModelClient — stream-idle watchdog (design D4)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reports a stall after a chunk on onError, keeping the wire's bounded failures honest", async () => {
+    // The wire answers with headers and one chunk, then goes silent: the
+    // watchdog's case, over the real adapter's own streaming read.
+    const client = buildClient(() =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(`data: ${TEXT_CHUNK}\n\n`),
+              );
+            },
+          }),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      ),
+    );
+    const reported: Array<unknown> = [];
+
+    const result = client.streamText({
+      chat: CHAT,
+      messages,
+      onError: ({ error }) => {
+        reported.push(error);
+      },
+    });
+    // The SDK streams nothing until a result accessor is read.
+    const drained = result.fullStream
+      .pipeTo(new WritableStream())
+      .catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
+    await drained;
+
+    expect(reported[0]).toBeInstanceOf(ModelStreamIdleError);
+    expect(reported[0]).toMatchObject({ code: 'model_stream_idle' });
+    // Terminal, so the Run is settled rather than left for a queue retry.
+    await expect(Promise.resolve(result.finishReason)).resolves.toBe('error');
+    await expect(Promise.resolve(result.text)).resolves.toBe('partial');
   });
 });

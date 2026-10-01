@@ -234,7 +234,8 @@ class UsageScriptedModelClient implements ModelClient {
       ...(input.tools !== undefined && {
         tools: input.tools,
         ...(input.toolChoice !== undefined && { toolChoice: input.toolChoice }),
-        stopWhen: stepCountIs(input.maxSteps ?? 8),
+        stopWhen:
+          input.maxSteps == null ? () => false : stepCountIs(input.maxSteps),
       }),
       ...scriptedStreamHandlers(input, settlement),
     };

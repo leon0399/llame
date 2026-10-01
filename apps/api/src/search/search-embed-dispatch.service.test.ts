@@ -36,6 +36,7 @@ function fakeQueue(overrides: {
     schedule: vi.fn(),
     unschedule: vi.fn(),
     cancel: vi.fn(),
+    jobState: vi.fn(),
   };
 }
 

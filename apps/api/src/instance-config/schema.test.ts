@@ -103,6 +103,18 @@ describe('published schema — raw (pre-interpolation) file validity, as an edit
     expect(validate({ runs: { timeoutSeconds: 300 } })).toBe(true);
   });
 
+  it('accepts null on the opt-in Run limits', () => {
+    const validate = getConfigValidator();
+    expect(validate({ runs: { timeoutSeconds: null } })).toBe(true);
+    expect(validate({ tools: { maxStepsPerRun: null } })).toBe(true);
+  });
+
+  it('still rejects zero on the opt-in Run limits', () => {
+    const validate = getConfigValidator();
+    expect(validate({ runs: { timeoutSeconds: 0 } })).toBe(false);
+    expect(validate({ tools: { maxStepsPerRun: 0 } })).toBe(false);
+  });
+
   it('a non-token string on a numeric setting fails validation', () => {
     const validate = getConfigValidator();
     expect(validate({ runs: { timeoutSeconds: 'abc' } })).toBe(false);

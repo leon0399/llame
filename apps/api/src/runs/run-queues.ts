@@ -87,19 +87,42 @@ export function runsQueueDefinition(
     options: {
       ...RUNS_QUEUE.options,
       heartbeatSeconds: heartbeatSeconds(config),
+      // The job duration this queue DECLARES — deliberately longer than the
+      // worker's execution ceiling, so the worker ends a live run long before
+      // pg-boss could fail and re-execute it because of its age.
+      expireInSeconds: RUNS_JOB_EXPIRE_SECONDS,
     },
   };
 }
 
 /**
- * In-process wall-clock budget (design D7 mechanism 1): while its worker is
- * alive, a run exceeding this is aborted in-process and recorded as a
- * terminal run.expired, distinct from a user-requested run.cancelled.
+ * The longest a single run's job may stay active, in seconds: the largest
+ * value pg-boss accepts (it rejects 24 h or more), and the backstop that sits
+ * ABOVE `RUN_EXECUTION_CEILING_SECONDS` so the worker's own ceiling always
+ * ends the run first.
+ */
+export const RUNS_JOB_EXPIRE_SECONDS = 86_399;
+
+/**
+ * The runs execution ceiling, in seconds (23 h 55 m): the executing worker
+ * ends any run still executing this long after its current attempt started,
+ * with a message naming the ceiling rather than a budget. It is a substrate
+ * constraint, not configuration — `runs.timeoutSeconds` is rejected at or
+ * above it, and the loader imports THIS constant so the bound and the check
+ * can never drift apart.
+ */
+export const RUN_EXECUTION_CEILING_SECONDS = 86_100;
+
+/**
+ * The operator's opt-in in-process wall-clock budget (design D7 mechanism 1):
+ * while its worker is alive, a run exceeding this is aborted in-process and
+ * recorded as a terminal run.expired, distinct from a user-requested
+ * run.cancelled. `null` (the built-in default) means no budget at all.
  * Precedence (file > env > built-in default) and env-fallback tolerance are
  * resolved once at boot by InstanceConfigService (openspec/changes/
  * instance-config) — this is a plain passthrough.
  */
-export function runTimeoutSeconds(config: LlameConfig): number {
+export function runTimeoutSeconds(config: LlameConfig): number | null {
   return config.runs.timeoutSeconds;
 }
 
@@ -113,13 +136,4 @@ export function runTimeoutSeconds(config: LlameConfig): number {
  */
 export function heartbeatSeconds(config: LlameConfig): number {
   return config.runs.heartbeatSeconds;
-}
-
-/**
- * The longest a real run could take — the in-process wall-clock budget plus
- * one heartbeat window — past which a single-flight blocker with no active
- * job (chat-loop.service.ts) is treated as stuck rather than merely slow.
- */
-export function stuckRunThresholdMs(config: LlameConfig): number {
-  return (runTimeoutSeconds(config) + heartbeatSeconds(config)) * 1000;
 }

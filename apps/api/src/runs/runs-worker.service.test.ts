@@ -25,7 +25,13 @@ import { type ModelClientFactory } from '../models/models.service';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { type RunAbortRegistrar } from './run-abort-registry';
 import { ModelContextExecutionError } from './snapshot-tool-execution';
-import { type RunExecutor, type RunUserMessage } from './run-execution.service';
+import {
+  RUN_CEILING_ABORT_REASON,
+  RUN_TIMEOUT_ABORT_REASON,
+  type RunExecutor,
+  type RunUserMessage,
+} from './run-execution.service';
+import { RUN_EXECUTION_CEILING_SECONDS } from './run-queues';
 import { RunsRepository } from './runs-repository';
 import { RunsWorkerService } from './runs-worker.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
@@ -61,6 +67,7 @@ type ConsumeMockFn = (
 function makeService(
   tx: Db,
   overrides: {
+    timeoutSeconds?: number | null;
     models?: ModelClientFactory;
     runExecution?: RunExecutor;
     aborts?: RunAbortRegistrar;
@@ -85,7 +92,11 @@ function makeService(
       runs: {
         ...BUILT_IN_DEFAULTS.runs,
         heartbeatSeconds: 15,
-        timeoutSeconds: 300,
+        // `null` is a real value here (no budget), not "unset".
+        timeoutSeconds:
+          overrides.timeoutSeconds !== undefined
+            ? overrides.timeoutSeconds
+            : 300,
       },
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
@@ -457,6 +468,98 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       runPayload: { status: 'cancelled', message: cancellationMessage },
       error: { message: cancellationMessage },
     });
+  });
+});
+
+const ONE_SECOND_MS = 1000;
+
+describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limits D2)', () => {
+  const job: RunJob = {
+    runId: 'run-execution-limit',
+    chatId: 'chat-1',
+    userId: 'owner-xyz',
+    modelId: 'system:openai:gpt-5.4-mini',
+    userMessage: {
+      id: 'msg-1',
+      seq: 1,
+      parts: [{ type: 'text', text: 'Continue.' }],
+    } satisfies RunUserMessage,
+  };
+  const queuedRun = {
+    id: job.runId,
+    chatId: job.chatId,
+    messageId: job.userMessage.id,
+    userId: job.userId,
+    modelId: job.modelId,
+    activeAttemptId: null,
+    completedAttemptId: null,
+    turnToolAvailability: null,
+    effort: null,
+    permissionMode: 'default' as const,
+    status: 'running_model' as const,
+    cancelRequestedAt: null,
+    startedAt: new Date(),
+    finishedAt: null,
+    error: null,
+    contextItems: null,
+    workerId: null,
+    createdAt: new Date(),
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** Runs one job to its in-flight point and returns the live abort spy. */
+  async function armFor(timeoutSeconds: number | null): Promise<Mock> {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(queuedRun);
+    const abort = vi.fn();
+    const controller = new AbortController();
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      timeoutSeconds,
+      models: { createClient: vi.fn().mockReturnValue({}) },
+      runExecution: {
+        // Never settles: the run stays in flight while the timer runs.
+        executeRun: vi.fn(() => new Promise<never>(() => {})),
+        settleTerminalRun: vi
+          .fn()
+          .mockResolvedValue({ outcome: 'won' as const }),
+      },
+      aborts: {
+        register: vi.fn().mockReturnValue({
+          signal: controller.signal,
+          abort,
+        }),
+        unregister: vi.fn(),
+      },
+    });
+    const handler = await captureRunsHandler(service, consumeSpy);
+    void handler(job);
+    await vi.waitFor(() => expect(abort).not.toHaveBeenCalled());
+    return abort;
+  }
+
+  it('aborts with the budget reason at the configured budget', async () => {
+    vi.useFakeTimers();
+    const abort = await armFor(300);
+
+    await vi.advanceTimersByTimeAsync(299_000);
+    expect(abort).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(ONE_SECOND_MS);
+    expect(abort).toHaveBeenCalledWith(RUN_TIMEOUT_ABORT_REASON);
+  });
+
+  it('aborts with the ceiling reason, not a budget, when no budget is configured', async () => {
+    vi.useFakeTimers();
+    const abort = await armFor(null);
+
+    // A no-budget run is still ended — by the substrate's ceiling, well past
+    // any budget an operator would have configured.
+    await vi.advanceTimersByTimeAsync(RUN_EXECUTION_CEILING_SECONDS * 1000 - 1);
+    expect(abort).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(ONE_SECOND_MS);
+    expect(abort).toHaveBeenCalledWith(RUN_CEILING_ABORT_REASON);
   });
 });
 

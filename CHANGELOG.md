@@ -19,6 +19,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-09-30
 
+- **Breaking:** Runs no longer have a default time or step limit.
+  `runs.timeoutSeconds` and `tools.maxStepsPerRun` now default to `null`
+  (unlimited) and accept `null` or a positive integer; `0` fails startup, as
+  does a `runs.timeoutSeconds` at or above 86,100 s. A configuration copied from
+  the example keeps its old `"{env:RUN_TIMEOUT_SECONDS:-900}"` and
+  `"maxStepsPerRun": 100` until the operator removes them or sets them to
+  `null`. The `runs` queue now declares an 86,399 s job duration, so pg-boss no
+  longer fails a live Run after 900 s and re-runs it from the beginning; the
+  worker ends a Run still executing 23 h 55 m into its current attempt as
+  `run.expired`. A new message is refused (409) while the blocking Run's job is
+  queued, retrying, or active, however old the Run is, and expires the Run only
+  when its job is gone or settled. A model request that streams nothing for
+  300 s fails its Run with error code `model_stream_idle`
+  ([#1038](https://github.com/leon0399/llame/issues/1038)).
+
 - Chats now load per-directory project instruction files (`LLAME.md`,
   `AGENTS.md`, `CLAUDE.md` and their override and local variants) into model
   context on Workspace entry, on a native `read`, `edit`, or `write` touch,

@@ -166,6 +166,8 @@ describe('bootWorkerHarness', () => {
 
     await bootWorkerHarness({
       allowedTools: ['search_conversations'],
+      // An explicit budget: this harness boots a real config object, and an
+      // opt-in setting is what the run timing assertions below exercise.
       timeoutSeconds: 9,
       heartbeatSeconds: 3,
       runsConcurrency: 4,
@@ -298,6 +300,7 @@ function fakeQueue(enqueue: Queue['enqueue']): Queue {
     schedule: vi.fn(() => Promise.resolve()),
     unschedule: vi.fn(() => Promise.resolve()),
     cancel: vi.fn(() => Promise.resolve()),
+    jobState: vi.fn(() => Promise.resolve('absent' as const)),
   };
 }
 

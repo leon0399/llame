@@ -55,6 +55,7 @@ import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
+import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import { createOpenAICompletionsModelClient } from '../models/openai-completions-model-client';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import { WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
@@ -340,6 +341,8 @@ type ExecutionServiceOptions = {
   permissionModes?: InstanceConfigReader['config']['tools']['permissionModes'];
   knowledgeRoot?: string;
   knowledgeResolver?: KnowledgeToolResolver;
+  /** The operator's step cap; the built-in default is null (no cap). */
+  maxStepsPerRun?: number | null;
 };
 
 function makeExecutionService(
@@ -368,6 +371,8 @@ function makeExecutionService(
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
         allowed: options.allowed ?? [],
+        maxStepsPerRun:
+          options.maxStepsPerRun ?? BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
         nativeExecutorId,
         promptFiles:
           options.toolPromptFiles ?? BUILT_IN_DEFAULTS.tools.promptFiles,
@@ -3750,6 +3755,46 @@ describe('RunExecutionService executeRun — stream failure', () => {
     },
   );
 
+  it('records a stalled model stream as a terminal failure carrying model_stream_idle', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onTextDelta?.('half an answer');
+    const idle = new ModelStreamIdleError();
+    await options.onError?.({ error: idle });
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: {
+          message: idle.message,
+          code: 'model_stream_idle',
+        },
+      }),
+    );
+    // The parts observed before the stall are kept — the run answers with what
+    // it actually saw, and the code rides the run.failed event.
+    expect(appended.at(-1)).toStrictEqual({
+      type: 'run.failed',
+      payload: {
+        status: 'failed',
+        message: idle.message,
+        code: 'model_stream_idle',
+      },
+    });
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [expect.objectContaining({ text: 'half an answer' })],
+      }),
+    );
+  });
+
   it('fails the run and rethrows when streamText throws before any callback', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -3794,7 +3839,7 @@ const toolDeclaration: ModelToolDeclaration = {
   },
 };
 
-const maxSteps = BUILT_IN_DEFAULTS.tools.maxStepsPerRun;
+const configuredMaxSteps = 8;
 
 /** The safe decision metadata a permissive test policy stamps on an allowed call. */
 function allowDecision(toolId: string) {
@@ -4559,7 +4604,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
     await execution.service.executeRun(executionInput(capturing.client));
     const options = capturing.streamOptions();
-    expect(options.maxSteps).toBe(maxSteps);
+    // Opt-in: with no configured cap the client receives null ("no cap"), not
+    // a built-in number.
+    expect(options.maxSteps).toBeNull();
     options.onTextDelta?.('before ');
     await executeBoundTool(options, { q: 'llame' }, 'call-1');
     await options.onFinish?.({
@@ -4928,7 +4975,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
   it('records the step cap as an event and a persisted cap notice', async () => {
     const spies = mockNormalExecutionRepositories();
-    const toolOptions = withDeclaredTool();
+    const toolOptions = {
+      ...withDeclaredTool(),
+      maxStepsPerRun: configuredMaxSteps,
+    };
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(
@@ -4956,13 +5006,22 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
     expect(appended[2]).toStrictEqual({
       type: 'run.step_cap_reached',
-      payload: { stepsUsed: maxSteps, maxSteps },
+      payload: {
+        stepsUsed: configuredMaxSteps,
+        maxSteps: configuredMaxSteps,
+      },
     });
     expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
         parts: [
           { type: 'text', text: 'capped answer' },
-          { type: 'data-cap-notice', data: { stepsUsed: maxSteps, maxSteps } },
+          {
+            type: 'data-cap-notice',
+            data: {
+              stepsUsed: configuredMaxSteps,
+              maxSteps: configuredMaxSteps,
+            },
+          },
         ],
       }),
     );
@@ -5223,7 +5282,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
       userId,
       'expired',
       expect.objectContaining({
-        error: { message: 'The run expired before this tool finished.' },
+        // The tool's own result keeps the tool-termination text; the RUN's
+        // terminal message comes from the abort reason (D2).
+        error: { message: 'Run timed out: exceeded its wall-clock budget.' },
       }),
     );
   });
