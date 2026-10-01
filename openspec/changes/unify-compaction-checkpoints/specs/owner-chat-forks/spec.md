@@ -4,7 +4,7 @@
 
 ### Requirement: The owner selects a durable prefix
 
-The owner SHALL be able to fork their own Chat as a whole or through an inclusive user or assistant message. A whole-chat fork SHALL copy every durable message; an explicit anchor SHALL copy through the requested message. Run status SHALL NOT gate a fork, so a fork taken while a source Run is executing succeeds and copies the accepted user message. The source and its messages, `checkpoint` rows included, SHALL be read from one datastore snapshot and committed as one destination without a message-count cap. Forking SHALL NOT mutate the source. An absent source, foreign-owner source, or anchor outside the owned source Chat SHALL retain not-found behavior.
+The owner SHALL be able to fork their own Chat as a whole or through an inclusive user or assistant message. A whole-chat fork SHALL copy every durable message; an explicit anchor SHALL copy every user and assistant row at or below that anchor together with every `checkpoint` row whose absorbed-through sequence is at or below it. Run status SHALL NOT gate a fork, so a fork taken while a source Run is executing succeeds and copies the accepted user message. The source and its messages, `checkpoint` rows included, SHALL be read from one datastore snapshot and committed as one destination without a message-count cap. Forking SHALL NOT mutate the source. An absent source, foreign-owner source, or anchor outside the owned source Chat SHALL retain not-found behavior.
 
 #### Scenario: Whole-chat fork during an in-flight Run
 
@@ -91,7 +91,7 @@ The shared/public fork path SHALL remain the public transcript projection and SH
 
 ### Requirement: Checkpoint rows are copied with the prefix
 
-An owner fork SHALL copy every `checkpoint` row whose absorbed-through sequence lies within the copied prefix as part of the ordinary message copy, keeping its stored parts, persisted checkpoint text, raw summary, usage, and absorbed-through sequence verbatim while allocating a new message identity. The copy SHALL remap the absorbed-through sequence onto the copied rows so that a copied checkpoint absorbs exactly what it absorbed in the source, and the fork's replay SHALL use the copied checkpoint followed by the copied rows after its absorbed-through sequence. The copy SHALL NOT rebuild a checkpoint from a raw summary, re-render its stored text, or compact during copying, and a checkpoint row that fails the existing message write validation SHALL fail the whole fork.
+An owner fork SHALL copy every `checkpoint` row whose absorbed-through sequence is at or below the anchor as part of the ordinary message copy, keeping its stored parts, persisted checkpoint text, raw summary, usage, and absorbed-through sequence verbatim while allocating a new message identity. The copy SHALL remap the absorbed-through sequence onto the copied rows so that a copied checkpoint absorbs exactly what it absorbed in the source, and the fork's replay SHALL use the copied checkpoint followed by the copied rows after its absorbed-through sequence. The copy SHALL NOT rebuild a checkpoint from a raw summary, re-render its stored text, or compact during copying, and a checkpoint row that fails the existing message write validation SHALL fail the whole fork.
 
 A shared or public fork SHALL copy only text-only user and assistant rows and SHALL NOT copy a `checkpoint` row.
 

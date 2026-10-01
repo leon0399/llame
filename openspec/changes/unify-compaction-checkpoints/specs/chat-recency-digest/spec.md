@@ -36,7 +36,7 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 #### Scenario: Re-resolution resets both
 
 - **WHEN** the baseline is re-resolved at a checkpoint
-- **THEN** the new epoch replaces the old told-set and records only actual disclosure of the fresh baseline by a prepared request
+- **THEN** the new epoch replaces the old told-set and records only actual successful disclosure of the fresh baseline
 - **AND** the request prepared after that publication accounts for entries rendered in either prompt surface before deriving appends, so that same request does not re-announce them
 
 #### Scenario: A failed attempt leaves the refreshed epoch in place

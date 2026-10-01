@@ -12,6 +12,12 @@ An owner-facing conversation source SHALL use `chatId` plus this sequence as pos
 
 Owner history and public shared-Chat message DTOs SHALL expose this same Chat-local sequence, and their `beforeSeq` cursors SHALL interpret it only inside the named Chat. Public shared pagination SHALL retain its existing text-only egress allowlist, public-visibility check, no-store behavior, and empty-identity RLS path; changing sequence allocation SHALL NOT grant target-mode access, owner metadata, reasoning, tool parts, or private-Chat existence.
 
+The datastore's public read policy on messages SHALL exclude a `checkpoint` row,
+and public shared pagination SHALL apply the same exclusion before serialization,
+so that no anonymous or non-owner reader ever receives a `checkpoint` row through
+either path. Excluding the role SHALL NOT renumber, renest, or otherwise consume
+the sequence a checkpoint occupied.
+
 Every durable Run queue payload carrying a triggering message sequence SHALL validate it as a positive safe integer before execution. Zero, negative, fractional, non-finite, or unsafe values SHALL fail queue parsing before they can bound history, select a checkpoint, or enter a tool locator.
 
 Where chronology navigation is returned, `previousMessageSeq` and `nextMessageSeq` SHALL identify the closest currently readable eligible messages under current owner scope. The caller SHALL NOT infer eligibility from arithmetic: an intervening system/tool row, `checkpoint` row, or retryable assistant row MAY occupy an adjacent committed sequence while remaining unavailable to evidence reads. A `checkpoint` row SHALL never be an addressable conversation source under any owner scope, and its sequence SHALL be skipped by chronology navigation exactly as a system or tool row is.
@@ -39,6 +45,15 @@ Where chronology navigation is returned, `previousMessageSeq` and `nextMessageSe
 - **WHEN** an anonymous reader paginates a public Chat with `beforeSeq`
 - **THEN** message DTOs and cursors use that Chat's one-based local sequence
 - **AND** the public path exposes no private Chat, owner-only target mode, reasoning, tool part, or owner identity
+- **AND** no `checkpoint` row appears in the page, because the public read policy and pagination both exclude that role
+
+#### Scenario: An anonymous reader of a compacted public Chat sees no checkpoint row
+
+- **WHEN** a public Chat carrying a `checkpoint` row is paginated by an anonymous
+  or non-owner reader
+- **THEN** the returned rows and cursors contain no `checkpoint` row
+- **AND** the sequence that checkpoint occupied stays consumed and is skipped by
+  the cursor rather than renumbered
 
 #### Scenario: Invalid queued sequence fails before history access
 

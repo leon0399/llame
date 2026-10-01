@@ -36,12 +36,17 @@ supersession when folding a prior checkpoint, secrets, and language.
   [#1069](https://github.com/leon0399/llame/issues/1069).
 - One synchronous compaction trigger evaluated inside the Run before its first
   model step, against the Run model's threshold or, on a model switch, the
-  target's window. The post-turn fire-and-forget path, its staleness guard,
-  and the separate staged transition mode are deleted; the checkpoint and the
-  re-baked epoch state publish in one transaction before the model step and
-  survive a failed attempt. Mid-turn evaluation between tool steps is
-  [#1068](https://github.com/leon0399/llame/issues/1068) and must stay
-  expressible by this representation.
+  target's window. One request path serves both: a threshold trigger
+  summarizes with the attempt's own model and prompt; a window trigger
+  summarizes with the previous completed Run's model and receipt, since a
+  prefix cannot be summarized by a model it does not fit. The post-turn
+  fire-and-forget path, its staleness guard, and the separate staged
+  transition mode are deleted; the checkpoint and the re-baked epoch state
+  publish in one transaction before the attempt renders its own prompt and
+  receipt, and survive a failed attempt. Mid-turn evaluation between tool
+  steps is [#1068](https://github.com/leon0399/llame/issues/1068); this
+  representation keeps its boundary column reusable and leaves segment
+  persistence to that issue.
 - Datastore isolation: the public read policy on `messages` excludes
   `checkpoint` rows; search projection, `conversation_read`, public DTOs and
   shared-fork copies exclude the role; owner forks copy checkpoint rows
@@ -105,10 +110,15 @@ None.
   before the model step, not with the successful attempt.
 - `durable-runs`: a Run's first model step may be preceded by a published
   checkpoint row; the final projection is unchanged.
+- `anthropic-messages-provider`: a superseded prefix is replaced by the
+  checkpoint message, not by replacement history.
+- `tool-prompt-templates`: the attempt renders its prompt surfaces after a
+  pre-step checkpoint and its re-bake, not after transition compaction.
 
-Deltas that only rename `compactions` identity to the checkpoint message are
-listed so archive keeps canonical wording consistent; a capability whose
-normative text does not change is not listed.
+A capability whose normative text does not change is not listed. Historical
+cutover wording in `tool-calling` ("Conversation read uses the attempt-local
+read-only tool loop") that names replacement history as a preflight target of
+a past migration stays as the record of that migration.
 
 ## Impact
 
@@ -126,10 +136,13 @@ normative text does not change is not listed.
   rail part; `COMPACTION_CHECKPOINT_ENVELOPE_PREFIX` and the
   `renderConversationCheckpoint` bypass go; fork copy drops the compaction
   loop; search hydrator and conversation reads exclude the role.
-- `apps/api/src/runs`: trigger evaluation before the first step; epoch logic
-  reads the checkpoint message; receipts unchanged in shape.
+- `apps/api/src/runs`: trigger evaluation and checkpoint publication before the
+  attempt renders its prompt and binds its receipt; epoch logic reads the
+  checkpoint message; the chat-list preview and the recency-digest message
+  count skip checkpoint rows.
 - `apps/web`: the boundary component renders from the checkpoint row in the
-  owner's messages response; absorbed count derives from `seq`.
+  owner's messages response, placed at the API-supplied boundary with the
+  API-computed absorbed count.
 - `apps/api/evals/compaction/`: new, on-demand, with a workspace script.
 - Docs: `docs/product/operator/` compaction material, `docs/development/`
   eval runbook, dated `CHANGELOG.md` entries, `SPEC.md` §2.1, `ROADMAP.md`.

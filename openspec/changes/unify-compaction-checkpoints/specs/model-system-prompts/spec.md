@@ -23,23 +23,34 @@ Tool observations are no longer display-only. They are replayed in the conventio
 
 #### Scenario: Target context window cannot fit portable history
 
-- **WHEN** a turn switches from model `A` to smaller-context model `B` and the prepared request for `B` exceeds its configured context window or reserved output budget
-- **THEN** the worker compacts inside the `B` attempt before its first model step, using `B`'s own resolved prompt, effort, and schema-only tool declarations
-- **AND** the checkpoint row publishes before that model step and leaves the triggering user message outside its absorbed-through sequence
-- **AND** model `B` receives its own prompt and tools, the checkpoint as one user-role text message, the later rows, the switch reminder, and the triggering user text
+- **WHEN** a turn switches from model `A` to smaller-context model `B` and the
+  complete request for `B` would exceed its configured context window or
+  reserved output budget
+- **AND** model `A` plus its most recent system-prompt receipt remain executable
+- **THEN** the worker compacts with model `A` over history through the last
+  assistant turn before invoking model `B`
+- **AND** the triggering user message remains outside the summarized prefix
+- **AND** model `B` receives its own prompt and tools, the resulting checkpoint
+  message, the user and assistant rows above its absorbed-through sequence, and
+  the switch reminder plus triggering user text
 
 #### Scenario: No capable source model is available
 
-- **WHEN** the prepared request does not fit the Run model's window and one compaction still does not make it fit
-- **THEN** the run fails before the provider call with `context_incompatible`
+- **WHEN** the target request does not fit and the prior model or its successful
+  system-prompt receipt is unavailable or the source-model compaction fails
+- **THEN** the run fails before the target provider call with
+  `context_incompatible`
 - **AND** history is not silently truncated and no fallback model is selected
 
 #### Scenario: Over-window public-chat fork has no source execution context
 
-- **WHEN** the owner of a public-chat fork sends a turn whose portable fork history does not fit the selected model
-- **THEN** compaction uses that fork owner's own attempt state and never the source owner's execution context
-- **AND** when the fork history still does not fit after one compaction, the run fails with `context_incompatible`
-- **AND** the system does not access the source owner's snapshots, prompt receipts, credentials, or non-public metadata
+- **WHEN** the owner of a public-chat fork sends a turn whose portable fork
+  history does not fit the selected model
+- **AND** no source-model system-prompt receipt owned by the fork owner can
+  compact that history in one request
+- **THEN** the run fails with `context_incompatible`
+- **AND** the system does not access the source owner's snapshots, prompt
+  receipts, credentials, or non-public metadata
 
 #### Scenario: Target model is unavailable
 
@@ -58,7 +69,7 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **THEN** the selected model receives its effective prompt normally
 - **AND** no model-switch reminder is created
 
-Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`; only attempt-generated rail context stays staged and publishes with a successful turn. Compaction SHALL run in the Run's own attempt before its first model step, using that attempt's prompt, effort, and schema-only tool declarations; it SHALL NOT run against a previous model's client, receipt, or effort, and it SHALL NOT load, reconstruct, or persist a historical tool catalog.
+Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`; only attempt-generated rail context stays staged and publishes with a successful turn. Compaction SHALL run in the Run's own attempt before its first model step and SHALL follow the checkpoint contract below. When the prepared request does not fit that attempt's model, the summary SHALL use the previous completed Run's model, that Run's system-prompt receipt and effort, and no tool declarations; it SHALL NOT load, reconstruct, or persist a historical tool catalog.
 
 ### Requirement: Model switches use canonical persisted context text and metadata
 
@@ -174,23 +185,33 @@ rewrite model replay.
   exact model-change record
 - **AND** no stored item is re-rendered from current catalog values
 
-### Requirement: Compaction preserves the completed Run's effective prompt and materializes replacement history
+### Requirement: Compaction publishes a summary-only checkpoint before the Run's first model step
 
 Before the Run's first model step, compaction SHALL be evaluated once against
 that attempt's prepared request. It SHALL fire when the measured context size is
 at or above the Run model's threshold, or when the prepared request does not fit
 the Run model's context window or reserved output budget, which covers a switch
 to a smaller-context target. Measured context size SHALL be the previous
-completed assistant message's persisted input plus output plus the estimate of
-the rows and rail items after it; with no such measurement the whole request
-SHALL be estimated.
+completed assistant message's persisted final-request context size plus the
+estimate of the rows and rail items after it, and SHALL be counted only when
+that assistant row's sequence is above the active checkpoint's sequence;
+otherwise the whole request SHALL be estimated.
 
-The summarization inference SHALL use that attempt's selected model client, exact
-effective top-level system prompt, and schema-only provider-facing tool
-declarations retained in that attempt's memory without executor functions, the
-compactable conversation prefix, and a final synthetic user summarization
-instruction. It SHALL set `toolChoice: "none"`, MUST NOT execute tools, and SHALL
-accept text only.
+The summarizing model, prompt, tool declarations, and effort SHALL be data on
+the one path. A threshold-triggered compaction SHALL use that attempt's own
+model client, its system prompt as rendered before the re-bake, its schema-only
+provider-facing tool declarations retained in that attempt's memory without
+executor functions, and its resolved effort, so the summary request is a
+cache-aligned continuation of the prefix it summarizes. A window-triggered
+compaction, where the prepared request does not fit the attempt's model, SHALL
+use the previous completed Run's model with that Run's system-prompt receipt and
+effort and no tool declarations, because a prefix cannot be summarized by a
+model it does not fit; when that model cannot execute or cannot fit the prefix
+either, the attempt SHALL fail `context_incompatible`. Either variant SHALL send
+the compactable conversation prefix, which already contains the prior
+checkpoint as user text, and a final synthetic user summarization instruction.
+It SHALL set `toolChoice: "none"`, MUST NOT execute tools, and SHALL accept text
+only.
 
 The single summarization instruction SHALL request the sections `Latest Request`,
 `Objective`, `Constraints and Preferences`, `Decisions and Rationale`,
@@ -231,11 +252,14 @@ The checkpoint message SHALL carry no tool record, no retained tail, and no forw
 pointer, and no replacement history SHALL exist.
 
 The next attempt SHALL assemble its freshly resolved top-level prompt and tools,
-the latest checkpoint below the current position as one user-role text message,
-and then every user and assistant row above that checkpoint's absorbed-through
-sequence in sequence order. It SHALL NOT re-wrap the raw summary, re-render
-checkpoint text, or reconstruct any part from the summary. The raw summary
-remains separate; replay SHALL NOT parse it out of the checkpoint text.
+the latest checkpoint whose absorbed-through sequence is below the triggering
+user message's sequence as one user-role text message, and then every user and
+assistant row above that absorbed-through sequence in sequence order. Selection
+is by that boundary rather than by the checkpoint row's own sequence, because a
+pre-step checkpoint publishes above the user message it was published for. It
+SHALL NOT re-wrap the raw summary, re-render checkpoint text, or reconstruct any
+part from the summary. The raw summary remains separate; replay SHALL NOT parse
+it out of the checkpoint text.
 
 A later compaction SHALL consume the previous checkpoint as user text plus newly
 absorbed messages and write a wholly new checkpoint message. No legacy checkpoint
@@ -246,20 +270,24 @@ or regenerate history.
 The checkpoint message and the re-baked epoch state — the recency-digest
 baseline, the temporal anchor, the skill-catalog baseline, the workspace
 told-set, and the epoch markers naming the checkpoint message — SHALL commit in
-one transaction before the model step the compaction preceded. A later failure of
-that attempt SHALL leave them in place, because a checkpoint describes committed
-history only, and a retry SHALL reuse the published checkpoint instead of paying a
-second summary call. Publication SHALL be idempotent across a worker-attempt
-cutover, and stale work SHALL NOT alter a prepared live attempt's context.
+one transaction before the model step the compaction preceded and before that
+attempt resolves its own system prompt, its staged rail items, and its
+system-prompt receipt, so the receipt records the prompt actually sent and every
+re-baked value takes effect for the request the checkpoint precedes. A later
+failure of that attempt SHALL leave them in place, because a checkpoint
+describes committed history only, and a retry SHALL reuse the published
+checkpoint instead of paying a second summary call. Publication SHALL be
+idempotent across a worker-attempt cutover, and stale work SHALL NOT alter a
+prepared live attempt's context.
 
-Compaction SHALL use that attempt's own prompt, effort, and schema-only tool
-declarations, SHALL NOT load, reconstruct, or persist a historical tool catalog,
-and SHALL estimate the request actually sent. Tool execution remains disabled. If
-the request still does not fit after that one compaction, the attempt SHALL fail
-`context_incompatible`. Post-cutover failed-attempt output SHALL remain part of the
-record and enter compaction input like any other committed turn; only its staged
-rail items withhold until a successful turn. Existing history and checkpoints
-SHALL retain the preservation boundary defined by `context-injection`.
+Compaction SHALL estimate the request actually sent and SHALL NOT load,
+reconstruct, or persist a historical tool catalog. Tool execution remains
+disabled. If the request still does not fit after that one compaction, the
+attempt SHALL fail `context_incompatible`. Post-cutover failed-attempt output
+SHALL remain part of the record and enter compaction input like any other
+committed turn; only its staged rail items withhold until a successful turn.
+Existing history and checkpoints SHALL retain the preservation boundary defined
+by `context-injection`.
 
 The persisted checkpoint envelope SHALL state that the session state may already
 reflect work described in it and SHALL direct the assistant not to repeat that
@@ -270,8 +298,8 @@ work.
 - **WHEN** the prepared request of a Run reaches its model's threshold or does
   not fit that model's window
 - **THEN** summarization runs inside that attempt before its first model step,
-  using that attempt's bound prompt, model, schema-only tools, compactable
-  history, and the single trailing instruction
+  using the model, prompt, tool declarations, and effort the trigger selects,
+  its compactable history, and the single trailing instruction
 - **AND** the checkpoint message and its raw summary commit atomically before
   that model step
 
@@ -388,10 +416,11 @@ work.
 
 - **WHEN** a model switch requires compaction because the prepared request does
   not fit the target's window
-- **THEN** the target attempt compacts its own compactable prefix with its own
-  prompt, effort, and schema-only tool declarations
-- **AND** the checkpoint row publishes before the target model step and precedes
-  the retained triggering user turn in replay
+- **THEN** the previous completed Run's model uses its last successful
+  system-prompt receipt and its own effort to summarize only eligible committed
+  history without tool declarations
+- **AND** the target request uses the resulting checkpoint message before the
+  triggering user message
 
 #### Scenario: A target attempt fails after transition preparation
 
@@ -399,6 +428,15 @@ work.
   fails
 - **THEN** the checkpoint and the re-baked epoch state remain active
 - **AND** a retry reuses them instead of paying a second summary call
+
+#### Scenario: The receipt records the prompt sent after the re-bake
+
+- **WHEN** a pre-step checkpoint and its re-baked epoch state commit inside an
+  attempt
+- **THEN** that attempt resolves its own system prompt, its staged rail items,
+  and its system-prompt receipt only after that commit
+- **AND** the receipt records the prompt actually sent, and every re-baked value
+  takes effect for the request the checkpoint precedes
 
 #### Scenario: A completed turn starts ordinary compaction
 
@@ -461,3 +499,8 @@ than derived from or compared with a shared constant.
 - **WHEN** an operator configuration attempts to name a replacement for a summarization instruction or a title prompt
 - **THEN** startup rejects the unknown key under the closed schema
 - **AND** the packaged template remains in use
+
+## RENAMED Requirements
+
+- FROM: `### Requirement: Compaction preserves the completed Run's effective prompt and materializes replacement history`
+- TO: `### Requirement: Compaction publishes a summary-only checkpoint before the Run's first model step`
