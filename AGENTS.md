@@ -29,7 +29,7 @@ depend on it.
   archives.
 - [CHANGELOG.md](CHANGELOG.md): shipped chronology.
 - [DESIGN.md](DESIGN.md): UI language.
-- [docs/index.md](docs/index.md): documentation tree and authoring rules;
+- [docs/index.md](docs/index.md) and [docs/AGENTS.md](docs/AGENTS.md): documentation tree and authoring rules;
   [docs/development/testing.md](docs/development/testing.md) and
   [docs/product/operator/scaling.md](docs/product/operator/scaling.md): test
   placement and runtime topology.
