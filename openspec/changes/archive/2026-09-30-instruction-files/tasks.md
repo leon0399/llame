@@ -1,4 +1,4 @@
-Track [#975](https://github.com/leon0399/llame/issues/975) and its PRs through the delivery Project under [CONTRIBUTING.md](../../../CONTRIBUTING.md). Local drafting or commits do not change Project status. [#1029](https://github.com/leon0399/llame/issues/1029) (imports) is separate work, not a native blocker.
+Track [#975](https://github.com/leon0399/llame/issues/975) and its PRs through the delivery Project under [CONTRIBUTING.md](../../../../CONTRIBUTING.md). Local drafting or commits do not change Project status. [#1029](https://github.com/leon0399/llame/issues/1029) (imports) is separate work, not a native blocker.
 
 Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation. Create the next layer only after the approved proposal revision is carried forward and the previous layer passed its gates. Publication and merge each require separate permission.
 

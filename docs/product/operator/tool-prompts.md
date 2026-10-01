@@ -1,3 +1,10 @@
+---
+summary: "Replacing a tool description with a template and reading the receipts it produces"
+read_when:
+  - you are overriding a tool description for one model or for the instance
+  - you are reading a context receipt or diagnosing a rendered-empty Run
+---
+
 # Tool prompt templates
 
 llame ships a Markdown description for each of its own tools and renders it for

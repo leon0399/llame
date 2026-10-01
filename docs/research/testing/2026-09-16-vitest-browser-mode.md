@@ -331,7 +331,7 @@ are approximate, derived from file size.
 
 [^llame-web-vitest-config]: [apps/web/vitest.config.ts](../../../apps/web/vitest.config.ts)
 
-[^llame-testing-doc]: [docs/testing.md](../../testing.md)
+[^llame-testing-doc]: [docs/development/testing.md](../../development/testing.md)
 
 [^llame-ci-workflow]: [.github/workflows/ci.yml](../../../.github/workflows/ci.yml)
 

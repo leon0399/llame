@@ -2,7 +2,7 @@
 
 llame has no personalization surface at all: `users` carries only auth fields, and nothing a user can author reaches model context. Every chat therefore starts without knowing what to call the person, what they work on, or how they want answers delivered — context that is cheap to state once and expensive to repeat every conversation.
 
-This is also the unblocked prerequisite for later context work. A stated language profile is what turns cross-lingual recall from a hardcoded guess into user-driven behavior ([cross-lingual recall](../../../docs/research/chat-search/2026-07-27-cross-lingual-recall.md) §6.1), and this change establishes the tenant table, the injection seam, the size discipline, and the precedence rules that inferred memory and a recency digest would later reuse. Design reasoning and the surveyed alternatives are in [user-context injection](../../../docs/research/long-term-memory/2026-07-27-user-context-injection.md).
+This is also the unblocked prerequisite for later context work. A stated language profile is what turns cross-lingual recall from a hardcoded guess into user-driven behavior ([cross-lingual recall](../../../../docs/research/chat-search/2026-07-27-cross-lingual-recall.md) §6.1), and this change establishes the tenant table, the injection seam, the size discipline, and the precedence rules that inferred memory and a recency digest would later reuse. Design reasoning and the surveyed alternatives are in [user-context injection](../../../../docs/research/long-term-memory/2026-07-27-user-context-injection.md).
 
 ## What Changes
 

@@ -1,3 +1,14 @@
+---
+summary: "Knowledge Spaces: the configured root, ownership, mounts, and enabling or disabling"
+read_when:
+  - you are configuring knowledge.root or the Knowledge tool allowlist
+  - you are mounting the Knowledge root across API and worker hosts
+behavior:
+  - ../reference/tools/knowledge-search.md
+  - ../reference/locators/kb.md
+  - ../reference/instruction-files.md
+---
+
 # Personal Knowledge
 
 Opt-in, owner-scoped read access to live files under multiple Knowledge Spaces.
@@ -7,12 +18,13 @@ edits.
 
 `knowledge_read` is deleted. Knowledge files are read through the native `read`
 tool's `kb://<knowledgeSpaceId>/<path>[:selector]` locator instead. See
-[native files](native-files.md) for the `read` contract and the full `kb://`
-grammar.
+[`read`](../reference/tools/read.md) for the read contract and
+[kb locators](../reference/locators/kb.md#form) for the full `kb://` grammar.
 
 An allowlisted `knowledge_read` entry now fails boot; remove it from
-`tools.allowed` before upgrading. Historical `knowledge_read` observations in
-existing chats still render as recorded, and no attempt admits the deleted tool.
+`tools.allowed` before upgrading. Historical `knowledge_read` observations and
+stored results in existing chats keep their original shape and attribution,
+and no attempt admits the deleted tool.
 
 ## Configuration and ownership
 
@@ -58,32 +70,12 @@ leave an unauthoritative directory; never reuse or delete it automatically.
 Trusted native hosts may edit these files through the generic file tools.
 Git submission remains separate work under #212.
 
-## Instruction files
+## Instruction files and host authority
 
-A `read`, `edit`, or `write` of a `kb://` locator loads the same per-directory
-instruction chain a host path does, walked from the Space's own directory down
-to the touched directory and never above it: a file in `knowledge.root` itself
-is not a candidate, and no host path is probed. Only a Space identifier already
-in the canonical lower-case form llame formats and shows is a trigger; an
-identifier written with an upper-case hex digit is not, so that call still
-reads the file but loads no instruction file from the Space. Each loaded file
-is named by its `kb://<knowledgeSpaceId>/<path>` locator and its seen key is
-that same locator, and its pages are read through the native `read` tool under
-system origin `instructions` and the `read` permission group under that exact
-locator, so a `read` reject rule on `path` applies to those pages exactly as it
-does to the model's own read of that Space. Space resolution and every probe
-use the Run owner: a Space that is missing, another owner's, or unavailable
-loads nothing and reveals nothing, and so does a locator whose own path the
-Knowledge resolver refuses — a traversal, or one deeper than its component cap.
-`knowledge_search` hits never trigger. See
-[native files](native-files.md#instruction-files) for the chain names and the
-host-path rules that apply unchanged.
-
-Loading a Space chain needs `read` in `tools.allowed` and a configured
-`knowledge.root`; no `tools.nativeExecutorId` is needed, so a worker without an
-accepted native host still loads one. There is no accepted-turn load for Spaces
-— a Chat has no Space binding — and a Space chain returns on the next `kb://`
-touch after a compaction.
+A `read`, `edit`, or `write` of a Space loads that Space's instruction chain.
+The chain names, the locators that identify each loaded page, and the
+host-path rules that apply unchanged are documented in
+[Instruction files](../reference/instruction-files.md).
 
 A host path under `knowledge.root` is host authority, not Space content: a
 `read`, `edit`, or `write` that names one is a plain native file operation,
@@ -108,66 +100,14 @@ traversal and symlinks, canonicalizes containment, and opens final files with
 `O_NOFOLLOW`. It does not fully prevent hostile concurrent parent swaps or
 hardlinks; do not use tenant-writable or synchronization-managed mounts.
 
-## Search
+## Reading, search, and disabling
 
-`knowledge_search` accepts a literal query, limit 1-10, optional
-`knowledgeSpaceId`, and optional opaque cursor. Without an ID it scans all
-currently owned spaces in deterministic pages under shared bounds. Access is
-resolved live under RLS.
+Reading a Space file and listing its directory are documented in
+[kb locators](../reference/locators/kb.md); the Markdown scanner that finds
+candidates is [`knowledge_search`](../reference/tools/knowledge-search.md).
 
-Search is case-insensitive literal scanning: no regex, subprocess, Markdown
-parser, index, or embeddings. Each occurrence includes at most one adjacent
-line on each side; touching windows merge and split at 2,000 lines. Each
-result carries current space ID/name, relative path, a one-based inclusive
-`locator` (`kb://<knowledgeSpaceId>/<path>:N-M`), and an excerpt capped at 500
-Unicode code points. The locator is a ready `read` argument; drop the `:N-M`
-suffix to read the whole note. Reserved characters in the filename are encoded
-in the locator; colon-named Markdown files are searched normally. Cropped excerpts show ellipses while the
-locator still addresses the full passage.
-
-Unscoped search may return usable matches with `complete: false` when one space
-fails safely. An explicit target failure, total failure, no inventory,
-timeout/cancel, invalid cursor, or global-limit failure is top-level and closed.
-Cursors are live keyset continuations, not snapshots.
-
-## Reading and listing
-
-`read` opens `kb://<knowledgeSpaceId>/<path>[:selector]`, or lists a Space's
-directory at `kb://<knowledgeSpaceId>` or `kb://<knowledgeSpaceId>/`. The
-identifier is resolved through the owner's current Knowledge access on every
-call, under RLS, with no filesystem probe. An absent, removed, malformed, or
-other-owner identifier returns `knowledge_space_not_found`; an unresolvable
-root or stable-ID child returns `knowledge_space_unavailable`. Path and file
-failures use the native vocabulary (`invalid_path`, `not_found`,
-`not_regular_file`, ...). See [native files](native-files.md) for the full
-selector grammar, symlink handling, and error set.
-
-Locator paths are percent-decoded once per segment after splitting. A literal
-`:`, `?`, `#`, or `%` is written as `%3A`, `%3F`, `%23`, or `%25`; spaces and
-other characters may be literal or encoded, and `/` is never encoded. Search
-emits those four escapes only and includes colon-named notes. Malformed encoding
-and encoded separators fail with `invalid_path`. Previously saved locators with
-a literal `%` must now use `%25`.
-
-`kb://` reads carry no Markdown-only suffix rule and no 1 MiB per-file limit —
-a Space is a directory of arbitrary files. `knowledge_search` itself is
-unchanged: it still indexes only Markdown and still warns per Space on an
-oversized or invalid-UTF-8 `.md` file.
-
-Every successful `kb://` read or listing carries the Knowledge
-untrusted-content notice, the Space identifier, and the Space display name.
-Content is returned verbatim, not neutralized, unlike the deleted
-`knowledge_read`; recall-time framing carries the untrusted-content warning
-instead.
-
-Results never expose host paths, owner IDs, credentials, or raw filesystem
-errors. Historical stored `knowledge_read` results keep their original shape
-and attribution. Content is untrusted and may be stale.
-
-`knowledge_search` is a bounded Markdown scanner, not an index, embeddings
-store, or Git revision contract. `kb://` reads are not a shell, generic
-filesystem, Workspace, Sandbox, or Personal Realm. Disable Knowledge search by
-removing `knowledge_search` from `tools.allowed`; disable `kb://` reads by also
-removing `read` (which also disables absolute-path native access) or
-`knowledge.root`. Restart to apply; existing rows and files persist for later
-reuse.
+`kb://` reads are not a shell, generic filesystem, Workspace, Sandbox, or
+Personal Realm. Disable Knowledge search by removing `knowledge_search` from
+`tools.allowed`; disable `kb://` reads by also removing `read` (which also
+disables absolute-path native access) or `knowledge.root`. Restart to apply;
+existing rows and files persist for later reuse.

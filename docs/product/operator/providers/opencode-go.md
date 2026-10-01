@@ -1,3 +1,10 @@
+---
+summary: "Serving an OpenCode Go subscription through llame's fixed Chat Completions route"
+read_when:
+  - you are configuring an opencode-go provider entry and its models
+  - you are matching a gateway failure message on a Go request
+---
+
 # OpenCode Go provider
 
 `opencode-go` lets one llame instance use an OpenCode Go subscription: a

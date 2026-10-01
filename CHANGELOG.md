@@ -1,5 +1,22 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-01
+
+- Reorganized `docs/` by reader. Owner-visible tool, locator, and selector
+  behavior now lives in `docs/product/reference/`, with one page per tool
+  (`read`, `edit`, `write`, `bash`, Workspace entry and exit, `knowledge_search`,
+  conversation recall, MCP) and one per locator scheme (host path and `file://`,
+  `kb://`, `skill://`, `http(s)://`), plus shared selector, instruction-file,
+  permission-mode, and mutation-recovery pages. Operator runbooks moved to
+  `docs/product/operator/` and keep only configuration, deployment, threat
+  model, and troubleshooting; contributor pages moved to `docs/development/`.
+  Rules restated across `native-files.md`, `web-read.md`, `knowledge.md`, and
+  `skills.md` are now stated once and linked. `pnpm lint:markdown` also fails
+  on a broken relative link or heading anchor and on a product page missing its
+  `summary`, `read_when`, or `spec` frontmatter, and every packaged tool id must
+  have a reference page. The product subtree is shaped for the `llame://docs/`
+  locator ([#1063](https://github.com/leon0399/llame/issues/1063)).
+
 # 2026-09-30
 
 - Chats now load per-directory project instruction files (`LLAME.md`,

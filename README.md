@@ -275,14 +275,13 @@ behavior. See [docs/product/operator/mcp-tools.md](docs/product/operator/mcp-too
 - [SPEC.md](SPEC.md): current architecture, invariants, and authority map
 - [CHANGELOG.md](CHANGELOG.md): shipped history
 - [AGENTS.md](AGENTS.md): repository workflow and engineering rules
-- [docs/product/operator/knowledge.md](docs/product/operator/knowledge.md): personal Knowledge operator runbook
-- [docs/product/operator/mcp-tools.md](docs/product/operator/mcp-tools.md): remote MCP operator runbook
-- [docs/product/operator/tool-prompts.md](docs/product/operator/tool-prompts.md): tool description template
-  operator runbook
-- [docs/product/operator/providers/codex-subscription.md](docs/product/operator/providers/codex-subscription.md): ChatGPT/Codex
-  subscription operator runbook
-- [docs/product/operator/providers/opencode-go.md](docs/product/operator/providers/opencode-go.md): OpenCode Go subscription
-  operator runbook
+- [docs/index.md](docs/index.md): documentation map
+- [docs/product/reference](docs/product/reference/index.md): tool, locator,
+  and selector behavior as the assistant sees it
+- [docs/product/operator](docs/product/operator/index.md): configuration,
+  deployment, and provider runbooks
+- [docs/development](docs/development/index.md): testing, quality gates, and
+  contributor records
 - [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
   peer harness / protocol prior art (noncanonical)
 

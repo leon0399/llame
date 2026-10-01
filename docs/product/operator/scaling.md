@@ -1,3 +1,10 @@
+---
+summary: "API and worker topology around one Postgres: profiles, capacity, and limits"
+read_when:
+  - you are sizing API and worker replicas or choosing a worker profile
+  - you are planning the database pool and job-group coverage
+---
+
 # Horizontal scaling
 
 llame scales API and worker processes around one Postgres database containing

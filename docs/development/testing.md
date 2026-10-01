@@ -104,7 +104,7 @@ Each package remains runnable directly; reports live under ignored workspace
 `reports/` directories. `--workspace packages/runtime-safety` narrows local
 execution. Direct `test:mutation` runs report MSI over the whole corpus without
 enforcing a threshold. See the [measurements and
-alternatives](research/development-pipeline.md).
+alternatives](../research/development-pipeline.md).
 
 ## CI mapping
 

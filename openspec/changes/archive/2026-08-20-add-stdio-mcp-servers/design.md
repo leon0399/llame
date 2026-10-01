@@ -1,6 +1,6 @@
 ## Context
 
-See [proposal.md](proposal.md) for motivation and [specs/](specs/) for the behavior contract. Every technical claim below is sourced in [docs/research/tool-harness/2026-08-12-mcp-stdio.md](../../../docs/research/tool-harness/2026-08-12-mcp-stdio.md), which carries file:line citations; this document records the decisions, not the evidence.
+See [proposal.md](proposal.md) for motivation and [specs/](specs/) for the behavior contract. Every technical claim below is sourced in [docs/research/tool-harness/2026-08-12-mcp-stdio.md](../../../../docs/research/tool-harness/2026-08-12-mcp-stdio.md), which carries file:line citations; this document records the decisions, not the evidence.
 
 Three properties of the shipped MCP path constrain the approach:
 

@@ -1,3 +1,17 @@
+---
+summary: "tools.permissions: groups, clause matching, decision order, and the recommended portable policy"
+read_when:
+  - you are configuring, restricting, or rolling back llame tool-call permissions
+  - you need to know why a call was rejected by a clause, or how to allowlist one domain
+behavior:
+  - ../reference/tools/bash.md
+  - ../reference/tools/read.md
+  - ../reference/tools/edit.md
+  - ../reference/tools/write.md
+  - ../reference/tools/enter-workspace.md
+  - ../reference/locators/web.md
+---
+
 # Tool-call permissions
 
 `tools.permissions` decides, per submitted call, whether an already-admitted
@@ -106,14 +120,19 @@ jobs.
 
 There is no built-in policy: omitting `tools.permissions` rejects every call.
 `apps/api/llame.config.json.example` ships this recommended portable map — a
-whole-tool allow for the seven current code-owned tools (`bash`, `read`,
-`edit`, `write`, `knowledge_search`, `search_conversations`,
-`conversation_read`) plus these rejects. They recognize common destructive host
-operations and standard credential-locator locations. They are textual, not a
-sandbox, and quoted mentions match.
+whole-tool allow for the seven code-owned tools (`bash`, `read`, `edit`,
+`write`, `knowledge_search`, `search_conversations`, `conversation_read`), an
+operator-edited `enter_workspace.path` field allow naming trusted roots, and
+these rejects. The `B` rows recognize common destructive host operations, the
+`F` rows standard credential-locator locations and the web addresses to
+refuse, the `W` rows Workspace control files, and the `E` rows roots the
+Workspace group should not admit. They are textual, not a sandbox, and quoted
+mentions match. See [web reads](web-read.md#enabling) for when to copy
+F5a-F5f and F7, and [native files](native-files.md#workspace-entry) for what
+an admitted Workspace root is trusted with.
 
 | ID  | Tool/field                             | Matcher | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| --- | -------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| --- | -------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ---------------- | ------------------- | -------------------------------- | ----------------------------- | -------- | ------- | --------- | ---- | --------- | -------- | ---------------------------------------- |
 | B1  | `bash.command`                         | regex   | `(^\|[^A-Za-z0-9_])(sudo\|shutdown\|reboot\|halt\|poweroff\|mkfs([.][A-Za-z0-9_-]+)?)(\s\|$)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | B2  | `bash.command`                         | regex   | `\brm\s+(?:(?:-[A-Za-z]*[rR][A-Za-z]*[fF][A-Za-z]*\|-[A-Za-z]*[fF][A-Za-z]*[rR][A-Za-z]*\|-[A-Za-z]*[rR][A-Za-z]*\s+-[A-Za-z]*[fF][A-Za-z]*\|-[A-Za-z]*[fF][A-Za-z]*\s+-[A-Za-z]*[rR][A-Za-z]*\|--recursive\s+(?:--force\|-f)\|--force\s+(?:--recursive\|-r))\s+(?:--no-preserve-root\s+)?\|--no-preserve-root\s+(?:-[A-Za-z]*[rR][A-Za-z]*[fF][A-Za-z]*\|-[A-Za-z]*[fF][A-Za-z]*[rR][A-Za-z]*\|-[A-Za-z]*[rR][A-Za-z]*\s+-[A-Za-z]*[fF][A-Za-z]*\|-[A-Za-z]*[fF][A-Za-z]*\s+-[A-Za-z]*[rR][A-Za-z]*\|--recursive\s+(?:--force\|-f)\|--force\s+(?:--recursive\|-r))\s+)(?:--\s+)?['"]?(?://?\*?\|~(?:\*\|//?\*?)?\|\$HOME(?:/\*?)?\|\$\{HOME\}(?://?\*?)?)['"]?($\|[\s;&\|])` |
 | B3  | `bash.command`                         | regex   | `\bdd\s+[^\r\n;&\|]*\bof=/dev/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -126,6 +145,19 @@ sandbox, and quoted mentions match.
 | F2  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|[/\\])(\.git-credentials\|\.npmrc\|\.pypirc)([/\\]\|$\|:)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | F3  | `read.path`, `edit.path`, `write.path` | regex   | `(^\|[/\\])(\.docker[/\\]config\.json\|\.gem[/\\]credentials\|\.config[/\\]gh)([/\\]\|$\|:)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | F4  | `read.path`                            | regex   | `(^\|[/\\])\.env($\|:\|\.(local\|development\|production\|staging\|test)(\.local)?($\|:))`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| F5a | `read.path`                            | regex   | `^http://(?:[1-9]                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 1[1-9]                   | [2-9]\d          | 10[1-9]             | 11\d                             | 12[0-689]                     | 1[3-5]\d | 16[0-8] | 17[013-9] | 18\d | 19[013-9] | 2[0-4]\d | 25[0-5])\.\d{1,3}\.\d{1,3}\.\d{1,3}[:/]` |
+| F5b | `read.path`                            | regex   | `^http://100\.(?:\d                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | [1-5]\d                  | 6[0-3]           | 12[89]              | 1[3-9]\d                         | 2\d\d)\.\d{1,3}\.\d{1,3}[:/]` |
+| F5c | `read.path`                            | regex   | `^http://169\.(?:\d                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | [1-9]\d                  | 1\d\d            | 2[0-4]\d            | 25[0-35])\.\d{1,3}\.\d{1,3}[:/]` |
+| F5d | `read.path`                            | regex   | `^http://172\.(?:\d                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 1[0-5]                   | 3[2-9]           | [4-9]\d             | 1\d\d                            | 2\d\d)\.\d{1,3}\.\d{1,3}[:/]` |
+| F5e | `read.path`                            | regex   | `^http://192\.(?:\d                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | [1-9]\d                  | 1[0-5]\d         | 16[0-79]            | 1[7-9]\d                         | 2\d\d)\.\d{1,3}\.\d{1,3}[:/]` |
+| F5f | `read.path`                            | regex   | `^http://\[(?:::(?:[02-9a-f]                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 1[^\]])                  | (?:[0-9a-f]{1,3} | [0-9a-e][0-9a-f]{3} | f[0-9abf][0-9a-f]{2}             | fe[0-7c-f][0-9a-f]):)`        |
+| F6  | `read.path`                            | regex   | `^https?://([^/]\*\.)?grokipedia\.com\.?([/:]                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | $)`                      |
+| F7  | `read.path`                            | regex   | `^https?://(?:169\.254\.169\.254\|169\.254\.170\.2\|169\.254\.0\.23\|100\.100\.100\.200\|\[fd00:ec2::254\])[:/]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| W1  | `edit.path`, `write.path`              | regex   | `(?i)(^                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | [/\\])\.mcp\.json$`      |
+| W2  | `edit.path`, `write.path`              | regex   | `(?i)(^                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | [/\\])\.(llame           | agents           | claude)[/\\]`       |
+| E1  | `enter_workspace.path`                 | regex   | `(^                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | [/\\])node_modules([/\\] | $)`              |
+| E2  | `enter_workspace.path`                 | regex   | `^/(tmp                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | var/tmp)(/               | $)`              |
+| E3  | `enter_workspace.path`                 | regex   | `(^                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | [/\\])Downloads([/\\]    | $)`              |
 
 A supplied `tools.permissions` **is the complete policy** — there is no merge
 and no default to inherit. Copy the map from the example, keep every group you
@@ -144,6 +176,66 @@ What to keep portable vs local:
 - Broad bans on `.key`/`.pem`, `secrets`/`credentials` directories,
   `docker-compose*.yml`, or `config/database.yml` obstruct routine inspection
   or miss files; make them explicit and local if you want them.
+
+## Restricting reads to one domain
+
+Replacing the group's whole-tool allow with field allows turns `read` into an
+allowlist of authorities. Each clause is an alternative, not a combined
+constraint, so local paths, Knowledge locators, skill locators, and one domain
+coexist:
+
+```jsonc
+{
+  "tools": {
+    "permissions": {
+      "read": {
+        "allow": [
+          { "field": "path", "regex": "^/" },
+          { "field": "path", "regex": "^kb://" },
+          { "field": "path", "regex": "^skill://" },
+          { "field": "path", "regex": "^https://docs\\.example\\.com/" },
+        ],
+      },
+    },
+  },
+}
+```
+
+With that group, reading `https://docs.example.com/guide` is admitted, and
+reading `https://other.example/guide`, `/etc/hosts`, or `kb://SPACE/notes/a.md`
+is each rejected as `no_allow` without a fetch or a file open.
+The domain allowlist must also name each rewrite origin: allowing the source
+host does not admit the operator-declared target origin, because the target is
+a separate derived locator.
+
+What the clause matches is locator text, not an address:
+
+- A `kb://` locator is projected before matching (selector removed, path
+  re-encoded); a web locator is matched twice, so `^https://docs\.example\.com/`
+  admits `.../guide:raw` and `HTTPS://docs.example.com/guide` alike. A reject
+  is the stricter of the two texts — a clause naming the host catches the
+  encoded, uppercase, default-port, and root-dot spellings of it — while an
+  allow is decided on the requested text, since that is the resource the call
+  reaches. The two forms are described in [web
+  reads](web-read.md#derived-locators-and-permission-admission).
+- A derived locator earns its own allow: a redirect hop is a different
+  resource, so an allowlist admits a hop only when one of its clauses names the
+  hop's own text.
+- Write a rule that should cover a resource regardless of the submitted or
+  derived spelling in the decoded canonical form, for example `~user` rather
+  than only `%7Euser`.
+- An allow admits the locator text, not the address its hostname resolves to;
+  each resolved address is separately evaluated against rejects. A host's
+  root dot is dropped before matching, for a submitted locator and for a
+  redirect hop alike, so `https://docs.example.com./` is matched and
+  requested as `https://docs.example.com/`; the recommended grokipedia clause
+  keeps its `\.?` anyway, because an operator's own clause should not depend
+  on that normalization.
+- An address reject can cover one server across names, for example
+  `^https?://10\.67\.88\.60/private`. Use `(?i)` for a case-insensitive
+  server. Because some servers merge `//` or treat `..;` specially, a
+  path-scoped rule can miss the resource the server serves; scope a sensitive
+  address by origin instead of path when that is the boundary you need.
 
 ## Applying, recovery, and rollback
 

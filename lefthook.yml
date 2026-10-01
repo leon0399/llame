@@ -44,7 +44,7 @@ pre-commit:
       run: pnpm exec markdownlint-cli2 --no-globs {staged_files}
 
     - name: markdown lint config
-      glob: &markdown-config-glob ".markdownlint-cli2.jsonc"
+      glob: &markdown-config-glob "{.markdownlint-cli2.jsonc,scripts/check-markdown-links.mjs}"
       run: pnpm lint:markdown
 
     - name: format

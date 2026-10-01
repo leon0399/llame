@@ -29,15 +29,18 @@ depend on it.
   archives.
 - [CHANGELOG.md](CHANGELOG.md): shipped chronology.
 - [DESIGN.md](DESIGN.md): UI language.
-- [docs/development/testing.md](docs/development/testing.md), [docs/product/operator/scaling.md](docs/product/operator/scaling.md): test
+- [docs/index.md](docs/index.md): documentation tree and authoring rules;
+  [docs/development/testing.md](docs/development/testing.md) and
+  [docs/product/operator/scaling.md](docs/product/operator/scaling.md): test
   placement and runtime topology.
 - [`docs/research`](docs/research): noncanonical evidence.
 - [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
   prior-art index for peer harnesses and protocols.
 
 Put commands and traps in the closest `AGENTS.md`, capability behavior in
-OpenSpec, architecture in `SPEC.md`, and operator procedures in `docs/`. The
-spec wins any disagreement.
+OpenSpec, architecture in `SPEC.md`, owner-visible tool and locator behavior in
+`docs/product/reference/`, operator procedures in `docs/product/operator/`, and
+contributor process in `docs/development/`. The spec wins any disagreement.
 
 ## Repository
 

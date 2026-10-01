@@ -1,3 +1,10 @@
+---
+summary: "Serving an operator's ChatGPT/Codex subscription through llame's declared models"
+read_when:
+  - you are configuring an openai-codex provider entry and its models
+  - you are re-logging in, disconnecting, or matching a quota failure
+---
+
 # Codex subscription provider
 
 `openai-codex` lets one trusted personal llame instance use an operator's
