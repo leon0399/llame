@@ -69,13 +69,13 @@ canonical delta proof, strict OpenSpec validation, Product Markdown lint, and a
 clean parent-relative proposal diff. The branch was initialized before the
 scaffold was written.
 
-- [ ] 1.1 Confirm with `$gh-stack` that `read-selector-members/proposal` is based on `master` and that the branch contains only proposal-owned artifacts, verified with `git status --short` and an artifact listing
-- [ ] 1.2 Verify every implementation claim and file:line citation in the four artifacts against `master` at `77e91506`, including the grammar gate, both splitters, the streaming window, the in-memory selectors, the catalog page, the permission projection, and the draft prompt; record any conflict in the proposal before review
-- [ ] 1.3 Run a sentence-level diff of every MODIFIED requirement against canonical and prove that every canonical scenario heading remains, every difference is an intended edit named in `design.md`, and no requirement outside the proposal's Modified Capabilities list changed
-- [ ] 1.4 Run `pnpm exec prettier --write openspec/changes/read-selector-members/`, `pnpm exec openspec validate read-selector-members --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; fix any artifact-only failure
-- [ ] 1.5 Commit the complete initial proposal layer as one conventional commit, `docs(openspec): propose read-selector-members`, naming #1025 and #701 with a `Co-Authored-By` trailer; verify the commit contains only proposal-owned artifacts
-- [ ] 1.6 Publish the proposal draft with `$gh-stack`, set the PR body (concern, issues served, stack position, decisions to review, commands run), self-review the parent-relative diff, and leave the PR for Leo's check at his direction; review rounds run only if he requests them
-- [ ] 1.7 Obtain Leo's explicit approval of the published revision as a GitHub Approval or a top-level comment naming the revision; carry that approval forward and do not create `read-selector-members/grammar` before it
+- [x] 1.1 Confirm with `$gh-stack` that `read-selector-members/proposal` is based on `master` and that the branch contains only proposal-owned artifacts, verified with `git status --short` and an artifact listing
+- [x] 1.2 Verify every implementation claim and file:line citation in the four artifacts against `master` at `77e91506`, including the grammar gate, both splitters, the streaming window, the in-memory selectors, the catalog page, the permission projection, and the draft prompt; record any conflict in the proposal before review
+- [x] 1.3 Run a sentence-level diff of every MODIFIED requirement against canonical and prove that every canonical scenario heading remains, every difference is an intended edit named in `design.md`, and no requirement outside the proposal's Modified Capabilities list changed
+- [x] 1.4 Run `pnpm exec prettier --write openspec/changes/read-selector-members/`, `pnpm exec openspec validate read-selector-members --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; fix any artifact-only failure
+- [x] 1.5 Commit the complete initial proposal layer as one conventional commit, `docs(openspec): propose read-selector-members`, naming #1025 and #701 with a `Co-Authored-By` trailer; verify the commit contains only proposal-owned artifacts
+- [x] 1.6 Publish the proposal draft with `$gh-stack`, set the PR body (concern, issues served, stack position, decisions to review, commands run), self-review the parent-relative diff, and leave the PR for Leo's check at his direction; review rounds run only if he requests them
+- [x] 1.7 Obtain Leo's explicit approval of the published revision as a GitHub Approval or a top-level comment naming the revision; carry that approval forward and do not create `read-selector-members/grammar` before it
 
 ## 2. Grammar layer
 
