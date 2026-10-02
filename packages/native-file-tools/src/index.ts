@@ -1,5 +1,6 @@
 export {
   applySelectorSuffix,
+  assertResolvedTarget,
   invalidSelectorMessage,
   isSelectorSuffix,
   NativeFileError,
@@ -8,7 +9,7 @@ export {
   resolveReadTarget,
   splitSelectorSuffix,
 } from "./path";
-export type { EndRelativeMember, PendingSelector, ReadTarget } from "./path";
+export type { ReadTarget } from "./path";
 export {
   readFile,
   readResolvedFile,

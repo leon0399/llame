@@ -238,6 +238,19 @@ describe('buildWebReadResult', () => {
     });
   });
 
+  it('refuses a selector whose members no render has placed', async () => {
+    // The sources layer places `N-` and `-K` against the render's own line
+    // count; until it does, an unplaced member must be refused rather than
+    // served from line 1 under a range the request never named.
+    const result = await buildWebReadResult(
+      { url: GUIDE_URL, selector: '-3' },
+      GUIDE_URL,
+      { method: 'negotiated', content: '# Guide\n\nBody text\n' },
+    );
+    expect(result).toMatchObject({ status: 'error', type: 'invalid_selector' });
+    expect(result).not.toHaveProperty('content');
+  });
+
   it('applies a positive offset to a directory selector', async () => {
     const directory = {
       displayPath: DIRECTORY_URL,

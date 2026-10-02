@@ -13,7 +13,6 @@ import type {
   DirectorySuccess,
   FileFailure,
   MultiReadSuccess,
-  SingleReadSuccess,
   ReadSuccess,
 } from "./read";
 import { selectMultiRangeLines } from "./stream-read";
@@ -51,18 +50,6 @@ function asMulti(result: ReadOutcome): MultiReadSuccess {
   return result;
 }
 
-/** Narrow a read outcome to the single-range file success an outline reports. */
-function asSingle(result: ReadOutcome): SingleReadSuccess {
-  if (
-    result.status !== "success" ||
-    !("kind" in result) ||
-    result.kind !== "file" ||
-    !("requestedRange" in result)
-  )
-    throw new Error("Expected single-range file success result");
-  return result;
-}
-
 describe("in-memory multi-range selection", () => {
   let directory: string;
   let path: string;
@@ -97,6 +84,15 @@ describe("in-memory multi-range selection", () => {
     expect(fromMemory).toEqual(fromFile);
     return fromMemory;
   }
+
+  it("refuses a target whose end-relative members were never placed", () => {
+    // The walk decides from absolute members only: an unresolved target
+    // would walk nothing and report an empty multi-range request, which
+    // reads as "that page is empty" rather than as an unplaced selector.
+    expect(() =>
+      selectMultiRangeLines(numbered(12), applySelectorSuffix(path, "4-5,99-")),
+    ).toThrow("invalid_selector");
+  });
 
   it("reads two ranges with the context a local read gives", async () => {
     const result = await bothWays(numbered(12), "4-5,7-8");
@@ -206,14 +202,15 @@ describe("in-memory multi-range selection", () => {
       outlinePath,
       `# Title\nintro\n## Setup\nbody\n${"tail\n".repeat(196)}`,
     );
-    const scoped = asSingle(
-      await readFile({ path: `${outlinePath}:outline:-200` }),
-    );
+    const scoped = await readFile({ path: `${outlinePath}:outline:-200` });
     expect(scoped).toMatchObject({
       representation: "outline",
       requestedRange: { startLine: 1, endLine: 200 },
     });
-    expect(scoped.content).toContain("3: ## Setup");
+    expect(scoped).toHaveProperty(
+      "content",
+      expect.stringContaining("3: ## Setup"),
+    );
     expect(await readFile({ path: `${outlinePath}:outline:1-200` })).toEqual(
       scoped,
     );

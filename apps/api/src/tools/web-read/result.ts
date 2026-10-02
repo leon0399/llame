@@ -1,7 +1,8 @@
 import {
+  assertResolvedTarget,
   NativeFileError,
   applySelectorSuffix,
-  invalidSelectorMessage,
+  invalidSelectorMessage as packageSelectorMessage,
   measureNativeModelOutput,
   outlineReader,
   renderCollectedDirectory,
@@ -76,6 +77,11 @@ export async function buildWebReadResult(
       ...applySelectorSuffix(locator.url, locator.selector),
       reserveCodeUnits: measureNativeModelOutput(envelope),
     };
+    // A render holds its own text and its own line and entry counts, so the
+    // sources layer places every end-relative member before the target is
+    // built; one that still carries members would be served from line 1 or
+    // entry 1 under a range the request never named.
+    assertResolvedTarget(target);
     if (render.directory !== undefined) {
       return buildDirectoryReadResult(target, envelope, render.directory);
     }
@@ -90,7 +96,7 @@ export async function buildWebReadResult(
       message:
         error.type === 'invalid_selector' &&
         (error.message === error.type ||
-          error.message === invalidSelectorMessage())
+          error.message === packageSelectorMessage())
           ? selectorFailureMessage(selectorContent(render), locator.selector)
           : error.message,
     };
