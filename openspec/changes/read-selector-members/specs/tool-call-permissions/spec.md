@@ -24,8 +24,9 @@ A native `read`, `edit`, or `write` call whose `path` is a valid file alias,
 in either the `file://` or the minimal `file:` form, SHALL be decided over
 the submitted locator and the projection's percent-decoded absolute host path,
 each with its `.` and `..` segments preserved and, for `read`, with any
-split-off read selector removed; an `edit` or `write` alias is matched as
-submitted, because a mutation takes its decoded path literally. Every text
+split-off read selector removed; an `edit` or `write` alias keeps any
+selector-shaped suffix in both texts, because a mutation takes its decoded
+path literally. Every text
 the evaluator matches for a `read` `path`, the submitted value included,
 SHALL have its split-off read selector removed and nothing else changed. The
 classifier SHALL run before Workspace projection, so a valid alias is matched
@@ -48,7 +49,10 @@ URL the next request uses). An adapter locator SHALL be the canonical target act
 adapter, never an operator secret or an unbounded raw template. A derived
 locator is decided through the same evaluator and the same projection, with no
 trusted context and no relaxation carried over from the admitted call or from
-an earlier derived locator.
+an earlier derived locator, except that no read selector is removed from it:
+a derived locator is chosen by a server or an adapter, carries no selector of
+the model's, and is matched exactly as it will be requested, so a hop ending
+in `:5` is judged with that text.
 
 Each address a web request would connect to SHALL additionally be evaluated
 against the `read` group as an address locator: the requested locator with its
@@ -221,7 +225,7 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 
 ### Requirement: File permission matching uses logical resource locators
 
-For native Knowledge file locators, the selected `path` SHALL be projected through a shared pure parser/formatter to a canonical logical resource identity. Knowledge resources SHALL retain the Space ID and canonically encoded relative path; for Knowledge resources, configured roots and resolved host paths SHALL NOT enter policy matching. Supported Knowledge read selectors SHALL be excluded from resource matching. Direct host locators SHALL be matched as their submitted absolute text with its trailing separator and `.` and `..` segments preserved and, for `read`, with any split-off read selector removed, without filesystem probes or realpath resolution; an `edit` or `write` host path is matched as submitted, because a mutation takes its path literally. Web locators SHALL be matched as their canonical URL with any split-off read selector removed, as Knowledge and skill locators already are. Both projections SHALL be text-only: neither SHALL consult the filesystem to learn whether the removed suffix is a selector or part of a literal filename. When a Workspace is entered, a relative direct host `path` for native `read`, `edit`, or `write` SHALL instead be resolved from its canonical root using lexical path resolution like POSIX `path.posix.resolve`, preserving a trailing separator, and policy matching SHALL use that projected absolute path, for `read` with its split-off read selector removed after resolution; the executor SHALL receive exactly that projected string, including the trailing separator. This Workspace projection SHALL perform no filesystem probe or realpath resolution. For this requirement, "relative" means a value not starting with `/` and without a `scheme:` prefix recognized by the shared locator parser or the file-alias classifier (case-insensitive `scheme://` and `file:` forms); an unknown scheme SHALL remain `invalid_path` rather than being treated as a relative local path. `..` SHALL be allowed to resolve outside the Workspace root. Absolute direct host locators and valid file aliases SHALL remain unchanged by Workspace path projection; a file alias is always absolute and its decoded path is matched as a host path whether or not a Workspace is entered. The existing executor SHALL retain literal-path precedence over selector interpretation. The applicable Knowledge locator projection or Workspace path projection SHALL also apply when all-fields rejection visits the native `path` field. Other submitted values SHALL remain unchanged.
+For native Knowledge file locators, the selected `path` SHALL be projected through a shared pure parser/formatter to a canonical logical resource identity. Knowledge resources SHALL retain the Space ID and canonically encoded relative path; for Knowledge resources, configured roots and resolved host paths SHALL NOT enter policy matching. Supported Knowledge read selectors SHALL be excluded from resource matching. Direct host locators SHALL be matched as their submitted absolute text with its trailing separator and `.` and `..` segments preserved and, for `read`, with any split-off read selector removed, without filesystem probes or realpath resolution; an `edit` or `write` host path keeps any selector-shaped suffix, because a mutation takes its path literally. Web locators SHALL be matched as their canonical URL with any split-off read selector removed, as Knowledge and skill locators already are. Both projections SHALL be text-only: neither SHALL consult the filesystem to learn whether the removed suffix is a selector or part of a literal filename. When a Workspace is entered, a relative direct host `path` for native `read`, `edit`, or `write` SHALL instead be resolved from its canonical root using lexical path resolution like POSIX `path.posix.resolve`, preserving a trailing separator, and policy matching SHALL use that projected absolute path, for `read` with its split-off read selector removed after resolution; the executor SHALL receive exactly that projected string, including the trailing separator. This Workspace projection SHALL perform no filesystem probe or realpath resolution. For this requirement, "relative" means a value not starting with `/` and without a `scheme:` prefix recognized by the shared locator parser or the file-alias classifier (case-insensitive `scheme://` and `file:` forms); an unknown scheme SHALL remain `invalid_path` rather than being treated as a relative local path. `..` SHALL be allowed to resolve outside the Workspace root. Absolute direct host locators and valid file aliases SHALL remain unchanged by Workspace path projection; a file alias is always absolute and its decoded path is matched as a host path whether or not a Workspace is entered. The existing executor SHALL retain literal-path precedence over selector interpretation. The applicable locator projection, the `read` selector removal included, or Workspace path projection SHALL also apply when all-fields rejection visits the native `path` field. Other submitted values SHALL remain unchanged.
 
 This logical-resource projection SHALL NOT rewrite executor arguments except that Workspace path projection SHALL pass its exact projected string as specified above, and removing a read selector SHALL leave the locator the tool receives unchanged; it SHALL NOT accept an invalid locator or mutation selector, change current percent-decoding rules for Knowledge, skill, or direct host locators (a web locator's escapes follow the native `read` tool's web normalization, which this projection reuses), bypass current Knowledge ownership/symlink checks, or introduce HTTP fetching. Workspace path projection SHALL resolve only relative native host paths as defined above; it SHALL leave absolute host paths, valid file aliases, Knowledge locators, skill locators, and web locators unchanged. Arbitrary MCP values SHALL not receive native locator normalization.
 
@@ -257,13 +261,13 @@ This logical-resource projection SHALL NOT rewrite executor arguments except tha
 
 #### Scenario: A file alias selector stays outside the Workspace root
 
-- **WHEN** a Workspace is entered at `/work/project` and a permission group allows `^/srv/docs/`, and a call submits `file:///srv/docs/guide.md:10-20`
+- **WHEN** a Workspace is entered at `/work/project` and a permission group allows `^/srv/docs/`, and a `read` call submits `file:///srv/docs/guide.md:10-20`
 - **THEN** the projected permission value is `/srv/docs/guide.md`, with the read selector removed from the decoded host path
 - **AND** it is not projected to `/work/project/srv/docs/guide.md`
 
 #### Scenario: File alias projection preserves the selector
 
-- **WHEN** a permission group allows `^/srv/docs/` and a call submits `file:///srv/docs/guide.md:10-20`
+- **WHEN** a permission group allows `^/srv/docs/` and a `read` call submits `file:///srv/docs/guide.md:10-20`
 - **THEN** the projection used for the allow is `/srv/docs/guide.md`, with the read selector removed from the submitted locator and from the decoded host path
 - **AND** selector validation and host execution still apply after permission admission, and the submitted locator reaches the tool unchanged; the scenario keeps its earlier name while the projection now removes the selector it once preserved
 

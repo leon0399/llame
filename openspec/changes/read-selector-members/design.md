@@ -19,7 +19,7 @@ the model never meant.
 
 Every reader after the applier works on absolute members: the single-range
 stream (`packages/native-file-tools/src/stream-read.ts:168-194`), the
-multi-range walk (`stream-read.ts:330-442`), the Markdown collectors
+multi-range walk (`stream-read.ts:196-452`), the Markdown collectors
 (`markdown-ancestors.ts`, `markdown-range.ts`), the outline reader
 (`markdown-outline.ts`), the in-memory selectors web uses
 (`source-lines.ts:58-86`, `stream-read.ts:474`), the directory flat slice
@@ -120,7 +120,7 @@ the file in bounded chunks, derives the native line count (LF count, plus one
 when the file is non-empty and does not end in LF, matching
 `source-lines.ts:46-49`), resolves the members, and then runs the shipped
 streaming reader. The pass runs inside the streaming reader, after the open
-handle has passed the regular-file check (`stream-read.ts:506-508`), using
+handle has passed the regular-file check (`stream-read.ts:509-510`), using
 positional reads on that same handle, so a device such as `/dev/zero:-5` is
 refused as `not_regular_file` before anything is counted and no second open is
 needed. The rule is uniform: a lone `:N-` also
@@ -145,11 +145,15 @@ shipped contract already calls coordinates execution-time, not a snapshot.
 is `invalid_selector`. `N-` with N past the last line resolves to an empty
 member and follows each source's shipped past-the-end rule: on a file or web
 render it is `invalid_selector` when it is the first requested start
-(`stream-read.ts:353-361`) and emits nothing as a later list member; on a
+(`stream-read.ts:353-361`) and is dropped before merging and context
+expansion as a later list member — a limit-0 member left in would be reported
+as an inverted interval (`source-lines.ts:182-185`) and grown into a stray
+context line (`path.ts:149-158`); on a
 listing or the catalog it is the empty page those slices already return
-(`directory-listing.ts:332-339`, `skill-results.ts:83-90`). An empty source
-with `-K` or `1-` returns the shipped empty result; any other `N-` on it fails
-as a start past the last line does.
+(`directory-listing.ts:332-339`, `skill-results.ts:83-90`). An empty regular
+file or web render with `-K` or `1-` returns the shipped empty result and any
+other `N-` on it fails as a start past the last line does; an empty listing or
+catalog keeps its empty page for every member.
 
 **Alternative rejected:** Failing `-K` when K exceeds the count, reporting the
 count. The model that asked for "the last 50" of a 10-line file wants the file,
@@ -162,13 +166,18 @@ and the resolved `requestedRange` already tells it the file was shorter.
 and `skill://` take it: both split once at the first colon and hand the whole
 remainder to that gate (`knowledge-locator.ts:45-47`,
 `skill-locator.ts:51-79`). The host and web splitters, which recognize a
-trailing `:raw` first, additionally take the `:<list>` before it and emit the
+trailing `:raw` first, additionally take the colon segment before it when it
+has the member-list shape and emit the
 canonical `raw:<list>` suffix, so `isRawSelector`
 (`apps/api/src/tools/web-read/execute.ts:218-221`), locator projection, the
 instruction-file reader (`apps/api/src/instructions/instruction-files.ts:247`), and
 every message template see one spelling. Documentation lists `:raw:<ranges>`
 first and names `:<ranges>:raw` as the same read. Literal-path precedence is
-unchanged: an existing file named `x:60-64:raw` is read as that file.
+unchanged: an existing file named `x:60-64:raw` is read as that file. One
+meaning changes: `name:10:raw` was the raw read of a literal file `name:10`
+and becomes line 10 of `name` raw; such a file is still readable raw as
+`name:10:raw:1-N`. A segment without the list shape (`notes:draft:raw`)
+stays on the path as today.
 
 **Alternative rejected:** Teaching downstream code both spellings. Every
 consumer of the suffix grows a second branch for no observable gain.
@@ -180,7 +189,8 @@ and the suffix is outside the grammar, every source returns `invalid_selector`
 with a message built by one shared builder that names the working forms
 (`:N`, `:N-M`, `:N+K`, `:N-`, `:-K`, comma lists, `:raw` and `:raw:<list>`,
 `:outline:<member>`), carried over from the web builder's shape. On a source
-that has an encoded spelling for a literal colon — `kb://` and web — the
+that has an encoded spelling for a literal colon — a `kb://` or `skill://`
+resource path, and web — the
 message then names the `%3A` spelling of the same locator; host has none
 (`%3A` decodes to `:` there), so it names the forms only. This replaces the
 web builder's two-tier rule, under which a non-numeric suffix such as
@@ -239,8 +249,12 @@ its split-off selector removed: the host and web projections, as the
 Knowledge and skill projections already do, and the runner's unprojected
 submitted-text reject pass (`runner.ts:215-223`), which otherwise keeps a
 `:raw` reject effective on every source. A Workspace-relative path is
-resolved first and stripped after. `edit` and `write` are matched as
-submitted, because a host mutation takes its path literally and
+resolved first and stripped after. Derived web locators (hops, alternates,
+probes, adapter targets) and address locators are not stripped: they are
+chosen by a server or an adapter, so a hop ending in `:5` is matched exactly
+as it will be requested (`apps/api/src/tools/web-read/admission.ts`). `edit` and `write` keep any
+selector-shaped suffix in every text they are matched on, decoded alias
+included, because a host mutation takes its path literally and
 `/srv/app/config.json:1-5` names a different file to it. Evaluation remains
 text-only with no filesystem probe. The admission text for
 `read("/srv/docs/README:raw")` is `/srv/docs/README`; a web locator is matched
