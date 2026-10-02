@@ -9,12 +9,20 @@ import {
   type KnowledgeFilesystemAdapterPort,
 } from './knowledge-filesystem';
 import { KNOWLEDGE_CONTENT_NOTICE } from './knowledge-content-notice';
-import { isKnowledgeSpaceId } from './knowledge-filesystem-validation';
+import {
+  isKnowledgeSpaceId,
+  validatePath,
+} from './knowledge-filesystem-validation';
 import {
   knowledgeNotFoundResult,
   knowledgeUnavailableResult,
   mapKnowledgeResolverFailure,
 } from './knowledge-results';
+import {
+  encodeRelativePath,
+  encodeSelectorSuffix,
+  selectorRefusalMessage,
+} from '../tools/locator-spelling';
 import { type ToolContext } from '../tools/types';
 
 /** The scheme this capability resolves; every other scheme fails closed. */
@@ -31,20 +39,34 @@ export type ParsedKnowledgeLocator = {
   readonly trailingSeparator?: true;
 };
 
-/** Parse `<space-id>[/<path>][:selector]`; `undefined` means `invalid_path`. */
+/**
+ * Why a locator did not parse. A suffix the grammar refuses on a locator that
+ * does parse is `invalid_selector`, the answer every other source gives; a
+ * part that is not a locator at all is `invalid_path`, as it has always been.
+ */
+export type KnowledgeLocatorFailure = {
+  readonly type: 'invalid_path' | 'invalid_selector';
+  readonly message: string;
+};
+
+/**
+ * Parse `<space-id>[/<path>][:selector]` and report why a locator that does
+ * not parse failed. The path part is decoded and validated before the suffix
+ * is judged, so a refusal for a suffix outside the grammar names a locator
+ * that resolves rather than one the Space rules would refuse.
+ */
 export function parseKnowledgeLocator(
   rest: string,
-): ParsedKnowledgeLocator | undefined {
+): ParsedKnowledgeLocator | KnowledgeLocatorFailure {
   const separator = rest.indexOf('/');
   const knowledgeSpaceId = separator < 0 ? rest : rest.slice(0, separator);
-  if (knowledgeSpaceId.length === 0) return undefined;
+  if (knowledgeSpaceId.length === 0) return invalidPathFailure();
   const remainder = separator < 0 ? '' : rest.slice(separator + 1);
   if (remainder.length === 0) return { knowledgeSpaceId };
 
   // Split before decoding so an encoded colon remains part of the filename.
   const colon = remainder.indexOf(':');
   const selector = colon < 0 ? undefined : remainder.slice(colon + 1);
-  if (selector !== undefined && !isSelectorSuffix(selector)) return undefined;
   const rawPath = colon < 0 ? remainder : remainder.slice(0, colon);
   // A trailing separator addresses a directory; the native reader already
   // fails a file target that carries one, and here it can only address the
@@ -53,16 +75,50 @@ export function parseKnowledgeLocator(
   const relativePath = decodeKnowledgePath(
     trailing ? rawPath.slice(0, -1) : rawPath,
   );
-  if (relativePath === undefined) return undefined;
-  if (relativePath.length === 0)
+  if (relativePath === undefined) return invalidPathFailure();
+  if (relativePath.length > 0 && !isSpaceRelativePath(relativePath)) {
+    return invalidPathFailure();
+  }
+  if (selector !== undefined && !isSelectorSuffix(selector)) {
+    // The Space directory has no resource path, so nothing is spelled for it.
+    const spelling =
+      relativePath.length === 0
+        ? undefined
+        : `${KNOWLEDGE_LOCATOR_SCHEME}://${knowledgeSpaceId}/${encodeRelativePath(relativePath)}%3A${encodeSelectorSuffix(selector)}`;
+    return {
+      type: 'invalid_selector',
+      message: selectorRefusalMessage(spelling),
+    };
+  }
+  if (relativePath.length === 0) {
     return selector === undefined
       ? { knowledgeSpaceId }
       : { knowledgeSpaceId, selector };
+  }
   const base =
     selector === undefined
       ? { knowledgeSpaceId, relativePath }
       : { knowledgeSpaceId, relativePath, selector };
   return trailing ? { ...base, trailingSeparator: true } : base;
+}
+
+/**
+ * The Knowledge path rules, applied where the locator is parsed rather than
+ * where the adapter opens it: the same `validatePath` the adapter applies
+ * decides a path part, so an escaping or oversized one is `invalid_path` here
+ * rather than a hint the resolver would refuse anyway.
+ */
+function isSpaceRelativePath(relativePath: string): boolean {
+  try {
+    validatePath(relativePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function invalidPathFailure(): KnowledgeLocatorFailure {
+  return { type: 'invalid_path', message: 'The Knowledge locator is invalid.' };
 }
 
 function decodeKnowledgePath(path: string): string | undefined {
@@ -90,10 +146,7 @@ export function formatKnowledgeLocator(parsed: ParsedKnowledgeLocator): string {
   const base = `${KNOWLEDGE_LOCATOR_SCHEME}://${parsed.knowledgeSpaceId}`;
   const relativePath = parsed.relativePath;
   if (relativePath === undefined || relativePath.length === 0) return base;
-  const encoded = relativePath
-    .split('/')
-    .map((segment) => encodeURIComponent(segment))
-    .join('/');
+  const encoded = encodeRelativePath(relativePath);
   return parsed.trailingSeparator === true
     ? `${base}/${encoded}/`
     : `${base}/${encoded}`;
@@ -136,7 +189,7 @@ export async function resolveKnowledgeLocator(
   allowMissing = false,
 ): Promise<ResolvedKnowledgeTarget | ToolResult> {
   const parsed = parseKnowledgeLocator(rest);
-  if (parsed === undefined) return invalidPathResult();
+  if ('type' in parsed) return { status: 'error', ...parsed };
   if (!isKnowledgeSpaceId(parsed.knowledgeSpaceId))
     return knowledgeNotFoundResult();
 
@@ -252,7 +305,7 @@ function mapResolutionFailure(error: unknown): ToolResult {
     case 'knowledge_space_unavailable':
       return knowledgeUnavailableResult();
     default:
-      return invalidPathResult();
+      return { status: 'error', ...invalidPathFailure() };
   }
 }
 
@@ -262,13 +315,5 @@ export function knowledgeResultEnvelope(target: ResolvedKnowledgeTarget) {
     knowledgeSpaceId: target.knowledgeSpaceId,
     knowledgeSpaceName: target.knowledgeSpaceName,
     notice: KNOWLEDGE_CONTENT_NOTICE,
-  };
-}
-
-function invalidPathResult(): ToolResult {
-  return {
-    status: 'error',
-    type: 'invalid_path',
-    message: 'The Knowledge locator is invalid.',
   };
 }

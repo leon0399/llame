@@ -44,10 +44,7 @@ import {
   KNOWLEDGE_LOCATOR_SCHEME,
   parseKnowledgeLocator,
 } from '../knowledge/knowledge-locator';
-import {
-  isKnowledgeSpaceId,
-  validatePath,
-} from '../knowledge/knowledge-filesystem-validation';
+import { isKnowledgeSpaceId } from '../knowledge/knowledge-filesystem-validation';
 import { spaceInstructionScope } from '../knowledge/knowledge-instruction-probe';
 import type {
   InRunAttempt,
@@ -164,39 +161,23 @@ function hostTarget(selectorPath: string): TriggerTarget {
 
 /**
  * One `kb://` locator as a Space and a Space-relative key: the selector is
- * dropped, the path is percent-decoded, and only a path the Knowledge
- * resolver itself accepts names anything. A Space id that is not already
- * canonical is not a trigger at all — the model's own read of it still runs,
- * it just loads no instructions — so every other step of one Space resolves
- * under the single spelling that can reach this point.
+ * dropped, the path is percent-decoded, and only a locator the parser admits
+ * names anything. A Space id that is not already canonical is not a trigger at
+ * all — the model's own read of it still runs, it just loads no instructions —
+ * so every other step of one Space resolves under the single spelling that can
+ * reach this point.
  */
 function spaceTarget(rest: string): TriggerTarget | undefined {
   const parsed = parseKnowledgeLocator(rest);
-  if (parsed === undefined || !isKnowledgeSpaceId(parsed.knowledgeSpaceId)) {
-    return undefined;
-  }
+  if ('type' in parsed) return undefined;
+  if (!isKnowledgeSpaceId(parsed.knowledgeSpaceId)) return undefined;
   if (parsed.knowledgeSpaceId !== parsed.knowledgeSpaceId.toLowerCase()) {
-    return undefined;
-  }
-  const relativePath = parsed.relativePath;
-  if (relativePath !== undefined && !isSpaceKey(relativePath)) {
     return undefined;
   }
   return {
     space: { id: parsed.knowledgeSpaceId },
-    key: relativePath ?? '',
+    key: parsed.relativePath ?? '',
   };
-}
-
-/** A Space key the trusted resolver would accept: plain names, no traversal,
- * and no deeper than its component cap. */
-function isSpaceKey(relativePath: string): boolean {
-  try {
-    validatePath(relativePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** The canonical root a successful `enter_workspace` established or switched to. */

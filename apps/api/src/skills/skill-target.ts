@@ -6,7 +6,6 @@ import { type ToolResult } from '@workspace/runtime-safety';
 import {
   formatSkillLocator,
   parseSkillLocator,
-  validateSkillResourcePath,
   type ParsedSkillLocator,
 } from './skill-locator';
 import { type SkillCatalogEntry, type SkillCatalogPort } from './skill-catalog';
@@ -88,7 +87,7 @@ export async function resolveSkillLocator(
   extraSources?: ReadonlyArray<string>,
 ): Promise<ResolvedSkillTarget | ResolvedSkillCatalog | ToolResult> {
   const parsed = parseSkillLocator(rest);
-  if (parsed === undefined) return invalidPathResult();
+  if ('type' in parsed) return { status: 'error', ...parsed };
 
   const snapshot = catalog.getSnapshot(extraSources);
   if (!snapshot.available) return catalogUnavailableResult();
@@ -143,12 +142,6 @@ async function resolveWithinPackage(
         : path.join(skillDirectory, SKILL_DOCUMENT_FILENAME)
       : path.join(skillDirectory, relativePath);
 
-  if (relativePath !== undefined) {
-    if (validateSkillResourcePath(relativePath) === undefined) {
-      return invalidPathResult();
-    }
-  }
-
   // No containment step follows: an operator source is trusted by being
   // configured and a Workspace source by the Chat's successful entry, so the
   // validated segments join the discovered package directory as it stands and
@@ -189,14 +182,6 @@ async function realPackageDirectory(
     return undefined;
   }
   return real === skillDirectory ? undefined : real;
-}
-
-function invalidPathResult(): ToolResult {
-  return {
-    status: 'error',
-    type: 'invalid_path',
-    message: 'The skill locator is invalid.',
-  };
 }
 
 function notFoundResult(): ToolResult {

@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
   applySelectorSuffix,
-  assertResolvedTarget,
   createFile,
   editFile,
   parsePathScheme,
@@ -10,6 +9,7 @@ import {
   readResolvedFile,
   replaceFile,
   REPLACE_TARGET_MISSING_MESSAGE,
+  resolveEndRelativeSelector,
   serializeNativeModelOutput,
   type NativeReadOptions,
   type ReadTarget,
@@ -181,7 +181,7 @@ async function executeSkill(
   );
   if ('status' in resolved) return resolved;
   if (isSkillCatalogResult(resolved)) {
-    const window = catalogWindow(resolved.selector);
+    const window = catalogWindow(resolved.selector, resolved.entries.length);
     if ('status' in window) return window;
     return skillCatalogEnvelope(resolved.entries, window);
   }
@@ -202,17 +202,18 @@ async function executeSkill(
 }
 
 /**
- * The catalog listing pages with the native single-range selector, so this
- * layer places one window against the catalog's entries: `:N`, `:N-M`, and
- * `:N+K`, with the inclusive `N-M` end and the `N+K` length. The grammar also
- * admits forms with no listing meaning here, and those are declined instead
- * of answered with the first page: `:raw`, `:outline`, a comma list, and the
- * end-relative `N-` and `-K` members, which a later change places against the
- * catalog's entry count. Bounds the shared parser refuses -- `:0-0`, `:5-2`
- * -- fail as an invalid selector.
+ * The catalog listing pages with the native single-range selector, so it
+ * accepts exactly the ranges a file read accepts — including the inclusive
+ * `N-M` end, the `N+K` length, the open-ended `N-`, and the `-K` tail, which
+ * the catalog's own entry count places the way a file's line count places it.
+ * Anything the grammar accepts but a listing cannot express (`:raw`,
+ * `:outline`, comma multi-range) fails rather than silently answering with the
+ * first page. `N-` and `+` operands are validated by the shared parser, so
+ * `:0-0` and `:5-2` fail.
  */
 function catalogWindow(
   selector: string | undefined,
+  count: number,
 ): { readonly offset: number; readonly limit?: number } | ToolResult {
   if (selector === undefined) return { offset: 0 };
   let target: ReadTarget;
@@ -228,24 +229,16 @@ function catalogWindow(
       'The :outline member is not supported for the skill catalog.',
     );
   }
-  if (target.raw || target.ranges !== undefined) {
+  if (
+    target.raw ||
+    target.ranges !== undefined ||
+    target.pending?.includes(',') === true
+  ) {
     return invalidCatalogSelectorResult(
-      'The skill catalog accepts a single :N-M or :N+K range; comma ranges and :raw are not supported.',
+      'The skill catalog accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges and :raw are not supported.',
     );
   }
-  // Checked after the two branches above so `:outline:5-` and `:raw:5-` keep
-  // naming what they ask for; a target still pending here would page from the
-  // first entry, which the request never named.
-  try {
-    assertResolvedTarget(target);
-  } catch {
-    return invalidCatalogSelectorResult(
-      'The skill catalog accepts a single :N-M or :N+K range; the end-relative N- and -K members are not placed against its entry count.',
-    );
-  }
-  return target.limit === undefined
-    ? { offset: target.offset }
-    : { offset: target.offset, limit: target.limit };
+  return resolveEndRelativeSelector(target, count);
 }
 
 const SKILL_CATALOG_LOCATOR = 'skill://';
