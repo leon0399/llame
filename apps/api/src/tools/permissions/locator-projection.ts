@@ -52,11 +52,14 @@ export function projectNativeFilePath(
   if (scheme === undefined) return projected;
   if (scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME) {
     const parsed = parseKnowledgeLocator(scheme.rest);
-    return parsed === undefined ? projected : formatKnowledgeLocator(parsed);
+    // A refused selector and a malformed part are the same unmatched text to
+    // policy, which is what the reported failure type separates for the reader
+    // that reports it.
+    return 'type' in parsed ? projected : formatKnowledgeLocator(parsed);
   }
   if (scheme.scheme === SKILL_LOCATOR_SCHEME) {
     const parsed = parseSkillLocator(scheme.rest);
-    return parsed === undefined ? projected : formatSkillLocator(parsed);
+    return 'type' in parsed ? projected : formatSkillLocator(parsed);
   }
   if (scheme.scheme in WEB_LOCATOR_SCHEMES) {
     const parsed = parseWebLocator(projected);
