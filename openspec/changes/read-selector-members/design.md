@@ -29,21 +29,27 @@ learns its line count: the stream returns at the window end
 (`stream-read.ts:181-187`). Web renders, listings, and the catalog hold their
 content in memory and know their count. `kb://` and `skill://` files reach the
 same streaming reader through `readResolvedFile`
-(`packages/native-file-tools/src/read.ts:105-160`).
+(`packages/native-file-tools/src/read.ts:117-161`).
 
 A malformed suffix is `invalid_selector` on host and web and `invalid_path` on
 `kb://` and `skill://`; the host message is the bare type string
 (`path.ts:17-37`, `240-241`), the web message names the working forms
 (`locator.ts:166-192`), and the Knowledge and skill messages are generic. The
-web message for `12-` tells the model to write `:12` (`locator.ts:166`,
-`locator.test.ts:300-304`).
+web message for a bare `12-` or `12+` tells the model to write `:12`
+(`locator.ts:166`; the `:12+` case is pinned at `locator.test.ts:300-304`),
+and a non-numeric suffix such as `Special:Search` gets only the `%3A` hint
+(`locator.ts:184-186`).
 
 Permission admission projects `path` before matching
 (`apps/api/src/tools/permissions/locator-projection.ts:38-69`): `kb://` and
 `skill://` are re-encoded without their selector, a web locator keeps
 `url:selector`, and a direct host path is matched as submitted, selector
-included. Host evaluation is text-only with no filesystem probe, and no second
-judgment runs on the path that is finally opened.
+included. The runner also evaluates the submitted arguments unprojected and
+refuses on any reject that matches them before the projected pass
+(`apps/api/src/tools/runner.ts:215-223`). Host evaluation is text-only with no
+filesystem probe, no second judgment runs on the path that is finally opened,
+and host mutations take their path literally with no selector split
+(`packages/native-file-tools/src/mutate.ts`).
 
 The uncommitted draft of `apps/api/src/prompts/tools/read.md` restructures the
 tool description after OMP's, lists `:N-M:raw` as working, keeps `:-K` and
@@ -89,7 +95,9 @@ tool description after OMP's, lists `:N-M:raw` as working, keeps `:-K` and
 
 ### D1: Tail and open-ended forms are range members, resolved against the source count
 
-**Decision:** The member grammar becomes `N | N-M | N+K | N- | -K`. A
+**Decision:** The member grammar becomes `N | N-M | N+K | N- | -K`, one set
+for bare lists, `raw:` lists, and the outline member; a `raw:` list therefore
+also gains `N+K`, which the shipped gate withholds from it (`path.ts:225`). A
 selector carries its members unresolved until the source knows its line (or
 entry) count; resolution maps `N-` to `N..count` and `-K` to
 `max(1, count-K+1)..count`, after which validation, sorting, merging, context
@@ -110,8 +118,12 @@ and tests holds only under that shape.
 read on host, `file://`, `kb://`, or `skill://` first counts LF bytes through
 the file in bounded chunks, derives the native line count (LF count, plus one
 when the file is non-empty and does not end in LF, matching
-`source-lines.ts:44-47`), resolves the members, and then opens the file again
-through the shipped streaming reader. The rule is uniform: a lone `:N-` also
+`source-lines.ts:46-49`), resolves the members, and then runs the shipped
+streaming reader. The pass runs inside the streaming reader, after the open
+handle has passed the regular-file check (`stream-read.ts:506-508`), using
+positional reads on that same handle, so a device such as `/dev/zero:-5` is
+refused as `not_regular_file` before anything is counted and no second open is
+needed. The rule is uniform: a lone `:N-` also
 counts, so its `requestedRange` ends at the file's real last line. Web renders,
 listings, and the catalog resolve against the count they already hold.
 
@@ -130,9 +142,14 @@ shipped contract already calls coordinates execution-time, not a snapshot.
 ### D3: Bounds follow `tail`, not the start-past-EOF rule
 
 **Decision:** `-K` with K greater than the count resolves to `1..count`. `-0`
-is `invalid_selector`. `N-` with N past the last line fails under the shipped
-start-past-EOF rule. An empty source with `-K` or `1-` returns the shipped
-empty result.
+is `invalid_selector`. `N-` with N past the last line resolves to an empty
+member and follows each source's shipped past-the-end rule: on a file or web
+render it is `invalid_selector` when it is the first requested start
+(`stream-read.ts:353-361`) and emits nothing as a later list member; on a
+listing or the catalog it is the empty page those slices already return
+(`directory-listing.ts:332-339`, `skill-results.ts:83-90`). An empty source
+with `-K` or `1-` returns the shipped empty result; any other `N-` on it fails
+as a start past the last line does.
 
 **Alternative rejected:** Failing `-K` when K exceeds the count, reporting the
 count. The model that asked for "the last 50" of a 10-line file wants the file,
@@ -140,8 +157,13 @@ and the resolved `requestedRange` already tells it the file was shorter.
 
 ### D4: Both raw orders are one form, canonicalized at the split
 
-**Decision:** The host and web splitters recognize `:<list>:raw` as well as
-`:raw:<list>` and emit the canonical `raw:<list>` suffix, so `isRawSelector`
+**Decision:** The shared shape gate and applier (`path.ts:224-254`) accept
+`<list>:raw` as the same selector as `raw:<list>`, which is what lets `kb://`
+and `skill://` take it: both split once at the first colon and hand the whole
+remainder to that gate (`knowledge-locator.ts:45-47`,
+`skill-locator.ts:51-79`). The host and web splitters, which recognize a
+trailing `:raw` first, additionally take the `:<list>` before it and emit the
+canonical `raw:<list>` suffix, so `isRawSelector`
 (`apps/api/src/tools/web-read/execute.ts:218-221`), locator projection, the
 instruction-file reader (`apps/api/src/instructions/instruction-files.ts:247`), and
 every message template see one spelling. Documentation lists `:raw:<ranges>`
@@ -157,9 +179,14 @@ consumer of the suffix grows a second branch for no observable gain.
 and the suffix is outside the grammar, every source returns `invalid_selector`
 with a message built by one shared builder that names the working forms
 (`:N`, `:N-M`, `:N+K`, `:N-`, `:-K`, comma lists, `:raw` and `:raw:<list>`,
-`:outline:<member>`), carried over from the web builder's shape. `invalid_path`
+`:outline:<member>`), carried over from the web builder's shape. On a source
+that has an encoded spelling for a literal colon — `kb://` and web — the
+message then names the `%3A` spelling of the same locator; host has none
+(`%3A` decodes to `:` there), so it names the forms only. This replaces the
+web builder's two-tier rule, under which a non-numeric suffix such as
+`Special:Search` got the `%3A` hint alone. `invalid_path`
 remains the answer for a malformed locator part. The web builder stops
-advising `:12` for `12-` and keeps its `%3A` hint for a literal colon. A
+advising `:12` for `12-`, which is now a selector. A
 selector the source cannot serve (past the end, no lines) keeps its existing
 `invalid_selector` reporting the count.
 
@@ -207,12 +234,22 @@ resolved source lines with the ancestor chain of the first line prepended, as
 
 ### D10: Permission admission drops the selector on every source
 
-**Decision:** The host and web projections remove a split-off selector before
-matching, as the Knowledge and skill projections already do. Evaluation
-remains text-only with no filesystem probe. The admission text for
-`/srv/docs/README:raw` is `/srv/docs/README`; a web locator is matched as its
-canonical URL. The default credential rejects keep the `:` alternative in
-their terminators; it is never reached once the selector is projected away.
+**Decision:** For `read`, every text the evaluator matches for `path` has
+its split-off selector removed: the host and web projections, as the
+Knowledge and skill projections already do, and the runner's unprojected
+submitted-text reject pass (`runner.ts:215-223`), which otherwise keeps a
+`:raw` reject effective on every source. A Workspace-relative path is
+resolved first and stripped after. `edit` and `write` are matched as
+submitted, because a host mutation takes its path literally and
+`/srv/app/config.json:1-5` names a different file to it. Evaluation remains
+text-only with no filesystem probe. The admission text for
+`read("/srv/docs/README:raw")` is `/srv/docs/README`; a web locator is matched
+as its canonical URL. The `:` alternative in the default credential rejects
+stays load-bearing: F1-F3 also guard `edit`, `write`, and `enter_workspace`,
+and a literal colon-bearing name outside the grammar (`/home/u/.ssh:old`)
+keeps its suffix in a `read`'s matched text. The canonical scenario heading
+"File alias projection preserves the selector" is kept for continuity with its
+body inverted; renaming it is left to spec synchronization.
 
 **Threat:** An exact allow such as `^/srv/docs/README$` now admits a read of a
 literal file named `/srv/docs/README:raw` when one exists, because the
@@ -232,11 +269,14 @@ canonical `raw:` text, which matches a string the model never wrote.
 documents the grammar, not before. Its `## Selectors` section states the
 grammar once; the instruction block stops repeating it. Lines that claim
 unshipped behavior are fixed: the elision-footer rule in `<critical>` is
-dropped, "Documents → extracted text" is commented, and the percent-encoding
-line is scoped to `kb://` and web. Every commented draft carries
+dropped, "Documents → extracted text" is commented, the percent-encoding
+line is scoped to `kb://` and web, and the web line "A different spelling is
+refused with the canonical one named" is removed, since the parser normalizes
+spellings rather than refusing them (`locator.ts:236-251`). Every commented
+draft carries
 `TODO(#N)` for its owning issue.
 
-### D12: Five layers
+### D12: Five layers after the proposal
 
 **Decision:** `grammar` (`packages/native-file-tools`), `sources` (web, `kb://`,
 `skill://`, catalog, error unification), `permissions` (projection and the
@@ -247,17 +287,20 @@ contract, so it is reviewed on its own.
 
 ## Risks / Trade-offs
 
-- [Operator rejects anchored on `:raw:`] → After D10 no selector reaches
-  admission on any source; such a clause was never a sound guard and now
-  matches nothing, which the operator doc states.
+- [Operator rejects anchored on `:raw:`] → After D10 no `read` text reaches
+  admission with a selector on any source, the submitted-text pass included;
+  such a clause was never a sound guard and now matches nothing, which the
+  operator docs state.
 - [`https://w.example/wiki/Special:-5` becomes a tail read of `Special`] →
   Consistent with `2024:10` selecting a line; the literal spelling is `%3A-5`,
   and the message for a non-numeric suffix still names it.
-- [Negative tests pin the old grammar (`path.test.ts:85`, `355`;
-  `locator.test.ts:300-304`; kb and skill reject lists)] → Each flips in the
-  layer that changes the behavior, with the new positive case beside it.
-- [A file grows between the count pass and the read] → Coordinates are
-  execution-time by contract; the result reports what the second pass read.
+- [Negative tests pin the old grammar (`path.test.ts:85`, `88`, `355`; the
+  `:12+` message at `locator.test.ts:300-304` and the `Special:Search` hint at
+  `305-314`; kb and skill reject lists)] → Each flips in the layer that
+  changes the behavior, with the new positive case beside it.
+- [A file grows between the count pass and the read] → Both run on one open
+  handle, and coordinates are execution-time by contract; the result reports
+  what the read pass saw.
 - [Two capabilities change in one stack] → The permissions layer carries only
   the projection change and its spec, so the admission contract is reviewed
   apart from the grammar.
