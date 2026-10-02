@@ -1,8 +1,18 @@
-import {
-  formatSkillLocator,
-  parseSkillLocator,
-  validateSkillResourcePath,
-} from './skill-locator';
+import { invalidSelectorMessage } from '@workspace/native-file-tools';
+
+import { formatSkillLocator, parseSkillLocator } from './skill-locator';
+
+/** The one refusal a suffix outside the grammar carries: the shared forms
+ *  sentence every source uses, then this source's encoded spelling. */
+function refusal(spelling: string): string {
+  return invalidSelectorMessage(
+    `For a literal colon, write this locator as ${spelling}`,
+  );
+}
+
+/** The same sentence without a spelling: the catalog and a package root have
+ *  no resource path a literal colon could belong to. */
+const FORMS = invalidSelectorMessage();
 
 describe('parseSkillLocator', () => {
   it('addresses the catalog for the bare and selector-only forms', () => {
@@ -77,29 +87,79 @@ describe('parseSkillLocator', () => {
     'PDF',
     '-pdf',
     'pdf--x',
-    'pdf:notaselector',
-    'pdf/references/x:notaselector',
     'pdf:raw/x',
-    'pdf/a%2Fb',
+    // A path part is decoded and validated before the suffix is judged, so a
+    // suffix on a path the resolver would refuse is `invalid_path`, never an
+    // `invalid_selector` whose hint names a locator that cannot open.
     'pdf/%ZZ',
-    ':outline:1,3',
-    'pdf:outline:1,3',
-    'pdf/ref.md:outline:1,3',
-    'pdf:outline:raw',
-    'pdf:raw:outline',
-    'pdf:outline:',
-  ])('rejects the malformed locator %s', (rest) => {
-    expect(parseSkillLocator(rest)).toBeUndefined();
+    'pdf/%ZZ:1-2',
+    'pdf/a%2Fb:1-2',
+    'pdf/../research:1-2',
+    'pdf/%2e%2e/secret',
+    'pdf//guide.md',
+    'pdf/./guide.md',
+    String.raw`pdf/back\slash`,
+    'pdf/nul\u0000byte',
+    `pdf/${Array.from({ length: 33 }, () => 'a').join('/')}`,
+    `pdf/${'a'.repeat(1025)}`,
+  ])('rejects the malformed locator %s as an invalid path', (rest) => {
+    expect(parseSkillLocator(rest)).toStrictEqual({
+      type: 'invalid_path',
+      message: 'The skill locator is invalid.',
+    });
   });
 
-  it('decodes once, leaving traversal for the pre-open validation', () => {
-    // The parser decodes exactly once; `validateSkillResourcePath` rejects the
-    // result before any open, so the two agree without double-decoding.
-    expect(parseSkillLocator('pdf/%2e%2e/secret')).toEqual({
-      name: 'pdf',
-      relativePath: '../secret',
+  it.each([
+    // A resource path has an encoded spelling to name after the forms; the
+    // catalog and a package root address no resource, so nothing is spelled.
+    ['pdf/references/a:b.md', refusal('skill://pdf/references/a%3Ab.md')],
+    [
+      'pdf/references/x:5-10,,20-30',
+      refusal('skill://pdf/references/x%3A5-10,,20-30'),
+    ],
+    ['pdf:raw:outline', FORMS],
+    [':5-10,,20-30', FORMS],
+    ['pdf:notaselector', FORMS],
+    [':raw:outline', FORMS],
+    [':outline:1,3', FORMS],
+    ['pdf:outline:1,3', FORMS],
+    ['pdf/ref.md:outline:1,3', refusal('skill://pdf/ref.md%3Aoutline%3A1,3')],
+    ['pdf:outline:raw', FORMS],
+    ['pdf:outline:', FORMS],
+  ])('reports %s as an invalid selector', (rest, message) => {
+    expect(parseSkillLocator(rest)).toStrictEqual({
+      type: 'invalid_selector',
+      message,
     });
-    expect(validateSkillResourcePath('../secret')).toBeUndefined();
+  });
+
+  it('encodes a percent in the suffix so the hint reads the same file', () => {
+    // `a:100%.md` splits at the colon, so the suffix carries a literal `%`.
+    // The hint must encode it before the colon, or the locator it names decodes
+    // to something else on the next attempt.
+    const parsed = parseSkillLocator('pdf/ref/a:100%.md');
+    expect(parsed).toStrictEqual({
+      type: 'invalid_selector',
+      message: refusal('skill://pdf/ref/a%3A100%25.md'),
+    });
+    const hinted = parseSkillLocator('pdf/ref/a%3A100%25.md');
+    expect(hinted).toStrictEqual({
+      name: 'pdf',
+      relativePath: 'ref/a:100%.md',
+    });
+  });
+
+  it.each([
+    ['pdf:-5', { name: 'pdf', selector: '-5' }],
+    ['pdf:5-', { name: 'pdf', selector: '5-' }],
+    [':-10', { catalog: true, selector: '-10' }],
+    ['pdf:1-5:raw', { name: 'pdf', selector: '1-5:raw' }],
+    [
+      'pdf/ref.md:1-5:raw',
+      { name: 'pdf', relativePath: 'ref.md', selector: '1-5:raw' },
+    ],
+  ])('accepts the new members and both raw spellings in %s', (rest, parsed) => {
+    expect(parseSkillLocator(rest)).toStrictEqual(parsed);
   });
 });
 
@@ -121,39 +181,12 @@ describe('formatSkillLocator', () => {
   it('round-trips a written locator to one canonical spelling', () => {
     const written = 'skill://pdf/references/a%20b.md:raw';
     const parsed = parseSkillLocator(written.slice('skill://'.length));
-    expect(parsed).toBeDefined();
-    expect(formatSkillLocator(parsed!)).toBe('skill://pdf/references/a%20b.md');
-  });
-});
-
-describe('validateSkillResourcePath', () => {
-  it('accepts an ordinary nested resource path', () => {
-    expect(validateSkillResourcePath('references/formats.md')).toEqual([
-      'references',
-      'formats.md',
-    ]);
-  });
-
-  it.each([
-    '../../../etc/passwd',
-    'a/../../b',
-    '/etc/passwd',
-    './a',
-    'a//b',
-    'a/./b',
-    String.raw`back\slash`,
-    '',
-    'nul\u0000byte',
-  ])('rejects the escaping or malformed path %s', (relativePath) => {
-    expect(validateSkillResourcePath(relativePath)).toBeUndefined();
-  });
-
-  it('rejects a path past the component or byte bound', () => {
-    expect(
-      validateSkillResourcePath(
-        Array.from({ length: 33 }, () => 'a').join('/'),
-      ),
-    ).toBeUndefined();
-    expect(validateSkillResourcePath('a'.repeat(1025))).toBeUndefined();
+    if ('type' in parsed) throw new Error('the written locator should parse');
+    expect(parsed).toStrictEqual({
+      name: 'pdf',
+      relativePath: 'references/a b.md',
+      selector: 'raw',
+    });
+    expect(formatSkillLocator(parsed)).toBe('skill://pdf/references/a%20b.md');
   });
 });
