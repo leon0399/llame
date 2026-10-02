@@ -1,42 +1,31 @@
-import { resolveEndRelativeSelector, type PendingSelector } from "./path";
+import { resolvePendingSelector } from "./path";
 
 /** The request fields a listing places against its own entry count. */
 export type SliceOptions = {
   offset?: number;
   limit?: number;
   /** Members the requested level's entry count still has to place. */
-  pending?: PendingSelector;
+  pending?: string;
 };
 
-/** A flat slice already placed against the requested level's entry count. */
-export type FlatSlice<Entry> = {
+/** The run of the requested level a listing's selector names. */
+export type SliceWindow = {
   offset: number;
   end: number;
-  selected: Array<Entry>;
 };
 
 /**
- * The flat slice the selector asks for, with `N-` and `-K` resolved against
- * that count — the one count a listing holds. A member past the last entry
- * slices nothing, which is the empty page a listing past its end already
- * returns.
+ * The window the selector asks for, with `N-` and `-K` resolved against that
+ * count — the one count a listing holds. A member past the last entry selects
+ * nothing, which is the empty page a listing past its end already returns.
  */
-export function requestedSlice<Entry>(
-  targetPath: string,
-  entries: Array<Entry>,
-  options: SliceOptions,
-): FlatSlice<Entry> {
-  const count = entries.length;
-  const { offset, limit } = resolveEndRelativeSelector(
-    {
-      path: targetPath,
-      raw: false,
-      offset: options.offset ?? 0,
-      limit: options.limit ?? count,
-      pending: options.pending,
-    },
-    count,
-  );
-  const end = Math.min(offset + (limit ?? count), count);
-  return { offset, end, selected: entries.slice(offset, end) };
+export function sliceWindow(options: SliceOptions, count: number): SliceWindow {
+  // A listing places only absolute members, so a pending request contributes
+  // its own window: the offset and limit beside it are placeholders.
+  const placed =
+    options.pending === undefined
+      ? options
+      : resolvePendingSelector(options.pending, count);
+  const offset = placed.offset ?? 0;
+  return { offset, end: Math.min(offset + (placed.limit ?? count), count) };
 }

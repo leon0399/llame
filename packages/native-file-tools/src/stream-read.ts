@@ -1,5 +1,6 @@
 import { open, type FileHandle } from "node:fs/promises";
 import {
+  assertResolvedTarget,
   NativeFileError,
   openFlags,
   resolveEndRelativeSelector,
@@ -510,6 +511,7 @@ export function selectMultiRangeLines(
   target: ReadTarget,
   mediaType?: string,
 ): MultiReadSuccess {
+  assertResolvedTarget(target);
   if (target.ranges === undefined) throw new NativeFileError("invalid_input");
   if (mediaType === "text/markdown" && !target.raw) {
     const collector = new MultiCollector(target);

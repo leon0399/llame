@@ -25,7 +25,7 @@ import {
   MAX_RESULT_CODE_UNITS,
   splitSourceLines,
 } from "./read";
-import { invalidSelectorMessage } from "./path";
+import { applySelectorSuffix, invalidSelectorMessage } from "./path";
 import type { MultiReadSuccess, SingleReadSuccess } from "./source-lines";
 import { OUTLINE_UNSUPPORTED_MESSAGE } from "./representations";
 import { measureNativeModelOutput } from "./serialization";
@@ -326,6 +326,31 @@ describe("native source reads", () => {
       });
     }
     expect(await readFile({ path: `${path}:5-` })).toMatchObject({
+      status: "error",
+      type: "invalid_selector",
+    });
+  });
+
+  it.each(["-5,-10", "1-,1-2", "-5,3-4"])(
+    "reads the comma request %s as an empty multi-range result on an empty file",
+    async (selector) => {
+      // The first requested start resolves empty, which is the shipped
+      // start-past-EOF window; the plural fields keep it a multi-range read,
+      // so it reports the empty ranges rather than a null single range.
+      await writeFile(path, "");
+      expect(await readFile({ path: `${path}:${selector}` })).toMatchObject({
+        status: "success",
+        content: "",
+        requestedRanges: [],
+        shownRanges: [],
+        truncated: false,
+      });
+    },
+  );
+
+  it("refuses a comma request whose first start resolves past the last line", async () => {
+    await writeFile(path, numbered(10));
+    expect(await readFile({ path: `${path}:11-,12-` })).toMatchObject({
       status: "error",
       type: "invalid_selector",
     });
@@ -666,6 +691,15 @@ describe("native source reads", () => {
     expect(
       selectSourceLines("\n".repeat(2001), { path, offset: 0, raw: false }),
     ).toMatchObject({ truncated: true, nextOffset: 2000 });
+  });
+
+  it("refuses an unresolved target in the buffered reader", () => {
+    // A caller holding text in hand knows its line count and places the
+    // end-relative members itself; an unplaced target would otherwise be read
+    // from line 1 under a range the request never named.
+    expect(() =>
+      selectSourceLines(numbered(10), applySelectorSuffix(path, "-3")),
+    ).toThrow("invalid_selector");
   });
   it("preserves requested bounds independently of observed EOF in both readers", async () => {
     const source = "\n".repeat(2002);
@@ -1254,6 +1288,20 @@ describe("native reads resolved by a scheme owner", () => {
       requestedRange: { startLine: 2, endLine: 3 },
       shownRange: { startLine: 1, endLine: 4 },
     });
+  });
+
+  it("places an end-relative member against the resolved file's line count", async () => {
+    await writeFile(path, numbered(8));
+    const result = await readResolvedFile(path, {
+      displayPath: "skill://pdf/SKILL.md",
+      selector: "-3",
+    });
+    assertFileSuccess(result);
+    expect(result).toMatchObject({
+      requestedRange: { startLine: 6, endLine: 8 },
+      shownRange: { startLine: 5, endLine: 8 },
+    });
+    expect(result.content).toBe("5: line 5\n6: line 6\n7: line 7\n8: line 8\n");
   });
 
   it("never reinterprets the host path as a selector or a scheme", async () => {

@@ -176,7 +176,7 @@ function runListing(
       type: "invalid_selector",
       message: "The :raw selector is not supported for directory reads.",
     };
-  if (target.ranges !== undefined || target.pending?.comma)
+  if (target.ranges !== undefined || target.pending?.includes(","))
     return {
       status: "error",
       type: "invalid_selector",

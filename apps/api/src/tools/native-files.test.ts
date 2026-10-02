@@ -1520,7 +1520,9 @@ describe('skill locator resolution', () => {
   it('refuses catalog selectors the listing cannot express', async () => {
     await writePackage('research');
     // These parse as native selectors but have no listing meaning; silently
-    // answering with the first page would misreport the catalog.
+    // answering with the first page would misreport the catalog. The last two
+    // carry members only the catalog's own entry count can place, which the
+    // sources layer does before paging.
     for (const path of [
       'skill://:raw:1-5',
       'skill://:1-1,2-2',
@@ -1528,6 +1530,8 @@ describe('skill locator resolution', () => {
       // this is a selector the catalog declines rather than a malformed
       // locator.
       'skill://:raw:1+5',
+      'skill://:5-',
+      'skill://:1-2,-2',
     ]) {
       expect(
         await runTool(nativeReadTool, { path }, skillContext(), 5),

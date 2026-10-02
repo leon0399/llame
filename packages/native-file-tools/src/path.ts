@@ -59,23 +59,23 @@ export function invalidSelectorMessage(encodedSpelling?: string): string {
 /** One absolute member interval, zero-based, `limit` lines long. */
 type Interval = { offset: number; limit: number };
 
-/**
- * A member only the source's count can place: `N-` is line N through the
- * source's last line, `-K` is its last K lines.
- */
-export type EndRelativeMember =
-  | { readonly kind: "through-end"; readonly fromLine: number }
-  | { readonly kind: "last-lines"; readonly lastLines: number };
+/** The window a placed request reads, once its members are absolute. */
+export type PlacedWindow = Pick<
+  ReadTarget,
+  "offset" | "limit" | "ranges" | "expandedRanges"
+>;
 
 /**
- * A selector whose members are not all placeable yet: the absolute members
- * beside the end-relative ones, and whether the request was a comma list,
- * which reports plural range fields even when resolution leaves one interval.
+ * The readers' invariant: a target reaching any of them carries absolute
+ * members only. A target whose end-relative members are still pending would
+ * be read from line 1 under a `requestedRange` the request never asked for,
+ * so a source that has not placed them is refused instead. The source layer
+ * resolves against the count it holds before calling.
  */
-export type PendingSelector = {
-  readonly comma: boolean;
-  readonly members: ReadonlyArray<Interval | EndRelativeMember>;
-};
+export function assertResolvedTarget(target: ReadTarget): void {
+  if (target.pending !== undefined)
+    throw new NativeFileError("invalid_selector");
+}
 
 export type ReadTarget = {
   path: string;
@@ -106,11 +106,13 @@ export type ReadTarget = {
   expandedRanges?: Array<{ offset: number; limit: number }>;
 
   /**
-   * Members that need the source's count before any of them can be read. While
-   * it is set, `offset`, `limit`, `ranges`, and `expandedRanges` describe no
-   * read; the resolution step fills them in.
+   * The member list as written, when any of its members needs the source's
+   * count before the window can be placed. While it is set, `offset`,
+   * `limit`, `ranges`, and `expandedRanges` describe no read; the resolution
+   * step parses it against the count and fills them in. The applier already
+   * validated every member, so that step only places them.
    */
-  pending?: PendingSelector;
+  pending?: string;
 };
 
 /**
@@ -179,60 +181,36 @@ function parseRange(value: string): Interval {
 const THROUGH_END = /^(\d+)-$/u;
 const LAST_LINES = /^-(\d+)$/u;
 
-function isEndRelative(
-  member: Interval | EndRelativeMember,
-): member is EndRelativeMember {
-  return "kind" in member;
-}
-
 /**
- * One member in any of its five forms. `N-` and `-K` name the end of the
- * source, so they come back unresolved for the resolution step.
+ * One member in any of its five forms, placed against the source's count:
+ * `N-` runs to the last line and `-K` takes the last K, clipping at line 1
+ * the way `tail` does, and a member past the last line is empty. A count of
+ * zero therefore validates a member's bounds without placing anything,
+ * which is how the applier checks every member it is given.
  */
-function parseMember(value: string): Interval | EndRelativeMember {
+function parseMember(value: string, count: number): Interval {
   const throughEnd = THROUGH_END.exec(value);
-  if (throughEnd)
-    return { kind: "through-end", fromLine: bound(throughEnd[1]) };
+  if (throughEnd) {
+    const start = bound(throughEnd[1]);
+    return { offset: start - 1, limit: Math.max(0, count - start + 1) };
+  }
   const lastLines = LAST_LINES.exec(value);
-  if (lastLines) return { kind: "last-lines", lastLines: bound(lastLines[1]) };
+  if (lastLines) {
+    const start = Math.max(1, count - bound(lastLines[1]) + 1);
+    return { offset: start - 1, limit: count - start + 1 };
+  }
   return parseRange(value);
 }
 
 /**
- * Split a comma selector and validate every member with the single-range
- * bounds. The shape gate already enforced each member's form, so the parsing
- * here only repeats the numeric checks. End-relative members come back apart
- * from the absolute ones because only a source count can place them.
+ * Split a comma selector. The shape gate already enforced each member's
+ * form, so the parsing that follows only repeats the numeric checks.
  */
-function parseMembers(value: string) {
+function splitMembers(value: string): Array<string> {
   const members = value.split(",");
   if (members.length > MAX_SELECTOR_RANGES)
     throw new NativeFileError("invalid_selector", invalidSelectorMessage());
-  const intervals: Array<Interval> = [];
-  const endRelative: Array<EndRelativeMember> = [];
-  for (const member of members) {
-    const parsed = parseMember(member);
-    if (isEndRelative(parsed)) endRelative.push(parsed);
-    else intervals.push(parsed);
-  }
-  return { comma: members.length > 1, intervals, endRelative };
-}
-
-/**
- * One member placed against the source's count: `N-` runs to the last line and
- * `-K` takes the last K, clipping at line 1 the way `tail` does. A member past
- * the last line is empty.
- */
-function placeMember(
-  member: Interval | EndRelativeMember,
-  count: number,
-): Interval {
-  if (!isEndRelative(member)) return member;
-  const start =
-    member.kind === "through-end"
-      ? member.fromLine
-      : Math.max(1, count - member.lastLines + 1);
-  return { offset: start - 1, limit: Math.max(0, count - start + 1) };
+  return members;
 }
 
 /**
@@ -243,7 +221,7 @@ function placeMembers(
   members: Array<Interval>,
   comma: boolean,
   raw: boolean,
-): Pick<ReadTarget, "offset" | "limit" | "ranges" | "expandedRanges"> {
+): PlacedWindow {
   const ranges = mergeIntervals(members);
   if (!comma) return ranges[0];
   return {
@@ -256,23 +234,28 @@ function placeMembers(
 }
 
 /**
- * A pending request placed against the source's count. A member past the last
- * line is dropped here, before merge and context growth, so it emits nothing
- * and adds no context line; when it is the first requested start it keeps the
- * shipped start-past-EOF window, which the reader already refuses.
+ * A pending member list placed against the source's count. A member past the
+ * last line is dropped here, before merge and context growth, so it emits
+ * nothing and adds no context line; when it is the first requested start it
+ * keeps the shipped start-past-EOF window, which the reader already refuses,
+ * and a comma request keeps its plural fields so that refusal reads as the
+ * empty multi-range result it is.
  */
-function placePendingSelector(
-  pending: PendingSelector,
+export function resolvePendingSelector(
+  pending: string,
   count: number,
-  raw: boolean,
-): Pick<ReadTarget, "offset" | "limit" | "ranges" | "expandedRanges"> {
-  const placed = pending.members.map((member) => placeMember(member, count));
+  raw = false,
+): PlacedWindow {
+  const comma = pending.includes(",");
+  const placed = pending.split(",").map((member) => parseMember(member, count));
   const first = Math.min(...placed.map((member) => member.offset));
   if (placed.some((member) => member.limit === 0 && member.offset === first))
-    return { offset: first };
+    return comma
+      ? { offset: first, ranges: [], expandedRanges: [] }
+      : { offset: first };
   return placeMembers(
     placed.filter((member) => member.limit > 0),
-    pending.comma,
+    comma,
     raw,
   );
 }
@@ -289,7 +272,10 @@ export function resolveEndRelativeSelector(
 ): ReadTarget {
   if (target.pending === undefined) return target;
   const { pending, ...resolved } = target;
-  return { ...resolved, ...placePendingSelector(pending, count, target.raw) };
+  return {
+    ...resolved,
+    ...resolvePendingSelector(pending, count, target.raw),
+  };
 }
 
 /**
@@ -413,22 +399,22 @@ export function applySelectorSuffix(
  * Apply validated members to a path. A single member is one window; a comma
  * request keeps its merged request for `requestedRanges` and reads the
  * context-grown intervals, with `offset` the first requested start for the
- * shared EOF rule. An end-relative member leaves the window pending until a
- * source count places it.
+ * shared EOF rule. A member only a source's count can place leaves the whole
+ * list pending, carried as written for the resolution step.
  */
 function applyMembers(path: string, value: string, raw: boolean): ReadTarget {
-  const parsed = parseMembers(value);
-  if (parsed.endRelative.length > 0)
-    return {
-      path,
-      offset: 0,
-      raw,
-      pending: {
-        comma: parsed.comma,
-        members: [...parsed.intervals, ...parsed.endRelative],
-      },
-    };
-  return { path, raw, ...placeMembers(parsed.intervals, parsed.comma, raw) };
+  const members = splitMembers(value);
+  // A count of zero validates every member's bounds and places an
+  // end-relative one to nothing, so a member the count must place is exactly
+  // the one that comes back empty.
+  const intervals = members.map((member) => parseMember(member, 0));
+  if (intervals.some((member) => member.limit === 0))
+    return { path, offset: 0, raw, pending: value };
+  return {
+    path,
+    raw,
+    ...placeMembers(intervals, members.length > 1, raw),
+  };
 }
 
 /**

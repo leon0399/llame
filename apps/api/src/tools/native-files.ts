@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
   applySelectorSuffix,
+  assertResolvedTarget,
   createFile,
   editFile,
   parsePathScheme,
@@ -216,6 +217,7 @@ function catalogWindow(
   let target: ReadTarget;
   try {
     target = applySelectorSuffix(SKILL_CATALOG_LOCATOR, selector);
+    assertResolvedTarget(target);
   } catch {
     return invalidCatalogSelectorResult(
       'The skill catalog selector is invalid.',

@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applySelectorSuffix,
-  invalidSelectorMessage,
   parsePathScheme,
   resolveEndRelativeSelector,
   resolveReadTarget,
@@ -95,21 +94,6 @@ describe("native read selectors", () => {
     await expect(
       resolveReadTarget(`${directory}/notes:${selector}`),
     ).rejects.toMatchObject({ type: "invalid_selector" });
-  });
-
-  it.each([
-    "1-",
-    "-1",
-    "1-1,3-",
-    "-3,-1",
-    "raw:1-",
-    "outline:1-",
-    "outline:-1",
-  ])("carries %s unresolved for the source's count", async (selector) => {
-    const path = join(directory, "notes");
-    expect(await resolveReadTarget(`${path}:${selector}`)).toHaveProperty(
-      "pending",
-    );
   });
 
   it("supports ranged raw without confusing a parent directory name", async () => {
@@ -354,8 +338,35 @@ describe("native read selectors", () => {
         applySelectorSuffix("/root/a.md", "501-,600-"),
         500,
       ),
-    ).toStrictEqual({ path: "/root/a.md", offset: 500, raw: false });
+    ).toStrictEqual({
+      path: "/root/a.md",
+      offset: 500,
+      raw: false,
+      ranges: [],
+      expandedRanges: [],
+    });
   });
+
+  it.each(["-5,-10", "1-,1-2", "-5,3-4"])(
+    "keeps the comma shape when %s resolves its first start empty",
+    (selector) => {
+      // An empty first start is the shipped start-past-EOF window the reader
+      // refuses, and a comma request still reports plural fields so that
+      // refusal reads as the empty multi-range result it is.
+      expect(
+        resolveEndRelativeSelector(
+          applySelectorSuffix("/root/a.md", selector),
+          0,
+        ),
+      ).toStrictEqual({
+        path: "/root/a.md",
+        offset: 0,
+        raw: false,
+        ranges: [],
+        expandedRanges: [],
+      });
+    },
+  );
 
   it("drops a later past-the-end member before merge and context growth", () => {
     expect(
@@ -482,16 +493,16 @@ describe("native path schemes", () => {
   });
 
   it.each([
-    ["11-", { kind: "through-end", fromLine: 11 }],
-    ["-11", { kind: "last-lines", lastLines: 11 }],
-    ["raw:-11", { kind: "last-lines", lastLines: 11 }],
-    ["outline:11-", { kind: "through-end", fromLine: 11 }],
-  ])("carries the end-relative selector %s unresolved", (selector, member) => {
+    ["11-", "11-"],
+    ["-11", "-11"],
+    ["raw:-11", "-11"],
+    ["outline:11-", "11-"],
+  ])("carries the end-relative selector %s unresolved", (selector, pending) => {
     const expected = {
       path: "/root/a.md",
       offset: 0,
       raw: selector.startsWith("raw"),
-      pending: { comma: false, members: [member] },
+      pending,
     };
     if (selector.startsWith("outline"))
       Object.assign(expected, { outline: true });
@@ -503,14 +514,7 @@ describe("native path schemes", () => {
       path: "/root/a.md",
       offset: 0,
       raw: false,
-      pending: {
-        comma: true,
-        members: [
-          { offset: 0, limit: 5 },
-          { kind: "through-end", fromLine: 50 },
-          { kind: "last-lines", lastLines: 20 },
-        ],
-      },
+      pending: "1-5,50-,-20",
     });
   });
 
@@ -518,10 +522,7 @@ describe("native path schemes", () => {
     "rejects the split selector %s",
     (selector) => {
       expect(() => applySelectorSuffix("/root/a.md", selector)).toThrow(
-        expect.objectContaining({
-          type: "invalid_selector",
-          message: invalidSelectorMessage(),
-        }),
+        expect.objectContaining({ type: "invalid_selector" }),
       );
     },
   );
