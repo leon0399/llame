@@ -1521,8 +1521,9 @@ describe('skill locator resolution', () => {
     await writePackage('research');
     // These parse as native selectors but have no listing meaning; silently
     // answering with the first page would misreport the catalog. The last two
-    // carry members only the catalog's own entry count can place, which the
-    // sources layer does before paging.
+    // are declined rather than placed: `5-` is an end-relative member this
+    // layer does not resolve against the catalog's entry count, and `1-2,-2`
+    // is a comma list whose `-2` member is end-relative.
     for (const path of [
       'skill://:raw:1-5',
       'skill://:1-1,2-2',
@@ -1540,6 +1541,34 @@ describe('skill locator resolution', () => {
         type: 'invalid_selector',
       });
     }
+
+    // An end-relative member that `:outline` or `:raw` already refused still
+    // names what it asked for, not a malformed selector.
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'skill://:outline:5-' },
+        skillContext(),
+        5,
+      ),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :outline member is not supported for the skill catalog.',
+    });
+    const raw = await runTool(
+      nativeReadTool,
+      { path: 'skill://:raw:5-' },
+      skillContext(),
+      5,
+    );
+    expect(raw).toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+    });
+    expect(String(raw.message)).toContain(
+      'comma ranges and :raw are not supported',
+    );
   });
 
   it('refuses a manual-only package without the turn selection', async () => {

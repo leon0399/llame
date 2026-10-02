@@ -25,7 +25,7 @@ import {
   MAX_RESULT_CODE_UNITS,
   splitSourceLines,
 } from "./read";
-import { applySelectorSuffix, invalidSelectorMessage } from "./path";
+import { applySelectorSuffix } from "./path";
 import type { MultiReadSuccess, SingleReadSuccess } from "./source-lines";
 import { OUTLINE_UNSUPPORTED_MESSAGE } from "./representations";
 import { measureNativeModelOutput } from "./serialization";
@@ -60,6 +60,26 @@ function assertMultiFileSuccess(
     !("requestedRanges" in result)
   )
     throw new Error("Expected multi-range file success result");
+}
+
+/** The working forms, spelled as a model that has to write them again. */
+const WORKING_SELECTOR_FORMS = [
+  ":N",
+  ":N-M",
+  ":N+K",
+  ":N-",
+  ":-K",
+  ":raw",
+  ":outline",
+];
+
+/**
+ * A refusal a selector outside the grammar carries names every working form,
+ * so a model that wrote a nearly correct selector reads the whole grammar
+ * back rather than a bare type.
+ */
+function expectWorkingForms(message: string): void {
+  for (const form of WORKING_SELECTOR_FORMS) expect(message).toContain(form);
 }
 
 describe("native source reads", () => {
@@ -325,10 +345,51 @@ describe("native source reads", () => {
         truncated: false,
       });
     }
-    expect(await readFile({ path: `${path}:5-` })).toMatchObject({
-      status: "error",
-      type: "invalid_selector",
+  });
+
+  it.each([
+    ["13-", 12],
+    ["5-", 0],
+  ])(
+    "refuses the open-ended member %s that starts past the last line",
+    async (selector, lines) => {
+      await writeFile(path, lines === 0 ? "" : numbered(lines));
+      // The member resolves to the shipped start-past-EOF window, whose
+      // refusal carries the bare type as its message: the spelling is inside
+      // the grammar and only its start is not in the file.
+      expect(await readFile({ path: `${path}:${selector}` })).toEqual({
+        status: "error",
+        type: "invalid_selector",
+        message: "invalid_selector",
+      });
+    },
+  );
+
+  it("reads a trailing colon member from the file beside it", async () => {
+    const notes = join(directory, "notes");
+    await writeFile(notes, "one\ntwo\nthree\nfour\nfive\nsix\n");
+    await writeFile(join(directory, "notes:5-"), "alpha\nbeta\ngamma\n");
+    // The trailing `:raw` claims the colon segment before it as its member
+    // list, so this is the open-ended member of `notes` and not the file
+    // named `notes:5-`.
+    const member = await readFile({ path: `${notes}:5-:raw` });
+    assertFileSuccess(member);
+    expect(member).toMatchObject({
+      path: notes,
+      representation: "raw",
+      requestedRange: { startLine: 5, endLine: 6 },
+      truncated: false,
     });
+    expect(member.content).toBe("five\nsix\n");
+    // Spelling a member list after `:raw` keeps the literal file reachable.
+    const literal = await readFile({ path: `${notes}:5-:raw:1-2` });
+    assertFileSuccess(literal);
+    expect(literal).toMatchObject({
+      path: join(directory, "notes:5-"),
+      representation: "raw",
+      requestedRange: { startLine: 1, endLine: 2 },
+    });
+    expect(literal.content).toBe("alpha\nbeta\n");
   });
 
   it.each(["-5,-10", "1-,1-2", "-5,3-4"])(
@@ -385,20 +446,24 @@ describe("native source reads", () => {
     "names the working forms for the malformed selector %s",
     async (selector) => {
       await writeFile(path, "one\ntwo\n");
-      expect(await readFile({ path: `${path}${selector}` })).toEqual({
+      const result = await readFile({ path: `${path}${selector}` });
+      expect(result).toMatchObject({
         status: "error",
         type: "invalid_selector",
-        message: invalidSelectorMessage(),
       });
+      if (result.status !== "error") throw new Error("Expected a refusal");
+      expectWorkingForms(result.message);
     },
   );
 
   it("names the working forms for a member the bounds refuse", async () => {
-    expect(await readFile({ path: `${directory}/notes:0-1` })).toMatchObject({
+    const result = await readFile({ path: `${directory}/notes:0-1` });
+    expect(result).toMatchObject({
       status: "error",
       type: "invalid_selector",
-      message: invalidSelectorMessage(),
     });
+    if (result.status !== "error") throw new Error("Expected a refusal");
+    expectWorkingForms(result.message);
   });
 
   it("returns a directory listing for a directory target", async () => {

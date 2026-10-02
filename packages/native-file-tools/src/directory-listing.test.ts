@@ -601,6 +601,33 @@ describe("directory listing", () => {
     },
   );
 
+  it("refuses a comma request as a listing window", async () => {
+    const entries = ["a.txt", "b.txt", "c.txt"].map((name) => ({
+      name,
+      isFile: () => true,
+      isDirectory: () => false,
+      isSymbolicLink: () => false,
+    }));
+    let index = 0;
+    const mockPort: DirectoryPort = {
+      opendir: () =>
+        Promise.resolve({
+          read: () =>
+            Promise.resolve(index < entries.length ? entries[index++] : null),
+          close: () => Promise.resolve(),
+        }),
+      stat: () => Promise.reject(new Error("unexpected stat")),
+      realpath: () => Promise.reject(new Error("unexpected realpath")),
+      readlink: () => Promise.reject(new Error("unexpected readlink")),
+    };
+    // A listing names one run of entries, and the placed form of a comma
+    // request is a set of intervals: taking its first one as the window would
+    // answer with a page the request never named.
+    await expect(
+      listDirectory("/test", mockPort, { pending: "1,3" }),
+    ).rejects.toMatchObject({ type: "invalid_selector" });
+  });
+
   it("marks special entries with ? and never opens them", async () => {
     const openedPaths: Array<string> = [];
     const mockPort: DirectoryPort = {
