@@ -18,6 +18,7 @@ import {
 import { MessagesRepository } from './messages-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import * as schema from '../db/schema';
+import { type Compaction } from '../db/schema';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
 type LoggedQuery = {
@@ -75,6 +76,77 @@ function lastQuery(queries: Array<LoggedQuery>): LoggedQuery {
     throw new Error('expected a logged database query');
   }
   return query;
+}
+
+/** The minimal valid replacement history: one user checkpoint record. */
+const checkpointHistory: Compaction['replacementHistory'] = [
+  { role: 'user', parts: [{ type: 'text', text: 'checkpoint' }] },
+];
+
+/** One stored compaction, as the `compactions` row carries it. */
+function compactionRow(overrides: Partial<Compaction> = {}): Compaction {
+  return {
+    id: 'compaction-1',
+    chatId: 'chat-1',
+    uptoSeq: 42,
+    parentId: null,
+    summary: 'checkpoint summary',
+    replacementHistory: checkpointHistory,
+    usage: null,
+    createdAt: new Date('2026-08-11T08:00:00.000Z'),
+    ...overrides,
+  };
+}
+
+/** A joined read row: the compaction plus, on scoped reads, its chat. */
+type CompactionReadRow = {
+  compactions: Compaction;
+  chats?: { id: string; ownerUserId: string };
+};
+
+/**
+ * What a compaction statement answers with: a plain row from an insert's
+ * RETURNING, or the joined row an owner-scoped read projects.
+ */
+type CompactionQueryRow = Compaction | CompactionReadRow;
+
+/** A Promise fluent query double carrying the compaction table's surface. */
+function compactionQuery(rows: ReadonlyArray<CompactionQueryRow>) {
+  const terminal = Promise.resolve([...rows]);
+  const chain = () => terminal;
+  return Object.assign(terminal, {
+    from: chain,
+    innerJoin: chain,
+    where: chain,
+    limit: chain,
+    values: chain,
+    onConflictDoNothing: chain,
+    returning: chain,
+  });
+}
+
+/**
+ * Drizzle's mock transport is unavailable, so the rows a publication or a
+ * cutoff read answers with are queued here in call order.
+ */
+function makeCompactionDb(options: {
+  insert?: ReadonlyArray<ReadonlyArray<Compaction>>;
+  select?: ReadonlyArray<ReadonlyArray<CompactionReadRow>>;
+}) {
+  const db: Db = drizzle.mock({ schema });
+  const insertResults = (options.insert ?? []).slice();
+  const selectResults = (options.select ?? []).slice();
+  const insert = vi
+    .spyOn(db, 'insert')
+    .mockImplementation(() =>
+      asDbQuery(compactionQuery(insertResults.shift() ?? [])),
+    );
+  const select = vi
+    .spyOn(db, 'select')
+    .mockImplementation(() =>
+      asDbQuery(compactionQuery(selectResults.shift() ?? [])),
+    );
+  return { db, insert, select };
 }
 
 function updateSetSql(queries: Array<LoggedQuery>): string {
@@ -964,38 +1036,106 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
     ).toBe(true);
   });
 
-  it('createIfCutoffAbsent makes duplicate transition cutoffs a no-op', async () => {
+  it('create inserts conflict-tolerantly at the (chat_id, upto_seq) boundary', async () => {
     const { db, queries } = makeMockDb();
     await new CompactionsRepository(db)
-      .createIfCutoffAbsent({
+      .create({
         chatId,
         uptoSeq: 42,
         parentId: 'compaction-parent',
-        summary: 'transition summary',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [
-              {
-                type: 'text',
-                text: '<system-reminder>transition</system-reminder>',
-              },
-            ],
-          },
-        ],
+        summary: 'turn summary',
+        replacementHistory: checkpointHistory,
       })
       .catch(() => null);
 
     expect(querySqlContains(queries, 'insert into "compactions"')).toBe(true);
-    expect(queryContains(queries, chatId)).toBe(true);
-    expect(queryContains(queries, 42)).toBe(true);
     expect(
-      queryContains(
+      querySqlContains(
         queries,
-        '[{"role":"user","parts":[{"type":"text","text":"<system-reminder>transition</system-reminder>"}]}]',
+        'on conflict ("chat_id","upto_seq") do nothing',
       ),
     ).toBe(true);
-    expect(querySqlContains(queries, 'on conflict')).toBe(true);
+    expect(queryContains(queries, chatId)).toBe(true);
+    expect(queryContains(queries, 42)).toBe(true);
+    expect(queryContains(queries, 'compaction-parent')).toBe(true);
+  });
+
+  it('create returns the inserted row without re-reading the cutoff', async () => {
+    const inserted = compactionRow({
+      id: 'compaction-2',
+      summary: 'published by this attempt',
+    });
+    const { db, insert, select } = makeCompactionDb({ insert: [[inserted]] });
+
+    await expect(
+      new CompactionsRepository(db).create({
+        chatId,
+        uptoSeq: 42,
+        summary: 'published by this attempt',
+        replacementHistory: checkpointHistory,
+      }),
+    ).resolves.toEqual(inserted);
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(select).not.toHaveBeenCalled();
+  });
+
+  it('create resolves the surviving row when the cutoff is already taken', async () => {
+    const surviving = compactionRow({
+      id: 'compaction-1',
+      summary: 'published by the attempt that won the race',
+    });
+    const { db, insert, select } = makeCompactionDb({
+      // The unique index rejected the insert, so it returned no row and the
+      // repository read the incumbent at that cutoff back.
+      select: [[{ compactions: surviving }]],
+    });
+
+    const row = await new CompactionsRepository(db).create({
+      chatId,
+      uptoSeq: 42,
+      parentId: 'compaction-parent',
+      summary: 'the losing attempt summary',
+      replacementHistory: checkpointHistory,
+    });
+
+    // The losing summary is never adopted and no second row appears: the
+    // caller continues on the checkpoint that is already standing.
+    expect(row).toEqual(surviving);
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(select).toHaveBeenCalledTimes(1);
+  });
+
+  it('findByCutoff scopes by chatId, the cutoff sequence and ownerUserId', async () => {
+    const { db, queries } = makeMockDb();
+    await new CompactionsRepository(db)
+      .findByCutoff(chatId, ownerUserId, 42)
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('inner join "chats"');
+    expect(queryContains(queries, chatId)).toBe(true);
+    expect(queryContains(queries, 42)).toBe(true);
+    expect(queryContains(queries, ownerUserId)).toBe(true);
+  });
+
+  it('findByCutoff returns the compaction published at that cutoff', async () => {
+    const published = compactionRow({ id: 'compaction-1' });
+    const joined = {
+      chats: { id: chatId, ownerUserId },
+      compactions: published,
+    };
+    const { db } = makeCompactionDb({ select: [[joined]] });
+
+    await expect(
+      new CompactionsRepository(db).findByCutoff(chatId, ownerUserId, 42),
+    ).resolves.toEqual(published);
+  });
+
+  it('findByCutoff resolves undefined while the cutoff is free', async () => {
+    const { db } = makeCompactionDb({ select: [[]] });
+
+    await expect(
+      new CompactionsRepository(db).findByCutoff(chatId, ownerUserId, 42),
+    ).resolves.toBeUndefined();
   });
 
   it('create rejects an empty replacement history before issuing an insert', async () => {

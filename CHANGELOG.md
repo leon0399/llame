@@ -1,5 +1,23 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-02
+
+- Compaction now runs synchronously once before a Run's first model step
+  instead of fire-and-forget after the turn. A prepared request that does not
+  fit the Run's model summarizes through the previous completed Run's model,
+  receipt, and effort with no tool declarations, and fails `context_incompatible`
+  rather than truncating; otherwise the threshold variant fires when the
+  measured size (the previous completed reply's final-request size plus the
+  later estimate, or the whole-request estimate) reaches the model threshold
+  and summarizes with the attempt's own model, pre-re-bake prompt, schema-only
+  declarations, and effort. The checkpoint and its re-baked digest,
+  skill-catalog, and workspace epoch state publish before the attempt renders
+  its prompt and receipt and are kept when the attempt fails, so a retry reuses
+  them. The post-turn compaction, its staleness guard, the keep-recent window,
+  and the model-switch-only transition mode are removed. Replies now record the
+  final request's context size as `usage.contextTokens`
+  ([#806](https://github.com/leon0399/llame/issues/806)).
+
 # 2026-10-01
 
 - Reorganized `docs/` by reader. Owner-visible tool, locator, and selector

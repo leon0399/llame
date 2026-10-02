@@ -210,15 +210,17 @@ describeWithDatabase(
       sql = postgres(TEST_DB_URL, { ssl, max: 5 });
       const db: Db = drizzle(sql, { schema });
       tenantDb = new TenantDbService(db);
+      // The window variant is never exercised here: every seeded context fits
+      // the mock model's context window, so a rejection catches a future
+      // scenario silently relying on it. The threshold variant resolves null,
+      // the summarizer's own "no checkpoint" answer.
       const noopCompaction: CompactionCapability = {
-        maybeCompact: async () => {},
-        // Never exercised here: every seeded context fits the mock model's
-        // context window.
-        compactForTransition: () => {
-          throw new Error(
-            'reasoning-metadata-replay compactForTransition is not exercised by this suite',
-          );
-        },
+        summarizeCheckpoint: (request) =>
+          request.variant === 'window'
+            ? Promise.reject(
+                new Error('replay window summary is not exercised'),
+              )
+            : Promise.resolve(null),
       };
       const noopTitles: TitleCapability = {
         maybeGenerateTitle: async () => {},

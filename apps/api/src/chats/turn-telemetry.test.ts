@@ -167,6 +167,9 @@ describe('TurnTelemetry', () => {
         outputTokens: 300,
         totalTokens: 2700,
         reasoningTokens: 210,
+        // Measured size of the final request only (1,400 in + 100 out), never
+        // the 2,400 input / 2,700 total aggregate above.
+        contextTokens: 1500,
         modelId: 'priced-model',
         latencyMs: 123,
         finishReason: 'stop',
@@ -219,6 +222,9 @@ describe('TurnTelemetry', () => {
         }),
       ).toEqual({
         ...buildTurnTelemetry({ ...context, usage: receipt }),
+        // The lone request is the final one, so the measured size is its own
+        // input plus output (100 + 10).
+        contextTokens: 110,
         complete: true,
       });
     });
@@ -268,6 +274,28 @@ describe('TurnTelemetry', () => {
         expect(telemetry).not.toHaveProperty(field);
       }
       expect(telemetry.complete).toBe(false);
+    });
+
+    it('records no measured context size when the final request reports no counts', () => {
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [
+          usageReceipt({ inputTokens: 10, outputTokens: 5 }),
+          usageReceipt(),
+        ],
+        finishReason: 'stop',
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+        stepCount: 2,
+      });
+
+      expect(telemetry).toMatchObject({
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      });
+      expect(telemetry).not.toHaveProperty('contextTokens');
     });
 
     it('records null cost and omits token fields when an unpriced model reports nothing', () => {
@@ -395,7 +423,7 @@ describe('TurnTelemetry', () => {
       });
     });
 
-    it('marks fewer receipts than SDK steps incomplete', () => {
+    it('marks fewer receipts than SDK steps incomplete and records no measured context size', () => {
       const telemetry = aggregateTurnTelemetry({
         receipts: [usageReceipt({ inputTokens: 10, outputTokens: 5 })],
         status: 'completed',
@@ -406,6 +434,8 @@ describe('TurnTelemetry', () => {
       });
 
       expect(telemetry.complete).toBe(false);
+      // The recorded receipt is not the attempt's final request.
+      expect(telemetry).not.toHaveProperty('contextTokens');
     });
 
     it('does not consider an attempt with no receipts complete', () => {

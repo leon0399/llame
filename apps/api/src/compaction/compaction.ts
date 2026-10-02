@@ -1,14 +1,17 @@
 /**
- * Compaction planning (#57) — pure logic for lineage-based context compaction.
+ * Compaction planning (#57) — pure logic for context compaction.
  *
- * When the live context approaches the token threshold, older turns are
- * absorbed into a summary row (`compactions` table) that supersedes them; the
- * ContextBuilder then assembles summary + recent turns. Messages are never
- * deleted or mutated — the summary row's uptoSeq/parentId keep the full history
- * auditable and rewindable (Hermes-style lineage, SPEC §2.1).
+ * When a Run's prepared request reaches its model's compaction threshold, or no
+ * longer fits that model's window, older turns are absorbed into a summary row
+ * (`compactions` table) that supersedes them; the ContextBuilder then assembles
+ * summary + later turns. Messages are never deleted or mutated — the summary
+ * row's uptoSeq/parentId keep the full history auditable and rewindable
+ * (Hermes-style lineage, SPEC §2.1).
  *
- * This module is deliberately DB-free: the CompactionService orchestrates
- * (load → plan → model call → insert); everything decidable is decided here.
+ * One trigger, one request shape: which model, prompt, declarations and effort
+ * fill it is data (design D4). This module is deliberately DB-free — the
+ * CompactionService orchestrates (load → plan → model call); everything
+ * decidable is decided here.
  */
 
 import {
@@ -20,10 +23,12 @@ import {
 } from '../chats/context-builder';
 import { buildCompactionToolReplacementRecords } from '../chats/tool-observation-part';
 import { loadPackagedTemplate } from '../prompts/template-engine';
-import { isString } from '@workspace/runtime-safety';
-import type { CompactionReplacementMessage } from '../db/schema';
-import { isCompletedAssistantTurn } from '../chats/chats-repository';
-import { type ModelToolDeclaration } from '../db/schema';
+import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
+import type {
+  CompactionReplacementMessage,
+  Message,
+  ModelToolDeclaration,
+} from '../db/schema';
 
 type CompactionReplacementHistory = Array<CompactionReplacementMessage>;
 
@@ -36,8 +41,12 @@ type CompactionReplacementHistory = Array<CompactionReplacementMessage>;
  */
 export const COMPACTION_WINDOW_RATIO = 0.8;
 
-/** Recent turns always kept verbatim so the model keeps fine-grained recency. */
-export const DEFAULT_KEEP_RECENT_MESSAGES = 8;
+/**
+ * Which trigger produced the summary request (design D4). Both variants send
+ * the same shape; only the instruction body differs, because the window variant
+ * summarizes a prefix with a model that never saw the target's turn.
+ */
+export type CompactionVariant = 'threshold' | 'window';
 
 /**
  * The summarize instruction — sent as the FINAL USER MESSAGE of the compaction
@@ -144,37 +153,81 @@ function estimateProjectionTokens(
 }
 
 /**
- * Crude, deterministic, provider-independent token estimate (~4 chars/token).
- * Fallback only: the trigger prefers the real usage reported for the turn that
- * just completed (see planCompaction.measuredContextTokens).
+ * The estimate of everything a prepared request adds on top of a counted
+ * measurement: the stored rows after the counted reply, plus the attempt's
+ * staged rail text (which the persisted rows do not carry — rail items are
+ * published onto the user message only with a completed turn). The counted
+ * reply's own request is already measured by the provider's number, so the
+ * system prompt and tool declarations are deliberately left out here.
  */
-export function estimateContextTokens(
-  history: Array<StoredMessage>,
-  previousSummary: string | undefined,
-  previousReplacementHistory?: CompactionReplacementHistory,
-): number {
-  if (
-    history.length === 0 &&
-    previousSummary === undefined &&
-    previousReplacementHistory === undefined
-  ) {
-    return 0;
-  }
-  const context = buildContext(history, {
+export function estimateContinuationTokens(input: {
+  rows: Array<StoredMessage>;
+  railText: string;
+}): number {
+  const { messages } = buildContext(input.rows, {
     systemPrompt: '',
-    // The estimate measures the NEXT continuation request (D16) — the request
-    // whose size decides whether to compact — so it counts replayed reasoning
-    // exactly as that request will.
     requestKind: 'continuation',
-    ...(previousSummary !== undefined && {
-      compaction: {
-        summary: previousSummary,
-        uptoSeq: Number.MIN_SAFE_INTEGER,
-        replacementHistory: previousReplacementHistory,
-      },
-    }),
   });
-  return estimateProjectionTokens(context.messages);
+  return (
+    estimateProjectionTokens({ system: '', messages, tools: [] }) +
+    Math.ceil(input.railText.length / 4)
+  );
+}
+
+/**
+ * The persisted final-request context size of the reply to the previous
+ * completed Run, when that reply is one this trigger may measure (design D4).
+ *
+ * The comparison is by the user turn the reply answers, not by the reply's own
+ * sequence: a retried assistant row is rewritten in place and keeps a sequence
+ * below a checkpoint published between its attempts, and a measurement taken
+ * before that checkpoint describes the request the checkpoint already shrank.
+ * An absent, unfinished, or unstamped reply yields no measurement, and the
+ * caller then estimates the whole request instead.
+ */
+export function countedContextTokens(input: {
+  previousCompleted:
+    | {
+        readonly messageId: string | null;
+        readonly triggeringUserSeq: number;
+      }
+    | undefined;
+  rows: ReadonlyArray<Message>;
+  boundarySeq: number;
+}): { readonly replySeq: number; readonly contextTokens: number } | undefined {
+  const previous = input.previousCompleted;
+  if (
+    previous === undefined ||
+    previous.messageId === null ||
+    previous.triggeringUserSeq <= input.boundarySeq
+  ) {
+    return undefined;
+  }
+  const reply = input.rows.find(
+    (row) => row.role === 'assistant' && row.inReplyTo === previous.messageId,
+  );
+  if (reply === undefined) {
+    return undefined;
+  }
+  const contextTokens = storedContextTokens(reply.usage);
+  return contextTokens === undefined
+    ? undefined
+    : { replySeq: reply.seq, contextTokens };
+}
+
+/**
+ * `usage.contextTokens` as a usable measurement: a finite non-negative number,
+ * anything else absent. The column is jsonb written by a previous release, so
+ * it is read defensively rather than trusted.
+ */
+function storedContextTokens(usage: unknown): number | undefined {
+  if (!isRecord(usage)) {
+    return undefined;
+  }
+  const value = usage.contextTokens;
+  return isNumber(value) && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
 }
 
 /**
@@ -245,103 +298,48 @@ export interface CompactionPlan {
 }
 
 /**
- * One-shot model-transition cutoff. Only a completed assistant turn may close
- * the summarized prefix; the current triggering user turn is always excluded.
+ * What one pre-step publication absorbs (design D4): every user/assistant row
+ * between the active checkpoint's boundary and the triggering user message,
+ * which is never itself absorbed. An empty range publishes nothing — a retry
+ * whose estimate is still over the threshold must proceed on the checkpoint it
+ * already has rather than summarize nothing.
  */
-export function planTransitionCompaction(
-  history: Array<StoredMessage>,
-  triggeringUserSeq: number,
-): CompactionPlan | null {
-  const ordered = [...history]
-    .filter((message) => message.seq < triggeringUserSeq)
-    .sort((a, b) => a.seq - b.seq);
-  // isCompletedAssistantTurn (not a literal status check) so null/malformed
-  // usage counts as completed — forked/legacy assistant rows persist usage=null
-  // and must still be able to close the prefix (the codebase-wide convention;
-  // see chats-repository.ts).
-  const lastCompletedAssistant = [...ordered]
-    .reverse()
-    .find(
-      (message) =>
-        message.role === 'assistant' && isCompletedAssistantTurn(message),
-    );
-  if (!lastCompletedAssistant) {
-    return null;
-  }
-
-  return {
-    uptoSeq: lastCompletedAssistant.seq,
-    absorb: ordered.filter(
-      (message) => message.seq <= lastCompletedAssistant.seq,
-    ),
-  };
-}
-
-/**
- * Decide whether to compact and where to cut.
- *
- * `history` is the live window: messages AFTER the previous compaction (or the
- * whole chat when none), oldest→newest. `measuredContextTokens` is the real
- * total token usage the provider reported for the turn that just completed
- * (input + output ≈ the next request's prompt) — preferred over the char-based
- * estimate whenever present, matching how opencode/Claude Code/OpenClaw/Hermes
- * all trigger on real usage with an estimate fallback. Returns null when under
- * threshold or when nothing precedes the keep-recent window.
- */
-export function planCompaction(input: {
-  history: Array<StoredMessage>;
-  previousSummary: string | undefined;
-  previousReplacementHistory?: CompactionReplacementHistory;
-  thresholdTokens: number;
-  keepRecentMessages: number;
-  measuredContextTokens?: number;
+export function planCompactionCheckpoint(input: {
+  rows: ReadonlyArray<StoredMessage>;
+  /** The active checkpoint's absorbed-through sequence; 0 when there is none. */
+  boundarySeq: number;
+  triggeringUserSeq: number;
 }): CompactionPlan | null {
-  const contextTokens = isPositiveFinite(input.measuredContextTokens)
-    ? input.measuredContextTokens
-    : estimateContextTokens(
-        input.history,
-        input.previousSummary,
-        input.previousReplacementHistory,
-      );
-  if (contextTokens < input.thresholdTokens) {
-    return null;
-  }
-
-  const ordered = [...input.history].sort((a, b) => a.seq - b.seq);
-  const absorb = ordered.slice(
-    0,
-    Math.max(0, ordered.length - input.keepRecentMessages),
-  );
+  const absorb = input.rows
+    .filter(
+      (row) =>
+        (row.role === 'user' || row.role === 'assistant') &&
+        row.seq > input.boundarySeq &&
+        row.seq < input.triggeringUserSeq,
+    )
+    .sort((a, b) => a.seq - b.seq);
   const last = absorb.at(-1);
-  if (last === undefined) {
-    return null;
-  }
-
-  return { uptoSeq: last.seq, absorb };
+  return last === undefined ? null : { uptoSeq: last.seq, absorb };
 }
 
 /**
  * Build the summarization model request as a CACHE-ALIGNED continuation of the
  * chat itself, not a fresh prompt:
  *
- * - `system` is the chat's own system prompt (passed by the caller — the exact
- *   string the just-finished turn used), NOT a dedicated summarizer prompt;
+ * - `system` is the prompt of the run whose prefix this request reproduces
+ *   (passed by the caller), NOT a dedicated summarizer prompt;
  * - the previous stored replacement history and absorbed turns are replayed
  *   through the SAME buildContext path the live turn used, so the request
  *   preserves the byte-identical stored prefix that populated the provider's
  *   prompt cache;
- * - the summarize instruction rides as the final user message.
+ * - the summarize instruction rides as the final user message, chosen by
+ *   `variant`: the threshold trigger's own turn continues the conversation,
+ *   while the window trigger's source model carries a prefix the target could
+ *   not hold.
  *
  * With OpenAI-style strict-prefix caching this makes the absorbed bulk (the
  * expensive part — up to the whole threshold) a cache read instead of a fresh
  * prefill; a swapped system prompt would invalidate the entire prefix.
- * Compaction runs immediately after the turn (fire-and-forget), well inside
- * provider cache TTLs.
- *
- * Caveat: buildContext derives multi-sender attribution from the messages it is
- * given, so a chat whose extra senders appear only in the kept-recent window
- * could render absorb differently than the live turn did. Single-sender chats
- * (all of v0.1) are unaffected.
  */
 export function buildCompactionRequest(input: {
   system: string;
@@ -353,7 +351,7 @@ export function buildCompactionRequest(input: {
       }
     | undefined;
   absorb: Array<StoredMessage>;
-  mode?: 'full_current' | 'transition_up_to';
+  variant: CompactionVariant;
 }): ModelRequestContext {
   const { system, messages } = buildContext(input.absorb, {
     systemPrompt: input.system,
@@ -366,7 +364,7 @@ export function buildCompactionRequest(input: {
   messages.push({
     role: 'user',
     content:
-      input.mode === 'transition_up_to'
+      input.variant === 'window'
         ? TRANSITION_COMPACTION_INSTRUCTION
         : COMPACTION_INSTRUCTION,
   });

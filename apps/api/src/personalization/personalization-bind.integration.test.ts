@@ -168,9 +168,11 @@ describeIfDb('personalization binds per run', () => {
     );
     runExecution = new RunExecutionService(
       tenantDb,
+      // Never exercised by this suite: the seeded turn fits the mock model's
+      // context window, so the pre-step trigger never fires and no checkpoint
+      // is published.
       {
-        maybeCompact: async () => {},
-        compactForTransition: () => Promise.resolve('created' as const),
+        summarizeCheckpoint: () => Promise.resolve(null),
       } satisfies CompactionCapability,
       { maybeGenerateTitle: async () => {} } satisfies TitleCapability,
       { config: BUILT_IN_DEFAULTS } satisfies InstanceConfigReader,

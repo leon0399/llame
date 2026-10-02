@@ -8,48 +8,30 @@ import {
   ModelsService,
   type ModelClientFactory,
 } from '../models/models.service';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-  findLiveWindow,
-} from '../chats/chats-repository';
+import { CompactionsRepository } from '../chats/chats-repository';
 import {
   buildCompactionRequest,
   buildCompactionReplacementHistory,
-  DEFAULT_KEEP_RECENT_MESSAGES,
-  isPositiveFinite,
   normalizeCompactionSummary,
-  planCompaction,
-  planTransitionCompaction,
   requestFitsContextWindow,
-  resolveCompactionThreshold,
+  type CompactionPlan,
+  type CompactionVariant,
 } from './compaction';
 import {
   type ModelMessage,
   type StoredMessage,
 } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
-import { type Message, type ModelToolDeclaration } from '../db/schema';
+import {
+  type Compaction,
+  type CompactionReplacementMessage,
+  type Message,
+  type ModelToolDeclaration,
+} from '../db/schema';
 import { isRecord } from '@workspace/runtime-safety';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
-import {
-  MemoryService,
-  type MemorySettingsBindingResolver,
-} from '../memory/memory.service';
-import {
-  RecencyDigestService,
-  type RecencyDigestResolution,
-  type RecencyDigestResolver,
-} from '../chats/recency-digest.service';
-
-export class TransitionCompactionError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = 'TransitionCompactionError';
-  }
-}
+import { ContextIncompatibleError } from '../runs/snapshot-tool-execution';
 
 function schemaOnlyTools(
   declarations: ReadonlyArray<ModelToolDeclaration>,
@@ -93,20 +75,71 @@ export function toStoredMessages(
   }));
 }
 
+/** What one summarization call yielded: usable summary text, or nothing. */
+type SummaryInference = {
+  summary: string | null;
+  usage: Awaited<ReturnType<ModelClient['streamText']>['usage']> | null;
+  finishReason: Awaited<
+    ReturnType<ModelClient['streamText']>['finishReason']
+  > | null;
+  latencyMs: number;
+};
+
+/** The summary of one pre-step publication; nothing is persisted by this type. */
+export type CompactionSummary = {
+  /** Absorbed-through sequence: the last row before the triggering message. */
+  readonly uptoSeq: number;
+  readonly summary: string;
+  readonly replacementHistory: Array<CompactionReplacementMessage>;
+  /** Telemetry of the summarization call, as `compactions.usage` stores it. */
+  readonly usage: unknown;
+};
+
 /**
- * CompactionService (#57) — orchestrates lineage-based context compaction.
+ * What the one summarization path is asked to summarize, as data (design D4).
  *
- * Runs AFTER a completed turn (fire-and-forget from the chat loop): the freshly
- * finished turn is durable, the user's response latency is unaffected, and the
- * NEXT turn reads summary + recent turns. Compaction therefore triggers before
- * the context limit is ever hit, not as a reaction to a failure. Running right
- * after the turn also lands inside the provider's prompt-cache TTL, which the
- * cache-aligned request shape (buildCompactionRequest) exploits.
+ * The threshold variant brings the attempt's own client and its pre-re-bake
+ * render, so the summary request is a cache-aligned continuation of the very
+ * prefix it summarizes. The window variant brings nothing: a prefix the target
+ * model cannot hold cannot be summarized by that model, so its source — the
+ * previous completed Run — is resolved here, where the receipt and the effort it
+ * was persisted with are read.
+ */
+export type CompactionSummaryRequest =
+  | {
+      readonly variant: Extract<CompactionVariant, 'threshold'>;
+      readonly chatId: string;
+      readonly userId: string;
+      readonly triggeringUserSeq: number;
+      readonly plan: CompactionPlan;
+      /** The attempt's own model, pre-re-bake prompt, declarations and effort. */
+      readonly client: ModelClient;
+      readonly system: string;
+      readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+      readonly effort?: string;
+      readonly abortSignal?: AbortSignal;
+    }
+  | {
+      readonly variant: Extract<CompactionVariant, 'window'>;
+      readonly chatId: string;
+      readonly userId: string;
+      readonly triggeringUserSeq: number;
+      readonly plan: CompactionPlan;
+      readonly reservedOutputTokens: number | null;
+      readonly abortSignal?: AbortSignal;
+    };
+
+/**
+ * CompactionService (#57) — one summarization path for the pre-step
+ * checkpoint (#268 narrowed it to the single method below).
  *
- * The model call deliberately happens OUTSIDE runAs: holding a transaction open
- * across a network round-trip would pin a connection for the stream's lifetime.
- * Read tx → model call → write tx, with a staleness re-check before the insert
- * (a concurrent compaction of the same chat wins; this one is discarded).
+ * It runs inside the attempt, before the Run's first model step, and only the
+ * summary is this service's work: the caller owns the trigger, the publication
+ * transaction, and every epoch write that must commit with the row. The model
+ * call deliberately happens outside any transaction — holding one open across a
+ * network round-trip would pin a connection for the stream's lifetime — so the
+ * read of the checkpoint lineage precedes the call and the call precedes the
+ * caller's write.
  */
 @Injectable()
 export class CompactionService {
@@ -118,431 +151,228 @@ export class CompactionService {
     // `Object` at runtime), so the token is explicit.
     @Inject(ModelsService)
     private readonly models: ModelClientFactory,
-    @Inject(MemoryService)
-    private readonly memory: MemorySettingsBindingResolver,
-    @Inject(RecencyDigestService)
-    private readonly recencyDigest: RecencyDigestResolver,
   ) {}
 
   /**
-   * Trigger threshold for the run's model (providers-and-models-as-code,
-   * #167): the model's own `compactionThresholdTokens` override (config
-   * `models[].compactionThresholdTokens`, carried on the executing client)
-   * when present, else `contextWindowTokens x COMPACTION_WINDOW_RATIO`. No
-   * instance-level override exists — compaction is model-driven, never an
-   * instance knob.
+   * Summarize the absorbable prefix of one attempt's history, or return null
+   * when the threshold variant produced nothing usable — the request already
+   * fits, so a summary this attempt could not get costs a checkpoint, not the
+   * turn. The window variant has no such latitude: without a summary the request
+   * still does not fit, so every way it can come up empty fails
+   * `context_incompatible`. An abort is always rethrown.
    */
-  private thresholdTokens(client: ModelClient): number {
-    return resolveCompactionThreshold({
-      explicitThresholdTokens: client.compactionThresholdTokens,
-      contextWindowTokens: client.contextWindowTokens,
-    });
+  async summarizeCheckpoint(
+    input: CompactionSummaryRequest,
+  ): Promise<CompactionSummary | null> {
+    input.abortSignal?.throwIfAborted();
+    const previous = await this.tenantDb.runAs(input.userId, (tx) =>
+      new CompactionsRepository(tx).findLatestByChatId(
+        input.chatId,
+        input.userId,
+        { beforeSeq: input.triggeringUserSeq },
+      ),
+    );
+    return input.variant === 'window'
+      ? this.summarizeWithSourceModel(input, previous)
+      : this.summarizeWithAttemptModel(input, previous);
   }
 
   /**
-   * Compact the chat if its live context exceeds the token threshold.
-   * Never throws — a compaction failure must not surface into the chat turn.
-   *
-   * `system` is the exact system prompt the finished turn used and
-   * `lastRequestTokens` its real reported usage: the former keeps the
-   * summarization request prefix-cache-aligned with that turn, the latter is
-   * the trigger signal (see compaction.ts).
+   * The threshold variant: the attempt's own model, prompt, schema-only
+   * declarations and effort, so the summary request reuses the provider's warm
+   * prefix cache for exactly the history it compresses.
    */
-  async maybeCompact(input: {
-    chatId: string;
-    userId: string;
-    client: ModelClient;
-    system: string;
-    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
-    /** The triggering run's effort — see `summarize`. */
-    effort?: string;
-    lastRequestTokens?: number;
-  }): Promise<void> {
-    try {
-      await this.compactIfNeeded(input);
-    } catch (error) {
-      this.logger.error(
-        `Compaction failed for chat ${input.chatId}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    }
-  }
-
-  private async compactIfNeeded(input: {
-    chatId: string;
-    userId: string;
-    client: ModelClient;
-    system: string;
-    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
-    /** The triggering run's effort — see `summarize`. */
-    effort?: string;
-    lastRequestTokens?: number;
-  }): Promise<void> {
-    const thresholdTokens = this.thresholdTokens(input.client);
-
-    // Cheap out before any DB work: the turn's real usage is the same signal
-    // planCompaction would prefer anyway, and it's already in hand. Only when
-    // it's absent (provider reported nothing) does the estimate need history.
-    if (
-      isPositiveFinite(input.lastRequestTokens) &&
-      input.lastRequestTokens < thresholdTokens
-    ) {
-      return;
-    }
-
-    // Read phase: latest compaction + the live window after it.
-    const { compaction: previous, history } = await this.tenantDb.runAs(
-      input.userId,
-      (tx) => findLiveWindow(tx, input.chatId, input.userId),
-    );
-
-    const plan = planCompaction({
-      history: toStoredMessages(history),
-      previousSummary: previous?.summary,
-      previousReplacementHistory: previous?.replacementHistory,
-      thresholdTokens,
-      keepRecentMessages: DEFAULT_KEEP_RECENT_MESSAGES,
-      measuredContextTokens: input.lastRequestTokens,
-    });
-    if (!plan) {
-      return;
-    }
-
-    // Model phase — outside any transaction.
+  private async summarizeWithAttemptModel(
+    input: Extract<CompactionSummaryRequest, { variant: 'threshold' }>,
+    previous: Compaction | undefined,
+  ): Promise<CompactionSummary | null> {
     const request = buildCompactionRequest({
       system: input.system,
-      previous: previous
-        ? {
-            summary: previous.summary,
-            uptoSeq: previous.uptoSeq,
-            replacementHistory: previous.replacementHistory,
-          }
-        : undefined,
-      absorb: plan.absorb,
+      previous: compactionLineage(previous),
+      absorb: input.plan.absorb,
+      variant: input.variant,
     });
-    const startedAt = Date.now();
-    const inference = await this.summarize({
-      client: input.client,
-      chatId: input.chatId,
-      system: request.system,
-      messages: request.messages,
-      toolDeclarations: input.toolDeclarations,
-      ...(input.effort !== undefined && { effort: input.effort }),
-    });
-    const summary = inference.summary;
-    if (summary === null) {
-      this.logger.warn(
-        `Compaction summary came back empty for chat ${input.chatId}; skipping`,
-      );
-      return;
-    }
-    // Promise.resolve: fake/test clients may not expose usage/finishReason promises.
-    const usage = buildTurnTelemetry({
-      usage: inference.usage,
-      finishReason: inference.finishReason,
-      status: 'completed',
-      modelId: input.client.model,
-      ...(input.effort !== undefined && { effort: input.effort }),
-      latencyMs: Date.now() - startedAt,
-      price: input.client.pricing,
-      billing: input.client.billing,
-    });
-    const replacementHistory = buildCompactionReplacementHistory({
-      summary,
-      previous: previous?.replacementHistory,
-      absorb: plan.absorb,
-    });
-    let digestCandidate: RecencyDigestResolution | null = null;
-    try {
-      digestCandidate = await this.recencyDigest.resolveCandidate(
-        input.userId,
-        input.chatId,
-      );
-    } catch {
-      // The checkpoint is safe without a refresh; do not log owner chat content.
-      this.logger.error('recency_digest_resolution_failed');
-    }
-
-    // Write phase, with staleness guard: if another compaction landed while the
-    // model ran, ours is based on a stale window — drop it, theirs stands.
-    await this.tenantDb.runAs(input.userId, async (tx) => {
-      const compactionsRepo = new CompactionsRepository(tx);
-      const chatsRepo = new ChatsRepository(tx);
-
-      const latest = await compactionsRepo.findLatestByChatId(
-        input.chatId,
-        input.userId,
-      );
-      if ((latest?.id ?? null) !== (previous?.id ?? null)) {
-        this.logger.warn(
-          `Concurrent compaction detected for chat ${input.chatId}; discarding this one`,
-        );
-        return;
-      }
-
-      // Lock order is chats-then-memory, matching the chat loop. That loop
-      // locks the chats row in `touch` and only then takes `FOR SHARE` on
-      // memory settings; taking them the other way round here would close an
-      // ABBA cycle — chat turn holds chats and wants memory, compaction holds
-      // memory and wants chats, with a consent update queued between them —
-      // and Postgres would resolve it by aborting one, failing a user turn or
-      // dropping a compaction. `touch` returns the locked row, so this both
-      // establishes the order and gives us the post-lock chat to read.
-      const chat = await chatsRepo.touch(input.chatId, input.userId);
-      const shareRecentChats = await this.memory.getForOwnerForBinding(
-        tx,
-        input.userId,
-      );
-      const compaction = await compactionsRepo.create({
-        chatId: input.chatId,
-        uptoSeq: plan.uptoSeq,
-        parentId: previous?.id ?? null,
-        summary,
-        replacementHistory,
-        usage,
-      });
-      if (
-        chat?.recencyDigestBaseline != null &&
-        digestCandidate !== null &&
-        shareRecentChats.shareRecentChats
-      ) {
-        await chatsRepo.setRecencyDigest({
-          chatId: input.chatId,
-          ownerUserId: input.userId,
-          baseline: digestCandidate.baseline,
-          told: digestCandidate.told,
-          rebakedFrom: compaction.id,
-        });
-      }
-    });
-
-    this.logger.log(
-      `Compacted chat ${input.chatId} up to seq ${plan.uptoSeq} (${plan.absorb.length} turns absorbed)`,
-    );
-  }
-
-  /**
-   * One pre-turn source-model compaction for a target request that does not fit.
-   * Every read is owner-scoped; absence/incompatibility is a hard failure. A
-   * concurrently committed checkpoint wins without error only when it reaches
-   * at least this transition's cutoff. An earlier sibling does not invalidate
-   * the already-generated complete-prefix summary.
-   */
-  async compactForTransition(input: {
-    chatId: string;
-    userId: string;
-    triggeringUserSeq: number;
-    reservedOutputTokens: number | null;
-    abortSignal?: AbortSignal;
-  }): Promise<'created' | 'superseded'> {
-    input.abortSignal?.throwIfAborted();
-    const state = await this.loadTransitionState(input);
-    input.abortSignal?.throwIfAborted();
-
-    if (!state.plan) {
-      throw new TransitionCompactionError(
-        'No completed assistant prefix is available for transition compaction.',
-      );
-    }
-    if (!state.sourceRun || !state.sourceReceipt) {
-      throw new TransitionCompactionError(
-        'No owned source run context is available for transition compaction.',
-      );
-    }
-    const plan = state.plan;
-    // Captured here, where the guard above has narrowed `sourceRun`: this is
-    // the effort of the run whose model and system prompt the request reuses,
-    // NOT the incoming turn's, which is not part of that prefix and was
-    // validated against a different model's declared levels.
-    const sourceEffort = state.sourceRun.effort ?? undefined;
-
-    let sourceClient: ModelClient;
-    try {
-      sourceClient = this.models.createClient(state.sourceRun.modelId);
-    } catch (error) {
-      throw new TransitionCompactionError(
-        `Source model '${state.sourceRun.modelId}' is unavailable for transition compaction.`,
-        { cause: error },
-      );
-    }
-
-    const request = buildCompactionRequest({
-      system: state.sourceReceipt.systemPrompt,
-      previous: state.previous
-        ? {
-            summary: state.previous.summary,
-            uptoSeq: state.previous.uptoSeq,
-            replacementHistory: state.previous.replacementHistory,
-          }
-        : undefined,
-      absorb: plan.absorb,
-      mode: 'transition_up_to',
-    });
-    if (
-      !requestFitsContextWindow({
-        system: request.system,
-        messages: request.messages,
-        toolDeclarations: [],
-        contextWindowTokens: sourceClient.contextWindowTokens,
-        reservedOutputTokens: input.reservedOutputTokens,
-      })
-    ) {
-      throw new TransitionCompactionError(
-        'The source model cannot fit transition compaction in one request.',
-      );
-    }
-
-    let inference: Awaited<ReturnType<CompactionService['summarize']>>;
+    let inference: SummaryInference;
     try {
       inference = await this.summarize({
-        client: sourceClient,
+        client: input.client,
         chatId: input.chatId,
         system: request.system,
         messages: request.messages,
-        toolDeclarations: [],
-        // Read off the source run this method already loaded, so passing the
-        // incoming turn's effort by mistake is not expressible here.
-        ...(sourceEffort !== undefined && { effort: sourceEffort }),
+        toolDeclarations: input.toolDeclarations,
+        ...(input.effort !== undefined && { effort: input.effort }),
         abortSignal: input.abortSignal,
       });
     } catch (error) {
       if (input.abortSignal?.aborted) {
         throw error;
       }
-      throw new TransitionCompactionError(
-        'Source-model transition compaction failed.',
-        { cause: error },
+      this.logger.warn(
+        `Compaction summary failed for chat ${input.chatId}; proceeding without a checkpoint`,
       );
+      return null;
     }
     if (inference.summary === null) {
-      throw new TransitionCompactionError(
-        'Source-model transition compaction returned no valid text summary.',
+      this.logger.warn(
+        `Compaction summary came back empty for chat ${input.chatId}; proceeding without a checkpoint`,
       );
+      return null;
     }
-    const summary = inference.summary;
-    const replacementHistory = buildCompactionReplacementHistory({
-      summary,
-      previous: state.previous?.replacementHistory,
-      absorb: plan.absorb,
-    });
-    input.abortSignal?.throwIfAborted();
-
-    return this.commitTransitionCompaction({
-      chatId: input.chatId,
-      userId: input.userId,
-      abortSignal: input.abortSignal,
-      previousId: state.previous?.id ?? null,
-      uptoSeq: plan.uptoSeq,
-      summary,
-      replacementHistory,
-      usage: buildTurnTelemetry({
-        usage: inference.usage,
-        finishReason: inference.finishReason,
-        status: 'completed',
-        modelId: sourceClient.model,
-        // Matches what `summarize` actually sent.
-        ...(sourceEffort !== undefined && { effort: sourceEffort }),
-        latencyMs: inference.latencyMs,
-        price: sourceClient.pricing,
-        billing: sourceClient.billing,
-      }),
+    return this.toCheckpoint({
+      client: input.client,
+      effort: input.effort,
+      request: input,
+      summary: inference.summary,
+      inference,
+      previous,
     });
   }
 
-  /** Read phase of `compactForTransition`: the plan plus the successful
-   * source run and its winning attempt receipt, gathered in one transaction so
-   * the plan and source context describe the same instant. */
-  private async loadTransitionState(input: {
-    chatId: string;
-    userId: string;
-    triggeringUserSeq: number;
-  }) {
-    return this.tenantDb.runAs(input.userId, async (tx) => {
-      const compactions = new CompactionsRepository(tx);
-      const previous = await compactions.findLatestByChatId(
-        input.chatId,
-        input.userId,
-        { beforeSeq: input.triggeringUserSeq },
-      );
-      const history = await new MessagesRepository(tx).findByChatId(
-        input.chatId,
-        input.userId,
-        {
-          maxSeq: input.triggeringUserSeq - 1,
-          ...(previous && { sinceSeq: previous.uptoSeq }),
-        },
-      );
-      const plan = planTransitionCompaction(
-        toStoredMessages(history),
-        input.triggeringUserSeq,
-      );
-      const sourceRun = await new RunsRepository(
+  /**
+   * The window variant: the previous completed Run's model, with that Run's own
+   * successful system prompt receipt and persisted effort and no tool
+   * declarations — a prefix cannot be summarized by a model it does not fit. A
+   * missing source, a source model that cannot execute, a source model that
+   * cannot fit the prefix either, or a summary that comes back unusable all fail
+   * the attempt as `context_incompatible`.
+   */
+  private async summarizeWithSourceModel(
+    input: Extract<CompactionSummaryRequest, { variant: 'window' }>,
+    previous: Compaction | undefined,
+  ): Promise<CompactionSummary> {
+    const source = await this.tenantDb.runAs(input.userId, async (tx) => {
+      const found = await new RunsRepository(
         tx,
       ).findMostRecentCompletedByChatMessageSequence(
         input.chatId,
         input.userId,
-        {
-          beforeSeq: input.triggeringUserSeq,
-        },
+        { beforeSeq: input.triggeringUserSeq },
       );
-      const sourceReceipt =
-        sourceRun?.completedAttemptId !== null &&
-        sourceRun?.completedAttemptId !== undefined
-          ? await new SystemPromptReceiptsRepository(tx).findByAttempt(
-              sourceRun.id,
-              sourceRun.completedAttemptId,
+      const run = found?.run;
+      return run === undefined || run.completedAttemptId == null
+        ? undefined
+        : {
+            run,
+            receipt: await new SystemPromptReceiptsRepository(tx).findByAttempt(
+              run.id,
+              run.completedAttemptId,
               input.userId,
-            )
-          : undefined;
+            ),
+          };
+    });
+    if (source?.receipt === undefined) {
+      throw new ContextIncompatibleError(
+        'The complete request exceeds the target model context window and no previous completed run can summarize its history.',
+      );
+    }
+    // Read off the source run this method loaded, so passing the incoming
+    // turn's effort by mistake is not expressible: it was validated against a
+    // different model's declared levels.
+    const effort = source.run.effort ?? undefined;
 
-      return { previous, plan, sourceRun, sourceReceipt };
+    let client: ModelClient;
+    try {
+      client = this.models.createClient(source.run.modelId);
+    } catch (error) {
+      throw new ContextIncompatibleError(
+        `Source model '${source.run.modelId}' is unavailable to summarize the history this request carries.`,
+        { cause: error },
+      );
+    }
+
+    const request = buildCompactionRequest({
+      system: source.receipt.systemPrompt,
+      previous: compactionLineage(previous),
+      absorb: input.plan.absorb,
+      variant: input.variant,
+    });
+    if (
+      !requestFitsContextWindow({
+        system: request.system,
+        messages: request.messages,
+        toolDeclarations: [],
+        contextWindowTokens: client.contextWindowTokens,
+        reservedOutputTokens: input.reservedOutputTokens,
+      })
+    ) {
+      throw new ContextIncompatibleError(
+        'The complete request exceeds the target model context window and its source model cannot fit that history either.',
+      );
+    }
+
+    let inference: SummaryInference;
+    try {
+      inference = await this.summarize({
+        client,
+        chatId: input.chatId,
+        system: request.system,
+        messages: request.messages,
+        toolDeclarations: [],
+        ...(effort !== undefined && { effort }),
+        abortSignal: input.abortSignal,
+      });
+    } catch (error) {
+      if (input.abortSignal?.aborted) {
+        throw error;
+      }
+      throw new ContextIncompatibleError(
+        'Source-model summarization of the history this request carries failed.',
+        { cause: error },
+      );
+    }
+    if (inference.summary === null) {
+      throw new ContextIncompatibleError(
+        'Source-model summarization returned no valid text summary.',
+      );
+    }
+    return this.toCheckpoint({
+      client,
+      effort,
+      request: input,
+      summary: inference.summary,
+      inference,
+      previous,
     });
   }
 
-  /** Write phase of `compactForTransition`: the staleness-guarded insert. */
-  private async commitTransitionCompaction(params: {
-    chatId: string;
-    userId: string;
-    abortSignal?: AbortSignal;
-    previousId: string | null;
-    uptoSeq: number;
+  /** The publishable row contents of one accepted inference. */
+  private toCheckpoint(input: {
+    client: ModelClient;
+    effort: string | undefined;
+    request: CompactionSummaryRequest;
     summary: string;
-    replacementHistory: ReturnType<typeof buildCompactionReplacementHistory>;
-    usage: ReturnType<typeof buildTurnTelemetry>;
-  }): Promise<'created' | 'superseded'> {
-    return this.tenantDb.runAs(params.userId, async (tx) => {
-      const compactions = new CompactionsRepository(tx);
-      const latest = await compactions.findLatestByChatId(
-        params.chatId,
-        params.userId,
-      );
-      params.abortSignal?.throwIfAborted();
-      if (
-        (latest?.id ?? null) !== params.previousId &&
-        latest !== undefined &&
-        latest.uptoSeq >= params.uptoSeq
-      ) {
-        return 'superseded' as const;
-      }
-      const created = await compactions.createIfCutoffAbsent({
-        chatId: params.chatId,
-        uptoSeq: params.uptoSeq,
-        parentId: params.previousId,
-        summary: params.summary,
-        replacementHistory: params.replacementHistory,
-        usage: params.usage,
-      });
-      return created ? ('created' as const) : ('superseded' as const);
-    });
+    inference: SummaryInference;
+    previous: Compaction | undefined;
+  }): CompactionSummary {
+    return {
+      uptoSeq: input.request.plan.uptoSeq,
+      summary: input.summary,
+      replacementHistory: buildCompactionReplacementHistory({
+        summary: input.summary,
+        previous: input.previous?.replacementHistory,
+        absorb: input.request.plan.absorb,
+      }),
+      usage: buildTurnTelemetry({
+        usage: input.inference.usage,
+        finishReason: input.inference.finishReason,
+        status: 'completed',
+        modelId: input.client.model,
+        // Matches what `summarize` actually sent.
+        ...(input.effort !== undefined && { effort: input.effort }),
+        latencyMs: input.inference.latencyMs,
+        price: input.client.pricing,
+        billing: input.client.billing,
+      }),
+    };
   }
 
   private async summarize(input: {
     client: ModelClient;
     /**
-     * The Chat being compacted — both callers' own chat. Compaction shares
-     * the turn's `main` lane (provider-api-selection D5) because its request
-     * prefix IS the conversation's prefix; a separate identity would forfeit
-     * exactly the cache reuse the shared prefix exists for.
+     * The Chat being compacted — the attempt's own chat. Compaction shares the
+     * turn's `main` lane (provider-api-selection D5) because its request prefix
+     * IS the conversation's prefix; a separate identity would forfeit exactly
+     * the cache reuse the shared prefix exists for.
      */
     chatId: string;
     system: string;
@@ -556,14 +386,7 @@ export class CompactionService {
      */
     effort?: string;
     abortSignal?: AbortSignal;
-  }): Promise<{
-    summary: string | null;
-    usage: Awaited<ReturnType<ModelClient['streamText']>['usage']> | null;
-    finishReason: Awaited<
-      ReturnType<ModelClient['streamText']>['finishReason']
-    > | null;
-    latencyMs: number;
-  }> {
+  }): Promise<SummaryInference> {
     const tools = schemaOnlyTools(input.toolDeclarations);
     const startedAt = Date.now();
     if (tools === null) {
@@ -589,6 +412,9 @@ export class CompactionService {
       Promise.resolve(result.usage).catch(() => null),
       Promise.resolve(result.finishReason).catch(() => null),
     ]);
+    // A provider that returns a tool call despite `toolChoice: 'none'` has no
+    // executor here, so its output is rejected rather than persisted: a
+    // checkpoint may be summary text and nothing else.
     const providerReturnedToolCall =
       (Array.isArray(toolCalls) && toolCalls.length > 0) ||
       finishReason === 'tool-calls';
@@ -603,12 +429,29 @@ export class CompactionService {
   }
 }
 
+/** The stored checkpoint lineage a new row supersedes; absent on a first one. */
+function compactionLineage(previous: Compaction | undefined):
+  | {
+      summary: string;
+      uptoSeq: number;
+      replacementHistory: Array<CompactionReplacementMessage>;
+    }
+  | undefined {
+  return (
+    previous && {
+      summary: previous.summary,
+      uptoSeq: previous.uptoSeq,
+      replacementHistory: previous.replacementHistory,
+    }
+  );
+}
+
 /**
  * The narrow capability `RunExecutionService` needs (#268) — narrower than
- * the whole service. A test double implements exactly these two methods,
- * never a partial `CompactionService` cast.
+ * the whole service. A test double implements exactly this one method, never a
+ * partial `CompactionService` cast.
  */
 export type CompactionCapability = Pick<
   CompactionService,
-  'maybeCompact' | 'compactForTransition'
+  'summarizeCheckpoint'
 >;
