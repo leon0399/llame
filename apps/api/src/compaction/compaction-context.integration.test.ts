@@ -1,32 +1,34 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import { asSchema, streamText } from 'ai';
+import { streamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
+import { sql as dsql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 
 import {
+  type Chat,
   type CompactionReplacementMessage,
-  type ModelToolDeclaration,
+  type Message,
+  type RecencyDigestBaseline,
+  type Run,
+  type SkillCatalogBaseline,
   type SystemPromptReceipt,
 } from '../db/schema';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { createModelPromptLoader } from '../instance-config/prompt-loader';
 import {
-  createModelPromptLoader,
-  renderSystemPromptTemplate,
-  type TemporalAnchor,
-} from '../instance-config/prompt-loader';
-
-const TEST_ANCHOR: TemporalAnchor = {
-  systemTime: '2026-08-19 16:36+02:00',
-  systemTimezone: 'Europe/Madrid',
-};
+  formatTemporalAnchor,
+  resolveInstanceTimezone,
+} from '../prompts/temporal-anchor';
 import { createFakeModelClient } from '../models/fake-model-client';
 import {
   type ModelClient,
@@ -42,6 +44,7 @@ import { SearchIndexService } from '../search/search-index.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
+import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import {
   ChatsRepository,
@@ -52,7 +55,7 @@ import {
   RecencyDigestService,
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
-import {} from '../chats/context-item';
+import { type AuthoredContextItemPart } from '../chats/context-item';
 import {
   COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
   createModelChangeItem,
@@ -87,8 +90,21 @@ import { contentText } from '../testing/support';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = Sql;
+type ExecuteRunInput = Parameters<RunExecutionService['executeRun']>[0];
 
-/** These tests pass a real `client` straight to `maybeCompact`, so `models.createClient` is never exercised. */
+const SOURCE_MODEL = 'source-model';
+const TARGET_MODEL = 'target-model';
+const SUMMARY =
+  '## Objective\nPreserve continuity.\n\n## Current State\nReady.';
+/** Sized so a request carrying the two seeded rows cannot fit, a checkpoint can. */
+const SMALL_WINDOW = 1000;
+const OLD_REQUEST = `OLD REQUEST ${'x'.repeat(1200)}`;
+const OLD_ANSWER = `OLD ANSWER ${'y'.repeat(1200)}`;
+
+/**
+ * The threshold variant summarizes with the attempt's own client, so most tests
+ * here never reach `models.createClient`; the window variant tests stub it.
+ */
 const unexercisedModels: ModelClientFactory = {
   createClient: () => {
     throw new Error('createClient was not stubbed for this test');
@@ -131,6 +147,103 @@ const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
     ),
 };
 
+/**
+ * A template that renders every epoch input a checkpoint re-bakes into the
+ * system prompt: the temporal anchor (derived from the active checkpoint's
+ * timestamp), the digest baseline's titles and the skill catalog's names.
+ */
+const EPOCH_TEMPLATE =
+  'Epoch prompt at {{context.systemTime}}.{{#if chats}} Chats:{{#each chats.recent}} [{{title}}]{{/each}}{{/if}}{{#if skills}} Skills:{{#each skills.entries}} [{{name}}]{{/each}}{{/if}}';
+
+const epochModels: ModelSelectionValidator = {
+  validateModelSelection: (modelId: string): SystemModelCatalogEntry => ({
+    id: modelId,
+    source: 'system',
+    contextWindowTokens: 128_000,
+    provider: 'fake',
+    providerModelId: modelId,
+    systemPromptTemplate: EPOCH_TEMPLATE,
+    systemPromptSource: 'project_default',
+    referencesSkills: true,
+  }),
+  resolveEffortSelection: () => undefined,
+};
+
+const EPOCH_EXECUTOR_ID = 'compaction-epoch-host';
+/** The chat's creation time, far from "now" so the anchors it and a checkpoint derive can never coincide. */
+const CHAT_CREATED_AT = new Date('2026-01-15T10:30:00.000Z');
+
+const STALE_DIGEST: RecencyDigestBaseline = {
+  pinned: [],
+  recent: [
+    {
+      title: 'Stale source',
+      date: '2026-08-01',
+      messageCount: 1,
+      excerpt: 'old opening',
+    },
+  ],
+  pinnedShown: 0,
+  pinnedTotal: 0,
+  recentShown: 1,
+  recentTotal: 1,
+  compiledOn: '2026-08-01',
+};
+/**
+ * The told-set names a chat by id, and the digest's pin correction queries
+ * those ids: a placeholder that is not a UUID would fail that read rather
+ * than exercising it, so this names a chat the owner has since deleted.
+ */
+const STALE_SOURCE_CHAT_ID = '00000000-0000-4000-8000-0000000000a1';
+const STALE_DIGEST_TOLD = [
+  {
+    chatId: STALE_SOURCE_CHAT_ID,
+    pinned: false,
+    title: 'Stale source',
+  },
+];
+const STALE_SKILLS: SkillCatalogBaseline = {
+  entries: [{ name: 'stale-skill', description: 'Retired skill.' }],
+  omitted: 0,
+};
+const LIVE_SKILLS: SkillCatalogBaseline = {
+  entries: [{ name: 'live-skill', description: 'Current skill.' }],
+  omitted: 0,
+};
+const LIVE_CATALOG: SkillCatalogPort = {
+  getSnapshot: () => ({
+    available: true,
+    directories: ['/opt/skills'],
+    entries: [
+      {
+        name: 'live-skill',
+        description: 'Current skill.',
+        proactive: true,
+        sourceDirectory: '/opt/skills',
+        skillDirectory: '/opt/skills/live-skill',
+        available: true,
+        diagnostics: [],
+      },
+    ],
+    diagnostics: [],
+  }),
+};
+
+/** The epoch prompt exactly as the Run renders it for the given epoch inputs. */
+function renderEpochPrompt(input: {
+  instant: Date;
+  chats: RecencyDigestBaseline | null;
+  skills: SkillCatalogBaseline;
+}): string {
+  return new SystemPromptsService().render({
+    model: epochModels.validateModelSelection(TARGET_MODEL),
+    anchor: formatTemporalAnchor(input.instant, resolveInstanceTimezone()),
+    chats: input.chats ?? undefined,
+    skills: input.skills,
+    admittedToolIds: [],
+  });
+}
+
 function replacementHistoryFor(
   summary: string,
 ): Array<CompactionReplacementMessage> {
@@ -155,6 +268,22 @@ function replacementToolParts(
       ? [part]
       : [];
   });
+}
+
+/** A summary request, told apart from the Run's own request by its trailing instruction. */
+function isSummaryRequest(request: ModelStreamInput): boolean {
+  const last = request.messages.at(-1)?.content;
+  return (
+    last === COMPACTION_INSTRUCTION ||
+    last === TRANSITION_COMPACTION_INSTRUCTION
+  );
+}
+
+function sole<T>(rows: ReadonlyArray<T>): T {
+  if (rows.length !== 1) {
+    throw new Error(`Expected exactly one row, found ${rows.length}`);
+  }
+  return rows[0];
 }
 
 function compactionClient(input: {
@@ -266,21 +395,73 @@ function compactionClient(input: {
   };
 }
 
+/**
+ * One model client serving both halves of a threshold trigger: the attempt's
+ * own summary request (answered by `summary`) and the request the Run then
+ * sends (answered with `answer`, or never when `answer` is null — an attempt
+ * that dies before its model answers). Every request is recorded in `calls`.
+ */
+function attemptClient(input: {
+  calls: Array<ModelStreamInput>;
+  summary?: {
+    response?: string;
+    toolCalls?: Array<{ toolName: string; input: unknown }>;
+    error?: Error;
+  };
+  answer?: string | null;
+  compactionThresholdTokens?: number;
+}): ModelClient {
+  const summaryClient = compactionClient({
+    model: TARGET_MODEL,
+    calls: [],
+    ...input.summary,
+  });
+  const answerClient =
+    input.answer === null
+      ? compactionClient({
+          model: TARGET_MODEL,
+          calls: [],
+          response: new Promise<string>(() => undefined),
+        })
+      : createFakeModelClient([input.answer ?? 'target response']);
+  return {
+    model: TARGET_MODEL,
+    provider: 'fake',
+    contextWindowTokens: 128_000,
+    ...(input.compactionThresholdTokens !== undefined && {
+      compactionThresholdTokens: input.compactionThresholdTokens,
+    }),
+    streamText(request) {
+      input.calls.push(request);
+      return isSummaryRequest(request)
+        ? summaryClient.streamText(request)
+        : answerClient.streamText(request);
+    },
+  };
+}
+
+/** The Run's own model with a window too small for the un-compacted history. */
+function windowTarget(calls: Array<ModelStreamInput>): ModelClient {
+  const delegate = createFakeModelClient(['target response'], SMALL_WINDOW);
+  return {
+    ...delegate,
+    model: TARGET_MODEL,
+    streamText(input) {
+      calls.push(input);
+      return delegate.streamText(input);
+    },
+  };
+}
+
 describeIfDb('snapshot-bound compaction continuity', () => {
   let sql: SqlClient;
   let tenantDb: TenantDbService;
   let userId: string;
+  const doomedChats: Array<string> = [];
+  const doomedDirectories: Array<string> = [];
 
-  function createCompactionService(
-    models: ModelClientFactory,
-    recencyDigest: RecencyDigestResolver = new RecencyDigestService(tenantDb),
-  ) {
-    return new CompactionService(
-      tenantDb,
-      models,
-      new MemoryService(tenantDb),
-      recencyDigest,
-    );
+  function createCompactionService(models: ModelClientFactory) {
+    return new CompactionService(tenantDb, models);
   }
 
   beforeAll(async () => {
@@ -292,6 +473,29 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     tenantDb = new TenantDbService(db);
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Compaction context', ${`compaction-${userId}@test.com`})`;
+  });
+
+  beforeEach(async () => {
+    // Sharing is a per-owner setting that outlives a test: every test starts
+    // with it off, and the ones that exercise the digest opt in.
+    await new MemoryService(tenantDb).updateForOwner(userId, {
+      shareRecentChats: false,
+    });
+  });
+
+  afterEach(async () => {
+    for (const chatId of doomedChats.splice(0)) {
+      // Through the owner's transaction: the schema owner is FORCEd under RLS,
+      // so a bare connection would match no row.
+      await tenantDb.runAs(userId, (tx) =>
+        tx.execute(
+          dsql`DELETE FROM chats WHERE id = ${chatId} AND owner_user_id = ${userId}`,
+        ),
+      );
+    }
+    for (const directory of doomedDirectories.splice(0)) {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   afterAll(async () => {
@@ -306,6 +510,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const chat = await new ChatsRepository(tx).create({
         ownerUserId: userId,
       });
+      doomedChats.push(chat.id);
       const messages = new MessagesRepository(tx);
       for (let index = 0; index < messagePairs; index++) {
         const user = await messages.create({
@@ -341,507 +546,35 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     });
   }
 
-  it('uses the completed run prompt and schema-only declarations with toolChoice none', async () => {
-    const chat = await seedHistory();
-    const calls: Array<ModelStreamInput> = [];
-    const client = compactionClient({ model: 'source-model', calls });
-    const service = createCompactionService(unexercisedModels);
-    const declarations: Array<ModelToolDeclaration> = [
-      {
-        id: 'lookup',
-        description: 'Look up context',
-        inputSchema: {
-          type: 'object',
-          properties: { query: { type: 'string' } },
-          required: ['query'],
-          additionalProperties: false,
-        },
-      },
-    ];
-
-    await service.maybeCompact({
-      chatId: chat.id,
-      userId,
-      client,
-      system:
-        'EXACT SNAPSHOTTED PROMPT\n<user_personalization>Ada</user_personalization>\n<user_chat_history>Other chat</user_chat_history>',
-      toolDeclarations: declarations,
-      lastRequestTokens: 10,
-    });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0].system).toBe(
-      'EXACT SNAPSHOTTED PROMPT\n<user_personalization>Ada</user_personalization>\n<user_chat_history>Other chat</user_chat_history>',
-    );
-    expect(calls[0].messages.at(-1)).toEqual({
-      role: 'user',
-      content: COMPACTION_INSTRUCTION,
-    });
-    expect(calls[0].messages.slice(0, -1)).not.toContainEqual(
-      expect.objectContaining({
-        content: expect.stringContaining('<user_personalization>'),
-      }),
-    );
-    expect(COMPACTION_INSTRUCTION).toContain('<user_personalization>');
-    expect(COMPACTION_INSTRUCTION).toContain('<user_chat_history>');
-    expect(calls[0].toolChoice).toBe('none');
-    expect(Object.keys(calls[0].tools ?? {})).toEqual(['lookup']);
-    const lookupTool = calls[0].tools?.['lookup'];
-    if (!lookupTool) {
-      throw new Error('Expected compaction request to declare lookup');
-    }
-    expect(lookupTool.execute).toBeUndefined();
-    expect(await asSchema(lookupTool.inputSchema).jsonSchema).toEqual(
-      declarations[0].inputSchema,
-    );
-
-    const persisted = await tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
-    );
-    expect(persisted?.summary).toBe('## Objective\nContinue.');
-    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
-  });
-
-  // Every other test here drives compaction with a synthetic `system:` string
-  // that merely CONTAINS `<user_chat_history>`. This one renders the real
-  // packaged prompt (`chat-default.md`) with a digest and pushes THAT through
-  // compaction, because the exclusion instruction and the packaged fence are
-  // authored in different files by different layers: the instruction names a
-  // delimiter, the template emits one, and nothing until now asserted the two
-  // are the same string. If they ever drift, another owner's chat titles and
-  // opening excerpts get summarized into a checkpoint that is replayed as
-  // history indefinitely — which neither deleting that chat nor disabling the
-  // setting can reach.
-  it('keeps the packaged prompt digest out of the persisted checkpoint', async () => {
-    const chat = await seedHistory();
-    const calls: Array<ModelStreamInput> = [];
-    const client = compactionClient({ model: 'source-model', calls });
-    const service = createCompactionService(unexercisedModels);
-
-    const model = { id: 'system:openai:test', name: 'Test Model' };
-    const packagedPrompt = renderSystemPromptTemplate({
-      template: createModelPromptLoader({
-        configPath: path.resolve(__dirname, '../../llame.config.jsonc'),
-      }).resolve(model).systemPromptTemplate,
-      model,
-      anchor: TEST_ANCHOR,
-      chats: {
-        pinned: [
-          {
-            title: 'Quarterly planning',
-            date: '2026-08-10',
-            messageCount: 8,
-            excerpt: 'SECRET-PINNED-OPENING',
-          },
-        ],
-        recent: [
-          {
-            title: 'Debugging the worker',
-            date: '2026-08-09',
-            messageCount: 3,
-            excerpt: 'SECRET-RECENT-OPENING',
-          },
-        ],
-        pinnedShown: 1,
-        pinnedTotal: 1,
-        recentShown: 1,
-        recentTotal: 4,
-        compiledOn: '2026-08-10',
-      },
-    });
-    // Guard the guard: if the block stopped rendering, every assertion below
-    // would pass vacuously.
-    expect(packagedPrompt).toContain('<user_chat_history>');
-    expect(packagedPrompt).toContain('SECRET-PINNED-OPENING');
-
-    await service.maybeCompact({
-      chatId: chat.id,
-      userId,
-      client,
-      system: packagedPrompt,
-      toolDeclarations: [],
-      lastRequestTokens: 10,
-    });
-
-    // Replayed verbatim — the exclusion rides the trailing instruction rather
-    // than editing the bound prompt, which would cold-start the prefix cache
-    // for the whole absorbed conversation.
-    expect(calls[0]?.system).toBe(packagedPrompt);
-
-    // The load-bearing assertion: the fence the TEMPLATE emits is character-for
-    // -character the one the INSTRUCTION names. The tag name is extracted from
-    // the rendered prompt with a generic pattern (not hardcoded as
-    // `user_chat_history`) so a rename on the template side is actually
-    // detected here rather than silently matched against itself; `user` is
-    // undefined above, so `<user_personalization>` cannot also match and mask
-    // a mismatch. Renaming either the template or the instruction without the
-    // other fails this test — which is the only way the two files can drift.
-    const fence = /<([a-z][a-z0-9_]*)>/u.exec(packagedPrompt)?.[1];
-    expect(fence).toBeDefined();
-    expect(COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
-    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
-    expect(calls[0]?.messages.at(-1)?.content).toBe(COMPACTION_INSTRUCTION);
-
-    // Nothing digest-shaped reaches the compactable history either: the digest
-    // lives in the system prompt, so a message carrying it would mean it had
-    // leaked onto the rail where the summarizer reads uninstructed.
-    expect(calls[0]?.messages.slice(0, -1)).not.toContainEqual(
-      expect.objectContaining({
-        content: expect.stringContaining('SECRET-PINNED-OPENING'),
-      }),
-    );
-
-    // Deliberately NOT asserted: that the persisted summary omits the excerpts.
-    // The fake client returns a canned summary, so such an assertion would pass
-    // no matter what the instruction said. Whether a real model honours the
-    // exclusion is compliance, which the capability spec already states is
-    // advisory rather than structurally enforced — only the delimiter's
-    // integrity is guaranteed, and that is what is checked above.
-    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
-  });
-
-  it('re-bakes the digest only after compaction and resets the told-set to the fresh baseline', async () => {
-    const chat = await seedHistory();
-    const staleBaseline = {
-      pinned: [],
-      recent: [
-        {
-          title: 'Stale source',
-          date: '2026-08-01',
-          messageCount: 1,
-          excerpt: 'old opening',
-        },
-      ],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 1,
-      recentTotal: 1,
-      compiledOn: '2026-08-01',
-    };
-    const staleTold = [
-      { chatId: 'stale-source', pinned: false, title: 'Stale source' },
-    ];
-    const freshSource = await tenantDb.runAs(userId, async (tx) => {
-      const chats = new ChatsRepository(tx);
-      await chats.setRecencyDigestIfAbsent(
-        chat.id,
-        userId,
-        staleBaseline,
-        staleTold,
-      );
-      const source = await chats.create({
-        ownerUserId: userId,
-        title: 'Fresh source',
-      });
-      await new MessagesRepository(tx).create({
-        chatId: source.id,
-        role: 'user',
-        senderUserId: userId,
-        parts: [{ type: 'text', text: 'fresh opening' }],
-      });
-      return source;
-    });
-    await new MemoryService(tenantDb).updateForOwner(userId, {
-      shareRecentChats: true,
-    });
-    const calls: Array<ModelStreamInput> = [];
-    const service = createCompactionService(unexercisedModels);
-
-    await service.maybeCompact({
-      chatId: chat.id,
-      userId,
-      client: compactionClient({ model: 'source-model', calls }),
-      system: 'SNAPSHOT BEFORE RE-BAKE',
-      toolDeclarations: [],
-      lastRequestTokens: 10,
-    });
-
-    expect(calls[0]?.system).toBe('SNAPSHOT BEFORE RE-BAKE');
-    const rebaked = await tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).findById(chat.id, userId),
-    );
-    expect(rebaked?.recencyDigestBaseline?.recent).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          title: 'Fresh source',
-          excerpt: 'fresh opening',
-        }),
-      ]),
-    );
-    expect(rebaked?.recencyDigestBaseline?.recent).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ title: 'Stale source' }),
-      ]),
-    );
-    expect(rebaked?.recencyDigestTold).toEqual([
-      { chatId: freshSource.id, pinned: false, title: 'Fresh source' },
-    ]);
-    const compaction = await tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
-    );
-    expect(rebaked?.recencyDigestRebakedFrom).toBe(compaction?.id);
-    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
-  });
-
-  it('keeps a bound digest unchanged when sharing was disabled before compaction', async () => {
-    const chat = await seedHistory();
-    const baseline = {
-      pinned: [],
-      recent: [
-        {
-          title: 'Previously shared source',
-          date: '2026-08-01',
-          messageCount: 1,
-          excerpt: 'existing opening',
-        },
-      ],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 1,
-      recentTotal: 1,
-      compiledOn: '2026-08-01',
-    };
-    const told = [
-      {
-        chatId: 'previously-shared-source',
-        pinned: false,
-        title: 'Previously shared source',
-      },
-    ];
-    await tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).setRecencyDigestIfAbsent(
-        chat.id,
-        userId,
-        baseline,
-        told,
-      ),
-    );
-    await new MemoryService(tenantDb).updateForOwner(userId, {
-      shareRecentChats: false,
-    });
-
-    await createCompactionService(unexercisedModels).maybeCompact({
-      chatId: chat.id,
-      userId,
-      client: compactionClient({ model: 'source-model', calls: [] }),
-      system: 'BOUND DIGEST PROMPT',
-      toolDeclarations: [],
-      lastRequestTokens: 10,
-    });
-
-    const unchanged = await tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).findById(chat.id, userId),
-    );
-    expect(unchanged?.recencyDigestBaseline).toEqual(baseline);
-    expect(unchanged?.recencyDigestTold).toEqual(told);
-    expect(unchanged?.recencyDigestRebakedFrom).toBeNull();
-    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
-  });
-
-  it('leaves no re-bake record when digest resolution fails during compaction', async () => {
-    const chat = await seedHistory();
-    const baseline = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-08-01',
-    };
-    await tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).setRecencyDigestIfAbsent(
-        chat.id,
-        userId,
-        baseline,
-        [],
-      ),
-    );
-    await new MemoryService(tenantDb).updateForOwner(userId, {
-      shareRecentChats: true,
-    });
-
-    await createCompactionService(unexercisedModels, {
-      resolveCandidate: () =>
-        Promise.reject(new Error('candidate unavailable')),
-    }).maybeCompact({
-      chatId: chat.id,
-      userId,
-      client: compactionClient({ model: 'source-model', calls: [] }),
-      system: 'BOUND DIGEST PROMPT',
-      toolDeclarations: [],
-      lastRequestTokens: 10,
-    });
-
-    const [unchanged, compaction] = await tenantDb.runAs(userId, (tx) =>
-      Promise.all([
-        new ChatsRepository(tx).findById(chat.id, userId),
-        new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
-      ]),
-    );
-    expect(compaction).toBeDefined();
-    expect(unchanged?.recencyDigestBaseline).toEqual(baseline);
-    expect(unchanged?.recencyDigestTold).toEqual([]);
-    expect(unchanged?.recencyDigestRebakedFrom).toBeNull();
-    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
-  });
-
-  it('persists final cleared replacement records and carries them across lineage', async () => {
-    const chat = await seedHistory(5, true);
-    const calls: Array<ModelStreamInput> = [];
-    const client = compactionClient({ model: 'source-model', calls });
-    const service = createCompactionService(unexercisedModels);
-
-    await service.maybeCompact({
-      chatId: chat.id,
-      userId,
-      client,
-      system: 'LEDGER PROMPT',
-      toolDeclarations: [],
-      lastRequestTokens: 10,
-    });
-    const first = await tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
-    );
-    expect(first?.replacementHistory[0]).toMatchObject({
-      role: 'user',
-      parts: [{ type: 'text' }],
-    });
-    expect(first?.replacementHistory[0]?.parts[0]).toMatchObject({
-      text: expect.stringContaining(first?.summary ?? ''),
-    });
-    expect(replacementToolParts(first?.replacementHistory ?? [])).toEqual([
-      {
-        type: 'tool-search_conversations',
-        toolCallId: 'history-call-0',
-        state: 'output-available',
-        input: {},
-        output: expect.stringContaining('Outcome: success'),
-        outcome: 'success',
-      },
-    ]);
-    expect(JSON.stringify(first?.replacementHistory)).not.toContain(
-      'PRIVATE-PAYLOAD-0',
-    );
-    expect(JSON.stringify(calls[0]?.messages)).toContain('PRIVATE-PAYLOAD-0');
-
-    await tenantDb.runAs(userId, async (tx) => {
-      const messages = new MessagesRepository(tx);
-      const user = await messages.create({
-        chatId: chat.id,
-        role: 'user',
-        senderUserId: userId,
-        parts: [{ type: 'text', text: 'request-5' }],
-      });
-      await messages.create({
-        chatId: chat.id,
-        role: 'assistant',
-        inReplyTo: user.id,
-        parts: [
-          {
-            type: 'tool-search_conversations',
-            toolCallId: 'history-call-5',
-            state: 'output-error',
-            input: { query: 'query-5' },
-            errorText: 'Bad input',
-            outcome: 'invalid_input',
-          },
-        ],
-        usage: { status: 'completed' },
-      });
-    });
-
-    await service.maybeCompact({
-      chatId: chat.id,
-      userId,
-      client,
-      system: 'LEDGER PROMPT',
-      toolDeclarations: [],
-      lastRequestTokens: 10,
-    });
-    const second = await tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
-    );
-
-    expect(second?.parentId).toBe(first?.id);
-    expect(replacementToolParts(second?.replacementHistory ?? [])).toEqual([
-      {
-        type: 'tool-search_conversations',
-        toolCallId: 'history-call-0',
-        state: 'output-available',
-        input: {},
-        output: expect.stringContaining('Outcome: success'),
-        outcome: 'success',
-      },
-      {
-        type: 'tool-search_conversations',
-        toolCallId: 'history-call-1',
-        state: 'output-available',
-        input: {},
-        output: expect.stringContaining('Outcome: success'),
-        outcome: 'success',
-      },
-    ]);
-    const secondRequest = JSON.stringify(calls[1]?.messages);
-    expect(secondRequest).toContain('history-call-0');
-    expect(secondRequest).toContain('history-call-1');
-    expect(secondRequest).not.toContain('PRIVATE-PAYLOAD-0');
-    expect(secondRequest).toContain('PRIVATE-PAYLOAD-1');
-
-    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
-  });
-
-  it('rejects a provider tool call without persisting a checkpoint or exposing an executor', async () => {
-    const chat = await seedHistory();
-    const calls: Array<ModelStreamInput> = [];
-    const service = createCompactionService(unexercisedModels);
-
-    await service.maybeCompact({
-      chatId: chat.id,
-      userId,
-      client: compactionClient({
-        model: 'source-model',
-        calls,
-        toolCalls: [{ toolName: 'lookup', input: {} }],
-      }),
-      system: 'BOUND PROMPT',
-      toolDeclarations: [
-        {
-          id: 'lookup',
-          description: 'Look up context',
-          inputSchema: { type: 'object' },
-        },
-      ],
-      lastRequestTokens: 10,
-    });
-
-    expect(calls[0].tools?.['lookup']?.execute).toBeUndefined();
-    await expect(
-      tenantDb.runAs(userId, (tx) =>
-        new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
-      ),
-    ).resolves.toBeUndefined();
-    await sql`DELETE FROM chats WHERE id = ${chat.id}`;
-  });
-
+  /**
+   * A chat whose last completed Run executed on `sourceModel` and whose next
+   * user turn, with its queued Run, is the one under test. The Run has not
+   * started, so each test drives `executeRun` itself.
+   */
   async function seedSwitch(options?: {
     sourceRun?: boolean;
     switchMarker?: boolean;
     toolObservation?: boolean;
+    /** Model the SOURCE run executed on. */
+    sourceModel?: string;
     /** Effort persisted on the SOURCE run, as its accepting API stored it. */
     sourceEffort?: string;
-  }) {
+    /** Effort persisted on the run under test. */
+    targetEffort?: string;
+  }): Promise<SeededSwitch> {
+    const sourceModel = options?.sourceModel ?? SOURCE_MODEL;
     return tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).create({
         ownerUserId: userId,
       });
+      doomedChats.push(chat.id);
       const messages = new MessagesRepository(tx);
       const runs = new RunsRepository(tx);
       const oldUser = await messages.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: userId,
-        parts: [{ type: 'text', text: `OLD REQUEST ${'x'.repeat(1200)}` }],
+        parts: [{ type: 'text', text: OLD_REQUEST }],
       });
       const sourcePrompt = `<user_personalization>Preferred name: Ana</user_personalization> <user_chat_history>Other chat: private excerpt</user_chat_history> transition-source-${chat.id}`;
       let sourceReceipt: SystemPromptReceipt | undefined;
@@ -850,7 +583,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           chatId: chat.id,
           messageId: oldUser.id,
           userId,
-          modelId: 'source-model',
+          modelId: sourceModel,
           ...(options?.sourceEffort !== undefined && {
             effort: options.sourceEffort,
           }),
@@ -880,7 +613,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         role: 'assistant',
         inReplyTo: oldUser.id,
         parts: [
-          { type: 'text', text: `OLD ANSWER ${'y'.repeat(1200)}` },
+          { type: 'text', text: OLD_ANSWER },
           ...(options?.toolObservation
             ? [
                 {
@@ -897,13 +630,18 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         usage: { status: 'completed' },
       });
       const targetRunId = crypto.randomUUID();
-      const switchPart = createModelChangeItem({
-        oldModel: { id: 'source-model' },
-        newModel: { id: 'target-model' },
-        runId: targetRunId,
-      });
+      // A model-change item asserts two DISTINCT models — the producer refuses
+      // equal ids — so it is authored only for a turn that really switches.
+      const switchPart =
+        options?.switchMarker === false || sourceModel === TARGET_MODEL
+          ? undefined
+          : createModelChangeItem({
+              oldModel: { id: sourceModel },
+              newModel: { id: TARGET_MODEL },
+              runId: targetRunId,
+            });
       const targetUserParts: Array<MessagePart> = [
-        ...(options?.switchMarker === false ? [] : [switchPart]),
+        ...(switchPart === undefined ? [] : [switchPart]),
         { type: 'text', text: 'CURRENT TRIGGER' },
       ];
       const targetUser = await messages.create({
@@ -917,7 +655,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         chatId: chat.id,
         messageId: targetUser.id,
         userId,
-        modelId: 'target-model',
+        modelId: TARGET_MODEL,
+        ...(options?.targetEffort !== undefined && {
+          effort: options.targetEffort,
+        }),
       });
       return {
         chat,
@@ -930,7 +671,89 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     });
   }
 
-  function runService(compaction: CompactionService) {
+  /** What `seedSwitch` builds: the chat, the source run's receipt and the turn under test. */
+  interface SeededSwitch {
+    chat: Chat;
+    sourceReceipt: SystemPromptReceipt | undefined;
+    /** Absent when the seeded turn switches no model. */
+    switchPart: AuthoredContextItemPart | undefined;
+    targetUser: Message;
+    targetUserParts: Array<MessagePart>;
+    targetRun: Run;
+  }
+
+  /**
+   * `seedSwitch` plus every epoch input a checkpoint re-bakes: a digest and a
+   * skill catalog baseline that are stale against what a fresh resolution
+   * yields, a bound Workspace whose root the chat has already been told, a
+   * creation time far in the past, and sharing consent.
+   */
+  async function seedEpoch() {
+    const seeded = await seedSwitch({
+      switchMarker: false,
+      sourceEffort: 'high',
+      targetEffort: 'low',
+    });
+    const workspaceRoot = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'compaction-epoch-')),
+    );
+    doomedDirectories.push(workspaceRoot);
+    await tenantDb.runAs(userId, (tx) =>
+      tx.execute(dsql`
+        UPDATE chats
+        SET created_at = ${CHAT_CREATED_AT.toISOString()}::timestamptz,
+            workspace_root = ${workspaceRoot},
+            workspace_executor_id = ${EPOCH_EXECUTOR_ID},
+            workspace_told = ${workspaceRoot}
+        WHERE id = ${seeded.chat.id} AND owner_user_id = ${userId}
+      `),
+    );
+    const freshSource = await tenantDb.runAs(userId, async (tx) => {
+      const chats = new ChatsRepository(tx);
+      await chats.setRecencyDigestIfAbsent(
+        seeded.chat.id,
+        userId,
+        STALE_DIGEST,
+        STALE_DIGEST_TOLD,
+      );
+      await chats.setSkillCatalogBaseline({
+        chatId: seeded.chat.id,
+        ownerUserId: userId,
+        baseline: STALE_SKILLS,
+        rebakedFrom: null,
+      });
+      const source = await chats.create({
+        ownerUserId: userId,
+        title: 'Fresh source',
+      });
+      doomedChats.push(source.id);
+      await new MessagesRepository(tx).create({
+        chatId: source.id,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'fresh opening' }],
+      });
+      return source;
+    });
+    await new MemoryService(tenantDb).updateForOwner(userId, {
+      shareRecentChats: true,
+    });
+    return { ...seeded, freshSource, workspaceRoot };
+  }
+
+  type RunServiceOptions = {
+    models?: ModelSelectionValidator;
+    allowed?: Array<string>;
+    nativeExecutorId?: string;
+    skillCatalog?: SkillCatalogPort;
+    skillDirectories?: Array<string>;
+    recencyDigest?: RecencyDigestResolver;
+  };
+
+  function runService(
+    compaction: CompactionService,
+    options: RunServiceOptions = {},
+  ) {
     return new RunExecutionService(
       tenantDb,
       compaction,
@@ -940,619 +763,1230 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           ...BUILT_IN_DEFAULTS,
           tools: {
             ...BUILT_IN_DEFAULTS.tools,
-            allowed: ['search_conversations'],
+            allowed: options.allowed ?? ['search_conversations'],
+            ...(options.nativeExecutorId !== undefined && {
+              nativeExecutorId: options.nativeExecutorId,
+            }),
+          },
+          skills: {
+            ...BUILT_IN_DEFAULTS.skills,
+            directories:
+              options.skillDirectories ?? BUILT_IN_DEFAULTS.skills.directories,
           },
         },
       },
       new SearchIndexService(tenantDb),
       noopReindexDispatch(),
       knowledgeResolver,
-      noopSkillCatalog(),
+      options.skillCatalog ?? noopSkillCatalog(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
       compileTestPermissionPolicy(),
-      executionModels,
+      options.models ?? executionModels,
       new SystemPromptsService(),
       { resolvePromptUser: () => Promise.resolve(undefined) },
       knowledgeCandidates,
       { snapshotCandidates: () => [] },
       new MemoryService(tenantDb),
-      new RecencyDigestService(tenantDb),
+      options.recencyDigest ?? new RecencyDigestService(tenantDb),
       undefined,
     );
   }
 
-  // Compaction inherits effort for ONE reason: it reproduces the finished
-  // turn's system prompt and message prefix so the call lands on the
-  // provider's still-warm prompt cache. Sending a different effort would
-  // invalidate the message blocks that request shape exists to reuse.
-  it('sends the triggering run effort on the compaction call and records it', async () => {
-    const chat = await seedHistory();
-    const calls: Array<ModelStreamInput> = [];
-    const client = compactionClient({ model: 'source-model', calls });
-
-    await createCompactionService(unexercisedModels).maybeCompact({
-      chatId: chat.id,
-      userId,
-      client,
-      system: 'EXACT SNAPSHOTTED PROMPT',
-      toolDeclarations: [],
-      effort: 'xhigh',
-      lastRequestTokens: 10,
+  function epochService(compaction: CompactionService) {
+    return runService(compaction, {
+      models: epochModels,
+      allowed: ['search_conversations', 'enter_workspace'],
+      nativeExecutorId: EPOCH_EXECUTOR_ID,
+      skillCatalog: LIVE_CATALOG,
+      skillDirectories: ['/opt/skills'],
     });
+  }
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.effort).toBe('xhigh');
+  /** One user turn and the queued Run that answers it. */
+  type Turn = {
+    chatId: string;
+    runId: string;
+    user: Message;
+    parts: Array<MessagePart>;
+  };
 
-    const persisted = await tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chat.id, userId),
-    );
-    expect(persisted?.usage).toMatchObject({ effort: 'xhigh' });
-  });
-
-  it('sends no effort on the compaction call when the triggering run carried none', async () => {
-    const chat = await seedHistory();
-    const calls: Array<ModelStreamInput> = [];
-    const client = compactionClient({ model: 'source-model', calls });
-
-    await createCompactionService(unexercisedModels).maybeCompact({
-      chatId: chat.id,
-      userId,
-      client,
-      system: 'EXACT SNAPSHOTTED PROMPT',
-      toolDeclarations: [],
-      lastRequestTokens: 10,
-    });
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.effort).toBeUndefined();
-  });
-
-  // A9: transition compaction reuses the SOURCE model and the SOURCE
-  // receipt's system prompt, so the source run's effort is the one whose
-  // cache is at stake. The incoming turn's effort is not part of that prefix,
-  // and was validated against a different model's declared levels entirely.
-  it('sends the source run effort on transition compaction, not the incoming turn effort', async () => {
-    const seeded = await seedSwitch({ sourceEffort: 'high' });
-    const sourceCalls: Array<ModelStreamInput> = [];
-    const sourceClient = compactionClient({
-      model: 'source-model',
-      calls: sourceCalls,
-      response:
-        '## Objective\nPreserve continuity.\n\n## Current State\nReady.',
-      contextWindowTokens: 10_000,
-    });
-    const compaction = createCompactionService({
-      createClient: vi.fn(() => sourceClient),
-    });
-    const targetDelegate = createFakeModelClient(['target response'], 1000);
-    const targetClient: ModelClient = {
-      ...targetDelegate,
-      model: 'target-model',
-      streamText: (input) => targetDelegate.streamText(input),
-    };
-
-    const result = await runService(compaction).executeRun({
-      runId: seeded.targetRun.id,
+  function turnOf(seeded: SeededSwitch): Turn {
+    return {
       chatId: seeded.chat.id,
-      userId,
-      userMessage: {
-        id: seeded.targetUser.id,
-        seq: seeded.targetUser.seq,
-        parts: seeded.targetUserParts,
-      },
-      client: targetClient,
-    });
-    await result.consumeStream?.();
-
-    expect(sourceCalls).toHaveLength(1);
-    expect(sourceCalls[0]?.effort).toBe('high');
-
-    const persisted = await tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(seeded.chat.id, userId),
-    );
-    // The recorded effort must match what was actually sent, or the receipt
-    // would attribute this call's cost to the wrong level.
-    expect(persisted?.usage).toMatchObject({ effort: 'high' });
-  });
-
-  it('uses one source-receipt transition checkpoint before invoking the smaller target', async () => {
-    const seeded = await seedSwitch({ toolObservation: true });
-    const sourceCalls: Array<ModelStreamInput> = [];
-    const targetCalls: Array<ModelStreamInput> = [];
-    const summary =
-      '## Objective\nPreserve continuity.\n\n## Current State\nReady.';
-    const sourceClient = compactionClient({
-      model: 'source-model',
-      calls: sourceCalls,
-      response: summary,
-      contextWindowTokens: 10_000,
-    });
-    const createSourceClient = vi.fn(() => sourceClient);
-    const compaction = createCompactionService({
-      createClient: createSourceClient,
-    });
-    // Synthetic bound, sized to fit exactly one transition checkpoint plus the
-    // switch item and the live worker-admitted search declaration. The budget
-    // is deliberately below the un-compacted history, so this still exercises
-    // one transition checkpoint.
-    const targetDelegate = createFakeModelClient(['target response'], 1000);
-    const targetClient: ModelClient = {
-      ...targetDelegate,
-      model: 'target-model',
-      streamText(input) {
-        targetCalls.push(input);
-        return targetDelegate.streamText(input);
-      },
-    };
-
-    const result = await runService(compaction).executeRun({
       runId: seeded.targetRun.id,
-      chatId: seeded.chat.id,
+      user: seeded.targetUser,
+      parts: seeded.targetUserParts,
+    };
+  }
+
+  function requestFor(
+    turn: Turn,
+    client: ModelClient,
+    abortSignal?: AbortSignal,
+  ): ExecuteRunInput {
+    return {
+      runId: turn.runId,
+      chatId: turn.chatId,
       userId,
-      userMessage: {
-        id: seeded.targetUser.id,
-        seq: seeded.targetUser.seq,
-        parts: seeded.targetUserParts,
-      },
-      client: targetClient,
-    });
-    await result.consumeStream?.();
+      userMessage: { id: turn.user.id, seq: turn.user.seq, parts: turn.parts },
+      client,
+      ...(abortSignal !== undefined && { abortSignal }),
+    };
+  }
 
-    expect(sourceCalls).toHaveLength(1);
-    expect(createSourceClient).toHaveBeenCalledWith('source-model');
-    expect(sourceCalls[0].system).toBe(seeded.sourceReceipt?.systemPrompt);
-    expect(sourceCalls[0].toolChoice).toBe('none');
-    expect(sourceCalls[0].tools).toBeUndefined();
-    expect(sourceCalls[0].messages.at(-1)).toEqual({
-      role: 'user',
-      content: TRANSITION_COMPACTION_INSTRUCTION,
+  /** Appends a user turn and its queued Run to an existing chat. */
+  async function addTurn(chatId: string, text: string): Promise<Turn> {
+    return tenantDb.runAs(userId, async (tx) => {
+      const parts: Array<MessagePart> = [{ type: 'text', text }];
+      const user = await new MessagesRepository(tx).create({
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts,
+      });
+      const run = await new RunsRepository(tx).create({
+        chatId,
+        messageId: user.id,
+        userId,
+        modelId: TARGET_MODEL,
+      });
+      return { chatId, runId: run.id, user, parts };
     });
+  }
 
-    // D7: a run whose source receipt carried personalization still compacts, the
-    // owner text is replayed VERBATIM (the prefix must stay byte-identical or
-    // the whole call goes cold), and the exclusion rides in the trailing
-    // instruction — the only part outside the cached prefix.
-    expect(sourceCalls[0].system).toContain('<user_personalization>');
-    expect(sourceCalls[0].system).toContain('Preferred name: Ana');
-    expect(sourceCalls[0].system).toContain('<user_chat_history>');
-    expect(sourceCalls[0].system).toContain('private excerpt');
-    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
-      '<user_personalization>',
-    );
-    expect(TRANSITION_COMPACTION_INSTRUCTION).toMatch(
-      /do not carry any content out of/i,
-    );
-    expect(TRANSITION_COMPACTION_INSTRUCTION).toContain('<user_chat_history>');
-    expect(JSON.stringify(sourceCalls[0].messages)).not.toContain(
-      'CURRENT TRIGGER',
-    );
-    expect(JSON.stringify(sourceCalls[0].messages)).toContain(
-      'PRIVATE TRANSITION INPUT',
+  const latestCheckpoint = (chatId: string) =>
+    tenantDb.runAs(userId, (tx) =>
+      new CompactionsRepository(tx).findLatestByChatId(chatId, userId),
     );
 
-    expect(targetCalls).toHaveLength(1);
-    // D5: compaction shares the turn's identity — literally the value the
-    // target turn's own request carried, not a re-derived lookalike.
-    expect(sourceCalls[0].chat).toStrictEqual(targetCalls[0].chat);
-    expect(targetCalls[0].chat).toStrictEqual({
-      id: seeded.chat.id,
-      lane: 'main',
-    });
-    expect(targetCalls[0].system).toBe('Test prompt: default');
-    expect(Object.keys(targetCalls[0].tools ?? {})).toEqual([
-      'search_conversations',
-    ]);
-    expect(targetCalls[0].messages[0]).toEqual({
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: expect.stringMatching(
-            new RegExp(
-              `^${COMPACTION_CHECKPOINT_ENVELOPE_PREFIX.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}`,
-            ),
-          ),
+  /** Everything a turn's attempts leave behind, read at one point in time. */
+  const readTurnState = (turn: Turn) =>
+    tenantDb.runAs(userId, async (tx: Db) => ({
+      run: await new RunsRepository(tx).findById(turn.runId, userId),
+      chat: await new ChatsRepository(tx).findById(turn.chatId, userId),
+      checkpoints: await new CompactionsRepository(tx).findByChatId(
+        turn.chatId,
+        userId,
+      ),
+      receipts: await new SystemPromptReceiptsRepository(tx).findByOwnedRun(
+        turn.runId,
+        userId,
+      ),
+      events: await new RunEventsRepository(tx).listByRunId(turn.runId, userId),
+    }));
+
+  describe('threshold trigger', () => {
+    it('summarizes with the attempt model, its pre-re-bake prompt, schema-only declarations and effort, then sends and binds the re-baked prompt', async () => {
+      const seeded = await seedEpoch();
+      const turn = turnOf(seeded);
+      const calls: Array<ModelStreamInput> = [];
+      const createSourceClient = vi.fn<ModelClientFactory['createClient']>(
+        () => {
+          throw new Error('a threshold trigger must not resolve another model');
         },
-      ],
+      );
+
+      const result = await epochService(
+        createCompactionService({ createClient: createSourceClient }),
+      ).executeRun(
+        requestFor(
+          turn,
+          attemptClient({
+            calls,
+            summary: { response: SUMMARY },
+            compactionThresholdTokens: 1,
+          }),
+        ),
+      );
+      await result.consumeStream?.();
+
+      // The same request shape the full-current request would carry for this
+      // prefix: the attempt's own model, the system prompt its FIRST pass
+      // rendered against the epoch that is about to be replaced, the schema-only
+      // declarations of that pass, its effort, and the trailing instruction.
+      expect(createSourceClient).not.toHaveBeenCalled();
+      const summaryRequest = sole(calls.filter(isSummaryRequest));
+      const targetRequest = sole(
+        calls.filter((call) => !isSummaryRequest(call)),
+      );
+      const staleSystem = renderEpochPrompt({
+        instant: CHAT_CREATED_AT,
+        chats: STALE_DIGEST,
+        skills: STALE_SKILLS,
+      });
+      expect(staleSystem).toContain('[Stale source]');
+      expect(staleSystem).toContain('[stale-skill]');
+      expect(summaryRequest.system).toBe(staleSystem);
+      expect(summaryRequest.toolChoice).toBe('none');
+      expect(summaryRequest.effort).toBe('low');
+      expect(summaryRequest.chat).toStrictEqual({
+        id: seeded.chat.id,
+        lane: 'main',
+      });
+      expect(summaryRequest.messages.at(-1)).toEqual({
+        role: 'user',
+        content: COMPACTION_INSTRUCTION,
+      });
+      expect(
+        summaryRequest.messages.slice(0, -1).map((message) => ({
+          role: message.role,
+          text: contentText(message.content),
+        })),
+      ).toEqual([
+        { role: 'user', text: OLD_REQUEST },
+        { role: 'assistant', text: OLD_ANSWER },
+      ]);
+      const declared = Object.keys(summaryRequest.tools ?? {}).sort();
+      expect(declared).toContain('search_conversations');
+      expect(declared).toEqual(Object.keys(targetRequest.tools ?? {}).sort());
+      for (const tool of Object.values(summaryRequest.tools ?? {})) {
+        expect(tool.execute).toBeUndefined();
+      }
+
+      // The row, and the epoch state it re-based, are what the Run then sent.
+      const state = await readTurnState(turn);
+      const checkpoint = sole(state.checkpoints);
+      expect(checkpoint).toMatchObject({
+        summary: SUMMARY,
+        uptoSeq: seeded.targetUser.seq - 1,
+        usage: { effort: 'low' },
+      });
+      const freshSystem = renderEpochPrompt({
+        instant: checkpoint.createdAt,
+        chats: state.chat?.recencyDigestBaseline ?? null,
+        skills: LIVE_SKILLS,
+      });
+      expect(freshSystem).toContain('[Fresh source]');
+      expect(freshSystem).toContain('[live-skill]');
+      expect(freshSystem).not.toContain('[Stale source]');
+      expect(freshSystem).not.toContain('[stale-skill]');
+      expect(targetRequest.system).toBe(freshSystem);
+      expect(targetRequest.effort).toBe('low');
+      expect(state.chat?.recencyDigestBaseline?.recent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            title: 'Fresh source',
+            excerpt: 'fresh opening',
+          }),
+        ]),
+      );
+
+      // Exactly one receipt, bound to the prompt that was actually sent.
+      expect(sole(state.receipts).systemPrompt).toBe(targetRequest.system);
+      expect(
+        state.receipts.map((receipt) => receipt.systemPrompt),
+      ).not.toContain(staleSystem);
+
+      // The Workspace snapshot and the digest supersession ride the same
+      // request: the checkpoint reset what the chat had been told.
+      const railText = contentText(
+        targetRequest.messages.at(-1)?.content ?? '',
+      );
+      expect(railText).toContain(`\`${seeded.workspaceRoot}\``);
+      expect(railText).toContain('The chat list was refreshed.');
+      expect(railText).toContain('CURRENT TRIGGER');
+      expect(state.run?.status).toBe('completed');
+      expect(state.run?.contextItems).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            producer: 'workspace',
+            form: 'snapshot',
+            text: expect.stringContaining(seeded.workspaceRoot),
+          }),
+          expect.objectContaining({
+            producer: 'recency-digest',
+            form: 'snapshot',
+          }),
+        ]),
+      );
+      // The catalog told state restarted with the baseline, so no notice rides.
+      expect(state.run?.contextItems).not.toContainEqual(
+        expect.objectContaining({ producer: 'skill-catalog' }),
+      );
+      expect(state.chat).toMatchObject({
+        recencyDigestRebakedFrom: checkpoint.id,
+        skillCatalogRebakedFrom: checkpoint.id,
+        workspaceToldFrom: checkpoint.id,
+        workspaceTold: seeded.workspaceRoot,
+        skillCatalogBaseline: LIVE_SKILLS,
+        skillCatalogTold: ['live-skill'],
+      });
     });
-    expect(contentText(targetCalls[0].messages[0].content)).toContain(summary);
-    const targetTrigger = targetCalls[0].messages.at(-1);
-    expect(targetTrigger?.role).toBe('user');
-    const targetTriggerText = contentText(targetTrigger?.content ?? '');
-    expect(targetTriggerText).toContain(seeded.switchPart.data.text);
-    expect(targetTriggerText).toContain('Message received:');
-    // The run-derived item names the model the catalog resolves for the
-    // target client (`executionModels` echoes the requested id through).
-    expect(targetTriggerText).toContain(
-      'You are now target-model (internal ID `target-model`, provider ID `target-model`).',
-    );
-    expect(targetTriggerText).toMatch(/CURRENT TRIGGER$/u);
-    expect(JSON.stringify(targetCalls[0])).not.toContain(
-      seeded.sourceReceipt?.systemPrompt ?? '',
-    );
-    expect(JSON.stringify(targetCalls[0].messages)).toContain(
-      'transition-tool-call',
-    );
-    expect(JSON.stringify(targetCalls[0].messages)).toContain(
-      'Outcome: timeout',
-    );
-    expect(JSON.stringify(targetCalls[0].messages)).not.toContain(
-      'PRIVATE TRANSITION INPUT',
-    );
-    expect(JSON.stringify(targetCalls[0].messages)).not.toContain(
-      'PRIVATE TRANSITION ERROR',
+
+    it('keeps the checkpoint and its re-baked epoch when the attempt dies, and the next attempt reuses them', async () => {
+      const seeded = await seedEpoch();
+      const turn = turnOf(seeded);
+      const service = epochService(createCompactionService(unexercisedModels));
+      const firstCalls: Array<ModelStreamInput> = [];
+
+      // The first attempt publishes, then its model never answers: the worker
+      // is gone and the Run stays claimed for the next delivery.
+      await service.executeRun(
+        requestFor(
+          turn,
+          attemptClient({
+            calls: firstCalls,
+            summary: { response: SUMMARY },
+            answer: null,
+            compactionThresholdTokens: 1,
+          }),
+        ),
+      );
+
+      const published = await readTurnState(turn);
+      const checkpoint = sole(published.checkpoints);
+      expect(published.run?.status).toBe('running_model');
+      expect(checkpoint).toMatchObject({
+        summary: SUMMARY,
+        uptoSeq: seeded.targetUser.seq - 1,
+      });
+      expect(published.chat).toMatchObject({
+        recencyDigestRebakedFrom: checkpoint.id,
+        recencyDigestTold: [
+          {
+            chatId: seeded.freshSource.id,
+            pinned: false,
+            title: 'Fresh source',
+          },
+        ],
+        skillCatalogRebakedFrom: checkpoint.id,
+        skillCatalogBaseline: LIVE_SKILLS,
+        workspaceToldFrom: checkpoint.id,
+        workspaceTold: null,
+      });
+      expect(published.chat?.recencyDigestBaseline?.recent).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ title: 'Fresh source' }),
+        ]),
+      );
+      const firstRequest = sole(
+        firstCalls.filter((call) => !isSummaryRequest(call)),
+      );
+      expect(sole(published.receipts).systemPrompt).toBe(firstRequest.system);
+
+      // The retry: nothing lies between the boundary and the trigger, so it
+      // pays no second summary and re-resolves nothing.
+      const secondCalls: Array<ModelStreamInput> = [];
+      const retried = await service.executeRun(
+        requestFor(
+          turn,
+          attemptClient({
+            calls: secondCalls,
+            summary: { response: 'MUST NOT BE REQUESTED' },
+            compactionThresholdTokens: 1,
+          }),
+        ),
+      );
+      await retried.consumeStream?.();
+
+      expect(secondCalls.filter(isSummaryRequest)).toHaveLength(0);
+      const secondRequest = sole(secondCalls);
+      expect(secondRequest.system).toBe(firstRequest.system);
+      expect(contentText(secondRequest.messages[0].content)).toContain(SUMMARY);
+      expect(
+        contentText(secondRequest.messages.at(-1)?.content ?? ''),
+      ).toContain(`\`${seeded.workspaceRoot}\``);
+      const after = await readTurnState(turn);
+      expect(after.run?.status).toBe('completed');
+      expect(sole(after.checkpoints).id).toBe(checkpoint.id);
+      expect(after.chat?.recencyDigestBaseline).toEqual(
+        published.chat?.recencyDigestBaseline,
+      );
+      expect(after.chat).toMatchObject({
+        recencyDigestRebakedFrom: checkpoint.id,
+        skillCatalogRebakedFrom: checkpoint.id,
+        workspaceToldFrom: checkpoint.id,
+        workspaceTold: seeded.workspaceRoot,
+      });
+      // One receipt per attempt, each the prompt that attempt sent.
+      expect(after.receipts).toHaveLength(2);
+      expect(
+        new Set(after.receipts.map(({ attemptId }) => attemptId)).size,
+      ).toBe(2);
+      expect(after.receipts.map(({ systemPrompt }) => systemPrompt)).toEqual([
+        firstRequest.system,
+        firstRequest.system,
+      ]);
+    });
+
+    it('does not start a second epoch for the Run after the one that published', async () => {
+      const seeded = await seedEpoch();
+      const publishing = turnOf(seeded);
+      const service = epochService(createCompactionService(unexercisedModels));
+      const publishingCalls: Array<ModelStreamInput> = [];
+
+      const first = await service.executeRun(
+        requestFor(
+          publishing,
+          attemptClient({
+            calls: publishingCalls,
+            summary: { response: SUMMARY },
+            compactionThresholdTokens: 1,
+          }),
+        ),
+      );
+      await first.consumeStream?.();
+      const published = await readTurnState(publishing);
+      expect(published.run?.contextItems).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ producer: 'workspace', form: 'snapshot' }),
+          expect.objectContaining({
+            producer: 'recency-digest',
+            form: 'snapshot',
+          }),
+        ]),
+      );
+
+      // Under the default threshold this turn needs no checkpoint of its own.
+      const next = await addTurn(seeded.chat.id, 'NEXT TURN');
+      const nextCalls: Array<ModelStreamInput> = [];
+      const second = await service.executeRun(
+        requestFor(next, attemptClient({ calls: nextCalls })),
+      );
+      await second.consumeStream?.();
+
+      const settled = await readTurnState(next);
+      expect(settled.run?.status).toBe('completed');
+      expect(nextCalls.filter(isSummaryRequest)).toHaveLength(0);
+      expect(settled.checkpoints).toHaveLength(1);
+      // Neither the Workspace snapshot nor the digest supersession re-announce
+      // themselves: the checkpoint's boundary sits below the publishing turn,
+      // so each appears once, replayed from the publishing turn's own items.
+      expect(settled.run?.contextItems).toContainEqual(
+        expect.objectContaining({ producer: 'temporal' }),
+      );
+      for (const producer of ['workspace', 'recency-digest']) {
+        expect(
+          settled.run?.contextItems?.filter(
+            (item) => item.producer === producer,
+          ),
+        ).toHaveLength(1);
+      }
+      const nextRequest = sole(nextCalls);
+      const publishingRequest = sole(
+        publishingCalls.filter((call) => !isSummaryRequest(call)),
+      );
+      expect(nextRequest.system).toBe(publishingRequest.system);
+      expect(contentText(nextRequest.messages[0].content)).toContain(SUMMARY);
+      expect(contentText(nextRequest.messages.at(-1)?.content ?? '')).toContain(
+        'NEXT TURN',
+      );
+    });
+
+    // The exclusion rides the trailing instruction, so the digest block is
+    // replayed verbatim in the system prompt; the instruction and the packaged
+    // template are authored in different files, and nothing else asserts the
+    // delimiter one names is the delimiter the other emits. If they drift,
+    // another owner's chat titles and opening excerpts get summarized into a
+    // checkpoint that is replayed as history indefinitely — which neither
+    // deleting that chat nor disabling the setting can reach.
+    it('keeps the packaged prompt digest out of the persisted checkpoint', async () => {
+      const seeded = await seedSwitch({ switchMarker: false });
+      const digest: RecencyDigestBaseline = {
+        pinned: [
+          {
+            title: 'Quarterly planning',
+            date: '2026-08-10',
+            messageCount: 8,
+            excerpt: 'SECRET-PINNED-OPENING',
+          },
+        ],
+        recent: [
+          {
+            title: 'Debugging the worker',
+            date: '2026-08-09',
+            messageCount: 3,
+            excerpt: 'SECRET-RECENT-OPENING',
+          },
+        ],
+        pinnedShown: 1,
+        pinnedTotal: 1,
+        recentShown: 1,
+        recentTotal: 4,
+        compiledOn: '2026-08-10',
+      };
+      await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).setRecencyDigestIfAbsent(
+          seeded.chat.id,
+          userId,
+          digest,
+          [],
+        ),
+      );
+      const packagedTemplate = createModelPromptLoader({
+        configPath: path.resolve(__dirname, '../../llame.config.jsonc'),
+      }).resolve({ id: TARGET_MODEL, name: 'Test Model' }).systemPromptTemplate;
+      const packagedEntry: SystemModelCatalogEntry = {
+        ...executionModels.validateModelSelection(TARGET_MODEL),
+        name: 'Test Model',
+        systemPromptTemplate: packagedTemplate,
+      };
+      const packagedPrompt = new SystemPromptsService().render({
+        model: packagedEntry,
+        anchor: formatTemporalAnchor(
+          seeded.chat.createdAt,
+          resolveInstanceTimezone(),
+        ),
+        chats: digest,
+        admittedToolIds: [],
+      });
+      // Guard the guard: if the block stopped rendering, every assertion below
+      // would pass vacuously.
+      expect(packagedPrompt).toContain('<user_chat_history>');
+      expect(packagedPrompt).toContain('SECRET-PINNED-OPENING');
+      const calls: Array<ModelStreamInput> = [];
+
+      const result = await runService(
+        createCompactionService(unexercisedModels),
+        {
+          models: {
+            validateModelSelection: () => packagedEntry,
+            resolveEffortSelection: () => undefined,
+          },
+        },
+      ).executeRun(
+        requestFor(
+          turnOf(seeded),
+          attemptClient({ calls, compactionThresholdTokens: 1 }),
+        ),
+      );
+      await result.consumeStream?.();
+
+      const summaryRequest = sole(calls.filter(isSummaryRequest));
+      // Replayed verbatim — the exclusion rides the trailing instruction rather
+      // than editing the bound prompt, which would cold-start the prefix cache
+      // for the whole absorbed conversation.
+      expect(summaryRequest.system).toBe(packagedPrompt);
+
+      // The load-bearing assertion: the fence the TEMPLATE emits is character-
+      // for-character the one the INSTRUCTION names. The tag name is extracted
+      // from the rendered prompt with a generic pattern (not hardcoded as
+      // `user_chat_history`) so a rename on the template side is actually
+      // detected here rather than silently matched against itself; `user` is
+      // undefined above, so `<user_personalization>` cannot also match and mask
+      // a mismatch.
+      const fence = /<([a-z][a-z0-9_]*)>/u.exec(packagedPrompt)?.[1];
+      expect(fence).toBeDefined();
+      expect(COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
+      expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
+      expect(summaryRequest.messages.at(-1)?.content).toBe(
+        COMPACTION_INSTRUCTION,
+      );
+
+      // Nothing digest-shaped reaches the compactable history either: the
+      // digest lives in the system prompt, so a message carrying it would mean
+      // it had leaked onto the rail where the summarizer reads uninstructed.
+      expect(summaryRequest.messages.slice(0, -1)).not.toContainEqual(
+        expect.objectContaining({
+          content: expect.stringContaining('SECRET-PINNED-OPENING'),
+        }),
+      );
+      // Deliberately NOT asserted: that the persisted summary omits the
+      // excerpts. The fake client returns a canned summary, so such an
+      // assertion would pass no matter what the instruction said. Whether a
+      // real model honours the exclusion is compliance, which the capability
+      // spec already states is advisory rather than structurally enforced —
+      // only the delimiter's integrity is guaranteed, and that is checked above.
+    });
+
+    it('sends no effort on the summary request when the Run carried none', async () => {
+      const seeded = await seedSwitch({ switchMarker: false });
+      const calls: Array<ModelStreamInput> = [];
+
+      const result = await runService(
+        createCompactionService(unexercisedModels),
+      ).executeRun(
+        requestFor(
+          turnOf(seeded),
+          attemptClient({ calls, compactionThresholdTokens: 1 }),
+        ),
+      );
+      await result.consumeStream?.();
+
+      expect(sole(calls.filter(isSummaryRequest)).effort).toBeUndefined();
+      expect(
+        (await latestCheckpoint(seeded.chat.id))?.usage,
+      ).not.toHaveProperty('effort');
+    });
+
+    it.each([
+      {
+        name: 'answers with a tool call despite toolChoice none',
+        summary: {
+          toolCalls: [
+            { toolName: 'search_conversations', input: { query: 'x' } },
+          ],
+        },
+      },
+      { name: 'comes back empty', summary: { response: '' } },
+      {
+        name: 'fails at the provider',
+        summary: { error: new Error('provider unavailable') },
+      },
+    ])(
+      'proceeds on the full request without a checkpoint when the summary $name',
+      async ({ summary }) => {
+        const seeded = await seedSwitch({ switchMarker: false });
+        const calls: Array<ModelStreamInput> = [];
+
+        const result = await runService(
+          createCompactionService(unexercisedModels),
+        ).executeRun(
+          requestFor(
+            turnOf(seeded),
+            attemptClient({ calls, summary, compactionThresholdTokens: 1 }),
+          ),
+        );
+        await result.consumeStream?.();
+
+        // The summary tool declarations were schema-only: no executor ran.
+        const summaryRequest = sole(calls.filter(isSummaryRequest));
+        for (const tool of Object.values(summaryRequest.tools ?? {})) {
+          expect(tool.execute).toBeUndefined();
+        }
+        const targetRequest = sole(
+          calls.filter((call) => !isSummaryRequest(call)),
+        );
+        expect(contentText(targetRequest.messages[0].content)).toBe(
+          OLD_REQUEST,
+        );
+        expect(JSON.stringify(targetRequest.messages)).not.toContain(
+          COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
+        );
+        const state = await readTurnState(turnOf(seeded));
+        expect(state.checkpoints).toHaveLength(0);
+        expect(state.run?.status).toBe('completed');
+        expect(
+          state.events.filter((event) => event.eventType.startsWith('tool.')),
+        ).toEqual([]);
+        // Nothing published, so the first pass's prompt is the attempt's own.
+        expect(sole(state.receipts).systemPrompt).toBe(targetRequest.system);
+      },
     );
 
-    const checkpoint = await tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(seeded.chat.id, userId),
-    );
-    expect(checkpoint?.uptoSeq).toBeLessThan(seeded.targetUser.seq);
-    expect(checkpoint?.summary).toBe(summary);
-    expect(replacementToolParts(checkpoint?.replacementHistory ?? [])).toEqual([
+    it.each([
       {
+        name: 'sharing was disabled before the checkpoint',
+        sharing: false,
+        recencyDigest: undefined,
+      },
+      {
+        name: 'digest resolution fails during the checkpoint',
+        sharing: true,
+        recencyDigest: {
+          resolveCandidate: () =>
+            Promise.reject(new Error('candidate unavailable')),
+        },
+      },
+    ])(
+      'publishes the checkpoint but keeps the bound digest when $name',
+      async ({ sharing, recencyDigest }) => {
+        const seeded = await seedSwitch({ switchMarker: false });
+        const told = [
+          {
+            chatId: '00000000-0000-4000-8000-0000000000a2',
+            pinned: false,
+            title: 'Previously shared source',
+          },
+        ];
+        await tenantDb.runAs(userId, (tx) =>
+          new ChatsRepository(tx).setRecencyDigestIfAbsent(
+            seeded.chat.id,
+            userId,
+            STALE_DIGEST,
+            told,
+          ),
+        );
+        await new MemoryService(tenantDb).updateForOwner(userId, {
+          shareRecentChats: sharing,
+        });
+
+        // The attempt's model never answers, so only the publication ran.
+        await runService(createCompactionService(unexercisedModels), {
+          ...(recencyDigest !== undefined && { recencyDigest }),
+        }).executeRun(
+          requestFor(
+            turnOf(seeded),
+            attemptClient({
+              calls: [],
+              answer: null,
+              compactionThresholdTokens: 1,
+            }),
+          ),
+        );
+
+        const state = await readTurnState(turnOf(seeded));
+        expect(state.checkpoints).toHaveLength(1);
+        expect(state.chat?.recencyDigestBaseline).toEqual(STALE_DIGEST);
+        expect(state.chat?.recencyDigestTold).toEqual(told);
+        expect(state.chat?.recencyDigestRebakedFrom).toBeNull();
+      },
+    );
+
+    it('carries cleared replacement records from one checkpoint into the next', async () => {
+      const chat = await seedHistory(2, true);
+      const service = runService(createCompactionService(unexercisedModels));
+      const calls: Array<ModelStreamInput> = [];
+
+      const firstTurn = await addTurn(chat.id, 'request-2');
+      const first = await service.executeRun(
+        requestFor(
+          firstTurn,
+          attemptClient({
+            calls,
+            summary: { response: 'FIRST SUMMARY' },
+            answer: 'answer-2',
+            compactionThresholdTokens: 1,
+          }),
+        ),
+      );
+      await first.consumeStream?.();
+      const firstCheckpoint = await latestCheckpoint(chat.id);
+
+      expect(firstCheckpoint?.uptoSeq).toBe(firstTurn.user.seq - 1);
+      expect(firstCheckpoint?.replacementHistory[0]).toMatchObject({
+        role: 'user',
+        parts: [{ type: 'text' }],
+      });
+      expect(firstCheckpoint?.replacementHistory[0]?.parts[0]).toMatchObject({
+        text: expect.stringContaining('FIRST SUMMARY'),
+      });
+      const clearedRecords = [0, 1].map((index) => ({
         type: 'tool-search_conversations',
-        toolCallId: 'transition-tool-call',
+        toolCallId: `history-call-${index}`,
         state: 'output-available',
         input: {},
-        output: expect.stringContaining('Outcome: timeout'),
-        outcome: 'timeout',
-      },
-    ]);
-    await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
-  });
+        output: expect.stringContaining('Outcome: success'),
+        outcome: 'success',
+      }));
+      expect(
+        replacementToolParts(firstCheckpoint?.replacementHistory ?? []),
+      ).toEqual(clearedRecords);
+      expect(JSON.stringify(firstCheckpoint?.replacementHistory)).not.toContain(
+        'PRIVATE-PAYLOAD',
+      );
+      // The summary request itself read the raw observations, and never the
+      // turn that triggered it.
+      const firstRequest = JSON.stringify(
+        calls.find(isSummaryRequest)?.messages,
+      );
+      expect(firstRequest).toContain('PRIVATE-PAYLOAD-0');
+      expect(firstRequest).toContain('PRIVATE-PAYLOAD-1');
+      expect(firstRequest).not.toContain('request-2');
 
-  it('settles a cancel requested before the claim without spending on transition compaction', async () => {
-    const seeded = await seedSwitch();
-    const sourceCalls: Array<ModelStreamInput> = [];
-    const targetCalls: Array<ModelStreamInput> = [];
-    const compaction = createCompactionService({
-      createClient: vi.fn(() =>
-        compactionClient({ model: 'source-model', calls: sourceCalls }),
-      ),
-    });
-    const targetDelegate = createFakeModelClient(['must not run'], 1000);
-    const targetClient: ModelClient = {
-      ...targetDelegate,
-      model: 'target-model',
-      streamText(input) {
-        targetCalls.push(input);
-        return targetDelegate.streamText(input);
-      },
-    };
-
-    await tenantDb.runAs(userId, (tx) =>
-      new RunsRepository(tx).requestCancel(seeded.targetRun.id, userId),
-    );
-
-    await expect(
-      runService(compaction).executeRun({
-        runId: seeded.targetRun.id,
-        chatId: seeded.chat.id,
-        userId,
-        userMessage: {
-          id: seeded.targetUser.id,
-          seq: seeded.targetUser.seq,
-          parts: seeded.targetUserParts,
-        },
-        client: targetClient,
-      }),
-    ).rejects.toBeInstanceOf(RunNotRunnableError);
-
-    expect(sourceCalls).toHaveLength(0);
-    expect(targetCalls).toHaveLength(0);
-    const settled = await tenantDb.runAs(userId, async (tx: Db) => ({
-      run: await new RunsRepository(tx).findById(seeded.targetRun.id, userId),
-      events: await new RunEventsRepository(tx).listByRunId(
-        seeded.targetRun.id,
-        userId,
-      ),
-    }));
-    expect(settled.run?.status).toBe('cancelled');
-    expect(settled.events.map((event) => event.eventType)).toEqual([
-      'run.cancelled',
-    ]);
-    await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
-  });
-
-  it('aborts in-flight transition compaction and settles the claimed run as expired', async () => {
-    const seeded = await seedSwitch();
-    const sourceCalls: Array<ModelStreamInput> = [];
-    const targetCalls: Array<ModelStreamInput> = [];
-    let sourceStarted!: () => void;
-    const sourceStartedPromise = new Promise<void>((resolve) => {
-      sourceStarted = resolve;
-    });
-    const summaryPromise = new Promise<string>(() => undefined);
-    const sourceClient = compactionClient({
-      model: 'source-model',
-      calls: sourceCalls,
-      response: summaryPromise,
-      onStart: sourceStarted,
-    });
-    const compaction = createCompactionService({
-      createClient: vi.fn(() => sourceClient),
-    });
-    const targetDelegate = createFakeModelClient(['must not run'], 1000);
-    const targetClient: ModelClient = {
-      ...targetDelegate,
-      model: 'target-model',
-      streamText(input) {
-        targetCalls.push(input);
-        return targetDelegate.streamText(input);
-      },
-    };
-    const abort = new AbortController();
-
-    const execution = runService(compaction).executeRun({
-      runId: seeded.targetRun.id,
-      chatId: seeded.chat.id,
-      userId,
-      userMessage: {
-        id: seeded.targetUser.id,
-        seq: seeded.targetUser.seq,
-        parts: seeded.targetUserParts,
-      },
-      client: targetClient,
-      abortSignal: abort.signal,
-    });
-    await sourceStartedPromise;
-    abort.abort(RUN_TIMEOUT_ABORT_REASON);
-
-    await expect(execution).rejects.toBeInstanceOf(RunNotRunnableError);
-    expect(sourceCalls[0]?.abortSignal).toBe(abort.signal);
-    expect(targetCalls).toHaveLength(0);
-    const settled = await tenantDb.runAs(userId, async (tx: Db) => ({
-      run: await new RunsRepository(tx).findById(seeded.targetRun.id, userId),
-      events: await new RunEventsRepository(tx).listByRunId(
-        seeded.targetRun.id,
-        userId,
-      ),
-      checkpoint: await new CompactionsRepository(tx).findLatestByChatId(
-        seeded.chat.id,
-        userId,
-      ),
-    }));
-    expect(settled.run?.status).toBe('expired');
-    expect(settled.events.map((event) => event.eventType)).toEqual([
-      'run.started',
-      'run.expired',
-    ]);
-    expect(settled.checkpoint).toBeUndefined();
-    await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
-  });
-
-  it('uses a concurrently won checkpoint instead of failing the target run', async () => {
-    const seeded = await seedSwitch();
-    const targetCalls: Array<ModelStreamInput> = [];
-    let resolveSummary!: (summary: string) => void;
-    let sourceStarted!: () => void;
-    const sourceStartedPromise = new Promise<void>((resolve) => {
-      sourceStarted = resolve;
-    });
-    const summaryPromise = new Promise<string>((resolve) => {
-      resolveSummary = resolve;
-    });
-    const sourceClient = compactionClient({
-      model: 'source-model',
-      calls: [],
-      response: summaryPromise,
-      onStart: sourceStarted,
-    });
-    const compaction = createCompactionService({
-      createClient: vi.fn(() => sourceClient),
-    });
-    const targetDelegate = createFakeModelClient(['target response'], 1000);
-    const targetClient: ModelClient = {
-      ...targetDelegate,
-      model: 'target-model',
-      streamText(input) {
-        targetCalls.push(input);
-        return targetDelegate.streamText(input);
-      },
-    };
-
-    const execution = runService(compaction).executeRun({
-      runId: seeded.targetRun.id,
-      chatId: seeded.chat.id,
-      userId,
-      userMessage: {
-        id: seeded.targetUser.id,
-        seq: seeded.targetUser.seq,
-        parts: seeded.targetUserParts,
-      },
-      client: targetClient,
-    });
-    await sourceStartedPromise;
-    const concurrentSummary = '## Objective\nUse the newer checkpoint.';
-    await tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).create({
-        chatId: seeded.chat.id,
-        uptoSeq: seeded.targetUser.seq - 1,
-        summary: concurrentSummary,
-        replacementHistory: replacementHistoryFor(concurrentSummary),
-      }),
-    );
-    resolveSummary('## Objective\nDiscard this stale summary.');
-
-    const result = await execution;
-    await result.consumeStream?.();
-
-    expect(targetCalls).toHaveLength(1);
-    expect(targetCalls[0]?.messages[0].role).toBe('user');
-    expect(contentText(targetCalls[0]?.messages[0].content ?? '')).toContain(
-      concurrentSummary,
-    );
-    const settled = await tenantDb.runAs(userId, async (tx: Db) => ({
-      run: await new RunsRepository(tx).findById(seeded.targetRun.id, userId),
-      checkpoint: await new CompactionsRepository(tx).findLatestByChatId(
-        seeded.chat.id,
-        userId,
-      ),
-    }));
-    expect(settled.run?.status).toBe('completed');
-    expect(settled.checkpoint?.summary).toBe(concurrentSummary);
-    await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
-  });
-
-  it('persists the transition cutoff when a concurrent checkpoint is too early for the target', async () => {
-    const seeded = await seedSwitch();
-    const targetCalls: Array<ModelStreamInput> = [];
-    let resolveSummary!: (summary: string) => void;
-    let sourceStarted!: () => void;
-    const sourceStartedPromise = new Promise<void>((resolve) => {
-      sourceStarted = resolve;
-    });
-    const summaryPromise = new Promise<string>((resolve) => {
-      resolveSummary = resolve;
-    });
-    const sourceClient = compactionClient({
-      model: 'source-model',
-      calls: [],
-      response: summaryPromise,
-      onStart: sourceStarted,
-    });
-    const compaction = createCompactionService({
-      createClient: vi.fn(() => sourceClient),
-    });
-    const targetDelegate = createFakeModelClient(['target response'], 1000);
-    const targetClient: ModelClient = {
-      ...targetDelegate,
-      model: 'target-model',
-      streamText(input) {
-        targetCalls.push(input);
-        return targetDelegate.streamText(input);
-      },
-    };
-
-    const execution = runService(compaction).executeRun({
-      runId: seeded.targetRun.id,
-      chatId: seeded.chat.id,
-      userId,
-      userMessage: {
-        id: seeded.targetUser.id,
-        seq: seeded.targetUser.seq,
-        parts: seeded.targetUserParts,
-      },
-      client: targetClient,
-    });
-    await sourceStartedPromise;
-    await tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).create({
-        chatId: seeded.chat.id,
-        // Mirrors an ordinary checkpoint retaining the latest assistant turn.
-        uptoSeq: seeded.targetUser.seq - 2,
-        summary: '## Objective\nOrdinary checkpoint is not far enough.',
-        replacementHistory: replacementHistoryFor(
-          '## Objective\nOrdinary checkpoint is not far enough.',
-        ),
-      }),
-    );
-    const transitionSummary =
-      '## Objective\nUse the complete transition checkpoint.';
-    resolveSummary(transitionSummary);
-
-    const result = await execution;
-    await result.consumeStream?.();
-
-    expect(targetCalls).toHaveLength(1);
-    expect(targetCalls[0]?.messages[0].role).toBe('user');
-    expect(contentText(targetCalls[0]?.messages[0].content ?? '')).toContain(
-      transitionSummary,
-    );
-    const checkpoint = await tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(seeded.chat.id, userId),
-    );
-    expect(checkpoint?.uptoSeq).toBe(seeded.targetUser.seq - 1);
-    expect(checkpoint?.summary).toBe(transitionSummary);
-    await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
-  });
-
-  it.each([
-    {
-      name: 'source model unavailable',
-      sourceRun: true,
-      models: {
-        createClient: vi.fn(() => {
-          throw new Error('gone');
-        }),
-      },
-    },
-    {
-      name: 'source compaction fails',
-      sourceRun: true,
-      models: {
-        createClient: vi.fn(() =>
-          compactionClient({
-            model: 'source-model',
-            calls: [],
-            error: new Error('compaction failed'),
+      const secondTurn = await addTurn(chat.id, 'request-3');
+      const second = await service.executeRun(
+        requestFor(
+          secondTurn,
+          attemptClient({
+            calls,
+            summary: { response: 'SECOND SUMMARY' },
+            compactionThresholdTokens: 1,
           }),
         ),
-      },
-    },
-    {
-      name: 'public-fork-like history has no owned source run',
-      sourceRun: false,
-      switchMarker: false,
-      models: { createClient: vi.fn() },
-    },
-    {
-      name: 'one transition summary still exceeds the target window',
-      sourceRun: true,
-      models: {
+      );
+      await second.consumeStream?.();
+      const secondCheckpoint = await latestCheckpoint(chat.id);
+
+      expect(secondCheckpoint?.parentId).toBe(firstCheckpoint?.id);
+      expect(secondCheckpoint?.uptoSeq).toBe(secondTurn.user.seq - 1);
+      expect(
+        replacementToolParts(secondCheckpoint?.replacementHistory ?? []),
+      ).toEqual(clearedRecords);
+      const secondRequest = JSON.stringify(
+        calls.filter(isSummaryRequest)[1]?.messages,
+      );
+      expect(secondRequest).toContain('FIRST SUMMARY');
+      expect(secondRequest).toContain('history-call-0');
+      expect(secondRequest).toContain('history-call-1');
+      expect(secondRequest).not.toContain('PRIVATE-PAYLOAD');
+      expect(secondRequest).toContain('request-2');
+      expect(secondRequest).toContain('answer-2');
+      expect(secondRequest).not.toContain('request-3');
+    });
+  });
+
+  describe('window trigger', () => {
+    // A9: the window variant reuses the SOURCE model and the SOURCE receipt's
+    // system prompt, so the source run's effort is the one whose cache is at
+    // stake. The incoming turn's effort is not part of that prefix, and was
+    // validated against a different model's declared levels entirely.
+    it('sends the source run effort on the window summary, not the incoming turn effort', async () => {
+      const seeded = await seedSwitch({
+        sourceEffort: 'high',
+        targetEffort: 'low',
+      });
+      const sourceCalls: Array<ModelStreamInput> = [];
+      const compaction = createCompactionService({
         createClient: vi.fn(() =>
           compactionClient({
-            model: 'source-model',
-            calls: [],
-            response: `## Objective\n${'z'.repeat(4000)}`,
+            model: SOURCE_MODEL,
+            calls: sourceCalls,
+            response: SUMMARY,
+            contextWindowTokens: 10_000,
           }),
         ),
-      },
-    },
-  ])(
-    'fails context_incompatible before target inference when $name',
-    async ({ sourceRun, switchMarker, models }) => {
-      const seeded = await seedSwitch({ sourceRun, switchMarker });
+      });
       const targetCalls: Array<ModelStreamInput> = [];
-      const target = createFakeModelClient(['must not run'], 1000);
-      const targetClient: ModelClient = {
-        ...target,
-        model: 'target-model',
-        streamText(input) {
-          targetCalls.push(input);
-          return target.streamText(input);
+
+      const result = await runService(compaction).executeRun(
+        requestFor(turnOf(seeded), windowTarget(targetCalls)),
+      );
+      await result.consumeStream?.();
+
+      expect(sole(sourceCalls).effort).toBe('high');
+      expect(sole(targetCalls).effort).toBe('low');
+      // The recorded effort must match what was actually sent, or the receipt
+      // would attribute this call's cost to the wrong level.
+      expect((await latestCheckpoint(seeded.chat.id))?.usage).toMatchObject({
+        effort: 'high',
+      });
+    });
+
+    it('uses the source run model and receipt for one window checkpoint before invoking the smaller target', async () => {
+      const seeded = await seedSwitch({ toolObservation: true });
+      const sourceCalls: Array<ModelStreamInput> = [];
+      const targetCalls: Array<ModelStreamInput> = [];
+      const sourceClient = compactionClient({
+        model: SOURCE_MODEL,
+        calls: sourceCalls,
+        response: SUMMARY,
+        contextWindowTokens: 10_000,
+      });
+      const createSourceClient = vi.fn(() => sourceClient);
+      const compaction = createCompactionService({
+        createClient: createSourceClient,
+      });
+      // Synthetic bound, sized to fit exactly one checkpoint plus the switch
+      // item and the live worker-admitted search declaration. The budget is
+      // deliberately below the un-compacted history, so this still exercises
+      // one checkpoint.
+      const result = await runService(compaction).executeRun(
+        requestFor(turnOf(seeded), windowTarget(targetCalls)),
+      );
+      await result.consumeStream?.();
+
+      const sourceRequest = sole(sourceCalls);
+      expect(createSourceClient).toHaveBeenCalledWith(SOURCE_MODEL);
+      expect(sourceRequest.system).toBe(seeded.sourceReceipt?.systemPrompt);
+      expect(sourceRequest.toolChoice).toBe('none');
+      expect(sourceRequest.tools).toBeUndefined();
+      expect(sourceRequest.messages.at(-1)).toEqual({
+        role: 'user',
+        content: TRANSITION_COMPACTION_INSTRUCTION,
+      });
+
+      // D7: a run whose source receipt carried personalization still compacts,
+      // the owner text is replayed VERBATIM (the prefix must stay byte-identical
+      // or the whole call goes cold), and the exclusion rides in the trailing
+      // instruction — the only part outside the cached prefix.
+      expect(sourceRequest.system).toContain('<user_personalization>');
+      expect(sourceRequest.system).toContain('Preferred name: Ana');
+      expect(sourceRequest.system).toContain('<user_chat_history>');
+      expect(sourceRequest.system).toContain('private excerpt');
+      expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
+        '<user_personalization>',
+      );
+      expect(TRANSITION_COMPACTION_INSTRUCTION).toMatch(
+        /do not carry any content out of/i,
+      );
+      expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
+        '<user_chat_history>',
+      );
+      expect(JSON.stringify(sourceRequest.messages)).not.toContain(
+        'CURRENT TRIGGER',
+      );
+      expect(JSON.stringify(sourceRequest.messages)).toContain(
+        'PRIVATE TRANSITION INPUT',
+      );
+
+      const targetRequest = sole(targetCalls);
+      // D5: compaction shares the turn's identity — literally the value the
+      // target turn's own request carried, not a re-derived lookalike.
+      expect(sourceRequest.chat).toStrictEqual(targetRequest.chat);
+      expect(targetRequest.chat).toStrictEqual({
+        id: seeded.chat.id,
+        lane: 'main',
+      });
+      expect(targetRequest.system).toBe('Test prompt: default');
+      expect(Object.keys(targetRequest.tools ?? {})).toEqual([
+        'search_conversations',
+      ]);
+      expect(targetRequest.messages[0]).toEqual({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: expect.stringMatching(
+              new RegExp(
+                `^${COMPACTION_CHECKPOINT_ENVELOPE_PREFIX.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}`,
+              ),
+            ),
+          },
+        ],
+      });
+      expect(contentText(targetRequest.messages[0].content)).toContain(SUMMARY);
+      const targetTrigger = targetRequest.messages.at(-1);
+      expect(targetTrigger?.role).toBe('user');
+      const targetTriggerText = contentText(targetTrigger?.content ?? '');
+      const stagedSwitch = seeded.switchPart;
+      if (stagedSwitch === undefined) {
+        throw new Error('Expected this turn to stage a model-change item');
+      }
+      expect(targetTriggerText).toContain(stagedSwitch.data.text);
+      expect(targetTriggerText).toContain('Message received:');
+      // The run-derived item names the model the catalog resolves for the
+      // target client (`executionModels` echoes the requested id through).
+      expect(targetTriggerText).toContain(
+        'You are now target-model (internal ID `target-model`, provider ID `target-model`).',
+      );
+      expect(targetTriggerText).toMatch(/CURRENT TRIGGER$/u);
+      expect(JSON.stringify(targetRequest)).not.toContain(
+        seeded.sourceReceipt?.systemPrompt ?? '',
+      );
+      expect(JSON.stringify(targetRequest.messages)).toContain(
+        'transition-tool-call',
+      );
+      expect(JSON.stringify(targetRequest.messages)).toContain(
+        'Outcome: timeout',
+      );
+      expect(JSON.stringify(targetRequest.messages)).not.toContain(
+        'PRIVATE TRANSITION INPUT',
+      );
+      expect(JSON.stringify(targetRequest.messages)).not.toContain(
+        'PRIVATE TRANSITION ERROR',
+      );
+
+      const state = await readTurnState(turnOf(seeded));
+      const checkpoint = sole(state.checkpoints);
+      expect(checkpoint.uptoSeq).toBe(seeded.targetUser.seq - 1);
+      expect(checkpoint.summary).toBe(SUMMARY);
+      expect(replacementToolParts(checkpoint.replacementHistory)).toEqual([
+        {
+          type: 'tool-search_conversations',
+          toolCallId: 'transition-tool-call',
+          state: 'output-available',
+          input: {},
+          output: expect.stringContaining('Outcome: timeout'),
+          outcome: 'timeout',
         },
-      };
+      ]);
+      // The one receipt is the prompt the target was actually sent, never the
+      // source run's.
+      expect(sole(state.receipts).systemPrompt).toBe(targetRequest.system);
+    });
+
+    it('takes the window variant for any request that does not fit, with no model switch staged', async () => {
+      const seeded = await seedSwitch({
+        sourceModel: TARGET_MODEL,
+        switchMarker: false,
+      });
+      const sourceCalls: Array<ModelStreamInput> = [];
+      const createSourceClient = vi.fn(() =>
+        compactionClient({
+          model: TARGET_MODEL,
+          calls: sourceCalls,
+          response: SUMMARY,
+          contextWindowTokens: 10_000,
+        }),
+      );
+      const targetCalls: Array<ModelStreamInput> = [];
+
+      const result = await runService(
+        createCompactionService({ createClient: createSourceClient }),
+      ).executeRun(requestFor(turnOf(seeded), windowTarget(targetCalls)));
+      await result.consumeStream?.();
+
+      expect(createSourceClient).toHaveBeenCalledWith(TARGET_MODEL);
+      expect(sole(sourceCalls).messages.at(-1)).toEqual({
+        role: 'user',
+        content: TRANSITION_COMPACTION_INSTRUCTION,
+      });
+      expect(sole(sourceCalls).system).toBe(seeded.sourceReceipt?.systemPrompt);
+      const targetRequest = sole(targetCalls);
+      expect(contentText(targetRequest.messages[0].content)).toContain(SUMMARY);
+      expect(
+        contentText(targetRequest.messages.at(-1)?.content ?? ''),
+      ).not.toContain('You are now');
+      expect((await latestCheckpoint(seeded.chat.id))?.summary).toBe(SUMMARY);
+    });
+
+    it('settles a cancel requested before the claim without spending on a summary', async () => {
+      const seeded = await seedSwitch();
+      const sourceCalls: Array<ModelStreamInput> = [];
+      const targetCalls: Array<ModelStreamInput> = [];
+      const compaction = createCompactionService({
+        createClient: vi.fn(() =>
+          compactionClient({ model: SOURCE_MODEL, calls: sourceCalls }),
+        ),
+      });
+
+      await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).requestCancel(seeded.targetRun.id, userId),
+      );
 
       await expect(
-        runService(createCompactionService(models)).executeRun({
-          runId: seeded.targetRun.id,
-          chatId: seeded.chat.id,
-          userId,
-          userMessage: {
-            id: seeded.targetUser.id,
-            seq: seeded.targetUser.seq,
-            parts: seeded.targetUserParts,
-          },
-          client: targetClient,
-        }),
-      ).rejects.toMatchObject({ code: 'context_incompatible' });
-
-      expect(targetCalls).toHaveLength(0);
-      const failed = await tenantDb.runAs(userId, async (tx: Db) => ({
-        run: await new RunsRepository(tx).findById(seeded.targetRun.id, userId),
-        events: await new RunEventsRepository(tx).listByRunId(
-          seeded.targetRun.id,
-          userId,
+        runService(compaction).executeRun(
+          requestFor(turnOf(seeded), windowTarget(targetCalls)),
         ),
-      }));
-      expect(failed.run?.status).toBe('failed');
-      expect(failed.run?.error).toMatchObject({ code: 'context_incompatible' });
-      expect(
-        failed.events.filter((event) => event.eventType === 'run.failed'),
-      ).toHaveLength(1);
-      await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;
-    },
-  );
+      ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+      expect(sourceCalls).toHaveLength(0);
+      expect(targetCalls).toHaveLength(0);
+      const settled = await readTurnState(turnOf(seeded));
+      expect(settled.run?.status).toBe('cancelled');
+      expect(settled.events.map((event) => event.eventType)).toEqual([
+        'run.cancelled',
+      ]);
+    });
+
+    it('aborts an in-flight window summary and settles the claimed run as expired', async () => {
+      const seeded = await seedSwitch();
+      const sourceCalls: Array<ModelStreamInput> = [];
+      const targetCalls: Array<ModelStreamInput> = [];
+      let sourceStarted!: () => void;
+      const sourceStartedPromise = new Promise<void>((resolve) => {
+        sourceStarted = resolve;
+      });
+      const sourceClient = compactionClient({
+        model: SOURCE_MODEL,
+        calls: sourceCalls,
+        response: new Promise<string>(() => undefined),
+        onStart: sourceStarted,
+      });
+      const compaction = createCompactionService({
+        createClient: vi.fn(() => sourceClient),
+      });
+      const abort = new AbortController();
+
+      const execution = runService(compaction).executeRun(
+        requestFor(turnOf(seeded), windowTarget(targetCalls), abort.signal),
+      );
+      await sourceStartedPromise;
+      abort.abort(RUN_TIMEOUT_ABORT_REASON);
+
+      await expect(execution).rejects.toBeInstanceOf(RunNotRunnableError);
+      expect(sourceCalls[0]?.abortSignal).toBe(abort.signal);
+      expect(targetCalls).toHaveLength(0);
+      const settled = await readTurnState(turnOf(seeded));
+      expect(settled.run?.status).toBe('expired');
+      expect(settled.events.map((event) => event.eventType)).toEqual([
+        'run.started',
+        'run.expired',
+      ]);
+      expect(settled.checkpoints).toHaveLength(0);
+    });
+
+    it('uses the checkpoint a concurrent attempt published at the same cutoff instead of its own summary', async () => {
+      const seeded = await seedSwitch();
+      const targetCalls: Array<ModelStreamInput> = [];
+      let resolveSummary!: (summary: string) => void;
+      let sourceStarted!: () => void;
+      const sourceStartedPromise = new Promise<void>((resolve) => {
+        sourceStarted = resolve;
+      });
+      const summaryPromise = new Promise<string>((resolve) => {
+        resolveSummary = resolve;
+      });
+      const sourceClient = compactionClient({
+        model: SOURCE_MODEL,
+        calls: [],
+        response: summaryPromise,
+        onStart: sourceStarted,
+      });
+      const compaction = createCompactionService({
+        createClient: vi.fn(() => sourceClient),
+      });
+
+      const execution = runService(compaction).executeRun(
+        requestFor(turnOf(seeded), windowTarget(targetCalls)),
+      );
+      await sourceStartedPromise;
+      const concurrentSummary = '## Objective\nUse the newer checkpoint.';
+      await tenantDb.runAs(userId, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: seeded.chat.id,
+          uptoSeq: seeded.targetUser.seq - 1,
+          summary: concurrentSummary,
+          replacementHistory: replacementHistoryFor(concurrentSummary),
+        }),
+      );
+      resolveSummary('## Objective\nDiscard this stale summary.');
+
+      const result = await execution;
+      await result.consumeStream?.();
+
+      const targetRequest = sole(targetCalls);
+      expect(targetRequest.messages[0].role).toBe('user');
+      expect(contentText(targetRequest.messages[0].content)).toContain(
+        concurrentSummary,
+      );
+      const settled = await readTurnState(turnOf(seeded));
+      expect(settled.run?.status).toBe('completed');
+      expect(sole(settled.checkpoints).summary).toBe(concurrentSummary);
+    });
+
+    it('publishes its own cutoff when a concurrent checkpoint covers less of the history', async () => {
+      const seeded = await seedSwitch();
+      const targetCalls: Array<ModelStreamInput> = [];
+      let resolveSummary!: (summary: string) => void;
+      let sourceStarted!: () => void;
+      const sourceStartedPromise = new Promise<void>((resolve) => {
+        sourceStarted = resolve;
+      });
+      const summaryPromise = new Promise<string>((resolve) => {
+        resolveSummary = resolve;
+      });
+      const sourceClient = compactionClient({
+        model: SOURCE_MODEL,
+        calls: [],
+        response: summaryPromise,
+        onStart: sourceStarted,
+      });
+      const compaction = createCompactionService({
+        createClient: vi.fn(() => sourceClient),
+      });
+
+      const execution = runService(compaction).executeRun(
+        requestFor(turnOf(seeded), windowTarget(targetCalls)),
+      );
+      await sourceStartedPromise;
+      await tenantDb.runAs(userId, (tx) =>
+        new CompactionsRepository(tx).create({
+          chatId: seeded.chat.id,
+          // Absorbs the old request but not the assistant turn that answered it.
+          uptoSeq: seeded.targetUser.seq - 2,
+          summary: '## Objective\nOrdinary checkpoint is not far enough.',
+          replacementHistory: replacementHistoryFor(
+            '## Objective\nOrdinary checkpoint is not far enough.',
+          ),
+        }),
+      );
+      const windowSummary = '## Objective\nUse the complete window checkpoint.';
+      resolveSummary(windowSummary);
+
+      const result = await execution;
+      await result.consumeStream?.();
+
+      const targetRequest = sole(targetCalls);
+      expect(targetRequest.messages[0].role).toBe('user');
+      expect(contentText(targetRequest.messages[0].content)).toContain(
+        windowSummary,
+      );
+      const checkpoint = await latestCheckpoint(seeded.chat.id);
+      expect(checkpoint?.uptoSeq).toBe(seeded.targetUser.seq - 1);
+      expect(checkpoint?.summary).toBe(windowSummary);
+    });
+
+    it.each([
+      {
+        name: 'the source model is unavailable',
+        sourceRun: true,
+        published: false,
+        models: {
+          createClient: vi.fn(() => {
+            throw new Error('gone');
+          }),
+        },
+      },
+      {
+        name: 'the source summary fails',
+        sourceRun: true,
+        published: false,
+        models: {
+          createClient: vi.fn(() =>
+            compactionClient({
+              model: SOURCE_MODEL,
+              calls: [],
+              error: new Error('compaction failed'),
+            }),
+          ),
+        },
+      },
+      {
+        name: 'the source summary is empty',
+        sourceRun: true,
+        published: false,
+        models: {
+          createClient: vi.fn(() =>
+            compactionClient({ model: SOURCE_MODEL, calls: [], response: '' }),
+          ),
+        },
+      },
+      {
+        name: 'the source answers with a tool call despite toolChoice none',
+        sourceRun: true,
+        published: false,
+        models: {
+          createClient: vi.fn(() =>
+            compactionClient({
+              model: SOURCE_MODEL,
+              calls: [],
+              toolCalls: [{ toolName: 'search_conversations', input: {} }],
+            }),
+          ),
+        },
+      },
+      {
+        name: 'the source model cannot fit the history either',
+        sourceRun: true,
+        published: false,
+        models: {
+          createClient: vi.fn(() =>
+            compactionClient({
+              model: SOURCE_MODEL,
+              calls: [],
+              contextWindowTokens: 100,
+            }),
+          ),
+        },
+      },
+      {
+        name: 'no previous completed run can summarize the history',
+        sourceRun: false,
+        published: false,
+        models: { createClient: vi.fn() },
+      },
+      {
+        name: 'one summary still exceeds the target window',
+        sourceRun: true,
+        published: true,
+        models: {
+          createClient: vi.fn(() =>
+            compactionClient({
+              model: SOURCE_MODEL,
+              calls: [],
+              response: `## Objective\n${'z'.repeat(4000)}`,
+            }),
+          ),
+        },
+      },
+    ])(
+      'fails context_incompatible before target inference when $name',
+      async ({ sourceRun, published, models }) => {
+        const seeded = await seedSwitch({ sourceRun, switchMarker: false });
+        const targetCalls: Array<ModelStreamInput> = [];
+
+        await expect(
+          runService(createCompactionService(models)).executeRun(
+            requestFor(turnOf(seeded), windowTarget(targetCalls)),
+          ),
+        ).rejects.toMatchObject({ code: 'context_incompatible' });
+
+        expect(targetCalls).toHaveLength(0);
+        const failed = await readTurnState(turnOf(seeded));
+        expect(failed.run?.status).toBe('failed');
+        expect(failed.run?.error).toMatchObject({
+          code: 'context_incompatible',
+        });
+        expect(
+          failed.events.filter((event) => event.eventType === 'run.failed'),
+        ).toHaveLength(1);
+        // A rejected summary persists nothing; a summary that was accepted
+        // stays published even though the request still does not fit.
+        expect(failed.checkpoints.length > 0).toBe(published);
+      },
+    );
+  });
 });

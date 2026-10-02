@@ -425,13 +425,17 @@ describeIfDb(
         dispatch,
       );
 
+      // The window variant is never exercised by this suite: every seeded turn
+      // fits this model, so a rejection catches a future scenario silently
+      // relying on it. The threshold variant resolves null, the summarizer's
+      // own "no checkpoint" answer.
       const noopCompaction: CompactionCapability = {
-        maybeCompact: async () => {},
-        compactForTransition: () => {
-          throw new Error(
-            'chat-loop integration compactForTransition is not exercised',
-          );
-        },
+        summarizeCheckpoint: (request) =>
+          request.variant === 'window'
+            ? Promise.reject(
+                new Error('chat-loop window summarization is not exercised'),
+              )
+            : Promise.resolve(null),
       };
       runExecution = new RunExecutionService(
         tenantDb,
