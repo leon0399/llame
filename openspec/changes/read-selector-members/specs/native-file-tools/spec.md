@@ -56,11 +56,15 @@ Results SHALL carry the logical locator, selected source, absolute `resolvedPath
 `read` SHALL accept trailing one-based inclusive range members `N`, `N-M`,
 `N+K`, `N-`, and `-K`, wherever a member is accepted: a bare single member
 such as `:N-M`, a comma-separated list under the multi-range requirement
-below, a `:raw:N-M` raw list, and the one optional source range after
+below, a `raw:` list, and the one optional source range after
 `outline` below, together with
-`:raw`. `N-` is the single line `N` through the source's last line and `-K` is
+`:raw`. The five members are one set: a `raw:` list accepts every member a
+bare list accepts, `N+K` included. `N-` is the single line `N` through the
+source's last line and `-K` is
 its last `K` lines. A `:<list>:raw` selector and the same list after `raw:`
-SHALL be one read, canonicalized at the split, and the canonical spelling is
+SHALL be one read on every source: the shape gate every source validates
+against admits both spellings, the applier reads them as the same `raw:`
+list, and the canonical spelling is
 the `raw:` one. It SHALL also accept the `outline`
 representation member with at most one optional source range, `:outline`,
 `:outline:N`, `:outline:N-M`, `:outline:N+K`, `:outline:N-`, or `:outline:-K`,
@@ -69,7 +73,11 @@ under the representation requirements below; a comma-separated list after
 valid selector SHALL be normalized once to
 internal zero-based ranges. A trailing suffix that splits off a locator which
 itself parses and lies outside the grammar SHALL fail with `invalid_selector`
-on every source, with a message naming the working forms; a malformed locator
+on every source, with one message that names the working forms — `:N`,
+`:N-M`, `:N+K`, `:N-`, `:-K`, comma lists of them, `:raw`, `:raw:<list>`,
+and `:outline` with one member — and, on a source that has an encoded
+spelling for a literal colon (`kb://` and web), the `%3A` spelling of the
+same locator after the forms; a malformed locator
 part remains `invalid_path`. The tool SHALL recognize a `scheme://` prefix before
 splitting a trailing selector, so a scheme's own colon is never read as a
 selector. For absolute paths, existing literal paths SHALL take precedence over
@@ -90,14 +98,19 @@ run, and those rules then apply to the resolved absolute ranges: `N-` resolves
 to `N..count` and `-K` to `max(1, count-K+1)..count`. That count is the line
 count of a regular file on host, `file://`, `kb://`, or `skill://`, obtained
 by counting the file's lines before the ordinary read whenever a selector
-carries an `N-` or `-K` member; the rendered line count of a web document; the
+carries an `N-` or `-K` member, after the source is admitted and found to be a
+regular file; the rendered line count of a web document; the
 requested-level entry count of a directory listing; or the entry count of the
 skill catalog. `requestedRange` and `requestedRanges` SHALL report the resolved
 absolute lines, which are the coordinates this read observed rather than a
 snapshot of the source. A `-K` with `K` greater than the count SHALL resolve to
-`1..count`, `-0` SHALL fail with `invalid_selector`, an `N-` whose start lies
-past the last line SHALL fail under the ordinary start-past-the-end rule, and an
-empty source SHALL keep the empty result.
+`1..count` and `-0` SHALL fail with `invalid_selector`. An `N-` whose `N` lies
+past the last line resolves to an empty member and then follows the shipped
+past-the-end rules of its source: on a regular file or web render it fails
+with `invalid_selector` when it is the first requested start and emits nothing
+when a later member of a list; on a listing or the catalog it returns the empty
+page those sources return today. An empty source returns the empty result for
+`-K` and `1-`, and any other `N-` fails as a start past the last line does.
 
 For an ordinary ranged read of a `text/markdown` source, `content` SHALL also prepend the direct ancestor heading lines for the passage's first requested line, as specified by the ranged Markdown ancestor requirement.
 For single-range reads, result
@@ -114,9 +127,9 @@ identify the source line of the first omitted entry. Raw reads SHALL return verb
 selected source content without generated line prefixes, context expansion, or
 processors. `:outline:raw` and `:raw:outline` are not representation members:
 host and web keep their raw interpretation of `:outline:raw` as a path or URL
-ending in `:outline`, because their literal-path precedence admits that file or
-URL before the suffix is judged, while `kb://` and `skill://`, which split an
-unambiguous locator without probing, return `invalid_selector` for
+ending in `:outline`, because their split recognizes the trailing `:raw` first
+and leaves `:outline` on the path, while `kb://` and `skill://`, which split
+once at the first colon, return `invalid_selector` for
 `:outline:raw`, and any source given `:raw:outline`, whose remainder is outside
 the grammar, returns `invalid_selector`. Directory reads SHALL apply single-range selectors to listing entries under the
 directory listing requirements and SHALL NOT add context lines; an outline
@@ -189,14 +202,14 @@ than reinterpret listing text.
 
 #### Scenario: Both raw orders are the same read
 
-- **WHEN** the model reads `guide.md:raw:60-64` and `guide.md:60-64:raw` of the same file
-- **THEN** both return lines 60 through 64 verbatim with the same range metadata
+- **WHEN** the model reads `guide.md:raw:60-64` and `guide.md:60-64:raw` of the same file, or `kb://<id>/guide.md:60-64:raw` and `skill://<name>:60-64:raw`
+- **THEN** each pair returns lines 60 through 64 verbatim with the same range metadata, because the shape gate every source validates against admits both spellings
 - **AND** a file literally named `guide.md:60-64:raw` still wins the host literal-path probe
 
 #### Scenario: A malformed suffix names the working forms on every source
 
 - **WHEN** the model reads `kb://<id>/notes/a:b.md`, whose split-off suffix `b.md` lies outside the grammar
-- **THEN** the tool returns `invalid_selector` with a message naming the working forms, as host and web already do
+- **THEN** the tool returns `invalid_selector` with the one message that names the working forms, followed on `kb://` by the `%3A` spelling `kb://<id>/notes/a%3Ab.md`
 - **AND** a malformed locator part, such as an undecodable segment, remains `invalid_path`
 
 #### Scenario: A listing and the catalog read their tails
@@ -209,8 +222,10 @@ than reinterpret listing text.
 
 A regular-file `read` SHALL accept two or more comma-separated `N-M`, `N+K`,
 `N-`, or `-K` ranges, or `raw:` followed by two or more comma-separated ranges
-of those members. `N-` and `-K` are resolved against the file's line count
-before the sort and merge below, exactly as a bare selector resolves them.
+of those same members, `N+K` included. `N-` and `-K` are resolved against the
+file's line count before the sort and merge below, exactly as a bare selector
+resolves them, and a resolved empty `N-` member fails only when it is the
+first requested start.
 Every bound SHALL satisfy the existing positive safe-integer rules. Invalid
 bounds and more than 64 input ranges SHALL fail with `invalid_selector`. Empty
 members, whitespace, or malformed members SHALL fail the whole request with
@@ -497,7 +512,7 @@ An adapter target is another derived locator and SHALL be admitted in its own ri
 
 Because the text requested is no longer always the text submitted, the
 permission decision SHALL be taken over both: any reject clause matching
-either the submitted locator or its normalized form SHALL refuse the call, so
+either the submitted locator with its read selector removed or its normalized form SHALL refuse the call, so
 a spelling cannot be arranged to miss a reject, while the allow SHALL be
 decided on the normalized form, because an allow names the resource the call
 will reach and the two texts are one resource. A redirect hop is a different
@@ -526,7 +541,7 @@ colon of a pathless locator opens its port: `https://example.test:88` is port
 A literal colon in the last path segment of a query-free locator SHALL be
 written as `%3A` (`https://w.example/wiki/Special%3ASearch`), because a
 trailing colon is always read as a selector split and the shipped grammar
-admits `raw`, `raw:N`, `raw:N-M`, `N`, `N-M`, `N+K`, `N-`, `-K`, comma lists of
+admits `raw`, `raw:<list>`, `N`, `N-M`, `N+K`, `N-`, `-K`, comma lists of
 those, `outline`, `outline:N`, `outline:N-M`, `outline:N+K`, `outline:N-`, and
 `outline:-K`, with `:<list>:raw` the same read as `:raw:<list>`: `Search`
 is outside it, so `https://w.example/wiki/Special:Search`
@@ -545,7 +560,7 @@ selector (`https://example.test/:1-5`); a port that is not a number
 (`https://example.test:abc/`) SHALL be answered by naming that rule and the
 same locator without a port, rather than by the generic message, since the
 locator is absolute and only its port is broken; a suffix that meant a line the
-grammar cannot serve (`:12+`) SHALL be answered with the line forms, `N-` and
+grammar cannot serve (`:12+`), or any other suffix outside it (`Search`), SHALL be answered with the forms, `N-` and
 `-K` included, first and the literal colon's encoding second; and a selector
 the render could not
 serve — past its end, or with no line in it — SHALL be answered with the
@@ -615,7 +630,7 @@ it.
 - **WHEN** the model reads `https://example.test:1-5`, which no URL parser accepts because `1-5` is not a port
 - **THEN** the read returns `invalid_path` naming `https://example.test/:1-5`, and resubmitting that reads lines 1 through 5 of the page
 - **AND** reading `https://example.test/guide:12+` returns `invalid_selector` naming the `:N`, `:N-M`, `:N+K`, `:N-`, and `:-K` forms before the `%3A` spelling, while `https://example.test/guide:12-` reads line 12 through the render's last line
-- **AND** a suffix outside the grammar with no line number in it, such as `https://w.example/wiki/Special:Search`, still names only the encoded spelling
+- **AND** a suffix outside the grammar with no line number in it, such as `https://w.example/wiki/Special:Search`, names the same forms and then the encoded spelling
 
 #### Scenario: A selector the page cannot serve reports the page's length
 
