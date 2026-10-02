@@ -321,15 +321,22 @@ describe('parseWebLocator', () => {
       '5',
       '5-9',
       '5+3',
+      '5-',
+      '-5',
       '1-2,4+1',
+      '1-2,-4',
       'raw:5',
       'raw:5-9',
       'raw:1-2,4-5',
+      'raw:5+3',
+      'raw:-5',
+      '5-9:raw',
       'outline:5',
       'outline:5-9',
       'outline:5+3',
+      'outline:-5',
     ];
-    const unnamed = ['raw:5+3', 'outline:1,3'];
+    const unnamed = ['outline:1,3', 'nonsense', '-', '1--2'];
     expect(named.filter((selector) => !isSelectorSuffix(selector))).toEqual([]);
     expect(unnamed.filter((selector) => isSelectorSuffix(selector))).toEqual(
       [],
