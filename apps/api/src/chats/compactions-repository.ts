@@ -26,6 +26,34 @@ export class CompactionsRepository {
   constructor(private readonly db: Db) {}
 
   /**
+   * The compaction a chat published at one exact absorbed-through sequence, or
+   * undefined when that cutoff is still free. Publication takes the chat row
+   * lock before this read, so an answer here means the checkpoint is already
+   * standing and its epoch state was re-baked by whoever published it.
+   * Owner-scoped as defense-in-depth, mirroring `findLatestByChatId`.
+   */
+  async findByCutoff(
+    chatId: string,
+    ownerUserId: string,
+    uptoSeq: number,
+  ): Promise<Compaction | undefined> {
+    const rows = await this.db
+      .select()
+      .from(compactions)
+      .innerJoin(chats, eq(compactions.chatId, chats.id))
+      .where(
+        and(
+          eq(compactions.chatId, chatId),
+          eq(compactions.uptoSeq, uptoSeq),
+          eq(chats.ownerUserId, ownerUserId),
+        ),
+      )
+      .limit(1);
+
+    return rows.map((row) => row.compactions)[0];
+  }
+
+  /**
    * Latest compaction for a chat (highest uptoSeq), optionally bounded by an
    * inclusive maximum, or undefined when the chat has never compacted. The
    * existing `beforeSeq` option remains an exclusive bound for callers walking
@@ -101,6 +129,11 @@ export class CompactionsRepository {
    * `compactions_owner` policy's implicit WITH CHECK rejects an insert whose
    * chat_id is not owned by the current app.current_user_id.
    *
+   * Publication is idempotent per (chat, absorbed-through sequence): the unique
+   * index on that pair makes a second publication of the same cutoff a no-op,
+   * and the surviving row is returned so a publication that lost the race
+   * continues on the checkpoint that won it instead of raising.
+   *
    * `id` and `createdAt` exist for the owner fork (complete-owner-forks D2),
    * which copies a source row's identity and time verbatim. Both stay optional
    * so recording a fresh compaction still lets the database mint them.
@@ -120,35 +153,33 @@ export class CompactionsRepository {
     const [created] = await this.db
       .insert(compactions)
       .values(compactionInsertValues(input))
-      .returning();
-
-    return created;
-  }
-
-  /**
-   * Record a compaction only when no peer already owns the same chat/cutoff.
-   * Used by transition compaction after its model call, where duplicate job
-   * delivery may legitimately race on the unique cutoff.
-   */
-  async createIfCutoffAbsent(input: {
-    chatId: string;
-    uptoSeq: number;
-    parentId?: string | null;
-    summary: string;
-    replacementHistory: Array<CompactionReplacementMessage>;
-    usage?: unknown;
-  }): Promise<Compaction | undefined> {
-    assertCompactionWrite(input.summary, input.replacementHistory);
-
-    const [created] = await this.db
-      .insert(compactions)
-      .values(compactionInsertValues(input))
       .onConflictDoNothing({
         target: [compactions.chatId, compactions.uptoSeq],
       })
       .returning();
+    if (created !== undefined) {
+      return created;
+    }
 
-    return created;
+    // The conflicting row is the one this chat already published at this
+    // cutoff, so it is selected by that pair alone; RLS remains the isolation
+    // guarantee for the read, exactly as it is for the insert above.
+    const [surviving] = await this.db
+      .select({ compactions })
+      .from(compactions)
+      .where(
+        and(
+          eq(compactions.chatId, input.chatId),
+          eq(compactions.uptoSeq, input.uptoSeq),
+        ),
+      )
+      .limit(1);
+    if (surviving === undefined) {
+      throw new Error(
+        `Compaction for chat ${input.chatId} up to seq ${input.uptoSeq} vanished after a conflicting insert.`,
+      );
+    }
+    return surviving.compactions;
   }
 }
 

@@ -56,24 +56,6 @@ const d = enabled ? describe : describe.skip;
 const evalModelId =
   process.env.DEFAULT_MODEL_ID?.trim() || 'system:openai:gpt-5.4-mini';
 
-// A real model call (plus a compaction call) sits behind each turn.
-
-async function waitFor<T>(
-  poll: () => Promise<T | undefined>,
-  timeoutMs: number,
-  what: string,
-): Promise<T> {
-  const started = Date.now();
-  for (;;) {
-    const value = await poll();
-    if (value !== undefined) return value;
-    if (Date.now() - started > timeoutMs) {
-      throw new Error(`Timed out after ${timeoutMs}ms waiting for ${what}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-}
-
 d('Q&A harness evals (#58) — real model, real loop', () => {
   let app: INestApplication<import('http').Server>;
   let http: import('http').Server;
@@ -169,9 +151,11 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
         'Reply with a one-sentence acknowledgement.',
     );
 
-    // Filler turns push the live window past the 300-token threshold; compaction
-    // keeps the most recent 8 messages verbatim, so the codename turn is absorbed
-    // into the summary once enough turns exist (each turn = 2 messages).
+    // Filler turns push the conversation past the 300-token threshold. Every
+    // turn weighs the conversation BEFORE its first model request, so the first
+    // turn that finds it over the threshold summarizes every row committed
+    // before its own message — the codename turn included — and publishes the
+    // checkpoint inside that same turn.
     //
     // Each filler carries a fixed ~800-char inert payload so the window size is
     // deterministic regardless of how tersely the model replies — a first run of
@@ -193,12 +177,14 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
       );
     }
 
-    // Compaction is post-turn and fire-and-forget — poll for the lineage row.
-    const compaction = await waitFor(
-      () => latestCompaction(chatId),
-      60_000,
-      'a compactions row (did the threshold trigger?)',
-    );
+    // The checkpoint is written before the model's first request of the turn
+    // whose trigger fired, so it is already there once the filler turns return.
+    const compaction = await latestCompaction(chatId);
+    if (compaction === undefined) {
+      throw new Error(
+        'Expected a compactions row (did the threshold trigger?)',
+      );
+    }
     // Auditable lineage: the row records what it superseded.
     expect(compaction.uptoSeq).toBeGreaterThan(0);
     expect(compaction.summary.length).toBeGreaterThan(0);

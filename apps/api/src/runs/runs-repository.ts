@@ -35,6 +35,18 @@ import {
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 
+/**
+ * A completed run paired with the sequence of the user message that triggered
+ * it. The join that produces it requires that message to exist, so a run whose
+ * `messageId` was cleared by an anonymizing delete is absent from the lookup
+ * entirely — it has no comparable turn and therefore establishes neither a
+ * measurement nor a continuing epoch.
+ */
+export type CompletedRunWithTrigger = {
+  readonly run: Run;
+  readonly triggeringUserSeq: number;
+};
+
 type TerminalRunStatus = Extract<
   RunStatus,
   'completed' | 'failed' | 'cancelled' | 'expired'
@@ -135,9 +147,9 @@ export class RunsRepository {
     userId: string,
     options: { beforeSeq?: number } | undefined,
     ...extra: Array<SQL>
-  ): Promise<Run | undefined> {
+  ): Promise<CompletedRunWithTrigger | undefined> {
     const rows = await this.db
-      .select({ runs })
+      .select({ runs, triggeringSeq: messages.seq })
       .from(runs)
       .innerJoin(
         messages,
@@ -156,33 +168,44 @@ export class RunsRepository {
       .orderBy(desc(messages.seq), desc(runs.createdAt), desc(runs.id))
       .limit(1);
 
-    return rows[0]?.runs;
+    const row = rows[0];
+    return row === undefined
+      ? undefined
+      : { run: row.runs, triggeringUserSeq: row.triggeringSeq };
   }
 
   /**
    * Most recent durable model selection by triggering-message sequence,
-   * optionally bounded to triggering messages strictly before `beforeSeq`
-   * (transition compaction's source-run lookup). Status is intentionally
-   * irrelevant: failed runs still establish the user's previous selection.
+   * optionally bounded to triggering messages strictly before `beforeSeq`.
+   * Status is intentionally irrelevant: failed runs still establish the user's
+   * previous selection.
    */
   async findMostRecentByChatMessageSequence(
     chatId: string,
     userId: string,
     options?: { beforeSeq?: number },
   ): Promise<Run | undefined> {
-    return this.findMostRecentByMessageSequence(chatId, userId, options);
+    const found = await this.findMostRecentByMessageSequence(
+      chatId,
+      userId,
+      options,
+    );
+    return found?.run;
   }
 
   /**
-   * Most recent successfully completed run by triggering-message sequence.
-   * Unlike the general model-selection lookup, this excludes failed runs and
-   * requires the winning attempt link needed to read its system receipt.
+   * Most recent successfully completed run by triggering-message sequence, with
+   * the sequence of the turn it answered. Unlike the general model-selection
+   * lookup, this excludes failed runs and requires the winning attempt link
+   * needed to read its system receipt. Callers key epochs and measured sizes on
+   * `triggeringUserSeq` rather than on the reply's own row: a retried assistant
+   * row is rewritten in place and keeps its sequence.
    */
   async findMostRecentCompletedByChatMessageSequence(
     chatId: string,
     userId: string,
     options?: { beforeSeq?: number },
-  ): Promise<Run | undefined> {
+  ): Promise<CompletedRunWithTrigger | undefined> {
     return this.findMostRecentByMessageSequence(
       chatId,
       userId,
