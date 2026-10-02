@@ -202,13 +202,14 @@ async function executeSkill(
 }
 
 /**
- * The catalog listing pages with the native single-range selector, so it
- * accepts exactly the ranges a file read accepts — including the inclusive
- * `N-M` end and the `N+K` length — and rejects anything else. Anything the
- * grammar accepts but a listing cannot express (`:raw`, `:outline`, comma
- * multi-range) fails rather than silently answering with the first page.
- * `N-` and `+` operands are validated by the shared parser, so `:0-0` and
- * `:5-2` fail.
+ * The catalog listing pages with the native single-range selector, so this
+ * layer places one window against the catalog's entries: `:N`, `:N-M`, and
+ * `:N+K`, with the inclusive `N-M` end and the `N+K` length. The grammar also
+ * admits forms with no listing meaning here, and those are declined instead
+ * of answered with the first page: `:raw`, `:outline`, a comma list, and the
+ * end-relative `N-` and `-K` members, which a later change places against the
+ * catalog's entry count. Bounds the shared parser refuses -- `:0-0`, `:5-2`
+ * -- fail as an invalid selector.
  */
 function catalogWindow(
   selector: string | undefined,
@@ -217,7 +218,6 @@ function catalogWindow(
   let target: ReadTarget;
   try {
     target = applySelectorSuffix(SKILL_CATALOG_LOCATOR, selector);
-    assertResolvedTarget(target);
   } catch {
     return invalidCatalogSelectorResult(
       'The skill catalog selector is invalid.',
@@ -231,6 +231,16 @@ function catalogWindow(
   if (target.raw || target.ranges !== undefined) {
     return invalidCatalogSelectorResult(
       'The skill catalog accepts a single :N-M or :N+K range; comma ranges and :raw are not supported.',
+    );
+  }
+  // Checked after the two branches above so `:outline:5-` and `:raw:5-` keep
+  // naming what they ask for; a target still pending here would page from the
+  // first entry, which the request never named.
+  try {
+    assertResolvedTarget(target);
+  } catch {
+    return invalidCatalogSelectorResult(
+      'The skill catalog accepts a single :N-M or :N+K range; the end-relative N- and -K members are not placed against its entry count.',
     );
   }
   return target.limit === undefined

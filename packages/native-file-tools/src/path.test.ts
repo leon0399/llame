@@ -84,6 +84,7 @@ describe("native read selectors", () => {
     "2-1",
     "1+0",
     "-0",
+    "-1-3",
     "0-",
     "1-9007199254740992",
     "9007199254740991+2",
@@ -94,6 +95,30 @@ describe("native read selectors", () => {
     await expect(
       resolveReadTarget(`${directory}/notes:${selector}`),
     ).rejects.toMatchObject({ type: "invalid_selector" });
+  });
+
+  it("claims a trailing colon member for the file beside it", async () => {
+    // A trailing `:raw` claims the colon segment before it as the member list
+    // whenever that segment has the list shape, so here `notes:5-` is the
+    // member `5-` of `notes` rather than a filename: the read names lines from
+    // the fifth to the end and stays pending for the reader to place.
+    const notes = join(directory, "notes");
+    await writeFile(notes, "one\ntwo\nthree\nfour\nfive\nsix\nseven\n");
+    await writeFile(join(directory, "notes:5-"), "literal");
+    expect(await resolveReadTarget(`${notes}:5-:raw`)).toEqual({
+      path: notes,
+      offset: 0,
+      raw: true,
+      pending: "5-",
+    });
+    // Spelling the escape keeps the literal file reachable: the trailing
+    // `:raw:1-2` is a member list of its own, so the path is probed whole.
+    expect(await resolveReadTarget(`${notes}:5-:raw:1-2`)).toEqual({
+      path: join(directory, "notes:5-"),
+      offset: 0,
+      limit: 2,
+      raw: true,
+    });
   });
 
   it("supports ranged raw without confusing a parent directory name", async () => {
