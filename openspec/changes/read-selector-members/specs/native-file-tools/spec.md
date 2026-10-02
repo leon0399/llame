@@ -65,7 +65,11 @@ its last `K` lines. A `:<list>:raw` selector and the same list after `raw:`
 SHALL be one read on every source: the shape gate every source validates
 against admits both spellings, the applier reads them as the same `raw:`
 list, and the canonical spelling is
-the `raw:` one. It SHALL also accept the `outline`
+the `raw:` one. A host or web split that finds a trailing `:raw` takes the
+colon segment before it as the list only when that segment has the member-list
+shape; any other segment stays on the path, so `notes:draft:raw` remains the
+raw read of `notes:draft`, while `2024:10:raw` becomes line 10 of `2024` raw
+and a literal file named `2024:10` is read raw only as `2024:10:raw:1-N`. It SHALL also accept the `outline`
 representation member with at most one optional source range, `:outline`,
 `:outline:N`, `:outline:N-M`, `:outline:N+K`, `:outline:N-`, or `:outline:-K`,
 under the representation requirements below; a comma-separated list after
@@ -76,7 +80,8 @@ itself parses and lies outside the grammar SHALL fail with `invalid_selector`
 on every source, with one message that names the working forms — `:N`,
 `:N-M`, `:N+K`, `:N-`, `:-K`, comma lists of them, `:raw`, `:raw:<list>`,
 and `:outline` with one member — and, on a source that has an encoded
-spelling for a literal colon (`kb://` and web), the `%3A` spelling of the
+spelling for a literal colon (a `kb://` or `skill://` resource path, and
+web), the `%3A` spelling of the
 same locator after the forms; a malformed locator
 part remains `invalid_path`. The tool SHALL recognize a `scheme://` prefix before
 splitting a trailing selector, so a scheme's own colon is never read as a
@@ -107,10 +112,14 @@ snapshot of the source. A `-K` with `K` greater than the count SHALL resolve to
 `1..count` and `-0` SHALL fail with `invalid_selector`. An `N-` whose `N` lies
 past the last line resolves to an empty member and then follows the shipped
 past-the-end rules of its source: on a regular file or web render it fails
-with `invalid_selector` when it is the first requested start and emits nothing
-when a later member of a list; on a listing or the catalog it returns the empty
-page those sources return today. An empty source returns the empty result for
-`-K` and `1-`, and any other `N-` fails as a start past the last line does.
+with `invalid_selector` when it is the first requested start of the sorted
+members and is otherwise dropped before merging and context expansion, so it
+emits nothing, adds no context line, and appears in neither
+`requestedRanges` nor `shownRanges`; on a listing or the catalog it returns the
+empty page those sources return today. An empty regular file or web render returns
+the empty result for `-K` and `1-`, and any other `N-` on it fails as a start
+past the last line does; an empty listing or catalog keeps its empty page for
+every member.
 
 For an ordinary ranged read of a `text/markdown` source, `content` SHALL also prepend the direct ancestor heading lines for the passage's first requested line, as specified by the ranged Markdown ancestor requirement.
 For single-range reads, result
@@ -204,12 +213,12 @@ than reinterpret listing text.
 
 - **WHEN** the model reads `guide.md:raw:60-64` and `guide.md:60-64:raw` of the same file, or `kb://<id>/guide.md:60-64:raw` and `skill://<name>:60-64:raw`
 - **THEN** each pair returns lines 60 through 64 verbatim with the same range metadata, because the shape gate every source validates against admits both spellings
-- **AND** a file literally named `guide.md:60-64:raw` still wins the host literal-path probe
+- **AND** a file literally named `guide.md:60-64:raw` still wins the host literal-path probe, while `notes:draft:raw` stays the raw read of `notes:draft` because `draft` has no member-list shape
 
 #### Scenario: A malformed suffix names the working forms on every source
 
 - **WHEN** the model reads `kb://<id>/notes/a:b.md`, whose split-off suffix `b.md` lies outside the grammar
-- **THEN** the tool returns `invalid_selector` with the one message that names the working forms, followed on `kb://` by the `%3A` spelling `kb://<id>/notes/a%3Ab.md`
+- **THEN** the tool returns `invalid_selector` with the one message that names the working forms, followed on a `kb://` or `skill://` resource path by the `%3A` spelling, here `kb://<id>/notes/a%3Ab.md`
 - **AND** a malformed locator part, such as an undecodable segment, remains `invalid_path`
 
 #### Scenario: A listing and the catalog read their tails
