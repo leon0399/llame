@@ -1,3 +1,8 @@
+import {
+  requestedSlice,
+  type FlatSlice,
+  type SliceOptions,
+} from "./listing-slice";
 import { resultBudget } from "./source-lines";
 import { measureNativeModelOutput } from "./serialization";
 
@@ -63,9 +68,7 @@ export type DirectorySuccess = {
   nextOffset?: number;
 };
 
-export type DirectoryListingOptions = {
-  offset?: number;
-  limit?: number;
+export type DirectoryListingOptions = SliceOptions & {
   /** Shown as the listing header in place of the host path. */
   displayPath?: string;
   /** Room withheld from the shared cap for a caller's envelope. */
@@ -75,6 +78,16 @@ export type DirectoryListingOptions = {
    *  which is what keeps a resolved host path out of a Knowledge listing. */
   linkTargets?: boolean;
 };
+
+/**
+ * Whether the request names one page of the requested level. A request with
+ * no placement field wants the whole tree instead.
+ */
+function wantsFlatSlice(options: DirectoryListingOptions = {}): boolean {
+  const { offset, limit, pending } = options;
+  return offset !== undefined || limit !== undefined || pending !== undefined;
+}
+
 export function renderCollectedDirectoryParts(
   targetPath: string,
   rootEntries: ReadonlyArray<DirEntry>,
@@ -94,8 +107,9 @@ export function renderCollectedDirectoryParts(
 
   const header = options?.displayPath ?? targetPath;
   const cap = resultBudget(options ?? {});
-  if (options?.offset !== undefined || options?.limit !== undefined) {
-    return renderFlatListing(header, roots, options, cap);
+  if (wantsFlatSlice(options)) {
+    const slice = requestedSlice(targetPath, roots, options ?? {});
+    return renderFlatListing(header, roots, slice, cap);
   }
   return renderTreeListing(header, roots, [...children], cap);
 }
@@ -316,10 +330,10 @@ export async function listDirectory(
 
   root.entries.sort(compareEntries);
 
-  if (options?.offset !== undefined || options?.limit !== undefined) {
-    const { selected } = requestedSlice(root.entries, options);
-    if (linkTargets) await resolveLinkTargets(port, targetPath, selected);
-    return renderFlatListing(header, root.entries, options, cap);
+  if (wantsFlatSlice(options)) {
+    const slice = requestedSlice(targetPath, root.entries, options ?? {});
+    if (linkTargets) await resolveLinkTargets(port, targetPath, slice.selected);
+    return renderFlatListing(header, root.entries, slice, cap);
   }
 
   const children = await readChildDirs(root.entries, targetPath, port);
@@ -328,23 +342,13 @@ export async function listDirectory(
   return renderTreeListing(header, root.entries, children, cap);
 }
 
-function requestedSlice(
-  entries: Array<DirEntry>,
-  options: { offset?: number; limit?: number },
-) {
-  const offset = options.offset ?? 0;
-  const limit = options.limit ?? entries.length;
-  const end = Math.min(offset + limit, entries.length);
-  return { offset, end, selected: entries.slice(offset, end) };
-}
-
 function renderFlatListing(
   targetPath: string,
   entries: Array<DirEntry>,
-  options: { offset?: number; limit?: number } | undefined,
+  slice: FlatSlice<DirEntry>,
   cap: number,
 ): DirectorySuccess {
-  const { offset, end, selected } = requestedSlice(entries, options ?? {});
+  const { offset, end, selected } = slice;
 
   const lines: Array<string> = [targetPath];
   for (const entry of selected) {

@@ -1,5 +1,10 @@
 import { open, type FileHandle } from "node:fs/promises";
-import { NativeFileError, openFlags, type ReadTarget } from "./path";
+import {
+  NativeFileError,
+  openFlags,
+  resolveEndRelativeSelector,
+  type ReadTarget,
+} from "./path";
 import { fileMediaType, outlineReader } from "./representations";
 import { MultiCollector } from "./markdown-range";
 import {
@@ -453,6 +458,35 @@ async function collectMultiWindow(
   return finishMultiWindow(walk.result, target, walk.count);
 }
 
+const LF = 0x0a;
+
+/**
+ * The source's line count, in one forward pass on the open handle: LF count
+ * plus the final line a file without a trailing LF still has, which is the
+ * model `splitSourceLines` reads text with. A selector carrying `N-` or `-K`
+ * needs it before any line can be placed, and nothing else on a regular file
+ * does.
+ */
+async function countSourceLines(
+  file: FileHandle,
+  signal: AbortSignal | undefined,
+): Promise<number> {
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  let position = 0;
+  let terminators = 0;
+  let last = 0;
+  for (;;) {
+    signal?.throwIfAborted();
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, position);
+    if (bytesRead === 0) break;
+    for (let index = 0; index < bytesRead; index += 1)
+      if (buffer[index] === LF) terminators += 1;
+    last = buffer[bytesRead - 1];
+    position += bytesRead;
+  }
+  return position > 0 ? terminators + (last === LF ? 0 : 1) : 0;
+}
+
 /**
  * The in-memory counterpart of `sourceLines`: the same line sequence for a
  * source already in hand, and the same `undefined` for a line too large to
@@ -508,20 +542,29 @@ export async function streamFileWindow(
   try {
     if (!(await file.stat()).isFile())
       throw new NativeFileError("not_regular_file");
+    // The count pass runs on this handle and only here: a device or FIFO was
+    // refused above, and a target with no end-relative member skips it.
+    const resolved =
+      target.pending === undefined
+        ? target
+        : resolveEndRelativeSelector(
+            target,
+            await countSourceLines(file, source.signal),
+          );
     const mediaType = fileMediaType(source.hostPath);
-    if (target.outline)
+    if (resolved.outline)
       return await outlineReader(mediaType)(
         outlineSourceLines(file, source.signal),
-        target,
+        resolved,
       );
-    if (target.ranges !== undefined) {
-      return mediaType === "text/markdown" && !target.raw
-        ? await collectMarkdownMultiWindow(file, target, source.signal)
-        : await collectMultiWindow(file, target, source.signal);
+    if (resolved.ranges !== undefined) {
+      return mediaType === "text/markdown" && !resolved.raw
+        ? await collectMarkdownMultiWindow(file, resolved, source.signal)
+        : await collectMultiWindow(file, resolved, source.signal);
     }
-    return mediaType === "text/markdown" && target.offset > 0 && !target.raw
-      ? await collectMarkdownWindow(file, target, source.signal)
-      : await collectWindow(file, target, source.signal);
+    return mediaType === "text/markdown" && resolved.offset > 0 && !resolved.raw
+      ? await collectMarkdownWindow(file, resolved, source.signal)
+      : await collectWindow(file, resolved, source.signal);
   } finally {
     await file.close();
   }

@@ -1,6 +1,7 @@
 import {
   NativeFileError,
   applySelectorSuffix,
+  invalidSelectorMessage,
   measureNativeModelOutput,
   outlineReader,
   renderCollectedDirectory,
@@ -84,10 +85,12 @@ export async function buildWebReadResult(
     return {
       status: 'error',
       type: error.type,
-      // `NativeFileError` defaults its message to its type, which tells the
-      // model nothing; only wording the thrower chose is worth passing on,
+      // A bare type or the package's generic forms sentence tells the model
+      // less than the web's own wording, which names the rendered lines.
       message:
-        error.message === error.type && error.type === 'invalid_selector'
+        error.type === 'invalid_selector' &&
+        (error.message === error.type ||
+          error.message === invalidSelectorMessage())
           ? selectorFailureMessage(selectorContent(render), locator.selector)
           : error.message,
     };

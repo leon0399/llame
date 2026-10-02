@@ -1521,7 +1521,14 @@ describe('skill locator resolution', () => {
     await writePackage('research');
     // These parse as native selectors but have no listing meaning; silently
     // answering with the first page would misreport the catalog.
-    for (const path of ['skill://:raw:1-5', 'skill://:1-1,2-2']) {
+    for (const path of [
+      'skill://:raw:1-5',
+      'skill://:1-1,2-2',
+      // `raw:` accepts every member a bare list accepts, `N+K` included, so
+      // this is a selector the catalog declines rather than a malformed
+      // locator.
+      'skill://:raw:1+5',
+    ]) {
       expect(
         await runTool(nativeReadTool, { path }, skillContext(), 5),
       ).toMatchObject({
@@ -1529,16 +1536,6 @@ describe('skill locator resolution', () => {
         type: 'invalid_selector',
       });
     }
-    // `raw:` accepts only an `N-M` range, so this is a malformed locator
-    // rather than a selector the catalog declines.
-    expect(
-      await runTool(
-        nativeReadTool,
-        { path: 'skill://:raw:1+5' },
-        skillContext(),
-        5,
-      ),
-    ).toMatchObject({ status: 'error', type: 'invalid_path' });
   });
 
   it('refuses a manual-only package without the turn selection', async () => {

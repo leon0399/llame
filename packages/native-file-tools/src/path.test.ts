@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applySelectorSuffix,
+  invalidSelectorMessage,
   parsePathScheme,
+  resolveEndRelativeSelector,
   resolveReadTarget,
   splitSelectorSuffix,
 } from "./path";
@@ -82,15 +84,32 @@ describe("native read selectors", () => {
     "0-1",
     "2-1",
     "1+0",
-    "-1-3",
+    "-0",
+    "0-",
     "1-9007199254740992",
     "9007199254740991+2",
-    "raw:1+2",
+    "-9007199254740992",
     "raw:",
+    "raw:-0",
   ])("rejects invalid %s", async (selector) => {
     await expect(
       resolveReadTarget(`${directory}/notes:${selector}`),
     ).rejects.toMatchObject({ type: "invalid_selector" });
+  });
+
+  it.each([
+    "1-",
+    "-1",
+    "1-1,3-",
+    "-3,-1",
+    "raw:1-",
+    "outline:1-",
+    "outline:-1",
+  ])("carries %s unresolved for the source's count", async (selector) => {
+    const path = join(directory, "notes");
+    expect(await resolveReadTarget(`${path}:${selector}`)).toHaveProperty(
+      "pending",
+    );
   });
 
   it("supports ranged raw without confusing a parent directory name", async () => {
@@ -247,6 +266,23 @@ describe("native read selectors", () => {
     });
   });
 
+  it("takes a plus member in a raw list", async () => {
+    const path = join(directory, "notes");
+    expect(await resolveReadTarget(`${path}:raw:5-10,20+2`)).toEqual({
+      path,
+      offset: 4,
+      raw: true,
+      ranges: [
+        { offset: 4, limit: 6 },
+        { offset: 19, limit: 2 },
+      ],
+      expandedRanges: [
+        { offset: 4, limit: 6 },
+        { offset: 19, limit: 2 },
+      ],
+    });
+  });
+
   it.each([
     "5-10,,20-30",
     "5-10,",
@@ -254,13 +290,103 @@ describe("native read selectors", () => {
     "5-10,0-2",
     "5-10,2-1",
     "5-10, 20-30",
-    "raw:5-10,20+2",
+    "5-10,-0",
     "raw:5-10,",
+    "raw:5-10,-",
   ])("rejects invalid multi-range %s", async (selector) => {
     await expect(
       resolveReadTarget(`${directory}/notes:${selector}`),
     ).rejects.toMatchObject({ type: "invalid_selector" });
   });
+
+  it.each([
+    ["-20", 500, { offset: 480, limit: 20, raw: false }],
+    ["-900", 500, { offset: 0, limit: 500, raw: false }],
+    ["-3", 3, { offset: 0, limit: 3, raw: false }],
+    ["50-", 3000, { offset: 49, limit: 2951, raw: false }],
+    ["50-", 500, { offset: 49, limit: 451, raw: false }],
+    ["raw:-2", 3, { offset: 1, limit: 2, raw: true }],
+    ["outline:-2", 3, { offset: 1, limit: 2, raw: false, outline: true }],
+    [
+      "50-,-10",
+      100,
+      {
+        offset: 49,
+        raw: false,
+        ranges: [{ offset: 49, limit: 51 }],
+        expandedRanges: [{ offset: 48, limit: 53 }],
+      },
+    ],
+    [
+      "raw:1-5,30-",
+      40,
+      {
+        offset: 0,
+        raw: true,
+        ranges: [
+          { offset: 0, limit: 5 },
+          { offset: 29, limit: 11 },
+        ],
+        expandedRanges: [
+          { offset: 0, limit: 5 },
+          { offset: 29, limit: 11 },
+        ],
+      },
+    ],
+  ])("resolves %s against a count of %i", (selector, count, expected) => {
+    expect(
+      resolveEndRelativeSelector(
+        applySelectorSuffix("/root/a.md", selector),
+        count,
+      ),
+    ).toStrictEqual({ path: "/root/a.md", ...expected });
+  });
+
+  it("keeps a past-the-end member as the first requested start", () => {
+    expect(
+      resolveEndRelativeSelector(
+        applySelectorSuffix("/root/a.md", "501-"),
+        500,
+      ),
+    ).toStrictEqual({ path: "/root/a.md", offset: 500, raw: false });
+    expect(
+      resolveEndRelativeSelector(
+        applySelectorSuffix("/root/a.md", "501-,600-"),
+        500,
+      ),
+    ).toStrictEqual({ path: "/root/a.md", offset: 500, raw: false });
+  });
+
+  it("drops a later past-the-end member before merge and context growth", () => {
+    expect(
+      resolveEndRelativeSelector(
+        applySelectorSuffix("/root/a.md", "1-5,501-"),
+        500,
+      ),
+    ).toStrictEqual({
+      path: "/root/a.md",
+      offset: 0,
+      raw: false,
+      ranges: [{ offset: 0, limit: 5 }],
+      expandedRanges: [{ offset: 0, limit: 6 }],
+    });
+  });
+
+  it.each([
+    ["-5", 0, 0],
+    ["1-", 0, 0],
+    ["5-", 0, 4],
+  ])(
+    "places the empty member of %s on a %i-line source at offset %i",
+    (selector, count, offset) => {
+      expect(
+        resolveEndRelativeSelector(
+          applySelectorSuffix("/root/a.md", selector),
+          count,
+        ),
+      ).toStrictEqual({ path: "/root/a.md", offset, raw: false });
+    },
+  );
 
   it("caps comma selectors at 64 input ranges", async () => {
     const members = (count: number) =>
@@ -345,6 +471,9 @@ describe("native path schemes", () => {
     ["raw", { offset: 0, raw: true }],
     ["raw:1-2", { offset: 0, limit: 2, raw: true }],
     ["raw:7", { offset: 6, limit: 1, raw: true }],
+    ["raw:11+3", { offset: 10, limit: 3, raw: true }],
+    ["5-9:raw", { offset: 4, limit: 5, raw: true }],
+    ["1-2,4+5:raw", { offset: 0, raw: true }],
   ])("applies the split selector %s", (selector, expected) => {
     expect(applySelectorSuffix("/root/a.md", selector)).toMatchObject({
       path: "/root/a.md",
@@ -352,11 +481,47 @@ describe("native path schemes", () => {
     });
   });
 
-  it.each(["0", "0-1", "2-1", "raw:x", "nonsense", "1-"])(
+  it.each([
+    ["11-", { kind: "through-end", fromLine: 11 }],
+    ["-11", { kind: "last-lines", lastLines: 11 }],
+    ["raw:-11", { kind: "last-lines", lastLines: 11 }],
+    ["outline:11-", { kind: "through-end", fromLine: 11 }],
+  ])("carries the end-relative selector %s unresolved", (selector, member) => {
+    const expected = {
+      path: "/root/a.md",
+      offset: 0,
+      raw: selector.startsWith("raw"),
+      pending: { comma: false, members: [member] },
+    };
+    if (selector.startsWith("outline"))
+      Object.assign(expected, { outline: true });
+    expect(applySelectorSuffix("/root/a.md", selector)).toStrictEqual(expected);
+  });
+
+  it("carries a mixed list's members unresolved", () => {
+    expect(applySelectorSuffix("/root/a.md", "1-5,50-,-20")).toStrictEqual({
+      path: "/root/a.md",
+      offset: 0,
+      raw: false,
+      pending: {
+        comma: true,
+        members: [
+          { offset: 0, limit: 5 },
+          { kind: "through-end", fromLine: 50 },
+          { kind: "last-lines", lastLines: 20 },
+        ],
+      },
+    });
+  });
+
+  it.each(["0", "0-1", "2-1", "raw:x", "nonsense", "-0", "outline:1,3"])(
     "rejects the split selector %s",
     (selector) => {
       expect(() => applySelectorSuffix("/root/a.md", selector)).toThrow(
-        expect.objectContaining({ type: "invalid_selector" }),
+        expect.objectContaining({
+          type: "invalid_selector",
+          message: invalidSelectorMessage(),
+        }),
       );
     },
   );
@@ -384,6 +549,43 @@ describe("splitSelectorSuffix", () => {
     ["/root/a.md:outline:raw", "/root/a.md:outline", "raw"],
   ])("splits %s", (input, path, selector) => {
     expect(splitSelectorSuffix(input)).toStrictEqual({ path, selector });
+  });
+
+  it.each([
+    ["/root/a.md:41-53:raw", "/root/a.md", "raw:41-53"],
+    ["/root/a.md:raw:41-53", "/root/a.md", "raw:41-53"],
+    ["/root/a.md:5-:raw", "/root/a.md", "raw:5-"],
+    ["/root/a.md:raw:-5", "/root/a.md", "raw:-5"],
+    ["/root/notes:draft:raw", "/root/notes:draft", "raw"],
+    ["/root/2024:10:raw", "/root/2024", "raw:10"],
+    ["/root/a.md:-20", "/root/a.md", "-20"],
+  ])("splits %s to the canonical selector", (input, path, selector) => {
+    expect(splitSelectorSuffix(input)).toStrictEqual({ path, selector });
+  });
+
+  it("prefers an existing literal filename to the trailing-raw split", async () => {
+    // Literal-path precedence is unchanged: a file named `x:60-64:raw` is
+    // that file, and `2024:10` stays raw only as `2024:10:raw:1-1`.
+    const directory = await mkdtemp(join(tmpdir(), "native-split-"));
+    try {
+      const literal = join(directory, "x:60-64:raw");
+      await writeFile(literal, "literal");
+      expect(await resolveReadTarget(literal)).toEqual({
+        path: literal,
+        offset: 0,
+        raw: false,
+      });
+      const dated = join(directory, "2024:10");
+      await writeFile(dated, "literal");
+      expect(await resolveReadTarget(`${dated}:raw:1-1`)).toEqual({
+        path: dated,
+        offset: 0,
+        limit: 1,
+        raw: true,
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("splits a trailing suffix the caller must validate", () => {
