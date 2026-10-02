@@ -579,6 +579,28 @@ describe("directory listing", () => {
     expect(childLines).toHaveLength(0);
   });
 
+  it.each([
+    [":-2", ["  - b.txt", "  - c.txt"]],
+    [":3-", ["  - b.txt", "  - c.txt"]],
+    [":5-", []],
+    [":-20", ["  - sub/", "  - a.txt", "  - b.txt", "  - c.txt"]],
+  ])(
+    "resolves the listing selector %s against the entry count",
+    async (selector, expected) => {
+      await mkdir(join(root, "sub"));
+      await writeFile(join(root, "a.txt"), "");
+      await writeFile(join(root, "b.txt"), "");
+      await writeFile(join(root, "c.txt"), "");
+
+      const result = await readFile({ path: `${root}${selector}` });
+      if (result.status !== "success" || result.kind !== "directory")
+        throw new Error();
+      expect(result.content.split("\n").filter(Boolean).slice(1)).toEqual(
+        expected,
+      );
+    },
+  );
+
   it("marks special entries with ? and never opens them", async () => {
     const openedPaths: Array<string> = [];
     const mockPort: DirectoryPort = {
