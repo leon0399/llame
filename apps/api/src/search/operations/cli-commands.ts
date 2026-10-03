@@ -44,7 +44,7 @@ export function requireEmbeddingModelId(
   const modelId = instanceConfig.config.search.chats.embeddingModelId;
   if (!modelId) {
     throw new Error(
-      'search.chats.embeddingModelId is not configured — nothing to backfill/retry/report against. Set it in llame.config.jsonc first.',
+      'search.chats.embeddingModelId is not configured — nothing to backfill/retry/report against. Set it in your active instance config first.',
     );
   }
   return modelId;

@@ -1,5 +1,17 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-04
+
+- **Breaking:** The instance config default is now `llame.config.jsonc`, and the
+  format is chosen by extension — `.jsonc`/`.json` parse as JSONC, `.yaml`/`.yml`
+  as YAML (anchors and merge keys resolved), and `.toml` as TOML. The shipped
+  template moved to `apps/api/llame.config.jsonc.example`. An existing
+  `llame.config.json` is no longer picked up by default: when no
+  `LLAME_CONFIG_PATH` is set and the default `.jsonc` is absent, a present legacy
+  `llame.config.json` fails startup with instructions to rename it or set
+  `LLAME_CONFIG_PATH`; give an explicit override to keep loading an existing
+  legacy file ([#1082](https://github.com/leon0399/llame/pull/1082)).
+
 # 2026-10-01
 
 - Reorganized `docs/` by reader. Owner-visible tool, locator, and selector

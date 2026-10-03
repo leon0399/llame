@@ -1,11 +1,12 @@
 import { readFileSync } from 'node:fs';
-import { parse } from 'jsonc-parser';
+import path from 'node:path';
 
 import {
   createOpenAIEmbeddingBackend,
   type OpenAIEmbeddingBackendConfig,
 } from '../../openai-embedding-backend';
 import { type EmbeddingBackend } from '../../core/embedding-backend';
+import { parseConfigText } from '../../../instance-config/config-loader';
 import { isRecord } from '@workspace/runtime-safety';
 
 export type EvalEmbedBackend = {
@@ -25,7 +26,10 @@ function resolveEnv(v: unknown): string | undefined {
 }
 
 export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
-  const configPath = process.env['LLAME_CONFIG_PATH'] ?? 'llame.config.jsonc';
+  const configPath = path.resolve(
+    process.cwd(),
+    process.env['LLAME_CONFIG_PATH'] ?? 'llame.config.jsonc',
+  );
   let raw: string;
   try {
     raw = readFileSync(configPath, 'utf8');
@@ -33,7 +37,12 @@ export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
     return undefined;
   }
 
-  const parsed: unknown = parse(raw);
+  let parsed: unknown;
+  try {
+    parsed = parseConfigText(raw, configPath);
+  } catch {
+    return undefined;
+  }
   if (!isRecord(parsed)) return undefined;
 
   const search = parsed['search'];

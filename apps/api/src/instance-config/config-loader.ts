@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
@@ -83,10 +83,19 @@ export function resolveConfigPath(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const override = env.LLAME_CONFIG_PATH?.trim();
-  return path.resolve(
+  const configPath = path.resolve(
     process.cwd(),
     override && override.length > 0 ? override : DEFAULT_CONFIG_FILENAME,
   );
+  if (!override && !existsSync(configPath)) {
+    const legacyConfigPath = path.resolve(process.cwd(), 'llame.config.json');
+    if (existsSync(legacyConfigPath)) {
+      throw new InstanceConfigError(
+        `Found legacy config at ${legacyConfigPath}; rename it to one of the supported config filenames (e.g. llame.config.jsonc) or set LLAME_CONFIG_PATH to the existing file.`,
+      );
+    }
+  }
+  return configPath;
 }
 
 /** `defaults.modelId`/`defaults.titleGenerationModelId`, cross-checked
@@ -571,7 +580,7 @@ function readRawConfig(configPath: string): UnknownRecord | undefined {
   const result: unknown = parseConfigText(text, configPath);
   if (!isRecord(result)) {
     throw new InstanceConfigError(
-      `Invalid ${configPath}: top-level value must be a JSON object`,
+      `Invalid ${configPath}: top-level value must be a mapping`,
     );
   }
   return result;
@@ -583,7 +592,7 @@ function readRawConfig(configPath: string): UnknownRecord | undefined {
  *  anchors and merge keys by default. The caller only ever sees a record
  *  (or an `undefined` for an empty file), so its return type is the shared
  *  `UnknownRecord` domain boundary rather than `unknown`. */
-function parseConfigText(
+export function parseConfigText(
   text: string,
   configPath: string,
 ): UnknownRecord | undefined {

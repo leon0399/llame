@@ -53,7 +53,7 @@ typo fails startup of the process that reads the files.
 
 Paths are literal host paths — `{env:...}` and `{path:...}` interpolation does
 not apply, because the resolved description is visible to chat owners. A
-relative path resolves against the directory of the active `llame.config.jsonc`;
+relative path resolves against the directory of the active config file;
 an absolute path stays absolute. Line endings are normalized and trailing
 whitespace is trimmed, so an override that reduces to nothing is an error rather
 than an empty description.

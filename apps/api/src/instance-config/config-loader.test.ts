@@ -144,6 +144,25 @@ describe('resolveConfigPath', () => {
       path.join(process.cwd(), 'custom.json'),
     );
   });
+
+  it('fails boot when only the legacy llame.config.json exists (no override)', () => {
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(tmpDir);
+      writeFileSync(
+        path.join(tmpDir, 'llame.config.json'),
+        '{"providers":[],"models":[]}',
+      );
+      expect(() => resolveConfigPath({})).toThrow(InstanceConfigError);
+      expect(() => resolveConfigPath({})).toThrow(/legacy config/);
+      // An explicit override keeps working alongside a legacy file.
+      expect(
+        resolveConfigPath({ LLAME_CONFIG_PATH: 'llame.config.json' }),
+      ).toBe(path.join(tmpDir, 'llame.config.json'));
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
 });
 
 describe('resolvePermissionModes', () => {
@@ -320,7 +339,7 @@ describe('loadInstanceConfig — file presence', () => {
 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     expect(() => loadInstanceConfig()).toThrow(
-      /top-level value must be a JSON object/,
+      /top-level value must be a mapping/,
     );
   });
 
@@ -337,15 +356,16 @@ describe('loadInstanceConfig — YAML (with anchors) and TOML', () => {
 defaults:
   modelId: system:openai:gpt-5.4-mini
 providers:
-  - &provider
-    id: p
+  - &base_provider
     type: openai-responses
+    id: p
+  - <<: *base_provider
+    id: p2
 models:
-  - <<: &model
-      provider: p
-      providerModelId: x
-      contextWindowTokens: 1000
-    id: system:openai:gpt-5.4-mini
+  - id: system:openai:gpt-5.4-mini
+    provider: p
+    providerModelId: x
+    contextWindowTokens: 1000
 runs:
   timeoutSeconds: 120
 `;
@@ -375,6 +395,9 @@ timeoutSeconds = 120
     const config = loadInstanceConfig();
     expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
     expect(config.runs.timeoutSeconds).toBe(120);
+    // The merged-and-overridden second provider proves the *base_provider
+    // alias dereferenced; without alias expansion the fixture would fail.
+    expect(config.providers.map((p) => p['id'])).toEqual(['p', 'p2']);
   });
 
   it('loads a .yml config identically to .yaml', () => {
@@ -3687,7 +3710,7 @@ describe('loadInstanceConfig — file diagnostics name the exact location', () =
     writeConfig('[]');
 
     expect(failureMessage()).toMatch(
-      /^Invalid .*llame\.config\.json: top-level value must be a JSON object$/u,
+      /^Invalid .*llame\.config\.json: top-level value must be a mapping$/u,
     );
   });
 
