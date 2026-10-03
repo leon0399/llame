@@ -15,7 +15,7 @@ configuration, package layout, invocation controls, and owner inspection.
 
 ## Configure sources
 
-Set `skills.directories` in `llame.config.json` to an ordered list of collection
+Set `skills.directories` in `llame.config.jsonc` to an ordered list of collection
 directories:
 
 ```json

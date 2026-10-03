@@ -9,7 +9,7 @@ async function generateOpenApi() {
   process.env.POSTGRES_URL ??= 'postgres://openapi:openapi@127.0.0.1:1/openapi';
   // OpenAPI generation boots the full AppModule (incl. InstanceConfigService,
   // @Global) purely as a side effect of producing openapi.json — it has no
-  // business depending on whatever llame.config.json happens to be sitting
+  // business depending on whatever llame.config.jsonc happens to be sitting
   // in the build cwd. Point LLAME_CONFIG_PATH at a path that's guaranteed
   // absent so the loader always resolves to built-in defaults here,
   // regardless of local/leftover operator config (verified: a missing

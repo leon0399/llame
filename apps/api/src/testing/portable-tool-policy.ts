@@ -5,7 +5,7 @@ import {
 
 /**
  * The recommended portable operator policy, mirrored verbatim in
- * `apps/api/llame.config.json.example`. This is a TEST FIXTURE, not a runtime
+ * `apps/api/llame.config.jsonc.example`. This is a TEST FIXTURE, not a runtime
  * default: an omitted `tools.permissions` rejects every call. Tests use this
  * map to exercise the documented matrix and to keep the shipped example honest
  * (see `tool-permissions-config.test.ts`).

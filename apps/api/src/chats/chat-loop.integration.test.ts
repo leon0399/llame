@@ -619,7 +619,7 @@ describeIfDb(
       });
       await seedEligibleChat(userId, 'Receipt source', 'receipt opening');
       systemPrompt = createModelPromptLoader({
-        configPath: path.resolve(__dirname, '../../llame.config.json'),
+        configPath: path.resolve(__dirname, '../../llame.config.jsonc'),
       }).resolve({
         id: 'system:openai:gpt-5.4-mini',
         name: 'Test Model',

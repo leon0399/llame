@@ -481,7 +481,7 @@ export type LlameConfig = {
     /**
      * Operator allow/reject rules keyed by exact tool identity. There is no
      * built-in policy: omitting `tools.permissions` from the file leaves the
-     * map empty, so every call is rejected; `llame.config.json.example` ships
+     * map empty, so every call is rejected; `llame.config.jsonc.example` ships
      * a recommended portable map to copy. Availability is governed separately
      * by `allowed`; permission rules never change tool visibility.
      */

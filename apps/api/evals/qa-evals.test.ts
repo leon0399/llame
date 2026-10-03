@@ -25,7 +25,7 @@
  *
  * The overflow case's aggressive compaction threshold (providers-and-models-
  * as-code, #167) comes from the target model's `compactionThresholdTokens` in
- * `llame.config.json` — set low on `system:openai:gpt-5.4-mini` in the
+ * `llame.config.jsonc` — set low on `system:openai:gpt-5.4-mini` in the
  * committed example — not from an env var. Overriding DEFAULT_MODEL_ID to a
  * model without its own low threshold falls back to its full context window
  * and the overflow case will need many more (real, paid) turns to trigger.

@@ -25,7 +25,7 @@ function resolveEnv(v: unknown): string | undefined {
 }
 
 export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
-  const configPath = process.env['LLAME_CONFIG_PATH'] ?? 'llame.config.json';
+  const configPath = process.env['LLAME_CONFIG_PATH'] ?? 'llame.config.jsonc';
   let raw: string;
   try {
     raw = readFileSync(configPath, 'utf8');

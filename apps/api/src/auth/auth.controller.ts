@@ -250,7 +250,7 @@ function getSessionCookieOptions(): CookieOptions {
 }
 
 function getSessionCookieDomain(): string | undefined {
-  // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- pending migration into llame.config.json: this is a product setting read as a bare env var, which skips schema validation and secret marking. Recorded in the stella oxlint study, docs/research/lint/2026-08-31-stella-oxlint-plugins.md at commit 75735d28.
+  // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- pending migration into llame.config.jsonc: this is a product setting read as a bare env var, which skips schema validation and secret marking. Recorded in the stella oxlint study, docs/research/lint/2026-08-31-stella-oxlint-plugins.md at commit 75735d28.
   const domain = process.env.SESSION_COOKIE_DOMAIN?.trim();
   if (domain) {
     return domain;

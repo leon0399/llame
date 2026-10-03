@@ -102,7 +102,7 @@ What an effective `bypass` mode admits and records for one Run is documented in
 require a trusted host identity, their own `tools.allowed` entry, and their own
 `tools.permissions` group.
 
-The recommended policy in `apps/api/llame.config.json.example` uses an
+The recommended policy in `apps/api/llame.config.jsonc.example` uses an
 operator-edited `enter_workspace.path` field allow such as
 `^/home/operator/projects/[^/]+/?$`, plus F1-F3 credential rejects and E1-E3
 rejects for `node_modules`, temporary roots, and `Downloads`. Every directory
