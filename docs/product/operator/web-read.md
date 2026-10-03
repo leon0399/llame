@@ -54,7 +54,7 @@ all cleartext HTTP; the shipped address-aware replacement is described below:
 }
 ```
 
-The shipped example (`apps/api/llame.config.json.example`) keeps `read` open
+The shipped example (`apps/api/llame.config.jsonc.example`) keeps `read` open
 with a whole-tool allow plus the credential-locator rejects F1-F4, the
 grokipedia reject F6, six cleartext-address rejects F5a-F5f, and metadata
 reject F7. F5a-F5f reject `http://` address locators outside

@@ -62,7 +62,7 @@ const DEFAULT_PROVIDER: ProviderConfig = {
 const USER_AGENT = 'llame/0.0.0-test';
 
 // Reproduces the formerly-hardcoded ACTIVE_SYSTEM_MODEL_IDS catalog exactly,
-// as config entries — the shipped llame.config.json.example carries the same
+// as config entries — the shipped llame.config.jsonc.example carries the same
 // data (providers-and-models-as-code, #167).
 const CATALOG: Array<SystemModelCatalogEntry> = [
   {
@@ -452,11 +452,23 @@ describe('ModelsService', () => {
 });
 
 describe('ModelsService — GET /api/v1/models contract stability (#161, providers-and-models-as-code #167)', () => {
-  it('the committed llame.config.json.example public catalog is exactly the loaded config with internal fields stripped', () => {
-    process.env.LLAME_CONFIG_PATH = path.resolve(
-      __dirname,
-      '../../llame.config.json.example',
+  it('the committed llame.config.jsonc.example public catalog is exactly the loaded config with internal fields stripped', async () => {
+    // Load a `.jsonc` copy of the `.example` template (a `cp` source, not a
+    // bootable name) so the extension-based loader picks it up like a real boot.
+    const { readFileSync, writeFileSync, mkdtempSync } = await import(
+      'node:fs'
     );
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(path.join(tmpdir(), 'models-config-'));
+    const copy = path.join(dir, 'llame.config.jsonc');
+    writeFileSync(
+      copy,
+      readFileSync(
+        path.resolve(__dirname, '../../llame.config.jsonc.example'),
+        'utf8',
+      ),
+    );
+    process.env.LLAME_CONFIG_PATH = copy;
     const config = loadInstanceConfig();
     delete process.env.LLAME_CONFIG_PATH;
 

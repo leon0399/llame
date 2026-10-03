@@ -42,7 +42,7 @@ describe('published schema — single artifact', () => {
     expect(loadSchemaDocument()).toEqual(onDisk);
   });
 
-  it('wraps a missing/unreadable schema artifact as InstanceConfigError, never a raw fs error — a packaging problem must not read like the operator broke their own llame.config.json', () => {
+  it('wraps a missing/unreadable schema artifact as InstanceConfigError, never a raw fs error — a packaging problem must not read like the operator broke their own llame.config.jsonc', () => {
     // .toThrow(InstanceConfigError) already proves it's this module's typed
     // error, not the raw fs ENOENT — the message assertion additionally
     // proves it names the artifact, not just the error type.

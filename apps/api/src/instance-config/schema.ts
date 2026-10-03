@@ -53,12 +53,12 @@ export function loadSchemaDocument(
     parsed = JSON.parse(text);
   } catch (error) {
     throw new InstanceConfigError(
-      `The published JSON Schema artifact at ${SCHEMA_PATH} is missing or invalid — this is an internal packaging problem (see nest-cli.json "assets"), not an operator llame.config.json error: ${error instanceof Error ? error.message : String(error)}`,
+      `The published JSON Schema artifact at ${SCHEMA_PATH} is missing or invalid — this is an internal packaging problem (see nest-cli.json "assets"), not an operator llame.config.jsonc error: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   if (!isRecord(parsed)) {
     throw new InstanceConfigError(
-      `The published JSON Schema artifact at ${SCHEMA_PATH} is not a JSON object — this is an internal packaging problem (see nest-cli.json "assets"), not an operator llame.config.json error.`,
+      `The published JSON Schema artifact at ${SCHEMA_PATH} is not a JSON object — this is an internal packaging problem (see nest-cli.json "assets"), not an operator llame.config.jsonc error.`,
     );
   }
   return parsed;

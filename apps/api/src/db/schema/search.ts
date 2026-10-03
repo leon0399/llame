@@ -103,7 +103,7 @@ export const searchChatDocuments = pgTable(
     // Dimensionless (no `vector(N)`) — see the `vector` customType above.
     embedding: vector('embedding'),
     // The operator-declared internal model key that produced `embedding`
-    // (`embeddingModels[].id` in llame.config.json) — NEVER the provider-side
+    // (`embeddingModels[].id` in llame.config.jsonc) — NEVER the provider-side
     // model identifier (spec: "Provider-side identifiers SHALL NOT leak past
     // the backend adapter into stored rows").
     embeddingModelKey: text('embedding_model_key'),
@@ -239,7 +239,7 @@ export type SearchChatState = InferSelectModel<typeof searchChatState>;
 
 // Embedding-model binding ledger (chat-search-embeddings, design D1). ONE row
 // per operator-declared internal model key (`embeddingModels[].id` in
-// llame.config.json), written on the FIRST persisted vector for that key —
+// llame.config.jsonc), written on the FIRST persisted vector for that key —
 // NOT on declaration, so a declared-but-never-used key can be corrected
 // freely. It records the binding actually used to produce vectors: provider
 // connection, provider-side model identifier, revision, dimensions, distance

@@ -311,6 +311,9 @@ importers:
       rxjs:
         specifier: ^7.8.1
         version: 7.8.1
+      smol-toml:
+        specifier: ^1.8.0
+        version: 1.8.0
       turndown:
         specifier: 7.2.4
         version: 7.2.4

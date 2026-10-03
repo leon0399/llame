@@ -43,7 +43,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
   const tools = ['read', 'edit', 'write'];
   /**
    * The shipped credential rejects, verbatim from
-   * `llame.config.json.example`'s recommended `read` group.
+   * `llame.config.jsonc.example`'s recommended `read` group.
    *
    * Segment-anchored on purpose, which is what makes them work on a skill
    * locator with no skill-specific deny list: the canonical projection turns

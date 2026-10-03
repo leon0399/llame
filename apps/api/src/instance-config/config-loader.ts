@@ -8,6 +8,8 @@ import {
   type ParseError,
   visit,
 } from 'jsonc-parser';
+import { parse as parseYaml } from 'yaml';
+import { parse as parseToml } from 'smol-toml';
 
 import {
   BUILT_IN_DEFAULTS,
@@ -74,9 +76,9 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 
-const DEFAULT_CONFIG_FILENAME = 'llame.config.json';
+const DEFAULT_CONFIG_FILENAME = 'llame.config.jsonc';
 
-/** Default `llame.config.json` in the API runtime cwd; `LLAME_CONFIG_PATH` overrides (D1). */
+/** Default `llame.config.jsonc` in the API runtime cwd; `LLAME_CONFIG_PATH` overrides (D1). */
 export function resolveConfigPath(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
@@ -531,6 +533,28 @@ function resolveSkillDirectory(
 
 // ---- File read + parse -----------------------------------------------
 
+/** Config file formats the loader can parse. The format is picked by the
+ *  config file's extension: `.jsonc`/`.json` are JSONC, `.yaml`/`.yml` is
+ *  YAML (anchors and merge keys resolved), and `.toml` is TOML. */
+type ConfigFormat = 'jsonc' | 'yaml' | 'toml';
+
+function detectConfigFormat(configPath: string): ConfigFormat {
+  switch (path.extname(configPath).toLowerCase()) {
+    case '.jsonc':
+    case '.json':
+      return 'jsonc';
+    case '.yaml':
+    case '.yml':
+      return 'yaml';
+    case '.toml':
+      return 'toml';
+    default:
+      throw new InstanceConfigError(
+        `Unsupported config format "${path.extname(configPath)}" in ${configPath}: expected .jsonc, .json, .yaml/.yml, or .toml`,
+      );
+  }
+}
+
 function readRawConfig(configPath: string): UnknownRecord | undefined {
   let text: string;
   try {
@@ -544,27 +568,59 @@ function readRawConfig(configPath: string): UnknownRecord | undefined {
     );
   }
 
-  assertNoDuplicateProperties(text, configPath);
-
-  const errors: Array<ParseError> = [];
-  const tree = parseJsoncTree(text, errors, {
-    allowTrailingComma: true,
-    disallowComments: false,
-  });
-  const result: unknown = tree === undefined ? undefined : getNodeValue(tree);
-  if (errors.length > 0) {
-    const first = errors[0];
-    const { line, column } = offsetToLineColumn(text, first.offset);
-    throw new InstanceConfigError(
-      `Malformed JSONC in ${configPath} at line ${line}, column ${column}: ${printParseErrorCode(first.error)}`,
-    );
-  }
+  const result: unknown = parseConfigText(text, configPath);
   if (!isRecord(result)) {
     throw new InstanceConfigError(
       `Invalid ${configPath}: top-level value must be a JSON object`,
     );
   }
   return result;
+}
+
+/** Parse the config file body according to its extension, returning the
+ *  top-level mapping or throwing an `InstanceConfigError` naming the path on
+ *  any syntax failure. YAML parses through `yaml.parse`, which resolves
+ *  anchors and merge keys by default. The caller only ever sees a record
+ *  (or an `undefined` for an empty file), so its return type is the shared
+ *  `UnknownRecord` domain boundary rather than `unknown`. */
+function parseConfigText(
+  text: string,
+  configPath: string,
+): UnknownRecord | undefined {
+  const format = detectConfigFormat(configPath);
+  if (format === 'jsonc') {
+    assertNoDuplicateProperties(text, configPath);
+
+    const errors: Array<ParseError> = [];
+    const tree = parseJsoncTree(text, errors, {
+      allowTrailingComma: true,
+      disallowComments: false,
+    });
+    const result: unknown = tree === undefined ? undefined : getNodeValue(tree);
+    if (errors.length > 0) {
+      const first = errors[0];
+      const { line, column } = offsetToLineColumn(text, first.offset);
+      throw new InstanceConfigError(
+        `Malformed JSONC in ${configPath} at line ${line}, column ${column}: ${printParseErrorCode(first.error)}`,
+      );
+    }
+    return isRecord(result) ? result : undefined;
+  }
+
+  let result: unknown;
+  try {
+    result =
+      format === 'yaml'
+        ? // merge:true resolves `<<: *anchor` merge keys in addition to the
+          // always-on `*alias` reference expansion.
+          parseYaml(text, { merge: true })
+        : parseToml(text);
+  } catch (error) {
+    throw new InstanceConfigError(
+      `Malformed ${format === 'yaml' ? 'YAML' : 'TOML'} in ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return isRecord(result) ? result : undefined;
 }
 
 function assertNoDuplicateProperties(text: string, configPath: string): void {

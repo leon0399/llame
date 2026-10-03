@@ -58,7 +58,9 @@ Restricted sandboxes may need local-bind permission for Stryker.
 
 ## Instance configuration
 
-`llame.config.json` is restart-applied JSONC. It owns providers, models, run
+`llame.config.jsonc` is restart-applied and may be JSONC, YAML (anchors and
+merge keys supported), or TOML — the format is chosen by the file extension
+(`.jsonc`/`.json`, `.yaml`/`.yml`, or `.toml`). It owns providers, models, run
 timers, trust proxy, tools, MCP, embeddings, and worker profiles. Default path is
 under `apps/api`; `LLAME_CONFIG_PATH` overrides. Bare env vars are not config;
 only `{env:...}` and `{path:...}` interpolation expose environment values and
