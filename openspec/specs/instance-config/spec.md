@@ -2,17 +2,17 @@
 
 ## Purpose
 
-Operator config-as-code: an optional, strictly-validated JSONC `llame.config.json` is the sole source of operator/system settings above built-in defaults (model defaults, provider connections, the executable model catalog, run timers, trust proxy). The published JSON Schema is itself the boot validator; string values interpolate `{env:NAME}` / `{env:NAME:-default}` / `{path:LOCATION}` so 12-factor env injection and Docker/K8s file-mounted secrets work without bare env-var fallbacks — the environment reaches configuration only through tokens written in the file. Tenant-owned (per-user, per-chat) settings are out of scope: they are database rows under RLS, never file entries.
+Operator config-as-code: an optional, strictly-validated `llame.config.jsonc` (default; loadable as JSONC, YAML, or TOML by extension) is the sole source of operator/system settings above built-in defaults (model defaults, provider connections, the executable model catalog, run timers, trust proxy). The published JSON Schema is itself the boot validator; string values interpolate `{env:NAME}` / `{env:NAME:-default}` / `{path:LOCATION}` so 12-factor env injection and Docker/K8s file-mounted secrets work without bare env-var fallbacks — the environment reaches configuration only through tokens written in the file. Tenant-owned (per-user, per-chat) settings are out of scope: they are database rows under RLS, never file entries.
 
 ## Requirements
 
 ### Requirement: Optional operator config file
 
-The system SHALL load an operator-owned configuration file at startup and use its contents as the source of system-wide (operator) settings. The default location SHALL be `llame.config.json` in the API's runtime working directory (co-located with `.env.local`), overridable via the `LLAME_CONFIG_PATH` environment variable (absolute path wins when set). The file SHALL be optional: when absent, the system SHALL boot on documented built-in defaults without error. The file SHALL be parsed as **JSONC** (JSON with comments and trailing commas). It is deploy-time, version-controllable source of truth (config-as-code) and SHALL NOT hold tenant-owned (per-user, per-chat) data.
+The system SHALL load an operator-owned configuration file at startup and use its contents as the source of system-wide (operator) settings. The default location SHALL be `llame.config.jsonc` in the API's runtime working directory (co-located with `.env.local`), overridable via the `LLAME_CONFIG_PATH` environment variable (absolute path wins when set). The file SHALL be optional: when absent, the system SHALL boot on documented built-in defaults without error. The file SHALL be parsed by extension: `.jsonc` and `.json` as **JSONC** (JSON with comments and trailing commas), `.yaml` and `.yml` as YAML (with anchors and merge keys resolved), and `.toml` as TOML; any other extension SHALL fail startup naming the file. When no `LLAME_CONFIG_PATH` override is set and the default `llame.config.jsonc` is absent but a legacy `llame.config.json` is present, the system SHALL fail startup instructing the operator to rename the file or set `LLAME_CONFIG_PATH`. It is deploy-time, version-controllable source of truth (config-as-code) and SHALL NOT hold tenant-owned (per-user, per-chat) data.
 
 #### Scenario: File present and valid
 
-- **WHEN** the instance starts with a well-formed `llame.config.json`
+- **WHEN** the instance starts with a well-formed `llame.config.jsonc`
 - **THEN** its values populate the operator/system settings
 - **AND** startup succeeds
 
@@ -34,7 +34,7 @@ The system SHALL load an operator-owned configuration file at startup and use it
 
 #### Scenario: Malformed file
 
-- **WHEN** the instance starts with a config file that is not valid JSONC
+- **WHEN** the instance starts with a config file that is not valid for its format (JSONC, YAML, or TOML)
 - **THEN** startup fails loudly, naming the file and the parse error location
 - **AND** the instance does not start serving requests
 
@@ -465,7 +465,7 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 #### Scenario: Relative model prompt path resolves
 
 - **WHEN** a model declares `systemPromptFile: "prompts/reasoning-model.md"`
-- **THEN** the loader resolves it relative to the active `llame.config.json` directory
+- **THEN** the loader resolves it relative to the active config file directory
 - **AND** the model uses the normalized non-empty file contents as its complete prompt
 
 #### Scenario: Absolute model prompt path resolves

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Authenticated, executable model availability: `GET /api/v1/models` is the source of models a caller can actually run, chat sends carry an explicit opaque `modelId` validated before persistence, the selected model id is persisted on the run and used for execution, compaction, and usage telemetry, and title generation resolves its own configured model. The catalog is config-sourced (`llame.config.json`'s `providers[]`/`models[]`, providers-and-models-as-code); future org/group/user sources and BYOK extend the same flat response shape without changing route semantics.
+Authenticated, executable model availability: `GET /api/v1/models` is the source of models a caller can actually run, chat sends carry an explicit opaque `modelId` validated before persistence, the selected model id is persisted on the run and used for execution, compaction, and usage telemetry, and title generation resolves its own configured model. The catalog is config-sourced (`llame.config.jsonc`'s `providers[]`/`models[]`, providers-and-models-as-code); future org/group/user sources and BYOK extend the same flat response shape without changing route semantics.
 
 ## Requirements
 
@@ -103,7 +103,7 @@ The available models response SHALL return a flat `models` array. The API SHALL 
 
 ### Requirement: System model configuration is explicit
 
-The executable model set SHALL be the `models[]` catalog configured in `llame.config.json`, not a hardcoded catalog. `defaults.modelId` SHALL name one configured `models[].id` and is validated at startup. Provider execution configuration (credential, base URL) SHALL come from the `providers[]` entry a model references, not from `OPENAI_MODEL`, `OPENAI_BASE_URL`, or `OPENAI_API_KEY` read as bare environment variables (those names may still be referenced as `{env:…}` interpolation inputs inside `providers[]`).
+The executable model set SHALL be the `models[]` catalog configured in `llame.config.jsonc`, not a hardcoded catalog. `defaults.modelId` SHALL name one configured `models[].id` and is validated at startup. Provider execution configuration (credential, base URL) SHALL come from the `providers[]` entry a model references, not from `OPENAI_MODEL`, `OPENAI_BASE_URL`, or `OPENAI_API_KEY` read as bare environment variables (those names may still be referenced as `{env:…}` interpolation inputs inside `providers[]`).
 
 #### Scenario: Catalog is config-sourced
 
@@ -113,7 +113,7 @@ The executable model set SHALL be the `models[]` catalog configured in `llame.co
 
 #### Scenario: Shipped example reproduces the current catalog
 
-- **WHEN** an operator copies the committed `llame.config.json.example` unchanged
+- **WHEN** an operator copies the committed `llame.config.jsonc.example` unchanged
 - **THEN** the executable catalog matches the previously hardcoded active system models (`system:openai:gpt-5.5`, `system:openai:gpt-5.4`, `system:openai:gpt-5.4-mini`, `system:openai:gpt-5.4-nano`, `system:openai:gpt-4o`, `system:openai:gpt-4o-mini`) routed to a default OpenAI provider
 
 #### Scenario: Base URL is not probed
