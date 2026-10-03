@@ -146,22 +146,36 @@ describe('resolveConfigPath', () => {
   });
 
   it('fails boot when only the legacy llame.config.json exists (no override)', () => {
-    const originalCwd = process.cwd();
-    try {
-      process.chdir(tmpDir);
-      writeFileSync(
-        path.join(tmpDir, 'llame.config.json'),
-        '{"providers":[],"models":[]}',
-      );
-      expect(() => resolveConfigPath({})).toThrow(InstanceConfigError);
-      expect(() => resolveConfigPath({})).toThrow(/legacy config/);
-      // An explicit override keeps working alongside a legacy file.
-      expect(
-        resolveConfigPath({ LLAME_CONFIG_PATH: 'llame.config.json' }),
-      ).toBe(path.join(tmpDir, 'llame.config.json'));
-    } finally {
-      process.chdir(originalCwd);
-    }
+    writeFileSync(
+      path.join(tmpDir, 'llame.config.json'),
+      '{"providers":[],"models":[]}',
+    );
+    expect(() => resolveConfigPath({}, tmpDir)).toThrow(InstanceConfigError);
+    expect(() => resolveConfigPath({}, tmpDir)).toThrow(/llame\.config\.json/);
+    // An explicit override keeps working alongside a legacy file.
+    expect(
+      resolveConfigPath({ LLAME_CONFIG_PATH: 'llame.config.json' }, tmpDir),
+    ).toBe(path.join(tmpDir, 'llame.config.json'));
+  });
+
+  it('does not throw when no legacy config exists (no override)', () => {
+    expect(resolveConfigPath({}, tmpDir)).toBe(
+      path.join(tmpDir, 'llame.config.jsonc'),
+    );
+  });
+
+  it('does not throw when only the legacy llame.config.json exists but the new default is also present', () => {
+    writeFileSync(
+      path.join(tmpDir, 'llame.config.json'),
+      '{"providers":[],"models":[]}',
+    );
+    writeFileSync(
+      path.join(tmpDir, 'llame.config.jsonc'),
+      '{"providers":[],"models":[]}',
+    );
+    expect(resolveConfigPath({}, tmpDir)).toBe(
+      path.join(tmpDir, 'llame.config.jsonc'),
+    );
   });
 });
 

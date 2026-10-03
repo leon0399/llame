@@ -103,7 +103,7 @@ The available models response SHALL return a flat `models` array. The API SHALL 
 
 ### Requirement: System model configuration is explicit
 
-The executable model set SHALL be the `models[]` catalog configured in `llame.config.jsonc`, not a hardcoded catalog. `defaults.modelId` SHALL name one configured `models[].id` and is validated at startup. Provider execution configuration (credential, base URL) SHALL come from the `providers[]` entry a model references, not from `OPENAI_MODEL`, `OPENAI_BASE_URL`, or `OPENAI_API_KEY` read as bare environment variables (those names may still be referenced as `{env:…}` interpolation inputs inside `providers[]`).
+The executable model set SHALL be the `models[]` catalog from the operator config file selected at startup, not a hardcoded catalog. `defaults.modelId` SHALL name one configured `models[].id` and is validated at startup. Provider execution configuration (credential, base URL) SHALL come from the `providers[]` entry a model references, not from `OPENAI_MODEL`, `OPENAI_BASE_URL`, or `OPENAI_API_KEY` read as bare environment variables (those names may still be referenced as `{env:…}` interpolation inputs inside `providers[]`).
 
 #### Scenario: Catalog is config-sourced
 

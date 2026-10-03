@@ -81,21 +81,36 @@ const DEFAULT_CONFIG_FILENAME = 'llame.config.jsonc';
 /** Default `llame.config.jsonc` in the API runtime cwd; `LLAME_CONFIG_PATH` overrides (D1). */
 export function resolveConfigPath(
   env: NodeJS.ProcessEnv = process.env,
+  baseDir = process.cwd(),
 ): string {
   const override = env.LLAME_CONFIG_PATH?.trim();
   const configPath = path.resolve(
-    process.cwd(),
+    baseDir,
     override && override.length > 0 ? override : DEFAULT_CONFIG_FILENAME,
   );
   if (!override && !existsSync(configPath)) {
-    const legacyConfigPath = path.resolve(process.cwd(), 'llame.config.json');
-    if (existsSync(legacyConfigPath)) {
+    const staleConfigPath = findStaleDefaultConfig(baseDir);
+    if (staleConfigPath !== undefined) {
       throw new InstanceConfigError(
-        `Found legacy config at ${legacyConfigPath}; rename it to one of the supported config filenames (e.g. llame.config.jsonc) or set LLAME_CONFIG_PATH to the existing file.`,
+        `Found config at ${staleConfigPath} but the default is ${DEFAULT_CONFIG_FILENAME}; rename it to ${DEFAULT_CONFIG_FILENAME} or set LLAME_CONFIG_PATH to the existing file.`,
       );
     }
   }
   return configPath;
+}
+
+/** Stale default-location names the loader no longer discovers: the legacy
+ *  `.json` plus the YAML/TOML extensions. Any of these present with no
+ *  override means an operator config exists the loader will silently skip, so
+ *  fail loudly instead of booting on defaults. */
+const STALE_DEFAULT_CONFIG_EXTS = ['.json', '.yaml', '.yml', '.toml'] as const;
+
+function findStaleDefaultConfig(baseDir: string): string | undefined {
+  for (const ext of STALE_DEFAULT_CONFIG_EXTS) {
+    const candidate = path.resolve(baseDir, `llame.config${ext}`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 /** `defaults.modelId`/`defaults.titleGenerationModelId`, cross-checked
