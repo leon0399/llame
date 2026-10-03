@@ -11,7 +11,7 @@ import { ToolPermissionPolicyModule } from './tools/permissions/permission-polic
 /**
  * CoreInfraModule — the cross-cutting infrastructure every entrypoint's own
  * NestFactory graph needs: env-file config loading, the operator config-as-
- * code loader (InstanceConfigModule; a bad llame.config.json aborts bootstrap
+ * code loader (InstanceConfigModule; a bad llame.config.jsonc aborts bootstrap
  * before anything serves), the `DB_DEV` Drizzle connection (pool sized from
  * InstanceConfigService), and DbModule's TenantDbService. Previously
  * duplicated verbatim between AppModule (main.ts) and WorkerModule

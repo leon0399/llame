@@ -1,6 +1,7 @@
-// llame operator configuration (JSONC).
-// Copy this file to `llame.config.json` (or point LLAME_CONFIG_PATH at it):
-//   cp apps/api/llame.config.json.example apps/api/llame.config.json
+// llame operator configuration (JSONC by default; the parser also supports .json,
+// .yaml/.yml, and .toml when written in the respective format's syntax).
+// Copy this file to `llame.config.jsonc` (or point LLAME_CONFIG_PATH at it):
+//   cp apps/api/llame.config.jsonc.example apps/api/llame.config.jsonc
 //
 // File values override built-in defaults. Invalid configuration fails startup;
 // changes take effect after restart. Use {env:NAME}, {env:NAME:-default},

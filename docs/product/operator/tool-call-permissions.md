@@ -119,7 +119,7 @@ jobs.
 ## Recommended portable policy and replacement
 
 There is no built-in policy: omitting `tools.permissions` rejects every call.
-`apps/api/llame.config.json.example` ships this recommended portable map — a
+`apps/api/llame.config.jsonc.example` ships this recommended portable map — a
 whole-tool allow for the eight code-owned tools that need no field allow
 (`bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`,
 `conversation_read`, `exit_workspace`), an operator-edited `enter_workspace.path`
@@ -242,10 +242,10 @@ What the clause matches is locator text, not an address:
 
 ## Applying, recovery, and rollback
 
-The policy is compiled and frozen at process startup. Editing
-`llame.config.json` has no effect until the affected API and worker processes
-restart. Each new invocation — including calls from Runs queued under an
-earlier policy — uses the executing process's current policy. Tool
+The policy is compiled and frozen at process startup. Editing the [instance
+configuration](index.md) has no effect until the affected API and worker
+processes restart. Each new invocation — including calls from Runs queued under
+an earlier policy — uses the executing process's current policy. Tool
 declarations and availability catalogs are not rebound by a permission change.
 
 A rejected call is a non-fatal observation: no executor runs, no native

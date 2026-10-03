@@ -2,7 +2,7 @@
  * Model catalog TYPES.
  *
  * The catalog itself is config-as-code (providers-and-models-as-code, #167):
- * entries live in `llame.config.json`'s `models[]`/`providers[]` arrays
+ * entries live in `llame.config.jsonc`'s `models[]`/`providers[]` arrays
  * (typed as `LlameConfig.models`/`LlameConfig.providers` in
  * `instance-config/llame-config.ts`) and are resolved by `ModelsService` at
  * boot — there is no compiled-in catalog array here anymore.

@@ -133,15 +133,48 @@ function renderFirstModel(): string {
 }
 
 describe('resolveConfigPath', () => {
-  it('defaults to llame.config.json in the runtime cwd', () => {
+  it('defaults to llame.config.jsonc in the runtime cwd', () => {
     expect(resolveConfigPath({})).toBe(
-      path.join(process.cwd(), 'llame.config.json'),
+      path.join(process.cwd(), 'llame.config.jsonc'),
     );
   });
 
   it('LLAME_CONFIG_PATH overrides the default location', () => {
     expect(resolveConfigPath({ LLAME_CONFIG_PATH: 'custom.json' })).toBe(
       path.join(process.cwd(), 'custom.json'),
+    );
+  });
+
+  it('fails boot when only the legacy llame.config.json exists (no override)', () => {
+    writeFileSync(
+      path.join(tmpDir, 'llame.config.json'),
+      '{"providers":[],"models":[]}',
+    );
+    expect(() => resolveConfigPath({}, tmpDir)).toThrow(InstanceConfigError);
+    expect(() => resolveConfigPath({}, tmpDir)).toThrow(/llame\.config\.json/);
+    // An explicit override keeps working alongside a legacy file.
+    expect(
+      resolveConfigPath({ LLAME_CONFIG_PATH: 'llame.config.json' }, tmpDir),
+    ).toBe(path.join(tmpDir, 'llame.config.json'));
+  });
+
+  it('does not throw when no legacy config exists (no override)', () => {
+    expect(resolveConfigPath({}, tmpDir)).toBe(
+      path.join(tmpDir, 'llame.config.jsonc'),
+    );
+  });
+
+  it('does not throw when only the legacy llame.config.json exists but the new default is also present', () => {
+    writeFileSync(
+      path.join(tmpDir, 'llame.config.json'),
+      '{"providers":[],"models":[]}',
+    );
+    writeFileSync(
+      path.join(tmpDir, 'llame.config.jsonc'),
+      '{"providers":[],"models":[]}',
+    );
+    expect(resolveConfigPath({}, tmpDir)).toBe(
+      path.join(tmpDir, 'llame.config.jsonc'),
     );
   });
 });
@@ -246,14 +279,19 @@ describe('loadInstanceConfig — file presence', () => {
     expect(config.runs.heartbeatSeconds).toBe(15);
   });
 
-  it('the committed llame.config.json.example loads clean (cp example = working instance)', () => {
+  it('the committed llame.config.jsonc.example loads clean (cp example = working instance)', () => {
     // The example is the documented quickstart (`cp` it and boot) — pin that
     // it stays loader-valid as it evolves, and that tool calling + search are
-    // enabled by default per the operator posture it recommends.
-    process.env.LLAME_CONFIG_PATH = path.resolve(
+    // enabled by default per the operator posture it recommends. The example
+    // lives under a `.example` suffix (a `cp` template, not a bootable name),
+    // so this loads a `.jsonc` copy exactly as an operator's `cp` would.
+    const examplePath = path.resolve(
       __dirname,
-      '../../llame.config.json.example',
+      '../../llame.config.jsonc.example',
     );
+    const copy = path.join(tmpDir, 'llame.config.jsonc');
+    writeFileSync(copy, readFileSync(examplePath, 'utf8'));
+    process.env.LLAME_CONFIG_PATH = copy;
     const config = loadInstanceConfig();
     expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
     expect(config.tools.allowed).toContain('search_conversations');
@@ -315,7 +353,7 @@ describe('loadInstanceConfig — file presence', () => {
 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     expect(() => loadInstanceConfig()).toThrow(
-      /top-level value must be a JSON object/,
+      /top-level value must be a mapping/,
     );
   });
 
@@ -324,6 +362,110 @@ describe('loadInstanceConfig — file presence', () => {
 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     expect(() => loadInstanceConfig()).toThrow(tmpDir);
+  });
+});
+
+describe('loadInstanceConfig — YAML (with anchors) and TOML', () => {
+  const YAML = `\
+defaults:
+  modelId: system:openai:gpt-5.4-mini
+providers:
+  - &base_provider
+    type: openai-responses
+    id: p
+  - <<: *base_provider
+    id: p2
+models:
+  - id: system:openai:gpt-5.4-mini
+    provider: p
+    providerModelId: x
+    contextWindowTokens: 1000
+runs:
+  timeoutSeconds: 120
+`;
+
+  const TOML = `\
+[defaults]
+modelId = "system:openai:gpt-5.4-mini"
+
+[[providers]]
+id = "p"
+type = "openai-responses"
+
+[[models]]
+id = "system:openai:gpt-5.4-mini"
+provider = "p"
+providerModelId = "x"
+contextWindowTokens = 1000
+
+[runs]
+timeoutSeconds = 120
+`;
+
+  it('loads a .yaml config, resolving anchors and merge keys', () => {
+    writeConfig(YAML, 'llame.config.yaml');
+    process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'llame.config.yaml');
+
+    const config = loadInstanceConfig();
+    expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
+    expect(config.runs.timeoutSeconds).toBe(120);
+    // The merged-and-overridden second provider proves the *base_provider
+    // alias dereferenced; without alias expansion the fixture would fail.
+    expect(config.providers.map((p) => p['id'])).toEqual(['p', 'p2']);
+  });
+
+  it('loads a .yml config identically to .yaml', () => {
+    writeConfig(YAML, 'llame.config.yml');
+    process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'llame.config.yml');
+
+    expect(loadInstanceConfig().defaults.modelId).toBe(
+      'system:openai:gpt-5.4-mini',
+    );
+  });
+
+  it('loads a .toml config', () => {
+    writeConfig(TOML, 'llame.config.toml');
+    process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'llame.config.toml');
+
+    const config = loadInstanceConfig();
+    expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
+    expect(config.runs.timeoutSeconds).toBe(120);
+  });
+
+  it('fails loudly, naming the file, on malformed YAML', () => {
+    const file = writeConfig('defaults: [unclosed', 'bad.yaml');
+    process.env.LLAME_CONFIG_PATH = file;
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect(errorMessage(error)).toContain(file);
+      expect(errorMessage(error)).toContain('Malformed YAML');
+    }
+  });
+
+  it('fails loudly, naming the file, on malformed TOML', () => {
+    const file = writeConfig('defaults = [unclosed', 'bad.toml');
+    process.env.LLAME_CONFIG_PATH = file;
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected throw');
+    } catch (error) {
+      expect(errorMessage(error)).toContain(file);
+      expect(errorMessage(error)).toContain('Malformed TOML');
+    }
+  });
+
+  it('rejects an unsupported config extension', () => {
+    const file = writeConfig('{}', 'llame.config.txt');
+    process.env.LLAME_CONFIG_PATH = file;
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(/Unsupported config format/);
   });
 });
 
@@ -3143,10 +3285,10 @@ describe('loadInstanceConfig — opencode-go providers (opencode-go-provider, ta
   });
 });
 
-describe('loadInstanceConfig — llame.config.json.example opencode-go entries (opencode-go-provider, task 3.5)', () => {
+describe('loadInstanceConfig — llame.config.jsonc.example opencode-go entries (opencode-go-provider, task 3.5)', () => {
   const EXAMPLE_PATH = path.resolve(
     __dirname,
-    '../../llame.config.json.example',
+    '../../llame.config.jsonc.example',
   );
 
   /**
@@ -3174,7 +3316,9 @@ describe('loadInstanceConfig — llame.config.json.example opencode-go entries (
   }
 
   it('ships both Go blocks commented out, so the example still boots unconfigured', () => {
-    process.env.LLAME_CONFIG_PATH = EXAMPLE_PATH;
+    const copy = path.join(tmpDir, 'llame.config.jsonc');
+    writeFileSync(copy, readFileSync(EXAMPLE_PATH, 'utf8'));
+    process.env.LLAME_CONFIG_PATH = copy;
     const config = loadInstanceConfig();
 
     expect(config.providers.map((p) => p.type)).not.toContain('opencode-go');
@@ -3580,7 +3724,7 @@ describe('loadInstanceConfig — file diagnostics name the exact location', () =
     writeConfig('[]');
 
     expect(failureMessage()).toMatch(
-      /^Invalid .*llame\.config\.json: top-level value must be a JSON object$/u,
+      /^Invalid .*llame\.config\.json: top-level value must be a mapping$/u,
     );
   });
 
@@ -3864,7 +4008,7 @@ describe('resolveConfigPath override hygiene', () => {
       path.join(process.cwd(), 'custom.json'),
     );
     expect(resolveConfigPath({ LLAME_CONFIG_PATH: '   ' })).toBe(
-      path.join(process.cwd(), 'llame.config.json'),
+      path.join(process.cwd(), 'llame.config.jsonc'),
     );
   });
 });

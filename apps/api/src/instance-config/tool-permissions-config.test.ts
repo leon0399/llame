@@ -161,7 +161,7 @@ const NO_ALLOW: MatrixExpectation = { decision: 'reject', reason: 'no_allow' };
 describe('shipped example configuration', () => {
   const exampleDocument: unknown = parseJsonc(
     readFileSync(
-      path.resolve(__dirname, '../../llame.config.json.example'),
+      path.resolve(__dirname, '../../llame.config.jsonc.example'),
       'utf8',
     ),
   );

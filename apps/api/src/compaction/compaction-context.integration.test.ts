@@ -421,7 +421,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const model = { id: 'system:openai:test', name: 'Test Model' };
     const packagedPrompt = renderSystemPromptTemplate({
       template: createModelPromptLoader({
-        configPath: path.resolve(__dirname, '../../llame.config.json'),
+        configPath: path.resolve(__dirname, '../../llame.config.jsonc'),
       }).resolve(model).systemPromptTemplate,
       model,
       anchor: TEST_ANCHOR,

@@ -29,7 +29,7 @@ both.
 
 ## Worker profiles
 
-`workers` in `llame.config.json` maps profile names to consumer-group
+`workers` in `llame.config.jsonc` maps profile names to consumer-group
 concurrency. `LLAME_WORKER_PROFILE` selects one at boot (default `all`). Fixed
 groups:
 

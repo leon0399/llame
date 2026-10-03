@@ -22,6 +22,10 @@ packages/storybook-addon-visual-tests/test/.tmp/
 # Local, gitignored files
 CLAUDE.local.md
 apps/api/llame.config.json
+apps/api/llame.config.jsonc
+apps/api/llame.config.yaml
+apps/api/llame.config.yml
+apps/api/llame.config.toml
 apps/web/next-env.d.ts
 
 # Owned by external tools with their own canonical serialization.

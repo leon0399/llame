@@ -1,11 +1,16 @@
 import { readFileSync } from 'node:fs';
-import { parse } from 'jsonc-parser';
+import path from 'node:path';
 
 import {
   createOpenAIEmbeddingBackend,
   type OpenAIEmbeddingBackendConfig,
 } from '../../openai-embedding-backend';
 import { type EmbeddingBackend } from '../../core/embedding-backend';
+import { parseConfigText } from '../../../instance-config/config-loader';
+import {
+  interpolateString,
+  InterpolationError,
+} from '@workspace/config-interpolation';
 import { isRecord } from '@workspace/runtime-safety';
 
 export type EvalEmbedBackend = {
@@ -14,18 +19,27 @@ export type EvalEmbedBackend = {
   dimensions: number;
 };
 
-function resolveEnv(v: unknown): string | undefined {
+/**
+ * Resolve a credential/baseUrl single value: `{env:...}` / `{path:...}`
+ * tokens through the shared interpolator, plain literals unchanged. A required
+ * token that cannot resolve is a misconfiguration, so it yields `undefined`
+ * (the caller's no-backend case) rather than a literal token being sent.
+ */
+export function resolveSecret(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
-  const m = /^\{env:([^}:]+)(?::-(.*))?\}$/.exec(v);
-  if (!m) return v;
-  const envKey = m[1];
-  if (!envKey) return undefined;
-  const envVal = process.env[envKey];
-  return envVal ?? m[2] ?? undefined;
+  try {
+    return interpolateString(v);
+  } catch (error) {
+    if (error instanceof InterpolationError) return undefined;
+    throw error;
+  }
 }
 
 export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
-  const configPath = process.env['LLAME_CONFIG_PATH'] ?? 'llame.config.json';
+  const configPath = path.resolve(
+    process.cwd(),
+    process.env['LLAME_CONFIG_PATH'] ?? 'llame.config.jsonc',
+  );
   let raw: string;
   try {
     raw = readFileSync(configPath, 'utf8');
@@ -33,7 +47,12 @@ export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
     return undefined;
   }
 
-  const parsed: unknown = parse(raw);
+  let parsed: unknown;
+  try {
+    parsed = parseConfigText(raw, configPath);
+  } catch {
+    return undefined;
+  }
   if (!isRecord(parsed)) return undefined;
 
   const search = parsed['search'];
@@ -58,7 +77,7 @@ export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
   );
   if (!isRecord(provider)) return undefined;
 
-  const credential = resolveEnv(provider['key']);
+  const credential = resolveSecret(provider['key']);
   if (!credential) return undefined;
 
   const dims = Number(model['dimensions']);
@@ -74,7 +93,7 @@ export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
     credential,
   };
 
-  const baseUrl = resolveEnv(provider['baseUrl']);
+  const baseUrl = resolveSecret(provider['baseUrl']);
   if (baseUrl) config.baseUrl = baseUrl;
 
   const qp = model['queryPrefix'];

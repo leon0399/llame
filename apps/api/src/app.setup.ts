@@ -22,7 +22,7 @@ export function configureApp(
   // Reliable client IP behind a reverse proxy (#68, SPEC §22.0): without this,
   // session.ip records the proxy address. Off by default (fail closed —
   // trusting proxy headers when there is no proxy lets clients spoof their
-  // IP). Set http.trustProxy (llame.config.json) or TRUST_PROXY (env
+  // IP). Set http.trustProxy (llame.config.jsonc) or TRUST_PROXY (env
   // fallback, D5) to a hop count (e.g. 1) or Express subnet spec — the
   // caller (main.ts) resolves precedence via InstanceConfigService and
   // passes the already-resolved value in.
@@ -67,7 +67,7 @@ export function getTrustProxySetting(
     // forwarded silently and skew req.ip. Misconfiguration fails loud.
     if (!Number.isInteger(hops) || hops < 0) {
       throw new Error(
-        `trust proxy (http.trustProxy in llame.config.json, or the TRUST_PROXY env var) must be a non-negative integer hop count, 'true'/'false', or an Express subnet spec — got '${raw}'`,
+        `trust proxy (http.trustProxy in llame.config.jsonc, or the TRUST_PROXY env var) must be a non-negative integer hop count, 'true'/'false', or an Express subnet spec — got '${raw}'`,
       );
     }
     return hops;

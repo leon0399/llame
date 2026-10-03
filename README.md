@@ -13,7 +13,7 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 - Durable chat Runs via pg-boss. Progress persists and replays after refresh or
   reconnect.
 - Operator-managed providers, models, and per-model system prompts in
-  `llame.config.json`. Each provider entry declares the wire it speaks:
+  `llame.config.jsonc`. Each provider entry declares the wire it speaks:
   `openai-responses` for the Responses API, `openai-completions` for
   OpenAI-compatible Chat Completions endpoints, `anthropic-messages` for the
   Anthropic Messages wire (the Claude API, or a gateway that speaks it),
@@ -73,7 +73,7 @@ Prior art for those adapters:
 ```bash
 pnpm install
 cp apps/api/.env.example apps/api/.env.local
-cp apps/api/llame.config.json.example apps/api/llame.config.json
+cp apps/api/llame.config.jsonc.example apps/api/llame.config.jsonc
 pnpm db:up
 pnpm db:migrate
 pnpm db:provision-rls
@@ -81,7 +81,11 @@ pnpm dev
 ```
 
 `apps/api` needs `POSTGRES_URL` and any provider credentials referenced by
-`llame.config.json`. Each provider entry declares its wire: `openai-responses`
+`llame.config.jsonc`. `LLAME_CONFIG_PATH` overrides the file location. The config
+may be authored as JSONC (`.jsonc`/`.json`), YAML (`.yaml`/`.yml`, with anchors
+and merge keys resolved), or TOML (`.toml`), selected by extension. Upgrading from
+an existing `apps/api/llame.config.json`: rename it to `llame.config.jsonc` or
+set `LLAME_CONFIG_PATH` to it. Each provider entry declares its wire: `openai-responses`
 calls the Responses API, with an optional `baseUrl` defaulting to OpenAI, and
 `openai-completions` calls Chat Completions on its required `baseUrl`.
 `anthropic-messages` calls the Anthropic Messages API, with an optional
@@ -253,7 +257,7 @@ untrusted data and has no chat identifiers. Compaction excludes the digest from
 checkpoints by instruction, not structural enforcement.
 
 MCP servers use a top-level `.mcp.json`-shaped `mcpServers` map in
-`llame.config.json`, with two transports. A remote entry is exactly
+`llame.config.jsonc`, with two transports. A remote entry is exactly
 `{ type, url, headers? }`, where `http` and `streamable-http` both select
 Streamable HTTP. A local entry is `{ type: "stdio", command, args?, env?, cwd? }`,
 run as a child process — the shape most MCP servers ship.

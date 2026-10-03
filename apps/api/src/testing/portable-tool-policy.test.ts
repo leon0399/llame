@@ -167,7 +167,7 @@ function exampleReadRejects(): ExampleReadRejects {
   const document: ExampleConfig = exampleConfigSchema.parse(
     parseJsonc(
       readFileSync(
-        path.resolve(__dirname, '../../llame.config.json.example'),
+        path.resolve(__dirname, '../../llame.config.jsonc.example'),
         'utf8',
       ),
     ),

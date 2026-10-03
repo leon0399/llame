@@ -52,7 +52,7 @@ configuration value moves or authenticates the request. Startup contacts no
 endpoint and validates no model's eligibility; an unreachable gateway or an
 invalid credential surfaces at request time, not at boot.
 
-`apps/api/llame.config.json.example` ships the provider and two model entries,
+`apps/api/llame.config.jsonc.example` ships the provider and two model entries,
 `system:opencode-go:glm-5.3-flash` and
 `system:opencode-go:deepseek-v4.1-flash`, with `reasoning` declared where the
 model reasons. They ship commented out as a marked block, because a required

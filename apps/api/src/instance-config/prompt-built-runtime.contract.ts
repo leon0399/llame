@@ -12,7 +12,7 @@ import {
  * and that the built runtime can read, normalize, and render it.
  */
 const prompt = createModelPromptLoader({
-  configPath: path.resolve(process.cwd(), 'llame.config.json'),
+  configPath: path.resolve(process.cwd(), 'llame.config.jsonc'),
 });
 
 const model = {

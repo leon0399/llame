@@ -122,7 +122,7 @@ catalog:
   storybook: ^10.5.0
   streamdown: 2.5.0
   tsx: ^4.23.12
-  typescript: 5.7.3
+  typescript: 5.9.3
   use-stick-to-bottom: ^1.1.1
   # Exact, not a range: vitest warns and may misbehave when the
   # coverage provider's version differs from its own, and vitest

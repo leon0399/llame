@@ -53,7 +53,7 @@ typo fails startup of the process that reads the files.
 
 Paths are literal host paths — `{env:...}` and `{path:...}` interpolation does
 not apply, because the resolved description is visible to chat owners. A
-relative path resolves against the directory of the active `llame.config.json`;
+relative path resolves against the directory of the active config file;
 an absolute path stays absolute. Line endings are normalized and trailing
 whitespace is trimmed, so an override that reduces to nothing is an error rather
 than an empty description.
@@ -124,7 +124,7 @@ No other collection is iterable, and iteration does not nest.
 
 ## Validation
 
-Configuration shape is checked wherever `llame.config.json` loads:
+Configuration shape is checked wherever `llame.config.jsonc` loads:
 `tools.promptFiles` and `models[].toolPromptFiles` must be objects whose keys
 are non-empty strings and whose values are non-empty strings or `null`.
 
