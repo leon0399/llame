@@ -249,6 +249,44 @@ describe("ChatPage permission mode state", () => {
     await screen.findByRole("button", { name: "Permission mode, Bypass" });
   });
 
+  it("restores bypass when the listing resolves after history and models", async () => {
+    // Defer only the permission-modes route: model catalog and history settle
+    // first, so a naive "pending listing == withdrawn" latch would pin the
+    // mode to default and never recover `bypass` once the listing offers it.
+    let resolveModes!: (value: PermissionModesResponse) => void;
+    const modesGate = new Promise<PermissionModesResponse>((resolve) => {
+      resolveModes = resolve;
+    });
+    const originalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input) => {
+      const request = input instanceof Request ? input : new Request(input);
+      if (new URL(request.url).pathname === "/api/v1/permission-modes") {
+        return jsonResponse(await modesGate);
+      }
+      return originalFetch(input);
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+      },
+    });
+    render(
+      chatPageTreeWithHistory(queryClient, CHAT_ONE, {
+        modelId: "system:openai:gpt-5.4-mini",
+        status: "completed",
+        permissionMode: "bypass",
+      }),
+    );
+
+    // History and models have resolved, but the listing is still pending — the
+    // restore must not have pinned the mode to `default` yet.
+    await screen.findByRole("textbox");
+    resolveModes(PERMISSION_MODES_RESPONSE);
+
+    await screen.findByRole("button", { name: "Permission mode, Bypass" });
+  });
+
   it("falls back to default when the last turn's bypass is withdrawn", async () => {
     permissionModesResponse = { modes: [{ value: "default" }] };
     const queryClient = new QueryClient({

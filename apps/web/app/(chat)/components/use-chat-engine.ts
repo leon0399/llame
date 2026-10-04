@@ -151,91 +151,94 @@ export function resolveLastTurnRestore(
   return { modelId, effort, permissionMode };
 }
 
-/** Restores this chat's last-used model, effort, and permission mode into the
- *  composer for an existing chat, once, on the live view, once history and the
- *  model catalog are ready. A brand-new chat is marked handled at mount so its
- *  first completed turn never re-fires this; a target-window view is skipped.
- *  Values fall back to their current default when no longer valid; `bypass`
- *  falls back to `default` when the operator withdraws it (a deliberate,
- *  visibly marked risk). */
+/** Restores this chat's last-used composer selections for an existing chat on
+ *  the live view. The model and effort restore as soon as history and the model
+ *  catalog are ready, independent of the permission listing; the permission
+ *  mode restores only when the listing has settled, so `bypass` is held back
+ *  (not treated as withdrawn) while it is still loading and restored when the
+ *  operator still offers it. A brand-new chat and a target-window view never
+ *  restore. Values fall back to their current default when no longer valid. */
 type UseChatLastTurnRestoreArgs = {
   chatId: string;
   chatMessages: ReadonlyArray<UIMessage>;
   initialChatExists: boolean;
   targetSeq: number | null;
 };
-export function useChatLastTurnRestore({
+export function useChatLastTurnRestore(args: UseChatLastTurnRestoreArgs) {
+  useChatModelEffortRestore(args);
+  useChatPermissionModeRestore(args);
+}
+
+/** Restores the model and effort once history and the model catalog are ready,
+ *  independent of the permission listing. Latched per mount so a later manual
+ *  pick is never reverted. */
+function useChatModelEffortRestore({
+  chatMessages,
+  initialChatExists,
+  targetSeq,
+}: UseChatLastTurnRestoreArgs) {
+  const { setSelectedModel, setSelectedEffort } = useChatContext();
+  const modelsQuery = useModelsQuery();
+  const handledRef = useRef(false);
+  const skipMount = !initialChatExists || targetSeq !== null;
+
+  useEffect(() => {
+    if (skipMount || handledRef.current) return;
+    if (chatMessages.length === 0) return; // history still loading
+    const data = modelsQuery.data;
+    if (!data || data.models.length === 0) return;
+    handledRef.current = true;
+    const target = resolveLastTurnRestore(
+      data,
+      [],
+      lastTurnSelections(chatMessages),
+    );
+    setSelectedModel(target.modelId);
+    setSelectedEffort(target.effort);
+  }, [
+    skipMount,
+    chatMessages,
+    modelsQuery.data,
+    setSelectedModel,
+    setSelectedEffort,
+  ]);
+}
+
+/** Restores the permission mode only once the listing has settled: while it is
+ *  pending, `bypass` stays undecided rather than being treated as withdrawn. A
+ *  settled success that still offers `bypass` restores it; anything else is
+ *  `default`. */
+function useChatPermissionModeRestore({
   chatId,
   chatMessages,
   initialChatExists,
   targetSeq,
 }: UseChatLastTurnRestoreArgs) {
-  const { setSelectedModel, setSelectedEffort, setPermissionMode } =
-    useChatContext();
-  const modelsQuery = useModelsQuery();
+  const { setPermissionMode } = useChatContext();
   const permissionModesQuery = usePermissionModesQuery();
-  const restoredRef = useRef(false);
+  const appliedRef = useRef(false);
+  const skipMount = !initialChatExists || targetSeq !== null;
 
   useEffect(() => {
-    const target = resolveRestoreTarget({
-      restoredRef,
-      initialChatExists,
-      targetSeq,
-      chatMessages,
-      data: modelsQuery.data,
-      modes: permissionModesQuery.data?.modes ?? [],
-    });
-    if (target === null) return;
-    setSelectedModel(target.modelId);
-    setSelectedEffort(target.effort);
-    setPermissionMode(chatId, target.permissionMode);
+    if (skipMount || appliedRef.current) return;
+    if (chatMessages.length === 0) return;
+    if (permissionModesQuery.isPending) return; // not settled yet
+    appliedRef.current = true;
+    const turn = lastTurnSelections(chatMessages);
+    if (turn?.permissionMode !== "bypass") return;
+    const offered =
+      permissionModesQuery.isSuccess &&
+      permissionModesQuery.data.modes.some(({ value }) => value === "bypass");
+    setPermissionMode(chatId, offered ? "bypass" : "default");
   }, [
+    skipMount,
     chatId,
     chatMessages,
-    initialChatExists,
-    targetSeq,
-    modelsQuery.data,
+    permissionModesQuery.isPending,
+    permissionModesQuery.isSuccess,
     permissionModesQuery.data,
-    setSelectedModel,
-    setSelectedEffort,
     setPermissionMode,
   ]);
-}
-
-/** Returns the restore targets when this mount should restore — the first time
- *  an existing chat is seen on the latest view with history and the model
- *  catalog ready — and marks the mount handled so it runs at most once.
- *  `null` when restore is not yet eligible (history/catalog still loading) or
- *  has already run. */
-function resolveRestoreTarget({
-  restoredRef,
-  initialChatExists,
-  targetSeq,
-  chatMessages,
-  data,
-  modes,
-}: {
-  restoredRef: RefObject<boolean>;
-  initialChatExists: boolean;
-  targetSeq: number | null;
-  chatMessages: ReadonlyArray<UIMessage>;
-  data: ModelsResponse | undefined;
-  modes: PermissionModesResponse["modes"];
-}): RestoreTargets | null {
-  if (restoredRef.current) return null;
-  // A brand-new chat has no turn to restore; mark it handled so the first
-  // completed turn never re-fires this.
-  if (!initialChatExists) {
-    restoredRef.current = true;
-    return null;
-  }
-  // Target-window views are skipped: their history is not the chat's latest
-  // turn, and returning to the live view remounts and restores.
-  if (targetSeq !== null) return null;
-  if (chatMessages.length === 0) return null; // history still loading
-  if (!data || data.models.length === 0) return null;
-  restoredRef.current = true;
-  return resolveLastTurnRestore(data, modes, lastTurnSelections(chatMessages));
 }
 
 /** The model, effort, and permission mode a request must carry, read from the
