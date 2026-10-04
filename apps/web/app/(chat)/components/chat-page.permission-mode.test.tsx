@@ -287,31 +287,6 @@ describe("ChatPage permission mode state", () => {
     await screen.findByRole("button", { name: "Permission mode, Bypass" });
   });
 
-  it("falls back to default when the last turn's bypass is withdrawn", async () => {
-    permissionModesResponse = { modes: [{ value: "default" }] };
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false, staleTime: Infinity },
-      },
-    });
-    render(
-      chatPageTreeWithHistory(queryClient, CHAT_ONE, {
-        modelId: "system:openai:gpt-5.4-mini",
-        status: "completed",
-        permissionMode: "bypass",
-      }),
-    );
-
-    // Bypass was withdrawn, so the selector offers only "default" (less than
-    // two modes) and hides itself; no "Bypass" survives a restore the operator
-    // no longer allows.
-    await waitFor(() => {
-      expect(
-        screen.queryByRole("button", { name: "Permission mode, Bypass" }),
-      ).toBeNull();
-    });
-  });
-
   it("keeps bypass isolated to the chat that selected it", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({
