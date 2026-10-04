@@ -102,6 +102,7 @@ import { ChatProvider } from "@/contexts/chat-context";
 
 import { ChatPage } from "./chat-page";
 import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
+import { resolveLastTurnRestore } from "./use-chat-engine";
 
 const CHAT_ONE = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 const CHAT_TWO = "b6ed346f-2ef9-4bbe-95f9-f1f358c7b246";
@@ -250,7 +251,6 @@ describe("ChatPage permission mode state", () => {
 
   it("falls back to default when the last turn's bypass is withdrawn", async () => {
     permissionModesResponse = { modes: [{ value: "default" }] };
-    const user = userEvent.setup();
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false, staleTime: Infinity },
@@ -264,35 +264,13 @@ describe("ChatPage permission mode state", () => {
       }),
     );
 
-    // Bypass was withdrawn, carrying a passed chat over to default rather than
-    // re-arming unchecked tool calls the owner no longer offers — the next
-    // send must not carry (and 422 on) `bypass`.
-    const input = screen.getByPlaceholderText("What would you like to know?");
-    const sendButton = screen.getByRole("button", { name: "Send message" });
+    // Bypass was withdrawn, so the selector offers only "default" (less than
+    // two modes) and hides itself; no "Bypass" survives a restore the operator
+    // no longer allows.
     await waitFor(() => {
-      // SAFETY: the composer's send control is a native <button>; reading
-      // `.disabled` confirms the send path is enabled before the click.
-      expect((sendButton as HTMLButtonElement).disabled).toBe(false);
-    });
-    await user.type(input, "follow-up");
-    await user.click(sendButton);
-    await waitFor(async () => {
-      const messageRequest = fetchMock.mock.calls
-        .map(([input]) =>
-          input instanceof Request ? input : new Request(input),
-        )
-        .find(
-          (request) =>
-            request.method === "POST" &&
-            new URL(request.url).pathname.endsWith("/messages"),
-        );
-      if (!messageRequest) {
-        throw new Error("chat send request was not emitted");
-      }
-      // SAFETY: the transport emits this JSON envelope; this narrowed type
-      // reads only the optional permission mode field under test.
-      const body = (await messageRequest.clone().json()) as SentChatRequestBody;
-      expect(body.permissionMode).toBeUndefined();
+      expect(
+        screen.queryByRole("button", { name: "Permission mode, Bypass" }),
+      ).toBeNull();
     });
   });
 
@@ -444,5 +422,49 @@ describe("ChatPage permission mode state", () => {
         requestsBeforeError,
       );
     });
+  });
+});
+
+describe("resolveLastTurnRestore", () => {
+  const data: ModelsResponse = {
+    defaultModelId: "system:openai:gpt-5.4-mini",
+    models: [
+      {
+        id: "system:openai:gpt-5.4-mini",
+        source: "system",
+        name: "GPT-5.4 mini",
+        contextWindowTokens: 400_000,
+      },
+    ],
+  };
+  const turn = {
+    modelId: "system:openai:gpt-5.4-mini" as const,
+    effort: undefined,
+    permissionMode: "bypass" as const,
+  };
+
+  it("restores bypass only when the operator still lists it", () => {
+    const modes: PermissionModesResponse["modes"] = [
+      { value: "default" },
+      { value: "bypass" },
+    ];
+    expect(resolveLastTurnRestore(data, modes, turn)).toEqual({
+      modelId: "system:openai:gpt-5.4-mini",
+      effort: undefined,
+      permissionMode: "bypass",
+    });
+  });
+
+  it("falls back to default when the last turn's bypass is withdrawn", () => {
+    const modes: PermissionModesResponse["modes"] = [{ value: "default" }];
+    expect(resolveLastTurnRestore(data, modes, turn).permissionMode).toBe(
+      "default",
+    );
+  });
+
+  it("treats a missing listing as withdrawn rather than restoring bypass", () => {
+    expect(resolveLastTurnRestore(data, [], turn).permissionMode).toBe(
+      "default",
+    );
   });
 });

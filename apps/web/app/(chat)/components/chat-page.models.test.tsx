@@ -86,24 +86,6 @@ let messagesHandler: () => Promise<Response>;
 // by default, so the last-turn restore never offers `bypass` unless a test says so.
 let permissionModesHandler: () => Promise<Response>;
 
-beforeAll(async () => {
-  await ensureChatMarkdownRenderersLoaded();
-  if (!Element.prototype.scrollIntoView) {
-    Element.prototype.scrollIntoView = () => {};
-  }
-  if (!("ResizeObserver" in globalThis)) {
-    vi.stubGlobal(
-      "ResizeObserver",
-      class ResizeObserverStub {
-        constructor(_callback: ResizeObserverCallback) {}
-        observe(_target: Element, _options?: ResizeObserverOptions): void {}
-        unobserve(_target: Element): void {}
-        disconnect(): void {}
-      },
-    );
-  }
-});
-
 beforeEach(() => {
   fetchMock = stubFetch();
   modelsHandler = () => new Promise<Response>(() => {});

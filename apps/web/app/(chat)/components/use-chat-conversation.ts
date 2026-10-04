@@ -15,7 +15,6 @@ import {
 import {
   useChatEngine,
   useChatHistorySync,
-  useChatLastTurnRestore,
   useChatModelSelection,
   useChatPresenceEffects,
   useChatRefresh,
@@ -134,14 +133,12 @@ function useChatActions({
 /** Every piece of state `useChatConversation` needs that isn't specific to
  *  one `chatId`'s live `useChat` engine: chat-context/active-runs reads,
  *  model-selection readiness, the send transport, and the cache-refresh
- *  callbacks. Composed here so `useChatConversation` calls one hook instead
- *  of six. */
-function useChatSetup(chatId: string, chatMessages: Array<UIMessage>) {
+ *  callbacks. Composed here so `useChatConversation` stays a thin owner. */
+function useChatSetup(chatId: string) {
   const queryClient = useQueryClient();
   const { selectedModel, setSelectedModel, selectedEffort } = useChatContext();
   const { trackRun, untrackChat, markChatSeen } = useActiveRuns();
   const modelSelection = useChatModelSelection(selectedModel, setSelectedModel);
-  useChatLastTurnRestore({ chatId, chatMessages });
   const transport = useChatSendTransport(chatId, selectedModel, selectedEffort);
   const refresh = useChatRefresh(chatId, queryClient);
 
@@ -363,7 +360,7 @@ export function useChatConversation({
   targetSeq,
 }: UseChatConversationArgs) {
   const [inspectedRunId, setInspectedRunId] = useState<string | null>(null);
-  const setup = useChatSetup(chatId, chatMessages);
+  const setup = useChatSetup(chatId);
   const engineState = useChatEngineState({
     chatId,
     chatMessages,
