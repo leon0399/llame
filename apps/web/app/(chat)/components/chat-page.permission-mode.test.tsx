@@ -37,6 +37,7 @@ import {
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
 import type { ChatMessagesResponse } from "@/lib/services/chat/history";
+import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
 
 type SendMessageInput = {
   text: string;
@@ -148,6 +149,44 @@ function chatPageTree(queryClient: QueryClient, chatId: string) {
   );
 }
 
+/** A persisted chat whose latest turn recorded telemetry with a permission mode
+ *  (`metadata.usage.permissionMode`), the path the last-turn restore runs on. */
+function chatPageTreeWithHistory(
+  queryClient: QueryClient,
+  chatId: string,
+  usage: { modelId?: string; status: "completed"; permissionMode?: "bypass" },
+) {
+  const history: ChatMessagesResponse = {
+    compaction: null,
+    messages: [
+      rawChatMessage({
+        chatId,
+        id: "msg-1",
+        seq: 1,
+        role: "assistant",
+        parts: [{ type: "text", text: "hello" }],
+        usage,
+      }),
+    ],
+  };
+  window.history.replaceState(window.history.state, "", `/chat/${chatId}`);
+  seedChatMessagesQueryData(queryClient, chatId, history);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ActiveRunsProvider>
+        <ChatProvider>
+          <ChatPage
+            chatId={chatId}
+            initialChatExists
+            initialDraftPhase={null}
+          />
+        </ChatProvider>
+      </ActiveRunsProvider>
+    </QueryClientProvider>
+  );
+}
+
 beforeAll(async () => {
   await ensureChatMarkdownRenderersLoaded();
   configure({ asyncUtilTimeout: 5000 });
@@ -192,6 +231,71 @@ afterEach(() => {
 });
 
 describe("ChatPage permission mode state", () => {
+  it("restores bypass from the last message when the mode is still offered", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+      },
+    });
+    render(
+      chatPageTreeWithHistory(queryClient, CHAT_ONE, {
+        modelId: "system:openai:gpt-5.4-mini",
+        status: "completed",
+        permissionMode: "bypass",
+      }),
+    );
+
+    await screen.findByRole("button", { name: "Permission mode, Bypass" });
+  });
+
+  it("falls back to default when the last turn's bypass is withdrawn", async () => {
+    permissionModesResponse = { modes: [{ value: "default" }] };
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+      },
+    });
+    render(
+      chatPageTreeWithHistory(queryClient, CHAT_ONE, {
+        modelId: "system:openai:gpt-5.4-mini",
+        status: "completed",
+        permissionMode: "bypass",
+      }),
+    );
+
+    // Bypass was withdrawn, carrying a passed chat over to default rather than
+    // re-arming unchecked tool calls the owner no longer offers — the next
+    // send must not carry (and 422 on) `bypass`.
+    const input = screen.getByPlaceholderText("What would you like to know?");
+    const sendButton = screen.getByRole("button", { name: "Send message" });
+    await waitFor(() => {
+      // SAFETY: the composer's send control is a native <button>; reading
+      // `.disabled` confirms the send path is enabled before the click.
+      expect((sendButton as HTMLButtonElement).disabled).toBe(false);
+    });
+    await user.type(input, "follow-up");
+    await user.click(sendButton);
+    await waitFor(async () => {
+      const messageRequest = fetchMock.mock.calls
+        .map(([input]) =>
+          input instanceof Request ? input : new Request(input),
+        )
+        .find(
+          (request) =>
+            request.method === "POST" &&
+            new URL(request.url).pathname.endsWith("/messages"),
+        );
+      if (!messageRequest) {
+        throw new Error("chat send request was not emitted");
+      }
+      // SAFETY: the transport emits this JSON envelope; this narrowed type
+      // reads only the optional permission mode field under test.
+      const body = (await messageRequest.clone().json()) as SentChatRequestBody;
+      expect(body.permissionMode).toBeUndefined();
+    });
+  });
+
   it("keeps bypass isolated to the chat that selected it", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({

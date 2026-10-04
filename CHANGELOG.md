@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-04
 
+- Restored the composer's per-chat model, reasoning-effort, and permission-mode
+  selections in the web client: opening a chat now selects the values that
+  produced its last recorded message (read from the persisted per-turn
+  telemetry), each falling back to its current default when no longer valid —
+  the model to the operator default when it leaves the catalog, the effort to
+  the restored model's own default when its level is no longer declared, and
+  `bypass` to `default` when the operator withdraws it. Restoring `bypass` is a
+  deliberate risk and stays visibly marked so the owner sees it before sending.
+  The restore happens once per chat open, so a manual pick in the same chat is
+  never reverted by a background history refetch.
+
 - **Breaking:** The instance config default is now `llame.config.jsonc`, and the
   format is chosen by extension — `.jsonc`/`.json` parse as JSONC, `.yaml`/`.yml`
   as YAML (anchors and merge keys resolved), and `.toml` as TOML. The shipped

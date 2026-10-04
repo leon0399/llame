@@ -26,6 +26,8 @@ import type { Mock } from "vitest";
 
 import type { ModelsResponse } from "@/lib/services/models/queries";
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
+import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
+import type { ChatMessagesResponse } from "@/lib/services/chat/history";
 
 const routerMock = { push: vi.fn(), replace: vi.fn() };
 vi.mock("next/navigation", () => ({
@@ -40,6 +42,7 @@ vi.mock("@ai-sdk/react", () => ({
     status: "ready",
     stop: vi.fn(),
     error: undefined,
+    setMessages: vi.fn(),
     // ChatPage drives resume itself (guarded against Strict Mode's double
     // mount effect — see its useChat call), so the stub must provide it.
     resumeStream: vi.fn(),
@@ -52,10 +55,36 @@ import { ChatProvider } from "@/contexts/chat-context";
 import { ChatPage } from "./chat-page";
 import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
 
+beforeAll(async () => {
+  await ensureChatMarkdownRenderersLoaded();
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
+  if (!("ResizeObserver" in globalThis)) {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class ResizeObserverStub {
+        constructor(_callback: ResizeObserverCallback) {}
+        observe(_target: Element, _options?: ResizeObserverOptions): void {}
+        unobserve(_target: Element): void {}
+        disconnect(): void {}
+      },
+    );
+  }
+});
+
+const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
+
 let fetchMock: Mock<typeof fetch>;
 // Left unresolved by default — GET /api/v1/models stays pending until a test
 // overrides this, mirroring useModelsQuery's real isPending state.
 let modelsHandler: () => Promise<Response>;
+// Per-test-overridable handler for GET /api/v1/chats/:id/messages — empty by
+// default, so a persisted chat's history probe resolves with no messages.
+let messagesHandler: () => Promise<Response>;
+// Per-test-overridable handler for GET /api/v1/permission-modes — default-only
+// by default, so the last-turn restore never offers `bypass` unless a test says so.
+let permissionModesHandler: () => Promise<Response>;
 
 beforeAll(async () => {
   await ensureChatMarkdownRenderersLoaded();
@@ -78,11 +107,21 @@ beforeAll(async () => {
 beforeEach(() => {
   fetchMock = stubFetch();
   modelsHandler = () => new Promise<Response>(() => {});
+  messagesHandler = () =>
+    Promise.resolve(
+      jsonResponse<ChatMessagesResponse>({ compaction: null, messages: [] }),
+    );
+  permissionModesHandler = () =>
+    Promise.resolve(jsonResponse({ modes: [{ value: "default" }] }));
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
     const { pathname } = new URL(request.url);
     if (pathname === "/api/v1/me/runs") return jsonResponse([]);
     if (pathname === "/api/v1/models") return modelsHandler();
+    if (pathname === "/api/v1/permission-modes")
+      return permissionModesHandler();
+    if (pathname === `/api/v1/chats/${CHAT_ID}/messages`)
+      return messagesHandler();
     throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
   });
 });
@@ -94,7 +133,10 @@ afterEach(() => {
   // across tests; beforeEach's stubFetch() already replaces fetch fresh.
 });
 
-function renderDraftChat() {
+function renderChat(
+  initialChatExists: boolean,
+  initialDraftPhase: "fresh" | null,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -104,9 +146,9 @@ function renderDraftChat() {
       <ActiveRunsProvider>
         <ChatProvider>
           <ChatPage
-            chatId="a5dc235e-1de8-4aad-84d8-e0e247b6a135"
-            initialChatExists={false}
-            initialDraftPhase="fresh"
+            chatId={CHAT_ID}
+            initialChatExists={initialChatExists}
+            initialDraftPhase={initialDraftPhase}
           />
         </ChatProvider>
       </ActiveRunsProvider>
@@ -114,10 +156,16 @@ function renderDraftChat() {
   );
 }
 
+/** A persisted chat (history is fetched) — the path the last-message model
+ *  restore runs on. */
+function renderPersistedChat() {
+  return renderChat(true, null);
+}
+
 describe("ChatPage model gating", () => {
   it("leaves the composer input usable but disables send while models are loading", async () => {
     const user = userEvent.setup();
-    renderDraftChat();
+    renderChat(false, "fresh");
 
     const input = screen.getByPlaceholderText("What would you like to know?");
     const send = screen.getByRole("button", { name: "Send message" });
@@ -151,7 +199,7 @@ describe("ChatPage model gating", () => {
         }),
       );
     const user = userEvent.setup();
-    renderDraftChat();
+    renderChat(false, "fresh");
 
     const input = screen.getByPlaceholderText("What would you like to know?");
     const send = screen.getByRole("button", { name: "Send message" });
@@ -164,5 +212,169 @@ describe("ChatPage model gating", () => {
     await user.click(send);
 
     expect(sendMessage).toHaveBeenCalledWith({ text: "Hello" });
+  });
+});
+
+describe("ChatPage last-message model restore", () => {
+  /** The model a chat's last recorded turn used, plus the catalog default. */
+  const MODELS_RESPONSE: ModelsResponse = {
+    defaultModelId: "system:openai:gpt-5.4-mini",
+    models: [
+      {
+        id: "system:openai:gpt-5.4-mini",
+        source: "system",
+        name: "GPT-5.4 mini",
+        contextWindowTokens: 400_000,
+      },
+      {
+        id: "system:openai:gpt-5.4",
+        source: "system",
+        name: "GPT-5.4",
+        contextWindowTokens: 400_000,
+      },
+    ],
+  };
+
+  it("selects the model used by the chat's last message", async () => {
+    modelsHandler = () => Promise.resolve(jsonResponse(MODELS_RESPONSE));
+    messagesHandler = () =>
+      Promise.resolve(
+        jsonResponse<ChatMessagesResponse>({
+          compaction: null,
+          messages: [
+            rawChatMessage({
+              chatId: CHAT_ID,
+              id: "msg-1",
+              seq: 1,
+              role: "assistant",
+              parts: [{ type: "text", text: "hello" }],
+              usage: { modelId: "system:openai:gpt-5.4", status: "completed" },
+            }),
+          ],
+        }),
+      );
+    renderPersistedChat();
+
+    const selector = screen.getByRole("combobox");
+    await waitFor(() =>
+      expect(selector.getAttribute("aria-label")).toBe("Select model, GPT-5.4"),
+    );
+  });
+
+  it("falls back to the default model when the last message's model is unavailable", async () => {
+    modelsHandler = () => Promise.resolve(jsonResponse(MODELS_RESPONSE));
+    // The last turn ran a model that is no longer in the catalog (it was
+    // removed/was configured only for that run) — the sender must not select
+    // a dead model id.
+    messagesHandler = () =>
+      Promise.resolve(
+        jsonResponse<ChatMessagesResponse>({
+          compaction: null,
+          messages: [
+            rawChatMessage({
+              chatId: CHAT_ID,
+              id: "msg-1",
+              seq: 1,
+              role: "assistant",
+              parts: [{ type: "text", text: "hello" }],
+              usage: {
+                modelId: "system:openai:retired-model",
+                status: "completed",
+              },
+            }),
+          ],
+        }),
+      );
+    renderPersistedChat();
+
+    const selector = screen.getByRole("combobox");
+    await waitFor(() =>
+      expect(selector.getAttribute("aria-label")).toBe(
+        "Select model, GPT-5.4 mini",
+      ),
+    );
+  });
+
+  it("keeps the operator default when the chat has no recorded model", async () => {
+    modelsHandler = () => Promise.resolve(jsonResponse(MODELS_RESPONSE));
+    // Persisted chat whose last turn recorded no telemetry model (legacy).
+    messagesHandler = () =>
+      Promise.resolve(
+        jsonResponse<ChatMessagesResponse>({
+          compaction: null,
+          messages: [
+            rawChatMessage({
+              chatId: CHAT_ID,
+              id: "msg-1",
+              seq: 1,
+              role: "assistant",
+              parts: [{ type: "text", text: "hello" }],
+              usage: { status: "completed" },
+            }),
+          ],
+        }),
+      );
+    renderPersistedChat();
+
+    const selector = screen.getByRole("combobox");
+    await waitFor(() =>
+      expect(selector.getAttribute("aria-label")).toBe(
+        "Select model, GPT-5.4 mini",
+      ),
+    );
+  });
+
+  it("restores the reasoning effort used by the last message", async () => {
+    modelsHandler = () =>
+      Promise.resolve(
+        jsonResponse<ModelsResponse>({
+          defaultModelId: "system:openai:gpt-5.4-mini",
+          models: [
+            {
+              id: "system:openai:gpt-5.4-mini",
+              source: "system",
+              name: "GPT-5.4 mini",
+              contextWindowTokens: 400_000,
+            },
+            {
+              id: "system:openai:gpt-5.4",
+              source: "system",
+              name: "GPT-5.4",
+              contextWindowTokens: 400_000,
+              reasoning: {
+                effortLevels: [
+                  { value: "low", label: "Low" },
+                  { value: "high", label: "High" },
+                ],
+                defaultEffort: "low",
+                cacheInvalidatedByEffortChange: false,
+              },
+            },
+          ],
+        }),
+      );
+    messagesHandler = () =>
+      Promise.resolve(
+        jsonResponse<ChatMessagesResponse>({
+          compaction: null,
+          messages: [
+            rawChatMessage({
+              chatId: CHAT_ID,
+              id: "msg-1",
+              seq: 1,
+              role: "assistant",
+              parts: [{ type: "text", text: "hello" }],
+              usage: {
+                modelId: "system:openai:gpt-5.4",
+                status: "completed",
+                effort: "high",
+              },
+            }),
+          ],
+        }),
+      );
+    renderPersistedChat();
+
+    await screen.findByRole("button", { name: "Reasoning effort, High" });
   });
 });

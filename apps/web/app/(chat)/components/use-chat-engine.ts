@@ -27,8 +27,17 @@ import {
 } from "@/lib/services/chat/transport";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
 import { pinQueryKeys } from "@/lib/services/pins/queries";
-import { hasModelId, useModelsQuery } from "@/lib/services/models/queries";
-import { permissionModesQueryKey } from "@/lib/services/permission-modes/queries";
+import {
+  hasModelId,
+  type ModelsResponse,
+  useModelsQuery,
+} from "@/lib/services/models/queries";
+import { parseTurnUsage } from "./message-usage";
+import {
+  permissionModesQueryKey,
+  type PermissionModesResponse,
+  usePermissionModesQuery,
+} from "@/lib/services/permission-modes/queries";
 import { adoptServerHistory } from "@/lib/services/chat/history";
 import {
   notificationLabel,
@@ -78,6 +87,130 @@ export function useChatModelSelection(
   const modelReadyForSend = modelsQuery.isSuccess && selectedModelAvailable;
 
   return { availableModels, modelSendUnavailableReason, modelReadyForSend };
+}
+
+/** The model, effort, and permission mode the chat's last recorded turn used,
+ *  read from the persisted per-turn telemetry (`message.metadata.usage`),
+ *  newest first, so an unanswered trailing user prompt falls back to the last
+ *  completed assistant turn. `null` when no message records a turn (an empty or
+ *  legacy-only chat). */
+type LastTurnSelections = {
+  modelId: string;
+  effort: string | undefined;
+  permissionMode: "bypass" | undefined;
+};
+function lastTurnSelections(
+  messages: ReadonlyArray<UIMessage>,
+): LastTurnSelections | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const usage = parseTurnUsage(messages[index]?.metadata);
+    if (!usage || usage.modelId === undefined) continue;
+    return {
+      modelId: usage.modelId,
+      effort: usage.effort,
+      permissionMode: usage.permissionMode,
+    };
+  }
+  return null;
+}
+
+/** The composer targets a chat's last turn should restore to, each already
+ *  validated against current availability (see `resolveLastTurnRestore`). */
+type RestoreTargets = {
+  modelId: string;
+  effort: string | undefined;
+  permissionMode: PermissionMode;
+};
+
+/** Pure — no hooks: the composer targets the last turn's selections should
+ *  restore to, each validated against current availability so the next send
+ *  never 422s on a stale value. Split out of `useChatLastTurnRestore` purely to
+ *  keep that hook within the project's line cap. */
+function resolveLastTurnRestore(
+  data: ModelsResponse,
+  modes: PermissionModesResponse["modes"],
+  turn: LastTurnSelections | null,
+): RestoreTargets {
+  const modelId =
+    turn !== null && hasModelId(data.models, turn.modelId)
+      ? turn.modelId
+      : data.defaultModelId;
+  const effortLevels =
+    data.models.find((model) => model.id === modelId)?.reasoning
+      ?.effortLevels ?? [];
+  const effort =
+    turn?.effort !== undefined &&
+    effortLevels.some((level) => level.value === turn.effort)
+      ? turn.effort
+      : undefined;
+  const permissionMode =
+    turn?.permissionMode === "bypass" &&
+    modes.some(({ value }) => value === "bypass")
+      ? "bypass"
+      : "default";
+  return { modelId, effort, permissionMode };
+}
+
+/** Restores this chat's last-used model, reasoning effort, and permission mode
+ *  into the composer, once per chat mount, after both the model catalog, the
+ *  permission-modes listing, and the chat's message history have loaded
+ *  (history is signalled by a non-empty `chatMessages`). Each value falls back
+ *  to its current default when it is no longer valid: the model falls back to
+ *  the operator default when it leaves the catalog, the effort to the restored
+ *  model's own default when its level is no longer declared (the
+ *  `EffortSelector` reconciles this too), and `bypass` to `default` when the
+ *  operator withdraws it — a reopened chat must never 422 the next send.
+ *
+ *  Permission mode is a deliberate risk: restoring `bypass` re-arms unchecked
+ *  tool calls without a fresh choice. It is only restored when the last turn
+ *  actually used it and the operator still lists it, and it stays visibly
+ *  marked (the destructive "Bypass" button) so the owner sees it before
+ *  sending.
+ *
+ *  Runs once per `ChatSessionContent` mount (keyed by chat id, so a chat switch
+ *  remounts it), which both re-seeds each opened chat with its own last turn
+ *  and means later manual picks in the same chat are never reverted by a
+ *  background history refetch. */
+export function useChatLastTurnRestore({
+  chatId,
+  chatMessages,
+}: {
+  chatId: string;
+  chatMessages: ReadonlyArray<UIMessage>;
+}) {
+  const { setSelectedModel, setSelectedEffort, setPermissionMode } =
+    useChatContext();
+  const modelsQuery = useModelsQuery();
+  const permissionModesQuery = usePermissionModesQuery();
+  const restoredRef = useRef(false);
+
+  useEffect(() => {
+    if (restoredRef.current) return;
+    if (chatMessages.length === 0) return;
+    const data = modelsQuery.data;
+    if (!data || data.models.length === 0) return;
+    // Wait for the permission listing so `bypass` is only restored while the
+    // operator still offers it (a missing listing is treated as withdrawn).
+    if (!permissionModesQuery.data) return;
+    restoredRef.current = true;
+
+    const target = resolveLastTurnRestore(
+      data,
+      permissionModesQuery.data.modes,
+      lastTurnSelections(chatMessages),
+    );
+    setSelectedModel(target.modelId);
+    setSelectedEffort(target.effort);
+    setPermissionMode(chatId, target.permissionMode);
+  }, [
+    chatId,
+    chatMessages,
+    modelsQuery.data,
+    permissionModesQuery.data,
+    setSelectedModel,
+    setSelectedEffort,
+    setPermissionMode,
+  ]);
 }
 
 /** The model, effort, and permission mode a request must carry, read from the
