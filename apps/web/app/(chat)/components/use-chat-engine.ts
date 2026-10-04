@@ -207,7 +207,8 @@ function useChatModelEffortRestore({
 /** Restores the permission mode only once the listing has settled: while it is
  *  pending, `bypass` stays undecided rather than being treated as withdrawn. A
  *  settled success that still offers `bypass` restores it; anything else is
- *  `default`. */
+ *  `default`. Shares its decision with `resolveLastTurnRestore`, the single
+ *  owner of the restore rule. */
 function useChatPermissionModeRestore({
   chatId,
   chatMessages,
@@ -215,6 +216,7 @@ function useChatPermissionModeRestore({
   targetSeq,
 }: UseChatLastTurnRestoreArgs) {
   const { setPermissionMode } = useChatContext();
+  const modelsQuery = useModelsQuery();
   const permissionModesQuery = usePermissionModesQuery();
   const appliedRef = useRef(false);
   const skipMount = !initialChatExists || targetSeq !== null;
@@ -223,19 +225,21 @@ function useChatPermissionModeRestore({
     if (skipMount || appliedRef.current) return;
     if (chatMessages.length === 0) return;
     if (permissionModesQuery.isPending) return; // not settled yet
+    const data = modelsQuery.data;
+    if (!data || data.models.length === 0) return;
     appliedRef.current = true;
-    const turn = lastTurnSelections(chatMessages);
-    if (turn?.permissionMode !== "bypass") return;
-    const offered =
-      permissionModesQuery.isSuccess &&
-      permissionModesQuery.data.modes.some(({ value }) => value === "bypass");
-    setPermissionMode(chatId, offered ? "bypass" : "default");
+    const target = resolveLastTurnRestore(
+      data,
+      permissionModesQuery.data?.modes ?? [],
+      lastTurnSelections(chatMessages),
+    );
+    setPermissionMode(chatId, target.permissionMode);
   }, [
     skipMount,
     chatId,
     chatMessages,
+    modelsQuery.data,
     permissionModesQuery.isPending,
-    permissionModesQuery.isSuccess,
     permissionModesQuery.data,
     setPermissionMode,
   ]);
