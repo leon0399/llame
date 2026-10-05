@@ -102,7 +102,10 @@ import { ChatProvider } from "@/contexts/chat-context";
 
 import { ChatPage } from "./chat-page";
 import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
-import { resolveLastTurnRestore } from "./use-chat-engine";
+import {
+  resolveLastTurnModelEffort,
+  resolveRestoredPermissionMode,
+} from "./use-chat-engine";
 
 const CHAT_ONE = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 const CHAT_TWO = "b6ed346f-2ef9-4bbe-95f9-f1f358c7b246";
@@ -287,6 +290,48 @@ describe("ChatPage permission mode state", () => {
     await screen.findByRole("button", { name: "Permission mode, Bypass" });
   });
 
+  it("restores bypass while the model catalog is still pending", async () => {
+    // Defer only the /api/v1/models route: history and the permission listing
+    // settle first. A permission latch that also waited on the catalog would
+    // stay closed here and pin the mode to default, so this pins the catalog
+    // independence of the permission restore.
+    let resolveModels!: (value: ModelsResponse) => void;
+    const modelsGate = new Promise<ModelsResponse>((resolve) => {
+      resolveModels = resolve;
+    });
+    const originalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input) => {
+      const request = input instanceof Request ? input : new Request(input);
+      if (new URL(request.url).pathname === "/api/v1/models") {
+        return jsonResponse(await modelsGate);
+      }
+      return originalFetch(input);
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: Infinity },
+      },
+    });
+    render(
+      chatPageTreeWithHistory(queryClient, CHAT_ONE, {
+        modelId: "system:openai:gpt-5.4-mini",
+        status: "completed",
+        permissionMode: "bypass",
+      }),
+    );
+
+    // History and the listing have settled while the catalog stays pending —
+    // the model selector renders its loading label, but the permission mode
+    // must already have restored `bypass`.
+    await screen.findByRole("button", { name: "Permission mode, Bypass" });
+    expect(screen.getByRole("combobox").getAttribute("aria-label")).toBe(
+      "Select model",
+    );
+
+    resolveModels(MODELS_RESPONSE);
+  });
+
   it("keeps bypass isolated to the chat that selected it", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({
@@ -438,7 +483,7 @@ describe("ChatPage permission mode state", () => {
   });
 });
 
-describe("resolveLastTurnRestore", () => {
+describe("resolveLastTurnModelEffort", () => {
   const data: ModelsResponse = {
     defaultModelId: "system:openai:gpt-5.4-mini",
     models: [
@@ -456,28 +501,35 @@ describe("resolveLastTurnRestore", () => {
     permissionMode: "bypass" as const,
   };
 
+  it("restores the recorded model by default", () => {
+    expect(resolveLastTurnModelEffort(data, turn)).toEqual({
+      modelId: "system:openai:gpt-5.4-mini",
+      effort: undefined,
+    });
+  });
+});
+
+describe("resolveRestoredPermissionMode", () => {
+  const turn = {
+    modelId: "system:openai:gpt-5.4-mini" as const,
+    effort: undefined,
+    permissionMode: "bypass" as const,
+  };
+
   it("restores bypass only when the operator still lists it", () => {
     const modes: PermissionModesResponse["modes"] = [
       { value: "default" },
       { value: "bypass" },
     ];
-    expect(resolveLastTurnRestore(data, modes, turn)).toEqual({
-      modelId: "system:openai:gpt-5.4-mini",
-      effort: undefined,
-      permissionMode: "bypass",
-    });
+    expect(resolveRestoredPermissionMode(modes, turn)).toBe("bypass");
   });
 
   it("falls back to default when the last turn's bypass is withdrawn", () => {
     const modes: PermissionModesResponse["modes"] = [{ value: "default" }];
-    expect(resolveLastTurnRestore(data, modes, turn).permissionMode).toBe(
-      "default",
-    );
+    expect(resolveRestoredPermissionMode(modes, turn)).toBe("default");
   });
 
   it("treats a missing listing as withdrawn rather than restoring bypass", () => {
-    expect(resolveLastTurnRestore(data, [], turn).permissionMode).toBe(
-      "default",
-    );
+    expect(resolveRestoredPermissionMode([], turn)).toBe("default");
   });
 });

@@ -114,23 +114,20 @@ function lastTurnSelections(
   return null;
 }
 
-/** The composer targets a chat's last turn should restore to, each already
- *  validated against current availability (see `resolveLastTurnRestore`). */
-type RestoreTargets = {
+/** The model and effort a chat's last turn's composer should restore to. */
+type RestoredTargets = {
   modelId: string;
   effort: string | undefined;
-  permissionMode: PermissionMode;
 };
 
-/** Pure — no hooks: the composer targets the last turn's selections should
- *  restore to, each validated against current availability so the next send
- *  never 422s on a stale value. Split out of `useChatLastTurnRestore` purely to
- *  keep that hook within the project's line cap. */
-export function resolveLastTurnRestore(
+/** The model and effort a chat's last turn should restore to, validated
+ *  against the model catalog so the next send never 422s on a stale model.
+ *  Pure — no hooks; split out of `useChatLastTurnRestore` to keep it within the
+ *  project's line cap. */
+export function resolveLastTurnModelEffort(
   data: ModelsResponse,
-  modes: PermissionModesResponse["modes"],
   turn: LastTurnSelections | null,
-): RestoreTargets {
+): RestoredTargets {
   const modelId =
     turn !== null && hasModelId(data.models, turn.modelId)
       ? turn.modelId
@@ -143,19 +140,16 @@ export function resolveLastTurnRestore(
     effortLevels.some((level) => level.value === turn.effort)
       ? turn.effort
       : undefined;
-  return {
-    modelId,
-    effort,
-    permissionMode: resolveRestoredPermissionMode(modes, turn),
-  };
+  return { modelId, effort };
 }
 
 /** The permission mode the composer restores to, decided only from the settled
  *  listing and the last turn's recorded mode — the model catalog plays no part
- *  in this half of the restore. `bypass` restores only while still offered;
- *  anything else (withdrawn, missing, or errored listing) is `default`. Shares
- *  the rule with `resolveLastTurnRestore` through the same entry point. */
-function resolveRestoredPermissionMode(
+ *  in this half of the restore, so a slow catalog can neither delay nor
+ *  clobber the restore. `bypass` restores only while still offered; anything
+ *  else (withdrawn, missing, or errored listing) is `default`. Pure — no
+ *  hooks; the single owner of the permission rule. */
+export function resolveRestoredPermissionMode(
   modes: PermissionModesResponse["modes"],
   turn: LastTurnSelections | null,
 ): PermissionMode {
@@ -202,9 +196,8 @@ function useChatModelEffortRestore({
     const data = modelsQuery.data;
     if (!data || data.models.length === 0) return;
     handledRef.current = true;
-    const target = resolveLastTurnRestore(
+    const target = resolveLastTurnModelEffort(
       data,
-      [],
       lastTurnSelections(chatMessages),
     );
     setSelectedModel(target.modelId);
