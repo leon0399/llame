@@ -143,12 +143,26 @@ export function resolveLastTurnRestore(
     effortLevels.some((level) => level.value === turn.effort)
       ? turn.effort
       : undefined;
-  const permissionMode =
-    turn?.permissionMode === "bypass" &&
+  return {
+    modelId,
+    effort,
+    permissionMode: resolveRestoredPermissionMode(modes, turn),
+  };
+}
+
+/** The permission mode the composer restores to, decided only from the settled
+ *  listing and the last turn's recorded mode — the model catalog plays no part
+ *  in this half of the restore. `bypass` restores only while still offered;
+ *  anything else (withdrawn, missing, or errored listing) is `default`. Shares
+ *  the rule with `resolveLastTurnRestore` through the same entry point. */
+function resolveRestoredPermissionMode(
+  modes: PermissionModesResponse["modes"],
+  turn: LastTurnSelections | null,
+): PermissionMode {
+  return turn?.permissionMode === "bypass" &&
     modes.some(({ value }) => value === "bypass")
-      ? "bypass"
-      : "default";
-  return { modelId, effort, permissionMode };
+    ? "bypass"
+    : "default";
 }
 
 /** Restores this chat's last-used composer selections for an existing chat on
@@ -205,10 +219,11 @@ function useChatModelEffortRestore({
 }
 
 /** Restores the permission mode only once the listing has settled: while it is
- *  pending, `bypass` stays undecided rather than being treated as withdrawn. A
- *  settled success that still offers `bypass` restores it; anything else is
- *  `default`. Shares its decision with `resolveLastTurnRestore`, the single
- *  owner of the restore rule. */
+ *  pending, `bypass` stays undecided rather than being treated as withdrawn
+ *  (`resolveRestoredPermissionMode`). The model catalog is deliberately not a
+ *  dependency — the decision needs only the settled listing and the last
+ *  turn's mode, so a slow catalog can neither delay the restore nor clobber a
+ *  later manual pick. Latched per mount. */
 function useChatPermissionModeRestore({
   chatId,
   chatMessages,
@@ -216,7 +231,6 @@ function useChatPermissionModeRestore({
   targetSeq,
 }: UseChatLastTurnRestoreArgs) {
   const { setPermissionMode } = useChatContext();
-  const modelsQuery = useModelsQuery();
   const permissionModesQuery = usePermissionModesQuery();
   const appliedRef = useRef(false);
   const skipMount = !initialChatExists || targetSeq !== null;
@@ -225,20 +239,18 @@ function useChatPermissionModeRestore({
     if (skipMount || appliedRef.current) return;
     if (chatMessages.length === 0) return;
     if (permissionModesQuery.isPending) return; // not settled yet
-    const data = modelsQuery.data;
-    if (!data || data.models.length === 0) return;
     appliedRef.current = true;
-    const target = resolveLastTurnRestore(
-      data,
-      permissionModesQuery.data?.modes ?? [],
-      lastTurnSelections(chatMessages),
+    setPermissionMode(
+      chatId,
+      resolveRestoredPermissionMode(
+        permissionModesQuery.data?.modes ?? [],
+        lastTurnSelections(chatMessages),
+      ),
     );
-    setPermissionMode(chatId, target.permissionMode);
   }, [
     skipMount,
     chatId,
     chatMessages,
-    modelsQuery.data,
     permissionModesQuery.isPending,
     permissionModesQuery.data,
     setPermissionMode,
