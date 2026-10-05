@@ -133,8 +133,7 @@ function useChatActions({
 /** Every piece of state `useChatConversation` needs that isn't specific to
  *  one `chatId`'s live `useChat` engine: chat-context/active-runs reads,
  *  model-selection readiness, the send transport, and the cache-refresh
- *  callbacks. Composed here so `useChatConversation` calls one hook instead
- *  of six. */
+ *  callbacks. Composed here so `useChatConversation` stays a thin owner. */
 function useChatSetup(chatId: string) {
   const queryClient = useQueryClient();
   const { selectedModel, setSelectedModel, selectedEffort } = useChatContext();

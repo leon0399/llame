@@ -27,8 +27,17 @@ import {
 } from "@/lib/services/chat/transport";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
 import { pinQueryKeys } from "@/lib/services/pins/queries";
-import { hasModelId, useModelsQuery } from "@/lib/services/models/queries";
-import { permissionModesQueryKey } from "@/lib/services/permission-modes/queries";
+import {
+  hasModelId,
+  type ModelsResponse,
+  useModelsQuery,
+} from "@/lib/services/models/queries";
+import { parseTurnUsage } from "./message-usage";
+import {
+  permissionModesQueryKey,
+  type PermissionModesResponse,
+  usePermissionModesQuery,
+} from "@/lib/services/permission-modes/queries";
 import { adoptServerHistory } from "@/lib/services/chat/history";
 import {
   notificationLabel,
@@ -78,6 +87,167 @@ export function useChatModelSelection(
   const modelReadyForSend = modelsQuery.isSuccess && selectedModelAvailable;
 
   return { availableModels, modelSendUnavailableReason, modelReadyForSend };
+}
+
+/** The model, effort, and permission mode the chat's last recorded turn used,
+ *  read from the persisted per-turn telemetry (`message.metadata.usage`),
+ *  newest first, so an unanswered trailing user prompt falls back to the last
+ *  completed assistant turn. `null` when no message records a turn (an empty or
+ *  legacy-only chat). */
+type LastTurnSelections = {
+  modelId: string;
+  effort: string | undefined;
+  permissionMode: "bypass" | undefined;
+};
+function lastTurnSelections(
+  messages: ReadonlyArray<UIMessage>,
+): LastTurnSelections | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const usage = parseTurnUsage(messages[index]?.metadata);
+    if (!usage || usage.modelId === undefined) continue;
+    return {
+      modelId: usage.modelId,
+      effort: usage.effort,
+      permissionMode: usage.permissionMode,
+    };
+  }
+  return null;
+}
+
+/** The model and effort a chat's last turn's composer should restore to. */
+type RestoredTargets = {
+  modelId: string;
+  effort: string | undefined;
+};
+
+/** The model and effort a chat's last turn should restore to, validated
+ *  against the model catalog so the next send never 422s on a stale model.
+ *  Pure — no hooks; split out of `useChatLastTurnRestore` to keep it within the
+ *  project's line cap. */
+export function resolveLastTurnModelEffort(
+  data: ModelsResponse,
+  turn: LastTurnSelections | null,
+): RestoredTargets {
+  const modelId =
+    turn !== null && hasModelId(data.models, turn.modelId)
+      ? turn.modelId
+      : data.defaultModelId;
+  const effortLevels =
+    data.models.find((model) => model.id === modelId)?.reasoning
+      ?.effortLevels ?? [];
+  const effort =
+    turn?.effort !== undefined &&
+    effortLevels.some((level) => level.value === turn.effort)
+      ? turn.effort
+      : undefined;
+  return { modelId, effort };
+}
+
+/** The permission mode the composer restores to, decided only from the settled
+ *  listing and the last turn's recorded mode — the model catalog plays no part
+ *  in this half of the restore, so a slow catalog can neither delay nor
+ *  clobber the restore. `bypass` restores only while still offered; anything
+ *  else (withdrawn, missing, or errored listing) is `default`. Pure — no
+ *  hooks; the single owner of the permission rule. */
+export function resolveRestoredPermissionMode(
+  modes: PermissionModesResponse["modes"],
+  turn: LastTurnSelections | null,
+): PermissionMode {
+  return turn?.permissionMode === "bypass" &&
+    modes.some(({ value }) => value === "bypass")
+    ? "bypass"
+    : "default";
+}
+
+/** Restores this chat's last-used composer selections for an existing chat on
+ *  the live view. The model and effort restore as soon as history and the model
+ *  catalog are ready, independent of the permission listing; the permission
+ *  mode restores only when the listing has settled, so `bypass` is held back
+ *  (not treated as withdrawn) while it is still loading and restored when the
+ *  operator still offers it. A brand-new chat and a target-window view never
+ *  restore. Values fall back to their current default when no longer valid. */
+type UseChatLastTurnRestoreArgs = {
+  chatId: string;
+  chatMessages: ReadonlyArray<UIMessage>;
+  initialChatExists: boolean;
+  targetSeq: number | null;
+};
+export function useChatLastTurnRestore(args: UseChatLastTurnRestoreArgs) {
+  useChatModelEffortRestore(args);
+  useChatPermissionModeRestore(args);
+}
+
+/** Restores the model and effort once history and the model catalog are ready,
+ *  independent of the permission listing. Latched per mount so a later manual
+ *  pick is never reverted. */
+function useChatModelEffortRestore({
+  chatMessages,
+  initialChatExists,
+  targetSeq,
+}: UseChatLastTurnRestoreArgs) {
+  const { setSelectedModel, setSelectedEffort } = useChatContext();
+  const modelsQuery = useModelsQuery();
+  const handledRef = useRef(false);
+  const skipMount = !initialChatExists || targetSeq !== null;
+
+  useEffect(() => {
+    if (skipMount || handledRef.current) return;
+    if (chatMessages.length === 0) return; // history still loading
+    const data = modelsQuery.data;
+    if (!data || data.models.length === 0) return;
+    handledRef.current = true;
+    const target = resolveLastTurnModelEffort(
+      data,
+      lastTurnSelections(chatMessages),
+    );
+    setSelectedModel(target.modelId);
+    setSelectedEffort(target.effort);
+  }, [
+    skipMount,
+    chatMessages,
+    modelsQuery.data,
+    setSelectedModel,
+    setSelectedEffort,
+  ]);
+}
+
+/** Restores the permission mode only once the listing has settled: while it is
+ *  pending, `bypass` stays undecided rather than being treated as withdrawn
+ *  (`resolveRestoredPermissionMode`). The model catalog is deliberately not a
+ *  dependency — the decision needs only the settled listing and the last
+ *  turn's mode, so a slow catalog can neither delay the restore nor clobber a
+ *  later manual pick. Latched per mount. */
+function useChatPermissionModeRestore({
+  chatId,
+  chatMessages,
+  initialChatExists,
+  targetSeq,
+}: UseChatLastTurnRestoreArgs) {
+  const { setPermissionMode } = useChatContext();
+  const permissionModesQuery = usePermissionModesQuery();
+  const appliedRef = useRef(false);
+  const skipMount = !initialChatExists || targetSeq !== null;
+
+  useEffect(() => {
+    if (skipMount || appliedRef.current) return;
+    if (chatMessages.length === 0) return;
+    if (permissionModesQuery.isPending) return; // not settled yet
+    appliedRef.current = true;
+    setPermissionMode(
+      chatId,
+      resolveRestoredPermissionMode(
+        permissionModesQuery.data?.modes ?? [],
+        lastTurnSelections(chatMessages),
+      ),
+    );
+  }, [
+    skipMount,
+    chatId,
+    chatMessages,
+    permissionModesQuery.isPending,
+    permissionModesQuery.data,
+    setPermissionMode,
+  ]);
 }
 
 /** The model, effort, and permission mode a request must carry, read from the

@@ -25,6 +25,7 @@ import { Spinner } from "@workspace/ui/components/spinner";
 
 import { useChatSessionState } from "./use-chat-session-state";
 import { useChatConversation } from "./use-chat-conversation";
+import { useChatLastTurnRestore } from "./use-chat-engine";
 import {
   ChatMarkdownProvider,
   useChatMarkdownReady,
@@ -95,6 +96,7 @@ type ChatSessionRender =
 function deriveChatSessionRender(
   chatId: string,
   targetSeq: number | null,
+  initialChatExists: boolean,
   sessionState: ReturnType<typeof useChatSessionState>,
 ): ChatSessionRender {
   const {
@@ -119,6 +121,7 @@ function deriveChatSessionRender(
       compaction: historyQuery.data?.compaction ?? null,
       hasOlderMessages: historyQuery.hasNextPage,
       isLoadingOlderMessages: historyQuery.isFetchingNextPage,
+      initialChatExists,
       onLoadOlderMessages: () =>
         // cancelRefetch: false — an intersection re-fire while a page is
         // already in flight must join it, not abort and restart it.
@@ -147,7 +150,12 @@ function ChatSession({
     targetSeq,
     onTargetSendFinished,
   });
-  const render = deriveChatSessionRender(chatId, targetSeq, sessionState);
+  const render = deriveChatSessionRender(
+    chatId,
+    targetSeq,
+    initialChatExists,
+    sessionState,
+  );
 
   if (render.kind === "hidden") return null;
   if (render.kind === "unavailable") return <TargetUnavailable />;
@@ -177,6 +185,7 @@ type ChatSessionContentProps = {
   compaction: Compaction | null;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
+  initialChatExists: boolean;
   onLoadOlderMessages: () => void;
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;
@@ -326,6 +335,7 @@ function ChatSessionBody({
 function ChatSessionContent(props: ChatSessionContentProps) {
   const conversation = useChatConversation(props);
   const markdown = useChatMarkdownReady();
+  useChatLastTurnRestore(props);
   // Always wait for real Streamdown handles — never mount empty bubbles, and
   // never tear down a draft's first message behind a late spinner.
   return (
