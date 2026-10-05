@@ -485,25 +485,43 @@ describe("ChatPage permission mode state", () => {
 
 describe("resolveLastTurnModelEffort", () => {
   const data: ModelsResponse = {
-    defaultModelId: "system:openai:gpt-5.4-mini",
+    defaultModelId: "model:default",
     models: [
       {
-        id: "system:openai:gpt-5.4-mini",
+        id: "model:default",
         source: "system",
-        name: "GPT-5.4 mini",
+        name: "Default",
         contextWindowTokens: 400_000,
+      },
+      {
+        id: "model:recorded",
+        source: "system",
+        name: "Recorded",
+        contextWindowTokens: 200_000,
       },
     ],
   };
-  const turn = {
-    modelId: "system:openai:gpt-5.4-mini" as const,
-    effort: undefined,
-    permissionMode: "bypass" as const,
-  };
 
-  it("restores the recorded model by default", () => {
+  it("restores the recorded model when it is still in the catalog", () => {
+    const turn = {
+      modelId: "model:recorded" as const,
+      effort: undefined,
+      permissionMode: "bypass" as const,
+    };
     expect(resolveLastTurnModelEffort(data, turn)).toEqual({
-      modelId: "system:openai:gpt-5.4-mini",
+      modelId: "model:recorded",
+      effort: undefined,
+    });
+  });
+
+  it("falls back to the default model when the recorded one is unavailable", () => {
+    const turn = {
+      modelId: "model:retired" as const,
+      effort: undefined,
+      permissionMode: "bypass" as const,
+    };
+    expect(resolveLastTurnModelEffort(data, turn)).toEqual({
+      modelId: "model:default",
       effort: undefined,
     });
   });
