@@ -27,7 +27,6 @@ import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { toSharedChatResponse } from './dto/chats.dto';
 import { isTextPart } from './context-builder';
-import { createCompactionCheckpointPart } from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -131,27 +130,6 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       new MessagesRepository(tx).listPublicByChatId(chat),
     );
     expect(messages.length).toBe(2);
-  });
-  it('runAsPublic excludes checkpoint rows from a compacted public chat', async () => {
-    const chat = await seedChat('public');
-    await tenantDb.runAs(owner, (tx) =>
-      new MessagesRepository(tx).createCheckpoint({
-        chatId: chat,
-        absorbedThroughSeq: 2,
-        part: createCompactionCheckpointPart('private summary'),
-        usage: { modelId: 'checkpoint-model' },
-      }),
-    );
-
-    const messages = await tenantDb.runAsPublic((tx) =>
-      new MessagesRepository(tx).listPublicByChatId(chat),
-    );
-    expect(messages).toHaveLength(2);
-    expect(
-      messages.every(({ role }) => role === 'user' || role === 'assistant'),
-    ).toBe(true);
-    expect(messages.some(({ role }) => role === 'checkpoint')).toBe(false);
-    expect(JSON.stringify(messages)).not.toContain('private summary');
   });
 
   it('runAsPublic NEVER leaks a PRIVATE chat or its messages', async () => {

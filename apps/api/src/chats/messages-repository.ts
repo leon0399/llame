@@ -24,6 +24,7 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
+import { countAbsorbedMessages } from './absorbed-message-count';
 import { type Message, type MessageRole, chats, messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { isString, type UnknownRecord } from '@workspace/runtime-safety';
@@ -42,6 +43,13 @@ const MESSAGE_SEQUENCE_UNIQUE_INDEX = 'messages_chat_seq_unique_idx';
 
 type MessageInsert = typeof messages.$inferInsert;
 type MessageInsertWithoutSequence = Omit<MessageInsert, 'seq'>;
+
+/** A checkpoint row; the repository guarantees its boundary is present. */
+export type CheckpointMessage = Message & { absorbedThroughSeq: number };
+
+function isCheckpointMessage(row: Message): row is CheckpointMessage {
+  return row.absorbedThroughSeq !== null;
+}
 
 function isCauseChainLink(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null;
@@ -99,12 +107,61 @@ export class MessagesRepository {
 
     return this.windowedByPredicates(predicates, options);
   }
+
+  /**
+   * The rows an owner fork copies: everything up to `anchorSeq` plus the
+   * checkpoint rows stored after it whose absorbed boundary is still inside
+   * the copied prefix, oldest-first. No anchor means the whole chat.
+   */
+  findForkSource(
+    chatId: string,
+    ownerUserId: string,
+    anchorSeq: number | undefined,
+  ): Promise<Array<Message>> {
+    const predicates = [
+      eq(messages.chatId, chatId),
+      eq(chats.ownerUserId, ownerUserId),
+    ];
+    if (anchorSeq !== undefined) {
+      predicates.push(
+        sql`(${lte(messages.seq, anchorSeq)} or (${eq(messages.role, 'checkpoint')} and ${lte(messages.absorbedThroughSeq, anchorSeq)}))`,
+      );
+    }
+
+    return this.windowedByPredicates(predicates);
+  }
+
   /** Latest checkpoint boundary strictly before the triggering user sequence. */
-  async findActiveCheckpoint(
+  findActiveCheckpoint(
     chatId: string,
     ownerUserId: string,
     options: { beforeSeq: number },
-  ): Promise<Message | undefined> {
+  ): Promise<CheckpointMessage | undefined> {
+    return this.findCheckpoint(
+      chatId,
+      ownerUserId,
+      lt(messages.absorbedThroughSeq, options.beforeSeq),
+    );
+  }
+
+  /** The owner-scoped checkpoint exactly at an absorbed-history boundary. */
+  findCheckpointByBoundary(
+    chatId: string,
+    ownerUserId: string,
+    absorbedThroughSeq: number,
+  ): Promise<CheckpointMessage | undefined> {
+    return this.findCheckpoint(
+      chatId,
+      ownerUserId,
+      eq(messages.absorbedThroughSeq, absorbedThroughSeq),
+    );
+  }
+
+  private async findCheckpoint(
+    chatId: string,
+    ownerUserId: string,
+    boundary: SQL,
+  ): Promise<CheckpointMessage | undefined> {
     const rows = await this.db
       .select()
       .from(messages)
@@ -114,91 +171,33 @@ export class MessagesRepository {
           eq(messages.chatId, chatId),
           eq(chats.ownerUserId, ownerUserId),
           eq(messages.role, 'checkpoint'),
-          lt(messages.absorbedThroughSeq, options.beforeSeq),
+          boundary,
         ),
       )
       .orderBy(desc(messages.absorbedThroughSeq))
       .limit(1);
 
-    return rows[0]?.messages;
-  }
-
-  /** The owner-scoped checkpoint exactly at an absorbed-history boundary. */
-  async findCheckpointByBoundary(
-    chatId: string,
-    ownerUserId: string,
-    absorbedThroughSeq: number,
-  ): Promise<Message | undefined> {
-    const rows = await this.db
-      .select()
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(
-          eq(messages.chatId, chatId),
-          eq(chats.ownerUserId, ownerUserId),
-          eq(messages.role, 'checkpoint'),
-          eq(messages.absorbedThroughSeq, absorbedThroughSeq),
-        ),
-      )
-      .limit(1);
-
-    return rows[0]?.messages;
+    return rows.map((r) => r.messages).find(isCheckpointMessage);
   }
 
   /**
-   * Insert one summary-only checkpoint at the next Chat-local sequence.
-   * The partial boundary index makes publication idempotent; a concurrent
-   * winner is read back when this insert becomes a no-op.
+   * Insert one summary-only checkpoint at the next Chat-local sequence. The
+   * partial boundary index is the guard against a duplicate boundary; the
+   * publisher's chat-row lock and boundary read decide who may insert.
    */
-  async createCheckpoint(input: {
+  createCheckpoint(input: {
     chatId: string;
     absorbedThroughSeq: number;
     part: ContextItemPart;
     usage?: unknown;
   }): Promise<Message> {
-    const values: MessageInsertWithoutSequence = {
+    return this.create({
       chatId: input.chatId,
       role: 'checkpoint',
       absorbedThroughSeq: input.absorbedThroughSeq,
-      senderUserId: null,
       parts: [input.part],
-      attachments: [],
       usage: input.usage,
-      inReplyTo: null,
-    };
-    const created = await this.insertWithChatSequence(
-      values,
-      async (tx, row) => {
-        const [inserted] = await tx
-          .insert(messages)
-          .values(row)
-          .onConflictDoNothing({
-            target: [messages.chatId, messages.absorbedThroughSeq],
-            where: sql`${messages.absorbedThroughSeq} IS NOT NULL`,
-          })
-          .returning();
-        return inserted;
-      },
-    );
-    if (created !== undefined) return created;
-
-    const rows = await this.db
-      .select()
-      .from(messages)
-      .where(
-        and(
-          eq(messages.chatId, input.chatId),
-          eq(messages.role, 'checkpoint'),
-          eq(messages.absorbedThroughSeq, input.absorbedThroughSeq),
-        ),
-      )
-      .limit(1);
-    const existing = rows[0];
-    if (existing === undefined) {
-      throw new Error('Checkpoint insert returned no row');
-    }
-    return existing;
+    });
   }
 
   /**
@@ -394,6 +393,18 @@ export class MessagesRepository {
   }
 
   /**
+   * User and assistant rows each checkpoint absorbed, per requested
+   * checkpoint; see `countAbsorbedMessages` in absorbed-message-count.ts.
+   */
+  countAbsorbedMessages(
+    chatId: string,
+    ownerUserId: string,
+    checkpointIds: ReadonlyArray<string>,
+  ): Promise<Map<string, number>> {
+    return countAbsorbedMessages(this.db, chatId, ownerUserId, checkpointIds);
+  }
+
+  /**
    * List a chat's messages with no owner scoping — for the public share view
    * (run under `runAsPublic`, where `messages_public_read` scopes to public
    * chats). The `chat_id` + `visibility = 'public'` join is a seatbelt so a
@@ -492,6 +503,7 @@ export class MessagesRepository {
     chatId: string;
     role: MessageRole;
     senderUserId?: string | null;
+    absorbedThroughSeq?: number | null;
     parts: Array<unknown>;
     attachments?: Array<unknown>;
     usage?: unknown;
@@ -501,6 +513,7 @@ export class MessagesRepository {
       chatId: input.chatId,
       role: input.role,
       senderUserId: input.senderUserId ?? null,
+      absorbedThroughSeq: input.absorbedThroughSeq ?? null,
       parts: input.parts,
       attachments: input.attachments ?? [],
       usage: input.usage,

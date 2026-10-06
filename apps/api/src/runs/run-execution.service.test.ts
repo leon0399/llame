@@ -66,6 +66,7 @@ import type {
 } from '../tools/types';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { type CheckpointMessage } from '../chats/messages-repository';
 import { ActivationPartsRepository } from '../chats/activation-parts.repository';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
@@ -6352,7 +6353,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     skillCatalog?: SkillCatalogPort;
     skillDirectories?: ReadonlyArray<string>;
     summary?: CompactionSummary | null;
-    duplicateCutoff?: Message;
+    duplicateCutoff?: CheckpointMessage;
     fenceLost?: boolean;
     startedEffort?: string | null;
   };
@@ -7915,6 +7916,7 @@ describe('RunExecutionService executeRun — context window and late tool result
     );
     expect(findByChatId).toHaveBeenCalledWith(chatId, userId, {
       maxSeq: 9,
+      sinceSeq: 4,
     });
     expect(JSON.stringify(capturing.streamOptions().messages[0])).toContain(
       'Earlier turns, summarized.',
@@ -7939,7 +7941,10 @@ describe('RunExecutionService executeRun — context window and late tool result
       },
     });
 
-    expect(findByChatId).toHaveBeenCalledWith(chatId, userId, { maxSeq: 9 });
+    expect(findByChatId).toHaveBeenCalledWith(chatId, userId, {
+      maxSeq: 9,
+      sinceSeq: undefined,
+    });
   });
 
   it('ignores a tool result that arrives after termination already settled the call', async () => {
@@ -8110,7 +8115,7 @@ function activeCheckpoint(input: {
   uptoSeq: number;
   createdAt: Date;
   id?: string;
-}): Message {
+}): CheckpointMessage {
   return {
     id: input.id ?? '77777777-7777-4777-8777-777777777777',
     chatId,
@@ -8141,7 +8146,7 @@ const digestBaseline: RecencyDigestResolution['baseline'] = {
 async function executeAvailabilityAttempt(input: {
   recent?: Run;
   completed?: CompletedRunWithTrigger;
-  compaction?: Message;
+  compaction?: CheckpointMessage;
 }) {
   const repositories = mockNormalExecutionRepositories();
   vi.spyOn(
@@ -9886,14 +9891,19 @@ describe('RunExecutionService instruction files', () => {
           id: '99999999-9999-4999-8999-999999999999',
         }),
       );
-      // The item sits at the checkpoint's cutoff, so the context builder
-      // excludes it while the instruction loader sees no prior disclosure.
+      // The item sits at the checkpoint's cutoff, so the bounded read does not
+      // return it and the instruction loader sees no prior disclosure.
+      const history = [
+        { ...userMessage, seq: 1, parts: [item] },
+        { ...userMessage, seq: 2 },
+      ];
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
-        .mockResolvedValue([
-          { ...userMessage, seq: 1, parts: [item] },
-          { ...userMessage, seq: 2 },
-        ]);
+        .mockImplementation((_chatId, _userId, options) =>
+          Promise.resolve(
+            history.filter((row) => row.seq > (options?.sinceSeq ?? 0)),
+          ),
+        );
       const { client } = readThenAnswerClient(touch);
       const execution = makeExecutionService(
         client,
@@ -9917,6 +9927,7 @@ describe('RunExecutionService instruction files', () => {
 
       expect(findByChatId).toHaveBeenCalledWith(chatId, userId, {
         maxSeq: 2,
+        sinceSeq: 1,
       });
       // The item is gone from effective history: the accepted turn reloads
       // the file for its first request.

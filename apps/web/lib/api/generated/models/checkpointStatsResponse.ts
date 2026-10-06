@@ -7,8 +7,6 @@
  */
 
 export interface CheckpointStatsResponse {
-  /** User and assistant rows absorbed by this checkpoint. */
-  absorbedMessageCount: number;
   /**
    * The checkpoint summarization call's input token count.
    * @nullable

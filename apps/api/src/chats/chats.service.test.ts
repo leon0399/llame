@@ -141,21 +141,24 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     const findByChatId = vi
       .spyOn(MessagesRepository.prototype, 'findByChatId')
       .mockResolvedValue([message(20), message(30)]);
+    const countAbsorbedMessages = vi.spyOn(
+      MessagesRepository.prototype,
+      'countAbsorbedMessages',
+    );
 
     await expect(
       makeService(db).getChatMessages(chat.id, ownerUserId, {
         limit: 2,
         targetSeq: 30,
       }),
-    ).resolves.toEqual({
-      messages: [message(20), message(30)],
-    });
+    ).resolves.toEqual([message(20), message(30)]);
 
     expect(findById).toHaveBeenCalledWith(chat.id, ownerUserId);
     expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
       limit: 2,
       maxSeq: 30,
     });
+    expect(countAbsorbedMessages).not.toHaveBeenCalled();
   });
 
   it('returns the closed missing-chat result when the bounded window does not end at the target', async () => {
@@ -178,53 +181,31 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     });
   });
 
-  it('computes each checkpoint count from boundary intervals even when pagination omits prior rows', async () => {
+  it('counts absorbed rows only for the checkpoints in the requested window', async () => {
     const db: Db = drizzle.mock({ schema });
-    const first = message(1);
-    const second = message(2, {
-      role: 'assistant',
-      senderUserId: null,
-      inReplyTo: first.id,
-    });
-    const third = message(4);
-    const fourth = message(5, {
-      role: 'assistant',
-      senderUserId: null,
-      inReplyTo: third.id,
-    });
-    const firstCheckpoint = checkpoint(3, 2);
     const secondCheckpoint = checkpoint(6, 5);
-    const allMessages = [
-      first,
-      second,
-      firstCheckpoint,
-      third,
-      fourth,
-      secondCheckpoint,
-      message(7),
-    ];
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
     const findByChatId = vi
       .spyOn(MessagesRepository.prototype, 'findByChatId')
-      .mockResolvedValueOnce([secondCheckpoint])
-      .mockResolvedValueOnce(allMessages);
+      .mockResolvedValue([message(5), secondCheckpoint]);
+    const countAbsorbedMessages = vi
+      .spyOn(MessagesRepository.prototype, 'countAbsorbedMessages')
+      .mockResolvedValue(new Map([[secondCheckpoint.id, 2]]));
 
     await expect(
       makeService(db).getChatMessages(chat.id, ownerUserId, {
-        limit: 1,
+        limit: 2,
         targetSeq: secondCheckpoint.seq,
       }),
-    ).resolves.toEqual({
-      messages: [
-        expect.objectContaining({
-          id: secondCheckpoint.id,
-          absorbedThroughSeq: 5,
-          absorbedMessageCount: 2,
-        }),
-      ],
-    });
+    ).resolves.toEqual([
+      message(5),
+      { ...secondCheckpoint, absorbedMessageCount: 2 },
+    ]);
 
-    expect(findByChatId).toHaveBeenNthCalledWith(2, chat.id, ownerUserId);
+    expect(findByChatId).toHaveBeenCalledTimes(1);
+    expect(countAbsorbedMessages).toHaveBeenCalledWith(chat.id, ownerUserId, [
+      secondCheckpoint.id,
+    ]);
   });
 });
 
@@ -330,9 +311,7 @@ describe('ChatsService message windows, updates and forks', () => {
           limit: 2,
           beforeSeq: 9,
         }),
-      ).resolves.toEqual({
-        messages: [message(7), message(8)],
-      });
+      ).resolves.toEqual([message(7), message(8)]);
 
       expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
         limit: 2,
@@ -369,9 +348,7 @@ describe('ChatsService message windows, updates and forks', () => {
           limit: 3,
           targetSeq: 30,
         }),
-      ).resolves.toMatchObject({
-        messages: [message(10), message(20), message(30)],
-      });
+      ).resolves.toEqual([message(10), message(20), message(30)]);
     });
   });
 
@@ -530,8 +507,8 @@ describe('ChatsService message windows, updates and forks', () => {
         .spyOn(ChatsRepository.prototype, 'create')
         .mockResolvedValue(created);
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
-      const findByChatId = vi
-        .spyOn(MessagesRepository.prototype, 'findByChatId')
+      const findForkSource = vi
+        .spyOn(MessagesRepository.prototype, 'findForkSource')
         .mockResolvedValue([first, second]);
       const createMany = vi
         .spyOn(MessagesRepository.prototype, 'createMany')
@@ -546,7 +523,11 @@ describe('ChatsService message windows, updates and forks', () => {
         title: 'Source (fork)',
         ...inheritedChatValues,
       });
-      expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId);
+      expect(findForkSource).toHaveBeenCalledWith(
+        chat.id,
+        ownerUserId,
+        undefined,
+      );
 
       const copied = createMany.mock.calls[0][0];
       expect(copied.map((m) => m.seq)).toEqual([1, 2]);
@@ -572,9 +553,10 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
         untitled,
       );
-      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
-        [],
-      );
+      vi.spyOn(
+        MessagesRepository.prototype,
+        'findForkSource',
+      ).mockResolvedValue([]);
       vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
         undefined,
       );
@@ -587,17 +569,8 @@ describe('ChatsService message windows, updates and forks', () => {
       });
     });
 
-    it('copies a checkpoint by boundary even when its row is after the anchor', async () => {
-      const first = message(1);
-      const anchor = message(2);
-      const after = message(3);
-      const checkpoint = message(4, {
-        id: 'checkpoint-1',
-        role: 'checkpoint',
-        senderUserId: null,
-        parts: [{ type: 'data-context', data: { text: 'summary' } }],
-        absorbedThroughSeq: anchor.seq,
-      });
+    it('bounds the source read to the anchor message seq', async () => {
+      const anchor = message(7);
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
       vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
         ...chat,
@@ -606,22 +579,17 @@ describe('ChatsService message windows, updates and forks', () => {
       const findById = vi
         .spyOn(MessagesRepository.prototype, 'findById')
         .mockResolvedValue(anchor);
-      const findByChatId = vi
-        .spyOn(MessagesRepository.prototype, 'findByChatId')
-        .mockResolvedValue([first, anchor, after, checkpoint]);
-      const createMany = vi
-        .spyOn(MessagesRepository.prototype, 'createMany')
-        .mockResolvedValue(undefined);
+      const findForkSource = vi
+        .spyOn(MessagesRepository.prototype, 'findForkSource')
+        .mockResolvedValue([anchor]);
+      vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
+        undefined,
+      );
 
       await makeService().service.forkChat(chat.id, ownerUserId, anchor.id);
 
       expect(findById).toHaveBeenCalledWith(chat.id, ownerUserId, anchor.id);
-      expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId);
-
-      const copied = createMany.mock.calls[0][0];
-      expect(copied.map((m) => m.role)).toEqual(['user', 'user', 'checkpoint']);
-      expect(copied.map((m) => m.seq)).toEqual([1, 2, 3]);
-      expect(copied[2].absorbedThroughSeq).toBe(2);
+      expect(findForkSource).toHaveBeenCalledWith(chat.id, ownerUserId, 7);
     });
 
     it('reads the source and writes its copy in one repeatable-read transaction', async () => {
@@ -630,9 +598,10 @@ describe('ChatsService message windows, updates and forks', () => {
         ...chat,
         id: 'chat-fork',
       });
-      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
-        [],
-      );
+      vi.spyOn(
+        MessagesRepository.prototype,
+        'findForkSource',
+      ).mockResolvedValue([]);
       vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
         undefined,
       );

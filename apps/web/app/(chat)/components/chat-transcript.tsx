@@ -88,12 +88,7 @@ function ChatTranscriptCompactionBoundary({
 }: ChatTranscriptCompactionBoundaryProps) {
   return (
     <div className="mx-auto w-full max-w-3xl md:px-6">
-      <CompactionBoundary
-        summary={compaction.summary}
-        createdAt={compaction.createdAt}
-        stats={compaction.stats}
-        models={availableModels}
-      />
+      <CompactionBoundary compaction={compaction} models={availableModels} />
     </div>
   );
 }

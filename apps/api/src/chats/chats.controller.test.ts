@@ -9,7 +9,6 @@ import {
   type ChatsControllerService,
 } from './chats.controller';
 import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
-import { createCompactionCheckpointPart } from './context-item-producers';
 import type { ChatLoopService } from './chat-loop.service';
 import * as schema from '../db/schema';
 import type { Chat, Message } from '../db/schema';
@@ -103,9 +102,7 @@ describe('ChatsController', () => {
         .mockResolvedValue(chat),
       getChatMessages: vi
         .fn<ChatsControllerService['getChatMessages']>()
-        .mockResolvedValue({
-          messages: chatMessages,
-        }),
+        .mockResolvedValue(chatMessages),
       updateChat: vi
         .fn<ChatsControllerService['updateChat']>()
         .mockResolvedValue(chat),
@@ -260,48 +257,6 @@ describe('ChatsController', () => {
     });
   });
 
-  it('returns checkpoint rows with owner-only summary and derived stats', async () => {
-    const checkpoint: Message & { absorbedMessageCount: number } = {
-      id: 'a1111111-1111-4111-8111-111111111111',
-      chatId: chat.id,
-      seq: 3,
-      role: 'checkpoint',
-      absorbedThroughSeq: 2,
-      senderUserId: null,
-      parts: [createCompactionCheckpointPart('Older context is summarized.')],
-      attachments: [],
-      usage: {
-        inputTokens: 2000,
-        outputTokens: 200,
-        modelId: 'system:openai:gpt-5.4-mini',
-      },
-      inReplyTo: null,
-      createdAt: new Date('2026-07-06T00:00:00.000Z'),
-      absorbedMessageCount: 2,
-    };
-    const { controller } = makeController({
-      getChatMessages: vi.fn().mockResolvedValue({ messages: [checkpoint] }),
-    });
-
-    await expect(
-      controller.getChatMessages('verified-user', chat.id, { limit: 100 }),
-    ).resolves.toEqual({
-      messages: [
-        expect.objectContaining({
-          role: 'checkpoint',
-          absorbedThroughSeq: 2,
-          absorbedMessageCount: 2,
-          summary: 'Older context is summarized.',
-          stats: {
-            absorbedMessageCount: 2,
-            beforeTokens: 2000,
-            afterTokens: 200,
-            modelId: 'system:openai:gpt-5.4-mini',
-          },
-        }),
-      ],
-    });
-  });
   it('returns 404 when the verified user cannot read chat messages', async () => {
     const { controller } = makeController({
       getChatMessages: vi.fn().mockResolvedValue(undefined),
@@ -314,9 +269,7 @@ describe('ChatsController', () => {
 
   it('returns an empty message list for an owned chat with no messages', async () => {
     const { controller } = makeController({
-      getChatMessages: vi.fn().mockResolvedValue({
-        messages: [],
-      }),
+      getChatMessages: vi.fn().mockResolvedValue([]),
     });
 
     await expect(
@@ -814,7 +767,7 @@ describe('ChatsController response plumbing', () => {
 
   it('forwards history pagination verbatim', async () => {
     const { controller, chatsService } = makeController();
-    chatsService.getChatMessages.mockResolvedValue({ messages: [] });
+    chatsService.getChatMessages.mockResolvedValue([]);
 
     await controller.getChatMessages('u', chatId, {
       limit: 25,

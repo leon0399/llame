@@ -458,7 +458,8 @@ export class OwnerChatMessagesQueryDto extends ChatMessagesQueryDto {
   targetSeq?: number;
 }
 
-type ChatMessageResponseSource = Message & {
+/** An owner-history row; checkpoint rows carry their API-computed absorbed count. */
+export type ChatMessageResponseRow = Message & {
   absorbedMessageCount?: number;
 };
 
@@ -536,7 +537,7 @@ export class ChatMessagesResponse {
 }
 
 export function toChatMessageResponse(
-  message: ChatMessageResponseSource,
+  message: ChatMessageResponseRow,
 ): ChatMessageResponse {
   const response: ChatMessageResponse = {
     id: message.id,
@@ -555,12 +556,11 @@ export function toChatMessageResponse(
     return response;
   }
 
-  const absorbedMessageCount = message.absorbedMessageCount ?? 0;
   return Object.assign(response, {
     absorbedThroughSeq: message.absorbedThroughSeq ?? undefined,
-    absorbedMessageCount,
+    absorbedMessageCount: message.absorbedMessageCount ?? 0,
     summary: checkpointSummary(message),
-    stats: toCheckpointStatsResponse(response.usage, absorbedMessageCount),
+    stats: toCheckpointStatsResponse(response.usage),
   });
 }
 

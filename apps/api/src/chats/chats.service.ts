@@ -32,16 +32,15 @@ import {
 import { RunsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { pgErrorCode } from '../db/pg-error';
-import { toSharedChatResponse } from './dto/chats.dto';
+import {
+  toSharedChatResponse,
+  type ChatMessageResponseRow,
+} from './dto/chats.dto';
 
 /** Title for a forked chat. */
 export function forkTitle(title: string): string {
   return `${title} (fork)`;
 }
-
-export type ChatMessageResponseRow = Message & {
-  absorbedMessageCount?: number;
-};
 
 @Injectable()
 export class ChatsService {
@@ -95,48 +94,43 @@ export class ChatsService {
   }
 
   /**
-   * Owner history includes checkpoint rows. Each checkpoint receives an
-   * API-computed count of user/assistant rows in the boundary interval it
-   * represents; ordinary rows are returned unchanged.
-   *
-   * A paginated window cannot derive that count from its own rows: the
-   * previous checkpoint and absorbed turns may be outside the page. When a
-   * page contains a checkpoint, read the complete owner-scoped message
-   * sequence in the same transaction and derive all boundary intervals from
-   * that ordered snapshot.
+   * Owner history includes checkpoint rows. Each checkpoint in the window gets
+   * its absorbed user/assistant count from one aggregate read, so a page never
+   * loads the rest of the chat.
    */
   async getChatMessages(
     chatId: string,
     ownerUserId: string,
     options: { limit: number; beforeSeq?: number; targetSeq?: number },
-  ): Promise<
-    | {
-        messages: Array<ChatMessageResponseRow>;
-      }
-    | undefined
-  > {
+  ): Promise<Array<ChatMessageResponseRow> | undefined> {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
-      const window = await this.loadMessageWindow(
+      const messages = await this.loadMessageWindow(
         tx,
         chatId,
         ownerUserId,
         options,
       );
-      if (!window) {
+      if (!messages) {
         return undefined;
       }
 
-      if (!window.messages.some((message) => message.role === 'checkpoint')) {
-        return window;
+      const checkpointIds = messages
+        .filter((message) => message.role === 'checkpoint')
+        .map((message) => message.id);
+      if (checkpointIds.length === 0) {
+        return messages;
       }
 
-      const allMessages = await new MessagesRepository(tx).findByChatId(
+      const counts = await new MessagesRepository(tx).countAbsorbedMessages(
         chatId,
         ownerUserId,
+        checkpointIds,
       );
-      return {
-        messages: this.withAbsorbedMessageCounts(window.messages, allMessages),
-      };
+      return messages.map((message) =>
+        message.role === 'checkpoint'
+          ? { ...message, absorbedMessageCount: counts.get(message.id) ?? 0 }
+          : message,
+      );
     });
   }
 
@@ -150,7 +144,7 @@ export class ChatsService {
     chatId: string,
     ownerUserId: string,
     options: { limit: number; beforeSeq?: number; targetSeq?: number },
-  ): Promise<{ messages: Array<Message> } | undefined> {
+  ): Promise<Array<Message> | undefined> {
     const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
     if (!chat) {
       return undefined;
@@ -167,76 +161,27 @@ export class ChatsService {
     tx: Db,
     scope: { chatId: string; ownerUserId: string; limit: number },
     targetSeq: number,
-  ): Promise<{ messages: Array<Message> } | undefined> {
+  ): Promise<Array<Message> | undefined> {
     const { chatId, ownerUserId, limit } = scope;
     const messages = await new MessagesRepository(tx).findByChatId(
       chatId,
       ownerUserId,
       { limit, maxSeq: targetSeq },
     );
-    if (messages.at(-1)?.seq !== targetSeq) {
-      return undefined;
-    }
-    return { messages };
+    return messages.at(-1)?.seq === targetSeq ? messages : undefined;
   }
 
   /** The most recent `limit` messages strictly before `beforeSeq` (or the tail, if omitted). */
-  private async loadWindowBeforeSeq(
+  private loadWindowBeforeSeq(
     tx: Db,
     scope: { chatId: string; ownerUserId: string; limit: number },
     beforeSeq: number | undefined,
-  ): Promise<{ messages: Array<Message> }> {
+  ): Promise<Array<Message>> {
     const { chatId, ownerUserId, limit } = scope;
-    const messages = await new MessagesRepository(tx).findByChatId(
-      chatId,
-      ownerUserId,
-      {
-        limit,
-        maxSeq: beforeSeq === undefined ? undefined : beforeSeq - 1,
-      },
-    );
-    return { messages };
-  }
-
-  /**
-   * Attach per-checkpoint counts from the complete ordered owner history.
-   * Boundaries, rather than checkpoint row seq values, define the intervals.
-   */
-  private withAbsorbedMessageCounts(
-    window: ReadonlyArray<Message>,
-    allMessages: ReadonlyArray<Message>,
-  ): Array<ChatMessageResponseRow> {
-    const checkpoints = allMessages
-      .filter(
-        (message): message is Message & { absorbedThroughSeq: number } =>
-          message.role === 'checkpoint' && message.absorbedThroughSeq !== null,
-      )
-      .sort(
-        (left, right) => left.absorbedThroughSeq - right.absorbedThroughSeq,
-      );
-
-    const countByCheckpointId = new Map<string, number>();
-    let previousBoundary = 0;
-    for (const checkpoint of checkpoints) {
-      const boundary = checkpoint.absorbedThroughSeq;
-      const count = allMessages.filter(
-        (message) =>
-          (message.role === 'user' || message.role === 'assistant') &&
-          message.seq > previousBoundary &&
-          message.seq <= boundary,
-      ).length;
-      countByCheckpointId.set(checkpoint.id, count);
-      previousBoundary = boundary;
-    }
-
-    return window.map((message) =>
-      message.role === 'checkpoint'
-        ? {
-            ...message,
-            absorbedMessageCount: countByCheckpointId.get(message.id) ?? 0,
-          }
-        : message,
-    );
+    return new MessagesRepository(tx).findByChatId(chatId, ownerUserId, {
+      limit,
+      maxSeq: beforeSeq === undefined ? undefined : beforeSeq - 1,
+    });
   }
 
   async createChat(input: {
@@ -540,13 +485,13 @@ export class ChatsService {
       fromMessageId,
     );
 
-    // A checkpoint is inserted after the rows it absorbs. Read the complete
-    // source sequence before filtering, otherwise an anchor before a
-    // checkpoint's own seq would lose that checkpoint even when its boundary
-    // belongs in the copied prefix.
-    const sourceMessages = await new MessagesRepository(tx).findByChatId(
+    // A checkpoint row sits after the rows it absorbs, so the source read
+    // also returns checkpoints stored past the anchor whose boundary is
+    // inside the copied prefix.
+    const sourceMessages = await new MessagesRepository(tx).findForkSource(
       chatId,
       ownerUserId,
+      maxSeq,
     );
     const toCopy = selectForkMessages(sourceMessages, maxSeq);
 
@@ -591,9 +536,7 @@ export class ChatsService {
    * Faithful, not bounded: a fork copies the ENTIRE prefix (or the entire
    * chat, for a whole-chat clone), however long, in one atomic transaction —
    * no message-count cap (a fork must reproduce the source conversation
-   * exactly, never silently truncate it). The complete source sequence is
-   * read before applying the anchor filter because a checkpoint's own seq can
-   * be after its absorbed boundary; rows are then written via `createMany`'s
+   * exactly, never silently truncate it). Rows are written via `createMany`'s
    * chunked bulk insert, so an arbitrarily large conversation is still a small,
    * bounded number of round-trips.
    */
@@ -602,7 +545,7 @@ export class ChatsService {
     ownerUserId: string,
     fromMessageId?: string,
   ): Promise<Chat> {
-    // REPEATABLE READ: the source Chat and its complete message sequence must
+    // REPEATABLE READ: the source Chat and its message rows must
     // describe one instant — under the default READ COMMITTED each statement
     // takes its own snapshot, so a turn or checkpoint committing between the
     // reads would land half-copied. The fork writes only new rows of its own,

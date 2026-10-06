@@ -7,7 +7,7 @@ import { formatDistanceToNowStrict } from "date-fns";
 
 import { Separator } from "@workspace/ui/components/separator";
 import { cn } from "@workspace/ui/lib/utils";
-import type { CompactionStats } from "@/lib/services/chat/history";
+import type { Compaction } from "@/lib/services/chat/history";
 import {
   modelDisplayName,
   type AvailableModel,
@@ -35,12 +35,11 @@ function pluralize(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-/** The chip's and the expanded card's meta strings — each falls back to a
- *  relative timestamp independently when its own stats aren't available
- *  (see the component doc). Split out as a pure derivation from the markup
- *  that renders it. */
+/** The chip's and the expanded card's meta strings — the card falls back to
+ *  a relative timestamp when token stats aren't available (see the component
+ *  doc). Split out as a pure derivation from the markup that renders it. */
 function deriveCompactionMeta(
-  stats: CompactionStats,
+  { absorbedMessageCount, stats }: Compaction,
   relativeTime: string,
   models: ReadonlyArray<AvailableModel> | undefined,
 ) {
@@ -48,8 +47,7 @@ function deriveCompactionMeta(
     stats.beforeTokens !== null && stats.afterTokens !== null;
 
   const chipMeta = (() => {
-    if (stats.absorbedMessageCount === null) return relativeTime;
-    const messageCount = pluralize(stats.absorbedMessageCount, "message");
+    const messageCount = pluralize(absorbedMessageCount, "message");
     if (!hasTokenStats) return messageCount;
     // Non-null assertions guarded by hasTokenStats above.
     const saved = stats.beforeTokens! - stats.afterTokens!;
@@ -152,9 +150,9 @@ function CompactionResultCard({
  * interrupted by a centered pill chip (icon + "Context compacted" + a
  * chevron), which toggles an INLINE result card below it — not a modal.
  *
- * `stats.absorbedMessageCount` is the API-computed count from the checkpoint
- * row's boundary interval. Token counts/model still come from that row's
- * persisted usage and fall back independently when absent.
+ * `absorbedMessageCount` is the API-computed count from the checkpoint row's
+ * boundary interval. Token counts/model come from that row's persisted usage
+ * and fall back to a relative timestamp when absent.
  *
  * Read-only; the summary is the owner's own data, rendered PLAINTEXT
  * (`whitespace-pre-wrap`, no markdown) — it can carry content a future
@@ -162,22 +160,19 @@ function CompactionResultCard({
  * beacon even though this endpoint itself is owner-scoped only.
  */
 export function CompactionBoundary({
-  summary,
-  createdAt,
-  stats,
+  compaction,
   models,
 }: {
-  summary: string;
-  createdAt: string;
-  stats: CompactionStats;
+  compaction: Compaction;
   models?: ReadonlyArray<AvailableModel>;
 }) {
   const [open, setOpen] = useState(false);
-  const relativeTime = formatDistanceToNowStrict(new Date(createdAt), {
-    addSuffix: true,
-  });
+  const relativeTime = formatDistanceToNowStrict(
+    new Date(compaction.createdAt),
+    { addSuffix: true },
+  );
   const { chipMeta, cardMeta } = deriveCompactionMeta(
-    stats,
+    compaction,
     relativeTime,
     models,
   );
@@ -189,7 +184,12 @@ export function CompactionBoundary({
         onToggle={() => setOpen((current) => !current)}
         chipMeta={chipMeta}
       />
-      {open && <CompactionResultCard summary={summary} cardMeta={cardMeta} />}
+      {open && (
+        <CompactionResultCard
+          summary={compaction.summary}
+          cardMeta={cardMeta}
+        />
+      )}
     </div>
   );
 }

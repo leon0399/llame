@@ -43,6 +43,11 @@ export type SeedCompactionOptions = {
   ownerUserId?: string;
 };
 
+/**
+ * The row lands at the chat's NEXT sequence, whatever its boundary: seeded
+ * after later turns it sits past rows it does not absorb, the order production
+ * publishes it in (after the triggering user row).
+ */
 export function seedCheckpoint(
   chatId: string,
   absorbedThroughSeq: number,
@@ -59,7 +64,9 @@ export function seedCheckpoint(
       checkpointId,
     )}', '${escapeSqlLiteral(
       chatId,
-    )}', ${absorbedThroughSeq + 1}, 'checkpoint', ${absorbedThroughSeq}, NULL, ${partsColumn}, '[]'::jsonb, ${usageColumn}, NULL);`,
+    )}', (SELECT coalesce(max(seq), 0) + 1 FROM messages WHERE chat_id = '${escapeSqlLiteral(
+      chatId,
+    )}'), 'checkpoint', ${absorbedThroughSeq}, NULL, ${partsColumn}, '[]'::jsonb, ${usageColumn}, NULL);`,
     options.ownerUserId,
   );
 }

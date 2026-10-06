@@ -14,7 +14,10 @@ import { createFakeModelClient } from '../models/fake-model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import type { ModelClient, ModelStreamInput } from '../models/model-client';
 import { createCompactionCheckpointPart } from '../chats/context-item-producers';
-import { MessagesRepository } from '../chats/messages-repository';
+import {
+  MessagesRepository,
+  type CheckpointMessage,
+} from '../chats/messages-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { ContextIncompatibleError } from '../runs/model-context-errors';
@@ -47,8 +50,8 @@ function message(seq: number, role: Message['role'] = 'user'): Message {
 
 /**
  * The absorbable prefix an attempt's plan hands to the summary request. It
- * starts strictly above `previousCompaction.uptoSeq`, whose stored checkpoint
- * is replayed in its place.
+ * starts strictly above `previousCheckpoint.absorbedThroughSeq`, whose stored
+ * checkpoint is replayed in its place.
  */
 function plan(): CompactionPlan {
   return {
@@ -57,7 +60,7 @@ function plan(): CompactionPlan {
   };
 }
 
-const previousCheckpoint: Message = {
+const previousCheckpoint: CheckpointMessage = {
   ...message(1, 'checkpoint'),
   absorbedThroughSeq: 1,
   parts: [createCompactionCheckpointPart('previous checkpoint')],
@@ -153,7 +156,7 @@ const validTool: ModelToolDeclaration = {
  * variant additionally resolves its source run and that run's receipt.
  */
 function mockReads(options?: {
-  previous?: Message;
+  previous?: CheckpointMessage;
   source?: { run: Run; receipt?: SystemPromptReceipt | undefined } | undefined;
 }) {
   const findActive = vi

@@ -7,7 +7,6 @@ import * as schema from '../db/schema';
 import type { Chat, Message } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import { type UnknownRecord } from '@workspace/runtime-safety';
-import { createCompactionCheckpointPart } from './context-item-producers';
 import { MessagesRepository } from './messages-repository';
 
 type QueryValue = ReadonlyArray<unknown>;
@@ -311,47 +310,6 @@ describe('MessagesRepository writes', () => {
       expect.objectContaining({ role: 'user', seq: 1 }),
       expect.objectContaining({ role: 'assistant', seq: 2 }),
     ]);
-  });
-  it('creates a checkpoint with the next sequence and persisted boundary part', async () => {
-    const part = createCompactionCheckpointPart('summary');
-    const created = message(5, 'checkpoint', 4);
-    const { db, insertedRow } = sequencingDb([
-      { maxRows: [{ value: 4 }], created },
-    ]);
-
-    await expect(
-      new MessagesRepository(db).createCheckpoint({
-        chatId: chat.id,
-        absorbedThroughSeq: 4,
-        part,
-        usage: { inputTokens: 20 },
-      }),
-    ).resolves.toBe(created);
-    expect(insertedRow()).toMatchObject({
-      seq: 5,
-      role: 'checkpoint',
-      absorbedThroughSeq: 4,
-      senderUserId: null,
-      inReplyTo: null,
-      parts: [part],
-      usage: { inputTokens: 20 },
-    });
-  });
-  it('reads back the winning checkpoint when the boundary conflict is a no-op', async () => {
-    const part = createCompactionCheckpointPart('summary');
-    const winner = message(6, 'checkpoint', 4);
-    const { db } = sequencingDb([{ maxRows: [{ value: 5 }] }]);
-    vi.spyOn(db, 'select').mockImplementation(() =>
-      asQuery(recordingQuery([winner], [])),
-    );
-
-    await expect(
-      new MessagesRepository(db).createCheckpoint({
-        chatId: chat.id,
-        absorbedThroughSeq: 4,
-        part,
-      }),
-    ).resolves.toBe(winner);
   });
 
   it('returns existing turn state and updates only a retryable assistant', async () => {
@@ -847,53 +805,8 @@ describe('MessagesRepository read shapes', () => {
       new MessagesRepository(db).findById(chat.id, chat.ownerUserId, 'absent'),
     ).resolves.toBeUndefined();
   });
-  it('selects owner-scoped checkpoints by boundary and excludes the row itself', async () => {
-    const active = message(5, 'checkpoint', 4);
-    const calls: Array<ChainCall> = [];
-    const db: Db = drizzle.mock({ schema });
-    vi.spyOn(db, 'select').mockImplementation(() =>
-      asQuery(recordingQuery([{ messages: active }], calls)),
-    );
-    const repository = new MessagesRepository(db);
 
-    await expect(
-      repository.findActiveCheckpoint(chat.id, chat.ownerUserId, {
-        beforeSeq: 9,
-      }),
-    ).resolves.toBe(active);
-    await expect(
-      repository.findCheckpointByBoundary(chat.id, chat.ownerUserId, 4),
-    ).resolves.toBe(active);
-
-    const predicates = calls.flatMap((call) =>
-      call.method === 'where' ? [call.argument] : [],
-    );
-    expect(predicates).toHaveLength(2);
-    const activePredicate = predicates[0];
-    const boundaryPredicate = predicates[1];
-    if (!is(activePredicate, SQL) || !is(boundaryPredicate, SQL)) {
-      throw new Error('Expected checkpoint predicates');
-    }
-    const activeSql = new PgDialect().sqlToQuery(activePredicate);
-    expect(activeSql.sql).toContain('"messages"."role" = $3');
-    expect(activeSql.sql).toContain('"messages"."absorbed_through_seq" < $4');
-    expect(activeSql.params).toEqual([
-      chat.id,
-      chat.ownerUserId,
-      'checkpoint',
-      9,
-    ]);
-    const boundarySql = new PgDialect().sqlToQuery(boundaryPredicate);
-    expect(boundarySql.sql).toContain('"messages"."absorbed_through_seq" = $4');
-    expect(boundarySql.params).toEqual([
-      chat.id,
-      chat.ownerUserId,
-      'checkpoint',
-      4,
-    ]);
-  });
-
-  it('skips the query entirely for an empty chat-id set', async () => {
+  it('skips the query entirely for an empty id set', async () => {
     const db: Db = drizzle.mock({ schema });
     const calls: Array<ChainCall> = [];
     const distinct = vi
@@ -911,6 +824,13 @@ describe('MessagesRepository read shapes', () => {
     ).resolves.toEqual([]);
     await expect(
       new MessagesRepository(db).countPerChat([], chat.ownerUserId),
+    ).resolves.toEqual(new Map());
+    await expect(
+      new MessagesRepository(db).countAbsorbedMessages(
+        chat.id,
+        chat.ownerUserId,
+        [],
+      ),
     ).resolves.toEqual(new Map());
     expect(distinct).not.toHaveBeenCalled();
     expect(select).not.toHaveBeenCalled();
@@ -1054,5 +974,80 @@ describe('MessagesRepository conversation lookup shape', () => {
       createdAt: new Date(7000),
       nextMessageSeq: 9,
     });
+  });
+});
+
+/**
+ * The one statement `run` issues, as Drizzle renders it for Postgres. The mock
+ * client has no connection, so the call rejects once the logger has seen it.
+ */
+async function renderedStatement<Result>(
+  run: (repository: MessagesRepository) => Promise<Result>,
+) {
+  const statements: Array<{ sql: string; params: ReadonlyArray<unknown> }> = [];
+  const db: Db = drizzle.mock({
+    schema,
+    logger: { logQuery: (sql, params) => statements.push({ sql, params }) },
+  });
+  await run(new MessagesRepository(db)).catch(() => undefined);
+  const [statement] = statements;
+  if (statements.length !== 1 || statement === undefined) {
+    throw new Error(`Expected one statement, saw ${statements.length}`);
+  }
+  return statement;
+}
+
+describe('MessagesRepository checkpoint query shapes', () => {
+  it('counts user and assistant rows between the previous boundary and each checkpoint, scoped to the owner', async () => {
+    const statement = await renderedStatement((repository) =>
+      repository.countAbsorbedMessages(chat.id, chat.ownerUserId, [
+        'checkpoint-1',
+        'checkpoint-2',
+      ]),
+    );
+
+    expect(statement.sql).toContain(
+      'left join "messages" on ("messages"."chat_id" = "checkpoint"."chat_id" and "messages"."role" in ($1, $2) and "messages"."seq" <= "checkpoint"."absorbed_through_seq" and "messages"."seq" > coalesce((select max("absorbed_through_seq") from "messages" "previous_checkpoint" where ("previous_checkpoint"."chat_id" = "checkpoint"."chat_id" and "previous_checkpoint"."absorbed_through_seq" < "checkpoint"."absorbed_through_seq")), 0))',
+    );
+    expect(statement.sql).toContain(
+      'where ("checkpoint"."chat_id" = $3 and "chats"."owner_user_id" = $4 and "checkpoint"."role" = $5 and "checkpoint"."id" in ($6, $7)) group by "checkpoint"."id"',
+    );
+    expect(statement.params).toEqual([
+      'user',
+      'assistant',
+      chat.id,
+      chat.ownerUserId,
+      'checkpoint',
+      'checkpoint-1',
+      'checkpoint-2',
+    ]);
+  });
+
+  it('selects the rows up to the anchor plus checkpoints that absorbed only up to it, owner-scoped and oldest-first', async () => {
+    const statement = await renderedStatement((repository) =>
+      repository.findForkSource(chat.id, chat.ownerUserId, 5),
+    );
+
+    expect(statement.sql).toContain(
+      'where ("messages"."chat_id" = $1 and "chats"."owner_user_id" = $2 and ("messages"."seq" <= $3 or ("messages"."role" = $4 and "messages"."absorbed_through_seq" <= $5))) order by "messages"."seq" asc',
+    );
+    expect(statement.params).toEqual([
+      chat.id,
+      chat.ownerUserId,
+      5,
+      'checkpoint',
+      5,
+    ]);
+  });
+
+  it('selects the whole owned chat when there is no fork anchor', async () => {
+    const statement = await renderedStatement((repository) =>
+      repository.findForkSource(chat.id, chat.ownerUserId, undefined),
+    );
+
+    expect(statement.sql).toContain(
+      'where ("messages"."chat_id" = $1 and "chats"."owner_user_id" = $2) order by "messages"."seq" asc',
+    );
+    expect(statement.params).toEqual([chat.id, chat.ownerUserId]);
   });
 });

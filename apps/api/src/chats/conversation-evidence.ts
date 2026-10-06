@@ -29,18 +29,14 @@ export function visibleMessageText(parts: ReadonlyArray<unknown>): string {
 
 /**
  * Identifies rows whose visible text can be used as immutable conversation
- * evidence. Checkpoint rows are presentation-only model context and are never
- * a searchable source, even when their stored rail part contains text.
- * Legacy assistant rows with no completion status remain eligible; the
- * existing completion classifier defines that compatibility behavior.
+ * evidence. Legacy assistant rows with no completion status remain eligible;
+ * the existing completion classifier defines that compatibility behavior.
  */
 export function isImmutableEvidenceMessage(message: {
   role: string;
   usage?: unknown;
 }): boolean {
-  return (
-    message.role !== 'checkpoint' &&
-    (message.role === 'user' ||
-      (message.role === 'assistant' && isCompletedAssistantTurn(message)))
-  );
+  return message.role === 'user'
+    ? true
+    : message.role === 'assistant' && isCompletedAssistantTurn(message);
 }

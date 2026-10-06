@@ -229,11 +229,8 @@ export class ChatsController {
     return toChatResponse(chat);
   }
 
-  // Owner-scoped message history. Checkpoint rows are included in this
-  // response with their boundary, summary, usage stats, and API-computed
-  // absorbed-message count; public/shared projections use a separate DTO.
-  // The checkpoint row itself is not a second resource or an embedded latest
-  // compaction object, so pagination remains one message query.
+  // Owner history: checkpoint rows are included (with their boundary, summary
+  // and absorbed-message count); public projections use a separate DTO.
   @Get(':id/messages')
   @ApiOperation({ operationId: 'getChatMessages' })
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -248,18 +245,16 @@ export class ChatsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: OwnerChatMessagesQueryDto,
   ): Promise<ChatMessagesResponse> {
-    const result = await this.chatsService.getChatMessages(id, userId, {
+    const messages = await this.chatsService.getChatMessages(id, userId, {
       limit: query.limit,
       beforeSeq: query.beforeSeq,
       targetSeq: query.targetSeq,
     });
-    if (!result) {
+    if (!messages) {
       throw new NotFoundException(`Chat ${id} not found`);
     }
 
-    return {
-      messages: result.messages.map(toChatMessageResponse),
-    };
+    return { messages: messages.map(toChatMessageResponse) };
   }
 
   // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates

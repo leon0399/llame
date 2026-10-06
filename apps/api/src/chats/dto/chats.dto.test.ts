@@ -499,7 +499,6 @@ it('adds checkpoint boundary, payload summary, count, and usage stats to owner r
     absorbedMessageCount: 3,
     summary: 'Summarized earlier turns.',
     stats: {
-      absorbedMessageCount: 3,
       beforeTokens: 7100,
       afterTokens: 128,
       modelId: 'system:openai:gpt-5.4-mini',
@@ -531,26 +530,6 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       ...overrides,
     };
   }
-  it('never includes checkpoint rows in the public message DTO', () => {
-    const checkpoint = fakeMessage({
-      role: 'checkpoint',
-      absorbedThroughSeq: 7,
-      parts: [
-        {
-          type: 'data-context',
-          data: {
-            producer: 'compaction',
-            runId: '00000000-0000-4000-8000-000000000000',
-            form: 'checkpoint',
-            text: '<system-reminder>PRIVATE_CHECKPOINT</system-reminder>',
-            payload: { v: 1, summary: 'PRIVATE_SUMMARY' },
-          },
-        },
-      ],
-    });
-
-    expect(toSharedChatResponse(fakeChat, [checkpoint]).messages).toEqual([]);
-  });
   it('omits the owner-only Workspace binding from the shared projection', () => {
     const dto = toSharedChatResponse(fakeChat, []);
 

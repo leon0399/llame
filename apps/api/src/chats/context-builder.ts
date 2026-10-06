@@ -124,8 +124,6 @@ export interface StoredMessage {
   attachments: Array<unknown>;
   /** Durable assistant telemetry; transition compaction uses completed turns only. */
   usage?: unknown;
-  /** Coverage boundary for a checkpoint row; null on every other role. */
-  absorbedThroughSeq?: number | null;
   createdAt: Date;
 }
 
@@ -454,12 +452,8 @@ export function buildContext(
   for (const m of ordered) {
     if (m.role === 'user') {
       appendUserMessage(result, contextItems, m);
-    } else if (m.role === 'assistant') {
+    } else {
       appendAssistantMessage(result, contextItems, m, requestKind);
-    } else if (m.role === 'checkpoint') {
-      // Explicitly named so a future role cannot accidentally replay a
-      // checkpoint as assistant content.
-      continue;
     }
   }
 

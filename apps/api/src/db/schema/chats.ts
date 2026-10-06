@@ -185,7 +185,7 @@ export const chats = pgTable(
     // Public sharing (SELECT-only): a chat marked public is readable ONLY via
     // the no-identity `runAsPublic` path (current_user=''). Gating on the empty
     // identity keeps this policy from OR-ing public chats into a NORMAL
-    // `runAs(userId)` read — so RLS alone still scopes a owner query to its own
+    // `runAs(userId)` read — so RLS alone still scopes an owner query to its own
     // chats (the "RLS is primary" invariant is preserved, not weakened to
     // "RLS + app filter"). A private chat matches NEITHER policy. No write.
     pgPolicy('chats_public_read', {
@@ -221,8 +221,8 @@ export const messages = pgTable(
     // defaults to now() = the TRANSACTION
     // timestamp, so messages written in one transaction (e.g. a user turn + its
     // assistant reply) share an identical created_at and cannot be ordered by it
-    // deterministically. Allocation is explicit and Chat-local; queries and the
-    // ContextBuilder order by it, not by created_at.
+    // deterministically. Allocation is explicit and Chat-local; queries and
+    // the ContextBuilder order by it, not by created_at.
     seq: bigint('seq', { mode: 'number' }).notNull(),
     role: messageRole('role').notNull(),
     // The last Chat-local sequence absorbed by a checkpoint. NULL on every

@@ -175,9 +175,7 @@ function buildBlocks(
   let precedingUserText: string | null = null;
 
   for (const message of messages) {
-    if (message.role === 'checkpoint' || !isImmutableEvidenceMessage(message)) {
-      continue;
-    }
+    if (!isImmutableEvidenceMessage(message)) continue;
     const text = extractMessageText(message);
     if (text.length === 0) continue;
 

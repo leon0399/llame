@@ -77,32 +77,6 @@ function remapRebakeMarker(
  * reference them. The destination Chat must already name copied checkpoints
  * before it is inserted.
  */
-type CopiedCheckpointState = {
-  copiedCheckpointIds: ReadonlyMap<string, string>;
-  activeCheckpointId: string | null;
-};
-
-function copiedCheckpointState(
-  toCopy: ReadonlyArray<SequencedCopyableMessage>,
-  messageIds: ReadonlyMap<string, string>,
-): CopiedCheckpointState {
-  const copiedCheckpoints = toCopy.filter(
-    (message) => message.role === 'checkpoint',
-  );
-  const copiedCheckpointIds = new Map<string, string>(
-    copiedCheckpoints.map((message) => [
-      message.id,
-      messageIds.get(message.id)!,
-    ]),
-  );
-  const active = copiedCheckpoints.at(-1);
-  return {
-    copiedCheckpointIds,
-    activeCheckpointId:
-      active === undefined ? null : (messageIds.get(active.id) ?? null),
-  };
-}
-
 export function inheritForkedChatState(
   source: Chat,
   toCopy: ReadonlyArray<SequencedCopyableMessage>,
@@ -110,10 +84,13 @@ export function inheritForkedChatState(
   const messageIds = new Map<string, string>(
     toCopy.map((message) => [message.id, crypto.randomUUID()]),
   );
-  const { copiedCheckpointIds, activeCheckpointId } = copiedCheckpointState(
-    toCopy,
-    messageIds,
-  );
+  const copiedCheckpointIds = new Map<string, string>();
+  for (const message of toCopy) {
+    if (message.role === 'checkpoint') {
+      copiedCheckpointIds.set(message.id, messageIds.get(message.id)!);
+    }
+  }
+  const activeCheckpointId = [...copiedCheckpointIds.values()].at(-1) ?? null;
 
   return {
     messageIds,
@@ -174,15 +151,22 @@ function checkpointBoundaryForCopy(
   return copiedBoundary;
 }
 
-function copiedMessageRow(input: {
-  message: CopyableMessage;
-  index: number;
-  chatId: string;
-  messageIds: ReadonlyMap<string, string>;
-  newSeqBySourceSeq: ReadonlyMap<number, number>;
-}): CopiedMessageRow {
-  const { message, index, chatId, messageIds, newSeqBySourceSeq } = input;
-  return {
+/**
+ * The copied message rows, in source order with dense sequences from 1. Ids
+ * are pre-assigned before any insert so `inReplyTo` and checkpoint boundaries
+ * can be remapped without a per-row RETURNING round-trip.
+ */
+export function copiedMessageRows(
+  toCopy: ReadonlyArray<CopyableMessage>,
+  chatId: string,
+  messageIds: ReadonlyMap<string, string> = new Map(
+    toCopy.map((message) => [message.id, crypto.randomUUID()]),
+  ),
+): Array<CopiedMessageRow> {
+  const newSeqBySourceSeq = new Map(
+    toCopy.map((message, index) => [message.seq ?? index + 1, index + 1]),
+  );
+  return toCopy.map((message, index) => ({
     id: messageIds.get(message.id)!,
     chatId,
     seq: index + 1,
@@ -199,31 +183,5 @@ function copiedMessageRow(input: {
     // NULL for `usage`) rather than an explicit null.
     createdAt: message.createdAt,
     usage: message.usage,
-  };
-}
-
-/**
- * The copied message rows, in source order with dense sequences from 1. Ids
- * are pre-assigned before any insert so `inReplyTo` and checkpoint boundaries
- * can be remapped without a per-row RETURNING round-trip.
- */
-export function copiedMessageRows(
-  toCopy: ReadonlyArray<CopyableMessage>,
-  chatId: string,
-  messageIds: ReadonlyMap<string, string> = new Map(
-    toCopy.map((message) => [message.id, crypto.randomUUID()]),
-  ),
-): Array<CopiedMessageRow> {
-  const newSeqBySourceSeq = new Map(
-    toCopy.map((message, index) => [message.seq ?? index + 1, index + 1]),
-  );
-  return toCopy.map((message, index) =>
-    copiedMessageRow({
-      message,
-      index,
-      chatId,
-      messageIds,
-      newSeqBySourceSeq,
-    }),
-  );
+  }));
 }

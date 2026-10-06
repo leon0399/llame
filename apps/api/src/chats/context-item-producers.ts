@@ -13,6 +13,8 @@
  * authority; the payload is only the structured owner-facing summary.
  */
 
+import type { ContextCheckpoint } from './context-builder';
+import type { CheckpointMessage } from './messages-repository';
 import {
   isContextItemPart,
   type AuthoredContextItemPart,
@@ -611,7 +613,7 @@ const CHECKPOINT_PART_RUN_ID = '00000000-0000-4000-8000-000000000000';
 export function createCompactionCheckpointPart(
   summary: string,
 ): ContextItemPart {
-  if (!isString(summary) || summary.trim().length === 0) {
+  if (summary.trim().length === 0) {
     throw new TypeError('Invalid compaction checkpoint summary');
   }
   return createRenderedContextItem({
@@ -623,13 +625,12 @@ export function createCompactionCheckpointPart(
   });
 }
 
-function checkpointPartOrThrow(row: Message): ContextItemPart {
-  if (row.role !== 'checkpoint' || !Array.isArray(row.parts)) {
-    throw new ModelContextExecutionError(
-      `Checkpoint ${row.id} has no valid context part.`,
-    );
-  }
-  if (row.parts.length !== 1) {
+function checkpointPartOrThrow(row: Message) {
+  if (
+    row.role !== 'checkpoint' ||
+    !Array.isArray(row.parts) ||
+    row.parts.length !== 1
+  ) {
     throw new ModelContextExecutionError(
       `Checkpoint ${row.id} must contain exactly one context part.`,
     );
@@ -646,22 +647,23 @@ function checkpointPartOrThrow(row: Message): ContextItemPart {
       `Checkpoint ${row.id} has an invalid or empty context part.`,
     );
   }
-  return part;
+  return { part, text: part.data.text };
 }
 
 export function readCheckpointText(row: Message): string {
-  const part = checkpointPartOrThrow(row);
-  const text = part.data.text;
-  if (!isString(text) || text.trim().length === 0) {
-    throw new ModelContextExecutionError(
-      `Checkpoint ${row.id} has an invalid or empty context part.`,
-    );
-  }
-  return text;
+  return checkpointPartOrThrow(row).text;
+}
+
+/** The replay selection for a stored checkpoint row. */
+export function toContextCheckpoint(row: CheckpointMessage): ContextCheckpoint {
+  return {
+    text: readCheckpointText(row),
+    absorbedThroughSeq: row.absorbedThroughSeq,
+  };
 }
 
 export function checkpointSummary(row: Message): string {
-  const part = checkpointPartOrThrow(row);
+  const { part } = checkpointPartOrThrow(row);
   const payload = part.data.payload;
   if (
     !isExactRecord(payload, ['summary', 'v']) ||

@@ -359,64 +359,91 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     );
     expect(anonymousRead.status).toBe(401);
   });
-  it('returns checkpoint rows with owner-only summary and API counts', async () => {
+  it('returns checkpoint rows with owner-only summary and boundary-interval counts, per page', async () => {
     const checkpointChatId = await createChat(userAId, 'Checkpoint API Chat');
-    let checkpointId = '';
+    const checkpointIds: Array<string> = [];
 
+    // Rows by seq: 1 user, 2 assistant, 3 user, 4 C1 (through 2), 5 assistant,
+    // 6 user, 7 assistant, 8 user, 9 C2 (through 7), 10 assistant — each
+    // checkpoint stored after the user row that triggered it, as production
+    // publishes them.
     await tenantDb.runAs(userAId, async (tx) => {
       const messagesRepo = new MessagesRepository(tx);
-      const userMessage = await messagesRepo.create({
-        chatId: checkpointChatId,
-        role: 'user',
-        senderUserId: userAId,
-        parts: [{ type: 'text', text: 'absorbed prompt' }],
-        attachments: [],
-      });
-      await messagesRepo.create({
-        chatId: checkpointChatId,
-        role: 'assistant',
-        parts: [{ type: 'text', text: 'absorbed answer' }],
-        attachments: [],
-        inReplyTo: userMessage.id,
-      });
-      const checkpoint = await messagesRepo.createCheckpoint({
-        chatId: checkpointChatId,
-        absorbedThroughSeq: 2,
-        part: createCompactionCheckpointPart('API checkpoint summary'),
-        usage: {
-          inputTokens: 2000,
-          outputTokens: 200,
-          modelId: 'e2e-checkpoint-model',
-        },
-      });
-      checkpointId = checkpoint.id;
+      const append = async (role: 'user' | 'assistant', text: string) =>
+        messagesRepo.create({
+          chatId: checkpointChatId,
+          role,
+          senderUserId: role === 'user' ? userAId : null,
+          parts: [{ type: 'text', text }],
+          attachments: [],
+        });
+      const checkpoint = async (summary: string, absorbedThroughSeq: number) =>
+        (
+          await messagesRepo.createCheckpoint({
+            chatId: checkpointChatId,
+            absorbedThroughSeq,
+            part: createCompactionCheckpointPart(summary),
+            usage: {
+              inputTokens: 2000,
+              outputTokens: 200,
+              modelId: 'e2e-checkpoint-model',
+            },
+          })
+        ).id;
+
+      await append('user', 'u1');
+      await append('assistant', 'a2');
+      await append('user', 'u3');
+      checkpointIds.push(await checkpoint('First API summary', 2));
+      await append('assistant', 'a5');
+      await append('user', 'u6');
+      await append('assistant', 'a7');
+      await append('user', 'u8');
+      checkpointIds.push(await checkpoint('Second API summary', 7));
+      await append('assistant', 'a10');
     });
 
-    const ownerRead = await request(http)
-      .get(`/api/v1/chats/${checkpointChatId}/messages`)
-      .set('Cookie', cookieA);
+    const readMessages = async (query: string) => {
+      const response = await request(http)
+        .get(`/api/v1/chats/${checkpointChatId}/messages${query}`)
+        .set('Cookie', cookieA);
+      expect(response.status).toBe(200);
+      return z.object({ messages: z.array(z.unknown()) }).parse(response.body)
+        .messages;
+    };
+    const firstCheckpoint = expect.objectContaining({
+      id: checkpointIds[0],
+      role: 'checkpoint',
+      absorbedThroughSeq: 2,
+      absorbedMessageCount: 2,
+      summary: 'First API summary',
+      stats: {
+        beforeTokens: 2000,
+        afterTokens: 200,
+        modelId: 'e2e-checkpoint-model',
+      },
+    });
+    const secondCheckpoint = expect.objectContaining({
+      id: checkpointIds[1],
+      role: 'checkpoint',
+      absorbedThroughSeq: 7,
+      // Rows 3, 5, 6 and 7: the earlier checkpoint row is not counted.
+      absorbedMessageCount: 4,
+      summary: 'Second API summary',
+    });
 
-    const ownerReadBody = z
-      .object({ messages: z.array(z.unknown()) })
-      .parse(ownerRead.body);
-
-    expect(ownerRead.status).toBe(200);
-    expect(ownerReadBody.messages).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: checkpointId,
-          role: 'checkpoint',
-          absorbedThroughSeq: 2,
-          absorbedMessageCount: 2,
-          summary: 'API checkpoint summary',
-          stats: expect.objectContaining({
-            beforeTokens: 2000,
-            afterTokens: 200,
-            modelId: 'e2e-checkpoint-model',
-          }),
-        }),
-      ]),
+    expect(await readMessages('')).toEqual(
+      expect.arrayContaining([firstCheckpoint, secondCheckpoint]),
     );
+
+    // A page holding only the later checkpoint still reports its whole
+    // interval, though the earlier checkpoint and most absorbed rows are
+    // outside the window.
+    const lastPage = await readMessages('?limit=2&beforeSeq=10');
+    expect(lastPage).toEqual([
+      expect.objectContaining({ seq: 8, role: 'user' }),
+      secondCheckpoint,
+    ]);
   });
 
   it('loads target-ended windows, rejects missing targets, and hides foreign targets', async () => {

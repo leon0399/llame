@@ -7,9 +7,81 @@ import {
   mergeTrustedModelContextParts,
   messageSeqFromMetadata,
   modelSwitchPart,
+  normalizeChatMessagesResponse,
   runIdFromMessageMetadata,
   toChatUiMessages,
 } from "./history";
+import type { ChatMessageResponse as WireChatMessage } from "../../api/generated/models";
+
+describe("normalizeChatMessagesResponse", () => {
+  const wireRow = (
+    id: string,
+    seq: number,
+    overrides: Partial<WireChatMessage> = {},
+  ): WireChatMessage => ({
+    id,
+    chatId: "chat-1",
+    seq,
+    role: "user",
+    senderUserId: null,
+    parts: [],
+    attachments: [],
+    usage: null,
+    inReplyTo: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  });
+  const checkpointRow = (
+    seq: number,
+    absorbedThroughSeq: number,
+    overrides: Partial<WireChatMessage> = {},
+  ) =>
+    wireRow(`checkpoint-${absorbedThroughSeq}`, seq, {
+      role: "checkpoint",
+      absorbedThroughSeq,
+      absorbedMessageCount: 2,
+      summary: `through ${absorbedThroughSeq}`,
+      stats: { beforeTokens: 10, afterTokens: 5, modelId: "m1" },
+      ...overrides,
+    });
+
+  it("takes the newest checkpoint row on the page as the transcript boundary", () => {
+    const response = normalizeChatMessagesResponse({
+      messages: [
+        wireRow("user-1", 1),
+        checkpointRow(3, 2),
+        wireRow("user-2", 4),
+        checkpointRow(6, 5),
+      ],
+    });
+
+    expect(response.compaction).toMatchObject({
+      absorbedThroughSeq: 5,
+      absorbedMessageCount: 2,
+      summary: "through 5",
+    });
+    expect(response.messages.map(({ id }) => id)).toEqual([
+      "user-1",
+      "checkpoint-2",
+      "user-2",
+      "checkpoint-5",
+    ]);
+  });
+
+  it("skips a checkpoint row missing a boundary field and reports none for a page without one", () => {
+    const incomplete = checkpointRow(6, 5, { summary: undefined });
+
+    expect(
+      normalizeChatMessagesResponse({
+        messages: [checkpointRow(3, 2), incomplete],
+      }).compaction,
+    ).toMatchObject({ absorbedThroughSeq: 2 });
+    expect(
+      normalizeChatMessagesResponse({ messages: [wireRow("user-1", 1)] })
+        .compaction,
+    ).toBeNull();
+  });
+});
 
 describe("toChatUiMessages", () => {
   it("maps persisted chat messages to AI SDK UI messages", () => {

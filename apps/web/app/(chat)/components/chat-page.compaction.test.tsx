@@ -87,14 +87,12 @@ import {
   toChatUiMessages,
   type ChatMessageResponse,
   type Compaction,
-  type CompactionStats,
 } from "@/lib/services/chat/history";
 
 import { ChatPage } from "./chat-page";
 import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
 
-const NO_STATS: CompactionStats = {
-  absorbedMessageCount: null,
+const NO_STATS: Compaction["stats"] = {
   beforeTokens: null,
   afterTokens: null,
   modelId: null,
@@ -149,7 +147,6 @@ function renderChatPage(
   seed: {
     messages: typeof useChatMessages;
     compaction: Compaction | null;
-    checkpoint?: ChatMessageResponse;
   },
   targetSeq?: number,
   historyMessages = seed.messages,
@@ -160,24 +157,22 @@ function renderChatPage(
   // Seed the SAME cache entry SSR hydration provides on a real reload —
   // BEFORE the component (and its query observer) ever mounts, same timing
   // as HydrationBoundary. The entry is the paginated normalized shape from
-  // the owner message response: checkpoint rows have already supplied the
-  // boundary snapshot and are dropped only when building UI messages.
-  const pageMessages = historyMessages.map((message, index) =>
-    rawChatMessage({
-      id: message.id,
-      chatId,
-      seq: message.metadata?.seq ?? index + 1,
-      role: message.role,
-      // SAFETY: `useChatMessages` fixtures in this suite always seed AI
-      // SDK text/tool parts, matching `ChatMessageResponse["parts"]`'s
-      // shape even though the local fixture type keeps `parts: unknown[]`.
-      parts: message.parts as ChatMessageResponse["parts"],
-      usage: message.metadata?.usage ?? null,
-    }),
-  );
-  if (seed.checkpoint) pageMessages.push(seed.checkpoint);
+  // the owner message response: the newest checkpoint row has already
+  // supplied `compaction` and is dropped only when building UI messages.
   const page = {
-    messages: pageMessages,
+    messages: historyMessages.map((message, index) =>
+      rawChatMessage({
+        id: message.id,
+        chatId,
+        seq: message.metadata?.seq ?? index + 1,
+        role: message.role,
+        // SAFETY: `useChatMessages` fixtures in this suite always seed AI
+        // SDK text/tool parts, matching `ChatMessageResponse["parts"]`'s
+        // shape even though the local fixture type keeps `parts: unknown[]`.
+        parts: message.parts as ChatMessageResponse["parts"],
+        usage: message.metadata?.usage ?? null,
+      }),
+    ),
     compaction: seed.compaction,
   };
   seedChatMessagesQueryData(queryClient, chatId, page);
@@ -264,42 +259,8 @@ describe("ChatPage — compaction checkpoint render", () => {
         absorbedThroughSeq: 2,
         summary: "The user said hi, assistant replied hello.",
         createdAt: "2026-07-06T00:00:00.000Z",
-        stats: { ...NO_STATS, absorbedMessageCount: 2 },
-      },
-      checkpoint: {
-        id: "checkpoint-1",
-        chatId,
-        seq: 4,
-        role: "checkpoint",
-        senderUserId: null,
-        parts: [
-          {
-            type: "data-context",
-            data: {
-              runId: "00000000-0000-4000-8000-000000000000",
-              producer: "compaction",
-              form: "checkpoint",
-              text: "<system-reminder>checkpoint</system-reminder>",
-              payload: {
-                v: 1,
-                summary: "The user said hi, assistant replied hello.",
-              },
-            },
-          },
-        ],
-        attachments: [],
-        usage: null,
-        inReplyTo: null,
-        createdAt: "2026-07-06T00:00:00.000Z",
-        absorbedThroughSeq: 2,
         absorbedMessageCount: 2,
-        summary: "The user said hi, assistant replied hello.",
-        stats: {
-          absorbedMessageCount: 2,
-          beforeTokens: null,
-          afterTokens: null,
-          modelId: null,
-        },
+        stats: NO_STATS,
       },
     });
 
@@ -337,6 +298,7 @@ describe("ChatPage — compaction checkpoint render", () => {
         absorbedThroughSeq: 10,
         summary: "Old turns summarized.",
         createdAt: "2026-07-06T00:00:00.000Z",
+        absorbedMessageCount: 1,
         stats: NO_STATS,
       },
     });
@@ -377,6 +339,7 @@ describe("ChatPage — compaction checkpoint render", () => {
         absorbedThroughSeq: 202,
         summary: "Compacted up to seq 202.",
         createdAt: "2026-07-06T00:00:00.000Z",
+        absorbedMessageCount: 1,
         stats: NO_STATS,
       },
     });
@@ -435,6 +398,7 @@ describe("ChatPage — compaction checkpoint render", () => {
         absorbedThroughSeq: 1,
         summary: "Absorbed the first turn.",
         createdAt: "2026-07-06T00:00:00.000Z",
+        absorbedMessageCount: 1,
         stats: NO_STATS,
       },
     });

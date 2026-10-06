@@ -17,34 +17,17 @@ import {
   type CompactionVariant,
 } from './compaction';
 import {
+  type ContextCheckpoint,
   type ModelMessage,
   type StoredMessage,
 } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
 import type { Message, ModelToolDeclaration } from '../db/schema';
-import { readCheckpointText } from '../chats/context-item-producers';
+import { toContextCheckpoint } from '../chats/context-item-producers';
 import { isRecord } from '@workspace/runtime-safety';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
-import {
-  ContextIncompatibleError,
-  ModelContextExecutionError,
-} from '../runs/model-context-errors';
-
-function checkpointRequestInput(
-  row: Message | undefined,
-): { readonly text: string; readonly absorbedThroughSeq: number } | undefined {
-  if (row === undefined) return undefined;
-  if (row.absorbedThroughSeq === null || row.absorbedThroughSeq === undefined) {
-    throw new ModelContextExecutionError(
-      `Checkpoint ${row.id} has no absorbed-through boundary.`,
-    );
-  }
-  return {
-    text: readCheckpointText(row),
-    absorbedThroughSeq: row.absorbedThroughSeq,
-  };
-}
+import { ContextIncompatibleError } from '../runs/model-context-errors';
 
 function schemaOnlyTools(
   declarations: ReadonlyArray<ModelToolDeclaration>,
@@ -177,13 +160,14 @@ export class CompactionService {
     input: CompactionSummaryRequest,
   ): Promise<CompactionSummary | null> {
     input.abortSignal?.throwIfAborted();
-    const previous = await this.tenantDb.runAs(input.userId, (tx) =>
+    const checkpoint = await this.tenantDb.runAs(input.userId, (tx) =>
       new MessagesRepository(tx).findActiveCheckpoint(
         input.chatId,
         input.userId,
         { beforeSeq: input.triggeringUserSeq },
       ),
     );
+    const previous = checkpoint && toContextCheckpoint(checkpoint);
     return input.variant === 'window'
       ? this.summarizeWithSourceModel(input, previous)
       : this.summarizeWithAttemptModel(input, previous);
@@ -196,11 +180,11 @@ export class CompactionService {
    */
   private async summarizeWithAttemptModel(
     input: Extract<CompactionSummaryRequest, { variant: 'threshold' }>,
-    previous: Message | undefined,
+    previous: ContextCheckpoint | undefined,
   ): Promise<CompactionSummary | null> {
     const request = buildCompactionRequest({
       system: input.system,
-      previous: checkpointRequestInput(previous),
+      previous,
       absorb: input.plan.absorb,
       variant: input.variant,
     });
@@ -249,7 +233,7 @@ export class CompactionService {
    */
   private async summarizeWithSourceModel(
     input: Extract<CompactionSummaryRequest, { variant: 'window' }>,
-    previous: Message | undefined,
+    previous: ContextCheckpoint | undefined,
   ): Promise<CompactionSummary> {
     const source = await this.tenantDb.runAs(input.userId, async (tx) => {
       const found = await new RunsRepository(
@@ -293,7 +277,7 @@ export class CompactionService {
 
     const request = buildCompactionRequest({
       system: source.receipt.systemPrompt,
-      previous: checkpointRequestInput(previous),
+      previous,
       absorb: input.plan.absorb,
       variant: input.variant,
     });

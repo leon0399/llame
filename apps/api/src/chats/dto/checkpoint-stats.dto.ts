@@ -8,13 +8,6 @@ import {
 export class CheckpointStatsResponse {
   @ApiProperty({
     type: 'integer',
-    nullable: false,
-    description: 'User and assistant rows absorbed by this checkpoint.',
-  })
-  absorbedMessageCount!: number;
-
-  @ApiProperty({
-    type: 'integer',
     nullable: true,
     description: "The checkpoint summarization call's input token count.",
   })
@@ -39,7 +32,6 @@ export class CheckpointStatsResponse {
 /** Derive owner-facing checkpoint stats from the row's stored usage record. */
 export function toCheckpointStatsResponse(
   usage: UnknownRecord | null,
-  absorbedMessageCount: number,
 ): CheckpointStatsResponse {
   const inputTokens = usage?.['inputTokens'];
   const outputTokens = usage?.['outputTokens'];
@@ -47,7 +39,6 @@ export function toCheckpointStatsResponse(
   const effort = usage?.['effort'];
 
   return {
-    absorbedMessageCount,
     beforeTokens: isNumber(inputTokens) ? inputTokens : null,
     afterTokens: isNumber(outputTokens) ? outputTokens : null,
     modelId: isString(modelId) ? modelId : null,

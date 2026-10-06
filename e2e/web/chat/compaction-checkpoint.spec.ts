@@ -8,8 +8,12 @@
  * The chat turns are created through the real app; the checkpoint itself is
  * seeded deterministically as a `messages.role = checkpoint` row so the
  * owner response exercises the same row DTO and API-computed count as a
- * published checkpoint.
+ * published checkpoint. It is seeded AFTER the triggering turn, as production
+ * publishes it, so its own sequence is past the boundary it names and only a
+ * boundary-keyed marker lands where the assertions expect.
  */
+
+import type { Locator } from "@playwright/test";
 
 import { expect, test } from "../../support/fixtures";
 import { seedCheckpoint } from "./seed-compaction";
@@ -27,8 +31,24 @@ const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
 
+/** Whether `first` precedes `second` in document order. */
+async function precedes(first: Locator, second: Locator): Promise<boolean> {
+  const secondHandle = await second.elementHandle();
+  if (!secondHandle) {
+    throw new Error("Could not locate the later element");
+  }
+  return first.evaluate(
+    (earlier, later) =>
+      Boolean(
+        earlier.compareDocumentPosition(later) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    secondHandle,
+  );
+}
+
 test.describe("compaction checkpoint (worker execution mode)", () => {
-  test("a checkpoint row seeded before the triggering user turn renders before that turn on reload and expands its summary", async ({
+  test("a checkpoint published after its triggering user turn renders at its boundary on reload and expands its summary", async ({
     page,
     account,
   }) => {
@@ -72,12 +92,12 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
       messages: Array<{ seq: number }>;
     };
     expect(messages.length).toBeGreaterThan(0);
-    const maxSeq = Math.max(...messages.map((m) => m.seq));
+    const boundarySeq = Math.max(...messages.map((m) => m.seq));
 
-    seedCheckpoint(chatId, maxSeq, SEEDED_SUMMARY, {
-      usage: SEEDED_USAGE,
-      ownerUserId: account.id,
-    });
+    // The triggering turn runs to completion BEFORE the checkpoint exists, so
+    // the seeded row lands after it (past its seq) while naming the earlier
+    // boundary — a placement keyed on the checkpoint row's own seq would put
+    // the marker at the end of the transcript, not before this turn.
     await page
       .getByPlaceholder("What would you like to know?")
       .fill("And what about next steps?");
@@ -85,28 +105,9 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
     await expect(page.getByRole("log").getByText(ANSWER).nth(1)).toBeVisible({
       timeout: 20_000,
     });
-    const seededResponse = await page.request.get(
-      `${apiUrl}/api/v1/chats/${chatId}/messages`,
-      { headers: { Authorization: `Bearer ${account.token}` } },
-    );
-    expect(seededResponse.ok()).toBe(true);
-    // SAFETY: this is the api's own chat-messages endpoint (under test
-    // here), whose { messages: [...] } envelope is fixed by its own OpenAPI
-    // contract.
-    const seededBody = (await seededResponse.json()) as {
-      messages: Array<{
-        role: string;
-        seq: number;
-        absorbedThroughSeq?: number;
-        absorbedMessageCount?: number;
-      }>;
-    };
-    const checkpointRow = seededBody.messages.find(
-      (message) => message.role === "checkpoint",
-    );
-    expect(checkpointRow).toMatchObject({
-      absorbedThroughSeq: maxSeq,
-      absorbedMessageCount: 2,
+    seedCheckpoint(chatId, boundarySeq, SEEDED_SUMMARY, {
+      usage: SEEDED_USAGE,
+      ownerUserId: account.id,
     });
 
     // A real hard reload — the exact step Leo took where the Checkpoint
@@ -117,26 +118,23 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
     await expect(checkpoint).toBeVisible({ timeout: 15_000 });
     const triggeringMessage = page.getByText("And what about next steps?");
     await expect(triggeringMessage).toBeVisible();
-    const triggeringMessageHandle = await triggeringMessage.elementHandle();
-    if (!triggeringMessageHandle) {
-      throw new Error("Could not locate the triggering user message");
-    }
+    // Between the absorbed first answer and the triggering turn.
     expect(
-      await checkpoint.evaluate(
-        (boundary, message) =>
-          Boolean(
-            boundary.compareDocumentPosition(message) &
-              Node.DOCUMENT_POSITION_FOLLOWING,
-          ),
-        triggeringMessageHandle,
+      await precedes(
+        page.getByRole("log").getByText(ANSWER).first(),
+        checkpoint,
       ),
     ).toBe(true);
+    expect(await precedes(checkpoint, triggeringMessage)).toBe(true);
 
     // Collapsed by default — the design's result card isn't in the DOM yet.
     await expect(page.getByText("Compaction result")).not.toBeVisible();
     // 71400 - 12800 = 58600 -> "58.6k" (design's own token-formatting
     // convention — see compaction-boundary.tsx's formatTokenCount).
-    await expect(checkpoint.getByText(/saved 58\.6k tokens/)).toBeVisible();
+    // The count is the API-computed absorbed-row total (the first turn: 2).
+    await expect(
+      checkpoint.getByText("2 messages · saved 58.6k tokens"),
+    ).toBeVisible();
 
     // After a hard reload the SSR HTML is visible (and passes Playwright's
     // actionability checks) well before React hydrates it, and a click that

@@ -2990,11 +2990,6 @@
       "CheckpointStatsResponse": {
         "type": "object",
         "properties": {
-          "absorbedMessageCount": {
-            "type": "integer",
-            "nullable": false,
-            "description": "User and assistant rows absorbed by this checkpoint."
-          },
           "beforeTokens": {
             "type": "integer",
             "nullable": true,
@@ -3014,12 +3009,7 @@
             "description": "The checkpoint summarization call's reasoning effort."
           }
         },
-        "required": [
-          "absorbedMessageCount",
-          "beforeTokens",
-          "afterTokens",
-          "modelId"
-        ]
+        "required": ["beforeTokens", "afterTokens", "modelId"]
       },
       "ChatMessageResponse": {
         "type": "object",

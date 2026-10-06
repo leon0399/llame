@@ -390,12 +390,8 @@ describe("toChatHistory", () => {
         absorbedThroughSeq: 2,
         summary: "earlier turns",
         createdAt: "2026-01-01T00:00:00.000Z",
-        stats: {
-          absorbedMessageCount: null,
-          beforeTokens: null,
-          afterTokens: null,
-          modelId: null,
-        },
+        absorbedMessageCount: 2,
+        stats: { beforeTokens: null, afterTokens: null, modelId: null },
       },
     };
     const older = messagesPage([
@@ -447,12 +443,8 @@ describe("toChatHistory", () => {
         absorbedThroughSeq: 700,
         summary: "before target",
         createdAt: "2026-01-01T00:00:00.000Z",
-        stats: {
-          absorbedMessageCount: null,
-          beforeTokens: null,
-          afterTokens: null,
-          modelId: null,
-        },
+        absorbedMessageCount: 2,
+        stats: { beforeTokens: null, afterTokens: null, modelId: null },
       },
     };
 

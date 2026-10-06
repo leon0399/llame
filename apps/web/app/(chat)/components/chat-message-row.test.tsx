@@ -31,8 +31,8 @@ const compaction: Compaction = {
   absorbedThroughSeq: 10,
   summary: "Earlier discussion summarized.",
   createdAt: "2026-01-01T00:00:00.000Z",
+  absorbedMessageCount: 5,
   stats: {
-    absorbedMessageCount: 5,
     beforeTokens: 2000,
     afterTokens: 500,
     modelId: null,

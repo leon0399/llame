@@ -47,6 +47,7 @@ import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { type CheckpointMessage } from './messages-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type RunJob } from '../runs/run-queues';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
@@ -136,7 +137,7 @@ function previousRun(overrides: Partial<Run> = {}): Run {
   };
 }
 
-function activeCheckpoint(): Message {
+function activeCheckpoint(): CheckpointMessage {
   const summary = 'Retains the latest messages.';
   return {
     id: '55555555-5555-4555-8555-555555555555',
@@ -196,7 +197,7 @@ describe('ChatLoopService accept/worker context binding', () => {
   function setup(options?: {
     failRunCreated?: boolean;
     previousRun?: Run;
-    activeCheckpoint?: Message;
+    activeCheckpoint?: CheckpointMessage;
     toolsAllowed?: ReadonlyArray<string>;
     runtime?: RuntimeCatalogSnapshotter;
     memory?: MemorySettingsBindingResolver;
@@ -229,7 +230,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       current: {
         id: 'message-id',
         chatId: 'chat-id',
-        seq: checkpoint === undefined ? 1 : checkpoint.absorbedThroughSeq! + 1,
+        seq: checkpoint === undefined ? 1 : checkpoint.absorbedThroughSeq + 1,
         role: 'user',
         senderUserId: 'user-id',
         parts: [{ type: 'text', text: 'hello' }],

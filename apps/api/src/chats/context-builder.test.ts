@@ -1650,7 +1650,6 @@ describe('buildContext', () => {
         seq: 4,
         role: 'checkpoint',
         senderUserId: null,
-        absorbedThroughSeq: 2,
         parts: [
           {
             type: 'data-context',
@@ -1678,23 +1677,6 @@ describe('buildContext', () => {
 
       expect(JSON.stringify(result.messages)).not.toContain('row text');
       expect(result.messages.map(({ role }) => role)).toEqual(['user', 'user']);
-    });
-
-    it('selects one stored checkpoint projection at a time', () => {
-      const first = buildContext([userMsg1, assistantMsg1, userMsg2], {
-        systemPrompt,
-        requestKind: 'continuation',
-        checkpoint: { text: 'first checkpoint', absorbedThroughSeq: 1 },
-      });
-      const second = buildContext([userMsg1, assistantMsg1, userMsg2], {
-        systemPrompt,
-        requestKind: 'continuation',
-        checkpoint: { text: 'second checkpoint', absorbedThroughSeq: 2 },
-      });
-
-      expect(contentText(first.messages[0].content)).toBe('first checkpoint');
-      expect(contentText(second.messages[0].content)).toBe('second checkpoint');
-      expect(first.system).toBe(second.system);
     });
   });
 

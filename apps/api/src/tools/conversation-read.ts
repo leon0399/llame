@@ -109,11 +109,9 @@ function limitExceededResult(): ConversationReadError {
 }
 
 /**
- * Read one trusted owner-scoped conversation source. The repository lookup
- * admits only immutable user/assistant evidence, so checkpoint sequence values
- * are direct locator misses and cannot supply adjacent navigation.
- * The caller supplies a transaction already bound to the owner; this function
- * accepts no owner identity from model arguments and performs one repository lookup.
+ * Read one trusted owner-scoped conversation source. The caller supplies a
+ * transaction already bound to the owner; this function accepts no owner
+ * identity from model arguments and performs one repository lookup.
  */
 export async function executeConversationRead(
   db: Db,

@@ -2,11 +2,12 @@
  * Compaction planning (#57) — pure logic for context compaction.
  *
  * When a Run's prepared request reaches its model's compaction threshold, or no
- * longer fits that model's window, older turns are absorbed into a summary row
- * (`compactions` table) that supersedes them; the ContextBuilder then assembles
- * summary + later turns. Messages are never deleted or mutated — the summary
- * row's uptoSeq/parentId keep the full history auditable and rewindable
- * (Hermes-style lineage, SPEC §2.1).
+ * longer fits that model's window, older turns are absorbed into a checkpoint
+ * row (role `checkpoint`, stored in `messages`) that supersedes them; the
+ * ContextBuilder then assembles the checkpoint's stored text + later turns.
+ * Messages are never deleted or mutated — the checkpoint's absorbedThroughSeq
+ * keeps the full history auditable and rewindable (Hermes-style lineage,
+ * SPEC §2.1).
  *
  * One trigger, one request shape: which model, prompt, declarations and effort
  * fill it is data (design D4). This module is deliberately DB-free — the
@@ -16,6 +17,7 @@
 
 import {
   buildContext,
+  type ContextCheckpoint,
   type ModelRequestContext,
   type ModelMessage,
   type StoredMessage,
@@ -24,10 +26,6 @@ import { loadPackagedTemplate } from '../prompts/template-engine';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import type { Message, ModelToolDeclaration } from '../db/schema';
 
-type PreviousCheckpoint = {
-  text: string;
-  absorbedThroughSeq: number;
-};
 /**
  * When the model's context window is known (MODEL_CONTEXT_WINDOW_TOKENS),
  * compact at this fraction of it — the remaining headroom absorbs the next
@@ -309,18 +307,34 @@ export function planCompactionCheckpoint(input: {
 }
 
 /**
- * Build the summarization model request as a cache-aligned continuation of the
- * chat itself. The prior checkpoint is replayed from its stored literal text,
- * followed by the newly absorbed rows; no summary is rendered on this path.
+ * Build the summarization model request as a CACHE-ALIGNED continuation of the
+ * chat itself, not a fresh prompt:
+ *
+ * - `system` is the prompt of the run whose prefix this request reproduces
+ *   (passed by the caller), NOT a dedicated summarizer prompt;
+ * - the previous checkpoint's stored text and the absorbed turns are replayed
+ *   through the SAME buildContext path the live turn used, so the request
+ *   preserves the byte-identical stored prefix that populated the provider's
+ *   prompt cache;
+ * - the summarize instruction rides as the final user message, chosen by
+ *   `variant`: the threshold trigger's own turn continues the conversation,
+ *   while the window trigger's source model carries a prefix the target could
+ *   not hold.
+ *
+ * With OpenAI-style strict-prefix caching this makes the absorbed bulk (the
+ * expensive part — up to the whole threshold) a cache read instead of a fresh
+ * prefill; a swapped system prompt would invalidate the entire prefix.
  */
 export function buildCompactionRequest(input: {
   system: string;
-  previous: PreviousCheckpoint | undefined;
+  previous: ContextCheckpoint | undefined;
   absorb: Array<StoredMessage>;
   variant: CompactionVariant;
 }): ModelRequestContext {
   const { system, messages } = buildContext(input.absorb, {
     systemPrompt: input.system,
+    // Summarization input, not a continuation: reasoning the absorbed turns
+    // persisted must not be folded into the checkpoint (D16).
     requestKind: 'compaction',
     ...(input.previous !== undefined && { checkpoint: input.previous }),
   });

@@ -41,6 +41,7 @@ import {
   MessagesRepository,
   isCompletedAssistantTurn,
 } from '../chats/chats-repository';
+import { type CheckpointMessage } from '../chats/messages-repository';
 import {
   CompactionService,
   toStoredMessages,
@@ -80,7 +81,7 @@ import {
   deriveToolAvailabilityPayload,
   deriveToolAvailabilityPayloadFromStates,
   createCompactionCheckpointPart,
-  readCheckpointText,
+  toContextCheckpoint,
 } from '../chats/context-item-producers';
 import {
   CONTEXT_ITEM_PRODUCERS,
@@ -320,7 +321,7 @@ type PreparedAttemptContext = BuiltContext & {
    * prompt anchor, the skill and workspace epochs, and the history cut all read
    * one boundary.
    */
-  latestCheckpoint: Message | undefined;
+  latestCheckpoint: CheckpointMessage | undefined;
   /** Canonical instruction paths the effective history already discloses. */
   seenInstructionPaths: ReadonlySet<string>;
   recencyDigestInitialization?: RecencyDigestInitialization;
@@ -362,7 +363,7 @@ type AttemptPromptInputs = AttemptDigestContext & {
   chat: Chat;
   model: SystemModelCatalogEntry;
   user: PromptUserInput | undefined;
-  checkpoint: Message | undefined;
+  checkpoint: CheckpointMessage | undefined;
   instanceTimezone: string;
   anchor: TemporalAnchor;
   /** This turn's skill-catalog decision: the rendered baseline and the notice. */
@@ -2001,10 +2002,10 @@ export class RunExecutionService {
   }
 
   /**
-   * Loads the active checkpoint and the message history up to the run's
-   * triggering message, then rebuilds the context with `systemPrompt` — the
-   * shared core of the initial per-run context build and the post-publication
-   * rebuild.
+   * Loads the active checkpoint and the message history after its boundary, up
+   * to the run's triggering message, then rebuilds the context with
+   * `systemPrompt` — the shared core of the initial per-run context build and
+   * the post-publication rebuild.
    *
    * The read is the chat's whole live window, so it also yields the rows the
    * compaction trigger plans on and the instruction files the history already
@@ -2028,30 +2029,24 @@ export class RunExecutionService {
     const history = await messagesRepo.findByChatId(
       input.chatId,
       input.userId,
-      { maxSeq: input.userMessage.seq },
+      {
+        maxSeq: input.userMessage.seq,
+        sinceSeq: checkpoint?.absorbedThroughSeq,
+      },
     );
-    const boundary = checkpoint?.absorbedThroughSeq ?? 0;
-    const checkpointInput =
-      checkpoint === undefined
-        ? undefined
-        : {
-            text: readCheckpointText(checkpoint),
-            absorbedThroughSeq: boundary,
-          };
-    const liveHistory = history.filter((row) => row.seq > boundary);
     return {
       context: buildContext(toStoredMessages(history), {
         systemPrompt,
         // A Run's own request continues this Chat, so it replays the Chat's
         // persisted reasoning (D16).
         requestKind: 'continuation',
-        ...(checkpointInput !== undefined && {
-          checkpoint: checkpointInput,
+        ...(checkpoint !== undefined && {
+          checkpoint: toContextCheckpoint(checkpoint),
         }),
       }),
       historyRows: history,
       seenInstructionPaths: instructionsSeenPaths(
-        liveHistory.flatMap((message) => message.parts),
+        history.flatMap((message) => message.parts),
       ),
     };
   }
@@ -4125,7 +4120,6 @@ export class RunExecutionService {
     const startsEpoch =
       previousCompletedRun === undefined ||
       (input.prompt.checkpoint !== undefined &&
-        input.prompt.checkpoint.absorbedThroughSeq !== null &&
         input.prompt.checkpoint.absorbedThroughSeq >=
           previousCompletedRun.triggeringUserSeq);
     // The marker reports the re-bake to the first attempt that can publish
@@ -4139,7 +4133,22 @@ export class RunExecutionService {
     // Model selection is established by any run (failed runs included), so the
     // switch item keeps reading the immediately preceding run, not the
     // successful baseline the availability/epoch comparison uses.
-    this.appendModelChangePart(stagedParts, input, previousRun);
+    if (previousRun && previousRun.modelId !== input.input.client.model) {
+      // The previous run records the selected id alone, and the body names the
+      // model that id belonged to, so it is resolved against the operator
+      // catalog this service already reads at construction. A model the
+      // catalog no longer carries is named by its bare id.
+      const previousModel = this.instanceConfig.config.models.find(
+        (model) => model.id === previousRun.modelId,
+      );
+      stagedParts.push(
+        createModelChangeItem({
+          oldModel: previousModel ?? { id: previousRun.modelId },
+          newModel: input.prompt.model,
+          runId: input.input.runId,
+        }),
+      );
+    }
     const previousSuccessfulAvailability = startsEpoch
       ? undefined
       : (previousCompletedRun?.run.turnToolAvailability ?? undefined);
@@ -4173,7 +4182,26 @@ export class RunExecutionService {
     if (skillNotice !== undefined) {
       stagedParts.push(skillNotice.item);
     }
-    this.appendRecencyDigestParts(stagedParts, input, digestRebaked);
+    if (
+      digestRebaked &&
+      input.prompt.chat.recencyDigestBaseline !== null &&
+      input.prompt.shareRecentChats.shareRecentChats
+    ) {
+      stagedParts.push(
+        createRecencyDigestSupersessionItem({ runId: input.input.runId }),
+      );
+    }
+    if (input.prompt.digestDelta) {
+      stagedParts.push(
+        createRecencyDigestDeltaItem({
+          runId: input.input.runId,
+          payload: {
+            entries: input.prompt.digestDelta.entries,
+            pinChanges: input.prompt.digestDelta.pinChanges,
+          },
+        }),
+      );
+    }
     stagedParts.push(
       createTemporalItem({
         runId: input.input.runId,
@@ -4192,63 +4220,6 @@ export class RunExecutionService {
       }),
     };
   }
-  private appendModelChangePart(
-    stagedParts: Array<MessagePart>,
-    input: {
-      input: ExecuteRunInput;
-      prompt: AttemptPromptContext;
-    },
-    previousRun: Run | undefined,
-  ): void {
-    if (
-      previousRun === undefined ||
-      previousRun.modelId === input.input.client.model
-    ) {
-      return;
-    }
-    const previousModel = this.instanceConfig.config.models.find(
-      (model) => model.id === previousRun.modelId,
-    );
-    stagedParts.push(
-      createModelChangeItem({
-        oldModel: previousModel ?? { id: previousRun.modelId },
-        newModel: input.prompt.model,
-        runId: input.input.runId,
-      }),
-    );
-  }
-
-  private appendRecencyDigestParts(
-    stagedParts: Array<MessagePart>,
-    input: {
-      input: ExecuteRunInput;
-      prompt: AttemptPromptContext;
-    },
-    digestRebaked: boolean,
-  ): void {
-    const { prompt } = input;
-    if (
-      digestRebaked &&
-      prompt.chat.recencyDigestBaseline !== null &&
-      prompt.shareRecentChats.shareRecentChats
-    ) {
-      stagedParts.push(
-        createRecencyDigestSupersessionItem({ runId: input.input.runId }),
-      );
-    }
-    if (prompt.digestDelta) {
-      stagedParts.push(
-        createRecencyDigestDeltaItem({
-          runId: input.input.runId,
-          payload: {
-            entries: prompt.digestDelta.entries,
-            pinChanges: prompt.digestDelta.pinChanges,
-          },
-        }),
-      );
-    }
-  }
-
   private deriveWorkspaceContext(input: {
     runId: string;
     chat: Chat;

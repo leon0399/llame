@@ -1,26 +1,8 @@
 import type { UIMessage } from "ai";
-import type { ChatMessagesResponse as GeneratedChatMessagesResponse } from "../../api/generated/models";
-
-/**
- * Display-relevant usage telemetry for a persisted checkpoint row. The
- * absorbed-message count is computed by the API from checkpoint boundaries;
- * token/model fields come from the checkpoint's stored usage.
- */
-export type CompactionStats = {
-  absorbedMessageCount: number | null;
-  beforeTokens: number | null;
-  afterTokens: number | null;
-  modelId: string | null;
-  effort?: string;
-};
-
-/** The owner-visible checkpoint used to place the transcript boundary. */
-export type Compaction = {
-  absorbedThroughSeq: number;
-  summary: string;
-  createdAt: string;
-  stats: CompactionStats;
-};
+import type {
+  ChatMessagesResponse as GeneratedChatMessagesResponse,
+  CheckpointStatsResponse,
+} from "../../api/generated/models";
 
 export type ChatMessageResponse = {
   id: string;
@@ -36,46 +18,36 @@ export type ChatMessageResponse = {
   absorbedThroughSeq?: number;
   absorbedMessageCount?: number;
   summary?: string;
-  stats?: {
-    absorbedMessageCount: number;
-    beforeTokens: number | null;
-    afterTokens: number | null;
-    modelId: string | null;
-    effort?: string;
-  };
+  stats?: CheckpointStatsResponse;
 };
+
+/**
+ * The checkpoint row fields the transcript boundary reads. The API sends all
+ * of them on every checkpoint row; `absorbedThroughSeq` places the boundary.
+ */
+export type Compaction = Required<
+  Pick<
+    ChatMessageResponse,
+    "absorbedThroughSeq" | "absorbedMessageCount" | "summary" | "stats"
+  >
+> &
+  Pick<ChatMessageResponse, "createdAt">;
 
 export type ChatMessagesResponse = {
   messages: Array<ChatMessageResponse>;
   compaction: Compaction | null;
 };
 
-function checkpointToCompaction(
+function isCompaction(
   message: ChatMessageResponse,
-): Compaction | null {
-  if (
-    message.role !== "checkpoint" ||
-    message.absorbedThroughSeq === undefined ||
-    message.summary === undefined ||
-    message.stats === undefined
-  ) {
-    return null;
-  }
-
-  return {
-    absorbedThroughSeq: message.absorbedThroughSeq,
-    summary: message.summary,
-    createdAt: message.createdAt,
-    stats: {
-      absorbedMessageCount: message.absorbedMessageCount ?? null,
-      beforeTokens: message.stats.beforeTokens,
-      afterTokens: message.stats.afterTokens,
-      modelId: message.stats.modelId,
-      ...(message.stats.effort !== undefined && {
-        effort: message.stats.effort,
-      }),
-    },
-  };
+): message is ChatMessageResponse & Compaction {
+  return (
+    message.role === "checkpoint" &&
+    message.absorbedThroughSeq !== undefined &&
+    message.absorbedMessageCount !== undefined &&
+    message.summary !== undefined &&
+    message.stats !== undefined
+  );
 }
 
 /** Adapt the generated unknown-part wire contract to the AI SDK UI facade. */
@@ -93,14 +65,8 @@ export function normalizeChatMessagesResponse(
       parts: message.parts as UIMessage["parts"],
     }),
   );
-  const checkpoint = [...messages]
-    .reverse()
-    .find((message) => message.role === "checkpoint");
-
-  return {
-    compaction: checkpoint ? checkpointToCompaction(checkpoint) : null,
-    messages,
-  };
+  const compaction = [...messages].reverse().find(isCompaction);
+  return { compaction: compaction ?? null, messages };
 }
 
 /** The combined shape `ChatPage` renders from — one query, one fetch. */
