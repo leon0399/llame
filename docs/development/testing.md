@@ -2,13 +2,13 @@
 
 ## Layers
 
-| Layer       | Proves                          | Naming/location                    | Command                              |
-| ----------- | ------------------------------- | ---------------------------------- | ------------------------------------ |
-| Unit        | pure logic/hooks, no I/O        | co-located `*.test.ts(x)`          | `turbo run test`                     |
-| Integration | real Postgres, RLS, queue, HTTP | co-located `*.integration.test.ts` | `pnpm --filter api test:integration` |
-| Component   | browser behavior/a11y/visuals   | co-located `*.stories.tsx`         | `pnpm --filter <ws> test:stories`    |
-| Product E2E | full user flow                  | `e2e/<surface>/*.spec.ts`          | `pnpm test:e2e`                      |
-| Eval        | model-graded quality            | `apps/api/evals/*.test.ts`         | `pnpm --filter api test:evals`       |
+| Layer       | Proves                          | Naming/location                                                | Command                                                             |
+| ----------- | ------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Unit        | pure logic/hooks, no I/O        | co-located `*.test.ts(x)`                                      | `turbo run test`                                                    |
+| Integration | real Postgres, RLS, queue, HTTP | co-located `*.integration.test.ts`                             | `pnpm --filter api test:integration`                                |
+| Component   | browser behavior/a11y/visuals   | co-located `*.stories.tsx`                                     | `pnpm --filter <ws> test:stories`                                   |
+| Product E2E | full user flow                  | `e2e/<surface>/*.spec.ts`                                      | `pnpm test:e2e`                                                     |
+| Eval        | model-graded quality            | `apps/api/evals/*.test.ts`; `apps/api/evals/compaction/run.ts` | `pnpm --filter api test:evals`; `pnpm --filter api eval:compaction` |
 
 Component tests are Vitest Browser Mode: `@storybook/addon-vitest` turns each
 story into a Chromium test. Stories run from the workspace that authors them:
@@ -124,7 +124,9 @@ typecheck ----> mutation
 - Each test leg uploads its report to Codecov as its own flag;
   `.github/codecov.yml` also groups paths into components by SPEC area.
   Codecov reports trends and pull request deltas; the thresholds stay the gate.
-- Evals never run in CI.
+- Evals never run in CI. The [compaction eval](compaction-eval.md) is a
+  provider-backed script rather than a Vitest test and remains explicitly
+  opt-in.
 
 ## Tracked follow-ups
 
