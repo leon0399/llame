@@ -68,7 +68,13 @@ type ChatCompletionChunk = {
   };
 };
 
-function chunk(content: string | undefined, finish: boolean): string {
+// `reportsUsage` is the request's own entitlement (see `classify`): the final
+// chunk carries usage only when a real server would have sent it.
+function chunk(
+  content: string | undefined,
+  finish: boolean,
+  reportsUsage = false,
+): string {
   const body: ChatCompletionChunk = {
     id: "chatcmpl-e2e",
     object: "chat.completion.chunk",
@@ -82,7 +88,7 @@ function chunk(content: string | undefined, finish: boolean): string {
       },
     ],
   };
-  if (finish) {
+  if (finish && reportsUsage) {
     body.usage = {
       prompt_tokens: 10,
       completion_tokens: ANSWER_TOKENS.length,
@@ -495,6 +501,8 @@ function classify(raw: string) {
     const body = JSON.parse(raw) as {
       tools?: Array<JsonValue>;
       messages?: Array<ChatMessage>;
+      stream?: boolean;
+      stream_options?: { include_usage?: boolean };
     };
     const messages = body.messages ?? [];
     const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
@@ -570,6 +578,10 @@ function classify(raw: string) {
       hasKnowledgeLocatorReadResult:
         findConversationReadResult(currentTurnMessages),
       lastUserContent: content,
+      // Real Chat Completions servers always report a non-streaming
+      // request's usage, and a streaming request's only when it asks.
+      reportsUsage:
+        body.stream !== true || body.stream_options?.include_usage === true,
     };
   } catch {
     return {
@@ -605,6 +617,7 @@ function classify(raw: string) {
       knowledgeLocatorFromSearch: undefined,
       hasKnowledgeLocatorReadResult: false,
       lastUserContent: "",
+      reportsUsage: false,
     };
   }
 }
@@ -639,13 +652,13 @@ function writeToolCall(
   res.end();
 }
 
-function writeAnswer(res: ServerResponse, tokens: ReadonlyArray<string>): void {
+function writeAnswer(ctx: ChunkContext, tokens: ReadonlyArray<string>): void {
   for (const token of tokens) {
-    res.write(chunk(token, false));
+    ctx.res.write(chunk(token, false));
   }
-  res.write(chunk(undefined, true));
-  res.write("data: [DONE]\n\n");
-  res.end();
+  ctx.res.write(chunk(undefined, true, ctx.reportsUsage));
+  ctx.res.write("data: [DONE]\n\n");
+  ctx.res.end();
 }
 
 // Episodic acceptance chain. The second and third calls are built from the
@@ -706,7 +719,7 @@ function tryConversationReadContinuationOrAnswer(ctx: ChunkContext): boolean {
       return true;
     }
   }
-  writeAnswer(ctx.res, CONVERSATION_ANSWER_TOKENS);
+  writeAnswer(ctx, CONVERSATION_ANSWER_TOKENS);
   return true;
 }
 
@@ -754,7 +767,7 @@ function tryKnowledgeLocatorAnswerTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
-  writeAnswer(ctx.res, KNOWLEDGE_LOCATOR_ANSWER_TOKENS);
+  writeAnswer(ctx, KNOWLEDGE_LOCATOR_ANSWER_TOKENS);
   return true;
 }
 
@@ -876,7 +889,7 @@ function tryKnowledgeCompletionAnswer(ctx: ChunkContext): boolean {
           ` ${ctx.knowledgeResultPath ?? "[missing Knowledge result path]"}`,
           ".",
         ];
-  writeAnswer(ctx.res, tokens);
+  writeAnswer(ctx, tokens);
   return true;
 }
 
@@ -929,13 +942,13 @@ function tryBashFirstTurn(ctx: ChunkContext): boolean {
 
 function tryStdioFixtureResultAnswer(ctx: ChunkContext): boolean {
   if (!ctx.hasStdioFixtureResult) return false;
-  writeAnswer(ctx.res, STDIO_ANSWER_TOKENS);
+  writeAnswer(ctx, STDIO_ANSWER_TOKENS);
   return true;
 }
 
 function tryMcpFixtureResultAnswer(ctx: ChunkContext): boolean {
   if (!ctx.hasMcpFixtureResult) return false;
-  writeAnswer(ctx.res, MCP_ANSWER_TOKENS);
+  writeAnswer(ctx, MCP_ANSWER_TOKENS);
   return true;
 }
 
@@ -979,7 +992,7 @@ function tryPermissionReadTurn(ctx: ChunkContext): boolean {
 
 function tryPermissionAnswerTurn(ctx: ChunkContext): boolean {
   if (!ctx.asksPermissionFlow || !ctx.hasPermissionReadResult) return false;
-  writeAnswer(ctx.res, PERMISSION_ANSWER_TOKENS);
+  writeAnswer(ctx, PERMISSION_ANSWER_TOKENS);
   return true;
 }
 
@@ -1018,7 +1031,7 @@ async function writeDefaultAnswer(ctx: ChunkContext): Promise<void> {
       await sleep(SLOW_TOKEN_DELAY_MS);
     }
   }
-  ctx.res.write(chunk(undefined, true));
+  ctx.res.write(chunk(undefined, true, ctx.reportsUsage));
   ctx.res.write("data: [DONE]\n\n");
   ctx.res.end();
 }
@@ -1125,18 +1138,19 @@ async function respondToChatCompletion(
   res: ServerResponse,
   raw: string,
 ): Promise<void> {
+  const classification = classify(raw);
+
   // The api's post-turn title generation hits this mock too — answer it with
   // a distinct short title so tests can tell title from message.
   if (raw.includes("Generate a short chat title")) {
     writeSseHead(res);
     res.write(chunk("E2E Mock Title", false));
-    res.write(chunk(undefined, true));
+    res.write(chunk(undefined, true, classification.reportsUsage));
     res.write("data: [DONE]\n\n");
     res.end();
     return;
   }
 
-  const classification = classify(raw);
   const holdToken = HOLD_TOKEN_RE.exec(classification.lastUserContent)?.[1];
   if (holdToken !== undefined) {
     await respondHeld(res, raw, classification, holdToken);

@@ -1,5 +1,17 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-06
+
+- Fixed missing token usage on `openai-completions` and `opencode-go` models:
+  streaming Chat Completions requests now ask the server for usage
+  (`stream_options.include_usage`), so a message's usage card shows input,
+  output, and reasoning tokens, and priced models record cost, instead of
+  showing no counts. The e2e model server now reports a streaming request's
+  usage only when the request asks, as real servers do. A new operator page
+  covers vLLM-served models behind a LiteLLM gateway, including why its
+  reasoning-effort levels can silently do nothing
+  ([#1088](https://github.com/leon0399/llame/issues/1088)).
+
 # 2026-10-04
 
 - Restored the composer's per-chat model, reasoning-effort, and permission-mode

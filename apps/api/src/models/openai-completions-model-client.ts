@@ -383,6 +383,10 @@ export function createOpenAICompletionsModelClient(
     // A keyless provider still needs a non-empty apiKey passed through —
     // see KEYLESS_PLACEHOLDER_API_KEY.
     apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
+    // Chat Completions servers report a streaming request's usage only when
+    // the request asks (`stream_options.include_usage`). The adapter does not
+    // ask by default, which leaves run usage accounting nothing to record.
+    includeUsage: true,
     ...(config.headers && { headers: config.headers }),
     ...(config.fetch && { fetch: config.fetch }),
   });
