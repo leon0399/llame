@@ -1,7 +1,4 @@
-
 import { formatSkillLocator, parseSkillLocator } from './skill-locator';
-
-
 
 describe('parseSkillLocator', () => {
   it('addresses the catalog for the bare and selector-only forms', () => {
@@ -106,10 +103,7 @@ describe('parseSkillLocator', () => {
     // A resource path has an encoded spelling to name after the forms; the
     // catalog and a package root address no resource, so nothing is spelled.
     ['pdf/references/a:b.md', 'skill://pdf/references/a%3Ab.md'],
-    [
-      'pdf/references/x:5-10,,20-30',
-      'skill://pdf/references/x%3A5-10,,20-30',
-    ],
+    ['pdf/references/x:5-10,,20-30', 'skill://pdf/references/x%3A5-10,,20-30'],
     ['pdf:raw:outline', undefined],
     [':5-10,,20-30', undefined],
     ['pdf:notaselector', undefined],
@@ -146,7 +140,6 @@ describe('parseSkillLocator', () => {
       relativePath: 'ref/a:100%.md',
     });
   });
-
 
   it.each([
     [

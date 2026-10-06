@@ -30,8 +30,7 @@ export function decodeRelativePath(path: string): string | undefined {
     // or an unpaired surrogate after the segments have been combined.
     if (
       segments.some(
-        (segment) =>
-          segment.includes('/') || hasUnpairedSurrogate(segment),
+        (segment) => segment.includes('/') || hasUnpairedSurrogate(segment),
       )
     ) {
       return undefined;
@@ -44,10 +43,7 @@ export function decodeRelativePath(path: string): string | undefined {
 }
 
 function hasUnpairedSurrogate(value: string): boolean {
-  const withoutPairs = value.replaceAll(
-    /[\uD800-\uDBFF][\uDC00-\uDFFF]/gu,
-    '',
-  );
+  const withoutPairs = value.replaceAll(/[\uD800-\uDBFF][\uDC00-\uDFFF]/gu, '');
   return /[\uD800-\uDFFF]/u.test(withoutPairs);
 }
 

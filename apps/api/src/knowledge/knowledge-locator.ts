@@ -63,7 +63,9 @@ export function parseKnowledgeLocator(
   // Preserve a trailing separator for directory semantics.
   const trailing = rawPath.endsWith('/');
   if (rawPath === '/') return invalidPathFailure();
-  const relativePath = decodeRelativePath(trailing ? rawPath.slice(0, -1) : rawPath);
+  const relativePath = decodeRelativePath(
+    trailing ? rawPath.slice(0, -1) : rawPath,
+  );
   if (
     relativePath === undefined ||
     (relativePath.length > 0 && !isSpaceRelativePath(relativePath))
@@ -78,16 +80,14 @@ export function parseKnowledgeLocator(
       selector,
     );
   }
-  if (relativePath.length === 0) {
-    return selector === undefined
+  const located =
+    relativePath.length === 0
       ? { knowledgeSpaceId }
-      : { knowledgeSpaceId, selector };
-  }
-  const base =
-    selector === undefined
-      ? { knowledgeSpaceId, relativePath }
-      : { knowledgeSpaceId, relativePath, selector };
-  return trailing ? { ...base, trailingSeparator: true } : base;
+      : { knowledgeSpaceId, relativePath };
+  const base = selector === undefined ? located : { ...located, selector };
+  return trailing && relativePath.length > 0
+    ? { ...base, trailingSeparator: true }
+    : base;
 }
 
 function invalidKnowledgeSelector(

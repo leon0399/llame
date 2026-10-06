@@ -12,7 +12,6 @@ import { type KnowledgeToolResolver, type ToolContext } from '../tools/types';
 
 const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
 
-
 const INVALID_PATH = {
   type: 'invalid_path',
   message: 'The Knowledge locator is invalid.',
