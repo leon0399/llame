@@ -625,7 +625,7 @@ The persisted checkpoint envelope SHALL state that the session state may already
 reflect work described in it and SHALL direct the assistant not to repeat that
 work.
 
-#### Scenario: Completed turn triggers compaction
+#### Scenario: A pre-step trigger compacts before the first model request
 
 - **WHEN** the prepared request of a Run reaches its model's threshold or does
   not fit that model's window
@@ -755,14 +755,14 @@ work.
 - **AND** the checkpoint replays as portable historical data before the new
   persisted switch reminder
 
-#### Scenario: Active compaction lacks replacement history
+#### Scenario: A checkpoint without stored text fails preparation closed
 
 - **WHEN** request assembly encounters a checkpoint message without valid
   non-empty stored checkpoint text
 - **THEN** preparation fails closed
 - **AND** it does not render a checkpoint from the raw summary
 
-#### Scenario: Transition compaction precedes a smaller-context target
+#### Scenario: A window trigger precedes a smaller-context target
 
 - **WHEN** a model switch requires compaction because the prepared request does
   not fit the target's window
@@ -772,7 +772,7 @@ work.
 - **AND** the target request uses the resulting checkpoint message before the
   triggering user message
 
-#### Scenario: A target attempt fails after transition preparation
+#### Scenario: A target attempt fails after a pre-step checkpoint
 
 - **WHEN** a checkpoint published before a model step and that attempt later
   fails
@@ -788,7 +788,7 @@ work.
 - **AND** the receipt records the prompt actually sent, and every re-baked value
   takes effect for the request the checkpoint precedes
 
-#### Scenario: A completed turn starts ordinary compaction
+#### Scenario: A duplicate checkpoint publication is a no-op
 
 - **WHEN** a worker-attempt cutover or a superseded attempt publishes a
   checkpoint

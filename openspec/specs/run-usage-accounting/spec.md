@@ -40,7 +40,7 @@ Alongside the aggregate, the same persisted usage SHALL record the attempt's fin
 - **THEN** the persisted usage records no measured context size
 - **AND** the aggregate still records the requests that did report
 
-#### Scenario: Compaction after the turn is not added to the message
+#### Scenario: A pre-step compaction is not added to the message
 
 - **WHEN** the Run's first model step is preceded by a compaction whose request reports usage
 - **THEN** the assistant message usage is unchanged by the compaction request

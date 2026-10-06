@@ -697,7 +697,7 @@ The baseline SHALL enter the prompt only through the template projection. A temp
 - **THEN** that checkpoint's publication resolves the current catalog as its new baseline and told state
 - **AND** old deltas are not applied again against that new baseline
 
-#### Scenario: Transition compaction occurs inside a Run
+#### Scenario: A pre-step checkpoint refreshes the baseline inside a Run
 
 - **WHEN** context fitting publishes a checkpoint before a Run's first model request
 - **THEN** that Run's request renders the baseline the checkpoint refreshed

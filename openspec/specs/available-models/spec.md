@@ -606,7 +606,7 @@ level may not exist in that model's vocabulary at all.
   threshold triggered
 - **THEN** the compaction model call sends no reasoning-effort parameter
 
-#### Scenario: Transition compaction uses the source run's effort
+#### Scenario: A window trigger uses the previous completed Run's effort
 
 - **WHEN** a model switch requires compaction because the prepared request does
   not fit the selected model's window
