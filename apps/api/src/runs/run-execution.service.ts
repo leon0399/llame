@@ -3652,9 +3652,16 @@ export class RunExecutionService {
       }
     }
     await this.tenantDb.runAs(input.run.userId, async (tx) => {
-      // A reclaimed attempt must not move epoch state under the live one. The
-      // runs row is locked first, as the terminal transaction does, so this
-      // fence and that transaction never wait on each other in reverse order.
+      const chatsRepo = new ChatsRepository(tx);
+      const compactionsRepo = new CompactionsRepository(tx);
+      // The chats row is locked first, matching the chat loop: an accepted
+      // turn locks it in `touch` before it locks runs (`clearActiveRunSlot`)
+      // and before it takes `FOR SHARE` on memory settings. Taking either pair
+      // the other way round here would close an ABBA cycle that Postgres
+      // resolves by aborting a user turn or dropping a checkpoint. `touch`
+      // returns the locked row, so this also gives us the post-lock chat.
+      const chat = await chatsRepo.touch(input.run.chatId, input.run.userId);
+      // A reclaimed attempt must not move epoch state under the live one.
       const fenced = await new RunsRepository(tx).updateForAttempt(
         input.run.runId,
         input.run.userId,
@@ -3666,17 +3673,6 @@ export class RunExecutionService {
           `Run ${input.run.runId} was reclaimed before checkpoint publication.`,
         );
       }
-      const chatsRepo = new ChatsRepository(tx);
-      const compactionsRepo = new CompactionsRepository(tx);
-      // Lock order is chats-then-memory, matching the chat loop. That loop
-      // locks the chats row in `touch` and only then takes `FOR SHARE` on
-      // memory settings; taking them the other way round here would close an
-      // ABBA cycle — a chat turn holds chats and wants memory while compaction
-      // holds memory and wants chats, with a consent update queued between
-      // them — and Postgres would resolve it by aborting one, failing a user
-      // turn or dropping a checkpoint. `touch` returns the locked row, so this
-      // both establishes the order and gives us the post-lock chat to read.
-      const chat = await chatsRepo.touch(input.run.chatId, input.run.userId);
       const shareRecentChats = await this.memory.getForOwnerForBinding(
         tx,
         input.run.userId,
