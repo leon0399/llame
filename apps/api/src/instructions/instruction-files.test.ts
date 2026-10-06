@@ -392,7 +392,7 @@ describe('readInstructionFile', () => {
       {
         read: {
           allow: true,
-          reject: [{ field: 'path', regex: `^${file}:raw:` }],
+          reject: [{ field: 'path', regex: `^${file}$` }],
         },
       },
       'reject-instruction-file',

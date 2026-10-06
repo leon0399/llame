@@ -754,6 +754,133 @@ describe('runTool permission gate', () => {
     });
   });
 
+  it('matches a Workspace-relative read without its selector', async () => {
+    const result = await runTool(
+      pathTool,
+      { path: 'secret.md:1-5' },
+      {
+        ...contextWith({
+          read: {
+            allow: [{ field: 'path', regex: '^/work/project/' }],
+            reject: [{ field: 'path', regex: '^/work/project/secret\\.md$' }],
+          },
+        }),
+        workspaceRoot: createWorkspaceRootCell('/work/project'),
+      },
+      5,
+    );
+    expect(result).toMatchObject({ type: 'permission_denied' });
+    // The executor still receives the submitted spelling.
+    expect(
+      await runTool(
+        pathTool,
+        { path: 'notes.md:1-5' },
+        {
+          ...contextWith({
+            read: { allow: [{ field: 'path', regex: '^/work/project/' }] },
+          }),
+          workspaceRoot: createWorkspaceRootCell('/work/project'),
+        },
+        5,
+      ),
+    ).toMatchObject({ status: 'success', path: 'notes.md:1-5' });
+  });
+
+  it('matches no read against a clause written with a selector spelling', async () => {
+    // The submitted-text reject pass strips the selector before matching.
+    const context = contextWith({
+      read: {
+        allow: true,
+        reject: [{ field: 'path', literal: ':raw' }],
+      },
+    });
+    expect(
+      await runTool(pathTool, { path: '/srv/app/config.json:raw' }, context, 5),
+    ).toMatchObject({ status: 'success' });
+    expect(
+      await runTool(
+        pathTool,
+        { path: 'https://example.test/guide:raw#fragment' },
+        context,
+        5,
+      ),
+    ).toMatchObject({ status: 'success' });
+  });
+  it('rejects encoded selectors in valid file aliases on submitted text', async () => {
+    const cases = [
+      {
+        path: 'file:///srv/private/secret%3Araw',
+        regex: '^file:///srv/private/secret$',
+      },
+      {
+        path: 'file:///srv/private/secret%3A1%2D5',
+        regex: '^file:///srv/private/secret$',
+      },
+      {
+        path: 'file:/srv/private/secret%3Araw',
+        regex: '^file:/srv/private/secret$',
+      },
+      {
+        path: 'file://localhost/srv/private/secret%3Araw',
+        regex: '^file://localhost/srv/private/secret$',
+      },
+    ] as const;
+    for (const { path, regex } of cases) {
+      expect(
+        await runTool(
+          pathTool,
+          { path },
+          contextWith({
+            read: { allow: true, reject: [{ field: 'path', regex }] },
+          }),
+          5,
+        ),
+      ).toMatchObject({ type: 'permission_denied', message: EXPLICIT_REJECT });
+    }
+  });
+
+  it('applies encoded file alias selector removal to all-fields rejects', async () => {
+    expect(
+      await runTool(
+        pathTool,
+        { path: 'file:///srv/private/secret%3A1%2D5' },
+        contextWith({
+          read: {
+            allow: true,
+            reject: [
+              { allFields: true, regex: '^file:///srv/private/secret$' },
+            ],
+          },
+        }),
+        5,
+      ),
+    ).toMatchObject({ type: 'permission_denied', message: EXPLICIT_REJECT });
+  });
+
+  it('refuses an anchored web reject for a read selector', async () => {
+    // A wiki page name ends in a colon, so the selector is split off the text
+    // the clause was written against instead of hiding behind that colon.
+    const context = contextWith({
+      read: {
+        allow: true,
+        reject: [
+          {
+            field: 'path',
+            regex: '^https://en\\.wikipedia\\.org/wiki/Talk:Foo$',
+          },
+        ],
+      },
+    });
+    expect(
+      await runTool(
+        pathTool,
+        { path: 'https://en.wikipedia.org/wiki/Talk:Foo:raw' },
+        context,
+        5,
+      ),
+    ).toMatchObject({ type: 'permission_denied' });
+  });
+
   it('matches an omitted Bash cwd as the entered Workspace root', async () => {
     const result = await runTool(
       bashTool,

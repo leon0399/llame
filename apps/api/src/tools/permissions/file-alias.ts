@@ -14,7 +14,8 @@ export function isFileAlias(value: string): boolean {
 
 /**
  * Result of {@link decodeFileAlias}. `ok: true` carries the decoded absolute
- * host path (no selector); `ok: false` carries the `invalid_path` result.
+ * host path, with any read selector still on it for the caller's own
+ * grammar; `ok: false` carries the `invalid_path` result.
  */
 export type FileAliasResult =
   | { readonly ok: true; readonly hostPath: string }
