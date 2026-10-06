@@ -5,7 +5,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - `read` line selectors gain two members and one spelling order. `:N-` reads
   from line N through the source's last line and `:-K` reads its last K lines,
   and `N`, `N-M`, `N+K`, `N-`, and `-K` are now one set accepted in a bare comma
-  list, in a `raw:` list (which gains `N+K`), and as the outline's single scope.
+  list, in a `raw:` list (which gains `N+K`, `N-`, and `-K`), and as the
+  outline's single scope.
   Each member resolves against its source's own count — a regular file's line
   count, a web render's, a directory listing's root-level entry count, or the
   skill catalog's entry count — so the requested range reported back is the
