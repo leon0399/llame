@@ -17,8 +17,9 @@ forwards them.
 
 llame asks for usage on every streaming Chat Completions request
 (`stream_options.include_usage`), and LiteLLM relays the server's usage chunk.
-If a message's usage card still shows no counts, the gateway is not relaying
-that chunk.
+If a message's usage card still shows no counts, either the server sent no
+usage chunk or the gateway did not relay it; compare the server's own response
+to tell which.
 
 ## Reasoning effort
 
