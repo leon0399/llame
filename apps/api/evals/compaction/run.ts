@@ -288,7 +288,11 @@ function checkCorrection(
     `(?<![\\w.])${superseded.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`)}(?![\\w])`,
     'u',
   );
-  for (const heading of ['Active', 'Open Questions and Next Steps']) {
+  for (const heading of [
+    'Active',
+    'Blocked',
+    'Open Questions and Next Steps',
+  ]) {
     const body = sections.get(heading);
     if (body !== undefined && supersededToken.test(body)) {
       failures.push(`superseded value remains under ${heading}`);
@@ -377,6 +381,13 @@ async function readTextOnlySummary(result: ModelStreamResult): Promise<{
     Promise.resolve(result.finishReason).catch(() => null),
   ]);
   const hasToolCall = toolCalls.length > 0 || finishReason === 'tool-calls';
+  if (!hasToolCall && finishReason !== 'stop') {
+    // A stream that ends in `error` or `length` resolves with partial text;
+    // grading it would blame the prompt for a transport failure.
+    throw new Error(
+      `summary stream finished with ${String(finishReason)}, not stop`,
+    );
+  }
   return {
     summary: hasToolCall ? null : normalizeCompactionSummary(text),
     hasToolCall,

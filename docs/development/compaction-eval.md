@@ -52,7 +52,7 @@ Spanish conversation, and an unresolved question. The runner checks that:
 Steps`;
 - the unresolved question is quoted verbatim under `Latest Request`;
 - the correction appears under `Errors and Corrections` and the superseded
-  value is absent from the active or open-question sections; and
+  value is absent from the Active, Blocked, and Open Questions and Next Steps sections; and
 - the Spanish summary contains the fixture's Spanish language marker and a
   specified fact, with no English marker words in section bodies outside code
   spans.
