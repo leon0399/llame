@@ -30,8 +30,12 @@ import {
   isString,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
+import { checkpointSummary } from '../context-item-producers';
+import {
+  CheckpointStatsResponse,
+  toCheckpointStatsResponse,
+} from './checkpoint-stats.dto';
 import { isTextPart } from '../context-builder';
-import { CompactionResponse } from './chats-compaction.dto';
 import {
   PERMISSION_MODES,
   type PermissionMode,
@@ -454,6 +458,10 @@ export class OwnerChatMessagesQueryDto extends ChatMessagesQueryDto {
   targetSeq?: number;
 }
 
+type ChatMessageResponseSource = Message & {
+  absorbedMessageCount?: number;
+};
+
 export class ChatMessageResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;
@@ -464,7 +472,7 @@ export class ChatMessageResponse {
   @ApiProperty({ type: 'integer', format: 'int64' })
   seq!: number;
 
-  @ApiProperty({ enum: ['user', 'assistant', 'system', 'tool'] })
+  @ApiProperty({ enum: ['user', 'assistant', 'system', 'tool', 'checkpoint'] })
   role!: MessageRole;
 
   @ApiProperty({ type: String, nullable: true })
@@ -494,21 +502,43 @@ export class ChatMessageResponse {
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
+
+  @ApiPropertyOptional({
+    type: 'integer',
+    format: 'int64',
+    description:
+      'The last Chat-local message sequence absorbed by this checkpoint.',
+  })
+  absorbedThroughSeq?: number;
+
+  @ApiPropertyOptional({
+    type: 'integer',
+    format: 'int64',
+    description: 'User and assistant rows absorbed by this checkpoint.',
+  })
+  absorbedMessageCount?: number;
+
+  @ApiPropertyOptional({
+    description: 'The checkpoint summary from its persisted payload.',
+  })
+  summary?: string;
+
+  @ApiPropertyOptional({
+    type: () => CheckpointStatsResponse,
+    description: 'Token telemetry for this checkpoint.',
+  })
+  stats?: CheckpointStatsResponse;
 }
 
 export class ChatMessagesResponse {
   @ApiProperty({ type: () => [ChatMessageResponse] })
   messages!: Array<ChatMessageResponse>;
-
-  // Embedded (#136): the chat's latest compaction, folded into this same
-  // response instead of a separate `GET :id/compaction` round trip. null
-  // when the chat has never compacted.
-  @ApiProperty({ type: () => CompactionResponse, nullable: true })
-  compaction!: CompactionResponse | null;
 }
 
-export function toChatMessageResponse(message: Message): ChatMessageResponse {
-  return {
+export function toChatMessageResponse(
+  message: ChatMessageResponseSource,
+): ChatMessageResponse {
+  const response: ChatMessageResponse = {
     id: message.id,
     chatId: message.chatId,
     seq: message.seq,
@@ -520,6 +550,18 @@ export function toChatMessageResponse(message: Message): ChatMessageResponse {
     inReplyTo: message.inReplyTo,
     createdAt: message.createdAt,
   };
+
+  if (message.role !== 'checkpoint') {
+    return response;
+  }
+
+  const absorbedMessageCount = message.absorbedMessageCount ?? 0;
+  return Object.assign(response, {
+    absorbedThroughSeq: message.absorbedThroughSeq ?? undefined,
+    absorbedMessageCount,
+    summary: checkpointSummary(message),
+    stats: toCheckpointStatsResponse(response.usage, absorbedMessageCount),
+  });
 }
 
 /**
@@ -593,8 +635,3 @@ export function toSharedChatResponse(
     }),
   };
 }
-
-export {
-  CompactionResponse,
-  toCompactionResponse,
-} from './chats-compaction.dto';

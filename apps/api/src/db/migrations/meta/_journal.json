@@ -442,6 +442,13 @@
       "when": 1790545058899,
       "tag": "20260927213738_short_wallflower",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1791302947894,
+      "tag": "20261006160907_normal_kang",
+      "breakpoints": true
     }
   ]
 }

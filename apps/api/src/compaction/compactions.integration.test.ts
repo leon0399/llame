@@ -22,13 +22,9 @@ import { AppModule } from '../app.module';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
-import {
-  CompactionsRepository,
-  MessagesRepository,
-} from '../chats/chats-repository';
+import { MessagesRepository } from '../chats/messages-repository';
 import { COMPACTION_INSTRUCTION } from '../compaction/compaction';
-import { COMPACTION_CHECKPOINT_ENVELOPE_PREFIX } from '../chats/context-item-producers';
-import { type Compaction } from '../db/schema';
+import { readCheckpointText } from '../chats/context-item-producers';
 import { ModelsService } from '../models/models.service';
 import {
   FakeModelsService,
@@ -36,7 +32,7 @@ import {
   cookieOf,
   expectRegisteredUserId,
 } from '../testing/support';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isString } from '@workspace/runtime-safety';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
@@ -110,10 +106,14 @@ d('compaction lineage over HTTP (#57)', () => {
     expect(res.status).toBe(200);
   }
 
-  const latestCompaction = (chatId: string) =>
-    tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chatId, userId),
+  const latestCheckpoint = async (chatId: string) => {
+    const rows = await tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+    return rows
+      .filter((row) => row.role === 'checkpoint')
+      .sort((a, b) => b.seq - a.seq)[0];
+  };
 
   /** The `seq` of the user message a turn sent, found by its text. */
   async function userSeq(chatId: string, text: string): Promise<number> {
@@ -159,21 +159,6 @@ d('compaction lineage over HTTP (#57)', () => {
     return part.type === 'text' ? part.text : null;
   }
 
-  function checkpointText(compaction: Compaction): string {
-    const first = compaction.replacementHistory[0];
-    const part = first?.parts[0];
-    if (
-      first?.role !== 'user' ||
-      first.parts.length !== 1 ||
-      !isRecord(part) ||
-      part.type !== 'text' ||
-      !isString(part.text)
-    ) {
-      throw new TypeError('Invalid persisted compaction replacement history');
-    }
-    return part.text;
-  }
-
   it('re-compaction absorbs the previous summary + only the delta, never the full history', async () => {
     // Distinct reply per model call, so summaries and replies are all unique
     // and "which text appears where" assertions cannot alias.
@@ -184,18 +169,20 @@ d('compaction lineage over HTTP (#57)', () => {
     // message, so the trigger is a no-op even over the threshold.
     await sendTurn(chatId, 'turn-1');
     expect(compactionCalls()).toHaveLength(0);
-    expect(await latestCompaction(chatId)).toBeUndefined();
+    expect(await latestCheckpoint(chatId)).toBeUndefined();
 
     // Turn 2: its trigger absorbs turn 1 whole — no keep-recent window — and
     // the row is there when the response ends, because it was written before
     // the turn's first model request.
     await sendTurn(chatId, 'turn-2');
-    const first = await latestCompaction(chatId);
+    const first = await latestCheckpoint(chatId);
     if (first === undefined) {
       throw new Error('Expected turn 2 to publish a compaction row');
     }
-    expect(first.parentId).toBeNull();
-    expect(first.uptoSeq).toBe((await userSeq(chatId, 'turn-2')) - 1);
+    expect(first.role).toBe('checkpoint');
+    expect(first.absorbedThroughSeq).toBe(
+      (await userSeq(chatId, 'turn-2')) - 1,
+    );
 
     // First compaction: no earlier summary — its request replays raw turns,
     // must contain the oldest message, and never the message that triggered it.
@@ -203,27 +190,29 @@ d('compaction lineage over HTTP (#57)', () => {
     const firstCall = compactionCalls()[0];
     expect(texts(firstCall)).toContain('turn-1');
     expect(texts(firstCall)).not.toContain('turn-2');
-    expect(texts(firstCall)).not.toContain(
-      COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
-    );
+    expect(texts(firstCall)).not.toContain('stored checkpoint');
 
     // Turn 3: its trigger absorbs only what lies above the first boundary,
     // and the second compaction lands on top of the first.
     await sendTurn(chatId, 'turn-3');
-    const second = await latestCompaction(chatId);
+    const second = await latestCheckpoint(chatId);
     if (second === undefined) {
       throw new Error('Expected turn 3 to publish a compaction row');
     }
 
     // Lineage: the second row chains to the first and supersedes more history.
-    expect(second.parentId).toBe(first.id);
-    expect(second.uptoSeq).toBeGreaterThan(first.uptoSeq);
-    expect(second.uptoSeq).toBe((await userSeq(chatId, 'turn-3')) - 1);
+    expect(second.role).toBe('checkpoint');
+    expect(second.absorbedThroughSeq).toBeGreaterThan(
+      first.absorbedThroughSeq!,
+    );
+    expect(second.absorbedThroughSeq).toBe(
+      (await userSeq(chatId, 'turn-3')) - 1,
+    );
 
     // The second compaction's model input is the exact stored replacement +
     // delta, NOT full history: turn 2 and its reply, never the absorbed turn 1
     // and never turn 3, whose message triggered it.
-    const firstCheckpoint = checkpointText(first);
+    const firstCheckpoint = readCheckpointText(first);
     expect(compactionCalls()).toHaveLength(2);
     const secondCall = compactionCalls().find(
       (turn) => storedCheckpointText(turn.messages[0]) === firstCheckpoint,
@@ -245,7 +234,7 @@ d('compaction lineage over HTTP (#57)', () => {
     // window only — turns absorbed by any compaction never re-enter the
     // prompt.
     await sendTurn(chatId, 'turn-4');
-    const third = await latestCompaction(chatId);
+    const third = await latestCheckpoint(chatId);
     if (third === undefined) {
       throw new Error('Expected turn 4 to publish a compaction row');
     }
@@ -254,7 +243,7 @@ d('compaction lineage over HTTP (#57)', () => {
       .at(-1)!;
     expect(lastChatTurn.messages[0]).toEqual({
       role: 'user',
-      content: [{ type: 'text', text: checkpointText(third) }],
+      content: [{ type: 'text', text: readCheckpointText(third) }],
     });
     expect(texts(lastChatTurn)).not.toContain('turn-1');
     expect(texts(lastChatTurn)).not.toContain('turn-2');

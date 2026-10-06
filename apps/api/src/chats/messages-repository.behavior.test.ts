@@ -7,6 +7,7 @@ import * as schema from '../db/schema';
 import type { Chat, Message } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import { type UnknownRecord } from '@workspace/runtime-safety';
+import { createCompactionCheckpointPart } from './context-item-producers';
 import { MessagesRepository } from './messages-repository';
 
 type QueryValue = ReadonlyArray<unknown>;
@@ -98,11 +99,16 @@ const chat: Chat = {
   workspaceDetachReason: null,
 };
 
-const message = (seq: number, role: Message['role'] = 'user'): Message => ({
+const message = (
+  seq: number,
+  role: Message['role'] = 'user',
+  absorbedThroughSeq: number | null = null,
+): Message => ({
   id: `message-${seq}`,
   chatId: chat.id,
   seq,
   role,
+  absorbedThroughSeq,
   senderUserId: role === 'user' ? chat.ownerUserId : null,
   parts: [{ type: 'text', text: `message ${seq}` }],
   attachments: [],
@@ -305,6 +311,47 @@ describe('MessagesRepository writes', () => {
       expect.objectContaining({ role: 'user', seq: 1 }),
       expect.objectContaining({ role: 'assistant', seq: 2 }),
     ]);
+  });
+  it('creates a checkpoint with the next sequence and persisted boundary part', async () => {
+    const part = createCompactionCheckpointPart('summary');
+    const created = message(5, 'checkpoint', 4);
+    const { db, insertedRow } = sequencingDb([
+      { maxRows: [{ value: 4 }], created },
+    ]);
+
+    await expect(
+      new MessagesRepository(db).createCheckpoint({
+        chatId: chat.id,
+        absorbedThroughSeq: 4,
+        part,
+        usage: { inputTokens: 20 },
+      }),
+    ).resolves.toBe(created);
+    expect(insertedRow()).toMatchObject({
+      seq: 5,
+      role: 'checkpoint',
+      absorbedThroughSeq: 4,
+      senderUserId: null,
+      inReplyTo: null,
+      parts: [part],
+      usage: { inputTokens: 20 },
+    });
+  });
+  it('reads back the winning checkpoint when the boundary conflict is a no-op', async () => {
+    const part = createCompactionCheckpointPart('summary');
+    const winner = message(6, 'checkpoint', 4);
+    const { db } = sequencingDb([{ maxRows: [{ value: 5 }] }]);
+    vi.spyOn(db, 'select').mockImplementation(() =>
+      asQuery(recordingQuery([winner], [])),
+    );
+
+    await expect(
+      new MessagesRepository(db).createCheckpoint({
+        chatId: chat.id,
+        absorbedThroughSeq: 4,
+        part,
+      }),
+    ).resolves.toBe(winner);
   });
 
   it('returns existing turn state and updates only a retryable assistant', async () => {
@@ -800,6 +847,51 @@ describe('MessagesRepository read shapes', () => {
       new MessagesRepository(db).findById(chat.id, chat.ownerUserId, 'absent'),
     ).resolves.toBeUndefined();
   });
+  it('selects owner-scoped checkpoints by boundary and excludes the row itself', async () => {
+    const active = message(5, 'checkpoint', 4);
+    const calls: Array<ChainCall> = [];
+    const db: Db = drizzle.mock({ schema });
+    vi.spyOn(db, 'select').mockImplementation(() =>
+      asQuery(recordingQuery([{ messages: active }], calls)),
+    );
+    const repository = new MessagesRepository(db);
+
+    await expect(
+      repository.findActiveCheckpoint(chat.id, chat.ownerUserId, {
+        beforeSeq: 9,
+      }),
+    ).resolves.toBe(active);
+    await expect(
+      repository.findCheckpointByBoundary(chat.id, chat.ownerUserId, 4),
+    ).resolves.toBe(active);
+
+    const predicates = calls.flatMap((call) =>
+      call.method === 'where' ? [call.argument] : [],
+    );
+    expect(predicates).toHaveLength(2);
+    const activePredicate = predicates[0];
+    const boundaryPredicate = predicates[1];
+    if (!is(activePredicate, SQL) || !is(boundaryPredicate, SQL)) {
+      throw new Error('Expected checkpoint predicates');
+    }
+    const activeSql = new PgDialect().sqlToQuery(activePredicate);
+    expect(activeSql.sql).toContain('"messages"."role" = $3');
+    expect(activeSql.sql).toContain('"messages"."absorbed_through_seq" < $4');
+    expect(activeSql.params).toEqual([
+      chat.id,
+      chat.ownerUserId,
+      'checkpoint',
+      9,
+    ]);
+    const boundarySql = new PgDialect().sqlToQuery(boundaryPredicate);
+    expect(boundarySql.sql).toContain('"messages"."absorbed_through_seq" = $4');
+    expect(boundarySql.params).toEqual([
+      chat.id,
+      chat.ownerUserId,
+      'checkpoint',
+      4,
+    ]);
+  });
 
   it('skips the query entirely for an empty chat-id set', async () => {
     const db: Db = drizzle.mock({ schema });
@@ -824,12 +916,15 @@ describe('MessagesRepository read shapes', () => {
     expect(select).not.toHaveBeenCalled();
   });
 
-  it('partitions the preview and earliest-user reads on chat id', async () => {
+  it('filters checkpoint rows before preview DISTINCT ON and recency counts', async () => {
     const db: Db = drizzle.mock({ schema });
     const calls: Array<ChainCall> = [];
     const distinct = vi
       .spyOn(db, 'selectDistinctOn')
       .mockImplementation(() => asQuery(recordingQuery([], calls)));
+    vi.spyOn(db, 'select').mockImplementation(() =>
+      asQuery(recordingQuery([], calls)),
+    );
     const repository = new MessagesRepository(db);
 
     await repository.findLatestPerOwnedChat(chat.ownerUserId);
@@ -837,9 +932,24 @@ describe('MessagesRepository read shapes', () => {
       [chat.id],
       chat.ownerUserId,
     );
+    await repository.countPerChat([chat.id], chat.ownerUserId);
 
     expect(distinct).toHaveBeenNthCalledWith(1, [schema.messages.chatId]);
     expect(distinct).toHaveBeenNthCalledWith(2, [schema.messages.chatId]);
+    const predicates = calls.flatMap((call) =>
+      call.method === 'where' ? [call.argument] : [],
+    );
+    expect(predicates).toHaveLength(3);
+    const previewPredicate = predicates[0];
+    const countPredicate = predicates[2];
+    if (!is(previewPredicate, SQL) || !is(countPredicate, SQL)) {
+      throw new Error('Expected preview/count predicates');
+    }
+    const previewSql = new PgDialect().sqlToQuery(previewPredicate);
+    expect(previewSql.sql).toContain('"messages"."role" in ($2, $3)');
+    const countSql = new PgDialect().sqlToQuery(countPredicate);
+    expect(countSql.sql).toContain('"messages"."role" <> $3');
+    expect(countSql.params).toEqual([chat.ownerUserId, chat.id, 'checkpoint']);
   });
 
   it('writes nothing for an empty bulk copy', async () => {

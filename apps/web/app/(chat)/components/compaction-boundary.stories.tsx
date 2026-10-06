@@ -98,11 +98,10 @@ export const Expanded: Story = {
 };
 
 /**
- * The fully-informed state (#136 read-side merge): real compression stats in
- * the chip (message count + token savings) and the before→after + model line
- * inside the card.
- *
- * @summary chip savings and card breakdown with full stats
+ * The fully-informed state: the checkpoint row supplies the API-computed
+ * absorbed-message count while its persisted usage supplies token savings and
+ * model metadata in the chip and the before→after + model line inside the
+ * card.
  */
 export const WithStats: Story = {
   tags: ["ai-generated"],
@@ -127,10 +126,8 @@ export const WithStats: Story = {
 };
 
 /**
- * Degraded-stats fallback: an older or seeded compaction may carry only a
+ * Degraded-stats fallback: a checkpoint may carry only the API-computed
  * message count (no token usage) — the chip shows the count alone.
- *
- * @summary chip fallback when token stats are absent
  */
 export const CountOnlyStats: Story = {
   tags: ["ai-generated"],

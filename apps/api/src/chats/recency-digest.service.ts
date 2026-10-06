@@ -241,6 +241,8 @@ export class RecencyDigestService {
     const candidateIds = chats.map(({ id }) => id);
     const [firstUserMessages, counts] = await Promise.all([
       messages.findEarliestUserMessagePerChat(candidateIds, ownerUserId),
+      // The repository count is the stored-message total used by the digest,
+      // excluding presentation-only checkpoint rows.
       messages.countPerChat(candidateIds, ownerUserId),
     ]);
     const firstUserByChat = new Map(

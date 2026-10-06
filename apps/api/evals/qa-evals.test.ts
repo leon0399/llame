@@ -7,8 +7,8 @@
  *   1. happy path  — a question gets a coherent streamed answer
  *   2. injection   — adversarial text inside user content does not override the
  *                    system prompt
- *   3. overflow    — a long conversation triggers lineage compaction (#57) and
- *                    the chat stays coherent across it
+ *   3. overflow    — a long conversation triggers checkpoint publication (#57)
+ *                    and the chat stays coherent across it
  *
  * Unlike the other e2e suites this one does NOT fake the model client, so it
  * spends provider tokens. It is therefore double-gated and skipped by default:
@@ -42,8 +42,9 @@ import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
-import { CompactionsRepository } from './../src/chats/chats-repository';
-import { type Compaction } from './../src/db/schema';
+import { MessagesRepository } from './../src/chats/chats-repository';
+import { type Message } from './../src/db/schema';
+import { readCheckpointText } from './../src/chats/context-item-producers';
 import {
   cookieOf,
   expectRegisteredUserId,
@@ -113,9 +114,11 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
     return streamedText(res.text);
   }
 
-  const latestCompaction = (chatId: string): Promise<Compaction | undefined> =>
+  const latestCheckpoint = (chatId: string): Promise<Message | undefined> =>
     tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chatId, userId),
+      new MessagesRepository(tx).findActiveCheckpoint(chatId, userId, {
+        beforeSeq: Number.MAX_SAFE_INTEGER,
+      }),
     );
 
   it('happy path: a question gets a coherent streamed answer', async () => {
@@ -179,15 +182,15 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
 
     // The checkpoint is written before the model's first request of the turn
     // whose trigger fired, so it is already there once the filler turns return.
-    const compaction = await latestCompaction(chatId);
-    if (compaction === undefined) {
+    const checkpoint = await latestCheckpoint(chatId);
+    if (checkpoint === undefined) {
       throw new Error(
-        'Expected a compactions row (did the threshold trigger?)',
+        'Expected a checkpoint message (did the threshold trigger?)',
       );
     }
-    // Auditable lineage: the row records what it superseded.
-    expect(compaction.uptoSeq).toBeGreaterThan(0);
-    expect(compaction.summary.length).toBeGreaterThan(0);
+    expect(checkpoint.role).toBe('checkpoint');
+    expect(checkpoint.absorbedThroughSeq).toBeGreaterThan(0);
+    expect(readCheckpointText(checkpoint).trim().length).toBeGreaterThan(0);
 
     // Coherence across the compaction boundary: the fact from the absorbed turn
     // must survive via the summary.

@@ -21,6 +21,7 @@ import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelsService } from '../models/models.service';
 import { turnTelemetryLogger } from '../chats/turn-telemetry';
+import { createCompactionCheckpointPart } from './context-item-producers';
 import { isRecord } from '@workspace/runtime-safety';
 import {
   FakeModelsService,
@@ -323,8 +324,6 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           createdAt: expect.any(String),
         }),
       ],
-      // No compaction on this chat — #136's embedded field is null.
-      compaction: null,
     });
     expect(Date.parse(firstMessage.createdAt)).not.toBeNaN();
     expect(Date.parse(secondMessage.createdAt)).not.toBeNaN();
@@ -342,7 +341,6 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           seq: firstMessage.seq,
         }),
       ],
-      compaction: null,
     });
 
     const tooLarge = await request(http)
@@ -360,6 +358,65 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       `/api/v1/chats/${historyChatId}/messages`,
     );
     expect(anonymousRead.status).toBe(401);
+  });
+  it('returns checkpoint rows with owner-only summary and API counts', async () => {
+    const checkpointChatId = await createChat(userAId, 'Checkpoint API Chat');
+    let checkpointId = '';
+
+    await tenantDb.runAs(userAId, async (tx) => {
+      const messagesRepo = new MessagesRepository(tx);
+      const userMessage = await messagesRepo.create({
+        chatId: checkpointChatId,
+        role: 'user',
+        senderUserId: userAId,
+        parts: [{ type: 'text', text: 'absorbed prompt' }],
+        attachments: [],
+      });
+      await messagesRepo.create({
+        chatId: checkpointChatId,
+        role: 'assistant',
+        parts: [{ type: 'text', text: 'absorbed answer' }],
+        attachments: [],
+        inReplyTo: userMessage.id,
+      });
+      const checkpoint = await messagesRepo.createCheckpoint({
+        chatId: checkpointChatId,
+        absorbedThroughSeq: 2,
+        part: createCompactionCheckpointPart('API checkpoint summary'),
+        usage: {
+          inputTokens: 2000,
+          outputTokens: 200,
+          modelId: 'e2e-checkpoint-model',
+        },
+      });
+      checkpointId = checkpoint.id;
+    });
+
+    const ownerRead = await request(http)
+      .get(`/api/v1/chats/${checkpointChatId}/messages`)
+      .set('Cookie', cookieA);
+
+    const ownerReadBody = z
+      .object({ messages: z.array(z.unknown()) })
+      .parse(ownerRead.body);
+
+    expect(ownerRead.status).toBe(200);
+    expect(ownerReadBody.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: checkpointId,
+          role: 'checkpoint',
+          absorbedThroughSeq: 2,
+          absorbedMessageCount: 2,
+          summary: 'API checkpoint summary',
+          stats: expect.objectContaining({
+            beforeTokens: 2000,
+            afterTokens: 200,
+            modelId: 'e2e-checkpoint-model',
+          }),
+        }),
+      ]),
+    );
   });
 
   it('loads target-ended windows, rejects missing targets, and hides foreign targets', async () => {

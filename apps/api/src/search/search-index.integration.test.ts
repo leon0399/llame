@@ -18,6 +18,7 @@ import postgres from 'postgres';
 import { z } from 'zod';
 
 import * as schema from '../db/schema';
+import { createCompactionCheckpointPart } from '../chats/context-item-producers';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { CHUNKER_VERSION } from './chat/conversation-chunker';
@@ -159,6 +160,41 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
     expect(row.normalized_content).toBe('hello answer-1');
     expect(row.fts).not.toContain('user');
     expect(row.fts).not.toContain('assistant');
+  });
+  it('never indexes checkpoint rows or their stored summary text', async () => {
+    const id = await seed('Checkpoint excluded', [
+      { role: 'user', text: 'visible source text' },
+    ]);
+
+    await tenantDb.runAs(u, async (tx) => {
+      await new MessagesRepository(tx).createCheckpoint({
+        chatId: id,
+        absorbedThroughSeq: 1,
+        part: createCompactionCheckpointPart('PRIVATE_CHECKPOINT_SUMMARY'),
+        usage: { modelId: 'checkpoint-model' },
+      });
+    });
+
+    await indexService.reindexChat(id, u);
+    const rows = await ownedRows(
+      sql`
+        SELECT content, normalized_content
+        FROM search_chat_documents
+        WHERE chat_id = ${id}
+        ORDER BY chunk_ordinal`,
+      z.object({
+        content: z.string(),
+        normalized_content: z.string(),
+      }),
+    );
+
+    expect(rows).toEqual([
+      {
+        content: '[user] visible source text',
+        normalized_content: 'visible source text',
+      },
+    ]);
+    expect(JSON.stringify(rows)).not.toContain('PRIVATE_CHECKPOINT_SUMMARY');
   });
 
   it('persists current visible-text locator offsets on projection rows', async () => {

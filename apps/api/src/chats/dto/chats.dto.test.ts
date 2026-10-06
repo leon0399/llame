@@ -10,6 +10,7 @@ import {
   UpdateChatDto,
   toSharedChatResponse,
 } from './chats.dto';
+import { createCompactionCheckpointPart } from '../context-item-producers';
 import { toActiveRunResponse } from './active-runs.dto';
 
 describe('UpdateChatDto', () => {
@@ -402,6 +403,7 @@ describe('surfaces without model identity carry no effort', () => {
       id: 'm1',
       chatId: 'chat-1',
       seq: 1,
+      absorbedThroughSeq: null,
       role: 'assistant',
       senderUserId: null,
       parts: [{ type: 'text', text: 'hi' }],
@@ -456,6 +458,7 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
       id: 'm-owner',
       chatId: 'chat-owner',
       seq: 7,
+      absorbedThroughSeq: null,
       role: 'user',
       senderUserId: 'owner',
       parts,
@@ -466,6 +469,42 @@ describe('toChatMessageResponse — owner egress preserves stored parts', () => 
     };
 
     expect(toChatMessageResponse(message).parts).toEqual(parts);
+  });
+});
+
+it('adds checkpoint boundary, payload summary, count, and usage stats to owner rows', () => {
+  const message: Message & { absorbedMessageCount: number } = {
+    id: 'm-checkpoint',
+    chatId: 'chat-owner',
+    seq: 8,
+    role: 'checkpoint',
+    absorbedThroughSeq: 7,
+    senderUserId: null,
+    parts: [createCompactionCheckpointPart('Summarized earlier turns.')],
+    attachments: [],
+    usage: {
+      inputTokens: 7100,
+      outputTokens: 128,
+      modelId: 'system:openai:gpt-5.4-mini',
+      effort: 'high',
+    },
+    inReplyTo: null,
+    createdAt: new Date('2026-08-25T00:00:00.000Z'),
+    absorbedMessageCount: 3,
+  };
+
+  expect(toChatMessageResponse(message)).toMatchObject({
+    role: 'checkpoint',
+    absorbedThroughSeq: 7,
+    absorbedMessageCount: 3,
+    summary: 'Summarized earlier turns.',
+    stats: {
+      absorbedMessageCount: 3,
+      beforeTokens: 7100,
+      afterTokens: 128,
+      modelId: 'system:openai:gpt-5.4-mini',
+      effort: 'high',
+    },
   });
 });
 
@@ -481,6 +520,7 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       id: 'm-1',
       chatId: 'chat-1',
       seq: 1,
+      absorbedThroughSeq: null,
       role: 'assistant',
       senderUserId: null,
       parts: [],
@@ -491,6 +531,26 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       ...overrides,
     };
   }
+  it('never includes checkpoint rows in the public message DTO', () => {
+    const checkpoint = fakeMessage({
+      role: 'checkpoint',
+      absorbedThroughSeq: 7,
+      parts: [
+        {
+          type: 'data-context',
+          data: {
+            producer: 'compaction',
+            runId: '00000000-0000-4000-8000-000000000000',
+            form: 'checkpoint',
+            text: '<system-reminder>PRIVATE_CHECKPOINT</system-reminder>',
+            payload: { v: 1, summary: 'PRIVATE_SUMMARY' },
+          },
+        },
+      ],
+    });
+
+    expect(toSharedChatResponse(fakeChat, [checkpoint]).messages).toEqual([]);
+  });
   it('omits the owner-only Workspace binding from the shared projection', () => {
     const dto = toSharedChatResponse(fakeChat, []);
 

@@ -40,6 +40,7 @@ const message: Message = {
   parts: [{ type: 'text', text: 'hello' }],
   attachments: [],
   usage: null,
+  absorbedThroughSeq: null,
   inReplyTo: null,
   createdAt: now,
 };

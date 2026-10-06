@@ -2987,6 +2987,40 @@
           "workspaceRoot"
         ]
       },
+      "CheckpointStatsResponse": {
+        "type": "object",
+        "properties": {
+          "absorbedMessageCount": {
+            "type": "integer",
+            "nullable": false,
+            "description": "User and assistant rows absorbed by this checkpoint."
+          },
+          "beforeTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "The checkpoint summarization call's input token count."
+          },
+          "afterTokens": {
+            "type": "integer",
+            "nullable": true,
+            "description": "The checkpoint summarization call's output token count."
+          },
+          "modelId": {
+            "type": "string",
+            "nullable": true
+          },
+          "effort": {
+            "type": "string",
+            "description": "The checkpoint summarization call's reasoning effort."
+          }
+        },
+        "required": [
+          "absorbedMessageCount",
+          "beforeTokens",
+          "afterTokens",
+          "modelId"
+        ]
+      },
       "ChatMessageResponse": {
         "type": "object",
         "properties": {
@@ -3004,7 +3038,7 @@
           },
           "role": {
             "type": "string",
-            "enum": ["user", "assistant", "system", "tool"]
+            "enum": ["user", "assistant", "system", "tool", "checkpoint"]
           },
           "senderUserId": {
             "type": "string",
@@ -3037,6 +3071,28 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "absorbedThroughSeq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The last Chat-local message sequence absorbed by this checkpoint."
+          },
+          "absorbedMessageCount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "User and assistant rows absorbed by this checkpoint."
+          },
+          "summary": {
+            "type": "string",
+            "description": "The checkpoint summary from its persisted payload."
+          },
+          "stats": {
+            "description": "Token telemetry for this checkpoint.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CheckpointStatsResponse"
+              }
+            ]
           }
         },
         "required": [
@@ -3052,61 +3108,6 @@
           "createdAt"
         ]
       },
-      "CompactionStatsResponse": {
-        "type": "object",
-        "properties": {
-          "absorbedMessageCount": {
-            "type": "integer",
-            "nullable": true,
-            "description": "Messages absorbed by this compaction (uptoSeq minus the previous compaction's uptoSeq, or uptoSeq itself for the first one)."
-          },
-          "beforeTokens": {
-            "type": "integer",
-            "nullable": true,
-            "description": "The summarization call's input token count."
-          },
-          "afterTokens": {
-            "type": "integer",
-            "nullable": true,
-            "description": "The summarization call's output (summary) token count."
-          },
-          "modelId": {
-            "type": "string",
-            "nullable": true
-          },
-          "effort": {
-            "type": "string",
-            "description": "The effort this compaction call ran at — inherited from the run whose prompt prefix it reuses, so its cached prefix stays valid. Absent when that run carried none."
-          }
-        },
-        "required": [
-          "absorbedMessageCount",
-          "beforeTokens",
-          "afterTokens",
-          "modelId"
-        ]
-      },
-      "CompactionResponse": {
-        "type": "object",
-        "properties": {
-          "uptoSeq": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Messages with seq <= this were summarized for model context."
-          },
-          "summary": {
-            "type": "string"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "stats": {
-            "$ref": "#/components/schemas/CompactionStatsResponse"
-          }
-        },
-        "required": ["uptoSeq", "summary", "createdAt", "stats"]
-      },
       "ChatMessagesResponse": {
         "type": "object",
         "properties": {
@@ -3115,18 +3116,9 @@
             "items": {
               "$ref": "#/components/schemas/ChatMessageResponse"
             }
-          },
-          "compaction": {
-            "nullable": true,
-            "type": "object",
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/CompactionResponse"
-              }
-            ]
           }
         },
-        "required": ["messages", "compaction"]
+        "required": ["messages"]
       },
       "CreateTextMessagePartDto": {
         "type": "object",

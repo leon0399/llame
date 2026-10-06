@@ -88,14 +88,14 @@ const resolve = (
   state: SkillTurnStateDeps,
   row: Chat,
   options: {
-    readonly latestCompactionId?: string | null;
+    readonly latestCheckpointId?: string | null;
     readonly modelReferencesSkills?: boolean;
   } = {},
 ) =>
   resolveTurnSkillState(state, {
     chat: row,
     runId: RUN_ID,
-    latestCompactionId: options.latestCompactionId ?? null,
+    latestCheckpointId: options.latestCheckpointId ?? null,
     modelReferencesSkills: options.modelReferencesSkills ?? true,
   });
 
@@ -454,7 +454,7 @@ describe('the frozen skill-catalog baseline', () => {
     expect(state.told).toEqual([]);
   });
 
-  it('reuses a stored baseline within the same compaction epoch', () => {
+  it('reuses a stored baseline within the same checkpoint epoch', () => {
     const stored = {
       entries: [{ name: 'stored', description: 'From the baseline' }],
       omitted: 2,
@@ -469,16 +469,16 @@ describe('the frozen skill-catalog baseline', () => {
       }),
       chat({
         skillCatalogBaseline: stored,
-        skillCatalogRebakedFrom: 'compaction-1',
+        skillCatalogRebakedFrom: 'checkpoint-1',
       }),
-      { latestCompactionId: 'compaction-1' },
+      { latestCheckpointId: 'checkpoint-1' },
     );
 
     expect(state.baseline).toEqual(stored);
     expect(state.freeze).toBeUndefined();
   });
 
-  it('re-resolves at the turn after a new compaction starts an epoch', () => {
+  it('re-resolves at the turn after a new checkpoint starts an epoch', () => {
     const state = resolve(
       deps({
         skillCatalog: {
@@ -490,9 +490,9 @@ describe('the frozen skill-catalog baseline', () => {
           entries: [{ name: 'stale', description: 'Old epoch' }],
           omitted: 0,
         },
-        skillCatalogRebakedFrom: 'compaction-1',
+        skillCatalogRebakedFrom: 'checkpoint-1',
       }),
-      { latestCompactionId: 'compaction-2' },
+      { latestCheckpointId: 'checkpoint-2' },
     );
 
     expect(state.freeze).toEqual({
@@ -500,7 +500,7 @@ describe('the frozen skill-catalog baseline', () => {
         entries: [{ name: 'pdf', description: 'Fresh' }],
         omitted: 0,
       },
-      rebakedFrom: 'compaction-2',
+      rebakedFrom: 'checkpoint-2',
     });
   });
 
@@ -748,7 +748,7 @@ describe('the skill-catalog notice', () => {
     });
   });
 
-  it('starts a new told state at a compaction epoch with no notice', () => {
+  it('starts a new told state at a checkpoint epoch with no notice', () => {
     const state = resolve(
       deps({
         skillCatalog: {
@@ -761,10 +761,10 @@ describe('the skill-catalog notice', () => {
           entries: [{ name: 'stale', description: 'Old epoch' }],
           omitted: 0,
         },
-        skillCatalogRebakedFrom: 'compaction-1',
+        skillCatalogRebakedFrom: 'checkpoint-1',
         skillCatalogTold: ['stale'],
       }),
-      { latestCompactionId: 'compaction-2' },
+      { latestCheckpointId: 'checkpoint-2' },
     );
 
     // No delta across the boundary: the baseline is what the model is shown.
@@ -775,7 +775,7 @@ describe('the skill-catalog notice', () => {
         entries: [{ name: 'pdf', description: 'Extract text' }],
         omitted: 0,
       },
-      rebakedFrom: 'compaction-2',
+      rebakedFrom: 'checkpoint-2',
     });
     expect(state.told).toEqual(['pdf']);
   });

@@ -129,13 +129,11 @@ describe('conversation message sequence database invariants', () => {
       FROM pg_class
       WHERE oid IN (
         'messages'::regclass,
-        'run_events'::regclass,
-        'compactions'::regclass
+        'run_events'::regclass
       )
       ORDER BY relname
     `;
     expect(rows).toEqual([
-      { relname: 'compactions', relforcerowsecurity: true },
       { relname: 'messages', relforcerowsecurity: true },
       { relname: 'run_events', relforcerowsecurity: true },
     ]);

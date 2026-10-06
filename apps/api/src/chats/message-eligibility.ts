@@ -3,6 +3,8 @@ import { sql, type SQL } from 'drizzle-orm';
 /**
  * The SQL predicate that identifies "eligible" conversation messages: user
  * rows and assistant rows whose completion status is absent or `completed`.
+ * Checkpoint rows are explicitly excluded even though the role branches below
+ * already enumerate the readable user/assistant roles.
  * The TS twin is `isImmutableEvidenceMessage` in `conversation-evidence.ts`
  * (via `isCompletedAssistantTurn`); the two must stay semantically identical.
  *
@@ -28,5 +30,5 @@ export function eligibleMessagePredicate(alias: string): SQL {
         OR ${usage} ->> 'status' = 'completed'
       )
     )
-  )`;
+  ) AND ${role} <> 'checkpoint'`;
 }

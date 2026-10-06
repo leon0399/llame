@@ -1,31 +1,18 @@
 /**
- * Compaction checkpoint browser e2e (#57 UI surfacing, #136 read-side merge).
+ * Compaction checkpoint browser e2e (#57 UI surfacing).
  *
- * Owner-reported bug: a real compaction existed server-side but the
- * Checkpoint never rendered on a chat page reload. That render pipeline
- * couldn't be reproduced failing against a synthetic jsdom render (see
- * chat-page.compaction.test.tsx) — this spec is the faithful end-to-end
- * vehicle: real useChat, real SSR hydration, real fetch, a real hard reload
- * — the one thing a unit test cannot fake. It passing does NOT confirm what
- * actually went wrong in the owner's environment (this harness's network
- * stack is mocked/same-origin, unlike the field report), but #136's merge —
- * compaction is now embedded in the SAME `GET :id/messages` response the
- * messages themselves come from, not a second, independently-failing
- * request — structurally removes the leading suspect (a silently-erroring
- * SECOND fetch) by construction: there is only one fetch left to fail, and
- * if it does, the messages themselves would visibly be missing too.
+ * Owner-reported bug: a real checkpoint existed server-side but the boundary
+ * never rendered on a chat page reload. This spec is the faithful end-to-end
+ * vehicle: real useChat, real SSR hydration, real fetch, a real hard reload.
  *
- * The chat + messages are created through the real app (UI send, same as
- * chat-flow.spec.ts); the compaction itself is seeded directly into Postgres
- * (deterministic — driving a real compaction via COMPACTION_TOKEN_THRESHOLD
- * would depend on the mock model's token accounting) via seed-compaction.ts,
- * including `usage` so the design's real compression-stats line ("N messages
- * · saved X tokens" / "before → after · model") renders, not the timestamp
- * fallback.
+ * The chat turns are created through the real app; the checkpoint itself is
+ * seeded deterministically as a `messages.role = checkpoint` row so the
+ * owner response exercises the same row DTO and API-computed count as a
+ * published checkpoint.
  */
 
 import { expect, test } from "../../support/fixtures";
-import { seedCompaction } from "./seed-compaction";
+import { seedCheckpoint } from "./seed-compaction";
 
 const ANSWER = "Mocked answer from the e2e model server.";
 const SEEDED_SUMMARY =
@@ -41,7 +28,7 @@ const apiUrl =
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
 
 test.describe("compaction checkpoint (worker execution mode)", () => {
-  test("a compaction seeded after messages exist renders as a visible Checkpoint chip on reload, and expands an inline result card with the summary", async ({
+  test("a checkpoint row seeded before the triggering user turn renders before that turn on reload and expands its summary", async ({
     page,
     account,
   }) => {
@@ -65,17 +52,9 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
       throw new Error(`Could not extract chat id from URL: ${page.url()}`);
     }
 
-    await page
-      .getByPlaceholder("What would you like to know?")
-      .fill("And what about next steps?");
-    await page.getByRole("button", { name: "Send message" }).click();
-    await expect(page.getByRole("log").getByText(ANSWER).nth(1)).toBeVisible({
-      timeout: 20_000,
-    });
-
     // Fetch the real seq values the same way the app itself would, so the
-    // seeded uptoSeq matches an actual message boundary (Leo's real scenario:
-    // uptoSeq at/near the end of the loaded history — everything summarized).
+    // checkpoint boundary matches the last committed row before the
+    // triggering user turn.
     const messagesResponse = await page.request.get(
       `${apiUrl}/api/v1/chats/${chatId}/messages`,
       { headers: { Authorization: `Bearer ${account.token}` } },
@@ -95,7 +74,40 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
     expect(messages.length).toBeGreaterThan(0);
     const maxSeq = Math.max(...messages.map((m) => m.seq));
 
-    seedCompaction(chatId, maxSeq, SEEDED_SUMMARY, { usage: SEEDED_USAGE });
+    seedCheckpoint(chatId, maxSeq, SEEDED_SUMMARY, {
+      usage: SEEDED_USAGE,
+      ownerUserId: account.id,
+    });
+    await page
+      .getByPlaceholder("What would you like to know?")
+      .fill("And what about next steps?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByRole("log").getByText(ANSWER).nth(1)).toBeVisible({
+      timeout: 20_000,
+    });
+    const seededResponse = await page.request.get(
+      `${apiUrl}/api/v1/chats/${chatId}/messages`,
+      { headers: { Authorization: `Bearer ${account.token}` } },
+    );
+    expect(seededResponse.ok()).toBe(true);
+    // SAFETY: this is the api's own chat-messages endpoint (under test
+    // here), whose { messages: [...] } envelope is fixed by its own OpenAPI
+    // contract.
+    const seededBody = (await seededResponse.json()) as {
+      messages: Array<{
+        role: string;
+        seq: number;
+        absorbedThroughSeq?: number;
+        absorbedMessageCount?: number;
+      }>;
+    };
+    const checkpointRow = seededBody.messages.find(
+      (message) => message.role === "checkpoint",
+    );
+    expect(checkpointRow).toMatchObject({
+      absorbedThroughSeq: maxSeq,
+      absorbedMessageCount: 2,
+    });
 
     // A real hard reload — the exact step Leo took where the Checkpoint
     // failed to appear despite the endpoint returning the compaction.
@@ -103,6 +115,22 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
 
     const checkpoint = page.getByRole("button", { name: "Context compacted" });
     await expect(checkpoint).toBeVisible({ timeout: 15_000 });
+    const triggeringMessage = page.getByText("And what about next steps?");
+    await expect(triggeringMessage).toBeVisible();
+    const triggeringMessageHandle = await triggeringMessage.elementHandle();
+    if (!triggeringMessageHandle) {
+      throw new Error("Could not locate the triggering user message");
+    }
+    expect(
+      await checkpoint.evaluate(
+        (boundary, message) =>
+          Boolean(
+            boundary.compareDocumentPosition(message) &
+              Node.DOCUMENT_POSITION_FOLLOWING,
+          ),
+        triggeringMessageHandle,
+      ),
+    ).toBe(true);
 
     // Collapsed by default — the design's result card isn't in the DOM yet.
     await expect(page.getByText("Compaction result")).not.toBeVisible();

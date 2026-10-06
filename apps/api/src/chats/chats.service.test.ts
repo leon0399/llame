@@ -2,18 +2,14 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
-import type { Chat, Compaction, Message, Run } from '../db/schema';
+import type { Chat, Message, Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { RunsRepository } from '../runs/runs-repository';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-} from './chats-repository';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
 
 describe('ChatsService.searchChats', () => {
@@ -84,7 +80,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     workspaceDetachReason: null,
   };
 
-  function message(seq: number): Message {
+  function message(seq: number, overrides: Partial<Message> = {}): Message {
     return {
       id: `message-${seq}`,
       chatId: chat.id,
@@ -94,9 +90,26 @@ describe('ChatsService.getChatMessages targetSeq', () => {
       parts: [{ type: 'text', text: `message ${seq}` }],
       attachments: [],
       usage: null,
+      absorbedThroughSeq: null,
       inReplyTo: null,
       createdAt: new Date('2026-08-28T00:00:00.000Z'),
+      ...overrides,
     };
+  }
+
+  function checkpoint(seq: number, boundary: number): Message {
+    return message(seq, {
+      id: `checkpoint-${boundary}`,
+      role: 'checkpoint',
+      senderUserId: null,
+      parts: [
+        {
+          type: 'data-context',
+          data: { text: `checkpoint ${boundary}` },
+        },
+      ],
+      absorbedThroughSeq: boundary,
+    });
   }
 
   function makeService(db: Db): ChatsService {
@@ -128,20 +141,14 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     const findByChatId = vi
       .spyOn(MessagesRepository.prototype, 'findByChatId')
       .mockResolvedValue([message(20), message(30)]);
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(undefined);
 
     await expect(
       makeService(db).getChatMessages(chat.id, ownerUserId, {
         limit: 2,
         targetSeq: 30,
       }),
-    ).resolves.toMatchObject({
+    ).resolves.toEqual({
       messages: [message(20), message(30)],
-      compaction: undefined,
-      absorbedMessageCount: null,
     });
 
     expect(findById).toHaveBeenCalledWith(chat.id, ownerUserId);
@@ -157,10 +164,6 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     const findByChatId = vi
       .spyOn(MessagesRepository.prototype, 'findByChatId')
       .mockResolvedValue([message(20)]);
-    const findLatestCompaction = vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    );
 
     await expect(
       makeService(db).getChatMessages(chat.id, ownerUserId, {
@@ -173,62 +176,55 @@ describe('ChatsService.getChatMessages targetSeq', () => {
       limit: 2,
       maxSeq: 30,
     });
-    expect(findLatestCompaction).not.toHaveBeenCalled();
   });
 
-  it('bounds target compaction selection and derives the delta from that selected chain', async () => {
+  it('computes each checkpoint count from boundary intervals even when pagination omits prior rows', async () => {
     const db: Db = drizzle.mock({ schema });
-    const first: Compaction = {
-      id: 'compaction-1',
-      chatId: chat.id,
-      uptoSeq: 20,
-      parentId: null,
-      summary: 'first summary',
-      replacementHistory: [
-        { role: 'user', parts: [{ type: 'text', text: 'first' }] },
-      ],
-      usage: null,
-      createdAt: new Date('2026-08-28T00:00:00.000Z'),
-    };
-    const second: Compaction = {
-      ...first,
-      id: 'compaction-2',
-      uptoSeq: 25,
-      parentId: first.id,
-      summary: 'second summary',
-    };
+    const first = message(1);
+    const second = message(2, {
+      role: 'assistant',
+      senderUserId: null,
+      inReplyTo: first.id,
+    });
+    const third = message(4);
+    const fourth = message(5, {
+      role: 'assistant',
+      senderUserId: null,
+      inReplyTo: third.id,
+    });
+    const firstCheckpoint = checkpoint(3, 2);
+    const secondCheckpoint = checkpoint(6, 5);
+    const allMessages = [
+      first,
+      second,
+      firstCheckpoint,
+      third,
+      fourth,
+      secondCheckpoint,
+      message(7),
+    ];
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      message(20),
-      message(30),
-    ]);
-    const findLatestCompaction = vi
-      .spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
-      .mockResolvedValueOnce(second)
-      .mockResolvedValueOnce(first);
+    const findByChatId = vi
+      .spyOn(MessagesRepository.prototype, 'findByChatId')
+      .mockResolvedValueOnce([secondCheckpoint])
+      .mockResolvedValueOnce(allMessages);
 
     await expect(
       makeService(db).getChatMessages(chat.id, ownerUserId, {
-        limit: 2,
-        targetSeq: 30,
+        limit: 1,
+        targetSeq: secondCheckpoint.seq,
       }),
-    ).resolves.toMatchObject({
-      compaction: second,
-      absorbedMessageCount: 5,
+    ).resolves.toEqual({
+      messages: [
+        expect.objectContaining({
+          id: secondCheckpoint.id,
+          absorbedThroughSeq: 5,
+          absorbedMessageCount: 2,
+        }),
+      ],
     });
 
-    expect(findLatestCompaction).toHaveBeenNthCalledWith(
-      1,
-      chat.id,
-      ownerUserId,
-      { maxSeq: 30 },
-    );
-    expect(findLatestCompaction).toHaveBeenNthCalledWith(
-      2,
-      chat.id,
-      ownerUserId,
-      { beforeSeq: 25 },
-    );
+    expect(findByChatId).toHaveBeenNthCalledWith(2, chat.id, ownerUserId);
   });
 });
 
@@ -267,6 +263,7 @@ describe('ChatsService message windows, updates and forks', () => {
       parts: [{ type: 'text', text: `message ${seq}` }],
       attachments: [],
       usage: null,
+      absorbedThroughSeq: null,
       inReplyTo: null,
       createdAt: new Date('2026-08-28T00:00:00.000Z'),
       ...overrides,
@@ -313,10 +310,6 @@ describe('ChatsService message windows, updates and forks', () => {
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
         .mockResolvedValue([]);
-      vi.spyOn(
-        CompactionsRepository.prototype,
-        'findLatestByChatId',
-      ).mockResolvedValue(undefined);
 
       await expect(
         makeService().service.getChatMessages(chat.id, ownerUserId, {
@@ -331,26 +324,20 @@ describe('ChatsService message windows, updates and forks', () => {
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
         .mockResolvedValue([message(7), message(8)]);
-      const findLatest = vi
-        .spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
-        .mockResolvedValue(undefined);
 
       await expect(
         makeService().service.getChatMessages(chat.id, ownerUserId, {
           limit: 2,
           beforeSeq: 9,
         }),
-      ).resolves.toMatchObject({
+      ).resolves.toEqual({
         messages: [message(7), message(8)],
-        compaction: undefined,
-        absorbedMessageCount: null,
       });
 
       expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
         limit: 2,
         maxSeq: 8,
       });
-      expect(findLatest).toHaveBeenCalledWith(chat.id, ownerUserId);
     });
 
     it('leaves the window unbounded when no cursor is supplied', async () => {
@@ -358,10 +345,6 @@ describe('ChatsService message windows, updates and forks', () => {
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
         .mockResolvedValue([message(1)]);
-      vi.spyOn(
-        CompactionsRepository.prototype,
-        'findLatestByChatId',
-      ).mockResolvedValue(undefined);
 
       await makeService().service.getChatMessages(chat.id, ownerUserId, {
         limit: 3,
@@ -380,10 +363,6 @@ describe('ChatsService message windows, updates and forks', () => {
         message(20),
         message(30),
       ]);
-      vi.spyOn(
-        CompactionsRepository.prototype,
-        'findLatestByChatId',
-      ).mockResolvedValue(undefined);
 
       await expect(
         makeService().service.getChatMessages(chat.id, ownerUserId, {
@@ -557,10 +536,6 @@ describe('ChatsService message windows, updates and forks', () => {
       const createMany = vi
         .spyOn(MessagesRepository.prototype, 'createMany')
         .mockResolvedValue(undefined);
-      vi.spyOn(
-        CompactionsRepository.prototype,
-        'findByChatId',
-      ).mockResolvedValue([]);
 
       await expect(
         makeService().service.forkChat(chat.id, ownerUserId),
@@ -571,9 +546,7 @@ describe('ChatsService message windows, updates and forks', () => {
         title: 'Source (fork)',
         ...inheritedChatValues,
       });
-      expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
-        maxSeq: undefined,
-      });
+      expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId);
 
       const copied = createMany.mock.calls[0][0];
       expect(copied.map((m) => m.seq)).toEqual([1, 2]);
@@ -605,10 +578,6 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
         undefined,
       );
-      vi.spyOn(
-        CompactionsRepository.prototype,
-        'findByChatId',
-      ).mockResolvedValue([]);
 
       await makeService().service.forkChat(chat.id, ownerUserId);
 
@@ -618,8 +587,17 @@ describe('ChatsService message windows, updates and forks', () => {
       });
     });
 
-    it('bounds the copied prefix to the anchor message seq', async () => {
-      const anchor = message(7);
+    it('copies a checkpoint by boundary even when its row is after the anchor', async () => {
+      const first = message(1);
+      const anchor = message(2);
+      const after = message(3);
+      const checkpoint = message(4, {
+        id: 'checkpoint-1',
+        role: 'checkpoint',
+        senderUserId: null,
+        parts: [{ type: 'data-context', data: { text: 'summary' } }],
+        absorbedThroughSeq: anchor.seq,
+      });
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
       vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
         ...chat,
@@ -630,103 +608,20 @@ describe('ChatsService message windows, updates and forks', () => {
         .mockResolvedValue(anchor);
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
-        .mockResolvedValue([anchor]);
-      const findCompactions = vi
-        .spyOn(CompactionsRepository.prototype, 'findByChatId')
-        .mockResolvedValue([]);
-      vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
-        undefined,
-      );
+        .mockResolvedValue([first, anchor, after, checkpoint]);
+      const createMany = vi
+        .spyOn(MessagesRepository.prototype, 'createMany')
+        .mockResolvedValue(undefined);
 
       await makeService().service.forkChat(chat.id, ownerUserId, anchor.id);
 
       expect(findById).toHaveBeenCalledWith(chat.id, ownerUserId, anchor.id);
-      expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId, {
-        maxSeq: 7,
-      });
-      // The lineage read shares the prefix bound: a checkpoint covering more
-      // than the anchor is outside the copy (complete-owner-forks D1).
-      expect(findCompactions).toHaveBeenCalledWith(chat.id, ownerUserId, {
-        maxSeq: 7,
-      });
-    });
+      expect(findByChatId).toHaveBeenCalledWith(chat.id, ownerUserId);
 
-    it('copies the whole compaction lineage, oldest-first, remapping each parent to its copy', async () => {
-      const parent: Compaction = {
-        id: 'compaction-parent',
-        chatId: chat.id,
-        uptoSeq: 4,
-        parentId: null,
-        summary: 'turns 1-4 summarized',
-        replacementHistory: [
-          { role: 'user', parts: [{ type: 'text', text: 'earlier turns' }] },
-        ],
-        usage: { status: 'completed', totalTokens: 7 },
-        createdAt: new Date('2026-08-28T00:01:00.000Z'),
-      };
-      const child: Compaction = {
-        id: 'compaction-child',
-        chatId: chat.id,
-        uptoSeq: 9,
-        parentId: parent.id,
-        summary: 'turns 1-9 summarized',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'even earlier turns' }],
-          },
-        ],
-        usage: { status: 'completed', totalTokens: 11 },
-        createdAt: new Date('2026-08-28T00:02:00.000Z'),
-      };
-      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
-      vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
-        ...chat,
-        id: 'chat-fork',
-      });
-      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-        message(1),
-        message(2),
-      ]);
-      vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
-        undefined,
-      );
-      vi.spyOn(
-        CompactionsRepository.prototype,
-        'findByChatId',
-      ).mockResolvedValue([parent, child]);
-      const create = vi
-        .spyOn(CompactionsRepository.prototype, 'create')
-        .mockResolvedValue(parent);
-
-      await makeService().service.forkChat(chat.id, ownerUserId);
-
-      const copied = create.mock.calls.map(([input]) => input);
-      expect(copied.map((c) => c.chatId)).toEqual(['chat-fork', 'chat-fork']);
-      // Ascending uptoSeq is also parent-before-child: a two-generation chain
-      // is the shortest one where a copied row has a parent to name.
-      expect(copied.map((c) => c.uptoSeq)).toEqual([4, 9]);
-      // Fresh storage identities: the child's lineage points at the COPIED
-      // parent, never at the source's row and never at no row at all.
-      expect(copied.map((c) => c.id)).not.toEqual([parent.id, child.id]);
-      expect(copied[0].parentId).toBeNull();
-      expect(copied[1].parentId).toBe(copied[0].id);
-      expect(copied[1].parentId).not.toBe(parent.id);
-      // Summaries, replay payloads, times and prices describe the ORIGINAL
-      // checkpoints: only storage identity is rewritten.
-      expect(copied.map((c) => c.summary)).toEqual([
-        parent.summary,
-        child.summary,
-      ]);
-      expect(copied.map((c) => c.replacementHistory)).toEqual([
-        parent.replacementHistory,
-        child.replacementHistory,
-      ]);
-      expect(copied.map((c) => c.usage)).toEqual([parent.usage, child.usage]);
-      expect(copied.map((c) => c.createdAt)).toEqual([
-        parent.createdAt,
-        child.createdAt,
-      ]);
+      const copied = createMany.mock.calls[0][0];
+      expect(copied.map((m) => m.role)).toEqual(['user', 'user', 'checkpoint']);
+      expect(copied.map((m) => m.seq)).toEqual([1, 2, 3]);
+      expect(copied[2].absorbedThroughSeq).toBe(2);
     });
 
     it('reads the source and writes its copy in one repeatable-read transaction', async () => {
@@ -741,17 +636,13 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(MessagesRepository.prototype, 'createMany').mockResolvedValue(
         undefined,
       );
-      vi.spyOn(
-        CompactionsRepository.prototype,
-        'findByChatId',
-      ).mockResolvedValue([]);
 
       const { service, runAs } = makeService();
       await service.forkChat(chat.id, ownerUserId);
 
-      // READ COMMITTED would give the Chat, the messages, and the compactions
-      // a snapshot each, letting a turn or compaction committed mid-fork land
-      // half-copied; the fork needs one instant for all three.
+      // READ COMMITTED would give the Chat and message sequence separate
+      // snapshots, letting a turn or checkpoint committed mid-fork land
+      // half-copied; the fork needs one instant for both.
       expect(runAs).toHaveBeenCalledWith(ownerUserId, expect.any(Function), {
         isolationLevel: 'repeatable read',
       });

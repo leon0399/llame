@@ -82,7 +82,7 @@ export function resolveTurnSkillState(
   input: {
     readonly chat: Chat;
     readonly runId: string;
-    readonly latestCompactionId: string | null;
+    readonly latestCheckpointId: string | null;
     /** Whether this turn's bound model template renders the catalog at all. */
     readonly modelReferencesSkills: boolean;
   },
@@ -93,7 +93,7 @@ export function resolveTurnSkillState(
     baselineMatchesEpoch(
       stored,
       input.chat.skillCatalogRebakedFrom,
-      input.latestCompactionId,
+      input.latestCheckpointId,
     )
   ) {
     // A continuing epoch: the prompt keeps the stored baseline, and the rail
@@ -128,7 +128,7 @@ function startSkillEpoch(
   deps: SkillTurnStateDeps,
   input: {
     readonly chat: Chat;
-    readonly latestCompactionId: string | null;
+    readonly latestCheckpointId: string | null;
   },
 ): SkillTurnState {
   const catalog = deps.skillCatalog;
@@ -157,7 +157,7 @@ function startSkillEpoch(
   return {
     baseline,
     notice: undefined,
-    freeze: { baseline, rebakedFrom: input.latestCompactionId },
+    freeze: { baseline, rebakedFrom: input.latestCheckpointId },
     // The frozen advertisement is what this epoch's later turns diff against,
     // so the told state starts there rather than at whatever preceded it.
     told: toldFromBaseline(baseline),

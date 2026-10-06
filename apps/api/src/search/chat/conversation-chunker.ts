@@ -16,8 +16,8 @@ import {
  *
  * Corpus-boundary policy (episodic memory = "what was said"): only the TEXT parts
  * of `user`/`assistant` turns are serialized. System prompts, tool-role messages,
- * tool call/result parts, reasoning parts, model/availability semantic controls,
- * and attachments are excluded entirely —
+ * `checkpoint` rows, tool call/result parts, reasoning parts, model/availability
+ * semantic controls, and attachments are excluded entirely —
  * they never enter the search index (attachments belong to the future knowledge/RAG
  * corpus, not episodic search). Visible source text is shared with the
  * conversation-read path so search and reads cannot drift on part selection or
@@ -175,7 +175,9 @@ function buildBlocks(
   let precedingUserText: string | null = null;
 
   for (const message of messages) {
-    if (!isImmutableEvidenceMessage(message)) continue;
+    if (message.role === 'checkpoint' || !isImmutableEvidenceMessage(message)) {
+      continue;
+    }
     const text = extractMessageText(message);
     if (text.length === 0) continue;
 

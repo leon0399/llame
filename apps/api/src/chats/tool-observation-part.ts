@@ -16,21 +16,17 @@ import type {
 import { serializeNativeModelOutput } from '@workspace/native-file-tools';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { isRejectedHopUrl } from '../tools/permissions/messages';
-import type { CompactionReplacementMessage } from '../db/schema/chats';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { loadPackagedTemplate } from '../prompts/template-engine';
-import type { MessagePart, StoredMessage } from './context-builder';
-import {
-  isStoredReplacementToolPart,
-  parseCompactionReplacementHistory,
-  parseToolObservationOmission,
-  renderToolObservationOmission,
-} from './compaction-replacement-history';
+import type { MessagePart } from './context-builder';
 
 export const TOOL_PART_PREFIX = 'tool-';
 export const TOOL_REPLAY_CALL_LIMIT = 8000;
 export const TOOL_REPLAY_TURN_LIMIT = 32_000;
 export const TOOL_OUTCOME_MAX_LENGTH = 128;
+export function renderToolObservationOmission(count: number): string {
+  return `[${count} earlier tool observations omitted to fit replay budget.]`;
+}
 
 /**
  * The untrusted-output framing rendered around every tool result, packaged as
@@ -482,110 +478,6 @@ export function projectToolObservations(
   return projectionFromBounded(
     boundCandidates(candidatesFromObservations(observations)),
   );
-}
-
-function parseReplacementToolObservation(
-  value: unknown,
-  partIndex: number,
-): ObservationPayload | null {
-  if (!isStoredReplacementToolPart(value)) return null;
-  const toolName = value.type.slice(TOOL_PART_PREFIX.length);
-  const outcome = value.outcome;
-  return {
-    partIndex,
-    toolCallId: value.toolCallId,
-    toolName,
-    outcome,
-    input: {},
-    resultBody: null,
-    clearedOutcome: outcome,
-  };
-}
-
-function materializedReplacementRecord(
-  observation: ObservationPayload,
-): CompactionReplacementMessage {
-  const outcome = observation.clearedOutcome;
-  return {
-    role: 'assistant',
-    parts: [
-      {
-        type: `tool-${observation.toolName}`,
-        toolCallId: observation.toolCallId,
-        state: 'output-available',
-        input: {},
-        output: resultText(outcome, null),
-        outcome,
-      },
-    ],
-  };
-}
-
-/**
- * Reconstruct the flat observation list to bound: the previous compaction's
- * own replacement history (skipping its leading summary record) plus every
- * newly-absorbed assistant message's tool observations, re-indexed in order.
- */
-function gatherObservationsToBound(input: {
-  previous: unknown;
-  absorb: Array<StoredMessage>;
-}) {
-  const parsedPrevious = parseCompactionReplacementHistory(input.previous);
-  const previousObservations = (parsedPrevious ?? [])
-    .slice(1)
-    .flatMap((record, partIndex) => {
-      const observation = parseReplacementToolObservation(
-        record.parts[0],
-        partIndex,
-      );
-      return observation === null ? [] : [observation];
-    });
-  const inheritedOmittedCount =
-    parseToolObservationOmission(parsedPrevious?.at(-1)?.parts[0]) ?? 0;
-  const absorbedObservations = input.absorb
-    .filter((message) => message.role === 'assistant')
-    .flatMap((message) => storedObservations(message.parts))
-    .map((observation) => ({
-      ...observation,
-      input: {},
-      resultBody: null,
-    }));
-  const observations = [...previousObservations, ...absorbedObservations].map(
-    (observation, partIndex) => ({ ...observation, partIndex }),
-  );
-  return { observations, inheritedOmittedCount };
-}
-
-export function buildCompactionToolReplacementRecords(input: {
-  previous: unknown;
-  absorb: Array<StoredMessage>;
-}): Array<CompactionReplacementMessage> {
-  const { observations, inheritedOmittedCount } =
-    gatherObservationsToBound(input);
-
-  const bounded = boundCandidates(
-    candidatesFromObservations(observations).map((candidate) => ({
-      ...candidate,
-      selected: candidate.cleared,
-    })),
-    inheritedOmittedCount,
-  );
-  const records = bounded.pairs.map((pair) =>
-    materializedReplacementRecord(observations[pair.partIndex]),
-  );
-
-  if (bounded.omittedCount > 0) {
-    records.push({
-      role: 'assistant',
-      parts: [
-        {
-          type: 'text',
-          text: renderToolObservationOmission(bounded.omittedCount),
-        },
-      ],
-    });
-  }
-  return records;
 }
 
 export { neutralizeToolResult } from './tool-observation-neutralizer';

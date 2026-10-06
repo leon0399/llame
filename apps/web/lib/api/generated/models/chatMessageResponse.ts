@@ -9,6 +9,7 @@ import type { ChatMessageResponseAttachmentsItem } from "./chatMessageResponseAt
 import type { ChatMessageResponsePartsItem } from "./chatMessageResponsePartsItem";
 import type { ChatMessageResponseRole } from "./chatMessageResponseRole";
 import type { ChatMessageResponseUsage } from "./chatMessageResponseUsage";
+import type { CheckpointStatsResponse } from "./checkpointStatsResponse";
 
 export interface ChatMessageResponse {
   id: string;
@@ -24,4 +25,12 @@ export interface ChatMessageResponse {
   /** @nullable */
   inReplyTo: string | null;
   createdAt: string;
+  /** The last Chat-local message sequence absorbed by this checkpoint. */
+  absorbedThroughSeq?: number;
+  /** User and assistant rows absorbed by this checkpoint. */
+  absorbedMessageCount?: number;
+  /** The checkpoint summary from its persisted payload. */
+  summary?: string;
+  /** Token telemetry for this checkpoint. */
+  stats?: CheckpointStatsResponse;
 }

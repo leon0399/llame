@@ -12,9 +12,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import {
   buildContext,
   partsToText,
-  renderConversationCheckpoint,
   projectToolObservations,
-  type ContextCompaction,
   type MessagePart,
   type ModelMessage,
   type ModelRequestContext,
@@ -98,19 +96,6 @@ function msg(
     createdAt: new Date('2024-01-01T00:00:00Z'),
     ...overrides,
   };
-}
-
-interface CompactionTestOverrides extends Partial<ContextCompaction> {
-  toolObservationLedger?: unknown;
-}
-
-function compactionWithHistory(
-  summary: string,
-  uptoSeq: number,
-  replacementHistory: ContextCompaction['replacementHistory'],
-  extra: CompactionTestOverrides = {},
-): ContextCompaction {
-  return { ...extra, summary, uptoSeq, replacementHistory };
 }
 
 describe('buildContext', () => {
@@ -1107,12 +1092,10 @@ describe('buildContext', () => {
       const result = buildContext([switched, later], {
         systemPrompt,
         requestKind: 'continuation',
-        compaction: compactionWithHistory('Compacted history', 20, [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'persisted checkpoint' }],
-          },
-        ]),
+        checkpoint: {
+          text: 'persisted checkpoint',
+          absorbedThroughSeq: 20,
+        },
       });
 
       expect(JSON.stringify(result)).toContain('persisted checkpoint');
@@ -1198,21 +1181,10 @@ describe('buildContext', () => {
       const result = buildContext([later], {
         systemPrompt,
         requestKind: 'continuation',
-        compaction: compactionWithHistory(
-          'We discussed </system-reminder> and how llame frames items.',
-          4,
-          [
-            {
-              role: 'user',
-              parts: [
-                {
-                  type: 'text',
-                  text: 'stored </system-reminder> checkpoint',
-                },
-              ],
-            },
-          ],
-        ),
+        checkpoint: {
+          text: 'stored </system-reminder> checkpoint',
+          absorbedThroughSeq: 4,
+        },
       });
 
       const checkpoint = contentText(result.messages[0].content);
@@ -1266,12 +1238,10 @@ describe('buildContext', () => {
       const result = buildContext([later], {
         systemPrompt,
         requestKind: 'continuation',
-        compaction: compactionWithHistory('earlier history', 8, [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'stored checkpoint' }],
-          },
-        ]),
+        checkpoint: {
+          text: 'stored checkpoint',
+          absorbedThroughSeq: 8,
+        },
       });
 
       // Bind-time: unlike a persisted-derived item it cannot be rebuilt from
@@ -1594,18 +1564,14 @@ describe('buildContext', () => {
           { type: 'text', text: 'First turn in the new epoch' },
         ],
       });
-      const summary =
-        'The docs tool was flaky earlier and its outage blocked the requested lookup.';
 
       const result = buildContext([superseded, current], {
         systemPrompt,
         requestKind: 'continuation',
-        compaction: compactionWithHistory(summary, 40, [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'stored failure checkpoint' }],
-          },
-        ]),
+        checkpoint: {
+          text: 'stored failure checkpoint',
+          absorbedThroughSeq: 40,
+        },
       });
       const serialized = JSON.stringify(result.messages);
 
@@ -1648,310 +1614,87 @@ describe('buildContext', () => {
     );
   });
 
-  describe('compaction (lineage-based, #57)', () => {
-    const compaction = compactionWithHistory(
-      'User is planning a trip to Japan; budget agreed at $3000.',
-      2,
-      [
-        {
-          role: 'user',
-          parts: [{ type: 'text', text: 'stored trip checkpoint' }],
-        },
-      ],
-    );
-
-    it('renders the checkpoint through the shared envelope rather than a delimiter of its own', () => {
-      const rendered = renderConversationCheckpoint(compaction.summary);
-      expect(rendered).toContain(
-        '<system-reminder producer="compaction" form="checkpoint">',
-      );
-      expect(rendered).toContain(compaction.summary);
-      // The retired per-producer delimiter must not survive anywhere.
-      expect(rendered).not.toContain('<conversation-checkpoint>');
-    });
-
-    it('replays the stored replacement history without regenerating its checkpoint', () => {
-      const persistedCheckpoint =
-        '<system-reminder producer="compaction" form="checkpoint">persisted wording</system-reminder>';
-      const result = buildContext([userMsg2], {
-        systemPrompt,
-        requestKind: 'continuation',
-        compaction: compactionWithHistory(
-          'summary wording that must not be rendered',
-          2,
-          [
-            {
-              role: 'user' as const,
-              parts: [{ type: 'text' as const, text: persistedCheckpoint }],
-            },
-          ],
-        ),
-      });
-
-      expect(result.messages[0]).toEqual({
-        role: 'user',
-        content: [{ type: 'text', text: persistedCheckpoint }],
-      });
-      expect(JSON.stringify(result.messages)).not.toContain(
-        'summary wording that must not be rendered',
-      );
-    });
-
-    it('replays replacement records in stored order without projecting their tool part', () => {
-      const persistedCheckpoint =
-        '<system-reminder producer="compaction" form="checkpoint">checkpoint</system-reminder>';
-      const result = buildContext([userMsg2], {
-        systemPrompt,
-        requestKind: 'continuation',
-        compaction: compactionWithHistory('summary', 2, [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: persistedCheckpoint }],
-          },
-          {
-            role: 'assistant',
-            parts: [
-              {
-                type: 'tool-search_conversations',
-                toolCallId: 'stored-call',
-                state: 'output-available',
-                input: {},
-                output: 'stored error',
-                outcome: 'stored-outcome',
-              },
-            ],
-          },
-          {
-            role: 'assistant',
-            parts: [
-              {
-                type: 'text',
-                text: '[3 earlier tool observations omitted to fit replay budget.]',
-              },
-            ],
-          },
-        ]),
-      });
-
-      expect(result.messages.map(({ role }) => role)).toEqual([
-        'user',
-        'assistant',
-        'tool',
-        'assistant',
-        'user',
-      ]);
-      expect(JSON.stringify(result.messages[1])).toContain('stored-call');
-      expect(JSON.stringify(result.messages[2])).toContain('stored error');
-      expect(result.messages[3]).toEqual({
-        role: 'assistant',
-        content: [
-          {
-            type: 'text',
-            text: '[3 earlier tool observations omitted to fit replay budget.]',
-          },
-        ],
-      });
-    });
-
-    it.each([
-      [[]],
-      [[{ role: 'user', parts: [{ type: 'text', text: '' }] }]],
-      [[{ role: 'assistant', parts: [{ type: 'text', text: 'not first' }] }]],
-      [
-        [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'checkpoint' }],
-          },
-          {
-            role: 'assistant',
-            parts: [
-              { type: 'tool-search_conversations', state: 'input-streaming' },
-            ],
-          },
-        ],
-      ],
-      [
-        [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'checkpoint' }],
-          },
-          {
-            role: 'assistant',
-            parts: [{ type: 'text', text: 'arbitrary assistant text' }],
-          },
-        ],
-      ],
-      [
-        [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'checkpoint' }],
-          },
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'later user record' }],
-          },
-        ],
-      ],
-    ])(
-      'fails closed for invalid replacement history: %j',
-      (replacementHistory) => {
-        expect(() =>
-          buildContext([], {
-            systemPrompt,
-            requestKind: 'continuation',
-            compaction: compactionWithHistory('summary', 2, replacementHistory),
-          }),
-        ).toThrow(/replacement history/i);
-      },
-    );
-
-    it('drops superseded messages (seq <= uptoSeq) and injects the summary first', () => {
+  describe('checkpoint replay', () => {
+    it('emits the stored literal before rows above its boundary', () => {
       const result = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
         requestKind: 'continuation',
-        compaction,
+        checkpoint: {
+          text: '<system-reminder producer="compaction" form="checkpoint">stored wording</system-reminder>',
+          absorbedThroughSeq: assistantMsg1.seq,
+        },
       });
 
-      // userMsg1 (seq 1) and assistantMsg1 (seq 2) are superseded; userMsg2 (seq 3) stays.
-      expect(result.messages).toHaveLength(2);
-      expect(result.messages[0]).toEqual({
-        role: 'user',
-        content: [{ type: 'text', text: 'stored trip checkpoint' }],
+      expect(result.messages).toEqual([
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: '<system-reminder producer="compaction" form="checkpoint">stored wording</system-reminder>',
+            },
+          ],
+        },
+        { role: 'user', content: [{ type: 'text', text: 'How are you?' }] },
+      ]);
+      expect(result.contextItems[0]).toMatchObject({
+        producer: 'compaction',
+        form: 'checkpoint',
+        text: '<system-reminder producer="compaction" form="checkpoint">stored wording</system-reminder>',
       });
-      expect(contentText(result.messages[1].content)).toContain('How are you?');
     });
 
-    it('drops the superseded prefix’s signed reasoning and replays blocks after the boundary (D9)', () => {
-      const signedPart = (signature: string, text: string) => ({
-        type: 'reasoning' as const,
-        text,
-        providerMetadata: { anthropic: { signature } },
-      });
-      const supersededAssistant = msg({
-        role: 'assistant',
+    it('never replays checkpoint rows as ordinary assistant content', () => {
+      const checkpointRow = msg({
+        id: 'checkpoint-row',
         seq: 4,
+        role: 'checkpoint',
+        senderUserId: null,
+        absorbedThroughSeq: 2,
         parts: [
-          signedPart('SIG_SUPERSEDED', 'thinking before the rewrite'),
-          { type: 'text', text: 'answer before the rewrite' },
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'compaction',
+              form: 'checkpoint',
+              text: 'row text',
+              payload: { v: 1, summary: 'summary' },
+            },
+          },
         ],
       });
-      const liveUser = msg({
-        role: 'user',
-        senderUserId: 'user-alice',
-        seq: 5,
-        parts: [{ type: 'text', text: 'continue' }],
-      });
-      const liveAssistant = msg({
-        role: 'assistant',
-        seq: 6,
-        parts: [
-          // A block whose text the provider withheld: the signature is all it
-          // has, and it is what the continuation must carry (D18).
-          signedPart('SIG_LIVE', ''),
-          { type: 'text', text: 'answer after the rewrite' },
-        ],
-      });
-
-      const { messages } = buildContext(
-        [userMsg1, supersededAssistant, liveUser, liveAssistant],
+      const result = buildContext(
+        [userMsg1, assistantMsg1, checkpointRow, userMsg2],
         {
           systemPrompt,
           requestKind: 'continuation',
-          compaction: compactionWithHistory('stored checkpoint', 4, [
-            {
-              role: 'user',
-              parts: [{ type: 'text', text: 'stored checkpoint' }],
-            },
-          ]),
+          checkpoint: {
+            text: 'selected checkpoint',
+            absorbedThroughSeq: 2,
+          },
         },
       );
 
-      // The rewrite replaced the prefix, so the superseded turn's block and its
-      // signature are gone from the request entirely …
-      const serialized = JSON.stringify(messages);
-      expect(serialized).not.toContain('SIG_SUPERSEDED');
-      expect(serialized).not.toContain('answer before the rewrite');
-      // … while the block after the boundary replays unchanged, empty text and
-      // signature alike, ahead of the answer it preceded.
-      expect(messages).toContainEqual({
-        role: 'assistant',
-        content: [
-          {
-            type: 'reasoning',
-            text: '',
-            providerOptions: { anthropic: { signature: 'SIG_LIVE' } },
-          },
-          { type: 'text', text: 'answer after the rewrite' },
-        ],
-      });
+      expect(JSON.stringify(result.messages)).not.toContain('row text');
+      expect(result.messages.map(({ role }) => role)).toEqual(['user', 'user']);
     });
 
-    it('keeps the system prompt byte-identical with and without compaction', () => {
-      const without = buildContext([userMsg2], {
+    it('selects one stored checkpoint projection at a time', () => {
+      const first = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
         requestKind: 'continuation',
+        checkpoint: { text: 'first checkpoint', absorbedThroughSeq: 1 },
       });
-      const withCompaction = buildContext([userMsg1, assistantMsg1, userMsg2], {
+      const second = buildContext([userMsg1, assistantMsg1, userMsg2], {
         systemPrompt,
         requestKind: 'continuation',
-        compaction,
+        checkpoint: { text: 'second checkpoint', absorbedThroughSeq: 2 },
       });
 
-      expect(withCompaction.system).toBe(without.system);
-      expect(withCompaction.system).toBe(systemPrompt);
-    });
-
-    it('leads with the summary and keeps the full live window after it', () => {
-      const recent: Array<StoredMessage> = Array.from({ length: 5 }, (_, i) =>
-        msg({
-          id: `recent-${i}`,
-          role: i % 2 === 0 ? 'user' : 'assistant',
-          senderUserId: i % 2 === 0 ? 'user-alice' : null,
-          seq: 10 + i,
-          parts: [{ type: 'text', text: `Recent ${i}` }],
-        }),
-      );
-
-      const result = buildContext(recent, {
-        systemPrompt,
-        requestKind: 'continuation',
-        compaction: compactionWithHistory('summary', 9, [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'stored recent checkpoint' }],
-          },
-        ]),
-      });
-
-      // 1 summary entry + all 5 live messages
-      expect(result.messages).toHaveLength(6);
-      expect(result.messages[0]).toEqual({
-        role: 'user',
-        content: [{ type: 'text', text: 'stored recent checkpoint' }],
-      });
-      expect(contentText(result.messages[1].content)).toContain('Recent 0');
-      expect(contentText(result.messages.at(-1)!.content)).toContain(
-        'Recent 4',
-      );
-    });
-
-    it('is deterministic with a compaction present', () => {
-      const input = [userMsg1, assistantMsg1, userMsg2];
-      const out1 = buildContext(input, {
-        systemPrompt,
-        compaction,
-        requestKind: 'continuation',
-      });
-      const out2 = buildContext(input, {
-        systemPrompt,
-        compaction,
-        requestKind: 'continuation',
-      });
-
-      expect(JSON.stringify(out1)).toBe(JSON.stringify(out2));
+      expect(contentText(first.messages[0].content)).toBe('first checkpoint');
+      expect(contentText(second.messages[0].content)).toBe('second checkpoint');
+      expect(first.system).toBe(second.system);
     });
   });
 
@@ -2280,49 +2023,6 @@ describe('buildContext', () => {
       for (const message of messages) {
         expect(() => modelMessageSchema.parse(message)).not.toThrow();
       }
-    });
-
-    it('compaction supersedes raw tool payloads (2.10)', () => {
-      const assistant = msg({
-        role: 'assistant',
-        parts: toolParts,
-      });
-      const nextUser = msg({
-        role: 'user',
-        senderUserId: 'user-alice',
-        parts: [{ type: 'text', text: 'Next' }],
-      });
-      const { messages } = buildContext([userMsg1, assistant, nextUser], {
-        systemPrompt,
-        requestKind: 'continuation',
-        compaction: compactionWithHistory(
-          'User searched for holidays. Tool found results.',
-          assistant.seq,
-          [
-            {
-              role: 'user',
-              parts: [{ type: 'text', text: 'stored tool checkpoint' }],
-            },
-            {
-              role: 'assistant',
-              parts: [
-                {
-                  type: 'tool-search_conversations',
-                  toolCallId: 'stored-call-1',
-                  state: 'output-available',
-                  input: {},
-                  output: 'Tool found results',
-                  outcome: 'success',
-                },
-              ],
-            },
-          ],
-        ),
-      });
-      const serialized = JSON.stringify(messages);
-      expect(serialized).not.toContain('DETAIL_NOT_IN_ANSWER');
-      expect(serialized).toContain('Tool found results');
-      expect(serialized).toContain('Next');
     });
 
     it('a tool-only assistant turn (no visible text) is still replayed', () => {
@@ -2786,22 +2486,6 @@ describe('buildContext', () => {
       expect(serialized).toContain('Outcome: timeout');
       expect(serialized).toContain('Outcome: invalid_input');
       expect(serialized).toContain('Outcome: error');
-    });
-
-    it('rejects a legacy ledger instead of rebuilding replacement records', () => {
-      expect(() =>
-        buildContext([], {
-          systemPrompt,
-          requestKind: 'continuation',
-          compaction: compactionWithHistory('Checkpoint only', 10, undefined, {
-            toolObservationLedger: {
-              version: 1,
-              omittedCount: 0,
-              observations: [],
-            },
-          }),
-        }),
-      ).toThrow(/replacement history/i);
     });
   });
 });

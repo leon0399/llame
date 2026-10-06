@@ -145,22 +145,16 @@ function CompactionResultCard({
 }
 
 /**
- * Marks where a long chat was compacted (#57): messages above are folded into
- * a server summary for the MODEL's context (they stay fully visible here —
- * this only explains the model's view). Matches Leo's design spec (the
- * "Trip to Lisbon" chat in the double-sidebar design file): a horizontal
- * rule interrupted by a centered pill chip (icon + "Context compacted" +
- * a chevron), which toggles an INLINE result card below it — not a modal.
+ * Marks where a long chat was checkpointed (#57): messages above are folded
+ * into a summary for the MODEL's context (they stay fully visible here — this
+ * only explains the model's view). Matches Leo's design spec (the "Trip to
+ * Lisbon" chat in the double-sidebar design file): a horizontal rule
+ * interrupted by a centered pill chip (icon + "Context compacted" + a
+ * chevron), which toggles an INLINE result card below it — not a modal.
  *
- * `stats` (#136) closes the compression-stats gap from the earlier design
- * pass: `GET :id/messages` now embeds compaction stats derived from the
- * compaction's `usage` telemetry (message count is seq-derived and always
- * present when a compaction exists; token counts/model depend on `usage`,
- * which an older or seeded compaction may lack). Chip meta prefers
- * "N messages · saved X tokens"; the card header prefers
- * "{before} → {after} tokens · {model}" — each falls back to a relative
- * timestamp independently when its own stats aren't available, rather than
- * showing nothing or fabricating a number.
+ * `stats.absorbedMessageCount` is the API-computed count from the checkpoint
+ * row's boundary interval. Token counts/model still come from that row's
+ * persisted usage and fall back independently when absent.
  *
  * Read-only; the summary is the owner's own data, rendered PLAINTEXT
  * (`whitespace-pre-wrap`, no markdown) — it can carry content a future

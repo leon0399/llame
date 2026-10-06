@@ -65,7 +65,6 @@ import {
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
-  toCompactionResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
 
@@ -230,13 +229,11 @@ export class ChatsController {
     return toChatResponse(chat);
   }
 
-  // Messages + the chat's latest compaction (#57) embedded as `compaction`,
-  // in one round trip (#136: this used to be a separate `GET :id/compaction`
-  // call — folded in here so the client never has to stitch two responses
-  // together, and there's no second, independently-failing fetch). The
-  // embed is owner-scoped like everything else on this route — NOT exposed
-  // via the shared-chat view (a cross-tenant/foreign id 404s exactly like
-  // before; embedding a field doesn't change that).
+  // Owner-scoped message history. Checkpoint rows are included in this
+  // response with their boundary, summary, usage stats, and API-computed
+  // absorbed-message count; public/shared projections use a separate DTO.
+  // The checkpoint row itself is not a second resource or an embedded latest
+  // compaction object, so pagination remains one message query.
   @Get(':id/messages')
   @ApiOperation({ operationId: 'getChatMessages' })
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -262,9 +259,6 @@ export class ChatsController {
 
     return {
       messages: result.messages.map(toChatMessageResponse),
-      compaction: result.compaction
-        ? toCompactionResponse(result.compaction, result.absorbedMessageCount)
-        : null,
     };
   }
 
@@ -410,7 +404,7 @@ export class ChatsController {
   }
 
   // Hard delete. Owner-scoped (RLS + ownerUserId); the FK cascade removes the
-  // chat's messages, compactions, runs → run_events in one statement.
+  // chat's messages, runs → run_events in one statement.
   @Delete(':id')
   @ApiOperation({ operationId: 'deleteChat' })
   @HttpCode(204)

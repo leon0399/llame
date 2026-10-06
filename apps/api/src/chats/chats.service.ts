@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { type Chat, type Compaction, type Message } from '../db/schema';
+import { type Chat, type Message } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   ChatSearchQueryEmbedder,
@@ -20,13 +20,13 @@ import {
 } from '../search/search-reindex-dispatch.service';
 import {
   ChatsRepository,
-  CompactionsRepository,
   MessagesRepository,
   type ChatInheritedValues,
 } from './chats-repository';
 import {
   copiedMessageRows,
   inheritForkedChatState,
+  selectForkMessages,
   type CopyableMessage,
 } from './fork-copy';
 import { RunsRepository } from '../runs/runs-repository';
@@ -38,6 +38,10 @@ import { toSharedChatResponse } from './dto/chats.dto';
 export function forkTitle(title: string): string {
   return `${title} (fork)`;
 }
+
+export type ChatMessageResponseRow = Message & {
+  absorbedMessageCount?: number;
+};
 
 @Injectable()
 export class ChatsService {
@@ -91,23 +95,15 @@ export class ChatsService {
   }
 
   /**
-   * Messages + the chat's latest compaction (#57), in one round trip (#136:
-   * folds what used to be a separate `GET :id/compaction` call into this same
-   * response). The two repository reads are independent — `Promise.all` lets
-   * postgres.js pipeline them on the connection, mirroring
-   * `listChatsWithLastMessage`'s pattern above. When the latest compaction
-   * chains to a previous one (`parentId` set), a third, conditional lookup
-   * fetches that previous compaction's `uptoSeq` (reusing
-   * `findLatestByChatId`'s existing `beforeSeq` filter — no new repository
-   * method) purely to derive `absorbedMessageCount`; this can't be
-   * parallelized with the first two since it depends on the first read's
-   * result, but it's a single indexed lookup (`compactions_chat_upto_seq_idx`)
-   * and only runs when a previous compaction exists.
+   * Owner history includes checkpoint rows. Each checkpoint receives an
+   * API-computed count of user/assistant rows in the boundary interval it
+   * represents; ordinary rows are returned unchanged.
    *
-   * A target-ended read uses the existing one-statement, owner-scoped bounded
-   * message query. Requiring its final chronological row to equal `targetSeq`
-   * makes a missing/deleted/foreign target indistinguishable from a missing
-   * chat without a second target lookup that could race the window read.
+   * A paginated window cannot derive that count from its own rows: the
+   * previous checkpoint and absorbed turns may be outside the page. When a
+   * page contains a checkpoint, read the complete owner-scoped message
+   * sequence in the same transaction and derive all boundary intervals from
+   * that ordered snapshot.
    */
   async getChatMessages(
     chatId: string,
@@ -115,9 +111,7 @@ export class ChatsService {
     options: { limit: number; beforeSeq?: number; targetSeq?: number },
   ): Promise<
     | {
-        messages: Array<Message>;
-        compaction: Compaction | undefined;
-        absorbedMessageCount: number | null;
+        messages: Array<ChatMessageResponseRow>;
       }
     | undefined
   > {
@@ -132,31 +126,31 @@ export class ChatsService {
         return undefined;
       }
 
-      const absorbedMessageCount = await this.computeAbsorbedMessageCount(
-        new CompactionsRepository(tx),
+      if (!window.messages.some((message) => message.role === 'checkpoint')) {
+        return window;
+      }
+
+      const allMessages = await new MessagesRepository(tx).findByChatId(
         chatId,
         ownerUserId,
-        window.compaction,
       );
-
-      return { ...window, absorbedMessageCount };
+      return {
+        messages: this.withAbsorbedMessageCounts(window.messages, allMessages),
+      };
     });
   }
 
   /**
    * Either an exact-target window (final row must land on `targetSeq`, else
    * the target is missing/deleted/foreign and the read reports "not found")
-   * or a `beforeSeq`-paginated one — see `getChatMessages`'s own doc for the
-   * shape of the contract these two strategies share.
+   * or a `beforeSeq`-paginated one.
    */
   private async loadMessageWindow(
     tx: Db,
     chatId: string,
     ownerUserId: string,
     options: { limit: number; beforeSeq?: number; targetSeq?: number },
-  ): Promise<
-    { messages: Array<Message>; compaction: Compaction | undefined } | undefined
-  > {
+  ): Promise<{ messages: Array<Message> } | undefined> {
     const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
     if (!chat) {
       return undefined;
@@ -173,9 +167,7 @@ export class ChatsService {
     tx: Db,
     scope: { chatId: string; ownerUserId: string; limit: number },
     targetSeq: number,
-  ): Promise<
-    { messages: Array<Message>; compaction: Compaction | undefined } | undefined
-  > {
+  ): Promise<{ messages: Array<Message> } | undefined> {
     const { chatId, ownerUserId, limit } = scope;
     const messages = await new MessagesRepository(tx).findByChatId(
       chatId,
@@ -185,12 +177,7 @@ export class ChatsService {
     if (messages.at(-1)?.seq !== targetSeq) {
       return undefined;
     }
-    const compaction = await new CompactionsRepository(tx).findLatestByChatId(
-      chatId,
-      ownerUserId,
-      { maxSeq: targetSeq },
-    );
-    return { messages, compaction };
+    return { messages };
   }
 
   /** The most recent `limit` messages strictly before `beforeSeq` (or the tail, if omitted). */
@@ -198,34 +185,58 @@ export class ChatsService {
     tx: Db,
     scope: { chatId: string; ownerUserId: string; limit: number },
     beforeSeq: number | undefined,
-  ): Promise<{ messages: Array<Message>; compaction: Compaction | undefined }> {
+  ): Promise<{ messages: Array<Message> }> {
     const { chatId, ownerUserId, limit } = scope;
-    const [messages, compaction] = await Promise.all([
-      new MessagesRepository(tx).findByChatId(chatId, ownerUserId, {
+    const messages = await new MessagesRepository(tx).findByChatId(
+      chatId,
+      ownerUserId,
+      {
         limit,
         maxSeq: beforeSeq === undefined ? undefined : beforeSeq - 1,
-      }),
-      new CompactionsRepository(tx).findLatestByChatId(chatId, ownerUserId),
-    ]);
-    return { messages, compaction };
+      },
+    );
+    return { messages };
   }
 
-  /** How many messages the latest compaction's chain has absorbed, if any. */
-  private async computeAbsorbedMessageCount(
-    compactionsRepository: CompactionsRepository,
-    chatId: string,
-    ownerUserId: string,
-    compaction: Compaction | undefined,
-  ): Promise<number | null> {
-    if (!compaction) {
-      return null;
+  /**
+   * Attach per-checkpoint counts from the complete ordered owner history.
+   * Boundaries, rather than checkpoint row seq values, define the intervals.
+   */
+  private withAbsorbedMessageCounts(
+    window: ReadonlyArray<Message>,
+    allMessages: ReadonlyArray<Message>,
+  ): Array<ChatMessageResponseRow> {
+    const checkpoints = allMessages
+      .filter(
+        (message): message is Message & { absorbedThroughSeq: number } =>
+          message.role === 'checkpoint' && message.absorbedThroughSeq !== null,
+      )
+      .sort(
+        (left, right) => left.absorbedThroughSeq - right.absorbedThroughSeq,
+      );
+
+    const countByCheckpointId = new Map<string, number>();
+    let previousBoundary = 0;
+    for (const checkpoint of checkpoints) {
+      const boundary = checkpoint.absorbedThroughSeq;
+      const count = allMessages.filter(
+        (message) =>
+          (message.role === 'user' || message.role === 'assistant') &&
+          message.seq > previousBoundary &&
+          message.seq <= boundary,
+      ).length;
+      countByCheckpointId.set(checkpoint.id, count);
+      previousBoundary = boundary;
     }
-    const previous = compaction.parentId
-      ? await compactionsRepository.findLatestByChatId(chatId, ownerUserId, {
-          beforeSeq: compaction.uptoSeq,
-        })
-      : undefined;
-    return compaction.uptoSeq - (previous?.uptoSeq ?? 0);
+
+    return window.map((message) =>
+      message.role === 'checkpoint'
+        ? {
+            ...message,
+            absorbedMessageCount: countByCheckpointId.get(message.id) ?? 0,
+          }
+        : message,
+    );
   }
 
   async createChat(input: {
@@ -363,6 +374,7 @@ export class ChatsService {
     title: string | null,
     toCopy: ReadonlyArray<CopyableMessage>,
     inherited: ChatInheritedValues = {},
+    messageIds?: ReadonlyMap<string, string>,
   ): Promise<Chat> {
     // Nullable title (#78): a still-untitled chat stays untitled when forked
     // rather than forcing a title onto it.
@@ -373,7 +385,7 @@ export class ChatsService {
     });
 
     await new MessagesRepository(tx).createMany(
-      copiedMessageRows(toCopy, created.id),
+      copiedMessageRows(toCopy, created.id, messageIds),
     );
 
     return created;
@@ -509,48 +521,11 @@ export class ChatsService {
   }
 
   /**
-   * Copy the prefix's compactions into the fork, oldest-first — a parent is
-   * always inserted before the child whose `parentId` names it (the
-   * `(parent_id, chat_id)` FK is checked per row).
-   *
-   * Only storage identity moves: `parentId` follows the pre-assigned id map.
-   * `uptoSeq` copies verbatim because message sequences are already dense from
-   * 1 (allocation is `max + 1` and rows are never deleted), so the copied
-   * numbers are the source's and a copied checkpoint still covers exactly the
-   * prefix it covered before — which is what keeps the fork's absorbed-message
-   * count and replay boundary identical to its source's. `create` keeps its
-   * own write validation, so a malformed source row fails the whole fork
-   * rather than landing broken.
-   */
-  private async copyCompactionsIntoNewChat(
-    tx: Db,
-    chatId: string,
-    toCopy: ReadonlyArray<Compaction>,
-    idMap: ReadonlyMap<string, string>,
-  ): Promise<void> {
-    const compactionsRepo = new CompactionsRepository(tx);
-    for (const compaction of toCopy) {
-      await compactionsRepo.create({
-        id: idMap.get(compaction.id)!,
-        chatId,
-        uptoSeq: compaction.uptoSeq,
-        parentId: compaction.parentId
-          ? (idMap.get(compaction.parentId) ?? null)
-          : null,
-        summary: compaction.summary,
-        replacementHistory: compaction.replacementHistory,
-        usage: compaction.usage,
-        createdAt: compaction.createdAt,
-      });
-    }
-  }
-
-  /**
    * The owner fork's whole read-and-write sequence, inside the caller's
-   * transaction: resolve the source and the prefix bound, read the prefix and
-   * the checkpoints covering it from that one snapshot, then write the
-   * destination Chat (already naming its copied checkpoints), its messages,
-   * and its compactions.
+   * transaction: read the source rows from one snapshot, select ordinary rows
+   * through the anchor plus checkpoints whose absorbed boundary is through the
+   * anchor, preallocate copied ids and marker values, then write the
+   * destination Chat and its ordinary message rows.
    */
   private async copyOwnedChat(
     tx: Db,
@@ -565,38 +540,31 @@ export class ChatsService {
       fromMessageId,
     );
 
-    // Independent reads of that one snapshot — let postgres.js pipeline them
-    // on the connection, mirroring loadWindowBeforeSeq.
-    const [toCopy, compactions] = await Promise.all([
-      new MessagesRepository(tx).findByChatId(chatId, ownerUserId, { maxSeq }),
-      new CompactionsRepository(tx).findByChatId(chatId, ownerUserId, {
-        maxSeq,
-      }),
-    ]);
-
-    const { compactionIds, inherited } = inheritForkedChatState(
-      source,
-      compactions,
+    // A checkpoint is inserted after the rows it absorbs. Read the complete
+    // source sequence before filtering, otherwise an anchor before a
+    // checkpoint's own seq would lose that checkpoint even when its boundary
+    // belongs in the copied prefix.
+    const sourceMessages = await new MessagesRepository(tx).findByChatId(
+      chatId,
+      ownerUserId,
     );
+    const toCopy = selectForkMessages(sourceMessages, maxSeq);
+
+    const { messageIds, inherited } = inheritForkedChatState(source, toCopy);
     const created = await this.copyMessagesIntoNewChat(
       tx,
       ownerUserId,
       source.title,
       toCopy,
       inherited,
-    );
-    await this.copyCompactionsIntoNewChat(
-      tx,
-      created.id,
-      compactions,
-      compactionIds,
+      messageIds,
     );
     return created;
   }
 
   /**
-   * Fork a conversation: copy the source Chat, every durable message up to
-   * (and including) `fromMessageId`, and the compactions covering that prefix
+   * Fork a conversation: copy the source Chat and every ordinary or
+   * checkpoint row selected by its inclusive prefix boundary
    * into a NEW chat owned by the caller, so an alternate direction can be
    * explored without touching the original. When `fromMessageId` is omitted,
    * the WHOLE conversation is copied instead — the anchor for the sidebar's
@@ -606,11 +574,11 @@ export class ChatsService {
    * located ONLY within the caller's own chat (a cross-chat/cross-tenant
    * message id simply isn't in the list → no copy); the new chat + copies
    * INSERT under the caller's identity, so RLS makes them the caller's.
-   * `in_reply_to` is remapped to the copied user turns (satisfies the #73
-   * integrity trigger + the one-reply-per-message index — the copy is 1:1).
+   * `in_reply_to` is remapped to the copied user turns and checkpoint
+   * boundaries are remapped to copied source rows (the copy is 1:1).
    *
    * The copy is the source's LIVE state, not just its turns
-   * (complete-owner-forks D1-D3): compaction lineage, message times and usage,
+   * (complete-owner-forks D1-D3): checkpoint rows, message times and usage,
    * and the Chat row's creation time and frozen prompt baselines travel too,
    * so the fork's next turn renders the same inherited prefix the source's
    * next turn would — which is also what keeps that prefix eligible for
@@ -623,24 +591,22 @@ export class ChatsService {
    * Faithful, not bounded: a fork copies the ENTIRE prefix (or the entire
    * chat, for a whole-chat clone), however long, in one atomic transaction —
    * no message-count cap (a fork must reproduce the source conversation
-   * exactly, never silently truncate it). The prefix is fetched by `maxSeq`
-   * (bounded to the fork point when one is given, no over-read of later
-   * messages; unbounded — the whole chat — when absent) and written via
-   * `createMany`'s chunked bulk insert, so an arbitrarily large conversation
-   * is still a small, bounded number of round-trips.
+   * exactly, never silently truncate it). The complete source sequence is
+   * read before applying the anchor filter because a checkpoint's own seq can
+   * be after its absorbed boundary; rows are then written via `createMany`'s
+   * chunked bulk insert, so an arbitrarily large conversation is still a small,
+   * bounded number of round-trips.
    */
   async forkChat(
     chatId: string,
     ownerUserId: string,
     fromMessageId?: string,
   ): Promise<Chat> {
-    // REPEATABLE READ: the source Chat, its messages, and its compactions must
+    // REPEATABLE READ: the source Chat and its complete message sequence must
     // describe one instant — under the default READ COMMITTED each statement
-    // takes its own snapshot, so a turn or compaction committing between the
-    // reads would land half-copied (messages a copied `uptoSeq` no longer
-    // covers, or a checkpoint past the copied prefix). The fork writes only
-    // new rows of its own, so the stricter level costs nothing but the
-    // snapshot it is here for.
+    // takes its own snapshot, so a turn or checkpoint committing between the
+    // reads would land half-copied. The fork writes only new rows of its own,
+    // so the stricter level costs nothing but the snapshot it is here for.
     const forked = await this.tenantDb.runAs(
       ownerUserId,
       (tx) => this.copyOwnedChat(tx, chatId, ownerUserId, fromMessageId),

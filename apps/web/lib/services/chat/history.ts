@@ -1,45 +1,48 @@
 import type { UIMessage } from "ai";
 import type { ChatMessagesResponse as GeneratedChatMessagesResponse } from "../../api/generated/models";
 
-export type ChatMessageResponse = {
-  id: string;
-  chatId: string;
-  seq: number;
-  role: UIMessage["role"] | "tool";
-  senderUserId: string | null;
-  parts: UIMessage["parts"];
-  attachments: Array<unknown>;
-  usage: unknown;
-  inReplyTo: string | null;
-  createdAt: string;
-};
-
 /**
- * Display-relevant subset of a compaction's usage telemetry (#136). All
- * fields are null-safe: an older/seeded compaction may carry no usage at
- * all, and `absorbedMessageCount` is independent of usage entirely (pure
- * seq arithmetic on the api side) so it can be present even when the rest
- * isn't. `beforeTokens`/`afterTokens` are the summarization call's own
- * input/output token counts (the size of what got absorbed vs. the size of
- * the summary that replaced it) — not a literal "chat context size before
- * vs. after" figure, which isn't persisted anywhere.
+ * Display-relevant usage telemetry for a persisted checkpoint row. The
+ * absorbed-message count is computed by the API from checkpoint boundaries;
+ * token/model fields come from the checkpoint's stored usage.
  */
 export type CompactionStats = {
   absorbedMessageCount: number | null;
   beforeTokens: number | null;
   afterTokens: number | null;
   modelId: string | null;
+  effort?: string;
 };
 
-/**
- * The chat's latest compaction (#57), embedded in the messages response
- * (#136) instead of a separate `GET :id/compaction` round trip.
- */
+/** The owner-visible checkpoint used to place the transcript boundary. */
 export type Compaction = {
-  uptoSeq: number;
+  absorbedThroughSeq: number;
   summary: string;
   createdAt: string;
   stats: CompactionStats;
+};
+
+export type ChatMessageResponse = {
+  id: string;
+  chatId: string;
+  seq: number;
+  role: UIMessage["role"] | "tool" | "checkpoint";
+  senderUserId: string | null;
+  parts: UIMessage["parts"];
+  attachments: Array<unknown>;
+  usage: unknown;
+  inReplyTo: string | null;
+  createdAt: string;
+  absorbedThroughSeq?: number;
+  absorbedMessageCount?: number;
+  summary?: string;
+  stats?: {
+    absorbedMessageCount: number;
+    beforeTokens: number | null;
+    afterTokens: number | null;
+    modelId: string | null;
+    effort?: string;
+  };
 };
 
 export type ChatMessagesResponse = {
@@ -47,13 +50,40 @@ export type ChatMessagesResponse = {
   compaction: Compaction | null;
 };
 
+function checkpointToCompaction(
+  message: ChatMessageResponse,
+): Compaction | null {
+  if (
+    message.role !== "checkpoint" ||
+    message.absorbedThroughSeq === undefined ||
+    message.summary === undefined ||
+    message.stats === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    absorbedThroughSeq: message.absorbedThroughSeq,
+    summary: message.summary,
+    createdAt: message.createdAt,
+    stats: {
+      absorbedMessageCount: message.absorbedMessageCount ?? null,
+      beforeTokens: message.stats.beforeTokens,
+      afterTokens: message.stats.afterTokens,
+      modelId: message.stats.modelId,
+      ...(message.stats.effort !== undefined && {
+        effort: message.stats.effort,
+      }),
+    },
+  };
+}
+
 /** Adapt the generated unknown-part wire contract to the AI SDK UI facade. */
 export function normalizeChatMessagesResponse(
   response: GeneratedChatMessagesResponse,
 ): ChatMessagesResponse {
-  return {
-    compaction: response.compaction,
-    messages: response.messages.map((message) => ({
+  const messages: Array<ChatMessageResponse> = response.messages.map(
+    (message) => ({
       ...message,
       // SAFETY: the wire contract types `parts` as opaque objects only
       // because OpenAPI cannot express the AI SDK's discriminated part
@@ -61,7 +91,15 @@ export function normalizeChatMessagesResponse(
       // rows, and persists exactly the shapes `UIMessage["parts"]` allows
       // (see AGENTS.md "Preserve stored conversation parts wholesale").
       parts: message.parts as UIMessage["parts"],
-    })),
+    }),
+  );
+  const checkpoint = [...messages]
+    .reverse()
+    .find((message) => message.role === "checkpoint");
+
+  return {
+    compaction: checkpoint ? checkpointToCompaction(checkpoint) : null,
+    messages,
   };
 }
 
@@ -443,8 +481,7 @@ function isChatUiMessageResponse(
 // Decoupled from the full ChatMessagesResponse (just the `messages` field it
 // actually needs) so a caller that already unwrapped `.messages` from a
 // paginated walk (which discards the response's other fields) can pass the
-// plain array straight through, without needing to fabricate a `compaction`
-// field just to satisfy the type.
+// plain array straight through without fabricating a checkpoint boundary.
 export function toChatUiMessages(response: {
   messages: Array<ChatMessageResponse>;
 }): Array<UIMessage> {

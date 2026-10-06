@@ -194,6 +194,7 @@ describe('recency digest baseline', () => {
             senderUserId: 'owner',
             parts: [{ type: 'text', text: 'opening' }],
             attachments: [],
+            absorbedThroughSeq: null,
             usage: null,
             inReplyTo: null,
             createdAt: new Date(),

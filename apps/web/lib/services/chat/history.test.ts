@@ -101,6 +101,39 @@ describe("toChatUiMessages", () => {
       }),
     ).toEqual([]);
   });
+  it("drops checkpoint rows instead of rendering their rail text as messages", () => {
+    expect(
+      toChatUiMessages({
+        messages: [
+          {
+            id: "checkpoint-message",
+            chatId: "chat-1",
+            seq: 3,
+            role: "checkpoint",
+            senderUserId: null,
+            parts: [
+              {
+                type: "data-context",
+                data: {
+                  producer: "compaction",
+                  form: "checkpoint",
+                  text: "private summary",
+                  payload: { v: 1, summary: "private summary" },
+                },
+              },
+            ],
+            attachments: [],
+            usage: null,
+            inReplyTo: null,
+            createdAt: "2026-07-01T12:00:02.000Z",
+            absorbedThroughSeq: 2,
+            absorbedMessageCount: 2,
+            summary: "private summary",
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe("messageSeqFromMetadata", () => {

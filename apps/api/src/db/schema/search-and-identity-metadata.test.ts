@@ -1,7 +1,7 @@
 import { getTableConfig, PgDialect, type PgTable } from 'drizzle-orm/pg-core';
 
 import { externalIdentities, memberships, orgUnits } from './identity';
-import { chats, compactions, messages, runEvents, runs } from './chats';
+import { chats, messages, runEvents, runs } from './chats';
 import { pins } from './pins';
 import {
   embeddingModelBindings,
@@ -134,9 +134,11 @@ describe('chat schema metadata', () => {
       'chats_owner:all:using:check',
       'chats_public_read:select:using:-',
     ]);
+    expect(columnNames(messages)).toContain('absorbed_through_seq');
     expect(indexNames(messages)).toEqual([
       'messages_chat_created_idx',
       'messages_chat_seq_unique_idx',
+      'messages_chat_absorbed_through_seq_uidx',
       'messages_in_reply_to_unique_idx',
       'messages_id_chat_id_unique_idx',
     ]);
@@ -148,27 +150,37 @@ describe('chat schema metadata', () => {
       'messages_owner:all:using:-',
       'messages_public_read:select:using:-',
     ]);
+    const publicPolicy = getTableConfig(messages).policies.find(
+      ({ name }) => name === 'messages_public_read',
+    );
+    if (publicPolicy?.using === undefined) {
+      throw new Error('messages public policy missing');
+    }
+    expect(new PgDialect().sqlToQuery(publicPolicy.using).sql).toContain(
+      "role::text <> 'checkpoint'",
+    );
   });
 
-  it('keeps the Workspace detach reason check named and closed', () => {
-    const check = getTableConfig(chats).checks.find(
-      ({ name }) => name === 'chats_workspace_detach_reason_check',
+  it('keeps the checkpoint boundary nullable and unique only when present', () => {
+    const column = getTableConfig(messages).columns.find(
+      ({ name }) => name === 'absorbed_through_seq',
     );
-    if (check === undefined) throw new Error('Workspace detach check missing');
-    expect(new PgDialect().sqlToQuery(check.value).sql).toBe(
-      `"chats"."workspace_detach_reason" IS NULL OR "chats"."workspace_detach_reason" IN ('executor_mismatch', 'executor_absent', 'root_missing', 'root_moved', 'permission_rejected', 'tool_not_allowed')`,
+    if (column === undefined) throw new Error('checkpoint boundary missing');
+    expect(column.notNull).toBe(false);
+    const index = getTableConfig(messages).indexes.find(
+      ({ config }) => config.name === 'messages_chat_absorbed_through_seq_uidx',
+    );
+    if (index === undefined)
+      throw new Error('checkpoint boundary index missing');
+    if (index.config.where === undefined) {
+      throw new Error('checkpoint boundary predicate missing');
+    }
+    expect(new PgDialect().sqlToQuery(index.config.where).sql).toContain(
+      'IS NOT NULL',
     );
   });
 
-  it('keeps compaction and run event ownership constraints named', () => {
-    expect(indexNames(compactions)).toEqual([
-      'compactions_chat_upto_seq_idx',
-      'compactions_id_chat_id_unique_idx',
-    ]);
-    expect(policyNames(compactions)).toEqual(['compactions_owner']);
-    expect(policyContracts(compactions)).toEqual([
-      'compactions_owner:all:using:-',
-    ]);
+  it('keeps run and run event ownership constraints named', () => {
     expect(indexNames(runs)).toEqual([
       'runs_chat_created_idx',
       'runs_user_status_idx',

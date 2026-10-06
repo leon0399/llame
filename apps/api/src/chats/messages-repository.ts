@@ -1,8 +1,7 @@
 /**
  * MessagesRepository — owner-scoped database access to the `messages` table
- * (split from chats-repository.ts: ChatsRepository owns `chats`/`pins`,
- * CompactionsRepository owns `compactions`; each table gets its own
- * repository file).
+ * (split from chats-repository.ts: ChatsRepository owns `chats`/`pins`;
+ * this repository owns `messages`).
  *
  * Every query filters by ownerUserId / chatId as defense-in-depth.
  * RLS is the primary isolation guarantee; these filters are the seatbelt.
@@ -10,7 +9,6 @@
  * The `db` parameter accepts a PostgresJsDatabase from drizzle-orm/postgres-js.
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
-
 import {
   and,
   asc,
@@ -19,15 +17,21 @@ import {
   eq,
   gt,
   inArray,
+  lt,
   lte,
   max,
+  ne,
   sql,
   type SQL,
 } from 'drizzle-orm';
 import { type Message, type MessageRole, chats, messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { isString, type UnknownRecord } from '@workspace/runtime-safety';
-import { eligibleMessagePredicate } from './message-eligibility';
+import {
+  findConversationMessage,
+  type ConversationMessageLookup,
+} from './conversation-message-lookup';
+import { type ContextItemPart } from './context-item';
 
 // Fixed application budget, not operator configuration. Current writers are
 // bounded to assistant finalization/salvage after accepted-turn admission has
@@ -38,34 +42,6 @@ const MESSAGE_SEQUENCE_UNIQUE_INDEX = 'messages_chat_seq_unique_idx';
 
 type MessageInsert = typeof messages.$inferInsert;
 type MessageInsertWithoutSequence = Omit<MessageInsert, 'seq'>;
-
-export type ConversationMessageLookup = {
-  chatId: string;
-  seq: number;
-  role: 'user' | 'assistant';
-  parts: Array<unknown>;
-  usage: unknown;
-  createdAt: Date;
-  previousMessageSeq?: number;
-  nextMessageSeq?: number;
-};
-
-type ConversationMessageLookupRow = {
-  message_chat_id: string;
-  message_seq: string;
-  message_role: string;
-  message_parts: unknown;
-  message_usage: unknown;
-  message_created_at: Date | string;
-  previous_message_seq: string | null;
-  next_message_seq: string | null;
-};
-
-function parseSafePositiveSequence(value: string | null): number | undefined {
-  if (value === null) return undefined;
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
 
 function isCauseChainLink(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null;
@@ -114,13 +90,115 @@ export class MessagesRepository {
       predicates.push(lte(messages.seq, options.maxSeq));
     }
 
-    // Exclusive lower bound: messages AFTER a compaction's uptoSeq (#57) — the
-    // superseded turns are represented by the summary, not read again.
+    // Exclusive lower bound for replay/planning: rows after a stored
+    // checkpoint boundary. Callers filter checkpoint markers from ordinary
+    // model history.
     if (options?.sinceSeq !== undefined) {
       predicates.push(gt(messages.seq, options.sinceSeq));
     }
 
     return this.windowedByPredicates(predicates, options);
+  }
+  /** Latest checkpoint boundary strictly before the triggering user sequence. */
+  async findActiveCheckpoint(
+    chatId: string,
+    ownerUserId: string,
+    options: { beforeSeq: number },
+  ): Promise<Message | undefined> {
+    const rows = await this.db
+      .select()
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+          eq(messages.role, 'checkpoint'),
+          lt(messages.absorbedThroughSeq, options.beforeSeq),
+        ),
+      )
+      .orderBy(desc(messages.absorbedThroughSeq))
+      .limit(1);
+
+    return rows[0]?.messages;
+  }
+
+  /** The owner-scoped checkpoint exactly at an absorbed-history boundary. */
+  async findCheckpointByBoundary(
+    chatId: string,
+    ownerUserId: string,
+    absorbedThroughSeq: number,
+  ): Promise<Message | undefined> {
+    const rows = await this.db
+      .select()
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+          eq(messages.role, 'checkpoint'),
+          eq(messages.absorbedThroughSeq, absorbedThroughSeq),
+        ),
+      )
+      .limit(1);
+
+    return rows[0]?.messages;
+  }
+
+  /**
+   * Insert one summary-only checkpoint at the next Chat-local sequence.
+   * The partial boundary index makes publication idempotent; a concurrent
+   * winner is read back when this insert becomes a no-op.
+   */
+  async createCheckpoint(input: {
+    chatId: string;
+    absorbedThroughSeq: number;
+    part: ContextItemPart;
+    usage?: unknown;
+  }): Promise<Message> {
+    const values: MessageInsertWithoutSequence = {
+      chatId: input.chatId,
+      role: 'checkpoint',
+      absorbedThroughSeq: input.absorbedThroughSeq,
+      senderUserId: null,
+      parts: [input.part],
+      attachments: [],
+      usage: input.usage,
+      inReplyTo: null,
+    };
+    const created = await this.insertWithChatSequence(
+      values,
+      async (tx, row) => {
+        const [inserted] = await tx
+          .insert(messages)
+          .values(row)
+          .onConflictDoNothing({
+            target: [messages.chatId, messages.absorbedThroughSeq],
+            where: sql`${messages.absorbedThroughSeq} IS NOT NULL`,
+          })
+          .returning();
+        return inserted;
+      },
+    );
+    if (created !== undefined) return created;
+
+    const rows = await this.db
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.chatId, input.chatId),
+          eq(messages.role, 'checkpoint'),
+          eq(messages.absorbedThroughSeq, input.absorbedThroughSeq),
+        ),
+      )
+      .limit(1);
+    const existing = rows[0];
+    if (existing === undefined) {
+      throw new Error('Checkpoint insert returned no row');
+    }
+    return existing;
   }
 
   /**
@@ -179,108 +257,14 @@ export class MessagesRepository {
 
   /**
    * Resolve one immutable conversation source and its nearest eligible
-   * neighbors in one statement. The owner predicate is repeated alongside the
-   * RLS join, while the current tenant identity guard prevents the public-share
-   * policy from turning an owner parameter into authority in runAsPublic.
+   * neighbors; see `findConversationMessage` in conversation-message-lookup.ts.
    */
-  async findConversationMessage(
+  findConversationMessage(
     chatId: string,
     ownerUserId: string,
     messageSeq: number,
   ): Promise<ConversationMessageLookup | undefined> {
-    if (!ownerUserId.trim()) {
-      throw new Error(
-        'MessagesRepository.findConversationMessage requires a non-empty userId',
-      );
-    }
-    if (!Number.isSafeInteger(messageSeq) || messageSeq <= 0) {
-      return undefined;
-    }
-
-    // One statement gives target and neighbors one database snapshot. The CTE
-    // is intentionally message-scoped; no full-chat row set crosses the
-    // repository boundary.
-    const rows = await this.db.execute<ConversationMessageLookupRow>(sql`
-      WITH eligible AS (
-        SELECT
-          m.chat_id,
-          m.seq,
-          m.role,
-          m.parts,
-          m.usage,
-          m.created_at
-        FROM messages AS m
-        INNER JOIN chats AS c
-          ON c.id = m.chat_id
-        WHERE m.chat_id = ${chatId}
-          AND c.owner_user_id = ${ownerUserId}
-          AND current_setting('app.current_user_id', true) = ${ownerUserId}
-          AND ${eligibleMessagePredicate('m')}
-      ), target AS (
-        SELECT *
-        FROM eligible
-        WHERE seq = ${messageSeq}
-      )
-      SELECT
-        target.chat_id AS message_chat_id,
-        target.seq::text AS message_seq,
-        target.role AS message_role,
-        target.parts AS message_parts,
-        target.usage AS message_usage,
-        target.created_at AS message_created_at,
-        (
-          SELECT previous.seq::text
-          FROM eligible AS previous
-          WHERE previous.seq < target.seq
-          ORDER BY previous.seq DESC
-          LIMIT 1
-        ) AS previous_message_seq,
-        (
-          SELECT next_message.seq::text
-          FROM eligible AS next_message
-          WHERE next_message.seq > target.seq
-          ORDER BY next_message.seq ASC
-          LIMIT 1
-        ) AS next_message_seq
-      FROM target
-    `);
-
-    const row = [...rows][0];
-    if (
-      row === undefined ||
-      (row.message_role !== 'user' && row.message_role !== 'assistant') ||
-      !Array.isArray(row.message_parts)
-    ) {
-      return undefined;
-    }
-
-    const seq = parseSafePositiveSequence(row.message_seq);
-    if (seq === undefined) return undefined;
-
-    const previousMessageSeq = parseSafePositiveSequence(
-      row.previous_message_seq,
-    );
-    const nextMessageSeq = parseSafePositiveSequence(row.next_message_seq);
-    const createdAt =
-      row.message_created_at instanceof Date
-        ? row.message_created_at
-        : new Date(row.message_created_at);
-
-    const result: ConversationMessageLookup = {
-      chatId: row.message_chat_id,
-      seq,
-      role: row.message_role,
-      parts: row.message_parts,
-      usage: row.message_usage,
-      createdAt,
-    };
-    if (previousMessageSeq !== undefined) {
-      result.previousMessageSeq = previousMessageSeq;
-    }
-    if (nextMessageSeq !== undefined) {
-      result.nextMessageSeq = nextMessageSeq;
-    }
-    return result;
+    return findConversationMessage(this.db, chatId, ownerUserId, messageSeq);
   }
 
   /**
@@ -309,6 +293,7 @@ export class MessagesRepository {
       seq: number;
       role: MessageRole;
       senderUserId: string | null;
+      absorbedThroughSeq?: number | null;
       parts: Array<unknown>;
       attachments: Array<unknown>;
       inReplyTo: string | null;
@@ -333,7 +318,12 @@ export class MessagesRepository {
       .selectDistinctOn([messages.chatId])
       .from(messages)
       .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(eq(chats.ownerUserId, ownerUserId))
+      .where(
+        and(
+          eq(chats.ownerUserId, ownerUserId),
+          inArray(messages.role, ['user', 'assistant']),
+        ),
+      )
       .orderBy(messages.chatId, desc(messages.seq));
 
     return rows.map((r) => r.messages);
@@ -395,6 +385,7 @@ export class MessagesRepository {
         and(
           eq(chats.ownerUserId, ownerUserId),
           inArray(messages.chatId, [...chatIds]),
+          ne(messages.role, 'checkpoint'),
         ),
       )
       .groupBy(messages.chatId);

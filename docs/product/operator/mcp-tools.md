@@ -275,8 +275,8 @@ MCP is not a network sandbox.
   settles unavailable.
 - Provider input, manifests, and rebinding
   contain exact admitted IDs/declarations, never wildcard config.
-- Availability reminders appear on a fresh conversation/after compaction and
-  later only for changes.
+- Availability reminders appear on a fresh conversation or after a compaction
+  checkpoint, and later only for changes.
 
 ## Deployment
 

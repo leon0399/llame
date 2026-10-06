@@ -16,7 +16,6 @@ import { canonicalJson, compareCodePoints } from '../canonical-json';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type Chat,
-  type Compaction,
   type Message,
   type ModelToolDeclaration,
   type Run,
@@ -39,9 +38,7 @@ import { type ModelClient } from '../models/model-client';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import {
   ChatsRepository,
-  CompactionsRepository,
   MessagesRepository,
-  findLiveWindow,
   isCompletedAssistantTurn,
 } from '../chats/chats-repository';
 import {
@@ -82,6 +79,8 @@ import {
   createTemporalItem,
   deriveToolAvailabilityPayload,
   deriveToolAvailabilityPayloadFromStates,
+  createCompactionCheckpointPart,
+  readCheckpointText,
 } from '../chats/context-item-producers';
 import {
   CONTEXT_ITEM_PRODUCERS,
@@ -174,14 +173,16 @@ import {
   type TurnTelemetry,
 } from '../chats/turn-telemetry';
 import {
-  ContextIncompatibleError,
   DYNAMIC_TOOL_EXECUTOR_RESOLVER,
   type BoundExecutableTool,
   type DynamicToolExecutorResolver,
-  ModelContextExecutionError,
   constrainDynamicToolResolver,
   resolveBoundExecutableTools,
 } from './snapshot-tool-execution';
+import {
+  ContextIncompatibleError,
+  ModelContextExecutionError,
+} from './model-context-errors';
 import {
   composeAttemptToolCatalog,
   finalizeEffectiveContext,
@@ -319,7 +320,7 @@ type PreparedAttemptContext = BuiltContext & {
    * prompt anchor, the skill and workspace epochs, and the history cut all read
    * one boundary.
    */
-  latestCompaction: Compaction | undefined;
+  latestCheckpoint: Message | undefined;
   /** Canonical instruction paths the effective history already discloses. */
   seenInstructionPaths: ReadonlySet<string>;
   recencyDigestInitialization?: RecencyDigestInitialization;
@@ -361,7 +362,7 @@ type AttemptPromptInputs = AttemptDigestContext & {
   chat: Chat;
   model: SystemModelCatalogEntry;
   user: PromptUserInput | undefined;
-  compaction: Compaction | undefined;
+  checkpoint: Message | undefined;
   instanceTimezone: string;
   anchor: TemporalAnchor;
   /** This turn's skill-catalog decision: the rendered baseline and the notice. */
@@ -2014,33 +2015,43 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     systemPrompt: string,
   ): Promise<{
-    readonly context: ReturnType<typeof buildContext>;
+    readonly context: BuiltContext;
     readonly historyRows: Array<Message>;
     readonly seenInstructionPaths: ReadonlySet<string>;
   }> {
-    const { compaction, history } = await findLiveWindow(
-      tx,
+    const messagesRepo = new MessagesRepository(tx);
+    const checkpoint = await messagesRepo.findActiveCheckpoint(
+      input.chatId,
+      input.userId,
+      { beforeSeq: input.userMessage.seq },
+    );
+    const history = await messagesRepo.findByChatId(
       input.chatId,
       input.userId,
       { maxSeq: input.userMessage.seq },
     );
+    const boundary = checkpoint?.absorbedThroughSeq ?? 0;
+    const checkpointInput =
+      checkpoint === undefined
+        ? undefined
+        : {
+            text: readCheckpointText(checkpoint),
+            absorbedThroughSeq: boundary,
+          };
+    const liveHistory = history.filter((row) => row.seq > boundary);
     return {
       context: buildContext(toStoredMessages(history), {
         systemPrompt,
         // A Run's own request continues this Chat, so it replays the Chat's
         // persisted reasoning (D16).
         requestKind: 'continuation',
-        ...(compaction && {
-          compaction: {
-            summary: compaction.summary,
-            uptoSeq: compaction.uptoSeq,
-            replacementHistory: compaction.replacementHistory,
-          },
+        ...(checkpointInput !== undefined && {
+          checkpoint: checkpointInput,
         }),
       }),
       historyRows: history,
       seenInstructionPaths: instructionsSeenPaths(
-        history.flatMap((message) => message.parts),
+        liveHistory.flatMap((message) => message.parts),
       ),
     };
   }
@@ -3440,7 +3451,7 @@ export class RunExecutionService {
       ...built.context,
       seenInstructionPaths: built.seenInstructionPaths,
       historyRows: built.historyRows,
-      latestCompaction: prompt.compaction,
+      latestCheckpoint: prompt.checkpoint,
       effectiveContext,
       model: prompt.model,
       toolCatalog: catalog,
@@ -3501,7 +3512,7 @@ export class RunExecutionService {
       prepared: estimated.prepared,
       stagedParts: estimatePass.stagedParts,
       historyRows: estimatePass.historyRows,
-      boundarySeq: estimatePass.latestCompaction?.uptoSeq ?? 0,
+      boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
     });
     const summary =
       trigger === undefined
@@ -3669,8 +3680,8 @@ export class RunExecutionService {
           `Run ${input.run.runId} was reclaimed before checkpoint publication.`,
         );
       }
+      const messagesRepo = new MessagesRepository(tx);
       const chatsRepo = new ChatsRepository(tx);
-      const compactionsRepo = new CompactionsRepository(tx);
       // Chats before memory, matching the chat loop, which locks the chats row
       // in `touch` and only then takes `FOR SHARE` on memory settings.
       const chat = await chatsRepo.touch(input.run.chatId, input.run.userId);
@@ -3680,10 +3691,9 @@ export class RunExecutionService {
       );
       // Every publication of this chat takes the row lock above first, so this
       // read is the race verdict: a surviving row means another attempt already
-      // published this cutoff and re-baked the epoch for it, so this one leaves
-      // those values — and the live attempt's request — alone.
+      // published this boundary and re-baked the epoch for it.
       if (
-        (await compactionsRepo.findByCutoff(
+        (await messagesRepo.findCheckpointByBoundary(
           input.run.chatId,
           input.run.userId,
           input.summary.uptoSeq,
@@ -3691,19 +3701,17 @@ export class RunExecutionService {
       ) {
         return;
       }
-      const compaction = await compactionsRepo.create({
+      const checkpoint = await messagesRepo.createCheckpoint({
         chatId: input.run.chatId,
-        uptoSeq: input.summary.uptoSeq,
-        parentId: input.summary.parentId,
-        summary: input.summary.summary,
-        replacementHistory: input.summary.replacementHistory,
+        absorbedThroughSeq: input.summary.uptoSeq,
+        part: createCompactionCheckpointPart(input.summary.summary),
         usage: input.summary.usage,
       });
       await this.rebakeCheckpointEpoch({
         tx,
         run: input.run,
         chat,
-        compactionId: compaction.id,
+        checkpointId: checkpoint.id,
         model: input.model,
         workspaceRoot: input.workspaceRoot,
         shareRecentChats,
@@ -3717,7 +3725,7 @@ export class RunExecutionService {
     tx: Db;
     run: ExecuteRunInput;
     chat: Chat | undefined;
-    compactionId: string;
+    checkpointId: string;
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
     shareRecentChats: ResolvedMemorySettings;
@@ -3732,7 +3740,7 @@ export class RunExecutionService {
             chat: input.chat,
             model: input.model,
             workspaceRoot: input.workspaceRoot,
-            latestCompactionId: input.compactionId,
+            latestCheckpointId: input.checkpointId,
           });
     if (
       input.chat?.recencyDigestBaseline != null &&
@@ -3744,7 +3752,7 @@ export class RunExecutionService {
         ownerUserId: input.run.userId,
         baseline: input.digestCandidate.baseline,
         told: input.digestCandidate.told,
-        rebakedFrom: input.compactionId,
+        rebakedFrom: input.checkpointId,
       });
     }
     if (skillState?.freeze !== undefined) {
@@ -3752,7 +3760,7 @@ export class RunExecutionService {
         chatId: input.run.chatId,
         ownerUserId: input.run.userId,
         baseline: skillState.freeze.baseline,
-        rebakedFrom: input.compactionId,
+        rebakedFrom: input.checkpointId,
       });
     }
     if (skillState?.told !== undefined) {
@@ -3770,7 +3778,7 @@ export class RunExecutionService {
         chatId: input.run.chatId,
         ownerUserId: input.run.userId,
         told: null,
-        toldFrom: input.compactionId,
+        toldFrom: input.checkpointId,
         clearDetachReason: false,
       });
     }
@@ -3795,7 +3803,7 @@ export class RunExecutionService {
     // markers: a pre-step checkpoint publishes above the message it was
     // published for, so an unbounded read could name an epoch this request is
     // not in (design D4, D7).
-    const compaction = await new CompactionsRepository(tx).findLatestByChatId(
+    const checkpoint = await new MessagesRepository(tx).findActiveCheckpoint(
       input.chatId,
       input.userId,
       { beforeSeq: input.userMessage.seq },
@@ -3808,7 +3816,7 @@ export class RunExecutionService {
     });
     const instanceTimezone = resolveInstanceTimezone(this.logger);
     const anchor = formatTemporalAnchor(
-      compaction?.createdAt ?? chat.createdAt,
+      checkpoint?.createdAt ?? chat.createdAt,
       instanceTimezone,
     );
     const skillState = this.resolveSkillTurnState({
@@ -3816,14 +3824,14 @@ export class RunExecutionService {
       chat,
       model,
       workspaceRoot,
-      latestCompactionId: compaction?.id ?? null,
+      latestCheckpointId: checkpoint?.id ?? null,
     });
     return {
       ...digest,
       chat,
       model,
       user,
-      compaction,
+      checkpoint,
       instanceTimezone,
       anchor,
       skillState,
@@ -3841,7 +3849,7 @@ export class RunExecutionService {
     chat: Chat;
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
-    latestCompactionId: string | null;
+    latestCheckpointId: string | null;
   }): SkillTurnState {
     return resolveTurnSkillState(
       {
@@ -3861,7 +3869,7 @@ export class RunExecutionService {
       {
         chat: input.chat,
         runId: input.run.runId,
-        latestCompactionId: input.latestCompactionId,
+        latestCheckpointId: input.latestCheckpointId,
         modelReferencesSkills: input.model.referencesSkills,
       },
     );
@@ -4116,36 +4124,22 @@ export class RunExecutionService {
     // checkpoint cannot silently keep the run inside the pre-compaction epoch.
     const startsEpoch =
       previousCompletedRun === undefined ||
-      (input.prompt.compaction !== undefined &&
-        input.prompt.compaction.uptoSeq >=
+      (input.prompt.checkpoint !== undefined &&
+        input.prompt.checkpoint.absorbedThroughSeq !== null &&
+        input.prompt.checkpoint.absorbedThroughSeq >=
           previousCompletedRun.triggeringUserSeq);
     // The marker reports the re-bake to the first attempt that can publish
     // after it — the new epoch's first turn — so it rides the same boundary.
     const digestRebaked =
       startsEpoch &&
       input.prompt.chat.recencyDigestRebakedFrom ===
-        input.prompt.compaction?.id;
+        input.prompt.checkpoint?.id;
 
     const stagedParts: Array<MessagePart> = [];
     // Model selection is established by any run (failed runs included), so the
     // switch item keeps reading the immediately preceding run, not the
     // successful baseline the availability/epoch comparison uses.
-    if (previousRun && previousRun.modelId !== input.input.client.model) {
-      // The previous run records the selected id alone, and the body names the
-      // model that id belonged to, so it is resolved against the operator
-      // catalog this service already reads at construction. A model the
-      // catalog no longer carries is named by its bare id.
-      const previousModel = this.instanceConfig.config.models.find(
-        (model) => model.id === previousRun.modelId,
-      );
-      stagedParts.push(
-        createModelChangeItem({
-          oldModel: previousModel ?? { id: previousRun.modelId },
-          newModel: input.prompt.model,
-          runId: input.input.runId,
-        }),
-      );
-    }
+    this.appendModelChangePart(stagedParts, input, previousRun);
     const previousSuccessfulAvailability = startsEpoch
       ? undefined
       : (previousCompletedRun?.run.turnToolAvailability ?? undefined);
@@ -4169,7 +4163,7 @@ export class RunExecutionService {
     const workspaceContext = this.deriveWorkspaceContext({
       runId: input.input.runId,
       chat: input.prompt.chat,
-      latestCompactionId: input.prompt.compaction?.id ?? null,
+      latestCheckpointId: input.prompt.checkpoint?.id ?? null,
     });
     stagedParts.push(...workspaceContext.parts);
     const workspaceWrites = workspaceContext.writes;
@@ -4179,26 +4173,7 @@ export class RunExecutionService {
     if (skillNotice !== undefined) {
       stagedParts.push(skillNotice.item);
     }
-    if (
-      digestRebaked &&
-      input.prompt.chat.recencyDigestBaseline !== null &&
-      input.prompt.shareRecentChats.shareRecentChats
-    ) {
-      stagedParts.push(
-        createRecencyDigestSupersessionItem({ runId: input.input.runId }),
-      );
-    }
-    if (input.prompt.digestDelta) {
-      stagedParts.push(
-        createRecencyDigestDeltaItem({
-          runId: input.input.runId,
-          payload: {
-            entries: input.prompt.digestDelta.entries,
-            pinChanges: input.prompt.digestDelta.pinChanges,
-          },
-        }),
-      );
-    }
+    this.appendRecencyDigestParts(stagedParts, input, digestRebaked);
     stagedParts.push(
       createTemporalItem({
         runId: input.input.runId,
@@ -4217,15 +4192,72 @@ export class RunExecutionService {
       }),
     };
   }
+  private appendModelChangePart(
+    stagedParts: Array<MessagePart>,
+    input: {
+      input: ExecuteRunInput;
+      prompt: AttemptPromptContext;
+    },
+    previousRun: Run | undefined,
+  ): void {
+    if (
+      previousRun === undefined ||
+      previousRun.modelId === input.input.client.model
+    ) {
+      return;
+    }
+    const previousModel = this.instanceConfig.config.models.find(
+      (model) => model.id === previousRun.modelId,
+    );
+    stagedParts.push(
+      createModelChangeItem({
+        oldModel: previousModel ?? { id: previousRun.modelId },
+        newModel: input.prompt.model,
+        runId: input.input.runId,
+      }),
+    );
+  }
+
+  private appendRecencyDigestParts(
+    stagedParts: Array<MessagePart>,
+    input: {
+      input: ExecuteRunInput;
+      prompt: AttemptPromptContext;
+    },
+    digestRebaked: boolean,
+  ): void {
+    const { prompt } = input;
+    if (
+      digestRebaked &&
+      prompt.chat.recencyDigestBaseline !== null &&
+      prompt.shareRecentChats.shareRecentChats
+    ) {
+      stagedParts.push(
+        createRecencyDigestSupersessionItem({ runId: input.input.runId }),
+      );
+    }
+    if (prompt.digestDelta) {
+      stagedParts.push(
+        createRecencyDigestDeltaItem({
+          runId: input.input.runId,
+          payload: {
+            entries: prompt.digestDelta.entries,
+            pinChanges: prompt.digestDelta.pinChanges,
+          },
+        }),
+      );
+    }
+  }
+
   private deriveWorkspaceContext(input: {
     runId: string;
     chat: Chat;
-    latestCompactionId: string | null;
+    latestCheckpointId: string | null;
   }): WorkspaceStagedContext {
     const currentRoot = input.chat.workspaceRoot;
-    const latestCompactionId = input.latestCompactionId;
+    const latestCheckpointId = input.latestCheckpointId;
     const toldRoot =
-      input.chat.workspaceToldFrom === latestCompactionId
+      input.chat.workspaceToldFrom === latestCheckpointId
         ? input.chat.workspaceTold
         : null;
     const rawDetachReason = input.chat.workspaceDetachReason;
@@ -4248,7 +4280,7 @@ export class RunExecutionService {
       );
       writes = {
         told: currentRoot,
-        toldFrom: latestCompactionId,
+        toldFrom: latestCheckpointId,
         clearDetachReason: detachReason !== null,
       };
     }
@@ -4261,7 +4293,7 @@ export class RunExecutionService {
       );
       writes ??= {
         told: currentRoot,
-        toldFrom: latestCompactionId,
+        toldFrom: latestCheckpointId,
         clearDetachReason: true,
       };
     }

@@ -8,14 +8,12 @@
  * order items appear in belong to `context-item.ts`, so a producer cannot
  * forget any of them.
  *
- * `compaction` is the one producer with no persisted part: a checkpoint is a
- * row in `compactions`, whose `parentId` lineage and `uptoSeq` supersession
- * query cannot be expressed as a message part. It renders through the same
- * envelope anyway, so the model sees one convention rather than two.
+ * A compaction checkpoint is persisted as an ordinary `data-context` part on
+ * its own `checkpoint` message row. Its complete rendered text is the replay
+ * authority; the payload is only the structured owner-facing summary.
  */
 
 import {
-  CONTEXT_ITEM_TAG,
   isContextItemPart,
   type AuthoredContextItemPart,
   type ContextItemForm,
@@ -27,13 +25,14 @@ import {
   formatTemporalAnchor,
   isIanaTimeZone,
 } from '../prompts/temporal-anchor';
-import { type RecencyDigestEntry } from '../db/schema';
+import { type Message, type RecencyDigestEntry } from '../db/schema';
 import {
   isBoolean,
   isNumber,
   isString,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
+import { ModelContextExecutionError } from '../runs/model-context-errors';
 import {
   createRenderedContextItem,
   isExactRecord,
@@ -603,8 +602,79 @@ export function renderCompactionCheckpoint(summary: string): string {
 
 export const COMPACTION_CHECKPOINT_FORM: ContextItemForm = 'checkpoint';
 
-/** The checkpoint's envelope opening, for callers matching on the prefix. */
-export const COMPACTION_CHECKPOINT_ENVELOPE_PREFIX = `<${CONTEXT_ITEM_TAG} producer="compaction" form="${COMPACTION_CHECKPOINT_FORM}">`;
+// Checkpoints are authored outside the attached-to-turn context-item path, so
+// they do not have a Run id of their own. Keep the existing context-item wire
+// shape valid with one stable sentinel; replay treats the persisted text as the
+// authority and never uses this identifier.
+const CHECKPOINT_PART_RUN_ID = '00000000-0000-4000-8000-000000000000';
+
+export function createCompactionCheckpointPart(
+  summary: string,
+): ContextItemPart {
+  if (!isString(summary) || summary.trim().length === 0) {
+    throw new TypeError('Invalid compaction checkpoint summary');
+  }
+  return createRenderedContextItem({
+    producer: 'compaction',
+    form: COMPACTION_CHECKPOINT_FORM,
+    runId: CHECKPOINT_PART_RUN_ID,
+    payload: { v: 1, summary },
+    body: renderCompactionCheckpoint(summary),
+  });
+}
+
+function checkpointPartOrThrow(row: Message): ContextItemPart {
+  if (row.role !== 'checkpoint' || !Array.isArray(row.parts)) {
+    throw new ModelContextExecutionError(
+      `Checkpoint ${row.id} has no valid context part.`,
+    );
+  }
+  if (row.parts.length !== 1) {
+    throw new ModelContextExecutionError(
+      `Checkpoint ${row.id} must contain exactly one context part.`,
+    );
+  }
+  const [part] = row.parts;
+  if (
+    !isContextItemPart(part) ||
+    part.data.producer !== 'compaction' ||
+    part.data.form !== COMPACTION_CHECKPOINT_FORM ||
+    !isString(part.data.text) ||
+    part.data.text.trim().length === 0
+  ) {
+    throw new ModelContextExecutionError(
+      `Checkpoint ${row.id} has an invalid or empty context part.`,
+    );
+  }
+  return part;
+}
+
+export function readCheckpointText(row: Message): string {
+  const part = checkpointPartOrThrow(row);
+  const text = part.data.text;
+  if (!isString(text) || text.trim().length === 0) {
+    throw new ModelContextExecutionError(
+      `Checkpoint ${row.id} has an invalid or empty context part.`,
+    );
+  }
+  return text;
+}
+
+export function checkpointSummary(row: Message): string {
+  const part = checkpointPartOrThrow(row);
+  const payload = part.data.payload;
+  if (
+    !isExactRecord(payload, ['summary', 'v']) ||
+    payload['v'] !== 1 ||
+    !isString(payload['summary']) ||
+    payload['summary'].trim().length === 0
+  ) {
+    throw new ModelContextExecutionError(
+      `Checkpoint ${row.id} has invalid summary metadata.`,
+    );
+  }
+  return payload['summary'];
+}
 
 /** Does this part carry a recency-digest delta or supersession? */
 export function isRecencyDigestItem(value: unknown): value is ContextItemPart {

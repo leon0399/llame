@@ -243,9 +243,7 @@ describe("chat message query options", () => {
   );
 
   it("derives the chat message request from the query function context", async () => {
-    fetchMock.mockImplementation(async () =>
-      jsonResponse({ messages: [], compaction: null }),
-    );
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
 
     const options = chatMessagesQueryOptions("closed-over-chat");
     if (options.queryFn === undefined) {
@@ -285,9 +283,7 @@ describe("chat message query options", () => {
   });
 
   it("requests a target window on page zero and uses only beforeSeq afterwards", async () => {
-    fetchMock.mockImplementation(async () =>
-      jsonResponse({ messages: [], compaction: null }),
-    );
+    fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
 
     const options = chatMessagesQueryOptions("closed-over-chat", {
       targetSeq: 700,
@@ -384,14 +380,14 @@ describe("olderPageParam", () => {
 });
 
 describe("toChatHistory", () => {
-  it("flattens pages oldest-first and reads compaction from the newest page", () => {
+  it("flattens pages oldest-first and reads the newest loaded checkpoint", () => {
     const newest = {
       ...messagesPage([
         { id: "m3", seq: 3, text: "three" },
         { id: "m4", seq: 4, text: "four" },
       ]),
       compaction: {
-        uptoSeq: 2,
+        absorbedThroughSeq: 2,
         summary: "earlier turns",
         createdAt: "2026-01-01T00:00:00.000Z",
         stats: {
@@ -441,14 +437,14 @@ describe("toChatHistory", () => {
     expect(history.messages.map((message) => message.id)).toEqual(["m3", "m4"]);
   });
 
-  it("keeps a target-ended page chronological and uses its compaction snapshot", () => {
+  it("keeps a target-ended page chronological and uses its checkpoint snapshot", () => {
     const targetPage = {
       ...messagesPage([
         { id: "m701", seq: 701, text: "older" },
         { id: "m900", seq: 900, text: "target" },
       ]),
       compaction: {
-        uptoSeq: 700,
+        absorbedThroughSeq: 700,
         summary: "before target",
         createdAt: "2026-01-01T00:00:00.000Z",
         stats: {

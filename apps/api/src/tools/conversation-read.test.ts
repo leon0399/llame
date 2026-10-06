@@ -244,6 +244,21 @@ describe('conversation_read execution', () => {
     });
     expect(emptyOwner.find).not.toHaveBeenCalled();
   });
+  it('returns a source miss for a checkpoint sequence', async () => {
+    const missing = mockDb(undefined);
+
+    await expect(
+      executeConversationRead(missing.db, OWNER_ID, {
+        chatId: CHAT_ID,
+        messageSeq: 8,
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'conversation_source_not_found',
+      message: 'The conversation source was not found.',
+    });
+    expect(missing.find).toHaveBeenCalledWith(CHAT_ID, OWNER_ID, 8);
+  });
 
   it('supports direct search coordinates and explicit continuation without a cut reason', async () => {
     const { db } = mockDb(lookup('one\ntwo\nthree\nfour'));

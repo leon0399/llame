@@ -40,7 +40,6 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 
 import type {
   Chat,
-  Compaction,
   Message,
   ModelToolDeclaration,
   Run,
@@ -66,11 +65,7 @@ import type {
   ToolResult,
 } from '../tools/types';
 import { isRecord, isString } from '@workspace/runtime-safety';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-} from '../chats/chats-repository';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { ActivationPartsRepository } from '../chats/activation-parts.repository';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
@@ -80,12 +75,13 @@ import {
   type AuthoredContextItemPart,
   type ContextItemPart,
 } from '../chats/context-item';
-import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import {
+  createCompactionCheckpointPart,
   createModelChangeItem,
   createTemporalItem,
 } from '../chats/context-item-producers';
 import { resolveInstanceTimezone } from '../prompts/temporal-anchor';
+import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { createInstructionsItem } from '../chats/instructions-item';
 import { createInstructionsProducer } from '../instructions/instructions-producer';
 import type {
@@ -96,11 +92,11 @@ import {
   hashToolDeclaration,
   type TurnToolCandidate,
 } from '../tools/turn-tool-catalog';
+import { type DynamicToolExecutorResolver } from './snapshot-tool-execution';
 import {
   ContextIncompatibleError,
   ModelContextExecutionError,
-  type DynamicToolExecutorResolver,
-} from './snapshot-tool-execution';
+} from './model-context-errors';
 import {
   RunEventsRepository,
   RunsRepository,
@@ -234,6 +230,7 @@ const userMessage: Message = {
   parts: [{ type: 'text', text: 'hello' }],
   attachments: [],
   usage: null,
+  absorbedThroughSeq: null,
   inReplyTo: null,
   createdAt: now,
 };
@@ -508,10 +505,9 @@ function mockNormalExecutionRepositories() {
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
     .mockResolvedValue(chat);
-  vi.spyOn(
-    CompactionsRepository.prototype,
-    'findLatestByChatId',
-  ).mockResolvedValue(undefined);
+  const findActiveCheckpoint = vi
+    .spyOn(MessagesRepository.prototype, 'findActiveCheckpoint')
+    .mockResolvedValue(undefined);
   vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
     userMessage,
   ]);
@@ -559,6 +555,7 @@ function mockNormalExecutionRepositories() {
     findByOwnedRun,
     findMostRecent,
     findCompleted,
+    findActiveCheckpoint,
   };
 }
 
@@ -604,15 +601,11 @@ function committedTurn(
 }
 
 /** What one pre-step publication commits: the absorbed-through cutoff, a
- * summary, and the replacement history the checkpoint replays. */
+ * summary, and its summarization telemetry. */
 function checkpointSummary(uptoSeq: number): CompactionSummary {
   return {
     uptoSeq,
-    parentId: null,
     summary: 'Earlier turns, summarized.',
-    replacementHistory: [
-      { role: 'user', parts: [{ type: 'text', text: 'Summarized prefix' }] },
-    ],
     usage: null,
   };
 }
@@ -623,27 +616,30 @@ function checkpointSummary(uptoSeq: number): CompactionSummary {
  * because the same publication resets it.
  */
 function serveCheckpointPublication(id = publishedCheckpointId) {
-  const findByCutoff = vi
-    .spyOn(CompactionsRepository.prototype, 'findByCutoff')
+  const findByBoundary = vi
+    .spyOn(MessagesRepository.prototype, 'findCheckpointByBoundary')
     .mockResolvedValue(undefined);
   const create = vi
-    .spyOn(CompactionsRepository.prototype, 'create')
-    .mockImplementation((row) =>
+    .spyOn(MessagesRepository.prototype, 'createCheckpoint')
+    .mockImplementation((input) =>
       Promise.resolve({
         id,
-        chatId: row.chatId,
-        uptoSeq: row.uptoSeq,
-        parentId: row.parentId ?? null,
-        summary: row.summary,
-        replacementHistory: row.replacementHistory,
-        usage: row.usage,
+        chatId: input.chatId,
+        seq: input.absorbedThroughSeq + 1,
+        role: 'checkpoint' as const,
+        senderUserId: null,
+        parts: [input.part],
+        attachments: [],
+        absorbedThroughSeq: input.absorbedThroughSeq,
+        inReplyTo: null,
+        usage: input.usage ?? null,
         createdAt: now,
       }),
     );
   const setTold = vi
     .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
     .mockResolvedValue(undefined);
-  return { findByCutoff, create, setTold };
+  return { findByBoundary, create, setTold };
 }
 
 describe('RunExecutionService executeRun', () => {
@@ -6356,7 +6352,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     skillCatalog?: SkillCatalogPort;
     skillDirectories?: ReadonlyArray<string>;
     summary?: CompactionSummary | null;
-    duplicateCutoff?: Compaction;
+    duplicateCutoff?: Message;
     fenceLost?: boolean;
     startedEffort?: string | null;
   };
@@ -6394,7 +6390,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     );
     const publication = serveCheckpointPublication();
     if (input.duplicateCutoff !== undefined) {
-      publication.findByCutoff.mockResolvedValue(input.duplicateCutoff);
+      publication.findByBoundary.mockResolvedValue(input.duplicateCutoff);
     }
     if (input.fenceLost) {
       spies.updateForAttempt.mockResolvedValueOnce(undefined);
@@ -6650,7 +6646,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       // No checkpoint is active when the trigger runs; the pass after the
       // publication sees the row it just committed, whose later timestamp
       // re-anchors the prompt.
-      vi.spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
+      spies.findActiveCheckpoint
         .mockResolvedValueOnce(undefined)
         .mockResolvedValue(
           activeCheckpoint({ uptoSeq: 2, createdAt: checkpointInstant }),
@@ -6729,8 +6725,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         ).toContain('2026-09-01');
         expect(publication.create).toHaveBeenCalledWith(
           expect.objectContaining({
-            uptoSeq: 2,
-            summary: 'Earlier turns, summarized.',
+            absorbedThroughSeq: 2,
           }),
         );
         // The publication re-establishes the epoch it absorbed: the workspace
@@ -6746,7 +6741,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         const dispatched = thresholdCapture.streamOptions();
         expect(dispatched.system).toContain('2026-09-11');
         expect(JSON.stringify(dispatched.messages)).toContain(
-          'Summarized prefix',
+          'Earlier turns, summarized.',
         );
         // Exactly one receipt per attempt, and it is the prompt actually sent.
         expect(spies.createReceipt).toHaveBeenCalledTimes(1);
@@ -6762,7 +6757,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         expect(publication.create).toHaveBeenCalledTimes(1);
         expect(
           JSON.stringify(windowCapture.captured.options?.messages),
-        ).toContain('Summarized prefix');
+        ).toContain('Earlier turns, summarized.');
         expect(spies.createReceipt).toHaveBeenCalledTimes(1);
       }
     },
@@ -6820,10 +6815,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         completedLookupBefore(triggerSeq, completed),
       );
       if (checkpoint !== undefined) {
-        vi.spyOn(
-          CompactionsRepository.prototype,
-          'findLatestByChatId',
-        ).mockResolvedValue(checkpoint);
+        spies.findActiveCheckpoint.mockResolvedValue(checkpoint);
       }
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
         messages,
@@ -6882,10 +6874,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     );
     // The boundary already absorbed the question the retried turn answers, so
     // that turn is not above it even though its reply row is.
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(
+    spies.findActiveCheckpoint.mockResolvedValue(
       activeCheckpoint({ uptoSeq: 2, createdAt: checkpointInstant }),
     );
     vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
@@ -7896,25 +7885,14 @@ describe('RunExecutionService executeRun — context window and late tool result
     vi.restoreAllMocks();
   });
 
-  it('reads history only after the latest compaction and replays its summary', async () => {
-    mockNormalExecutionRepositories();
-    const findLatest = vi
-      .spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
-      .mockResolvedValue({
-        id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
-        chatId,
-        uptoSeq: 4,
-        parentId: null,
-        summary: 'Earlier turns, summarized.',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'Summarized prefix request' }],
-          },
-        ],
-        usage: null,
-        createdAt: now,
-      });
+  it('reads history after the active checkpoint and replays its stored text', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const checkpoint = activeCheckpoint({
+      uptoSeq: 4,
+      createdAt: now,
+      id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    });
+    repositories.findActiveCheckpoint.mockResolvedValue(checkpoint);
     const findByChatId = vi
       .spyOn(MessagesRepository.prototype, 'findByChatId')
       .mockResolvedValue([]);
@@ -7930,25 +7908,17 @@ describe('RunExecutionService executeRun — context window and late tool result
         parts: [{ type: 'text', text: 'hello' }],
       },
     });
-    expect(findLatest).toHaveBeenCalledWith(chatId, userId, {
-      beforeSeq: 9,
-    });
-
+    expect(repositories.findActiveCheckpoint).toHaveBeenCalledWith(
+      chatId,
+      userId,
+      { beforeSeq: 9 },
+    );
     expect(findByChatId).toHaveBeenCalledWith(chatId, userId, {
       maxSeq: 9,
-      sinceSeq: 4,
     });
-    // The compacted prefix is replayed from replacement_history, so the
-    // superseded turns are represented without re-reading them.
-    const summarizedPrefixContent: unknown = expect.arrayContaining([
-      { type: 'text', text: 'Summarized prefix request' },
-    ]);
-    expect(capturing.streamOptions().messages).toEqual([
-      {
-        role: 'user',
-        content: summarizedPrefixContent,
-      },
-    ]);
+    expect(JSON.stringify(capturing.streamOptions().messages[0])).toContain(
+      'Earlier turns, summarized.',
+    );
   });
 
   it('reads the whole history when the chat has never been compacted', async () => {
@@ -8140,16 +8110,17 @@ function activeCheckpoint(input: {
   uptoSeq: number;
   createdAt: Date;
   id?: string;
-}): Compaction {
+}): Message {
   return {
     id: input.id ?? '77777777-7777-4777-8777-777777777777',
     chatId,
-    uptoSeq: input.uptoSeq,
-    parentId: null,
-    summary: 'Earlier turns, summarized.',
-    replacementHistory: [
-      { role: 'user', parts: [{ type: 'text', text: 'Summarized prefix' }] },
-    ],
+    seq: input.uptoSeq + 1,
+    role: 'checkpoint',
+    senderUserId: null,
+    parts: [createCompactionCheckpointPart('Earlier turns, summarized.')],
+    attachments: [],
+    absorbedThroughSeq: input.uptoSeq,
+    inReplyTo: null,
     usage: null,
     createdAt: input.createdAt,
   };
@@ -8166,11 +8137,11 @@ const digestBaseline: RecencyDigestResolution['baseline'] = {
 };
 
 /** One attempt against a chat whose last successful turn is `completed`, with
- * `compaction` the active checkpoint. Runs to a committed turn. */
+ * `checkpoint` the active row. Runs to a committed turn. */
 async function executeAvailabilityAttempt(input: {
   recent?: Run;
   completed?: CompletedRunWithTrigger;
-  compaction?: Compaction;
+  compaction?: Message;
 }) {
   const repositories = mockNormalExecutionRepositories();
   vi.spyOn(
@@ -8182,9 +8153,7 @@ async function executeAvailabilityAttempt(input: {
     'findMostRecentCompletedByChatMessageSequence',
   ).mockImplementation(completedLookupBefore(1, input.completed));
   if (input.compaction !== undefined) {
-    vi.spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
-      .mockResolvedValueOnce(input.compaction)
-      .mockResolvedValue(input.compaction);
+    repositories.findActiveCheckpoint.mockResolvedValue(input.compaction);
   }
   const execution = makeExecutionService(
     createFakeModelClient(['answer']),
@@ -8548,10 +8517,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       workspaceTold: '/workspace/project',
       workspaceToldFrom: '66666666-6666-4666-8666-666666666666',
     });
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(
+    repositories.findActiveCheckpoint.mockResolvedValue(
       activeCheckpoint({ uptoSeq: 1, createdAt: now, id: compactionId }),
     );
     const setTold = vi
@@ -8591,10 +8557,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       recencyDigestTold: [],
       recencyDigestRebakedFrom: compactionId,
     });
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(
+    repositories.findActiveCheckpoint.mockResolvedValue(
       activeCheckpoint({ uptoSeq: 1, createdAt: now, id: compactionId }),
     );
     vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
@@ -8645,10 +8608,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       recencyDigestBaseline: null,
       recencyDigestRebakedFrom: compactionId,
     });
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(
+    repositories.findActiveCheckpoint.mockResolvedValue(
       activeCheckpoint({ uptoSeq: 1, createdAt: now, id: compactionId }),
     );
     vi.spyOn(
@@ -9919,35 +9879,21 @@ describe('RunExecutionService instruction files', () => {
       serveNativeReads();
       const append = vi.spyOn(RunEventsRepository.prototype, 'append');
       const item = instructionItem(root);
-      vi.spyOn(
-        CompactionsRepository.prototype,
-        'findLatestByChatId',
-      ).mockResolvedValue({
-        id: '99999999-9999-4999-8999-999999999999',
-        chatId,
-        uptoSeq: 1,
-        parentId: null,
-        summary: 'Earlier turns, summarized.',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'Summarized prefix request' }],
-          },
-        ],
-        usage: null,
-        createdAt: now,
-      });
-      // The item sits at the checkpoint's cutoff, so the live history read
-      // (the one carrying `sinceSeq`) does not return it.
+      repositories.findActiveCheckpoint.mockResolvedValue(
+        activeCheckpoint({
+          uptoSeq: 1,
+          createdAt: now,
+          id: '99999999-9999-4999-8999-999999999999',
+        }),
+      );
+      // The item sits at the checkpoint's cutoff, so the context builder
+      // excludes it while the instruction loader sees no prior disclosure.
       const findByChatId = vi
         .spyOn(MessagesRepository.prototype, 'findByChatId')
-        .mockImplementation((_chatId, _ownerUserId, options) =>
-          Promise.resolve(
-            options?.sinceSeq === undefined
-              ? [{ ...userMessage, seq: 1, parts: [item] }]
-              : [{ ...userMessage, seq: 2 }],
-          ),
-        );
+        .mockResolvedValue([
+          { ...userMessage, seq: 1, parts: [item] },
+          { ...userMessage, seq: 2 },
+        ]);
       const { client } = readThenAnswerClient(touch);
       const execution = makeExecutionService(
         client,
@@ -9969,11 +9915,9 @@ describe('RunExecutionService instruction files', () => {
         expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
 
-      expect(findByChatId).toHaveBeenCalledWith(
-        chatId,
-        userId,
-        expect.objectContaining({ maxSeq: 2, sinceSeq: 1 }),
-      );
+      expect(findByChatId).toHaveBeenCalledWith(chatId, userId, {
+        maxSeq: 2,
+      });
       // The item is gone from effective history: the accepted turn reloads
       // the file for its first request.
       expect(instructionItems(repositories)).toHaveLength(1);
@@ -10029,7 +9973,7 @@ describe('RunExecutionService instruction files', () => {
 
       // The checkpoint absorbs the committed turn, never the row it precedes.
       expect(publication.create).toHaveBeenCalledWith(
-        expect.objectContaining({ uptoSeq: 2 }),
+        expect.objectContaining({ absorbedThroughSeq: 2 }),
       );
       expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
       // The rebuilt history dropped the item, so the accepted-turn bundle is

@@ -1,17 +1,14 @@
 /**
- * The owner fork's pure projection (complete-owner-forks D2-D3): which storage
- * identities the copy allocates, which Chat-row state travels with it, and what
- * the copied message rows look like.
- *
- * `ChatsService` owns the transaction and the writes, so the cases here drive
- * the decision directly; what the writes then produce is pinned in
- * `fork-chat.integration.test.ts`.
+ * Pure owner-fork projection tests. The live database integration suite pins
+ * the transaction and RLS behavior; these cases pin boundary selection,
+ * identity remapping, and inherited Chat state without a database.
  */
 
-import { type Chat, type Compaction } from '../db/schema';
+import { type Chat } from '../db/schema';
 import {
   copiedMessageRows,
   inheritForkedChatState,
+  selectForkMessages,
   type CopyableMessage,
 } from './fork-copy';
 
@@ -44,283 +41,208 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   ...overrides,
 });
 
-const compaction = (
+const row = (
   id: string,
-  uptoSeq: number,
-  overrides: Partial<Compaction> = {},
-): Compaction => ({
-  id,
-  chatId: CHAT_ID,
-  uptoSeq,
-  parentId: null,
-  summary: `${id} summary`,
-  replacementHistory: [
-    { role: 'user', parts: [{ type: 'text', text: `${id} replay` }] },
-  ],
-  usage: null,
-  createdAt: NOW,
-  ...overrides,
-});
-
-/** The shared fork's shape: no time and no price of its own. */
-const copyable = (
-  id: string,
+  seq: number,
   overrides: Partial<CopyableMessage> = {},
-): CopyableMessage => ({
+): CopyableMessage & { seq: number } => ({
   id,
+  seq,
   role: 'user',
   parts: [{ type: 'text', text: id }],
   senderUserId: USER_ID,
   attachments: [],
   inReplyTo: null,
+  absorbedThroughSeq: null,
   ...overrides,
 });
 
+const checkpoint = (
+  id: string,
+  seq: number,
+  absorbedThroughSeq: number,
+): CopyableMessage & { seq: number } =>
+  row(id, seq, {
+    role: 'checkpoint',
+    senderUserId: null,
+    parts: [{ type: 'data-context', data: { text: `${id} text` } }],
+    absorbedThroughSeq,
+  });
+
+describe('selectForkMessages', () => {
+  it('selects ordinary rows by anchor but checkpoints by absorbed boundary', () => {
+    const rows = [
+      row('user-1', 1),
+      row('assistant-1', 2, { role: 'assistant', senderUserId: null }),
+      row('user-2', 3),
+      checkpoint('checkpoint-1', 4, 2),
+      checkpoint('checkpoint-2', 5, 4),
+      row('tool-1', 6, { role: 'tool', senderUserId: null }),
+    ];
+
+    expect(selectForkMessages(rows, 3).map(({ id }) => id)).toEqual([
+      'user-1',
+      'assistant-1',
+      'user-2',
+      'checkpoint-1',
+    ]);
+  });
+
+  it('selects every valid row for a whole-chat fork and keeps source order', () => {
+    const rows = [row('user-1', 7), checkpoint('checkpoint-1', 8, 7)];
+
+    expect(selectForkMessages(rows, undefined)).toEqual(rows);
+  });
+});
+
 describe('inheritForkedChatState', () => {
-  // Ascending `uptoSeq`, the order the repository returns the prefix in. Three
-  // rows, because the last and the second-to-last must differ for the active
-  // checkpoint to be observable.
-  const oldest = compaction('compaction-1', 4);
-  const middle = compaction('compaction-2', 8);
-  const newest = compaction('compaction-3', 12);
-  const prefix = [oldest, middle, newest];
+  const first = checkpoint('checkpoint-1', 3, 2);
+  const latest = checkpoint('checkpoint-2', 6, 5);
+  const prefix = [first, latest];
 
-  it("re-bakes both baselines at the copied LAST compaction as the fork's active checkpoint", () => {
+  it('remaps markers naming copied checkpoints to their copied message ids', () => {
     const source = chat({
-      // Outside the copied prefix, so each marker takes the fallback path.
-      recencyDigestRebakedFrom: 'compaction-outside-prefix',
-      skillCatalogRebakedFrom: 'compaction-outside-prefix',
+      recencyDigestRebakedFrom: first.id,
+      skillCatalogRebakedFrom: latest.id,
     });
 
-    const { compactionIds, inherited } = inheritForkedChatState(source, prefix);
+    const { messageIds, inherited } = inheritForkedChatState(source, prefix);
 
-    expect(inherited.recencyDigestRebakedFrom).toBe(
-      compactionIds.get(newest.id),
-    );
-    expect(inherited.skillCatalogRebakedFrom).toBe(
-      compactionIds.get(newest.id),
-    );
-    // The second-to-last copy is a different checkpoint: pointing the markers
-    // there would leave the fork's newest checkpoint unaccounted for.
-    expect(inherited.recencyDigestRebakedFrom).not.toBe(
-      compactionIds.get(middle.id),
-    );
+    expect(inherited.recencyDigestRebakedFrom).toBe(messageIds.get(first.id));
+    expect(inherited.skillCatalogRebakedFrom).toBe(messageIds.get(latest.id));
+    expect(inherited.recencyDigestRebakedFrom).not.toBe(first.id);
+    expect(inherited.skillCatalogRebakedFrom).not.toBe(latest.id);
   });
 
-  it("remaps a marker naming a copied compaction onto that copy's new id", () => {
+  it('maps an uncopied marker to the copied active checkpoint or null', () => {
     const source = chat({
-      recencyDigestRebakedFrom: middle.id,
-      skillCatalogRebakedFrom: middle.id,
+      recencyDigestRebakedFrom: latest.id,
+      skillCatalogRebakedFrom: latest.id,
     });
+    const onlyFirst = inheritForkedChatState(source, [first]);
+    const firstCopyId = onlyFirst.messageIds.get(first.id);
 
-    const { compactionIds, inherited } = inheritForkedChatState(source, prefix);
+    expect(onlyFirst.inherited.recencyDigestRebakedFrom).toBe(firstCopyId);
+    expect(onlyFirst.inherited.skillCatalogRebakedFrom).toBe(firstCopyId);
 
-    expect(inherited.recencyDigestRebakedFrom).toBe(
-      compactionIds.get(middle.id),
-    );
-    expect(inherited.skillCatalogRebakedFrom).toBe(
-      compactionIds.get(middle.id),
-    );
-    // Neither the source's own id nor the active checkpoint.
-    expect(inherited.recencyDigestRebakedFrom).not.toBe(middle.id);
-    expect(inherited.recencyDigestRebakedFrom).not.toBe(
-      compactionIds.get(newest.id),
-    );
+    const noCheckpoints = inheritForkedChatState(source, []);
+    expect(noCheckpoints.inherited.recencyDigestRebakedFrom).toBeNull();
+    expect(noCheckpoints.inherited.skillCatalogRebakedFrom).toBeNull();
   });
 
-  it('keeps a null marker null even though the prefix was copied', () => {
-    const { inherited } = inheritForkedChatState(chat(), prefix);
-
-    // The source re-resolves that baseline, so the fork has to re-resolve it
-    // the same way rather than pinning one the source would replace.
-    expect(inherited.recencyDigestRebakedFrom).toBeNull();
-    expect(inherited.skillCatalogRebakedFrom).toBeNull();
-  });
-
-  it('nulls a marker naming an uncopied compaction when the prefix copied none', () => {
+  it('keeps null markers null and carries frozen state and the active binding', () => {
     const source = chat({
-      recencyDigestRebakedFrom: 'compaction-outside-prefix',
-      skillCatalogRebakedFrom: 'compaction-outside-prefix',
-    });
-
-    const { compactionIds, inherited } = inheritForkedChatState(source, []);
-
-    expect(compactionIds.size).toBe(0);
-    expect(inherited.recencyDigestRebakedFrom).toBeNull();
-    expect(inherited.skillCatalogRebakedFrom).toBeNull();
-  });
-
-  it('carries the frozen baselines, told-sets, and creation time verbatim', () => {
-    const sourceAt = new Date('2026-08-01T12:30:00.000Z');
-    const source = chat({
-      createdAt: sourceAt,
       recencyDigestBaseline: {
         pinned: [],
-        recent: [{ title: 'Trip', date: '2026-07-30', messageCount: 4 }],
+        recent: [],
         pinnedShown: 0,
         pinnedTotal: 0,
-        recentShown: 1,
-        recentTotal: 1,
-        compiledOn: '2026-08-01',
+        recentShown: 0,
+        recentTotal: 0,
+        compiledOn: '2026-09-14',
       },
-      recencyDigestTold: [
-        { chatId: 'other-chat', pinned: false, title: 'Trip' },
-      ],
+      recencyDigestTold: [{ chatId: 'other', pinned: false, title: 'Old' }],
       skillCatalogBaseline: {
-        entries: [{ name: 'alpha', description: 'Alpha skill' }],
-        omitted: 2,
+        entries: [{ name: 'alpha', description: 'A' }],
+        omitted: 0,
       },
       skillCatalogTold: ['alpha'],
+      workspaceRoot: '/work/project',
+      workspaceExecutorId: 'worker-a',
+      workspaceGeneration: 7,
     });
 
     const { inherited } = inheritForkedChatState(source, prefix);
 
-    expect(inherited.createdAt).toBe(sourceAt);
-    expect(inherited.recencyDigestBaseline).toEqual(
-      source.recencyDigestBaseline,
-    );
-    expect(inherited.recencyDigestTold).toEqual(source.recencyDigestTold);
-    expect(inherited.skillCatalogBaseline).toEqual(source.skillCatalogBaseline);
-    expect(inherited.skillCatalogTold).toEqual(source.skillCatalogTold);
-  });
-  it('copies the active binding but not told state or a detach reason', () => {
-    const source = chat({
-      workspaceRoot: '/work/project',
-      workspaceExecutorId: 'worker-a',
-      workspaceGeneration: 7,
-      workspaceTold: '/work/project',
-      workspaceToldFrom: 'compaction-a',
-      workspaceDetachReason: 'root_missing',
-    });
-
-    const { inherited } = inheritForkedChatState(source, []);
-
     expect(inherited).toMatchObject({
+      createdAt: source.createdAt,
+      recencyDigestBaseline: source.recencyDigestBaseline,
+      recencyDigestTold: source.recencyDigestTold,
+      skillCatalogBaseline: source.skillCatalogBaseline,
+      skillCatalogTold: source.skillCatalogTold,
       workspaceRoot: '/work/project',
       workspaceExecutorId: 'worker-a',
       workspaceGeneration: 7,
+      recencyDigestRebakedFrom: null,
+      skillCatalogRebakedFrom: null,
     });
     expect(inherited).not.toHaveProperty('workspaceTold');
     expect(inherited).not.toHaveProperty('workspaceToldFrom');
     expect(inherited).not.toHaveProperty('workspaceDetachReason');
   });
-
-  it('allocates every copied compaction a distinct new id that is not its source id', () => {
-    const { compactionIds } = inheritForkedChatState(chat(), prefix);
-
-    expect([...compactionIds.keys()]).toEqual([
-      oldest.id,
-      middle.id,
-      newest.id,
-    ]);
-    const newIds = [...compactionIds.values()];
-    expect(new Set(newIds).size).toBe(prefix.length);
-    for (const sourceId of [oldest.id, middle.id, newest.id]) {
-      expect(newIds).not.toContain(sourceId);
-    }
-  });
 });
 
 describe('copiedMessageRows', () => {
-  it('writes dense sequences from 1 in source order under fresh, distinct ids', () => {
-    const rows = copiedMessageRows(
-      [
-        copyable('message-1'),
-        copyable('message-2', { role: 'assistant', senderUserId: null }),
-        copyable('message-3'),
-      ],
-      FORK_CHAT_ID,
-    );
+  it('writes dense sequences and remaps a checkpoint boundary to the copied row', () => {
+    const first = row('message-1', 10);
+    const second = row('message-2', 20, {
+      role: 'assistant',
+      senderUserId: null,
+      inReplyTo: first.id,
+    });
+    const checkpointRow = checkpoint('checkpoint-1', 30, second.seq);
+    const rows = [first, second, checkpointRow];
 
-    expect(rows.map((row) => row.seq)).toEqual([1, 2, 3]);
-    expect(rows.map((row) => row.chatId)).toEqual([
+    const { messageIds } = inheritForkedChatState(chat(), rows);
+    const copied = copiedMessageRows(rows, FORK_CHAT_ID, messageIds);
+
+    expect(copied.map((item) => item.seq)).toEqual([1, 2, 3]);
+    expect(copied.map((item) => item.chatId)).toEqual([
       FORK_CHAT_ID,
       FORK_CHAT_ID,
       FORK_CHAT_ID,
     ]);
-    const ids = rows.map((row) => row.id);
-    expect(new Set(ids).size).toBe(rows.length);
-    for (const sourceId of ['message-1', 'message-2', 'message-3']) {
-      expect(ids).not.toContain(sourceId);
-    }
-  });
-
-  it('points inReplyTo at the copied predecessor and nulls a row that replied to nothing', () => {
-    const rows = copiedMessageRows(
-      [
-        copyable('message-1'),
-        copyable('message-2', {
-          role: 'assistant',
-          senderUserId: null,
-          inReplyTo: 'message-1',
-        }),
-      ],
-      FORK_CHAT_ID,
+    expect(copied.map((item) => item.id)).not.toEqual(
+      rows.map((item) => item.id),
     );
-
-    expect(rows[1].inReplyTo).toBe(rows[0].id);
-    expect(rows[0].inReplyTo).toBeNull();
+    expect(copied[1].inReplyTo).toBe(copied[0].id);
+    expect(copied[2].absorbedThroughSeq).toBe(2);
+    expect(copied[2].parts).toEqual(checkpointRow.parts);
   });
 
-  it("copies the owner fork's content, time, and price verbatim, keeping a user row's null usage null", () => {
-    const userAt = new Date('2026-09-13T10:00:00.000Z');
-    const assistantAt = new Date('2026-09-13T10:00:05.000Z');
-    const userParts = [{ type: 'text', text: 'question' }];
-    const assistantParts = [{ type: 'text', text: 'answer' }];
-    const attachments = [{ type: 'file', name: 'notes.txt' }];
+  it('copies owner content, createdAt, usage, and attachments verbatim', () => {
+    const createdAt = new Date('2026-09-13T10:00:00.000Z');
     const usage = { status: 'completed', totalTokens: 42 };
+    const rows = [
+      row('message-1', 1, {
+        parts: [{ type: 'text', text: 'question' }],
+        attachments: [{ type: 'file', name: 'notes.txt' }],
+        createdAt,
+        usage: null,
+      }),
+      row('message-2', 2, {
+        role: 'assistant',
+        senderUserId: null,
+        inReplyTo: 'message-1',
+        createdAt,
+        usage,
+      }),
+    ];
 
-    const rows = copiedMessageRows(
-      [
-        copyable('message-1', {
-          parts: userParts,
-          attachments,
-          createdAt: userAt,
-          usage: null,
-        }),
-        copyable('message-2', {
-          role: 'assistant',
-          senderUserId: null,
-          inReplyTo: 'message-1',
-          parts: assistantParts,
-          createdAt: assistantAt,
-          usage,
-        }),
-      ],
-      FORK_CHAT_ID,
-    );
+    const copied = copiedMessageRows(rows, FORK_CHAT_ID);
 
-    expect(rows[0]).toMatchObject({
+    expect(copied[0]).toMatchObject({
       role: 'user',
-      senderUserId: USER_ID,
-      parts: userParts,
-      attachments,
-      createdAt: userAt,
+      parts: rows[0].parts,
+      attachments: rows[0].attachments,
+      createdAt,
+      usage: null,
+      absorbedThroughSeq: null,
     });
-    // Null rather than absent: the copied user turn keeps its own (empty) price.
-    expect(rows[0].usage).toBeNull();
-    expect(rows[1]).toMatchObject({
+    expect(copied[1]).toMatchObject({
       role: 'assistant',
-      senderUserId: null,
-      parts: assistantParts,
-      attachments: [],
-      createdAt: assistantAt,
+      parts: rows[1].parts,
+      createdAt,
       usage,
+      absorbedThroughSeq: null,
     });
   });
 
-  it("leaves createdAt and usage to the column defaults for the shared fork's rows", () => {
-    const rows = copiedMessageRows(
-      [
-        copyable('message-1'),
-        copyable('message-2', { role: 'assistant', senderUserId: null }),
-      ],
-      FORK_CHAT_ID,
-    );
+  it('fails closed when a copied checkpoint does not name a copied row', () => {
+    const rows = [checkpoint('checkpoint-1', 10, 7)];
 
-    for (const row of rows) {
-      expect(row.createdAt).toBeUndefined();
-      expect(row.usage).toBeUndefined();
-    }
+    expect(() => copiedMessageRows(rows, FORK_CHAT_ID)).toThrow(
+      'names a row outside the copied prefix',
+    );
   });
 });

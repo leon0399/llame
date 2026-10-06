@@ -9,27 +9,7 @@ import {
 } from '../tools/turn-tool-catalog';
 import { type Tool } from '../tools/types';
 import { canonicalJson } from '../canonical-json';
-
-export class ModelContextExecutionError extends Error {
-  readonly code: string = 'model_context_incompatible';
-
-  constructor(message: string) {
-    super(message);
-    this.name = 'ModelContextExecutionError';
-  }
-}
-
-export class ContextIncompatibleError extends ModelContextExecutionError {
-  override readonly code = 'context_incompatible';
-
-  constructor(message: string, options?: ErrorOptions) {
-    super(message);
-    this.name = 'ContextIncompatibleError';
-    if (options?.cause !== undefined) {
-      this.cause = options.cause;
-    }
-  }
-}
+import { ModelContextExecutionError } from './model-context-errors';
 
 export type BoundExecutableTool = {
   declaration: ModelToolDeclaration;

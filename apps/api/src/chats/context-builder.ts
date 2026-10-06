@@ -15,40 +15,19 @@
  *   threshold — lineage-less memory loss.
  */
 
-import type {
-  AssistantContent,
-  ModelMessage,
-  ProviderMetadata,
-  ToolCallPart as SdkToolCallPart,
-  ToolResultPart as SdkToolResultPart,
-} from 'ai';
+import type { AssistantContent, ModelMessage, ProviderMetadata } from 'ai';
 
-import {
-  type CompactionReplacementMessage,
-  type RunContextItem,
-} from '../db/schema/chats';
-import {
-  isContextItemPart,
-  renderContextItem,
-  type ContextItemPart,
-} from './context-item';
-import {
-  COMPACTION_CHECKPOINT_FORM,
-  renderCompactionCheckpoint,
-} from './context-item-producers';
-import { resolveForm } from './context-item';
+import type { RunContextItem } from '../db/schema/chats';
+import { isContextItemPart, type ContextItemPart } from './context-item';
 import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
   projectToolObservations,
+  renderToolObservationOmission,
   type ProjectedToolObservationPair,
   type ToolObservationProjection,
 } from './tool-observation-part';
-import {
-  isStoredReplacementToolPart,
-  parseCompactionReplacementHistory,
-  renderToolObservationOmission,
-  type StoredReplacementToolPart,
-} from './compaction-replacement-history';
+import { COMPACTION_CHECKPOINT_FORM } from './context-item-producers';
+import { resolveForm } from './context-item';
 
 export { projectToolObservations };
 export type { ModelMessage };
@@ -139,12 +118,14 @@ export interface StoredMessage {
   // deterministically — created_at is the transaction timestamp and ties for
   // messages written in the same transaction.
   seq: number;
-  role: 'user' | 'assistant' | 'system' | 'tool';
+  role: 'user' | 'assistant' | 'system' | 'tool' | 'checkpoint';
   senderUserId: string | null;
   parts: Array<MessagePart>;
   attachments: Array<unknown>;
   /** Durable assistant telemetry; transition compaction uses completed turns only. */
   usage?: unknown;
+  /** Coverage boundary for a checkpoint row; null on every other role. */
+  absorbedThroughSeq?: number | null;
   createdAt: Date;
 }
 
@@ -156,17 +137,12 @@ export interface StoredMessage {
  */
 
 /**
- * A compaction summary to fold into the context (#57). Supersedes every stored
- * message with seq <= uptoSeq; buildContext renders it as the leading history
- * entry (role 'user') so the system prompt stays byte-identical across turns
- * (prompt-cache contract) and no `role: 'system'` entry enters `messages`
- * (AI SDK v6 rejects those).
+ * A persisted checkpoint selected for replay. The text is read from the
+ * checkpoint row once, then emitted literally; replay never re-renders it.
  */
-export interface ContextCompaction {
-  summary: string;
-  uptoSeq: number;
-  /** Required, message-shaped JSONB. Runtime-validated before model replay. */
-  replacementHistory: unknown;
+export interface ContextCheckpoint {
+  text: string;
+  absorbedThroughSeq: number;
 }
 
 /**
@@ -187,34 +163,8 @@ export interface BuildContextOptions {
    * excluded), so a new caller cannot inherit a silent choice (D16).
    */
   requestKind: ContextRequestKind;
-  /** Latest compaction for the chat, if any (#57). */
-  compaction?: ContextCompaction;
-}
-
-/**
- * Frames the summary as recalled context, clearly delimited from live user input.
- * Server-authored (trusted) — but rendered as history data, not system instruction.
- *
- * The checkpoint renders through the same envelope as every other context
- * item, under `producer: 'compaction'` and the `checkpoint` form. Its storage
- * stays in `compactions`, whose `parentId` lineage and `uptoSeq` supersession
- * query cannot be expressed as a message part — but the model sees one
- * convention rather than a second delimiter making the same "treat as data"
- * claim in different words.
- */
-export function renderConversationCheckpoint(summary: string): string {
-  const rendered = renderContextItem({
-    producer: 'compaction',
-    form: COMPACTION_CHECKPOINT_FORM,
-    body: renderCompactionCheckpoint(summary),
-  });
-  // `compaction` is a recognized producer, so the renderer's fail-closed branch
-  // is unreachable here; throwing rather than emitting an empty checkpoint
-  // keeps that a loud contradiction instead of a silently missing summary.
-  if (rendered === null) {
-    throw new TypeError('compaction is not a recognized context-item producer');
-  }
-  return rendered;
+  /** The active checkpoint for this request, if any. */
+  checkpoint?: ContextCheckpoint;
 }
 
 /**
@@ -282,85 +232,6 @@ function userPartsToModelContent(
     return text === undefined || text.length === 0
       ? []
       : [{ type: 'text' as const, text }];
-  });
-}
-
-function replacementRecordToModelMessages(
-  record: CompactionReplacementMessage,
-): Array<ModelMessage> {
-  const part = record.parts[0];
-  if (record.role === 'user') {
-    if (!isTextPart(part)) {
-      throw new TypeError('Invalid compaction replacement history');
-    }
-    return [
-      {
-        role: 'user',
-        content: [{ type: 'text', text: part.text }],
-      },
-    ];
-  }
-
-  if (isTextPart(part)) {
-    return [
-      {
-        role: 'assistant',
-        content: [{ type: 'text', text: part.text }],
-      },
-    ];
-  }
-  if (!isStoredReplacementToolPart(part)) {
-    throw new TypeError('Invalid compaction replacement history');
-  }
-  return toolReplacementRecordToModelMessages(part);
-}
-
-/** Reconstruct the tool-call/tool-result message pair a stored replacement tool part represents. */
-function toolReplacementRecordToModelMessages(
-  part: StoredReplacementToolPart,
-): Array<ModelMessage> {
-  const toolName = part.type.slice('tool-'.length);
-  const toolCallPart: SdkToolCallPart = {
-    type: 'tool-call',
-    toolCallId: part.toolCallId,
-    toolName,
-    input: part.input ?? {},
-  };
-  const toolResultPart: SdkToolResultPart = {
-    type: 'tool-result',
-    toolCallId: part.toolCallId,
-    toolName,
-    output: { type: 'text', value: part.output },
-  };
-  return [
-    { role: 'assistant', content: [toolCallPart] },
-    { role: 'tool', content: [toolResultPart] },
-  ];
-}
-
-function appendCompactionReplacementHistory(
-  result: Array<ModelMessage>,
-  contextItems: Array<RunContextItem>,
-  value: ContextCompaction['replacementHistory'],
-): void {
-  const replacementHistory = parseCompactionReplacementHistory(value);
-  if (replacementHistory === null) {
-    throw new TypeError('Invalid compaction replacement history');
-  }
-
-  for (const record of replacementHistory) {
-    result.push(...replacementRecordToModelMessages(record));
-  }
-
-  const first = replacementHistory[0].parts[0];
-  if (!isTextPart(first)) {
-    throw new TypeError('Invalid compaction replacement history');
-  }
-  contextItems.push({
-    producer: 'compaction',
-    form: COMPACTION_CHECKPOINT_FORM,
-    residency: 'rail',
-    text: first.text,
   });
 }
 
@@ -546,18 +417,17 @@ export function buildContext(
   messages: Array<StoredMessage>,
   options: BuildContextOptions,
 ): BuiltContext {
-  const { systemPrompt, compaction, requestKind } = options;
+  const { systemPrompt, checkpoint, requestKind } = options;
 
-  // Exclude any stored system-role rows: `system` (above) is the only system
-  // content this function emits — a persisted system-role row (none are written
-  // today, but the schema's role union permits one) must not leak into `messages`.
-  // A compaction supersedes everything at or before its uptoSeq (#57): those turns
-  // are represented by the summary below, so they must not also appear verbatim.
+  // Checkpoint rows are storage-only markers. The selected checkpoint is
+  // represented by its stored literal text below; every other checkpoint row
+  // is skipped and can never fall through the assistant branch.
   const history = messages.filter(
     (m) =>
       m.role !== 'system' &&
       m.role !== 'tool' &&
-      (compaction === undefined || m.seq > compaction.uptoSeq),
+      m.role !== 'checkpoint' &&
+      (checkpoint === undefined || m.seq > checkpoint.absorbedThroughSeq),
   );
 
   // Deterministic order: sort by seq (monotonic insertion order) even if the
@@ -568,22 +438,28 @@ export function buildContext(
   const result: Array<ModelMessage> = [];
   const contextItems: Array<RunContextItem> = [];
 
-  // Stored replacement history leads the history — the complete application
-  // replay replacement for everything it superseded. The raw summary is not a
-  // replay authority and must never be rendered here.
-  if (compaction !== undefined) {
-    appendCompactionReplacementHistory(
-      result,
-      contextItems,
-      compaction.replacementHistory,
-    );
+  if (checkpoint !== undefined) {
+    result.push({
+      role: 'user',
+      content: [{ type: 'text', text: checkpoint.text }],
+    });
+    contextItems.push({
+      producer: 'compaction',
+      form: COMPACTION_CHECKPOINT_FORM,
+      residency: 'rail',
+      text: checkpoint.text,
+    });
   }
 
   for (const m of ordered) {
     if (m.role === 'user') {
       appendUserMessage(result, contextItems, m);
-    } else {
+    } else if (m.role === 'assistant') {
       appendAssistantMessage(result, contextItems, m, requestKind);
+    } else if (m.role === 'checkpoint') {
+      // Explicitly named so a future role cannot accidentally replay a
+      // checkpoint as assistant content.
+      continue;
     }
   }
 

@@ -137,10 +137,9 @@ export const fetchChats = (
 type ChatMessagesPageParam = number | null;
 const INITIAL_MESSAGES_PAGE_PARAM: ChatMessagesPageParam = null;
 
-// One page of history, newest window first. Compaction (#57) arrives
-// EMBEDDED in the messages response (#136 — folded from a separate
-// GET :id/compaction call into this one), so there's a single fetch, not two
-// independently-failing ones.
+// One page of history, newest window first. Checkpoint rows arrive in the
+// ordinary owner message response; `normalizeChatMessagesResponse` extracts
+// the newest checkpoint on that page for the transcript boundary.
 const fetchChatMessagesPage = async ({
   queryKey: [, chatId, , mode, targetSeq],
   pageParam,
@@ -188,9 +187,8 @@ export function olderPageParam(
 /**
  * Flatten the paginated cache into the oldest→newest shape `ChatPage`
  * renders from. `pages[0]` is the newest window and each later page is
- * strictly older, so the display order is the page order reversed. Every
- * page carries the identical "latest compaction" snapshot (it's not
- * paginated itself); the newest page's copy is the freshest after a refetch.
+ * strictly older, so the display order is the page order reversed. The
+ * newest checkpoint found across loaded pages supplies the boundary snapshot.
  *
  * Pages that fail to advance are truncated here, at the merge point:
  * TanStack commits a fetched page to the cache BEFORE `getNextPageParam`
@@ -216,9 +214,10 @@ export function toChatHistory(
     pages.push(page.messages);
   }
   const messages = pages.reverse().flat();
+  const checkpoint = data.pages.find((page) => page.compaction)?.compaction;
   return {
     messages: toChatUiMessages({ messages }),
-    compaction: data.pages[0]?.compaction ?? null,
+    compaction: checkpoint ?? null,
   };
 }
 

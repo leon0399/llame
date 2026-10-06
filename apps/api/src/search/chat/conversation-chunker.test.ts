@@ -95,6 +95,37 @@ describe('chunkConversation', () => {
     expect(chunks[0].normalizedContent).not.toContain('snippet');
   });
 
+  it('excludes checkpoint rows and their stored summary text', () => {
+    const chunks = chunkConversation([
+      userMsg('u', 'visible question', 0),
+      {
+        id: 'checkpoint',
+        role: 'checkpoint',
+        parts: [
+          {
+            type: 'data-context',
+            data: {
+              producer: 'compaction',
+              form: 'checkpoint',
+              text: 'PRIVATE_CHECKPOINT_SUMMARY',
+              payload: { v: 1, summary: 'PRIVATE_CHECKPOINT_SUMMARY' },
+            },
+          },
+        ],
+        createdAt: at(1),
+      },
+      assistantMsg('a', 'visible answer', 2),
+    ]);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({
+      content: '[user] visible question\n\n[assistant] visible answer',
+      firstMessageId: 'u',
+      lastMessageId: 'a',
+    });
+    expect(JSON.stringify(chunks)).not.toContain('PRIVATE_CHECKPOINT_SUMMARY');
+  });
+
   it('excludes a reasoning part carrying opaque provider metadata, value and all', () => {
     const chunks = chunkConversation([
       userMsg('u', 'real question', 0),
@@ -168,10 +199,6 @@ describe('chunkConversation', () => {
             },
           },
           {
-            type: 'conversation-checkpoint',
-            summary: 'zzcheckpointindigo',
-          },
-          {
             type: 'effective-context-receipt',
             systemPrompt: 'zzsystempromptamber',
             inputSchema: 'zztoolschemamercury',
@@ -185,7 +212,7 @@ describe('chunkConversation', () => {
     expect(chunks).toHaveLength(1);
     expect(chunks[0].content).toBe('[user] zzhumanoriginalgreen');
     expect(JSON.stringify(chunks)).not.toMatch(
-      /zz(prevmodel|currentmodel|reminderprose|removedtool|unavailabletool|availabilityreminder|checkpoint|systemprompt|toolschema)/,
+      /zz(prevmodel|currentmodel|reminderprose|removedtool|unavailabletool|availabilityreminder|systemprompt|toolschema)/,
     );
   });
 

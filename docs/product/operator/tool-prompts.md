@@ -200,9 +200,14 @@ tool catalogs are removed rather than migrated, so the cutover is coordinated:
 3. Apply the migration with `pnpm db:migrate`.
 4. Start the API and every worker together on the matching revision.
 
-The migration preserves messages and reminders, active summaries and
-checkpoints, and digest baselines; it does not reset or discard live chats, and
-it makes no claim about context produced by failed pre-cutover Runs.
+That migration preserves messages and reminders, checkpoint rows, and digest
+baselines; it does not reset or discard live chats, and it makes no claim about
+context produced by failed pre-cutover Runs.
+
+The checkpoint storage cutover drops the old `compactions` table without
+conversion. Stop every API and worker before `pnpm db:migrate`, then start them
+together on the matching revision. A previously compacted Chat pays one summary
+call on its next over-threshold turn; no tool records cross a checkpoint.
 
 ## Troubleshooting
 

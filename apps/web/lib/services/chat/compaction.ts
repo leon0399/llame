@@ -1,27 +1,9 @@
 /**
- * Pure client-side boundary math over the chat's latest compaction (#57).
+ * Pure client-side boundary math over checkpoint rows in the owner history.
  *
- * The compaction itself is no longer fetched separately here — it arrives
- * EMBEDDED in `GET :id/messages` (#136: folded from a standalone
- * `GET :id/compaction` call, which was a second, independently-failing fetch
- * with no way for the UI to tell "no compaction" apart from "the fetch
- * errored"). `useChatMessagesQuery` (queries.ts) now returns both
- * `{ messages, compaction }` from one request; `compactionBoundaryIndex`
- * below is the only thing this module still needs to provide.
- */
-
-/**
- * Index in `messages` where the compacted span ENDS — i.e. where the marker
- * renders (BEFORE that index; `=== messages.length` renders AFTER the last).
- * The boundary is the first message past `uptoSeq` (`metadata.seq > uptoSeq`, or
- * a live/seq-less message, which is always newest).
- *
- * Sentinel `-1` = no marker, and ONLY for "no compaction" or "no messages".
- * When a compaction exists but EVERY loaded message is within the summarized
- * span (all `seq <= uptoSeq` — the most-invisible case the feature exists to
- * surface), the boundary is AFTER them (`messages.length`), so the marker still
- * shows. Index `0` → the whole loaded window is post-boundary → marker at the
- * top ("earlier messages summarized" above, older ones not yet loaded).
+ * The checkpoint row itself is not rendered as a message. Its
+ * `absorbedThroughSeq` points at the last absorbed conversation row, so the
+ * marker belongs immediately before the first UI message with a greater seq.
  *
  * Computed over the CURRENTLY-LOADED window (#187: the newest page plus any
  * older pages the reader has scrolled in — the boundary re-derives as the
@@ -29,14 +11,18 @@
  */
 export function compactionBoundaryIndex(
   messages: ReadonlyArray<{ metadata?: { seq?: number } }>,
-  uptoSeq: number | null | undefined,
+  absorbedThroughSeq: number | null | undefined,
 ): number {
-  if (uptoSeq === null || uptoSeq === undefined || messages.length === 0) {
+  if (
+    absorbedThroughSeq === null ||
+    absorbedThroughSeq === undefined ||
+    messages.length === 0
+  ) {
     return -1;
   }
   const idx = messages.findIndex((m) => {
     const seq = m.metadata?.seq;
-    return seq === undefined || seq > uptoSeq;
+    return seq === undefined || seq > absorbedThroughSeq;
   });
   return idx === -1 ? messages.length : idx;
 }
