@@ -523,7 +523,7 @@ function mockNormalExecutionRepositories() {
     .spyOn(MessagesRepository.prototype, 'updateUserMessageParts')
     .mockResolvedValue(userMessage);
   const findMostRecent = vi
-    .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
+    .spyOn(RunsRepository.prototype, 'findMostRecentByMessageSequence')
     .mockResolvedValue(undefined);
   // The measurement source: absent unless a case installs a completed
   // predecessor, so the whole request is estimated instead.
@@ -6331,181 +6331,233 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     );
   }
 
-  it('summarizes an over-threshold chat once, before the first model request', async () => {
-    const spies = mockNormalExecutionRepositories();
-    spies.markStarted.mockResolvedValue({ ...run, effort: 'high' });
-    spies.findMostRecent.mockImplementation(
-      lookupBefore(3, committedTurnAnswer().run),
-    );
-    spies.findCompleted.mockImplementation(
-      completedLookupBefore(3, committedTurnAnswer()),
-    );
-    const appended = recordAppendedEvents();
-    const anchorChat: Chat = { ...chat, createdAt: chatAnchorInstant };
-    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
-      anchorChat,
-    );
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(anchorChat);
-    // No checkpoint is active when the trigger runs; the pass after the
-    // publication sees the row it just committed, whose later timestamp
-    // re-anchors the prompt.
-    vi.spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValue(
-        activeCheckpoint({ uptoSeq: 2, createdAt: checkpointInstant }),
+  it.each([
+    { name: 'an over-threshold chat', variant: 'threshold' },
+    {
+      name: 'a request over both the window and the threshold',
+      variant: 'window',
+    },
+  ])(
+    'summarizes $name once, before the first model request',
+    async ({ variant }) => {
+      const spies = mockNormalExecutionRepositories();
+      spies.findMostRecent.mockImplementation(
+        lookupBefore(3, committedTurnAnswer().run),
       );
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId')
-      .mockResolvedValueOnce([
-        ...committedTurn({ contextTokens: 40_000 }),
-        triggerTurn(),
-      ])
-      .mockResolvedValue([triggerTurn()]);
-    const publication = serveCheckpointPublication();
-    const capturing = triggerClient();
-    const execution = makeExecutionService(
-      capturing.client,
-      undefined,
-      undefined,
-      { model: anchoredModel },
-    );
-    const eventsWhenSummarized: Array<string> = [];
-    execution.summarizeCheckpoint.mockImplementation(() => {
-      eventsWhenSummarized.push(...appended.map((entry) => entry.type));
-      return Promise.resolve(checkpointSummary(2));
-    });
+      spies.findCompleted.mockImplementation(
+        completedLookupBefore(3, committedTurnAnswer()),
+      );
+      const appended = recordAppendedEvents();
+      if (variant === 'threshold') {
+        spies.markStarted.mockResolvedValue({ ...run, effort: 'high' });
+        const anchorChat: Chat = { ...chat, createdAt: chatAnchorInstant };
+        vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
+          anchorChat,
+        );
+        vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(
+          anchorChat,
+        );
+      }
+      // No checkpoint is active when the trigger runs; the pass after the
+      // publication sees the row it just committed, whose later timestamp
+      // re-anchors the prompt.
+      vi.spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValue(
+          activeCheckpoint({ uptoSeq: 2, createdAt: checkpointInstant }),
+        );
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId')
+        .mockResolvedValueOnce([
+          ...committedTurn({ contextTokens: 40_000 }),
+          triggerTurn(),
+        ])
+        .mockResolvedValue([{ ...userMessage, seq: 3 }]);
+      const publication = serveCheckpointPublication();
+      const thresholdCapture = triggerClient();
+      const windowCapture = makeWideningClient();
+      const client =
+        variant === 'window' ? windowCapture.client : thresholdCapture.client;
+      if (variant === 'window') {
+        Object.assign(client, { compactionThresholdTokens: triggerThreshold });
+      }
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        undefined,
+        variant === 'threshold' ? { model: anchoredModel } : undefined,
+      );
+      const eventsWhenSummarized: Array<string> = [];
+      execution.summarizeCheckpoint.mockImplementation(() => {
+        eventsWhenSummarized.push(...appended.map((entry) => entry.type));
+        if (variant === 'window') windowCapture.widen();
+        return Promise.resolve(checkpointSummary(2));
+      });
 
-    await execution.service.executeRun({
-      ...executionInput(capturing.client),
-      userMessage: {
-        id: messageId,
-        seq: 3,
-        parts: [{ type: 'text', text: 'hello' }],
-      },
-    });
+      await execution.service.executeRun({
+        ...executionInput(client),
+        userMessage: {
+          id: messageId,
+          seq: 3,
+          parts:
+            variant === 'window'
+              ? [
+                  // The staged model-change notice used to be the required
+                  // anchor for this variant; a request that does not fit takes
+                  // it either way.
+                  createModelChangeItem({
+                    oldModel: { id: 'old-model' },
+                    newModel: { id: 'fake-model' },
+                    runId,
+                  }),
+                ]
+              : [{ type: 'text', text: 'hello' }],
+        },
+      });
 
-    // Nothing has reached the model yet: the checkpoint is summarized before
-    // the request, and before the event that announces it.
-    expect(eventsWhenSummarized).toEqual(['run.started']);
-    expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
-    // The threshold variant summarizes with the attempt's own model, the
-    // estimate pass's prompt (the chat's own anchor, not the re-baked one), and
-    // the effort this run resolved.
-    expect(execution.summarizeCheckpoint).toHaveBeenCalledWith(
-      expect.objectContaining({
-        variant: 'threshold',
-        chatId,
-        userId,
-        triggeringUserSeq: 3,
-        effort: 'high',
-      }),
-    );
-    const summaryRequest = execution.summarizeCheckpoint.mock.lastCall?.[0];
-    expect(summaryRequest?.plan.uptoSeq).toBe(2);
-    expect(
-      summaryRequest !== undefined && 'system' in summaryRequest
-        ? summaryRequest.system
-        : '',
-    ).toContain('2026-09-01');
-    expect(publication.create).toHaveBeenCalledWith(
-      expect.objectContaining({
+      expect(eventsWhenSummarized).toEqual(['run.started']);
+      expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
+      expect(execution.summarizeCheckpoint).toHaveBeenCalledWith(
+        expect.objectContaining({
+          variant,
+          chatId,
+          userId,
+          triggeringUserSeq: 3,
+        }),
+      );
+      if (variant === 'threshold') {
+        // The threshold variant summarizes with the attempt's own model, the
+        // estimate pass's prompt (the chat's own anchor, not the re-baked one),
+        // and the effort this run resolved.
+        expect(execution.summarizeCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({ effort: 'high' }),
+        );
+        const summaryRequest = execution.summarizeCheckpoint.mock.lastCall?.[0];
+        expect(summaryRequest?.plan.uptoSeq).toBe(2);
+        expect(
+          summaryRequest !== undefined && 'system' in summaryRequest
+            ? summaryRequest.system
+            : '',
+        ).toContain('2026-09-01');
+        expect(publication.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            uptoSeq: 2,
+            summary: 'Earlier turns, summarized.',
+          }),
+        );
+        // The publication re-establishes the epoch it absorbed: the workspace
+        // told-set restarts from it, and a pending detach reason stays for the
+        // Run that narrates it.
+        expect(publication.setTold).toHaveBeenCalledWith({
+          chatId,
+          ownerUserId: userId,
+          told: null,
+          toldFrom: publishedCheckpointId,
+          clearDetachReason: false,
+        });
+        const dispatched = thresholdCapture.streamOptions();
+        expect(dispatched.system).toContain('2026-09-11');
+        expect(JSON.stringify(dispatched.messages)).toContain(
+          'Summarized prefix',
+        );
+        // Exactly one receipt per attempt, and it is the prompt actually sent.
+        expect(spies.createReceipt).toHaveBeenCalledTimes(1);
+        expect(spies.createReceipt.mock.calls[0]?.[0].systemPrompt).toBe(
+          dispatched.system,
+        );
+      } else {
+        expect(execution.summarizeCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({
+            reservedOutputTokens: BUILT_IN_DEFAULTS.runs.maxOutputTokens,
+          }),
+        );
+        expect(publication.create).toHaveBeenCalledTimes(1);
+        expect(
+          JSON.stringify(windowCapture.captured.options?.messages),
+        ).toContain('Summarized prefix');
+        expect(spies.createReceipt).toHaveBeenCalledTimes(1);
+      }
+    },
+  );
+
+  it.each([
+    {
+      name: 'a chat under the threshold',
+      triggerSeq: 3,
+      recent: committedTurnAnswer().run,
+      completed: committedTurnAnswer(),
+      messages: [...committedTurn({ contextTokens: 400 }), triggerTurn()],
+      checkpoint: undefined,
+    },
+    {
+      name: 'a retry that finds the published checkpoint',
+      triggerSeq: 3,
+      recent: committedTurnAnswer().run,
+      completed: committedTurnAnswer(),
+      messages: [triggerTurn()],
+      checkpoint: activeCheckpoint({
         uptoSeq: 2,
-        summary: 'Earlier turns, summarized.',
+        createdAt: checkpointInstant,
       }),
-    );
-    // The publication re-establishes the epoch it absorbed: the workspace
-    // told-set restarts from it, and a pending detach reason stays for the Run
-    // that narrates it.
-    expect(publication.setTold).toHaveBeenCalledWith({
-      chatId,
-      ownerUserId: userId,
-      told: null,
-      toldFrom: publishedCheckpointId,
-      clearDetachReason: false,
-    });
-    const dispatched = capturing.streamOptions();
-    expect(dispatched.system).toContain('2026-09-11');
-    expect(JSON.stringify(dispatched.messages)).toContain('Summarized prefix');
-    // Exactly one receipt per attempt, and it is the prompt actually sent.
-    expect(spies.createReceipt).toHaveBeenCalledTimes(1);
-    expect(spies.createReceipt.mock.calls[0]?.[0].systemPrompt).toBe(
-      dispatched.system,
-    );
-  });
+    },
+    {
+      name: 'a large first message in a new chat',
+      triggerSeq: 1,
+      recent: undefined,
+      completed: undefined,
+      messages: [
+        { ...userMessage, parts: [{ type: 'text', text: 'x'.repeat(40_000) }] },
+      ],
+      checkpoint: undefined,
+    },
+    {
+      name: 'a failed previous Run',
+      triggerSeq: 3,
+      recent: {
+        ...run,
+        id: '6f6f6f6f-6f6f-4f6f-8f6f-6f6f6f6f6f6f',
+        status: 'failed',
+        messageId: committedTurnUserId,
+      } satisfies Run,
+      completed: undefined,
+      messages: [...committedTurn({ contextTokens: 90_000 }), triggerTurn()],
+      checkpoint: undefined,
+    },
+  ])(
+    'makes no summary call for $name',
+    async ({ triggerSeq, recent, completed, messages, checkpoint }) => {
+      const spies = mockNormalExecutionRepositories();
+      spies.findMostRecent.mockImplementation(lookupBefore(3, recent));
+      spies.findCompleted.mockImplementation(
+        completedLookupBefore(3, completed),
+      );
+      if (checkpoint !== undefined) {
+        vi.spyOn(
+          CompactionsRepository.prototype,
+          'findLatestByChatId',
+        ).mockResolvedValue(checkpoint);
+      }
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+        messages,
+      );
+      const publication = serveCheckpointPublication();
+      const client = answeringTriggerClient();
+      const execution = makeExecutionService(client);
 
-  it('makes no summary call for a chat under the threshold', async () => {
-    const spies = mockNormalExecutionRepositories();
-    spies.findMostRecent.mockImplementation(
-      lookupBefore(3, committedTurnAnswer().run),
-    );
-    spies.findCompleted.mockImplementation(
-      completedLookupBefore(3, committedTurnAnswer()),
-    );
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      ...committedTurn({ contextTokens: 400 }),
-      triggerTurn(),
-    ]);
-    const publication = serveCheckpointPublication();
-    const client = answeringTriggerClient();
-    const execution = makeExecutionService(client);
+      const result = await execution.service.executeRun({
+        ...executionInput(client),
+        userMessage: {
+          id: messageId,
+          seq: triggerSeq,
+          parts: [{ type: 'text', text: 'hello' }],
+        },
+      });
+      await expect(result.text).resolves.toBe('answer');
 
-    const result = await execution.service.executeRun({
-      ...executionInput(client),
-      userMessage: {
-        id: messageId,
-        seq: 3,
-        parts: [{ type: 'text', text: 'hello' }],
-      },
-    });
-    await expect(result.text).resolves.toBe('answer');
-
-    expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
-    expect(publication.create).not.toHaveBeenCalled();
-    // Nothing published, so the estimate pass is the final one: its prompt is
-    // the attempt's single receipt.
-    expect(spies.createReceipt).toHaveBeenCalledTimes(1);
-    expect(spies.createReceipt.mock.calls[0]?.[0].systemPrompt).toBe(
-      receipt.systemPrompt,
-    );
-  });
-
-  it('pays no second summary call on a retry that finds the published checkpoint', async () => {
-    const spies = mockNormalExecutionRepositories();
-    spies.findMostRecent.mockImplementation(
-      lookupBefore(3, committedTurnAnswer().run),
-    );
-    spies.findCompleted.mockImplementation(
-      completedLookupBefore(3, committedTurnAnswer()),
-    );
-    // The checkpoint this retry finds absorbed the whole committed turn, so
-    // nothing lies between its boundary and the turn being answered, and the
-    // measurement it would carry describes a request the checkpoint shrank.
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(
-      activeCheckpoint({ uptoSeq: 2, createdAt: checkpointInstant }),
-    );
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      triggerTurn(),
-    ]);
-    const publication = serveCheckpointPublication();
-    const client = answeringTriggerClient();
-    const execution = makeExecutionService(client);
-
-    const result = await execution.service.executeRun({
-      ...executionInput(client),
-      userMessage: {
-        id: messageId,
-        seq: 3,
-        parts: [{ type: 'text', text: 'hello' }],
-      },
-    });
-    await expect(result.text).resolves.toBe('answer');
-
-    expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
-    expect(publication.create).not.toHaveBeenCalled();
-    expect(spies.createReceipt).toHaveBeenCalledTimes(1);
-  });
+      expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+      expect(publication.create).not.toHaveBeenCalled();
+      expect(spies.createReceipt).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('judges a retried turn by its user turn, not by the reply row it rewrote', async () => {
     const spies = mockNormalExecutionRepositories();
@@ -6568,125 +6620,6 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     // The reply's own row is above the boundary; the turn it answers is not.
     // A cancelled Run contributes no measurement and triggers nothing itself.
     expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
-    expect(publication.create).not.toHaveBeenCalled();
-  });
-
-  it('publishes nothing for a large first message in a new chat', async () => {
-    const spies = mockNormalExecutionRepositories();
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      { ...userMessage, parts: [{ type: 'text', text: 'x'.repeat(40_000) }] },
-    ]);
-    const publication = serveCheckpointPublication();
-    const client = answeringTriggerClient();
-    const execution = makeExecutionService(client);
-
-    const result = await execution.service.executeRun(executionInput(client));
-    await expect(result.text).resolves.toBe('answer');
-
-    // Over the threshold, and still nothing to absorb: the chat's first turn
-    // proceeds on its own rather than summarizing itself.
-    expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
-    expect(publication.create).not.toHaveBeenCalled();
-    expect(spies.createReceipt).toHaveBeenCalledTimes(1);
-  });
-
-  it('takes the window variant alone for a request over both the window and the threshold', async () => {
-    const spies = mockNormalExecutionRepositories();
-    spies.findMostRecent.mockImplementation(
-      lookupBefore(3, committedTurnAnswer().run),
-    );
-    spies.findCompleted.mockImplementation(
-      completedLookupBefore(3, committedTurnAnswer()),
-    );
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId')
-      .mockResolvedValueOnce([
-        ...committedTurn({ contextTokens: 40_000 }),
-        { ...userMessage, seq: 3 },
-      ])
-      .mockResolvedValue([{ ...userMessage, seq: 3 }]);
-    // The estimate pass finds no checkpoint; the pass after the publication
-    // reads the row it just committed, so its rebuilt request replays it.
-    vi.spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValue(
-        activeCheckpoint({ uptoSeq: 2, createdAt: checkpointInstant }),
-      );
-    const publication = serveCheckpointPublication();
-    const widen = makeWideningClient();
-    Object.assign(widen.client, {
-      compactionThresholdTokens: triggerThreshold,
-    });
-    const execution = makeExecutionService(widen.client);
-    execution.summarizeCheckpoint.mockImplementation(() => {
-      widen.widen();
-      return Promise.resolve(checkpointSummary(2));
-    });
-
-    await execution.service.executeRun({
-      ...executionInput(widen.client),
-      userMessage: {
-        id: messageId,
-        seq: 3,
-        parts: [
-          // The staged model-change notice used to be the required anchor for
-          // this variant; a request that does not fit takes it either way.
-          createModelChangeItem({
-            oldModel: { id: 'old-model' },
-            newModel: { id: 'fake-model' },
-            runId,
-          }),
-        ],
-      },
-    });
-
-    expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
-    expect(execution.summarizeCheckpoint).toHaveBeenCalledWith(
-      expect.objectContaining({
-        variant: 'window',
-        triggeringUserSeq: 3,
-        reservedOutputTokens: BUILT_IN_DEFAULTS.runs.maxOutputTokens,
-      }),
-    );
-    expect(publication.create).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(widen.captured.options?.messages)).toContain(
-      'Summarized prefix',
-    );
-    expect(spies.createReceipt).toHaveBeenCalledTimes(1);
-  });
-
-  it('neither measures from a failed previous Run nor triggers after it', async () => {
-    const spies = mockNormalExecutionRepositories();
-    spies.findMostRecent.mockImplementation(
-      lookupBefore(3, {
-        ...run,
-        id: '6f6f6f6f-6f6f-4f6f-8f6f-6f6f6f6f6f6f',
-        status: 'failed',
-        messageId: committedTurnUserId,
-      }),
-    );
-    // Its reply is by far the largest thing in the chat, and no completed Run
-    // answers any turn, so nothing may be counted from it.
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      ...committedTurn({ contextTokens: 90_000 }),
-      triggerTurn(),
-    ]);
-    const publication = serveCheckpointPublication();
-    const client = answeringTriggerClient();
-    const execution = makeExecutionService(client);
-
-    const result = await execution.service.executeRun({
-      ...executionInput(client),
-      userMessage: {
-        id: messageId,
-        seq: 3,
-        parts: [{ type: 'text', text: 'hello' }],
-      },
-    });
-    await expect(result.text).resolves.toBe('answer');
-
-    expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
-    // Nothing runs after the turn either: the checkpoint is decided before the
-    // first model request, and a failed Run is never a trigger of its own.
     expect(publication.create).not.toHaveBeenCalled();
   });
 });
@@ -7695,7 +7628,11 @@ function answeredTurn(candidate: Run, triggeringUserSeq: number) {
 /** A predecessor lookup that answers only within the trigger's sequence bound. */
 function lookupBefore(seq: number, candidate: Run | undefined) {
   return (_chatId: string, _userId: string, options?: { beforeSeq?: number }) =>
-    Promise.resolve(options?.beforeSeq === seq ? candidate : undefined);
+    Promise.resolve(
+      options?.beforeSeq === seq && candidate !== undefined
+        ? { run: candidate, triggeringUserSeq: seq - 1 }
+        : undefined,
+    );
 }
 
 /** The same lookup for the completed-predecessor read, which answers with the
@@ -7748,7 +7685,7 @@ async function executeAvailabilityAttempt(input: {
   const repositories = mockNormalExecutionRepositories();
   vi.spyOn(
     RunsRepository.prototype,
-    'findMostRecentByChatMessageSequence',
+    'findMostRecentByMessageSequence',
   ).mockImplementation(lookupBefore(1, input.recent));
   vi.spyOn(
     RunsRepository.prototype,
@@ -7970,7 +7907,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     const repositories = mockNormalExecutionRepositories();
     vi.spyOn(
       RunsRepository.prototype,
-      'findMostRecentByChatMessageSequence',
+      'findMostRecentByMessageSequence',
     ).mockImplementation(
       lookupBefore(1, completedPredecessor({ modelId: 'other-model' })),
     );
@@ -8001,7 +7938,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     const repositories = mockNormalExecutionRepositories();
     vi.spyOn(
       RunsRepository.prototype,
-      'findMostRecentByChatMessageSequence',
+      'findMostRecentByMessageSequence',
     ).mockImplementation(lookupBefore(1, completedPredecessor()));
     // As above: no completed predecessor, so nothing is measured by turn.
     const execution = makeExecutionService(createFakeModelClient(['answer']));

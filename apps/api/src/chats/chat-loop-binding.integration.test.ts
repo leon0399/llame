@@ -330,8 +330,12 @@ describe('ChatLoopService accept/worker context binding', () => {
       undefined,
     );
     const findPreviousRun = vi
-      .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
-      .mockResolvedValue(priorRun);
+      .spyOn(RunsRepository.prototype, 'findMostRecentByMessageSequence')
+      .mockResolvedValue(
+        priorRun === undefined
+          ? undefined
+          : { run: priorRun, triggeringUserSeq: previousRunUserSeq },
+      );
     // The availability baseline reads the most recent *genuine completed* turn:
     // the repository query only returns runs that finished successfully and
     // carry the winning attempt link. Mirror that contract over the fixture.

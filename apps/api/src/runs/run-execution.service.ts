@@ -289,8 +289,8 @@ type WorkspaceStagedContext = {
 /**
  * The accepted-turn instructions load: what the turn's binding could stage
  * before its first request, plus the read identity every later system read of
- * the same Run reuses. `part` and `seenCanonicalPaths` are replaced in place
- * when a transition compaction rebuilds the history (design D5, D7).
+ * the same Run reuses. `part` and `seenCanonicalPaths` are replaced whenever
+ * the effective request history is rebuilt.
  */
 type TurnInstructions = {
   /** The bound root the accepted-turn trigger loads; undefined without one. */
@@ -329,32 +329,26 @@ type PreparedAttemptContext = BuiltContext & {
   workspaceWrites?: WorkspaceWrites;
   untitled: boolean;
 };
-
-/** Which of the one trigger's two variants fired, with what it would absorb. */
-type PreStepCompaction = {
-  readonly variant: 'threshold' | 'window';
-  readonly plan: CompactionPlan;
+type CompactionTriggerInput = {
+  run: ExecuteRunInput;
+  prepared: PreparedExecutionContext;
+  stagedParts: ReadonlyArray<MessagePart>;
+  historyRows: ReadonlyArray<Message>;
+  boundarySeq: number;
 };
 
 /**
  * Everything the Run sends on its first model step (design D5): the request the
- * attempt actually dispatches, the rail record describing it, and the epoch
- * writes its completion establishes.
+ * attempt actually dispatches, its prepared context, and the turn instructions
+ * that complete it.
  */
 type PreparedFirstStep = {
   readonly request: {
     readonly prepared: PreparedExecutionContext;
     readonly contextItems: Array<RunContextItem>;
   };
+  readonly context: PreparedAttemptContext;
   readonly turnInstructions: TurnInstructions;
-  readonly stagedParts: Array<MessagePart>;
-  readonly recencyDigestTold:
-    | NonNullable<Chat['recencyDigestTold']>
-    | undefined;
-  readonly recencyDigestInitialization: RecencyDigestInitialization | undefined;
-  readonly skillCatalogWrites: SkillCatalogWrites;
-  readonly workspaceWrites: WorkspaceWrites | undefined;
-  readonly toolAvailability: Array<TurnToolAvailabilityEntry>;
 };
 type AttemptDigestContext = {
   shareRecentChats: ResolvedMemorySettings;
@@ -612,7 +606,7 @@ type ToolCompletedEventPayload = {
 /**
  * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
  * assembly, the model call, and every durable side effect (assistant turn,
- * run lifecycle + model.delta events, post-turn compaction/titling).
+ * run lifecycle + model.delta events, pre-step checkpointing and titling).
  *
  * Extracted from the HTTP-coupled ChatLoopService so the exact same execution
  * drives both venues: the queue worker calls executeRun and the request thread
@@ -757,7 +751,7 @@ export class RunExecutionService {
       : request;
     const { client } = input;
 
-    // Claim before any context preparation can invoke a model. Transition
+    // Claim before any context preparation can invoke a model. Pre-step
     // compaction is part of this run's execution budget and cancellation
     // lifecycle, not untracked pre-work. A cancel that won the worker pickup
     // TOCTOU is settled atomically here without spending on either model.
@@ -913,13 +907,15 @@ export class RunExecutionService {
       });
       prepared = firstStep.request.prepared;
       attemptContextItems = firstStep.request.contextItems;
-      attemptStagedParts = firstStep.stagedParts;
-      attemptRecencyDigestTold = firstStep.recencyDigestTold;
+      attemptStagedParts = firstStep.context.stagedParts;
+      attemptRecencyDigestTold = firstStep.context.recencyDigestTold;
       attemptRecencyDigestInitialization =
-        firstStep.recencyDigestInitialization;
-      attemptSkillCatalogWrites = firstStep.skillCatalogWrites;
-      attemptWorkspaceWrites = firstStep.workspaceWrites;
-      attemptToolAvailability = firstStep.toolAvailability;
+        firstStep.context.recencyDigestInitialization;
+      attemptSkillCatalogWrites = firstStep.context.skillCatalogWrites;
+      attemptWorkspaceWrites = firstStep.context.workspaceWrites;
+      attemptToolAvailability = toTurnToolAvailability(
+        firstStep.context.toolCatalog.availabilityManifest,
+      );
       turnInstructions = firstStep.turnInstructions;
       // Recorded only once the request is final: a preparation failure means no
       // request was ever made, and recording earlier would durably assert a
@@ -998,9 +994,9 @@ export class RunExecutionService {
       runId: input.runId,
     });
 
-    // `model.requested` describes the target inference, not source-model
-    // transition compaction. Record it only after preparation succeeds and
-    // immediately before the target call.
+    // `model.requested` describes the target inference, not the summary
+    // inference that may have preceded it. Record it only after preparation
+    // succeeds and immediately before the target call.
     await this.tenantDb.runAs(input.userId, async (tx) => {
       const events = new RunEventsRepository(tx);
       await events.append(input.runId, 'model.requested', {
@@ -2396,13 +2392,12 @@ export class RunExecutionService {
 
   /**
    * Recomputes the accepted-turn bundle against the attempt's effective
-   * history (D5, D7): once before the first request, and again when a
-   * transition compaction rebuilds the request. The rebuild decides the seen
-   * set — the item this attempt staged can no longer be what makes its files
-   * seen, and a file the rebuilt history discloses must not be staged again.
-   * The staged item is replaced in place, where every holder of the staged
-   * array — the request prepend, the finish-time persistence, and the Run
-   * record — sees the same content.
+   * history before the first request and whenever that history is rebuilt. The
+   * rebuild decides the seen set — the item this attempt staged can no longer
+   * be what makes its files seen, and a file the rebuilt history discloses must
+   * not be staged again. The staged item is replaced in place, where every
+   * holder of the staged array — the request prepend, finish-time persistence,
+   * and the Run record — sees the same content.
    */
   private async refreshTurnInstructions(
     turn: TurnInstructions,
@@ -2539,24 +2534,18 @@ export class RunExecutionService {
   }
 
   /**
-   * The one pre-step compaction trigger (design D4), evaluated once per attempt
-   * against its prepared request.
-   *
-   * A request that does not fit the Run model's window takes the window
-   * variant — which is also over the default threshold, and only the window
-   * variant can summarize it. Otherwise the measured size decides the threshold
-   * variant. Both are no-ops when no row lies between the active checkpoint and
-   * the triggering user message: there is nothing to absorb, so a retry
-   * proceeds on the checkpoint it already has. On the window condition there is
-   * no proceeding to do, so an empty range fails the attempt instead.
+   * Window precedence is fixed; empty ranges are no-ops unless the request
+   * does not fit.
    */
-  private async evaluateCompactionTrigger(input: {
-    run: ExecuteRunInput;
-    prepared: PreparedExecutionContext;
-    stagedParts: ReadonlyArray<MessagePart>;
-    historyRows: ReadonlyArray<Message>;
-    boundarySeq: number;
-  }): Promise<PreStepCompaction | undefined> {
+  private async evaluateCompactionTrigger(
+    input: CompactionTriggerInput,
+  ): Promise<
+    | {
+        readonly variant: 'threshold' | 'window';
+        readonly plan: CompactionPlan;
+      }
+    | undefined
+  > {
     const plan = planCompactionCheckpoint({
       rows: toStoredMessages(input.historyRows),
       boundarySeq: input.boundarySeq,
@@ -2596,13 +2585,9 @@ export class RunExecutionService {
    * countable reply the whole request is estimated instead — the same
    * provider-neutral preflight admission uses.
    */
-  private async measureAttemptContextTokens(input: {
-    run: ExecuteRunInput;
-    prepared: PreparedExecutionContext;
-    stagedParts: ReadonlyArray<MessagePart>;
-    historyRows: ReadonlyArray<Message>;
-    boundarySeq: number;
-  }): Promise<number> {
+  private async measureAttemptContextTokens(
+    input: CompactionTriggerInput,
+  ): Promise<number> {
     const previousCompleted = await this.tenantDb.runAs(
       input.run.userId,
       (tx) =>
@@ -2638,26 +2623,6 @@ export class RunExecutionService {
           .join(''),
       })
     );
-  }
-
-  /** The final fit gate: exactly one compaction ran, and it still must fit. */
-  private assertRequestFitsContextWindow(
-    run: ExecuteRunInput,
-    prepared: PreparedExecutionContext,
-  ): void {
-    if (
-      !requestFitsContextWindow({
-        system: prepared.system,
-        messages: prepared.messages,
-        toolDeclarations: prepared.toolDeclarations,
-        contextWindowTokens: run.client.contextWindowTokens,
-        reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
-      })
-    ) {
-      throw new ContextIncompatibleError(
-        'The complete request still exceeds the target model context window after one compaction.',
-      );
-    }
   }
 
   /**
@@ -3497,15 +3462,7 @@ export class RunExecutionService {
     };
   }
 
-  /**
-   * Everything between the claim and the first model step (design D4/D5).
-   *
-   * The estimate pass renders the request the trigger measures; when the
-   * trigger fires, one summary is produced from that pass's own prompt and
-   * published with its epoch state, and a second pass then resolves the
-   * request the Run actually sends and binds its single receipt. When nothing
-   * publishes, the estimate pass is the final one and binds that receipt here.
-   */
+  /** Re-bake after publication so the receipt binds the request actually sent. */
   private async prepareAttemptForFirstStep(input: {
     run: ExecuteRunInput;
     attemptId: string;
@@ -3581,6 +3538,7 @@ export class RunExecutionService {
     if (summary !== undefined && summary !== null) {
       await this.publishPreStepCompaction({
         run: input.run,
+        attemptId: input.attemptId,
         summary,
         parentId: estimatePass.latestCompaction?.id ?? null,
         model: estimatePass.model,
@@ -3623,19 +3581,20 @@ export class RunExecutionService {
         ),
       );
     }
-    this.assertRequestFitsContextWindow(input.run, request.prepared);
-    return {
-      request,
-      turnInstructions,
-      stagedParts: context.stagedParts,
-      recencyDigestTold: context.recencyDigestTold,
-      recencyDigestInitialization: context.recencyDigestInitialization,
-      skillCatalogWrites: context.skillCatalogWrites,
-      workspaceWrites: context.workspaceWrites,
-      toolAvailability: toTurnToolAvailability(
-        context.toolCatalog.availabilityManifest,
-      ),
-    };
+    if (
+      !requestFitsContextWindow({
+        system: request.prepared.system,
+        messages: request.prepared.messages,
+        toolDeclarations: request.prepared.toolDeclarations,
+        contextWindowTokens: input.run.client.contextWindowTokens,
+        reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
+      })
+    ) {
+      throw new ContextIncompatibleError(
+        'The complete request still exceeds the target model context window after one compaction.',
+      );
+    }
+    return { request, context, turnInstructions };
   }
 
   /** The dispatchable request for one pass, with its staged rail prepended. */
@@ -3667,22 +3626,42 @@ export class RunExecutionService {
     };
   }
 
-  /**
-   * Publish one summary: the checkpoint row and the epoch state re-baked from
-   * it, in the transaction that makes them visible to the attempt they precede
-   * (design D5). A later failure of that attempt leaves them standing — a
-   * checkpoint describes committed history — and a retry finds the row through
-   * the ordinary active-checkpoint read and pays no second summary call.
-   */
+  /** Publish a checkpoint and its epoch state in one transaction before dispatch. */
   private async publishPreStepCompaction(input: {
     run: ExecuteRunInput;
+    attemptId: string;
     summary: CompactionSummary;
     parentId: string | null;
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
   }): Promise<void> {
-    const digestCandidate = await this.resolveDigestCandidate(input.run);
+    let digestCandidate: RecencyDigestResolution | null = null;
+    try {
+      digestCandidate = await this.recencyDigest.resolveCandidate(
+        input.run.userId,
+        input.run.chatId,
+      );
+    } catch {
+      // Candidate titles and excerpts are owner content; do not attach the
+      // caught error to a log entry or an execution error.
+      this.logger.error('recency_digest_resolution_failed');
+      digestCandidate = null;
+    }
     await this.tenantDb.runAs(input.run.userId, async (tx) => {
+      // A reclaimed attempt must not move epoch state under the live one. The
+      // runs row is locked first, as the terminal transaction does, so this
+      // fence and that transaction never wait on each other in reverse order.
+      const fenced = await new RunsRepository(tx).updateForAttempt(
+        input.run.runId,
+        input.run.userId,
+        input.attemptId,
+        { activeAttemptId: input.attemptId },
+      );
+      if (!fenced) {
+        throw new ModelContextExecutionError(
+          `Run ${input.run.runId} was reclaimed before checkpoint publication.`,
+        );
+      }
       const chatsRepo = new ChatsRepository(tx);
       const compactionsRepo = new CompactionsRepository(tx);
       // Lock order is chats-then-memory, matching the chat loop. That loop
@@ -3732,17 +3711,7 @@ export class RunExecutionService {
     });
   }
 
-  /**
-   * The epoch state a published checkpoint re-bakes (design D5/D7): the digest
-   * baseline with its told state reset, the skill-catalog baseline frozen for
-   * the new epoch, and the workspace told-set keyed to it. The temporal anchor
-   * needs no write — every attempt derives it from the latest checkpoint's own
-   * timestamp, which the row just set.
-   *
-   * Each rule is the one the next attempt would have applied on its own: the
-   * attempt after this publication sees an epoch that moved, so it renders and
-   * discloses nothing that was just re-baked for it.
-   */
+  /** Re-bake digest, skill, and workspace epoch state for a new checkpoint. */
   private async rebakeCheckpointEpoch(input: {
     tx: Db;
     run: ExecuteRunInput;
@@ -3803,24 +3772,6 @@ export class RunExecutionService {
         toldFrom: input.compactionId,
         clearDetachReason: false,
       });
-    }
-  }
-
-  /**
-   * The digest candidate a re-bake would install. Resolution reads the owner's
-   * other chats, so it stays outside the publication transaction; a failure
-   * costs the refresh only.
-   */
-  private async resolveDigestCandidate(
-    run: ExecuteRunInput,
-  ): Promise<RecencyDigestResolution | null> {
-    try {
-      return await this.recencyDigest.resolveCandidate(run.userId, run.chatId);
-    } catch {
-      // Candidate titles and excerpts are owner content; do not attach the
-      // caught error to a log entry or an execution error.
-      this.logger.error('recency_digest_resolution_failed');
-      return null;
     }
   }
 
@@ -4128,15 +4079,15 @@ export class RunExecutionService {
     prompt: AttemptPromptContext;
     effectiveContext: AttemptToolCatalog;
   }): Promise<AttemptStagedContext> {
-    const previousRun = await new RunsRepository(
-      input.tx,
-    ).findMostRecentByChatMessageSequence(
-      input.input.chatId,
-      input.input.userId,
-      {
-        beforeSeq: input.input.userMessage.seq,
-      },
-    );
+    const previousRun = (
+      await new RunsRepository(input.tx).findMostRecentByMessageSequence(
+        input.input.chatId,
+        input.input.userId,
+        {
+          beforeSeq: input.input.userMessage.seq,
+        },
+      )
+    )?.run;
 
     // The baseline is the most recent *successful* turn, not merely the most
     // recent one: a failed run publishes no context and never establishes an

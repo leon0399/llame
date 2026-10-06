@@ -263,13 +263,13 @@ export interface InRunContextProducer {
   /** Called once per attempt before its first request. */
   beginAttempt(attempt: InRunAttempt): InRunAttemptProducer;
   /**
-   * Optional: authors the item the accepted turn stages for its first
-   * request, or undefined when the turn adds nothing. Called before that
-   * request and again whenever a transition compaction rebuilds it — with the
-   * rebuilt history's `seenKeys` — where the returned item replaces the one
-   * before it. A producer must keep no per-attempt state here: only the
-   * returned item matters, and the caller derives the turn's seen set from its
-   * payload. Called outside any database transaction.
+   * Optional: authors the item the accepted turn stages for its first request,
+   * or undefined when the turn adds nothing. Called before that request and
+   * whenever its history is rebuilt — with the rebuilt history's `seenKeys` —
+   * where the returned item replaces the one before it. A producer must keep
+   * no per-attempt state here: only the returned item matters, and the caller
+   * derives the turn's seen set from its payload. Called outside any database
+   * transaction.
    */
   prepareTurn?(
     context: InRunTurnContext,

@@ -208,8 +208,8 @@ export function isModelChangePayload(
  *
  * A producer-derived view value, never persisted state: `ModelChangePayload`
  * keeps the two ids exactly as it always has, so an item written when the body
- * named only the destination still validates, still gates transition
- * compaction, and never depends on the catalog that authored its prose.
+ * named only the destination still validates and never depends on the catalog
+ * that authored its prose.
  *
  * `name` and `providerModelId` are read from the operator model catalog when
  * the body is authored. Both are operator-authored, so both are neutralized
@@ -243,15 +243,6 @@ export function createModelChangeItem(input: {
     payload,
     body: renderModelChange(input.oldModel, input.newModel),
   });
-}
-
-/** Does this turn carry a model change? Gates transition compaction. */
-export function isModelChangeItem(value: unknown): value is ContextItemPart {
-  return (
-    isContextItemPart(value) &&
-    value.data.producer === 'effective-context-change' &&
-    isModelChangePayload(value.data.payload)
-  );
 }
 
 /** One model as the template sees it: neutralized name, raw id, optional provider id. */

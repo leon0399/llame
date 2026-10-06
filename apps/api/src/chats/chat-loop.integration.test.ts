@@ -1295,13 +1295,11 @@ describeIfDb(
       const firstJob = dispatchCalls.at(-1);
       if (!firstJob) throw new Error('Expected first context dispatch');
       await executeWorker(firstJob, { consume: false });
-      const firstRun = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findMostRecentByChatMessageSequence(
-          chatId,
-          userId,
-        ),
+      const firstRunResult = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findMostRecentByMessageSequence(chatId, userId),
       );
-      if (!firstRun) throw new Error('Expected first run');
+      if (!firstRunResult) throw new Error('Expected first run');
+      const firstRun = firstRunResult.run;
       const firstReceipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           firstRun.id,

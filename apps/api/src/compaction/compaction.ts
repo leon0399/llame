@@ -125,17 +125,12 @@ export function normalizeCompactionSummary(value: unknown): string | null {
  * must not size the continuation estimate (D16). Reasoning TEXT still counts:
  * the model re-reads it on that continuation.
  */
-function estimateProjectionTokens(
-  projection:
-    | Array<ModelMessage>
-    | {
-        system: string;
-        messages: Array<ModelMessage>;
-        tools: ReadonlyArray<ModelToolDeclaration>;
-      },
-): number {
-  const messages = Array.isArray(projection) ? projection : projection.messages;
-  const sized = messages.map((message) => {
+function estimateProjectionTokens(projection: {
+  system: string;
+  messages: Array<ModelMessage>;
+  tools: ReadonlyArray<ModelToolDeclaration>;
+}): number {
+  const sized = projection.messages.map((message) => {
     if (message.role !== 'assistant' || !Array.isArray(message.content)) {
       return message;
     }
@@ -146,10 +141,13 @@ function estimateProjectionTokens(
       ),
     };
   });
-  const value = Array.isArray(projection)
-    ? sized
-    : { system: projection.system, messages: sized, tools: projection.tools };
-  return Math.ceil(JSON.stringify(value).length / 4);
+  return Math.ceil(
+    JSON.stringify({
+      system: projection.system,
+      messages: sized,
+      tools: projection.tools,
+    }).length / 4,
+  );
 }
 
 /**
@@ -209,25 +207,17 @@ export function countedContextTokens(input: {
   if (reply === undefined) {
     return undefined;
   }
-  const contextTokens = storedContextTokens(reply.usage);
+  const usage = reply.usage;
+  const contextTokens =
+    isRecord(usage) &&
+    isNumber(usage.contextTokens) &&
+    Number.isFinite(usage.contextTokens) &&
+    usage.contextTokens >= 0
+      ? usage.contextTokens
+      : undefined;
   return contextTokens === undefined
     ? undefined
     : { replySeq: reply.seq, contextTokens };
-}
-
-/**
- * `usage.contextTokens` as a usable measurement: a finite non-negative number,
- * anything else absent. The column is jsonb written by a previous release, so
- * it is read defensively rather than trusted.
- */
-function storedContextTokens(usage: unknown): number | undefined {
-  if (!isRecord(usage)) {
-    return undefined;
-  }
-  const value = usage.contextTokens;
-  return isNumber(value) && Number.isFinite(value) && value >= 0
-    ? value
-    : undefined;
 }
 
 /**

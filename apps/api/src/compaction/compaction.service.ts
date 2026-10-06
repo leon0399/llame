@@ -188,7 +188,7 @@ export class CompactionService {
   ): Promise<CompactionSummary | null> {
     const request = buildCompactionRequest({
       system: input.system,
-      previous: compactionLineage(previous),
+      previous,
       absorb: input.plan.absorb,
       variant: input.variant,
     });
@@ -282,7 +282,7 @@ export class CompactionService {
 
     const request = buildCompactionRequest({
       system: source.receipt.systemPrompt,
-      previous: compactionLineage(previous),
+      previous,
       absorb: input.plan.absorb,
       variant: input.variant,
     });
@@ -427,23 +427,6 @@ export class CompactionService {
       latencyMs: Date.now() - startedAt,
     };
   }
-}
-
-/** The stored checkpoint lineage a new row supersedes; absent on a first one. */
-function compactionLineage(previous: Compaction | undefined):
-  | {
-      summary: string;
-      uptoSeq: number;
-      replacementHistory: Array<CompactionReplacementMessage>;
-    }
-  | undefined {
-  return (
-    previous && {
-      summary: previous.summary,
-      uptoSeq: previous.uptoSeq,
-      replacementHistory: previous.replacementHistory,
-    }
-  );
 }
 
 /**

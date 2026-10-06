@@ -175,6 +175,18 @@ export function buildTurnTelemetry(
   };
 }
 
+function finalRequestContextTokens(
+  input: AggregateTurnTelemetryInput,
+): number | undefined {
+  const finalReceipt =
+    input.stepCount === undefined || input.receipts.length !== input.stepCount
+      ? undefined
+      : input.receipts.at(-1);
+  return finalReceipt === undefined
+    ? undefined
+    : requestContextTokens(finalReceipt);
+}
+
 export function aggregateTurnTelemetry(
   input: AggregateTurnTelemetryInput,
 ): TurnTelemetry & { complete: boolean } {
@@ -213,27 +225,6 @@ export function aggregateTurnTelemetry(
       (input.stepCount === undefined ||
         input.receipts.length >= input.stepCount),
   };
-}
-
-/**
- * The measured context size of the attempt's final request, defined only when
- * the receipts cover every reported step — a missing receipt means the last
- * recorded request is not the final one. `requestContextTokens` leaves the size
- * undefined when that request reported neither count.
- */
-function finalRequestContextTokens(
-  input: AggregateTurnTelemetryInput,
-): number | undefined {
-  if (
-    input.stepCount === undefined ||
-    input.receipts.length !== input.stepCount
-  ) {
-    return undefined;
-  }
-  const finalReceipt = input.receipts.at(-1);
-  return finalReceipt === undefined
-    ? undefined
-    : requestContextTokens(finalReceipt);
 }
 
 function aggregateReceiptTelemetry(

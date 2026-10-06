@@ -530,18 +530,6 @@ describe('estimateContinuationTokens', () => {
     // … while the provider opaque metadata must not size it.
     expect(withMetadata).toBe(plain);
   });
-
-  it('is minimal when nothing follows the counted reply', () => {
-    const empty = estimateContinuationTokens({ rows: [], railText: '' });
-
-    expect(empty).toBeGreaterThanOrEqual(0);
-    expect(empty).toBeLessThan(
-      estimateContinuationTokens({ rows: [msg('a question')], railText: '' }),
-    );
-    expect(empty).toBeLessThan(
-      estimateContinuationTokens({ rows: [], railText: 'rail item' }),
-    );
-  });
 });
 
 describe('buildCompactionRequest', () => {

@@ -129,11 +129,6 @@ export class CompactionsRepository {
    * `compactions_owner` policy's implicit WITH CHECK rejects an insert whose
    * chat_id is not owned by the current app.current_user_id.
    *
-   * Publication is idempotent per (chat, absorbed-through sequence): the unique
-   * index on that pair makes a second publication of the same cutoff a no-op,
-   * and the surviving row is returned so a publication that lost the race
-   * continues on the checkpoint that won it instead of raising.
-   *
    * `id` and `createdAt` exist for the owner fork (complete-owner-forks D2),
    * which copies a source row's identity and time verbatim. Both stay optional
    * so recording a fresh compaction still lets the database mint them.
@@ -153,33 +148,8 @@ export class CompactionsRepository {
     const [created] = await this.db
       .insert(compactions)
       .values(compactionInsertValues(input))
-      .onConflictDoNothing({
-        target: [compactions.chatId, compactions.uptoSeq],
-      })
       .returning();
-    if (created !== undefined) {
-      return created;
-    }
-
-    // The conflicting row is the one this chat already published at this
-    // cutoff, so it is selected by that pair alone; RLS remains the isolation
-    // guarantee for the read, exactly as it is for the insert above.
-    const [surviving] = await this.db
-      .select({ compactions })
-      .from(compactions)
-      .where(
-        and(
-          eq(compactions.chatId, input.chatId),
-          eq(compactions.uptoSeq, input.uptoSeq),
-        ),
-      )
-      .limit(1);
-    if (surviving === undefined) {
-      throw new Error(
-        `Compaction for chat ${input.chatId} up to seq ${input.uptoSeq} vanished after a conflicting insert.`,
-      );
-    }
-    return surviving.compactions;
+    return created;
   }
 }
 
@@ -226,11 +196,8 @@ function assertCompactionWrite(
   }
 }
 
-/**
- * Load a chat's live context window (#57) in one place: the latest compaction
- * (optionally bounded to a turn) plus the messages after it. Shared by the chat
- * loop (bounded by the triggering turn's seq + message cap) and the compaction
- * service (unbounded) so the lineage read semantics cannot drift between them.
+/** Load the latest compaction and the messages after it, optionally bounded by
+ * `maxSeq`.
  */
 export async function findLiveWindow(
   db: Db,

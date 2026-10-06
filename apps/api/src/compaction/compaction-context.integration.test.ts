@@ -742,11 +742,12 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   }
 
   type RunServiceOptions = {
+    config?: {
+      tools?: Partial<typeof BUILT_IN_DEFAULTS.tools>;
+      skills?: Partial<typeof BUILT_IN_DEFAULTS.skills>;
+      skillCatalog?: SkillCatalogPort;
+    };
     models?: ModelSelectionValidator;
-    allowed?: Array<string>;
-    nativeExecutorId?: string;
-    skillCatalog?: SkillCatalogPort;
-    skillDirectories?: Array<string>;
     recencyDigest?: RecencyDigestResolver;
   };
 
@@ -754,6 +755,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     compaction: CompactionService,
     options: RunServiceOptions = {},
   ) {
+    const {
+      config: {
+        tools: toolConfig,
+        skills: skillConfig,
+        skillCatalog = noopSkillCatalog(),
+      } = {},
+    } = options;
     return new RunExecutionService(
       tenantDb,
       compaction,
@@ -763,22 +771,16 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           ...BUILT_IN_DEFAULTS,
           tools: {
             ...BUILT_IN_DEFAULTS.tools,
-            allowed: options.allowed ?? ['search_conversations'],
-            ...(options.nativeExecutorId !== undefined && {
-              nativeExecutorId: options.nativeExecutorId,
-            }),
+            allowed: ['search_conversations'],
+            ...toolConfig,
           },
-          skills: {
-            ...BUILT_IN_DEFAULTS.skills,
-            directories:
-              options.skillDirectories ?? BUILT_IN_DEFAULTS.skills.directories,
-          },
+          skills: { ...BUILT_IN_DEFAULTS.skills, ...skillConfig },
         },
       },
       new SearchIndexService(tenantDb),
       noopReindexDispatch(),
       knowledgeResolver,
-      options.skillCatalog ?? noopSkillCatalog(),
+      skillCatalog,
       noopEmbedDispatch(),
       noopQueryEmbedder(),
       compileTestPermissionPolicy(),
@@ -795,11 +797,17 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   function epochService(compaction: CompactionService) {
     return runService(compaction, {
+      config: {
+        tools: {
+          allowed: ['search_conversations', 'enter_workspace'],
+          nativeExecutorId: EPOCH_EXECUTOR_ID,
+        },
+        skills: {
+          directories: ['/opt/skills'],
+        },
+        skillCatalog: LIVE_CATALOG,
+      },
       models: epochModels,
-      allowed: ['search_conversations', 'enter_workspace'],
-      nativeExecutorId: EPOCH_EXECUTOR_ID,
-      skillCatalog: LIVE_CATALOG,
-      skillDirectories: ['/opt/skills'],
     });
   }
 

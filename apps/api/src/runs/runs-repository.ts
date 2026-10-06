@@ -35,13 +35,7 @@ import {
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 
-/**
- * A completed run paired with the sequence of the user message that triggered
- * it. The join that produces it requires that message to exist, so a run whose
- * `messageId` was cleared by an anonymizing delete is absent from the lookup
- * entirely — it has no comparable turn and therefore establishes neither a
- * measurement nor a continuing epoch.
- */
+/** A completed run paired with the sequence of its triggering user message. */
 export type CompletedRunWithTrigger = {
   readonly run: Run;
   readonly triggeringUserSeq: number;
@@ -142,10 +136,10 @@ export class RunsRepository {
    * predicates. Created-at/id only break retry ties for one message; message
    * seq remains the primary conversation order.
    */
-  private async findMostRecentByMessageSequence(
+  async findMostRecentByMessageSequence(
     chatId: string,
     userId: string,
-    options: { beforeSeq?: number } | undefined,
+    options?: { beforeSeq?: number },
     ...extra: Array<SQL>
   ): Promise<CompletedRunWithTrigger | undefined> {
     const rows = await this.db
@@ -172,25 +166,6 @@ export class RunsRepository {
     return row === undefined
       ? undefined
       : { run: row.runs, triggeringUserSeq: row.triggeringSeq };
-  }
-
-  /**
-   * Most recent durable model selection by triggering-message sequence,
-   * optionally bounded to triggering messages strictly before `beforeSeq`.
-   * Status is intentionally irrelevant: failed runs still establish the user's
-   * previous selection.
-   */
-  async findMostRecentByChatMessageSequence(
-    chatId: string,
-    userId: string,
-    options?: { beforeSeq?: number },
-  ): Promise<Run | undefined> {
-    const found = await this.findMostRecentByMessageSequence(
-      chatId,
-      userId,
-      options,
-    );
-    return found?.run;
   }
 
   /**
