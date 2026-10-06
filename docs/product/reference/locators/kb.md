@@ -20,11 +20,10 @@ a selector selects lines to read and is rejected on `edit` and `write`.
 `..`, no backslash, no absolute form, and no NUL or other control character,
 with at most 1,024 UTF-8 bytes over 32 components — where a host path keeps `.`
 and `..` as ordinary segments and bounds nothing that way. Split the locator
-before decoding each path
-segment exactly once. Encode a literal `:`, `?`, `#`, or `%` as `%3A`, `%3F`,
-`%23`, or `%25`; other characters, including spaces, may be literal or encoded.
-Never encode `/`: an encoded separator and malformed encoding return
-`invalid_path`. Validation applies after decoding, so encoded `..` is refused. A
+before decoding each path segment exactly once. Encode a literal `:`, `?`,
+`#`, or `%` as `%3A`, `%3F`, `%23`, or `%25`; other characters, including spaces,
+may be literal or encoded. Never encode `/`. Validation applies after decoding,
+so encoded `..` is refused; every refusal is listed under [Errors](#errors). A
 raw colon starts the selector; use `%3A` inside a filename. Existing literal
 percent names now require `%25`, including locators saved before this change.
 The Space identifier and selector are never decoded.
@@ -94,8 +93,17 @@ child cannot be resolved safely returns `knowledge_space_unavailable`. Neither
 result reveals whether another owner, row, or directory exists.
 
 A bare `kb://` or a locator with no identifier is `invalid_path`; a refused
-symbolic-link component is `not_found`. Every other path and file failure uses
-the shared native vocabulary, listed in [read](../tools/read.md#errors).
+symbolic-link component is `not_found`; a malformed locator part — a segment
+that fails to decode, a traversal or control character, an encoded separator,
+a slash-only resource path, or an unpaired surrogate after decoding — is
+`invalid_path`, and it is judged before the suffix is, so a locator whose path
+part is malformed answers `invalid_path` whatever its selector says. A
+split-off suffix outside the selector grammar is `invalid_selector` with the
+shared message: the working forms, then the `%3A` spelling of the same file,
+which a Space directory has no resource path to offer and therefore names only
+the forms ([selectors](../selectors.md#malformed-selectors)). Every other path
+and file failure uses the shared native vocabulary, listed in
+[read](../tools/read.md#errors).
 
 ## Configured by
 

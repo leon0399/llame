@@ -1,5 +1,5 @@
 ---
-summary: "The trailing selector a read path may carry: line ranges, :raw, :outline, Markdown ancestors, and the shared result bound"
+summary: "The trailing selector a read path may carry: line ranges including open-ended and tail members, :raw, :outline, Markdown ancestors, and the shared result bound"
 read_when:
   - you are choosing a selector or deciding how a read was bounded
   - you need the range, raw, or outline grammar and the errors it can produce
@@ -15,21 +15,52 @@ A `read` path is `<locator>[:<selector>]`. The selector chooses which lines the
 result carries and in what representation; the locator chooses the source. See
 [locators](locators/index.md) for the schemes a locator may name.
 
+A `read` is matched for permission without its selector, on every source.
+[`edit` and `write`](tools/edit.md) have no selector, so a selector-shaped
+suffix stays in the text they are matched on and the host permission check sees
+the suffix-bearing path for those calls; the rule and its consequences are in
+[tool-call permissions](../operator/tool-call-permissions.md#matching).
+
 ## Line selectors
 
 `read({ path: "/absolute/file.md:10-20" })` returns lines 10 through 20, plus
 one live line of context on either side when available. `:10+11` selects the
-same requested range. Existing literal filenames take precedence over selector
-syntax, so a file whose name ends in `:20` is still read as that file.
+same requested range. The members are `N`, `N-M`, `N+K`, `N-` (line N through
+the source's last line), and `-K` (its last K lines), and they are one set: a
+comma list, a `raw:` list, and the outline's single scope each accept every one
+of them. Existing literal filenames take precedence over selector syntax, so a
+file whose name ends in `:20` is still read as that file.
+
+Each member is resolved against the source's own count before any other rule
+runs, and the reported `requestedRange` and `requestedRanges` are the resolved
+absolute lines. That count is a regular file's line count, a web render's line
+count, a directory listing's root-level entry count, or the skill catalog's
+entry count. A regular file is counted by one forward pass over its lines, after
+the read has established that the target is a regular file and before the
+ordinary read, so a read carrying `N-` or `-K` costs one extra pass over the
+file; ordinary selectors do not. The coordinates are those the read observed,
+not a snapshot: a file that grows between the passes is reported from the count
+the pass found.
+
+A `-K` larger than the count resolves to the whole source rather than failing,
+and `:-0` fails with `invalid_selector`. A member that resolves to no lines,
+such as an `N-` past the last line, is dropped when an earlier sorted member
+selected lines and otherwise fails as a start past the end does; an empty file
+or render answers `-K` and `1-` with the empty result.
 
 Comma-separated ranges such as `:4-5,7-8` read several passages in one bounded
 call: ranges sort, merge, grow one context line per side, and merge again when
-the grown windows touch, so `:4-5,7-8` renders lines 3 through 9. Up to 64 ranges
-per read. Multi-range results report `requestedRanges` (the merged request) and
-`shownRanges` (emitted lines).
+the grown windows touch, so `:4-5,7-8` renders lines 3 through 9. A comma list
+mixes the members freely, so `:50-,-10` reads the last ten lines together with
+everything from line 50 on. Up to 64 ranges per read. Multi-range results report
+`requestedRanges` (the merged request) and `shownRanges` (emitted lines).
 
-A directory read takes a range selector too: `:1-5` returns a flat listing of
-root-level entries only, with no child content.
+A directory read, and the skill catalog, take one range member too: `:1-5`
+returns a flat listing of root-level entries only, with no child content, and
+`:-20` returns the last twenty of those entries. The member resolves against that
+level's entry count; `N-` past the end returns the empty page. Comma lists,
+`:raw`, and `:outline` are refused with `invalid_selector` rather than being
+reinterpreted as a listing.
 
 ## Raw
 
@@ -37,24 +68,36 @@ root-level entries only, with no child content.
 context. `:raw:4-5,7-8` stays verbatim without context. Only a raw read is
 byte-for-byte source. `:raw` is not supported for directories.
 
+The two separators are one read in either order: `guide.md:60-64:raw` and
+`guide.md:raw:60-64` return the same lines, on every source, and the canonical
+spelling everything downstream sees is the `raw:` one. A host or web split takes
+the colon segment before a trailing `:raw` as the range list only when that
+segment has the member-list shape, so `notes:draft:raw` remains the raw read of
+`notes:draft` and `2024:10:raw` is line 10 of `2024`, read raw; a file literally
+named `name:10` is read raw as `name:10:raw:1-`. An existing file whose name is
+itself the selector, such as `x:60-64:raw`, still wins the literal-path probe.
+
 ## Markdown outline
 
 Representation selectors are chosen after source admission and content
 acquisition. The grammar accepts `:raw`, `:raw:<ranges>`, `:outline`,
-`:outline:<N>`, `:outline:<N-M>`, and `:outline:<N+K>`. `<ranges>` uses the
-raw-range grammar, including comma-separated ranges; an outline scope accepts
-exactly one range and never a comma list. `:outline:N` means source line N only,
-and `:outline:N+K` means K source lines from N (N through N+K-1). Ordinary
-bounded reads add one preceding and one following live line when available;
-these are called **context lines**. Outline reads do not add context lines.
+`:outline:<N>`, `:outline:<N-M>`, `:outline:<N+K>`, `:outline:<N->`, and
+`:outline:<-K>`. `<ranges>` uses the raw-range grammar, including
+comma-separated ranges; an outline scope accepts exactly one member and never a
+comma list. `:outline:N` means source line N only, `:outline:N+K` means K source
+lines from N (N through N+K-1), and `:outline:N-` and `:outline:-K` mean the
+same scopes they mean in a line read, resolved against the source's count.
+Ordinary bounded reads add one preceding and one following live line when
+available; these are called **context lines**. Outline reads do not add context
+lines.
 
 Host literal-path probing still happens first, and host and web split the outline
 form after the raw form and before the last-colon numeric fallback. Thus
 `:outline:raw` is the shipped raw read of a path or URL ending in `:outline`,
 not an outline request. On host and web, `:raw:outline` is not a representation
-member and fails with `invalid_selector`; `kb://` and `skill://` return
-`invalid_path` for either form. The host permission check sees the submitted
-suffix-bearing path, including `:outline`, before selector parsing.
+member; every source answers `:raw:outline` with `invalid_selector` because its
+remainder is outside the grammar, while `kb://` and `skill://` answer
+`:outline:raw` the same way.
 
 ### Outline output
 
@@ -228,6 +271,41 @@ result envelopes are unchanged. Heading lines and their coordinates are
 untrusted, execution-time navigation metadata rather than a snapshot, hash, lock,
 or authority token; a later read reauthorizes and rereads the current source.
 
+## Malformed selectors
+
+A trailing suffix that splits off a locator which itself parses and then lies
+outside the grammar is `invalid_selector` on every source, with one message that
+names the forms that work: `:N`, `:N-M`, `:N+K`, `:N-`, `:-K`, comma-separated
+lists of them, `:raw`, `:raw:<list>`, and `:outline` with at most one member.
+
+A locator with a resource path to spell appends a second sentence, `For a
+literal colon, write this locator as <spelling>`, carrying the `%3A` spelling of
+that path: a `kb://` or `skill://` resource and a web locator, so
+`kb://<id>/notes/a:b.md` is answered with `kb://<id>/notes/a%3Ab.md` and
+`https://w.example/wiki/Special:Search` with
+`https://w.example/wiki/Special%3ASearch`. In the suffix a valid `%HH` escape
+is kept, while a stray `%` or an escape that decodes to `/`, `\`, or a control
+character is encoded as `%25`, so the spelling still parses when resubmitted,
+and every colon of the web locator's last path segment is encoded. The spelling
+is built from the canonical locator, so a web host, port, and escapes are
+normalized, and a trailing `/` stays before the encoded colon on every source.
+A `kb://` Space directory, a `skill://` package root or catalog,
+and a host path name no such spelling — `%3A` decodes to `:` on the host — so
+their message is the forms alone.
+
+`invalid_path` remains the answer for a malformed locator part: a path that is
+not a locator at all, an unimplemented scheme, a `kb://` or `skill://` path that
+fails to decode or validate before the suffix is judged, a `file://` alias with
+a remote authority or an illegal escape, or a web locator that is not an
+absolute `http`/`https` URL. A selector the source cannot serve keeps its own
+`invalid_selector` rather than the grammar refusal: a web render reports how
+many lines it holds, while a file whose requested start is past its last line
+keeps the bare error type as its message, because the spelling was inside the
+grammar and only its start was not.
+
+On web, a locator ending in `:12-` is a selector and one ending in `:12+` is not:
+it has no count, so it is refused with the forms message.
+
 ## Result bounds
 
 Line numbers are display metadata, not source. Continuation uses zero-based
@@ -276,7 +354,11 @@ returns `representation_too_large` and no partial outline, with:
 
 > The adapter document was cut at the web read's document bound, so an outline would omit structure; read it without :outline.
 
-The ordinary adapter read still returns its cut document and note.
+The ordinary adapter read still returns its cut document and note. A `-K` member
+on that same cut document is refused with `representation_too_large` and no
+content, naming the cut, because the end of a cut document is not the end the
+source holds; an `N-` member and an ordinary read of it are unaffected and keep
+the ordinary truncation note.
 
 Admission, permission checks, owner resolution, and content acquisition finish
 before media-type derivation or Markdown scanning. A denied submitted locator

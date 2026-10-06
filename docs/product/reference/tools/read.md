@@ -48,7 +48,7 @@ much of it was shown:
 | Field                                | Meaning                                                                                   |
 | ------------------------------------ | ----------------------------------------------------------------------------------------- |
 | `content`                            | the emitted source lines, each with its `N:` prefix, or the verbatim bytes for a raw read |
-| `requestedRange` / `requestedRanges` | the normalized source scope that was requested                                            |
+| `requestedRange` / `requestedRanges` | the resolved source scope that was requested                                              |
 | `shownRange` / `shownRanges`         | the source lines actually emitted                                                         |
 | `truncated`                          | whether a bound cut the result                                                            |
 | `nextOffset`                         | the zero-based index of the first omitted source line; resume at `nextOffset + 1`         |
@@ -69,8 +69,8 @@ A multi-range read reports the plural `requestedRanges` (the merged request) and
 
 `read({ path: "/absolute/file.md:10-20" })` returns lines 10 through 20, plus one
 live line of context on either side when available. `:raw` returns verbatim
-source without line numbers or added context. The full line, raw, and
-representation grammar is under
+source without line numbers or added context. The full line (including the
+open-ended `N-` and tail `-K` members), raw, and representation grammar is under
 [selectors](../selectors.md#line-selectors).
 
 A read never mutates its source. A read of a host path also triggers that
@@ -94,10 +94,15 @@ return — `invalid_path`, `not_found`, `not_regular_file`, `invalid_utf8`,
 vocabulary regardless of scheme. `file_exists` is not one of them: it belongs to
 the mutations, in [write](write.md#errors).
 
-A selector the source does not accept fails with `invalid_selector`; see
-[selectors](../selectors.md). `unsupported_operation` is a `skill://` mutation
-refusal, and `skill_requires_explicit_selection` a manual-only package refusal;
-both are in [skill](../locators/skill.md#errors).
+A selector the source does not accept fails with `invalid_selector`, and a
+suffix outside the grammar is `invalid_selector` on every scheme, with one
+message naming the working forms; see
+[selectors](../selectors.md#malformed-selectors). A `-K` member on a web
+adapter document cut at the document bound fails as `representation_too_large`
+instead ([selectors](../selectors.md#media-types-and-errors)).
+`unsupported_operation` is a `skill://` mutation refusal, and
+`skill_requires_explicit_selection` a manual-only package refusal; both are in
+[skill](../locators/skill.md#errors).
 
 ## Configured by
 
@@ -110,4 +115,7 @@ both are in [skill](../locators/skill.md#errors).
 - [Skills](../../operator/skills.md) installs the packages `skill://` reads.
 
 A read is gated by the `read` permission group, described in
-[tool-call permissions](../../operator/tool-call-permissions.md).
+[tool-call permissions](../../operator/tool-call-permissions.md#matching). That
+group matches the resource without the read selector the tool splits off, on
+every source; `edit` and `write` have no selector, so any suffix they carry
+stays in the matched text.
