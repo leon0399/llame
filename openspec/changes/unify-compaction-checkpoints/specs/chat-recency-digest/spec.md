@@ -19,7 +19,7 @@ A checkpoint refresh SHALL reset the new epoch's told-set without pre-marking un
 
 The told-set SHALL identify chats by their chat id. Storing an identifier for bookkeeping is not in tension with omitting identifiers from the rendered output: the two serve different purposes, and no stored id is ever rendered.
 
-The worker SHALL recheck the owner setting and chat digest epoch under tenant scope immediately before preparing the final request and system-only receipt, after candidate resolution. If sharing was disabled during resolution, discard the new baseline/append candidate and proceed without newly produced digest content. This check SHALL occur before target-model I/O, not after disclosure. Existing baseline retention on withdrawal remains unchanged.
+The worker SHALL recheck the owner setting and chat digest epoch under tenant scope immediately before preparing the final request and system-only receipt, after candidate resolution. If sharing was disabled during resolution, discard the new baseline/append candidate and proceed without newly produced digest content. This check SHALL occur before target-model I/O, not after disclosure. A checkpoint's re-resolved baseline commits in the checkpoint's own fenced transaction, which precedes the final request, so for that candidate the recheck SHALL run inside that transaction, after candidate resolution and before the refreshed baseline is written; a withdrawal before that point discards the candidate and the checkpoint publishes without the digest refresh. Existing baseline retention on withdrawal remains unchanged.
 
 Baseline/told-set initialization and append advancement SHALL be staged for the attempt and committed atomically with its successful turn and persisted context text. A checkpoint SHALL publish its refreshed baseline and reset told-set in its own fenced atomic transaction under `model-system-prompts`, before the model step it precedes. Failed, cancelled, or superseded attempts SHALL leave the committed digest state unchanged, except that a checkpoint already published with its refreshed baseline survives the failure of the attempt it preceded, because the checkpoint and its epoch state describe committed history only and a retry reuses them rather than re-resolving. At most one baseline epoch SHALL exist per chat; existing single-flight and attempt/epoch fencing SHALL prevent competing initialization or a stale compaction candidate from overwriting current state.
 
@@ -218,6 +218,6 @@ No ceiling SHALL be imposed on how many appends accumulate between re-resolution
 
 #### Scenario: Compaction emits a supersession marker
 
-- **WHEN** a checkpoint re-resolves the baseline and its summary carries earlier chat-list updates forward
+- **WHEN** a checkpoint re-resolves the baseline and its absorbed boundary supersedes the earlier appends
 - **THEN** a single supersession marker is appended in the request prepared after that publication, stating that earlier chat-list updates are superseded
 - **AND** the refreshed list is not restated on the message rail

@@ -469,7 +469,7 @@ no other stored form of superseded history is replayed.
 
 The proactively eligible skill catalog for a Chat SHALL be computed from that Chat's effective skill sources, as defined by `agent-skills`, and SHALL be classified as a frozen prefix-resident baseline with rail-resident deltas. The baseline SHALL be the `skills` prompt projection defined by `model-system-prompts`: admitted entries in code-point name order, each with name and description, plus the count of proactively eligible entries omitted. Admission SHALL retain whole entries while the admitted count stays within 256 and the cumulative UTF-8 length of name and description stays within 16 KiB, so that template-owned per-entry markup cannot multiply the bound; omission SHALL be disclosed through that count whenever the baseline admits at least one entry, and the proactively eligible set SHALL remain inspectable through `read("skill://")` regardless.
 
-The baseline and the names of the entries the Chat was last told SHALL be persisted on the Chat row under owner isolation, following the recency-digest precedent, together with the identity of the checkpoint message under which the baseline was resolved. Accepted-turn preparation SHALL reuse the stored baseline only when a baseline is persisted and its recorded identity equals the Chat's latest checkpoint message — a Chat that has published no checkpoint records both as absent and keeps reusing its first baseline — and SHALL otherwise resolve the current catalog from that Chat's effective skill sources and start a new baseline and told state in the same accepted-turn transaction as the user message and Run. No baseline SHALL be written for a Chat whose effective skill source set is empty. Package edits, model switches, and other prompt contributions SHALL NOT refresh the baseline. A checkpoint published before a Run's first model request SHALL re-resolve the baseline in the same transaction as that checkpoint, so the request that follows it renders the refreshed baseline. Caller-supplied owner identifiers SHALL NOT authorize baseline or told-state reads or mutations. The epoch that identity comparison serves SHALL begin when the active checkpoint's absorbed-through sequence is at or above the sequence of the previous completed Run's triggering user message, and SHALL NOT be decided by comparing creation times or by an assistant row's sequence.
+The baseline and the names of the entries the Chat was last told SHALL be persisted on the Chat row under owner isolation, following the recency-digest precedent, together with the identity of the checkpoint message under which the baseline was resolved. Accepted-turn preparation SHALL reuse the stored baseline only when a baseline is persisted and its recorded identity equals the Chat's latest checkpoint message — a Chat that has published no checkpoint records both as absent and keeps reusing its first baseline — and SHALL otherwise resolve the current catalog from that Chat's effective skill sources and start a new baseline and told state in the same accepted-turn transaction as the user message and Run. No baseline SHALL be written for a Chat whose effective skill source set is empty. Package edits, model switches, and other prompt contributions SHALL NOT refresh the baseline. A checkpoint published before a Run's first model request SHALL re-resolve the baseline in the same transaction as that checkpoint, so the request that follows it renders the refreshed baseline. Caller-supplied owner identifiers SHALL NOT authorize baseline or told-state reads or mutations. The epoch that identity comparison serves SHALL be the rail epoch that `Compaction is the rail's re-baseline boundary` defines, which states its boundary once.
 
 The baseline SHALL enter the prompt only through the template projection. A template that does not reference `skills` SHALL render no catalog, and no server-rendered block SHALL be appended outside the template. Operator-authored descriptions SHALL be neutralized before composing the prompt or any item and SHALL replay from persisted text without another sanitization pass.
 
@@ -527,13 +527,18 @@ inferred from the current unbound state, by emitting a separate rail-resident it
 `notice` in the same turn. The notice SHALL name that reason, and the persisted reason SHALL be
 cleared only when the Run that narrates it completes. The producer SHALL stage the narrated root,
 or its absence, and the latest checkpoint message as `workspace_told` and `workspace_told_from`;
-the same accepted-turn transaction SHALL write both values, and the only other
-writer SHALL be a checkpoint's publication transaction, which advances
-`workspace_told_from` to name its own row and resets the told root, so the state
-is not left suppressed by a narration the checkpoint superseded. The `workspace`
-producer re-derives its snapshot after that transaction commits and before the
-model step the checkpoint precedes, so the re-established state takes effect for
-that very request rather than on a later turn.
+the same accepted-turn transaction that commits the successful turn SHALL write
+both values, and the only other writer SHALL be a checkpoint's publication
+transaction, which advances `workspace_told_from` to name its own row and resets
+the told root, so the state is not left suppressed by a narration the checkpoint
+superseded. The `workspace` producer re-derives its snapshot after that
+transaction commits and before the model step the checkpoint precedes, so the
+re-established state takes effect for that very request rather than on a later
+turn. That snapshot is staged like any other: the successful turn the checkpoint
+preceded records the re-narrated root and the checkpoint's identity in its own
+accepted-turn transaction, so the next turn finds the root already told within
+the epoch, and a failed attempt records neither value, leaving its retry to
+re-derive the same snapshot.
 Workspace state SHALL NOT be placed in the system prompt. Each successful Run that sends a
 Workspace snapshot or notice SHALL include each exact item text, producer, form, and rail residency
 in its owner-scoped Run context-item record under the existing recording rules.
@@ -557,6 +562,7 @@ in its owner-scoped Run context-item record under the existing recording rules.
 - **THEN** the first request the checkpoint precedes treats the told state as null
   for comparison and carries a snapshot re-establishing the current root
 - **AND** the snapshot remains rail-resident rather than changing the system prompt
+- **AND** the successful turn records that root against the checkpoint's identity, so the next turn emits no second snapshot for the same root
 
 #### Scenario: A never-bound Chat receives no Workspace notice
 

@@ -7,13 +7,14 @@ tool records across checkpoints, three `chats` columns that name it, and two
 trigger paths (fire-and-forget after a successful Run, and a staged transition
 before a model switch) that differ in how they load, fit-check, summarize and
 publish. None of the twelve peer harnesses surveyed for
-[#806](https://github.com/leon0399/llame/issues/806) keeps a separate table,
-and none carries structured tool observations past a checkpoint; that carry is
-the origin of the role-ordering blocker recorded on
-[#865](https://github.com/leon0399/llame/issues/865) and of most of the
-chained re-budgeting code. The summarizer prompt also lacks rules most peers
-converged on: a verbatim anchor for the latest request, data-not-instructions,
-supersession when folding a prior checkpoint, secrets, and language.
+[#806](https://github.com/leon0399/llame/issues/806) (nine tabulated in
+`design.md`) keeps a separate table, and none carries structured tool
+observations past a checkpoint; that carry is the origin of the role-ordering
+blocker recorded on [#865](https://github.com/leon0399/llame/issues/865) and of
+most of the chained re-budgeting code. The summarizer prompt also lacks what
+most peers converged on: a verbatim anchor for the latest request and rules for
+data-not-instructions, supersession when folding a prior checkpoint, secrets,
+language, and omitting rather than inventing.
 
 ## What Changes
 
@@ -104,7 +105,8 @@ None.
 - `run-usage-accounting`: the trigger estimate is evaluated before the Run's
   first model step; compaction spend stays its own category.
 - `available-models`: the per-model threshold gates the pre-step trigger;
-  compaction inherits the Run's effort as a prefix-aligned continuation.
+  compaction inherits the Run's effort as a prefix-aligned continuation, and
+  its usage records the model that ran it.
 - `chat-recency-digest`, `temporal-anchor`, `instruction-files`: epoch
   boundaries and re-bakes are keyed on the checkpoint row and publish with it
   before the model step, not with the successful attempt.

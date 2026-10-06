@@ -65,6 +65,29 @@ a separate title-only model registry for this change.
 - **AND** title generation leaves the chat untitled and logs a server error
 - **AND** title generation does not fall back to `DEFAULT_MODEL_ID`
 
+### Requirement: Assistant usage includes llame model id
+
+Assistant message and compaction usage telemetry SHALL include the opaque llame `modelId` that produced the model output. New assistant message and compaction usage telemetry SHALL use `modelId` instead of the legacy `model` field and SHALL NOT write the legacy `provider` field. Existing computed usage fields, including generated-time `costUsd`, SHALL remain persisted and SHALL NOT be recomputed from future model metadata changes.
+
+#### Scenario: Assistant usage records model id
+
+- **WHEN** an assistant message is persisted after model execution
+- **THEN** its usage telemetry includes the selected opaque `modelId`
+- **AND** it does not write the legacy `model` field
+- **AND** it does not write the legacy `provider` field
+
+#### Scenario: Compaction usage records model id
+
+- **WHEN** compaction usage telemetry is persisted after a compaction model call
+- **THEN** its usage telemetry includes the opaque `modelId` of the model that ran that compaction: the triggering run's selected `modelId` on a threshold trigger, or the previous completed run's `modelId` on a window trigger
+- **AND** it does not write the legacy `model` field
+- **AND** it does not write the legacy `provider` field
+
+#### Scenario: Past cost remains persisted
+
+- **WHEN** model metadata or pricing configuration later changes
+- **THEN** previously persisted `costUsd` values on message usage remain unchanged
+
 ### Requirement: Compaction inherits effort from the Run whose prefix it reuses
 
 Compaction SHALL send the effort of the Run whose prompt prefix it reuses,

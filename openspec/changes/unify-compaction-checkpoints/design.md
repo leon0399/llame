@@ -176,7 +176,8 @@ attempt fails `context_incompatible`.
 Measured size is the previous completed assistant message's persisted
 `usage.contextTokens` (new field: that attempt's final request input plus
 output, which `run-usage-accounting` already uses for the post-turn trigger
-but does not persist) plus the estimate of rows and rail items after it. The
+but does not persist) plus the estimate of rows and rail items after it. A
+failed, cancelled or expired Run contributes no measurement. The
 measurement counts only when the user turn that assistant row answers has a
 `seq` above the active checkpoint's boundary; a measurement taken before a
 checkpoint describes the request the checkpoint already shrank, and counting
@@ -219,7 +220,8 @@ Ordering inside the attempt: load history and estimate; if the trigger fires,
 build the summary request from the pre-re-bake prompt, call the model, then
 commit the checkpoint row and the re-baked epoch state (digest baseline,
 temporal anchor, skill-catalog baseline, workspace told-set, and the three
-markers) in one transaction; only then resolve the attempt's own system
+markers) in one transaction, rechecking the owner's digest setting inside it
+before the refreshed baseline is written; only then resolve the attempt's own
 prompt, staged rail items (`startsEpoch`, the digest supersession marker, the
 workspace snapshot, the accepted-turn instruction-file load) and bind the
 system-prompt receipt. The receipt therefore records the prompt actually sent,
@@ -229,7 +231,9 @@ A later failure of that attempt leaves the checkpoint and its epoch state in
 place: the checkpoint describes committed history only, so it is correct
 regardless of the attempt's outcome, and a retry reuses it instead of paying a
 second summary call. This replaces the staged transition state that today is
-discarded on target failure.
+discarded on target failure. The workspace told root is the one value the
+publication resets instead of setting: the successful turn that re-narrates it
+writes it back, so a failed attempt leaves it null and its retry re-narrates.
 
 Alternative rejected: stage in memory and publish with attempt success (the
 current transition contract). Needs the staging machinery and a second code
@@ -293,7 +297,9 @@ deleted.
 `instruction.md` and `instruction-transition.md` merge: there is one trigger,
 and the summarized prefix is always followed by a user message the summarizer
 does not see. Headings, in order: `Latest Request` (the owner's last
-unresolved ask, quoted verbatim), `Objective`, `Constraints and Preferences`,
+unresolved ask within the summarized prefix, quoted verbatim; the triggering
+message follows the prefix and is replayed verbatim after the checkpoint, so it
+is not quoted there), `Objective`, `Constraints and Preferences`,
 `Decisions and Rationale`, `Established Facts`, `Errors and Corrections`,
 `Completed`, `Active`, `Blocked`, `Open Questions and Next Steps`,
 `Critical References`. The fold instruction moves `Active` to `Completed` and

@@ -91,9 +91,17 @@ The shared/public fork path SHALL remain the public transcript projection and SH
 
 ### Requirement: Checkpoint rows are copied with the prefix
 
-An owner fork SHALL copy every `checkpoint` row whose absorbed-through sequence is at or below the anchor as part of the ordinary message copy, keeping its stored parts, persisted checkpoint text, raw summary, and usage while allocating a new message identity. Copied rows, checkpoint rows among them, SHALL take dense sequences from 1 in copied order as every other copied row does, so a copied checkpoint SHALL NOT preserve its source sequence. Its absorbed-through sequence SHALL be remapped onto the copied row it named, so that a copied checkpoint absorbs exactly what it absorbed in the source, and the fork's replay SHALL use the copied checkpoint followed by the copied rows after its absorbed-through sequence. The copy SHALL NOT rebuild a checkpoint from a raw summary, re-render its stored text, or compact during copying, and a checkpoint row that fails the existing message write validation SHALL fail the whole fork.
+An owner fork SHALL copy every `checkpoint` row whose absorbed-through sequence is at or below the anchor as part of the ordinary message copy, keeping its stored parts, persisted checkpoint text, raw summary, and usage while allocating a new message identity. The copy SHALL NOT rebuild a checkpoint from a raw summary, re-render its stored text, or compact during copying, and a checkpoint row that fails the existing message write validation SHALL fail the whole fork.
 
-A shared or public fork SHALL copy only text-only user and assistant rows and SHALL NOT copy a `checkpoint` row.
+#### Scenario: A checkpoint beyond the anchor is not copied
+
+- **WHEN** the owner selects message 15 and the latest `checkpoint` row's absorbed-through sequence is 20
+- **THEN** that checkpoint is not copied
+- **AND** an earlier `checkpoint` row whose absorbed-through sequence is 10 is copied and is the fork's active checkpoint
+
+### Requirement: A copied checkpoint absorbs what its source absorbed
+
+Copied rows, checkpoint rows among them, SHALL take dense sequences from 1 in copied order as every other copied row does, so a copied checkpoint SHALL NOT preserve its source sequence. Its absorbed-through sequence SHALL be remapped onto the copied row it named, so that a copied checkpoint absorbs exactly what it absorbed in the source, and the fork's replay SHALL use the copied checkpoint followed by the copied rows after its absorbed-through sequence.
 
 #### Scenario: A copied checkpoint absorbs the same rows
 
@@ -102,6 +110,10 @@ A shared or public fork SHALL copy only text-only user and assistant rows and SH
 - **THEN** the fork holds a `checkpoint` row whose absorbed-through sequence names
   the copied row that came from `N`, not a row at sequence `N`
 - **AND** its replayed checkpoint, retained rows, and absorbed-message count equal the source's
+
+### Requirement: A shared or public fork receives no checkpoint row
+
+A shared or public fork SHALL copy only text-only user and assistant rows and SHALL NOT copy a `checkpoint` row.
 
 #### Scenario: A shared fork receives no checkpoint row
 

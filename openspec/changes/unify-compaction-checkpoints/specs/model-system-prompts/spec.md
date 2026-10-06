@@ -69,7 +69,7 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **THEN** the selected model receives its effective prompt normally
 - **AND** no model-switch reminder is created
 
-Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`; only attempt-generated rail context stays staged and publishes with a successful turn. Compaction SHALL run in the Run's own attempt before its first model step and SHALL follow the checkpoint contract below. When the prepared request does not fit that attempt's model, the summary SHALL use the previous completed Run's model, that Run's system-prompt receipt and effort, and no tool declarations; it SHALL NOT load, reconstruct, or persist a historical tool catalog.
+Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`, except that a failed, cancelled, or expired Run supplies no measured context size, as the checkpoint contract below requires; only attempt-generated rail context stays staged and publishes with a successful turn. Compaction SHALL run in the Run's own attempt before its first model step and SHALL follow the checkpoint contract below. When the prepared request does not fit that attempt's model, the summary SHALL use the previous completed Run's model, that Run's system-prompt receipt and effort, and no tool declarations; it SHALL NOT load, reconstruct, or persist a historical tool catalog.
 
 ### Requirement: Model switches use canonical persisted context text and metadata
 
@@ -204,7 +204,8 @@ answers has a sequence above the active checkpoint's absorbed-through sequence;
 otherwise the whole request SHALL be estimated. That comparison SHALL be by the
 user turn rather than by the assistant row's own sequence, because a retried
 assistant row is rewritten in place and keeps its sequence below a checkpoint
-published between its attempts.
+published between its attempts. A failed, cancelled, or expired Run SHALL NOT
+contribute a measured context size to a later trigger.
 
 Compaction SHALL NOT fire when no user or assistant row has a sequence between
 the active checkpoint's absorbed-through sequence and the triggering user
@@ -232,7 +233,9 @@ The single summarization instruction SHALL request the sections `Latest Request`
 `Objective`, `Constraints and Preferences`, `Decisions and Rationale`,
 `Established Facts`, `Errors and Corrections`, `Completed`, `Active`, `Blocked`,
 `Open Questions and Next Steps`, and `Critical References`, in that order.
-`Latest Request` SHALL carry the owner's last unresolved ask quoted verbatim.
+`Latest Request` SHALL carry the owner's last unresolved ask within the
+summarized prefix, quoted verbatim; the triggering user message follows that
+prefix and is replayed verbatim after the checkpoint rather than quoted there.
 When the summarized prefix already contains a checkpoint, the instruction SHALL
 fold it: `Active` items move to `Completed` and an answered question is replaced
 rather than repeated.
