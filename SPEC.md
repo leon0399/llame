@@ -82,10 +82,11 @@ A Chat is the persistent conversation container. A Run is one queued agentic tur
 
 Assistant usage sums provider-reported usage from every model request in the
 Run attempt; `complete` marks whether that aggregate covers the Run's spend,
-and failed or cancelled Runs keep their known usage. The final request's context
-size is persisted on the reply as `usage.contextTokens` and read by the next
-Run's pre-step trigger. Every newly written assistant and published compaction
-usage record stamps its resolved `billing` mode at write time. See
+and failed or cancelled Runs keep their known usage. `usage.contextTokens` is
+recorded when every model step of the attempt reported a usage receipt and the
+final request reported a count; otherwise the next trigger estimates the
+request. Every newly written assistant and published compaction usage record
+stamps its resolved `billing` mode at write time. See
 [`run-usage-accounting`](openspec/specs/run-usage-accounting/spec.md).
 
 ### 9.3 Run state

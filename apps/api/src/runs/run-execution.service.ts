@@ -3540,7 +3540,6 @@ export class RunExecutionService {
         run: input.run,
         attemptId: input.attemptId,
         summary,
-        parentId: estimatePass.latestCompaction?.id ?? null,
         model: estimatePass.model,
         workspaceRoot: input.workspacePreparation.root,
       });
@@ -3631,21 +3630,26 @@ export class RunExecutionService {
     run: ExecuteRunInput;
     attemptId: string;
     summary: CompactionSummary;
-    parentId: string | null;
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
   }): Promise<void> {
+    const initialShareRecentChats = await this.tenantDb.runAs(
+      input.run.userId,
+      (tx) => this.memory.getForOwnerForBinding(tx, input.run.userId),
+    );
     let digestCandidate: RecencyDigestResolution | null = null;
-    try {
-      digestCandidate = await this.recencyDigest.resolveCandidate(
-        input.run.userId,
-        input.run.chatId,
-      );
-    } catch {
-      // Candidate titles and excerpts are owner content; do not attach the
-      // caught error to a log entry or an execution error.
-      this.logger.error('recency_digest_resolution_failed');
-      digestCandidate = null;
+    if (initialShareRecentChats.shareRecentChats) {
+      try {
+        digestCandidate = await this.recencyDigest.resolveCandidate(
+          input.run.userId,
+          input.run.chatId,
+        );
+      } catch {
+        // Candidate titles and excerpts are owner content; do not attach the
+        // caught error to a log entry or an execution error.
+        this.logger.error('recency_digest_resolution_failed');
+        digestCandidate = null;
+      }
     }
     await this.tenantDb.runAs(input.run.userId, async (tx) => {
       // A reclaimed attempt must not move epoch state under the live one. The
@@ -3693,7 +3697,7 @@ export class RunExecutionService {
       const compaction = await compactionsRepo.create({
         chatId: input.run.chatId,
         uptoSeq: input.summary.uptoSeq,
-        parentId: input.parentId,
+        parentId: input.summary.parentId,
         summary: input.summary.summary,
         replacementHistory: input.summary.replacementHistory,
         usage: input.summary.usage,

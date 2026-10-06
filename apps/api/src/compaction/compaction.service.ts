@@ -89,6 +89,8 @@ type SummaryInference = {
 export type CompactionSummary = {
   /** Absorbed-through sequence: the last row before the triggering message. */
   readonly uptoSeq: number;
+  /** The checkpoint lineage read while preparing this summary. */
+  readonly parentId: string | null;
   readonly summary: string;
   readonly replacementHistory: Array<CompactionReplacementMessage>;
   /** Telemetry of the summarization call, as `compactions.usage` stores it. */
@@ -346,6 +348,7 @@ export class CompactionService {
   }): CompactionSummary {
     return {
       uptoSeq: input.request.plan.uptoSeq,
+      parentId: input.previous?.id ?? null,
       summary: input.summary,
       replacementHistory: buildCompactionReplacementHistory({
         summary: input.summary,

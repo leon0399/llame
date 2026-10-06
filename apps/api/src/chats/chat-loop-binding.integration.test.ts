@@ -244,7 +244,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       current: {
         id: 'message-id',
         chatId: 'chat-id',
-        seq: 1,
+        seq: compaction === undefined ? 1 : compaction.uptoSeq + 1,
         role: 'user',
         senderUserId: 'user-id',
         parts: [{ type: 'text', text: 'hello' }],
@@ -1208,6 +1208,12 @@ describe('ChatLoopService accept/worker context binding', () => {
         status: 'completed',
         completedAttemptId: 'attempt-id',
         turnToolAvailability: [{ id, state: 'available' }],
+        // The Run was created after the checkpoint, but its triggering user
+        // sequence remains below the checkpoint boundary: sequence order is
+        // the epoch rule.
+        createdAt: new Date('2026-08-11T08:00:04.000Z'),
+        startedAt: new Date('2026-08-11T08:00:05.000Z'),
+        finishedAt: new Date('2026-08-11T08:00:06.000Z'),
       }),
       activeCompaction: activeCompaction(),
       toolsAllowed: [id],

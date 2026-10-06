@@ -81,7 +81,11 @@ import {
   type ContextItemPart,
 } from '../chats/context-item';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
-import { createModelChangeItem } from '../chats/context-item-producers';
+import {
+  createModelChangeItem,
+  createTemporalItem,
+} from '../chats/context-item-producers';
+import { resolveInstanceTimezone } from '../prompts/temporal-anchor';
 import { createInstructionsItem } from '../chats/instructions-item';
 import { createInstructionsProducer } from '../instructions/instructions-producer';
 import type {
@@ -106,6 +110,8 @@ import type {
   CompactionCapability,
   CompactionSummary,
 } from '../compaction/compaction.service';
+import { estimateContinuationTokens } from '../compaction/compaction';
+
 import type { TitleCapability } from '../titles/title.service';
 import type { ChatSearchIndexer } from './run-execution.service';
 import type { ChatEmbedDispatcher } from '../search/search-embed-dispatch.service';
@@ -598,6 +604,7 @@ function committedTurn(
 function checkpointSummary(uptoSeq: number): CompactionSummary {
   return {
     uptoSeq,
+    parentId: null,
     summary: 'Earlier turns, summarized.',
     replacementHistory: [
       { role: 'user', parts: [{ type: 'text', text: 'Summarized prefix' }] },
@@ -6331,6 +6338,284 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     );
   }
 
+  type TriggerCase = {
+    historyRows: Array<Message>;
+    triggerSeq?: number;
+    recent?: Run;
+    completed?: CompletedRunWithTrigger;
+    client?: ModelClient;
+    initialChat?: Chat;
+    touchChat?: Chat;
+    shareRecentChats?: boolean;
+    recencyDigest?: RecencyDigestResolver;
+    model?: SystemModelCatalogEntry;
+    skillCatalog?: SkillCatalogPort;
+    skillDirectories?: ReadonlyArray<string>;
+    summary?: CompactionSummary | null;
+    duplicateCutoff?: Compaction;
+    fenceLost?: boolean;
+    startedEffort?: string | null;
+  };
+
+  async function executeTriggerCase(input: TriggerCase) {
+    const triggerSeq = input.triggerSeq ?? 3;
+    const spies = mockNormalExecutionRepositories();
+    if (input.startedEffort !== undefined) {
+      spies.markStarted.mockResolvedValue({
+        ...run,
+        effort: input.startedEffort,
+      });
+    }
+    const recent =
+      input.recent ??
+      completedPredecessor({
+        messageId: committedTurnUserId,
+        turnToolAvailability: null,
+      });
+    const completed =
+      input.completed ??
+      answeredTurn(
+        completedPredecessor({
+          messageId: committedTurnUserId,
+          turnToolAvailability: null,
+        }),
+        1,
+      );
+    spies.findMostRecent.mockImplementation(lookupBefore(triggerSeq, recent));
+    spies.findCompleted.mockImplementation(
+      completedLookupBefore(triggerSeq, completed),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+      input.historyRows,
+    );
+    const publication = serveCheckpointPublication();
+    if (input.duplicateCutoff !== undefined) {
+      publication.findByCutoff.mockResolvedValue(input.duplicateCutoff);
+    }
+    if (input.fenceLost) {
+      spies.updateForAttempt.mockResolvedValueOnce(undefined);
+    }
+    const client = input.client ?? answeringTriggerClient();
+    const memory =
+      input.shareRecentChats === undefined
+        ? undefined
+        : {
+            getForOwnerForBinding: vi
+              .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+              .mockResolvedValue({
+                shareRecentChats: input.shareRecentChats,
+              }),
+          };
+    const execution = makeExecutionService(client, undefined, undefined, {
+      ...(memory !== undefined && { memory }),
+      ...(input.recencyDigest !== undefined && {
+        recencyDigest: input.recencyDigest,
+      }),
+      ...(input.model !== undefined && { model: input.model }),
+      ...(input.skillCatalog !== undefined && {
+        skillCatalog: input.skillCatalog,
+      }),
+      ...(input.skillDirectories !== undefined && {
+        skillDirectories: input.skillDirectories,
+      }),
+    });
+    if (input.initialChat !== undefined) {
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
+        input.initialChat,
+      );
+    }
+    if ('touchChat' in input) {
+      vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(
+        input.touchChat,
+      );
+    }
+    if (input.summary !== undefined) {
+      execution.summarizeCheckpoint.mockResolvedValue(input.summary);
+    }
+
+    const result = await execution.service.executeRun({
+      ...executionInput(client),
+      userMessage: {
+        id: messageId,
+        seq: triggerSeq,
+        parts: [{ type: 'text', text: 'hello' }],
+      },
+    });
+    return { spies, publication, execution, result };
+  }
+
+  it('omits effort when a threshold compaction has no effort selection', async () => {
+    const { execution } = await executeTriggerCase({
+      startedEffort: null,
+      historyRows: [...committedTurn({ contextTokens: 40_000 }), triggerTurn()],
+    });
+
+    expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
+    expect(execution.summarizeCheckpoint.mock.calls[0]?.[0]).not.toHaveProperty(
+      'effort',
+    );
+  });
+
+  it('compacts when the counted request is exactly at the threshold', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-01T00:00:00.000Z'));
+    try {
+      const temporal = createTemporalItem({
+        runId,
+        instant: new Date(),
+        timeZone: resolveInstanceTimezone(),
+      });
+      const continuation = estimateContinuationTokens({
+        rows: [],
+        railText: temporal.data.text,
+      });
+      const client = Object.assign(createFakeModelClient(['answer']), {
+        compactionThresholdTokens: triggerThreshold,
+      });
+      const { execution } = await executeTriggerCase({
+        client,
+        triggerSeq: 2,
+        historyRows: [
+          ...committedTurn({
+            contextTokens: triggerThreshold - continuation,
+          }),
+          { ...userMessage, seq: 2 },
+        ],
+      });
+
+      expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('adds the continuation estimate to the counted context size', async () => {
+    const { execution } = await executeTriggerCase({
+      historyRows: [
+        ...committedTurn({ contextTokens: 4000 }),
+        {
+          ...userMessage,
+          seq: 3,
+          parts: [{ type: 'text', text: 'x'.repeat(5000) }],
+        },
+      ],
+    });
+
+    expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    'unfiltered rows',
+    'an always-true filter',
+    'a less-than-or-equal filter',
+  ])('does not estimate rows before the counted reply (%s)', async () => {
+    const [priorUser, priorReply] = committedTurn({
+      contextTokens: 4000,
+      parts: [{ type: 'text', text: 'x'.repeat(5000) }],
+    });
+
+    const { execution } = await executeTriggerCase({
+      historyRows: [priorUser, priorReply, { ...userMessage, seq: 3 }],
+    });
+
+    expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'an always-false filter',
+    'a filter callback that returns undefined',
+  ])('estimates the rows after the counted reply (%s)', async () => {
+    const { execution } = await executeTriggerCase({
+      historyRows: [
+        ...committedTurn({ contextTokens: 4000 }),
+        {
+          ...userMessage,
+          seq: 3,
+          parts: [{ type: 'text', text: 'x'.repeat(5000) }],
+        },
+      ],
+    });
+
+    expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
+  });
+
+  it('excludes the counted reply itself from the continuation estimate', async () => {
+    const [priorUser, priorReply] = committedTurn({
+      contextTokens: 4000,
+    });
+    const { execution } = await executeTriggerCase({
+      historyRows: [
+        priorUser,
+        {
+          ...priorReply,
+          parts: [{ type: 'text', text: 'x'.repeat(5000) }],
+        },
+        { ...userMessage, seq: 3 },
+      ],
+    });
+
+    expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+  });
+
+  it('includes staged context text in the continuation estimate', async () => {
+    const previous = completedPredecessor({
+      messageId: committedTurnUserId,
+      modelId: 'o'.repeat(5000),
+      turnToolAvailability: null,
+    });
+    const { execution } = await executeTriggerCase({
+      recent: previous,
+      completed: answeredTurn(previous, 1),
+      historyRows: [
+        ...committedTurn({ contextTokens: 4000 }),
+        { ...userMessage, seq: 3 },
+      ],
+    });
+
+    expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
+  });
+
+  it('concatenates staged context text without inserting a separator', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-01T00:00:00.000Z'));
+    try {
+      const previous = completedPredecessor({
+        messageId: committedTurnUserId,
+        modelId: 'old-model',
+        turnToolAvailability: null,
+      });
+      const modelChange = createModelChangeItem({
+        oldModel: { id: 'old-model' },
+        newModel: testModelEntry,
+        runId,
+      });
+      const temporal = createTemporalItem({
+        runId,
+        instant: new Date(),
+        timeZone: resolveInstanceTimezone(),
+      });
+      const continuation = estimateContinuationTokens({
+        rows: [],
+        railText: modelChange.data.text + temporal.data.text,
+      });
+      const { execution } = await executeTriggerCase({
+        recent: previous,
+        completed: answeredTurn(previous, 1),
+        triggerSeq: 2,
+        historyRows: [
+          ...committedTurn({
+            contextTokens: triggerThreshold - continuation - 1,
+          }),
+          { ...userMessage, seq: 2 },
+        ],
+      });
+
+      expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     { name: 'an over-threshold chat', variant: 'threshold' },
     {
@@ -6526,9 +6811,9 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     'makes no summary call for $name',
     async ({ triggerSeq, recent, completed, messages, checkpoint }) => {
       const spies = mockNormalExecutionRepositories();
-      spies.findMostRecent.mockImplementation(lookupBefore(3, recent));
+      spies.findMostRecent.mockImplementation(lookupBefore(triggerSeq, recent));
       spies.findCompleted.mockImplementation(
-        completedLookupBefore(3, completed),
+        completedLookupBefore(triggerSeq, completed),
       );
       if (checkpoint !== undefined) {
         vi.spyOn(
@@ -6621,6 +6906,171 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     // A cancelled Run contributes no measurement and triggers nothing itself.
     expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
     expect(publication.create).not.toHaveBeenCalled();
+  });
+  function publicationHistory(): Array<Message> {
+    return [...committedTurn({ contextTokens: 40_000 }), triggerTurn()];
+  }
+
+  it('rejects a checkpoint publication when the attempt fence is lost', async () => {
+    await expect(
+      executeTriggerCase({
+        historyRows: publicationHistory(),
+        summary: checkpointSummary(2),
+        fenceLost: true,
+      }),
+    ).rejects.toThrow(
+      `Run ${runId} was reclaimed before checkpoint publication.`,
+    );
+  });
+
+  it('fences publication with the active attempt and skips an existing cutoff', async () => {
+    const { spies, publication } = await executeTriggerCase({
+      historyRows: publicationHistory(),
+      summary: checkpointSummary(2),
+      duplicateCutoff: activeCheckpoint({
+        uptoSeq: 2,
+        createdAt: checkpointInstant,
+      }),
+    });
+
+    expect(spies.updateForAttempt).toHaveBeenCalledWith(
+      runId,
+      userId,
+      testAttemptId,
+      { activeAttemptId: testAttemptId },
+    );
+    expect(publication.create).not.toHaveBeenCalled();
+    expect(publication.setTold).not.toHaveBeenCalled();
+  });
+
+  it('continues checkpoint publication when recency digest resolution fails', async () => {
+    const loggerError = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockRejectedValue(new Error('secret excerpt'));
+    const { publication } = await executeTriggerCase({
+      historyRows: publicationHistory(),
+      summary: checkpointSummary(2),
+      shareRecentChats: true,
+      recencyDigest: { resolveCandidate },
+    });
+
+    expect(loggerError).toHaveBeenCalledWith(
+      'recency_digest_resolution_failed',
+    );
+    expect(publication.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not rebake a recency digest when the chat has no baseline', async () => {
+    const setRecencyDigest = vi
+      .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
+      .mockResolvedValue(undefined);
+    const rebakedChat = { ...chat, recencyDigestBaseline: null };
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({
+        baseline: digestBaseline,
+        told: [],
+        candidates: [],
+      });
+    await executeTriggerCase({
+      historyRows: publicationHistory(),
+      summary: checkpointSummary(2),
+      initialChat: rebakedChat,
+      touchChat: rebakedChat,
+      shareRecentChats: true,
+      recencyDigest: { resolveCandidate },
+    });
+
+    expect(setRecencyDigest).not.toHaveBeenCalled();
+  });
+
+  it('rebakes a recency digest baseline after checkpoint publication', async () => {
+    const setRecencyDigest = vi
+      .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
+      .mockResolvedValue(undefined);
+    const rebakedChat = {
+      ...chat,
+      recencyDigestBaseline: digestBaseline,
+      recencyDigestTold: [],
+    };
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({
+        baseline: digestBaseline,
+        told: [],
+        candidates: [],
+      });
+    await executeTriggerCase({
+      historyRows: publicationHistory(),
+      summary: checkpointSummary(2),
+      initialChat: rebakedChat,
+      touchChat: rebakedChat,
+      shareRecentChats: true,
+      recencyDigest: { resolveCandidate },
+    });
+
+    expect(setRecencyDigest).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      baseline: digestBaseline,
+      told: [],
+      rebakedFrom: publishedCheckpointId,
+    });
+  });
+
+  it('rebakes the skill baseline and copies its told names after publication', async () => {
+    const setSkillCatalogBaseline = vi
+      .spyOn(ChatsRepository.prototype, 'setSkillCatalogBaseline')
+      .mockResolvedValue(undefined);
+    const updateSkillCatalogTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateSkillCatalogTold')
+      .mockResolvedValue(undefined);
+    const skillChat = {
+      ...chat,
+      skillCatalogBaseline: {
+        entries: [{ name: 'old', description: 'Old skill' }],
+        omitted: 0,
+      },
+      skillCatalogTold: ['old'],
+    };
+    await executeTriggerCase({
+      historyRows: publicationHistory(),
+      summary: checkpointSummary(2),
+      initialChat: skillChat,
+      touchChat: skillChat,
+      model: { ...testModelEntry, referencesSkills: true },
+      skillCatalog: skillCatalogOf([skillEntry('new', 'New skill')]),
+      skillDirectories: ['/opt/skills'],
+    });
+
+    expect(setSkillCatalogBaseline).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      baseline: {
+        entries: [{ name: 'new', description: 'New skill' }],
+        omitted: 0,
+      },
+      rebakedFrom: publishedCheckpointId,
+    });
+    expect(updateSkillCatalogTold).toHaveBeenCalledWith(chatId, userId, [
+      'new',
+    ]);
+  });
+
+  it('does not write workspace epoch state when the touched chat disappeared', async () => {
+    const setTold = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
+      .mockResolvedValue(undefined);
+    await executeTriggerCase({
+      historyRows: publicationHistory(),
+      summary: checkpointSummary(2),
+      touchChat: undefined,
+    });
+
+    expect(setTold).not.toHaveBeenCalled();
   });
 });
 
@@ -7410,24 +7860,23 @@ describe('RunExecutionService executeRun — context window and late tool result
 
   it('reads history only after the latest compaction and replays its summary', async () => {
     mockNormalExecutionRepositories();
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue({
-      id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
-      chatId,
-      uptoSeq: 4,
-      parentId: null,
-      summary: 'Earlier turns, summarized.',
-      replacementHistory: [
-        {
-          role: 'user',
-          parts: [{ type: 'text', text: 'Summarized prefix request' }],
-        },
-      ],
-      usage: null,
-      createdAt: now,
-    });
+    const findLatest = vi
+      .spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
+      .mockResolvedValue({
+        id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+        chatId,
+        uptoSeq: 4,
+        parentId: null,
+        summary: 'Earlier turns, summarized.',
+        replacementHistory: [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: 'Summarized prefix request' }],
+          },
+        ],
+        usage: null,
+        createdAt: now,
+      });
     const findByChatId = vi
       .spyOn(MessagesRepository.prototype, 'findByChatId')
       .mockResolvedValue([]);
@@ -7442,6 +7891,9 @@ describe('RunExecutionService executeRun — context window and late tool result
         seq: 9,
         parts: [{ type: 'text', text: 'hello' }],
       },
+    });
+    expect(findLatest).toHaveBeenCalledWith(chatId, userId, {
+      beforeSeq: 9,
     });
 
     expect(findByChatId).toHaveBeenCalledWith(chatId, userId, {
@@ -9637,16 +10089,18 @@ describe('RunExecutionService instruction files', () => {
         },
         skillCatalogTold: ['pdf'],
       });
+      const catalog = skillCatalogOf([
+        skillEntry('pdf', 'Extract text'),
+        skillEntry('research', 'Plan it'),
+      ]);
+      const getSnapshot = vi.spyOn(catalog, 'getSnapshot');
       const execution = makeExecutionService(
         createFakeModelClient(['answer']),
         undefined,
         'host-a',
         {
           ...executionOptions(),
-          skillCatalog: skillCatalogOf([
-            skillEntry('pdf', 'Extract text'),
-            skillEntry('research', 'Plan it'),
-          ]),
+          skillCatalog: catalog,
           skillDirectories: ['/opt/skills'],
           model: { ...testModelEntry, referencesSkills: true },
         },
@@ -9657,6 +10111,14 @@ describe('RunExecutionService instruction files', () => {
       );
 
       await expect(result.text).resolves.toBe('answer');
+      expect(getSnapshot).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          path.join(root, '.claude', 'skills'),
+          path.join(root, '.agents', 'skills'),
+          path.join(root, '.llame', 'skills'),
+        ]),
+      );
+
       // The completed Run's own record lists the item in rail position: after
       // the workspace snapshot and before the skill notice.
       await vi.waitFor(() =>

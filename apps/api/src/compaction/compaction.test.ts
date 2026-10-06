@@ -422,6 +422,36 @@ describe('countedContextTokens', () => {
     ).toBeUndefined();
   });
 
+  it('requires the matching reply row to be an assistant message', () => {
+    const userRow = row(4, 'user', {
+      inReplyTo: 'run-trigger',
+      usage: { contextTokens: 900 },
+    });
+
+    expect(
+      countedContextTokens({
+        previousCompleted: previousRun,
+        rows: [userRow],
+        boundarySeq: 1,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('accepts a zero-sized persisted context measurement', () => {
+    const reply = row(4, 'assistant', {
+      inReplyTo: 'run-trigger',
+      usage: { contextTokens: 0 },
+    });
+
+    expect(
+      countedContextTokens({
+        previousCompleted: previousRun,
+        rows: [reply],
+        boundarySeq: 1,
+      }),
+    ).toEqual({ replySeq: 4, contextTokens: 0 });
+  });
+
   it('yields no measurement without a previous completed run or its reply', () => {
     const reply = row(4, 'assistant', {
       inReplyTo: 'run-trigger',
@@ -495,6 +525,26 @@ describe('estimateContinuationTokens', () => {
     expect(
       estimateContinuationTokens({ rows: [], railText: 'R'.repeat(400) }),
     ).toBeGreaterThan(estimateContinuationTokens({ rows: [], railText: '' }));
+  });
+  it('adds exactly one token for each four staged rail characters', () => {
+    const base = estimateContinuationTokens({ rows: [], railText: '' });
+
+    expect(
+      estimateContinuationTokens({
+        rows: [],
+        railText: 'R'.repeat(400),
+      }) - base,
+    ).toBe(100);
+  });
+
+  it('does not add a system prompt to a continuation estimate', () => {
+    expect(estimateContinuationTokens({ rows: [], railText: '' })).toBe(
+      estimateModelRequestTokens({
+        system: '',
+        messages: [],
+        toolDeclarations: [],
+      }),
+    );
   });
 
   it('counts replayed reasoning text but not the provider own metadata blob (D15/D16)', () => {
