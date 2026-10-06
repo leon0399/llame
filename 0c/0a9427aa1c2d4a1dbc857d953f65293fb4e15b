@@ -1,0 +1,38 @@
+e2e/support/model-server.ts
+  969266a4ecad6741 71-77,91,504-505,581-584,620,655,657,659-661,1034,1141-1142,1148
+apps/api/src/models/openai-completions-model-client.ts
+  969266a4ecad6741 114-120,393-395,396
+apps/api/src/models/openai-completions-model-client.test.ts
+  969266a4ecad6741 17,22,191-192,197,409,626-650,652-703,727
+CHANGELOG.md
+  969266a4ecad6741 3-4,5,7-8,9-12,14-18
+docs/product/operator/providers/litellm-gateway.md
+  969266a4ecad6741 1-19,20-23,24-46,47-53,54,56,57-67
+docs/product/operator/index.md
+  969266a4ecad6741 43-44
+apps/api/src/models/opencode-go-model-client.ts
+  969266a4ecad6741 107-111
+apps/api/AGENTS.md
+  969266a4ecad6741 103-105,134-137
+apps/api/src/models/opencode-go-model-client.test.ts
+  969266a4ecad6741 558-574
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "0c0a9427aa1c2d4a1dbc857d953f65293fb4e15b",
+  "prompts": {
+    "969266a4ecad6741": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fd29f4a2-9fa3-4c81-ba11-691a73ff9708",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Leonid Meleshin <leonid.meleshin@webpros.com>",
+      "total_additions": 215,
+      "total_deletions": 45,
+      "accepted_lines": 188,
+      "overriden_lines": 1
+    }
+  }
+}
