@@ -308,9 +308,12 @@ describe('parseWebLocator', () => {
       url: 'https://example.test/guide',
       selector: '0',
     });
+    // One literal pin of the composed sentence a model reads; the other cases
+    // build it with `refusal`.
     expect(parseWebLocator('https://example.test/guide:12+')).toEqual({
       type: 'invalid_selector',
-      message: refusal('https://example.test/guide%3A12+'),
+      message:
+        'A line selector is :N, :N-M, :N+K, :N-, or :-K, or a comma-separated list of them; :raw is the whole file, or :raw: followed by a list of them; and :outline takes one of them after the colon. A line number starts at 1. For a literal colon, write this locator as https://example.test/guide%3A12+',
     });
     // A suffix that is a word, or names no line, is refused the same way: the
     // forms come first, and the spelling is the second sentence, not the whole
@@ -337,6 +340,13 @@ describe('parseWebLocator', () => {
       parseWebLocator('https://example.test/a%20b%3A50%25.md'),
     ).toStrictEqual({
       url: 'https://example.test/a%20b%3A50%25.md',
+    });
+  });
+
+  it('keeps a valid percent escape in the suffix so the hint names the same URL', () => {
+    expect(parseWebLocator('https://example.test/a:b%20c')).toEqual({
+      type: 'invalid_selector',
+      message: refusal('https://example.test/a%3Ab%20c'),
     });
   });
 

@@ -48,13 +48,15 @@ function hasUnpairedSurrogate(value: string): boolean {
 }
 
 /**
- * The split-off suffix as a model resubmits it with its colon made literal. A
- * `%` is encoded before a colon is, so neither can hide behind the other: a
- * hint that leaves either behind splits or decodes differently on the next
- * attempt.
+ * The split-off suffix as a model resubmits it with its colon made literal.
+ * The resubmitted locator is percent-decoded like any other, so a valid `%HH`
+ * escape is kept and names the same character, while a stray `%` that would
+ * not decode is encoded as `%25`.
  */
 export function encodeSelectorSuffix(selector: string): string {
-  return selector.replaceAll('%', '%25').replaceAll(':', '%3A');
+  return selector
+    .replaceAll(/%(?![\dA-Fa-f]{2})/gu, '%25')
+    .replaceAll(':', '%3A');
 }
 
 /**

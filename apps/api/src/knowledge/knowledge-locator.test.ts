@@ -215,6 +215,18 @@ describe('knowledge locator parsing', () => {
     });
   });
 
+  it('keeps a valid escape in the suffix so the hint reads the same file', () => {
+    const parsed = parseKnowledgeLocator(`${SPACE}/notes/a:b%20c.md`);
+    expect(parsed).toHaveProperty(
+      'message',
+      expect.stringContaining(`kb://${SPACE}/notes/a%3Ab%20c.md`),
+    );
+    expect(parseKnowledgeLocator(`${SPACE}/notes/a%3Ab%20c.md`)).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'notes/a:b c.md',
+    });
+  });
+
   it.each([
     [`${SPACE}/notes.md:5-`, '5-'],
     [`${SPACE}/notes.md:1-5:raw`, '1-5:raw'],
