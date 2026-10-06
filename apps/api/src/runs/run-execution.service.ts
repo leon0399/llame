@@ -3654,19 +3654,17 @@ export class RunExecutionService {
     await this.tenantDb.runAs(input.run.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const compactionsRepo = new CompactionsRepository(tx);
-      // The chats row is locked first, matching the chat loop: an accepted
-      // turn locks it in `touch` before it locks runs (`clearActiveRunSlot`)
-      // and before it takes `FOR SHARE` on memory settings. Taking either pair
-      // the other way round here would close an ABBA cycle that Postgres
-      // resolves by aborting a user turn or dropping a checkpoint. `touch`
-      // returns the locked row, so this also gives us the post-lock chat.
+      // Keep the chats row lock first, matching the chat loop: an accepted
+      // turn locks it in `touch` before it takes the run row lock. The fence
+      // below is a READ with `FOR KEY SHARE`, which is compatible with the
+      // `FOR NO KEY UPDATE` lock taken by `markFinished`; it therefore never
+      // waits on the runs row while holding chats.
       const chat = await chatsRepo.touch(input.run.chatId, input.run.userId);
       // A reclaimed attempt must not move epoch state under the live one.
-      const fenced = await new RunsRepository(tx).updateForAttempt(
+      const fenced = await new RunsRepository(tx).holdsActiveAttempt(
         input.run.runId,
         input.run.userId,
         input.attemptId,
-        { activeAttemptId: input.attemptId },
       );
       if (!fenced) {
         throw new ModelContextExecutionError(

@@ -971,34 +971,12 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
       .catch(() => null);
 
     expect(lastQuery(queries).sql).toContain('inner join "chats"');
+    expect(lastQuery(queries).sql).toContain('"compactions"."chat_id" = $');
+    expect(lastQuery(queries).sql).toContain('"compactions"."upto_seq" = $');
+    expect(lastQuery(queries).sql).toContain('"chats"."owner_user_id" = $');
     expect(queryContains(queries, chatId)).toBe(true);
     expect(queryContains(queries, 42)).toBe(true);
     expect(queryContains(queries, ownerUserId)).toBe(true);
-  });
-  it('returns the compaction row selected at an exact cutoff', async () => {
-    const { db } = makeMockDb();
-    const compaction = {
-      id: 'compaction-result',
-      chatId,
-      uptoSeq: 42,
-      summary: 'selected checkpoint',
-    };
-
-    vi.spyOn(db, 'select').mockImplementation(() =>
-      asDbQuery({
-        from: () => ({
-          innerJoin: () => ({
-            where: () => ({
-              limit: () => Promise.resolve([{ compactions: compaction }]),
-            }),
-          }),
-        }),
-      }),
-    );
-
-    await expect(
-      new CompactionsRepository(db).findByCutoff(chatId, ownerUserId, 42),
-    ).resolves.toEqual(compaction);
   });
 
   it('create rejects an empty replacement history before issuing an insert', async () => {

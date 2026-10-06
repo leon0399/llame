@@ -538,13 +538,8 @@ describe('estimateContinuationTokens', () => {
   });
 
   it('does not add a system prompt to a continuation estimate', () => {
-    expect(estimateContinuationTokens({ rows: [], railText: '' })).toBe(
-      estimateModelRequestTokens({
-        system: '',
-        messages: [],
-        toolDeclarations: [],
-      }),
-    );
+    // An empty projection serializes to 38 chars, so ceil(38 / 4) is 10.
+    expect(estimateContinuationTokens({ rows: [], railText: '' })).toBe(10);
   });
 
   it('counts replayed reasoning text but not the provider own metadata blob (D15/D16)', () => {

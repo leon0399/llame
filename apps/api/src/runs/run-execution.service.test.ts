@@ -483,6 +483,10 @@ function mockNormalExecutionRepositories() {
       ...run,
       status: 'completed',
     });
+  const holdsActiveAttempt = vi
+    .spyOn(RunsRepository.prototype, 'holdsActiveAttempt')
+    .mockResolvedValue(true);
+
   const updateForAttempt = vi
     .spyOn(RunsRepository.prototype, 'updateForAttempt')
     .mockResolvedValue({ ...run });
@@ -547,6 +551,7 @@ function mockNormalExecutionRepositories() {
     markFinished,
     createAssistantReplyIfAbsent,
     updateUserMessageParts,
+    holdsActiveAttempt,
     updateForAttempt,
     recordContextItems,
     createReceipt,
@@ -6393,7 +6398,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       publication.findByCutoff.mockResolvedValue(input.duplicateCutoff);
     }
     if (input.fenceLost) {
-      spies.updateForAttempt.mockResolvedValueOnce(undefined);
+      spies.holdsActiveAttempt.mockResolvedValueOnce(false);
     }
     const client = input.client ?? answeringTriggerClient();
     const memory =
@@ -6933,11 +6938,10 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       }),
     });
 
-    expect(spies.updateForAttempt).toHaveBeenCalledWith(
+    expect(spies.holdsActiveAttempt).toHaveBeenCalledWith(
       runId,
       userId,
       testAttemptId,
-      { activeAttemptId: testAttemptId },
     );
     expect(publication.create).not.toHaveBeenCalled();
     expect(publication.setTold).not.toHaveBeenCalled();
@@ -6961,6 +6965,37 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       'recency_digest_resolution_failed',
     );
     expect(publication.create).toHaveBeenCalledTimes(1);
+  });
+  it('does not resolve or rebake a digest when publication consent is off', async () => {
+    const setRecencyDigest = vi
+      .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
+      .mockResolvedValue(undefined);
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({
+        baseline: digestBaseline,
+        told: [],
+        candidates: [],
+      });
+    const rebakedChat = {
+      ...chat,
+      recencyDigestBaseline: digestBaseline,
+      recencyDigestTold: [],
+    };
+
+    await executeTriggerCase({
+      historyRows: publicationHistory(),
+      summary: checkpointSummary(2),
+      initialChat: rebakedChat,
+      touchChat: rebakedChat,
+      shareRecentChats: false,
+      recencyDigest: { resolveCandidate },
+    });
+
+    // This assertion is intentionally on the candidate read: removing the
+    // publication guard would resolve owner chat titles while consent is off.
+    expect(resolveCandidate).not.toHaveBeenCalled();
+    expect(setRecencyDigest).not.toHaveBeenCalled();
   });
 
   it('does not rebake a recency digest when the chat has no baseline', async () => {

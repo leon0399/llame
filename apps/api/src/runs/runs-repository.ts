@@ -280,6 +280,30 @@ export class RunsRepository {
   }
 
   /**
+   * Read the active-attempt fence without taking a write lock. The key-share
+   * lock is compatible with the no-key-update lock taken by `markFinished`.
+   */
+  async holdsActiveAttempt(
+    runId: string,
+    userId: string,
+    attemptId: string,
+  ): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.id, runId),
+          eq(runs.userId, userId),
+          eq(runs.activeAttemptId, attemptId),
+        ),
+      )
+      .for('key share')
+      .limit(1);
+    return rows.length === 1;
+  }
+
+  /**
    * Transition a run into execution and stamp startedAt. Refuses terminal or
    * cancel-requested runs: cancellation that wins the pickup/claim race must
    * never be resurrected into running_model.
