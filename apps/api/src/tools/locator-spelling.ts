@@ -50,9 +50,9 @@ function hasUnpairedSurrogate(value: string): boolean {
 /**
  * The split-off suffix as a model resubmits it with its colon made literal.
  * The resubmitted locator is percent-decoded like any other, so a valid `%HH`
- * escape is kept and names the same character. A stray `%`, and an escape that
- * decodes to a separator or a control character no resource path admits, is
- * encoded as `%25` so the spelling still parses.
+ * escape is kept and names the same character. A stray `%`, and an ASCII
+ * escape that decodes to a separator or a control character, is encoded as
+ * `%25`; a multi-byte escape is kept as written.
  */
 export function encodeSelectorSuffix(selector: string): string {
   return selector
