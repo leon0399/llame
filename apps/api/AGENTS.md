@@ -100,7 +100,9 @@ the Anthropic API. `openai-codex` and `opencode-go` reject `baseUrl` because
 each endpoint is fixed in code: the Codex Responses endpoint, and the OpenCode
 Go gateway at `https://opencode.ai/zen/go/v1`, whose `type` executes the Chat
 Completions module with the Go transport (a fixed base URL, its own headers,
-redirect rejection, and a required credential). `accountId` is accepted by
+redirect rejection, a required credential, and no streaming usage request,
+because the gateway answers `stream_options.include_usage` with a stream that
+has no finish reason). `accountId` is accepted by
 `openai-codex` alone; every other variant rejects it. A `key` is optional for
 the two OpenAI wires and for Messages, where an absent or empty resolution is
 keyless; `openai-codex` requires nonblank `key` and `accountId`, and

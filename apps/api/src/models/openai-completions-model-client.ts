@@ -111,6 +111,13 @@ export type OpenAICompletionsModelClientConfig = {
   providerOptions?: ProviderOptionRecord;
   /** Optional catalog output limit, forwarded as the request's `maxOutputTokens` setting. */
   maxOutputTokens?: number;
+  /**
+   * Whether streaming requests ask the server for usage
+   * (`stream_options.include_usage`). Absent means they ask; a transport whose
+   * server answers the flag with a stream the adapter cannot finish sets
+   * `false` and records whatever usage the server sends unasked.
+   */
+  includeUsage?: boolean;
 };
 
 /**
@@ -386,7 +393,7 @@ export function createOpenAICompletionsModelClient(
     // Chat Completions servers report a streaming request's usage only when
     // the request asks (`stream_options.include_usage`). The adapter does not
     // ask by default, which leaves run usage accounting nothing to record.
-    includeUsage: true,
+    includeUsage: config.includeUsage ?? true,
     ...(config.headers && { headers: config.headers }),
     ...(config.fetch && { fetch: config.fetch }),
   });

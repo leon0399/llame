@@ -6,8 +6,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Completions requests now ask the server for usage
   (`stream_options.include_usage`), so a message's usage card shows input,
   output, and reasoning tokens, and priced models record cost, instead of
-  showing no counts. `opencode-go` requests share the client and now ask as
-  well. The e2e model server now reports a streaming request's
+  showing no counts. `opencode-go` requests do not ask: the OpenCode Go
+  gateway answers the flag with a stream that has no finish reason
+  ([anomalyco/opencode#42918](https://github.com/anomalyco/opencode/issues/42918)),
+  which would fail the Run. The e2e model server now reports a streaming
+  request's
   usage only when the request asks, as real servers do. A new operator page
   covers vLLM-served models behind a LiteLLM gateway, including why its
   reasoning-effort levels can silently do nothing
