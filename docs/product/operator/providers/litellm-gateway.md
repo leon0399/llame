@@ -17,9 +17,10 @@ forwards them.
 
 llame asks for usage on every streaming Chat Completions request
 (`stream_options.include_usage`), and LiteLLM relays the server's usage chunk.
-If a message's usage card still shows no counts, either the server sent no
-usage chunk or the gateway did not relay it; compare the server's own response
-to tell which.
+If a message's usage card still shows no counts, first check whether the
+model's `additional_drop_params` list strips `stream_options` before the
+request reaches the server. Otherwise either the server sent no usage chunk or
+the proxy did not relay it; compare the server's own response to tell which.
 
 ## Reasoning effort
 
@@ -43,13 +44,15 @@ gateway can accept different values. Declare them in the model entry's
 }
 ```
 
-LiteLLM treats `reasoning_effort` as unsupported for a self-hosted model unless
-the proxy's model configuration sets `supports_reasoning: true`. With the
-proxy's `drop_params` enabled it then discards the field without an error, so
-every level behaves the same. `allowed_openai_params` tells LiteLLM to forward
-the field for that request; the Chat Completions client copies an unrecognized
-`providerOptions` key into the request body as written. Remove the option once
-the proxy marks the model as reasoning-capable.
+LiteLLM forwards `reasoning_effort` only when the provider prefix in the
+model's `litellm_params.model` lists it among its supported parameters. The
+`hosted_vllm/` prefix does; a vLLM server routed through another prefix, such
+as the generic `openai/` one, may not. With the proxy's `drop_params` enabled,
+an unsupported field is discarded without an error, so every level behaves the
+same. The fix belongs in the proxy: route the model through `hosted_vllm/`.
+Where you cannot change the proxy, `allowed_openai_params` tells LiteLLM to
+forward the field for that request; the Chat Completions client copies an
+unrecognized `providerOptions` key into the request body as written.
 
 To find a model's values and confirm they arrive, send one request with a value
 its template does not accept. A template that validates effort answers with an

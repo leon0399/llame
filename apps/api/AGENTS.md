@@ -131,7 +131,10 @@ Responses wire would have adapted the request; `logprobs`, `logit_bias`,
 `prediction`, `service_tier`, `store`, `safety_identifier`,
 `parallel_tool_calls`, prompt-cache fields, and web-search `source` parts are
 unsupported; its usage converter has no `cacheWrite` field, which no cost
-formula reads. Forced tool choice with `strict` tool schemas, error schemas,
+formula reads. Every streaming request asks for usage
+(`stream_options.include_usage`) except on the Go transport, and no operator
+setting turns that off: a server that rejects the field fails every streaming
+request on that entry. Forced tool choice with `strict` tool schemas, error schemas,
 and cache-read usage are not regressed.
 
 **Breaking**: `type: "openai"` is deleted. Every existing entry fails boot as
