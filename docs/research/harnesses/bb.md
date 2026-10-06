@@ -109,7 +109,7 @@ sources:
     title: "MIT license"
   - id: bb-website-live-2026-10-06
     resource: "https://getbb.app/"
-    title: "live website claims observed 2026-10-06; unversioned marketing surface"
+    title: "bb website product positioning"
 ---
 
 # bb
@@ -117,7 +117,7 @@ sources:
 - **Stack:** TypeScript/Node monorepo; SQLite server state; long-lived host daemons; MIT
 - **Classification:** Actual agent execution host, not only a tool or provider SDK
 
-bb is a local-first agentic IDE whose control plane is a server and whose execution plane is one or more enrolled host daemons. A thread is the unit of work, an environment binds a workspace to a host, and the host daemon provisions that workspace and runs provider processes. The repository's own system overview calls the server the state hub and the daemon the component that runs provider processes[^bb-system-overview-l3-l24]. The inspected checkout is `fd31b75fb9c7f40e68747089c911b098763aa851` (`desktop-nightly-47-gfd31b75fb`); source inspection only, with no upstream build or runtime execution performed.
+bb is a local-first agentic IDE whose control plane is a server and whose execution plane is one or more enrolled host daemons. A thread is the unit of work, an environment binds a workspace to a host, and the host daemon provisions that workspace and runs provider processes. The repository's own system overview calls the server the state hub and the daemon the component that runs provider processes[^bb-system-overview-l3-l24]. Source inspection only; no upstream build or runtime execution performed.
 
 **Study**
 
@@ -204,7 +204,7 @@ bb is a local-first agentic IDE whose control plane is a server and whose execut
 
 [^bb-license-l1-l3]: [MIT license](https://github.com/get-bb/bb/blob/fd31b75fb9c7f40e68747089c911b098763aa851/LICENSE#L1-L3)
 
-[^bb-website-live-2026-10-06]: [live website claims observed 2026-10-06; unversioned marketing surface](https://getbb.app/)
+[^bb-website-live-2026-10-06]: [bb website product positioning](https://getbb.app/)
 
 [^bb-provider-plugin-api-l152-l166]: [one provider process per bridge artifact](https://github.com/get-bb/bb/blob/fd31b75fb9c7f40e68747089c911b098763aa851/docs/provider-plugin-api.md#L152-L166)
 

@@ -39,7 +39,7 @@ sources:
     title: "no sandbox, project trust"
   - id: packages-ai-src-providers-opencode-headers-ts-l3-l25
     resource: "https://github.com/badlogic/pi-mono/blob/c7cdb460aa8a0cebef3446c4166729b8a0d97ead/packages/ai/src/providers/opencode-headers.ts#L3-L25"
-    title: "withOpenCodeSessionHeader at the refreshed revision"
+    title: "withOpenCodeSessionHeader"
   - id: packages-ai-src-providers-opencode-go-ts-l9-l21
     resource: "https://github.com/badlogic/pi-mono/blob/c7cdb460aa8a0cebef3446c4166729b8a0d97ead/packages/ai/src/providers/opencode-go.ts#L9-L21"
     title: "OpenCode Go provider: three wires, one key"
@@ -78,7 +78,7 @@ sources:
     title: "summarization gets its own routing id"
   - id: packages-agent-src-harness-runtime-drive-generation-ts-l211-l222
     resource: "https://github.com/badlogic/pi-mono/blob/c7cdb460aa8a0cebef3446c4166729b8a0d97ead/packages/agent/src/harness/runtime/drive/generation.ts#L211-L222"
-    title: "lane-namespaced session id at the refreshed revision"
+    title: "lane-namespaced session id"
   - id: packages-coding-agent-src-core-remote-catalog-provider-ts-l6-l12
     resource: "https://github.com/badlogic/pi-mono/blob/c7cdb460aa8a0cebef3446c4166729b8a0d97ead/packages/coding-agent/src/core/remote-catalog-provider.ts#L6-L12"
     title: "catalog overlay constants"
@@ -113,10 +113,8 @@ metrics[^packages-console-app-src-routes-zen-util-handler-ts-l125-l131]. Study
 it for the mechanisms OMP inherited unchanged; OMP remains the primary agentic
 and tool-shape reference.
 
-The separate [Earendil Pi 1.0 and Pi Durable study](./earendil-pi.md) inspects
-the successor repository and its October 2026 release. This entry retains its
-September `badlogic/pi-mono` observations; those pinned mechanisms are not a
-claim about the newer coding agent or the experimental Durable package.
+See [Earendil Pi 1.0 and Pi Durable](./earendil-pi.md) for codemode, deferred
+tools, cache-aware context changes, and the separate experimental Durable runtime.
 
 **Study**
 
@@ -255,7 +253,7 @@ claim about the newer coding agent or the experimental Durable package.
 
 [^packages-coding-agent-src-core-compaction-compaction-ts-l591-l606]: [summarization gets its own routing id](https://github.com/badlogic/pi-mono/blob/c7cdb460aa8a0cebef3446c4166729b8a0d97ead/packages/coding-agent/src/core/compaction/compaction.ts#L591-L606)
 
-[^packages-agent-src-harness-runtime-drive-generation-ts-l211-l222]: [lane-namespaced session id at the refreshed revision](https://github.com/badlogic/pi-mono/blob/c7cdb460aa8a0cebef3446c4166729b8a0d97ead/packages/agent/src/harness/runtime/drive/generation.ts#L211-L222)
+[^packages-agent-src-harness-runtime-drive-generation-ts-l211-l222]: [lane-namespaced session id](https://github.com/badlogic/pi-mono/blob/c7cdb460aa8a0cebef3446c4166729b8a0d97ead/packages/agent/src/harness/runtime/drive/generation.ts#L211-L222)
 
 [^packages-coding-agent-src-core-remote-catalog-provider-ts-l6-l12]: [catalog overlay constants](https://github.com/badlogic/pi-mono/blob/c7cdb460aa8a0cebef3446c4166729b8a0d97ead/packages/coding-agent/src/core/remote-catalog-provider.ts#L6-L12)
 

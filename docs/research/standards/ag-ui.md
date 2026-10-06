@@ -108,8 +108,8 @@ sources:
 
 # AG-UI (Agent–User Interaction Protocol)
 
-- **Status:** CopilotKit's 2026-09-30 announcement calls AG-UI 1.0 a stable
-  specification, says its TypeScript, Python and .NET SDKs are generated from
+- **Status:** CopilotKit's announcement calls AG-UI 1.0 a stable specification,
+  says its TypeScript, Python and .NET SDKs are generated from
   a JSON Schema, and presents backwards compatibility as a release claim.[^agui-announcement]
   The pinned repository is the stronger implementation evidence: `spec/1.0/schema.json`
   has the `$id` `https://ag-ui.com/spec/1.0/schema.json` and enumerates 31 event
@@ -126,11 +126,6 @@ lifecycle, message, tool, state, activity, reasoning, subagent and passthrough
 events. The 1.0 behavioural specification is separate from the schema: the
 schema is authoritative for shape, while the prose defines ordering, lifecycle,
 compatibility and trust-boundary behaviour.[^agui-spec-architecture][^agui-schema]
-
-The repository README is useful orientation but is not the wire contract: at the
-observed revision it still describes roughly 16 standard event types, whereas
-the pinned 1.0 schema lists 31. Read the versioned specification and generated
-artifacts when these summaries disagree.
 
 **Complementary role.** AG-UI occupies the agent-to-user/application layer:
 MCP supplies agent access to tools and data, A2A coordinates independent agents,

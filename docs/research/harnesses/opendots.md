@@ -29,7 +29,7 @@ sources:
     title: "MIT license"
   - id: launch-announcement-2026-10-01-observed-2026-10-06
     resource: "https://www.copilotkit.ai/blog/introducing-opendots?via=dailydev"
-    title: "Launch announcement (dated 2026-10-01; unversioned page observed 2026-10-06)"
+    title: "OpenDots launch announcement"
   - id: dot-agent-run-l57-l127
     resource: "https://github.com/CopilotKit/OpenDots/blob/565bf781d654339ee1ce83b17ee00d76d679608e/src/server/dot-agent.ts#L57-L127"
     title: "DotAgent turn lifecycle and live setting checks"
@@ -122,7 +122,7 @@ sources:
 
 OpenDots is an **agent execution and orchestration host**, not a standalone tool or hosted product. A `DotAgent` owns a bounded model/tool turn, while CopilotKit Runtime exposes the agent over the web runtime and Channels. Intelligence owns conversation persistence; SQLite owns local Spaces, Dots, page bindings, calls, tasks, and work metadata. The repository describes an alpha, single-owner template, so this entry treats the implementation as source inspection rather than a production guarantee[^readme-overview-architecture-l37-l149].
 
-The [launch announcement](https://www.copilotkit.ai/blog/introducing-opendots?via=dailydev)[^launch-announcement-2026-10-01-observed-2026-10-06] is a product description dated October 1, 2026. It markets always-on coworkers, any AG-UI agent, any OpenAI-compatible model, calls, Slack, computers, scheduled work, and Automatic Learning. The implementation evidence below narrows those claims: this checkout wires one server-owned `DotAgent` per configured Dot, an OpenAI-compatible model adapter, CopilotKit Intelligence, and optional managed integrations. AG-UI is a supported transport boundary in the source and dependency graph; see the related [AG-UI standard entry](../standards/ag-ui.md).
+The launch announcement markets always-on coworkers, any AG-UI agent, any OpenAI-compatible model, calls, Slack, computers, scheduled work, and Automatic Learning[^launch-announcement-2026-10-01-observed-2026-10-06]. The implementation wires one server-owned `DotAgent` per configured Dot, an OpenAI-compatible model adapter, CopilotKit Intelligence, and optional managed integrations. AG-UI is a supported transport boundary in the source and dependency graph; see the related [AG-UI standard entry](../standards/ag-ui.md).
 For llame comparison, the current authority anchors are the [cross-cutting SPEC](../../../SPEC.md#9-chats-and-durable-runs), [durable-runs contract](../../../openspec/specs/durable-runs/spec.md), and [tool-calling recovery contract](../../../openspec/specs/tool-calling/spec.md#requirement-no-mid-run-tool-state-checkpointing-read-only-slice-write-tool-landmine). Those contracts, not OpenDots, govern llame's Chat/Run identity, queue execution, event replay, permissions, and uncertain native/MCP effects.
 
 **Study**
@@ -165,7 +165,7 @@ For llame comparison, the current authority anchors are the [cross-cutting SPEC]
 
 [^readme-overview-architecture-l37-l149]: [OpenDots overview, features, and architecture](https://github.com/CopilotKit/OpenDots/blob/565bf781d654339ee1ce83b17ee00d76d679608e/README.md#L37-L149)
 
-[^launch-announcement-2026-10-01-observed-2026-10-06]: [Launch announcement (dated 2026-10-01; unversioned page observed 2026-10-06)](https://www.copilotkit.ai/blog/introducing-opendots?via=dailydev)
+[^launch-announcement-2026-10-01-observed-2026-10-06]: [OpenDots launch announcement](https://www.copilotkit.ai/blog/introducing-opendots?via=dailydev)
 
 [^package-json-runtime-l26-l79]: [Runtime dependencies and Node engine](https://github.com/CopilotKit/OpenDots/blob/565bf781d654339ee1ce83b17ee00d76d679608e/package.json#L26-L79)
 

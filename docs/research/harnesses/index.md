@@ -24,7 +24,7 @@ then use the remaining references for targeted alternatives. Adapt their
 behavior to llame's ownership, lifecycle, provenance, and isolation contracts;
 llame's specs remain authoritative.
 
-The dated assessments distinguish source inspection from explicitly recorded
+The assessments distinguish source inspection from explicitly recorded
 execution. Most inspect upstream source and test code without running the
 upstream program; individual studies may also record offline mechanics probes.
 Benchmark claims remain upstream reports unless an entry records independent
@@ -42,9 +42,7 @@ retain broader research; the
 [code-mode deep dive](../tool-harness/2026-09-14-code-mode-eval-tool.md)
 compares eval and code-mode tools across OMP, OpenClaw, and Codex CLI.
 [SPEC.md §2.1](../../../SPEC.md) and its linked OpenSpec
-capabilities own the current compaction contract. Dated deep dives linked from
-individual references retain their original observations; they are not refreshed
-by a bundle update.
+capabilities own the current compaction contract.
 
 The [System One/Jev study](../tool-harness/2026-09-23-system-one-jev/index.md)
 connects [OMP's JUDGE role](./oh-my-pi.md#typed-judgments-and-jev) to bounded
@@ -102,8 +100,8 @@ refusals, per-worktree scopes and lessons lost to the injection cap. Mnemopi and
 Hindsight are source-only. It maps the queue, frozen-snapshot, recall-scoring and
 observation ideas to llame's Knowledge and recall work.
 
-The October 2026 additions separate three integration boundaries:
-[bb](./bb.md) and the refreshed [Orca](./orca.md) compare peer-executor and
+These references cover three integration boundaries:
+[bb](./bb.md) and [Orca](./orca.md) compare peer-executor and
 worktree control; [Earendil Pi 1.0 and Pi Durable](./earendil-pi.md) compare
 tool/context composition and experimental semantic recovery; and
 [OpenDots](./opendots.md) demonstrates an application built around

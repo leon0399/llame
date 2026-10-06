@@ -126,32 +126,21 @@ sources:
 
 - **Stack:** TypeScript/npm monorepo with `pi-ai`, `pi-agent-core`, the Pi coding
   agent, codemode, MCP, TUI, and Pi Durable packages; MIT[^earendil-pi-license]
-- **Observed source:** `earendil-works/pi` at
-  `428a12bc775145afa342530a9eaa652efb3e4422` on 2026-10-06. This is source
-  inspection; no upstream build, tests, or live provider calls were run.
+- **Evidence:** Source inspection only; no upstream build, tests, or live
+  provider calls were run.
 
 Pi 1.0 is the stable coding-agent line. Its announcement names codemode/MCP,
 non-LLM models, virtual models, deferred tools, cache warming, and
 transcript-aware prompt/tool changes as shipped additions[^earendil-pi-1-0-post].
 Pi Durable is explicitly a separate **experimental** package, not a durability
 mode hidden inside the coding CLI[^earendil-pi-durable-post][^earendil-pi-durable-readme].
-The current coding-agent package wires codemode and MCP as dependencies
-[^earendil-pi-coding-agent-package], while the 1.0 agent changelog removes the
-former experimental session/harness surface and points durable-session users at
-`@earendil-works/pi-durable`[^earendil-pi-agent-changelog].
+The coding-agent package wires codemode and MCP as dependencies
+[^earendil-pi-coding-agent-package]. Durable sessions belong to the separate
+`@earendil-works/pi-durable` package[^earendil-pi-agent-changelog].
 
-**Lineage and dated scope.** The existing [pi-mono study](./pi-mono.md) is a
-separate pinned historical entry for `badlogic/pi-mono` at its 2026-09-21
-revision. At this observation, the local `earendil-works/pi` and
-`badlogic/pi-mono` checkouts both resolved to Git object
-`428a12bc775145afa342530a9eaa652efb3e4422` and shared the same repository root
-history. That is evidence of continuity or repository transfer at this point,
-not a reason to treat every old revision, package scope, release note, or
-security posture as interchangeable. This entry therefore uses the Earendil
-remote, the 2026-10-06 revision, and the post-1.0.0 package line; it does not
-rewrite or refresh `pi-mono.md`. The current README describes Pi as a minimal,
-extensible harness with interactive, print/JSON, RPC, and SDK surfaces
-[^earendil-pi-readme-stack].
+Pi is a minimal, extensible harness with interactive, print/JSON, RPC, and SDK
+surfaces[^earendil-pi-readme-stack]. See [pi-mono](./pi-mono.md) for provider
+session headers and session-tree mechanics.
 
 **Study**
 

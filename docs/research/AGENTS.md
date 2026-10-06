@@ -20,6 +20,11 @@ summarizes it. Author every research document as an OKF concept.
   actor such as `omp/<model>` or `human:<id>`, and `sources` entries with
   stable `id`s cited by matching `[^id]` footnotes. Pin source URLs to a commit
   or version. Never invent an actor, source or verification.
+- Write research as direct descriptions of behavior and applicability, not
+  update histories. Omit calendar-date narration, refresh notes, prior-revision
+  comparisons, and retained historical references. Keep inspection dates and
+  revision pins in frontmatter and citations; retain version distinctions only
+  when they explain a current technical boundary.
 - `index.md` has no frontmatter; only this directory's root index declares
   `okf_version`. When a concept is added, moved or retired, update its
   directory's `index.md` entry with the concept's description, and give every
