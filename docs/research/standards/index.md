@@ -21,6 +21,7 @@ a standard.
   sessions over stdio; candidate local peer executor adapter.
 - [A2A (Agent2Agent)](./agent2agent.md) — task protocol between independent
   agents; candidate remote executor adapter.
+- [AG-UI](./ag-ui.md) — Event protocol connecting agent runs to user-facing applications; candidate durable llame Run stream adapter
 
 ## Packaging and discovery
 

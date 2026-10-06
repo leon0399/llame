@@ -113,6 +113,11 @@ metrics[^packages-console-app-src-routes-zen-util-handler-ts-l125-l131]. Study
 it for the mechanisms OMP inherited unchanged; OMP remains the primary agentic
 and tool-shape reference.
 
+The separate [Earendil Pi 1.0 and Pi Durable study](./earendil-pi.md) inspects
+the successor repository and its October 2026 release. This entry retains its
+September `badlogic/pi-mono` observations; those pinned mechanisms are not a
+claim about the newer coding agent or the experimental Durable package.
+
 **Study**
 
 1. **Composable provider session header.** One wrapper sets `x-opencode-session`
