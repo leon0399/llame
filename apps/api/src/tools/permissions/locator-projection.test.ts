@@ -145,6 +145,9 @@ describe('projectNativeFilePath', () => {
     expect(projectNativeFilePath('https://example.test/guide:10-20')).toBe(
       'https://example.test/guide:10-20',
     );
+    expect(projectNativeFilePath('https://example.test/guide:5#frag')).toBe(
+      'https://example.test/guide:5',
+    );
     // A spelling the parser normalizes projects to what will be requested.
     expect(projectNativeFilePath('https://EXAMPLE.test/x')).toBe(
       'https://example.test/x',
@@ -255,6 +258,14 @@ describe('native file permission projection', () => {
     expect(
       decideNative(map, 'read', { path: 'file:///srv/docs/guide.md?' }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+  it('keeps an invalid file alias selector-shaped tail unchanged for read', () => {
+    for (const path of [
+      'file:///srv/a?:1-5',
+      'file://other/srv/a:1-5',
+    ]) {
+      expect(nativeFileProjection('read')('path', path)).toBe(path);
+    }
   });
 
   it('matches a file alias read without its selector', () => {
@@ -603,6 +614,20 @@ describe('native file permission projection', () => {
     );
   });
 
+  it('removes encoded selectors from valid file aliases only', () => {
+    expect(
+      withoutReadSelector('file:///srv/private/secret%3Araw'),
+    ).toBe('file:///srv/private/secret');
+    expect(
+      withoutReadSelector('file:///srv/private/secret%3A1%2D5'),
+    ).toBe('file:///srv/private/secret');
+    expect(
+      withoutReadSelector('file:/srv/private/secret%3Araw'),
+    ).toBe('file:/srv/private/secret');
+    expect(
+      withoutReadSelector('file://localhost/srv/private/secret%3Araw'),
+    ).toBe('file://localhost/srv/private/secret');
+  });
   it('cuts the selector the read tool splits off', () => {
     expect(withoutReadSelector('https://example.test/guide:1-5')).toBe(
       'https://example.test/guide',

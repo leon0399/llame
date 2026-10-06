@@ -806,6 +806,57 @@ describe('runTool permission gate', () => {
       ),
     ).toMatchObject({ status: 'success' });
   });
+  it('rejects encoded selectors in valid file aliases on submitted text', async () => {
+    const cases = [
+      {
+        path: 'file:///srv/private/secret%3Araw',
+        regex: '^file:///srv/private/secret$',
+      },
+      {
+        path: 'file:///srv/private/secret%3A1%2D5',
+        regex: '^file:///srv/private/secret$',
+      },
+      {
+        path: 'file:/srv/private/secret%3Araw',
+        regex: '^file:/srv/private/secret$',
+      },
+      {
+        path: 'file://localhost/srv/private/secret%3Araw',
+        regex: '^file://localhost/srv/private/secret$',
+      },
+    ] as const;
+    for (const { path, regex } of cases) {
+      expect(
+        await runTool(
+          pathTool,
+          { path },
+          contextWith({
+            read: { allow: true, reject: [{ field: 'path', regex }] },
+          }),
+          5,
+        ),
+      ).toMatchObject({ type: 'permission_denied', message: EXPLICIT_REJECT });
+    }
+  });
+
+  it('applies encoded file alias selector removal to all-fields rejects', async () => {
+    expect(
+      await runTool(
+        pathTool,
+        { path: 'file:///srv/private/secret%3A1%2D5' },
+        contextWith({
+          read: {
+            allow: true,
+            reject: [
+              { allFields: true, regex: '^file:///srv/private/secret$' },
+            ],
+          },
+        }),
+        5,
+      ),
+    ).toMatchObject({ type: 'permission_denied', message: EXPLICIT_REJECT });
+  });
+
 
   it('refuses an anchored web reject for a read selector', async () => {
     // A wiki page name ends in a colon, so the selector is split off the text

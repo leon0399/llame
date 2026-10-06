@@ -29,6 +29,7 @@ const NATIVE_FILE_PERMISSION_TOOL_IDS = new Set(['read', 'edit', 'write']);
 
 /** Removes only a valid read selector from a submitted locator. */
 export function withoutReadSelector(value: string): string {
+  if (isFileAlias(value)) return withoutFileAliasSelector(value);
   const scheme = parsePathScheme(value)?.scheme;
   if (scheme !== undefined && scheme in WEB_LOCATOR_SCHEMES) {
     const fragmentFree = stripFragment(value);
@@ -39,6 +40,41 @@ export function withoutReadSelector(value: string): string {
   }
   const { path, selector } = splitSelectorSuffix(value);
   return selector !== undefined && isSelectorSuffix(selector) ? path : value;
+}
+
+function withoutFileAliasSelector(value: string): string {
+  const alias = decodeFileAlias(value);
+  if (!alias.ok) return value;
+  const { path, selector } = splitSelectorSuffix(alias.hostPath);
+  if (selector === undefined || !isSelectorSuffix(selector)) return value;
+  const prefixEnd = findAliasPathPrefix(value, path);
+  return prefixEnd === undefined ? value : value.slice(0, prefixEnd);
+}
+
+function findAliasPathPrefix(
+  value: string,
+  targetPath: string,
+): number | undefined {
+  const afterScheme = value.slice(5);
+  const pathStart = afterScheme.startsWith('//')
+    ? value.indexOf('/', 7)
+    : 5;
+  if (pathStart < 0) return undefined;
+  let decoded = '';
+  let index = pathStart;
+  while (index < value.length) {
+    if (value[index] === '%') {
+      const start = index;
+      do index += 3;
+      while (index < value.length && value[index] === '%');
+      decoded += decodeURIComponent(value.slice(start, index));
+    } else {
+      decoded += value[index];
+      index += 1;
+    }
+    if (decoded === targetPath) return index;
+  }
+  return undefined;
 }
 
 /**
@@ -90,10 +126,11 @@ export function projectNativeFilePath(
   if (scheme.scheme in WEB_LOCATOR_SCHEMES) {
     const parsed = parseWebLocator(projected);
     if ('type' in parsed) return projected;
-    const split = splitWebSelector(projected);
+    const fragmentFree = stripFragment(projected);
+    const split = splitWebSelector(fragmentFree);
     return split.selector === undefined
       ? parsed.url
-      : `${parsed.url}${projected.slice(split.url.length)}`;
+      : `${parsed.url}${fragmentFree.slice(split.url.length)}`;
   }
   return projected;
 }
