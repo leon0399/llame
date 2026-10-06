@@ -143,17 +143,21 @@ shipped contract already calls coordinates execution-time, not a snapshot.
 
 **Decision:** `-K` with K greater than the count resolves to `1..count`. `-0`
 is `invalid_selector`. `N-` with N past the last line resolves to an empty
-member and follows each source's shipped past-the-end rule: on a file or web
-render it is `invalid_selector` when it is the first requested start
+member and follows each source's shipped past-the-end rule: on a nonempty file
+or web render it is `invalid_selector` when it is the first requested start
 (`stream-read.ts:353-361`) and is dropped before merging and context
 expansion as a later list member — a limit-0 member left in would be reported
 as an inverted interval (`source-lines.ts:182-185`) and grown into a stray
-context line (`path.ts:149-158`); on a
-listing or the catalog it is the empty page those slices already return
-(`directory-listing.ts:332-339`, `skill-results.ts:83-90`). An empty regular
-file or web render with `-K` or `1-` returns the shipped empty result and any
-other `N-` on it fails as a start past the last line does; an empty listing or
-catalog keeps its empty page for every member.
+context line (`path.ts:149-158`); a comma list whose members all resolve empty
+fails as a start past the last line on a nonempty file or web render. On an
+empty regular file or web render, `-K` and `1-` return the shipped empty result
+(the start-past-EOF rule does not apply to a source with no last line at offset
+0); any other `N-` fails as a start past the last line. On a listing or the
+catalog it is the empty page those slices already return
+(`directory-listing.ts:332-339`, `skill-results.ts:83-90`), and an empty listing
+or catalog keeps its empty page for every member. For an empty regular file, an
+all-empty comma list starting at line 1 returns plural empty ranges; one
+starting later fails as a start past the last line.
 
 **Alternative rejected:** Failing `-K` when K exceeds the count, reporting the
 count. The model that asked for "the last 50" of a 10-line file wants the file,

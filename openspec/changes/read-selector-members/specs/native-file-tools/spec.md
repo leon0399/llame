@@ -109,17 +109,19 @@ requested-level entry count of a directory listing; or the entry count of the
 skill catalog. `requestedRange` and `requestedRanges` SHALL report the resolved
 absolute lines, which are the coordinates this read observed rather than a
 snapshot of the source. A `-K` with `K` greater than the count SHALL resolve to
-`1..count` and `-0` SHALL fail with `invalid_selector`. An `N-` whose `N` lies
-past the last line resolves to an empty member and then follows the shipped
-past-the-end rules of its source: on a regular file or web render it fails
-with `invalid_selector` when it is the first requested start of the sorted
-members and is otherwise dropped before merging and context expansion, so it
-emits nothing, adds no context line, and appears in neither
-`requestedRanges` nor `shownRanges`; on a listing or the catalog it returns the
-empty page those sources return today. An empty regular file or web render returns
-the empty result for `-K` and `1-`, and any other `N-` on it fails as a start
-past the last line does; an empty listing or catalog keeps its empty page for
-every member.
+`1..count` and `-0` SHALL fail with `invalid_selector`. An `N-` whose `N`
+lies past the last line resolves to an empty member. On a nonempty regular file
+or web render, that member fails with `invalid_selector` when it is the first
+requested start of the sorted members; when it is later, it is dropped before
+merging and context expansion, so it emits nothing, adds no context line, and
+appears in neither `requestedRanges` nor `shownRanges`. A comma list whose
+members all resolve empty fails as a start past the last line on a nonempty
+regular file or web render. On an empty regular file or web render, `-K` and
+`1-` return the shipped empty result (the start-past-EOF rule does not apply to
+a source with no last line at offset 0); any other `N-` fails as a start past
+the last line. On a listing or the catalog, an `N-` past the end returns the
+empty page those sources return today; an empty listing or catalog keeps its
+empty page for every member.
 
 For an ordinary ranged read of a `text/markdown` source, `content` SHALL also prepend the direct ancestor heading lines for the passage's first requested line, as specified by the ranged Markdown ancestor requirement.
 For single-range reads, result
@@ -229,12 +231,14 @@ than reinterpret listing text.
 
 ### Requirement: Multi-range reads return context-bounded intervals
 
-A regular-file `read` SHALL accept two or more comma-separated `N-M`, `N+K`,
-`N-`, or `-K` ranges, or `raw:` followed by two or more comma-separated ranges
-of those same members, `N+K` included. `N-` and `-K` are resolved against the
-file's line count before the sort and merge below, exactly as a bare selector
-resolves them, and a resolved empty `N-` member fails only when it is the
-first requested start.
+A regular-file `read` SHALL accept two or more comma-separated `N`, `N-M`,
+`N+K`, `N-`, or `-K` members, or `raw:` followed by two or more comma-separated
+`N`, `N-M`, `N+K`, `N-`, or `-K` members. `N-` and `-K` are resolved against
+the file's line count before the sort and merge below, exactly as a bare selector
+resolves them. A resolved empty `N-` member is dropped when it is a later
+requested start; on a nonempty file, it fails with `invalid_selector` when it is
+the first requested start, including when all members of a comma list resolve
+empty.
 Every bound SHALL satisfy the existing positive safe-integer rules. Invalid
 bounds and more than 64 input ranges SHALL fail with `invalid_selector`. Empty
 members, whitespace, or malformed members SHALL fail the whole request with
@@ -264,8 +268,12 @@ markers. `representation`, `path`, and `truncated` SHALL retain their existing
 meanings. On reaching EOF, shown ends SHALL clip to available source and later
 ranges SHALL emit nothing; EOF alone SHALL NOT indicate truncation. A nonempty
 file whose first requested start exceeds EOF SHALL fail with
-`invalid_selector`. An empty file starting at line 1 SHALL return empty content
-and empty arrays; other starts SHALL fail.
+`invalid_selector`. On a nonempty file, a comma list whose members all resolve
+empty SHALL fail as a start past the last line. On an empty file, an all-empty
+comma list whose first requested start is line 1 SHALL return empty content and
+empty plural range arrays; a later first start SHALL fail. An empty file
+starting at line 1 SHALL return empty content and empty arrays; other starts
+SHALL fail.
 
 The existing serialized-result cap, including metadata and the authority's
 envelope, and shared 2,000-line ceiling SHALL apply once to the entire result.
@@ -355,6 +363,12 @@ ranged Markdown ancestor rule promotes them.
 - **WHEN** a 40-line file is read with `:1-5,-20` or `:raw:1-5,30-`
 - **THEN** the members resolve to 1..5 and 21..40, or to 1..5 and 30..40, and the shipped sort, merge, and context expansion run on the resolved ranges
 - **AND** the raw form emits only the resolved lines verbatim, without context, gap markers, or prefixes
+
+#### Scenario: An empty all-empty comma request retains plural fields
+
+- **WHEN** an empty regular file is read with `:1-,2-`
+- **THEN** the read succeeds with empty content, `requestedRanges: []`, and `shownRanges: []`
+- **AND** `truncated` is false
 
 ### Requirement: Knowledge locators resolve through trusted owner authority
 
@@ -722,6 +736,76 @@ promise that two reads of the same URL return the same text.
 - **WHEN** a declared rewrite entry renders `https://x.com/jack/status/20` through `https://x.pcstyle.dev`
 - **THEN** the result has `method: "adapter"`, `finalUrl: "https://x.com/jack/status/20"`, and an adapter object with route `rewrite` and origin `https://x.pcstyle.dev`
 - **AND** its notes state that the content came through the configured origin
+
+### Requirement: Read representations are selected by media type and member
+
+A representation SHALL be selected from a closed, compile-time table keyed by
+the admitted content's media type and the requested member. The table SHALL
+hold the `raw` and `outline` members; it
+SHALL NOT be runtime-configurable, operator-loadable, or dynamically imported.
+A member SHALL belong to one of two output classes: a `:` member returns
+verbatim source lines with a shown range (`raw` without generated line
+prefixes, as raw reads always have, and `outline` with the ordinary
+line-number prefixes), and a future `?` member would return transformed
+content with no prefixes and no shown range; no `?` member and no `?` grammar
+exists yet. With no member named, reading SHALL remain unchanged except that an ordinary ranged Markdown read SHALL prepend the direct ancestor headings under the ranged Markdown ancestor requirement. A member
+requested for a media type the table does not map SHALL fail with
+`invalid_selector` naming the member's accepted media types, and the ordinary
+read of that source SHALL remain available.
+
+The media type SHALL be derived from the source, never from the body's
+appearance: a host, `file://`, `kb://`, or `skill://` regular file by the
+extension table `.md`, `.markdown`, `.mdown`, and `.mkd` to `text/markdown`,
+with `.mdx` excluded and every other extension mapping to no
+representation-eligible type; a web ladder result by its stage —
+`text/markdown` for a `negotiated` response whose `Content-Type` is
+`text/markdown` and for `alternate`, `md-suffix`, `readability`, and
+`llms-txt`, the served type for `text` and for a `negotiated` `text/plain`
+body, and none for `raw`; a web adapter result by the label the adapter
+contract requires. A reader SHALL receive only the admitted decoded content as
+a sequence of native lines, the source display identity, and the selector's
+source scope; a file source SHALL feed those lines as it reads them rather
+than decoding the whole file first. A reader SHALL NOT change source
+admission, permission projection, owner resolution, executor binding, request
+policy, or the source-specific result envelope. Readers over
+bytes rather than decoded text SHALL define their own input contract rather
+than widening this one.
+
+#### Scenario: A Markdown file selects the outline reader
+
+- **WHEN** the model calls `read` with an authorized Markdown file and the `:outline` member
+- **THEN** the result has `representation: "outline"` and contains the deterministic outline
+- **AND** the source is admitted exactly as it is for an ordinary read
+
+#### Scenario: An omitted member keeps the existing read
+
+- **WHEN** the model reads an authorized Markdown file without a member
+- **THEN** the result uses the existing text representation and line-numbered source content
+- **AND** no outline is appended or inferred; a ranged Markdown read prepends its ancestor headings under the ranged Markdown ancestor requirement.
+
+#### Scenario: An unsupported media type names the accepted types
+
+- **WHEN** the model requests `:outline` for an otherwise readable `.json`, `.mdx`, `.pdf`, `.txt`, or binary file, or for a web read whose result is `text`, `raw`, or a `negotiated` `text/plain` body
+- **THEN** the tool returns `invalid_selector` naming `text/markdown` as the member's accepted media type
+- **AND** an ordinary read of that source is unchanged
+
+#### Scenario: Admission denies the submitted locator before any parse
+
+- **WHEN** permission admission denies the submitted `:outline` locator, including a host rule that matches the selector-free submitted text
+- **THEN** the tool returns the same `permission_denied` result as the ordinary read
+- **AND** no media-type derivation or Markdown scan is attempted
+
+#### Scenario: Web ladder Markdown supports outline
+
+- **WHEN** a web read's result method is `alternate`, `md-suffix`, `readability`, or `llms-txt`, or is `negotiated` with a `text/markdown` response
+- **THEN** `:outline` scans that rendered body and its line numbers refer to the rendered text
+- **AND** the web envelope and provenance remain present
+
+#### Scenario: A directory or catalog is not an outline document
+
+- **WHEN** the model requests `:outline` on a host, `file://`, `kb://`, or `skill://` directory, on `skill://`, or on a web read whose adapter returned a directory result
+- **THEN** the tool returns `invalid_selector`
+- **AND** it does not reinterpret the listing as headings or return a listing page as outline content
 
 ### Requirement: Outline scope prepends the direct ancestors
 
