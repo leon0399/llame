@@ -1,0 +1,28 @@
+apps/web/app/(chat)/components/chat-page.permission-mode.test.tsx
+  f7fbf5fca73b0a0b 106-107,255-292,293-327,330-334,485,486,487,488,489-490,491,492,493,494-495,496-501,502-503,505,507,509-515,517-522,523,524,525-536,531-541,542,543-546,547,548-550,551,552-553
+apps/web/app/(chat)/components/use-chat-conversation.ts
+  f7fbf5fca73b0a0b 136
+apps/web/app/(chat)/components/chat-page.tsx
+  f7fbf5fca73b0a0b 28,338
+apps/web/app/(chat)/components/use-chat-engine.ts
+  f7fbf5fca73b0a0b 117-118,123-127,130,144-147,148-152,153-156,162-168,169,174,175-183,187,188,190-191,194-198,199,200,201-202,206,214,216-219,220-222,223-224,225-235,236-238,240,243-247,248
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "6580f2e1a9a077200d8ca58e56ba9d874d9fd5d6",
+  "prompts": {
+    "f7fbf5fca73b0a0b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd61b364-4eda-4283-a7f2-7959f9e195aa",
+        "model": "deepseek-ai/DeepSeek-V4-Flash-0731"
+      },
+      "human_author": "leon0399 <leon.03.99@gmail.com>",
+      "total_additions": 189,
+      "total_deletions": 158,
+      "accepted_lines": 114,
+      "overriden_lines": 1
+    }
+  }
+}
