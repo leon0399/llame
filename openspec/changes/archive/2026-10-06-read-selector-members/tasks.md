@@ -58,7 +58,7 @@ for the current owning layer. Checked tasks record completed work but never
 grant approval or publication permission. Keep each layer within the
 approximately 2,000-authored-line review budget against its immediate parent
 and report reproducible generated churn separately. Delivery policy:
-[CONTRIBUTING.md](../../../CONTRIBUTING.md).
+[CONTRIBUTING.md](../../../../CONTRIBUTING.md).
 
 ## 1. Proposal layer
 
@@ -112,7 +112,7 @@ Branch `read-selector-members/permissions`, parent
 - [x] 4.1 For `read` only, remove the split-off read selector from every text the evaluator matches for `path`: the direct host, file-alias, and web projections, the Workspace-relative projection after resolution, and the runner's unprojected submitted-text reject pass, leaving derived web locators and address locators matched exactly as requested; keep `edit` and `write` matched with any selector-shaped suffix in every text, decoded alias included, text-only with no probe; verify with projection and runner tests for `/tmp/file:1-2` admitted by an exact allow, `/home/u/.ssh/id_rsa:1-5` refused by a `$`-anchored reject, `https://example.test/guide:raw` matched as the canonical URL, a relative `secret.md:1-5` matched as its stripped absolute path, `write` of `/srv/app/config.json:1-5` refused by an exact allow for the bare name, a `:raw` reject matching no read through the full runner path, an all-fields reject included, a redirect hop ending in `:5` judged with that text, and the `^<file>:raw:` reject pin in `apps/api/src/instructions/instruction-files.test.ts:390-410` flipped
 - [x] 4.2 Update `docs/product/operator/tool-call-permissions.md` so `read` clauses are documented as matching the resource without its selector on every source, naming the literal-filename case, the mutation exception, and the terminators that stay load-bearing, and correct `docs/product/operator/web-read.md`, which states that a web locator is matched with its selector kept; verify `pnpm lint:markdown`
 - [x] 4.3 Run the affected tests, `lint`, and `typecheck`, measure the diff, complete SR, and keep the PR draft until SR is complete
-- [ ] 4.4 Publish the permissions draft with `$gh-stack`, mark it ready, and complete the GitHub-bot review, current-head CI, and monitoring loop before creating `read-selector-members/prompt-docs`
+- [x] 4.4 Publish the permissions draft with `$gh-stack`, mark it ready, and complete the GitHub-bot review, current-head CI, and monitoring loop before creating `read-selector-members/prompt-docs`
 
 ## 5. Prompt and documentation layer
 
@@ -122,7 +122,7 @@ Branch `read-selector-members/prompt-docs`, parent
 - [x] 5.1 Commit the restructured `apps/api/src/prompts/tools/read.md` with `:N-` and `:-K` live, both raw orders stated, the grammar stated once in `## Selectors`, the elision-footer rule removed, the document-extraction line commented, percent-encoding scoped to `kb://` and web, the "different spelling is refused" web line removed, and every commented draft tagged `TODO(#N)` with its owning issue; verify the prompt rendering tests and that no uncommented form fails against the shipped grammar
 - [x] 5.2 Update `docs/product/reference/selectors.md` (including its statement that the host permission check sees the suffix-bearing path), `docs/product/reference/locators/{index,host-path,kb,skill,web}.md`, and `docs/product/reference/tools/read.md` with the member grammar, both raw orders, the unified error and message, the count pass, the cut-document refusal, listing and catalog behavior, and the selector-free `read` admission; verify `pnpm lint:markdown`
 - [x] 5.3 Add the dated `CHANGELOG.md` entry naming both breaking changes and complete any `ROADMAP.md` removal; verify `pnpm lint:markdown` and `git diff --check`
-- [ ] 5.4 Measure the diff, complete SR, publish the draft with `$gh-stack`, ensure the PR body carries `Closes #1025`, mark it ready, and complete the GitHub-bot review, current-head CI, and monitoring loop before creating `read-selector-members/finalize`
+- [x] 5.4 Measure the diff, complete SR, publish the draft with `$gh-stack`, ensure the PR body carries `Closes #1025`, mark it ready, and complete the GitHub-bot review, current-head CI, and monitoring loop before creating `read-selector-members/finalize`
 
 ## 6. Finalize layer
 
@@ -131,10 +131,10 @@ Branch `read-selector-members/finalize`, parent
 history, and archive movement only. Entry requires every implementation layer
 to be published, reviewed, CI-green, and every task above checked.
 
-- [ ] 6.1 Use `$gh-stack` to enter `read-selector-members/finalize` from the published prompt-docs head; verify the parent, complete task checkoffs, and archive readiness before any `$openspec-sync-specs` command writes canonical specs
-- [ ] 6.2 Run `$openspec-sync-specs` for `native-file-tools` and `tool-call-permissions`, reconcile post-proposal canonical drift by hand before syncing, and verify every MODIFIED requirement retains its complete canonical sentence and scenario set plus only the approved edits
-- [ ] 6.3 Run `pnpm exec openspec status --change read-selector-members --json`, `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; stop on any incomplete artifact, unchecked task, unsynced requirement, or application change in the finalize diff
-- [ ] 6.4 Run `$openspec-archive-change` only after readiness is proved, then verify the moved archive preserves checked task history and the synchronized requirements, and that the finalize diff contains no application change
+- [x] 6.1 Use `$gh-stack` to enter `read-selector-members/finalize` from the published prompt-docs head; verify the parent, complete task checkoffs, and archive readiness before any `$openspec-sync-specs` command writes canonical specs
+- [x] 6.2 Run `$openspec-sync-specs` for `native-file-tools` and `tool-call-permissions`, reconcile post-proposal canonical drift by hand before syncing, and verify every MODIFIED requirement retains its complete canonical sentence and scenario set plus only the approved edits
+- [x] 6.3 Run `pnpm exec openspec status --change read-selector-members --json`, `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; stop on any incomplete artifact, unchecked task, unsynced requirement, or application change in the finalize diff
+- [x] 6.4 Run `$openspec-archive-change` only after readiness is proved, then verify the moved archive preserves checked task history and the synchronized requirements, and that the finalize diff contains no application change
 
 Post-archive gates, not pre-archive checkbox prerequisites: publish the
 finalize draft with `$gh-stack`, self-review its parent-relative archive diff,

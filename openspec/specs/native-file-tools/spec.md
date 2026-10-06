@@ -289,7 +289,7 @@ decoded host path in `path`, not the submitted URL.
 
 ### Requirement: Skill locators provide live read-only package access
 
-`read` SHALL accept `skill://<name>[:selector]` for a package's `SKILL.md`, `skill://<name>/<path>[:selector]` for supporting files, `skill://<name>/` for its directory, and `skill://` for the current bounded catalog. The catalog form SHALL support pagination through native directory range selectors. Skill names SHALL follow the Agent Skills name grammar. Resource segments SHALL follow the Knowledge locator's once-only decoding, selector separation, size/depth, and traversal validation rules. Native directory/read/range/raw/truncation behavior SHALL apply except for the explicit catalog representation. `edit` and `write` SHALL reject skill locators as unsupported operations without effects.
+`read` SHALL accept `skill://<name>[:selector]` for a package's `SKILL.md`, `skill://<name>/<path>[:selector]` for supporting files, `skill://<name>/` for its directory, and `skill://` for the current bounded catalog. The catalog form SHALL support pagination through native directory range selectors, whose single range accepts the same members as any other read, `N-` and `-K` included, resolved against the catalog's entry count. Skill names SHALL follow the Agent Skills name grammar. Resource segments SHALL follow the Knowledge locator's once-only decoding, selector separation, size/depth, and traversal validation rules. Native directory/read/range/raw/truncation behavior SHALL apply except for the explicit catalog representation. `edit` and `write` SHALL reject skill locators as unsupported operations without effects.
 
 The resolver SHALL re-evaluate the current winning package on each call through the catalog port. It SHALL take the current turn's explicit selection set as a parameter: a manual-only package's body or resource read SHALL return a bounded structured refusal naming explicit selection unless that set contains the package, and the catalog listing SHALL omit manual-only packages not in that set. The Run supplies the set derived from its triggering user message to every skill read it performs, model-initiated reads included; a caller with no turn context supplies an empty set. Symbolic links beneath a source or inside a package follow ordinary operating-system semantics as `agent-skills` specifies; the resolver SHALL NOT resolve, verify, or contain them for access. Missing/invalid packages, unsupported operations, and invalid resource paths SHALL return bounded structured errors. The resolver SHALL NOT read special files.
 
@@ -348,16 +348,37 @@ The same file permission rules SHALL inspect literal and encoded spellings of on
 
 ### Requirement: Read selectors and context are deterministic
 
-`read` SHALL accept trailing one-based inclusive selectors `:N-M`, `:N+K`,
-`:raw`, and `:raw:N-M`, plus comma-separated selectors under the
-multi-range requirement below. It SHALL also accept the `outline`
+`read` SHALL accept trailing one-based inclusive range members `N`, `N-M`,
+`N+K`, `N-`, and `-K`, wherever a member is accepted: a bare single member
+such as `:N-M`, a comma-separated list under the multi-range requirement
+below, a `raw:` list, and the one optional source range after
+`outline` below, together with
+`:raw`. The five members are one set: a `raw:` list accepts every member a
+bare list accepts, `N+K` included. `N-` is the single line `N` through the
+source's last line and `-K` is
+its last `K` lines. A `:<list>:raw` selector and the same list after `raw:`
+SHALL be one read on every source: the shape gate every source validates
+against admits both spellings, the applier reads them as the same `raw:`
+list, and the canonical spelling is
+the `raw:` one. A host or web split that finds a trailing `:raw` takes the
+colon segment before it as the list only when that segment has the member-list
+shape; any other segment stays on the path, so `notes:draft:raw` remains the
+raw read of `notes:draft`, while `2024:10:raw` becomes line 10 of `2024` raw
+and a literal file named `2024:10` is read raw only as `2024:10:raw:1-N`. It SHALL also accept the `outline`
 representation member with at most one optional source range, `:outline`,
-`:outline:N`, `:outline:N-M`, or `:outline:N+K`, under the representation
-requirements below; a comma-separated list after `outline` is outside the
-grammar and SHALL fail under each source's shipped precedence
-(`invalid_selector` for host and web, `invalid_path` for `kb://` and
-`skill://`). A valid selector SHALL be normalized once to
-internal zero-based ranges. The tool SHALL recognize a `scheme://` prefix before
+`:outline:N`, `:outline:N-M`, `:outline:N+K`, `:outline:N-`, or `:outline:-K`,
+under the representation requirements below; a comma-separated list after
+`outline` is outside the grammar and SHALL fail with `invalid_selector`. A
+valid selector SHALL be normalized once to
+internal zero-based ranges. A trailing suffix that splits off a locator which
+itself parses and lies outside the grammar SHALL fail with `invalid_selector`
+on every source, with one message that names the working forms — `:N`,
+`:N-M`, `:N+K`, `:N-`, `:-K`, comma lists of them, `:raw`, `:raw:<list>`,
+and `:outline` with one member — and, on a source that has an encoded
+spelling for a literal colon (a `kb://` or `skill://` resource path, and
+web), the `%3A` spelling of the
+same locator after the forms; a malformed locator
+part remains `invalid_path`. The tool SHALL recognize a `scheme://` prefix before
 splitting a trailing selector, so a scheme's own colon is never read as a
 selector. For absolute paths, existing literal paths SHALL take precedence over
 selector parsing, and after that literal probe an `:outline` form SHALL be
@@ -372,6 +393,33 @@ SHALL NOT be treated as a relative or literal filename. For regular-file reads, 
 one preceding and one following source line (context lines) when available, and the extended
 lines SHALL appear in the same `content` block as the requested lines.
 
+Members are resolved against the source's count before any of the shipped rules
+run, and those rules then apply to the resolved absolute ranges: `N-` resolves
+to `N..count` and `-K` to `max(1, count-K+1)..count`. That count is the line
+count of a regular file on host, `file://`, `kb://`, or `skill://`, obtained
+by counting the file's lines before the ordinary read whenever a selector
+carries an `N-` or `-K` member, after the source is admitted and found to be a
+regular file; the rendered line count of a web document; the
+requested-level entry count of a directory listing; or the entry count of the
+skill catalog. `requestedRange` and `requestedRanges` SHALL report the resolved
+absolute lines, which are the coordinates this read observed rather than a
+snapshot of the source. A `-K` with `K` greater than the count SHALL resolve to
+`1..count` and `-0` SHALL fail with `invalid_selector`. An `N-` whose `N`
+lies past the last line resolves to an empty member. On a nonempty regular file
+or web render, that member fails with `invalid_selector` when it is the first
+requested start of the sorted members; when it is later, it is dropped before
+merging and context expansion, so it emits nothing, adds no context line, and
+appears in neither `requestedRanges` nor `shownRanges`. A comma list whose
+members all resolve empty fails as a start past the last line on a nonempty
+regular file or web render. On an empty regular file or web render, `-K` and
+`1-` return the shipped empty result (the start-past-EOF rule does not apply to
+a source with no last line at offset 0); any other `N-` fails as a start past
+the last line when it is the first requested start of the sorted members, so a
+comma list that starts at line 1, such as `:1-,2-`, returns empty plural ranges
+as the multi-range rule states. On a listing or the catalog, an `N-` past the end returns the
+empty page those sources return today; an empty listing or catalog keeps its
+empty page for every member.
+
 For an ordinary ranged read of a `text/markdown` source, `content` SHALL also prepend the direct ancestor heading lines for the passage's first requested line, as specified by the ranged Markdown ancestor requirement.
 For single-range reads, result
 details SHALL identify requested and shown ranges, representation, path, and
@@ -385,10 +433,13 @@ emitted source lines. Empty files SHALL return null ranges. `nextOffset` SHALL
 identify the next requested source line; for a truncated outline it SHALL
 identify the source line of the first omitted entry. Raw reads SHALL return verbatim
 selected source content without generated line prefixes, context expansion, or
-processors. `:outline:raw` and `:raw:outline` are not representation members
-and SHALL follow each source's shipped precedence: host and web keep their raw
-interpretation of `:outline:raw` as a path or URL ending in `:outline`, while
-`kb://` and `skill://` return `invalid_path` for either suffix. Directory reads SHALL apply single-range selectors to listing entries under the
+processors. `:outline:raw` and `:raw:outline` are not representation members:
+host and web keep their raw interpretation of `:outline:raw` as a path or URL
+ending in `:outline`, because their split recognizes the trailing `:raw` first
+and leaves `:outline` on the path, while `kb://` and `skill://`, which split
+once at the first colon, return `invalid_selector` for
+`:outline:raw`, and any source given `:raw:outline`, whose remainder is outside
+the grammar, returns `invalid_selector`. Directory reads SHALL apply single-range selectors to listing entries under the
 directory listing requirements and SHALL NOT add context lines; an outline
 request on a directory SHALL fail under the representation requirements rather
 than reinterpret listing text.
@@ -435,6 +486,46 @@ than reinterpret listing text.
 - **THEN** the read is the outline of `/docs/guide.md` scoped to source lines 10 through 40
 - **AND** `/docs/guide.md:outline:raw` remains the shipped raw read of a path ending in `:outline`, while `/docs/guide.md:outline:1,3` fails with `invalid_selector`
 
+#### Scenario: A tail member reads the last lines of a file
+
+- **WHEN** the model reads `:-20` of a 500-line file
+- **THEN** the result requests lines 481 through 500 and applies the ordinary context, truncation, and `nextOffset` rules to them
+- **AND** the same read spelled `:raw:-20` returns those twenty lines verbatim
+
+#### Scenario: An open-ended member runs to the last line
+
+- **WHEN** the model reads `:50-` of a 3,000-line file of short lines
+- **THEN** the requested range is 50 through 3,000 rather than an open-ended window
+- **AND** the result is cut at the shared 2,000-line ceiling with the ordinary `nextOffset`
+
+#### Scenario: A tail member larger than the file clips to the first line
+
+- **WHEN** the model reads `:-50` of a 10-line file
+- **THEN** the result requests lines 1 through 10, because `-K` resolves to `1..count` instead of failing
+
+#### Scenario: A zero tail is refused
+
+- **WHEN** the model reads `:-0`
+- **THEN** the tool returns `invalid_selector` without opening the source
+
+#### Scenario: Both raw orders are the same read
+
+- **WHEN** the model reads `guide.md:raw:60-64` and `guide.md:60-64:raw` of the same file, or `kb://<id>/guide.md:60-64:raw` and `skill://<name>:60-64:raw`
+- **THEN** each pair returns lines 60 through 64 verbatim with the same range metadata, because the shape gate every source validates against admits both spellings
+- **AND** a file literally named `guide.md:60-64:raw` still wins the host literal-path probe, while `notes:draft:raw` stays the raw read of `notes:draft` because `draft` has no member-list shape
+
+#### Scenario: A malformed suffix names the working forms on every source
+
+- **WHEN** the model reads `kb://<id>/notes/a:b.md`, whose split-off suffix `b.md` lies outside the grammar
+- **THEN** the tool returns `invalid_selector` with the one message that names the working forms, followed on a `kb://` or `skill://` resource path by the `%3A` spelling, here `kb://<id>/notes/a%3Ab.md`
+- **AND** a malformed locator part, such as an undecodable segment, remains `invalid_path`
+
+#### Scenario: A listing and the catalog read their tails
+
+- **WHEN** the model reads `/var/log/:-20` and `skill://:-10`
+- **THEN** the directory read returns the last twenty entries of its requested level and the catalog read the last ten entries of its count, as its single range
+- **AND** neither adds context lines
+
 ### Requirement: Reads through symbolic links report the real path
 
 When a file `read` on an absolute host path opens a file whose canonical absolute path differs from the normalized path as given, because the path or any component of it is a symbolic link, the result SHALL carry that canonical path as `realPath`. A directory listing SHALL NOT carry `realPath`; its header is the path as given and its link entries carry their own targets. The header and line numbering SHALL remain those of the path as given; `realPath` SHALL count against the result bound like every other result field and SHALL be present before the result is measured, SHALL be absent when the two paths are equal, and SHALL be omitted with the read otherwise unaffected when the canonical path cannot be resolved. `kb://` and `skill://` reads SHALL NOT carry `realPath`. A `skill://` result SHALL instead carry the real package directory as `realSkillDirectory` in its envelope when it differs from `skillDirectory`, reserved before content exactly as the other envelope fields are; when the real directory cannot be resolved the field is omitted and the read is otherwise unaffected.
@@ -458,13 +549,18 @@ When a file `read` on an absolute host path opens a file whose canonical absolut
 
 ### Requirement: Multi-range reads return context-bounded intervals
 
-A regular-file `read` SHALL accept two or more comma-separated `N-M` or `N+K`
-ranges, or `raw:` followed by two or more comma-separated `N-M` ranges.
+A regular-file `read` SHALL accept two or more comma-separated `N`, `N-M`,
+`N+K`, `N-`, or `-K` members, or `raw:` followed by two or more comma-separated
+`N`, `N-M`, `N+K`, `N-`, or `-K` members. `N-` and `-K` are resolved against
+the file's line count before the sort and merge below, exactly as a bare selector
+resolves them. A resolved empty `N-` member is dropped when it is a later
+requested start; on a nonempty file, it fails with `invalid_selector` when it is
+the first requested start, including when all members of a comma list resolve
+empty.
 Every bound SHALL satisfy the existing positive safe-integer rules. Invalid
 bounds and more than 64 input ranges SHALL fail with `invalid_selector`. Empty
-members, whitespace, or malformed members SHALL fail the whole request under
-existing error precedence: `invalid_selector` for parsed host selectors and
-`invalid_path` for malformed `kb://` locator suffixes.
+members, whitespace, or malformed members SHALL fail the whole request with
+`invalid_selector` on every source.
 The tool SHALL sort ranges by start, merge overlapping or adjacent ranges,
 expand each merged interval by one preceding and one following source line
 when available, clip the expansion to the file bounds, and merge expanded
@@ -490,8 +586,12 @@ markers. `representation`, `path`, and `truncated` SHALL retain their existing
 meanings. On reaching EOF, shown ends SHALL clip to available source and later
 ranges SHALL emit nothing; EOF alone SHALL NOT indicate truncation. A nonempty
 file whose first requested start exceeds EOF SHALL fail with
-`invalid_selector`. An empty file starting at line 1 SHALL return empty content
-and empty arrays; other starts SHALL fail.
+`invalid_selector`. On a nonempty file, a comma list whose members all resolve
+empty SHALL fail as a start past the last line. On an empty file, an all-empty
+comma list whose first requested start is line 1 SHALL return empty content and
+empty plural range arrays; a later first start SHALL fail. An empty file
+starting at line 1 SHALL return empty content and empty arrays; other starts
+SHALL fail.
 
 The existing serialized-result cap, including metadata and the authority's
 envelope, and shared 2,000-line ceiling SHALL apply once to the entire result.
@@ -569,12 +669,24 @@ ranged Markdown ancestor rule promotes them.
 
 - **WHEN** a nonliteral host read selector is `:5-10,,20-30`, `:5-10,0-2`, or contains 65 ranges
 - **THEN** the tool returns `invalid_selector` without returning any selected content
-- **AND** a malformed `kb://` suffix such as `:5-10,,20-30` retains `invalid_path`; valid comma grammar with invalid numeric bounds retains `invalid_selector`
+- **AND** a malformed `kb://` suffix such as `:5-10,,20-30` returns `invalid_selector` like a host selector, because the locator before the suffix parses
 
 #### Scenario: Literal filename wins
 
 - **WHEN** `/tmp/report:5-10,20-30` exists as a regular file and is read
 - **THEN** it is read as the literal filename without applying ranges
+
+#### Scenario: Resolved tail and open-ended members join one request
+
+- **WHEN** a 40-line file is read with `:1-5,-20` or `:raw:1-5,30-`
+- **THEN** the members resolve to 1..5 and 21..40, or to 1..5 and 30..40, and the shipped sort, merge, and context expansion run on the resolved ranges
+- **AND** the raw form emits only the resolved lines verbatim, without context, gap markers, or prefixes
+
+#### Scenario: An empty all-empty comma request retains plural fields
+
+- **WHEN** an empty regular file is read with `:1-,2-`
+- **THEN** the read succeeds with empty content, `requestedRanges: []`, and `shownRanges: []`
+- **AND** `truncated` is false
 
 ### Requirement: Directory reads return a deterministic bounded listing
 
@@ -1039,8 +1151,8 @@ unsupported operation SHALL return a structured error without side effects.
 #### Scenario: Colon inside a Knowledge path is rejected
 
 - **WHEN** the model calls `read` with `kb://<id>/notes/a:b.md`
-- **THEN** the tool returns `invalid_path`, because a literal `:` after the identifier starts the selector and `b.md` is not one
-- **AND** it does not probe for a literal file; the file is addressed as `kb://<id>/notes/a%3Ab.md`
+- **THEN** the tool returns `invalid_selector`, because a literal `:` after the identifier starts the selector and `b.md` lies outside the grammar
+- **AND** it does not probe for a literal file; the message names the working forms and the file is addressed as `kb://<id>/notes/a%3Ab.md`
 
 #### Scenario: Encoded and literal spellings resolve alike
 
@@ -1070,7 +1182,7 @@ unsupported operation SHALL return a structured error without side effects.
 
 - **WHEN** the model calls `read` with `kb://<id>/notes/guide.md:outline`
 - **THEN** the result is the note's outline with the Space identifier, display name, locator, and untrusted-content notice
-- **AND** `kb://<id>/notes/guide.md:outline:raw` returns `invalid_path`
+- **AND** `kb://<id>/notes/guide.md:outline:raw` returns `invalid_selector`, because `raw` is not a member `outline` accepts
 
 ### Requirement: Web locators are fetched by the native read tool
 
@@ -1094,10 +1206,11 @@ digits, so normalizing the normalized text changes nothing and llame's
 normalization forms no new escape. A fragment SHALL be cut
 before anything else reads the locator, because the request drops it anyway.
 What no normalization can repair SHALL still fail before any request: a text
-that is not a URL, a scheme outside `http` and `https`, a suffix outside the
-selector grammar, and userinfo, which SHALL fail with `invalid_path` so the
-tool never sends credentials the model embedded in a URL, and whose message
-SHALL NOT echo them.
+that is not a URL, a scheme outside `http` and `https`, and userinfo, which
+SHALL fail with `invalid_path` so the tool never sends credentials the model
+embedded in a URL, and whose message SHALL NOT echo them. A suffix outside the
+selector grammar SHALL fail with `invalid_selector` naming the working forms,
+because the locator before that suffix is a URL this tool can request.
 
 After the submitted locator is admitted and canonicalized, the read SHALL
 consider the ordered, code-owned web adapters before the generic HTML and text
@@ -1111,7 +1224,7 @@ An adapter target is another derived locator and SHALL be admitted in its own ri
 
 Because the text requested is no longer always the text submitted, the
 permission decision SHALL be taken over both: any reject clause matching
-either the submitted locator or its normalized form SHALL refuse the call, so
+either the submitted locator with its read selector removed or its normalized form SHALL refuse the call, so
 a spelling cannot be arranged to miss a reject, while the allow SHALL be
 decided on the normalized form, because an allow names the resource the call
 will reach and the two texts are one resource. A redirect hop is a different
@@ -1140,8 +1253,9 @@ colon of a pathless locator opens its port: `https://example.test:88` is port
 A literal colon in the last path segment of a query-free locator SHALL be
 written as `%3A` (`https://w.example/wiki/Special%3ASearch`), because a
 trailing colon is always read as a selector split and the shipped grammar
-admits `raw`, `raw:N`, `raw:N-M`, `N`, `N-M`, `N+K`, comma lists of
-those, and `outline`, `outline:N`, `outline:N-M`, and `outline:N+K`: `Search`
+admits `raw`, `raw:<list>`, `N`, `N-M`, `N+K`, `N-`, `-K`, comma lists of
+those, `outline`, `outline:N`, `outline:N-M`, `outline:N+K`, `outline:N-`, and
+`outline:-K`, with `:<list>:raw` the same read as `:raw:<list>`: `Search`
 is outside it, so `https://w.example/wiki/Special:Search`
 fails as `invalid_selector`, while `https://w.example/docs/2024:10` selects
 line 10 and `https://w.example/docs/2024:10-20` lines 10 through 20 of
@@ -1158,8 +1272,9 @@ selector (`https://example.test/:1-5`); a port that is not a number
 (`https://example.test:abc/`) SHALL be answered by naming that rule and the
 same locator without a port, rather than by the generic message, since the
 locator is absolute and only its port is broken; a suffix that meant a line the
-grammar cannot serve (`:12+`) SHALL be answered with the line forms first and
-the literal colon's encoding second; and a selector the render could not
+grammar cannot serve (`:12+`), or any other suffix outside it (`Search`), SHALL be answered with the forms, `N-` and
+`-K` included, first and the literal colon's encoding second; and a selector
+the render could not
 serve — past its end, or with no line in it — SHALL be answered with the
 number of lines the page rendered, which the model cannot know before reading
 it.
@@ -1214,6 +1329,7 @@ it.
 - **WHEN** the model reads `https://w.example/wiki/Special:Search`
 - **THEN** the read fails with `invalid_selector` and issues no request, because the split-off suffix is present but outside the grammar
 - **AND** `https://w.example/wiki/Special%3ASearch` is fetched as written, while `https://w.example/docs/2024:10` selects line 10 and `https://w.example/docs/2024:10-20` lines 10 through 20 of `https://w.example/docs/2024`
+- **AND** `https://w.example/wiki/Special:-5` is the last five rendered lines of `https://w.example/wiki/Special`, and the literal spelling of that same resource is `https://w.example/wiki/Special%3A-5`
 
 #### Scenario: Outline representation splits before the last-colon fallback
 
@@ -1225,8 +1341,8 @@ it.
 
 - **WHEN** the model reads `https://example.test:1-5`, which no URL parser accepts because `1-5` is not a port
 - **THEN** the read returns `invalid_path` naming `https://example.test/:1-5`, and resubmitting that reads lines 1 through 5 of the page
-- **AND** reading `https://example.test/guide:12+` returns `invalid_selector` naming the `:N`, `:N-M`, and `:N+K` forms before the `%3A` spelling
-- **AND** a suffix outside the grammar with no line number in it, such as `https://w.example/wiki/Special:Search`, still names only the encoded spelling
+- **AND** reading `https://example.test/guide:12+` returns `invalid_selector` naming the `:N`, `:N-M`, `:N+K`, `:N-`, and `:-K` forms before the `%3A` spelling, while `https://example.test/guide:12-` reads line 12 through the render's last line
+- **AND** a suffix outside the grammar with no line number in it, such as `https://w.example/wiki/Special:Search`, names the same forms and then the encoded spelling
 
 #### Scenario: A selector the page cannot serve reports the page's length
 
@@ -1745,7 +1861,11 @@ the existing context, range, `nextOffset`, and truncation rules, and the
 rendered text SHALL be measured against the existing native read result bound,
 which SHALL reserve space for `path`, `finalUrl`, `method`, `adapter`, and
 `notes` before
-truncating content. A web read SHALL NOT carry `realPath`. A selector read of
+truncating content. A `-K` member requested on an adapter document the web
+plane cut at its 5 MiB document bound SHALL fail with `representation_too_large`
+naming the cut and SHALL return no partial content, because the end of a cut
+document is not the end the source holds; an `N-` member and an ordinary read of
+the same document are unaffected and keep the ordinary truncation note. A web read SHALL NOT carry `realPath`. A selector read of
 a locator read earlier SHALL refetch and rerender, and the tool SHALL NOT
 promise that two reads of the same URL return the same text.
 
@@ -1772,6 +1892,12 @@ promise that two reads of the same URL return the same text.
 - **WHEN** the model reads the same locator twice, the second time with a different selector
 - **THEN** two requests are issued and the second result reports the content the server returned then
 - **AND** no cached render or stored snapshot is reused
+
+#### Scenario: A tail member on a cut adapter document is refused
+
+- **WHEN** the model requests a `-K` member of an adapter document the web plane cut at its 5 MiB document bound
+- **THEN** the tool returns `representation_too_large` naming the cut and no content
+- **AND** an `N-` member and the ordinary read of that document still return it with the ordinary truncation note
 
 #### Scenario: Adapter provenance preserves the source identity
 
@@ -2266,7 +2392,7 @@ than widening this one.
 
 #### Scenario: Admission denies the submitted locator before any parse
 
-- **WHEN** permission admission denies the submitted `:outline` locator, including a host rule that matches the suffix-bearing submitted text
+- **WHEN** permission admission denies the submitted `:outline` locator, including a host rule that matches the selector-free submitted text
 - **THEN** the tool returns the same `permission_denied` result as the ordinary read
 - **AND** no media-type derivation or Markdown scan is attempted
 
@@ -2442,7 +2568,10 @@ no closed line-one block is ordinary Markdown.
 ### Requirement: Outline scope prepends the direct ancestors
 
 `:outline:N-M` (and `:outline:N` for `N-N`, `:outline:N+K` for the `K` lines
-from `N`, as ordinary `:N+K` selects) SHALL restrict the emitted lines to those whose source line lies in the
+from `N`, as ordinary `:N+K` selects, `:outline:N-` for the lines from `N`
+through the source's last line, and `:outline:-K` for its last `K` lines, each
+resolved against the source's count as an ordinary range member is) SHALL
+restrict the emitted lines to those whose source line lies in the
 scope, and SHALL prepend the direct ancestor chain of source line `N`: the
 root headings whose sections contain `N`, from the shallowest to the deepest,
 each rendered as an in-scope heading is (its heading lines and its excerpt
@@ -2489,6 +2618,12 @@ end does. No comma-separated scope SHALL be accepted.
 - **WHEN** the model reads `:outline:500-600` of a 120-line file
 - **THEN** the tool returns `invalid_selector` under the ordinary out-of-range rule
 - **AND** no outline content is returned
+
+#### Scenario: A scope reaches the last line or the tail of a source
+
+- **WHEN** the model reads `:outline:60-` of the file whose `## Use` sits at line 100 and whose last line is 120
+- **THEN** the outline carries the ancestor chain of line 60 and every entry whose source line lies in 60 through 120
+- **AND** `:outline:-20` of that file is the same scope as `:outline:101-120`, with the chain of its first line prepended
 
 ### Requirement: Outline output obeys explicit bounds
 
