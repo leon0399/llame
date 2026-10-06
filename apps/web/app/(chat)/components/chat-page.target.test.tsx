@@ -114,6 +114,14 @@ const MODELS_RESPONSE: ModelsResponse = {
       name: "GPT-5.4 mini",
       contextWindowTokens: 400_000,
     },
+    // A real but non-default choice, so a test can tell a restore that read
+    // the pre-send snapshot apart from one that read the post-send history.
+    {
+      id: "system:openai:gpt-5.4",
+      source: "system",
+      name: "GPT-5.4",
+      contextWindowTokens: 400_000,
+    },
   ],
 };
 
@@ -462,6 +470,108 @@ describe("ChatPage target hydration", () => {
         (req) => !new URL(req.url).searchParams.has("targetSeq"),
       ),
     ).toBe(true);
+  });
+
+  it("restores the model from the post-send history, not the pre-send snapshot, after a #msg-N send", async () => {
+    // #1084: a finished target send remounts the live view while the ordinary
+    // messages cache still holds the pre-send SSR snapshot (refreshChatData
+    // invalidates only after resolveLatest is queued). The last-turn restore
+    // must defer past that stale window and latch the post-send history once
+    // the invalidated refetch lands.
+    const user = userEvent.setup();
+    const staleSeed: ChatMessagesResponse = {
+      compaction: null,
+      messages: [
+        rawChatMessage({
+          chatId: CHAT_ID,
+          id: "newest",
+          seq: 990,
+          parts: [{ type: "text", text: "newest" }],
+          role: "assistant",
+          // The pre-send snapshot's last completed turn used the non-default
+          // model — restoring from it is what the bug does.
+          usage: { status: "completed", modelId: "system:openai:gpt-5.4" },
+        }),
+      ],
+    };
+    const targetPage = page([
+      { id: "older", seq: 701, text: "older target context" },
+      { id: "target", seq: 900, text: "target answer" },
+    ]);
+    const postSendPage: ChatMessagesResponse = {
+      compaction: null,
+      messages: [
+        rawChatMessage({
+          chatId: CHAT_ID,
+          id: "target",
+          seq: 900,
+          parts: [{ type: "text", text: "target answer" }],
+          role: "assistant",
+        }),
+        rawChatMessage({
+          chatId: CHAT_ID,
+          id: "latest",
+          seq: 1000,
+          parts: [{ type: "text", text: "latest durable answer" }],
+          role: "assistant",
+          // The post-send history's last completed turn used the default
+          // model — this is the selection the restore must land on.
+          usage: {
+            status: "completed",
+            modelId: "system:openai:gpt-5.4-mini",
+          },
+        }),
+      ],
+    };
+
+    // Hold the post-send (ordinary/latest) history back until the live view has
+    // remounted against the pre-send snapshot, so a pre-#1084 latch deterministically
+    // reads the stale turn instead of racing an instant refetch.
+    let resolveFresh!: (value: ChatMessagesResponse) => void;
+    const freshGate = new Promise<ChatMessagesResponse>((resolve) => {
+      resolveFresh = resolve;
+    });
+    messagesHandler = (targetSeq) =>
+      targetSeq === 900
+        ? Promise.resolve(jsonResponse<ChatMessagesResponse>(targetPage))
+        : freshGate.then((value) => jsonResponse<ChatMessagesResponse>(value));
+    mocks.sendMessage.mockResolvedValue(undefined);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/chat/${CHAT_ID}#msg-900`,
+    );
+
+    renderChat(staleSeed);
+    await waitFor(() => expect(screen.getByText("target answer")).toBeTruthy());
+
+    const input = screen.getByPlaceholderText("What would you like to know?");
+    await user.type(input, "follow-up");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    act(() => {
+      mocks.capturedOnFinish?.({});
+    });
+
+    // The live view remounted against the held-back pre-send snapshot: the
+    // fresh history has not landed, so the restore must still be holding.
+    await waitFor(() => expect(screen.getByText("newest")).toBeTruthy());
+    expect(screen.queryByRole("combobox")?.getAttribute("aria-label")).not.toBe(
+      "Select model, GPT-5.4",
+    );
+
+    act(() => {
+      resolveFresh(postSendPage);
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("latest durable answer")).toBeTruthy(),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("combobox").getAttribute("aria-label")).toBe(
+        "Select model, GPT-5.4 mini",
+      ),
+    );
   });
 
   it("restores the target hash and input when a target send fails", async () => {

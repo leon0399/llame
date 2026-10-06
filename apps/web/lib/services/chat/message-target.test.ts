@@ -124,4 +124,38 @@ describe("useMessageTarget", () => {
     act(() => result.current.resolveLatest());
     await waitFor(() => expect(result.current.targetSeq).toBeNull());
   });
+
+  it("records a post-send resolution time and clears it on a later hash navigation", async () => {
+    window.history.replaceState(
+      window.history.state,
+      "",
+      "/chat/chat-1#msg-42",
+    );
+    const { result } = renderHook(() => useMessageTarget("chat-1"));
+
+    // A plain hash hydration is not a finished target send.
+    await waitFor(() => expect(result.current.lastResolvedAt).toBeNull());
+
+    // Finish a target send: the resolve stamps when the view returned to
+    // latest, so the live restore can tell a pre-send snapshot from the
+    // post-send refetch (#1084).
+    const before = Date.now();
+    act(() => result.current.resolveLatest());
+    await waitFor(() =>
+      expect(result.current.lastResolvedAt).toBeTypeOf("number"),
+    );
+    expect(result.current.lastResolvedAt!).toBeGreaterThanOrEqual(before);
+
+    // A later hash navigation is a fresh navigation, not another resolution:
+    // the marker clears so the next live mount has nothing to wait for.
+    window.history.replaceState(
+      window.history.state,
+      "",
+      "/chat/chat-1#msg-43",
+    );
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() => expect(result.current.lastResolvedAt).toBeNull());
+  });
 });
