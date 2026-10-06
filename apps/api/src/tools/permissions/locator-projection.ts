@@ -47,34 +47,15 @@ function withoutFileAliasSelector(value: string): string {
   if (!alias.ok) return value;
   const { path, selector } = splitSelectorSuffix(alias.hostPath);
   if (selector === undefined || !isSelectorSuffix(selector)) return value;
-  const prefixEnd = findAliasPathPrefix(value, path);
-  return prefixEnd === undefined ? value : value.slice(0, prefixEnd);
-}
-
-function findAliasPathPrefix(
-  value: string,
-  targetPath: string,
-): number | undefined {
-  const afterScheme = value.slice(5);
-  const pathStart = afterScheme.startsWith('//')
-    ? value.indexOf('/', 7)
-    : 5;
-  if (pathStart < 0) return undefined;
-  let decoded = '';
-  let index = pathStart;
-  while (index < value.length) {
-    if (value[index] === '%') {
-      const start = index;
-      do index += 3;
-      while (index < value.length && value[index] === '%');
-      decoded += decodeURIComponent(value.slice(start, index));
-    } else {
-      decoded += value[index];
-      index += 1;
-    }
-    if (decoded === targetPath) return index;
+  // The selector starts at a colon written literally or as `%3A`; cut at the
+  // last such colon whose prefix decodes to the selector-free path, so any
+  // other spelling in the submitted text is left as written.
+  for (const match of [...value.matchAll(/:|%3A/giu)].reverse()) {
+    const prefix = value.slice(0, match.index);
+    const decoded = decodeFileAlias(prefix);
+    if (decoded.ok && decoded.hostPath === path) return prefix;
   }
-  return undefined;
+  return value;
 }
 
 /**

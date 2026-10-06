@@ -857,7 +857,6 @@ describe('runTool permission gate', () => {
     ).toMatchObject({ type: 'permission_denied', message: EXPLICIT_REJECT });
   });
 
-
   it('refuses an anchored web reject for a read selector', async () => {
     // A wiki page name ends in a colon, so the selector is split off the text
     // the clause was written against instead of hiding behind that colon.

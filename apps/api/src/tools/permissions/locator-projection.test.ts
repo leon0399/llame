@@ -260,10 +260,7 @@ describe('native file permission projection', () => {
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
   });
   it('keeps an invalid file alias selector-shaped tail unchanged for read', () => {
-    for (const path of [
-      'file:///srv/a?:1-5',
-      'file://other/srv/a:1-5',
-    ]) {
+    for (const path of ['file:///srv/a?:1-5', 'file://other/srv/a:1-5']) {
       expect(nativeFileProjection('read')('path', path)).toBe(path);
     }
   });
@@ -615,18 +612,25 @@ describe('native file permission projection', () => {
   });
 
   it('removes encoded selectors from valid file aliases only', () => {
-    expect(
-      withoutReadSelector('file:///srv/private/secret%3Araw'),
-    ).toBe('file:///srv/private/secret');
-    expect(
-      withoutReadSelector('file:///srv/private/secret%3A1%2D5'),
-    ).toBe('file:///srv/private/secret');
-    expect(
-      withoutReadSelector('file:/srv/private/secret%3Araw'),
-    ).toBe('file:/srv/private/secret');
+    expect(withoutReadSelector('file:///srv/private/secret%3Araw')).toBe(
+      'file:///srv/private/secret',
+    );
+    expect(withoutReadSelector('file:///srv/private/secret%3A1%2D5')).toBe(
+      'file:///srv/private/secret',
+    );
+    expect(withoutReadSelector('file:/srv/private/secret%3Araw')).toBe(
+      'file:/srv/private/secret',
+    );
     expect(
       withoutReadSelector('file://localhost/srv/private/secret%3Araw'),
     ).toBe('file://localhost/srv/private/secret');
+    // Every selector byte encoded, and a literal colon in a filename before it.
+    expect(withoutReadSelector('file:///srv/private/secret%3A%31')).toBe(
+      'file:///srv/private/secret',
+    );
+    expect(withoutReadSelector('file:///srv/a%3Ab/c%e2%82%ac%3A1-2')).toBe(
+      'file:///srv/a%3Ab/c%e2%82%ac',
+    );
   });
   it('cuts the selector the read tool splits off', () => {
     expect(withoutReadSelector('https://example.test/guide:1-5')).toBe(
