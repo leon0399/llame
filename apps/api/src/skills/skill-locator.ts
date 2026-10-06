@@ -1,6 +1,13 @@
 import { isSelectorSuffix } from '@workspace/native-file-tools';
 
 import { isValidSkillName } from './skill-name';
+import {
+  decodeRelativePath,
+  encodeRelativePath,
+  encodeSelectorSuffix,
+  selectorRefusalMessage,
+  type LocatorParseFailure,
+} from '../tools/locator-spelling';
 
 /** The scheme this capability resolves; every other scheme fails closed. */
 export const SKILL_LOCATOR_SCHEME = 'skill';
@@ -9,8 +16,8 @@ export const SKILL_LOCATOR_SCHEME = 'skill';
  * Path bounds mirroring the Knowledge locator's: one operator-authored package
  * resource can be neither arbitrarily long nor arbitrarily deep.
  */
-export const SKILL_MAX_PATH_BYTES = 1024;
-export const SKILL_MAX_PATH_COMPONENTS = 32;
+const SKILL_MAX_PATH_BYTES = 1024;
+const SKILL_MAX_PATH_COMPONENTS = 32;
 
 /**
  * A parsed `skill://` locator. Four shapes share one type:
@@ -36,60 +43,104 @@ export type ParsedSkillLocator =
     };
 
 /**
- * Parse the part after `skill://`. `undefined` means `invalid_path`.
+ * The refusal for a suffix outside the grammar on a locator that names no
+ * resource: the catalog and a package root have no encoded spelling to offer,
+ * so only the shared sentence answers them.
+ */
+const NO_RESOURCE_REFUSAL: LocatorParseFailure = {
+  type: 'invalid_selector',
+  message: selectorRefusalMessage(undefined),
+};
+
+/**
+ * Parse the part after `skill://` and report why a locator that does not
+ * parse failed.
  *
  * Segment decoding, selector separation, and traversal rules follow the
- * Knowledge locator convention, with a skill name where a Space ID sits. The
- * catalog and package-root forms have their own explicit grammar because
- * neither addresses a resource path.
+ * Knowledge locator convention, with a skill name where a Space ID sits, and a
+ * resource path is decoded and validated before the suffix is judged, so a
+ * refusal for a suffix outside the grammar names a package resource that
+ * opens. The catalog and package-root forms have their own explicit grammar
+ * because neither addresses a resource path.
  */
 export function parseSkillLocator(
   rest: string,
-): ParsedSkillLocator | undefined {
+): ParsedSkillLocator | LocatorParseFailure {
   // `skill://` and `skill://:raw` address the catalog itself.
   if (rest.length === 0) return { catalog: true };
   if (rest.startsWith(':')) {
     const selector = rest.slice(1);
-    return isSelectorSuffix(selector) ? { catalog: true, selector } : undefined;
+    return isSelectorSuffix(selector)
+      ? { catalog: true, selector }
+      : NO_RESOURCE_REFUSAL;
   }
   return parsePackageLocator(rest);
 }
 
-function parsePackageLocator(rest: string): ParsedSkillLocator | undefined {
+function parsePackageLocator(
+  rest: string,
+): ParsedSkillLocator | LocatorParseFailure {
   const separator = rest.indexOf('/');
   const nameField = separator < 0 ? rest : rest.slice(0, separator);
   // Split before decoding so an encoded colon remains part of a filename.
   const nameColon = nameField.indexOf(':');
   const name = nameColon < 0 ? nameField : nameField.slice(0, nameColon);
-  if (!isValidSkillName(name)) return undefined;
+  if (!isValidSkillName(name)) return invalidPathFailure();
 
   if (separator < 0) {
     if (nameColon < 0) return { name };
     const selector = nameField.slice(nameColon + 1);
-    return isSelectorSuffix(selector) ? { name, selector } : undefined;
+    return isSelectorSuffix(selector)
+      ? { name, selector }
+      : NO_RESOURCE_REFUSAL;
   }
   // A selector may not sit on the name when a resource path follows it.
-  if (nameColon >= 0) return undefined;
+  if (nameColon >= 0) return invalidPathFailure();
 
   const remainder = rest.slice(separator + 1);
-  if (remainder.length === 0) return { name, trailingSeparator: true };
+  if (remainder.length === 0) {
+    return { name, trailingSeparator: true };
+  }
+  return resourceLocator(name, remainder);
+}
 
+/**
+ * `skill://<name>/<path>[:selector]`: the resource path is decoded and
+ * validated first, so only a path the resolver would open reaches the suffix
+ * check and the spelling a refusal names.
+ */
+function resourceLocator(
+  name: string,
+  remainder: string,
+): ParsedSkillLocator | LocatorParseFailure {
   const colon = remainder.indexOf(':');
   const selector = colon < 0 ? undefined : remainder.slice(colon + 1);
-  if (selector !== undefined && !isSelectorSuffix(selector)) return undefined;
   const rawPath = colon < 0 ? remainder : remainder.slice(0, colon);
-
   const trailing = rawPath.endsWith('/');
-  const relativePath = decodeSkillPath(
+  if (rawPath === '/') return invalidPathFailure();
+  const relativePath = decodeRelativePath(
     trailing ? rawPath.slice(0, -1) : rawPath,
   );
-  if (relativePath === undefined) return undefined;
+  if (relativePath === undefined) return invalidPathFailure();
+  if (
+    relativePath.length > 0 &&
+    validateSkillResourcePath(relativePath) === undefined
+  ) {
+    return invalidPathFailure();
+  }
+  if (selector !== undefined && !isSelectorSuffix(selector)) {
+    return {
+      type: 'invalid_selector',
+      message: selectorRefusalMessage(
+        skillSelectorSpelling(name, relativePath, trailing, selector),
+      ),
+    };
+  }
   if (relativePath.length === 0) {
     return selector === undefined
       ? { name, trailingSeparator: true }
       : { name, selector, trailingSeparator: true };
   }
-
   const base =
     selector === undefined
       ? { name, relativePath }
@@ -97,18 +148,22 @@ function parsePackageLocator(rest: string): ParsedSkillLocator | undefined {
   return trailing ? { ...base, trailingSeparator: true } : base;
 }
 
-function decodeSkillPath(path: string): string | undefined {
-  try {
-    const segments = path
-      .split('/')
-      .map((segment) => decodeURIComponent(segment));
-    // Check before joining: validation cannot distinguish an introduced slash.
-    if (segments.some((segment) => segment.includes('/'))) return undefined;
-    return segments.join('/');
-  } catch (error) {
-    if (error instanceof URIError) return undefined;
-    throw error;
-  }
+function invalidPathFailure(): LocatorParseFailure {
+  return { type: 'invalid_path', message: 'The skill locator is invalid.' };
+}
+
+function skillSelectorSpelling(
+  name: string,
+  relativePath: string,
+  trailing: boolean,
+  selector: string,
+): string | undefined {
+  if (relativePath.length === 0) return undefined;
+  return `${formatSkillLocator({
+    name,
+    relativePath,
+    ...(trailing && { trailingSeparator: true }),
+  })}%3A${encodeSelectorSuffix(selector)}`;
 }
 
 /**
@@ -116,7 +171,7 @@ function decodeSkillPath(path: string): string | undefined {
  * character, or exceeds the shared bounds. Returns the path components when
  * admissible.
  */
-export function validateSkillResourcePath(
+function validateSkillResourcePath(
   relativePath: string,
 ): ReadonlyArray<string> | undefined {
   if (
@@ -163,10 +218,7 @@ export function formatSkillLocator(parsed: ParsedSkillLocator): string {
   if (relativePath === undefined || relativePath.length === 0) {
     return parsed.trailingSeparator === true ? `${base}/` : base;
   }
-  const encoded = relativePath
-    .split('/')
-    .map((segment) => encodeURIComponent(segment))
-    .join('/');
+  const encoded = encodeRelativePath(relativePath);
   return parsed.trailingSeparator === true
     ? `${base}/${encoded}/`
     : `${base}/${encoded}`;

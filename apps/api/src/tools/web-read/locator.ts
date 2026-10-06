@@ -1,5 +1,11 @@
 import { isSelectorSuffix } from '@workspace/native-file-tools';
 
+import {
+  encodeSelectorSuffix,
+  selectorRefusalMessage,
+  type LocatorParseFailure,
+} from '../locator-spelling';
+
 /**
  * A web locator the tool will request: the canonical URL text with the
  * trailing selector split off, so `url` is exactly what leaves the process
@@ -7,17 +13,16 @@ import { isSelectorSuffix } from '@workspace/native-file-tools';
  */
 export type WebLocator = { readonly url: string; readonly selector?: string };
 
-export type WebLocatorError = {
-  readonly type: 'invalid_path' | 'invalid_selector';
-  readonly message: string;
-};
-
 /**
  * The shipped trailing-selector grammar, reused unchanged: the `:raw` forms
  * first, then the `:outline` forms, else the last colon after the last slash.
  * A URL's own scheme colon can never win, because it always precedes the
  * authority's slashes; whether a match may split at all is `opensSelector`'s
- * call.
+ * call. A trailing `:raw` claims the colon segment before it as the range list
+ * when that segment has the member-list shape and emits the canonical
+ * `raw:<list>` suffix, so `guide:60-64:raw` and `guide:raw:60-64` are one
+ * selector downstream while `notes:draft:raw` stays the raw read of
+ * `notes:draft`.
  */
 const RAW_SELECTOR = /:raw(?::([^:/]*))?$/u;
 const OUTLINE_SELECTOR = /:outline(?::([^:/]*))?$/u;
@@ -53,8 +58,25 @@ function opensSelector(text: string, index: number): boolean {
 function splitSelector(text: string): SplitLocator {
   const raw = RAW_SELECTOR.exec(text);
   if (raw !== null && opensSelector(text, raw.index)) {
-    const suffix = raw[1] === undefined ? 'raw' : `raw:${raw[1]}`;
-    return { url: text.slice(0, raw.index), selector: suffix };
+    const before = text.slice(0, raw.index);
+    if (raw[1] !== undefined) {
+      return { url: before, selector: `raw:${raw[1]}` };
+    }
+    // The colon before the list may open a selector on its own terms: the
+    // `opensSelector` gate is what keeps a port, a query, and a fragment out
+    // of the claim, exactly as it does for every other split here.
+    const colon = before.lastIndexOf(':');
+    if (opensSelector(text, colon)) {
+      // The claim is the grammar's own `<list>:raw` spelling, so the segment
+      // behind a trailing `:raw` is the range list exactly when the shared
+      // grammar admits that suffix. A segment that merely ends in digits keeps
+      // its colon and stays the raw read of that path.
+      const list = before.slice(colon + 1);
+      if (isSelectorSuffix(`${list}:raw`)) {
+        return { url: before.slice(0, colon), selector: `raw:${list}` };
+      }
+    }
+    return { url: before, selector: 'raw' };
   }
   const outline = OUTLINE_SELECTOR.exec(text);
   if (outline !== null && opensSelector(text, outline.index)) {
@@ -75,7 +97,7 @@ function splitSelector(text: string): SplitLocator {
  */
 function parseWebUrl(
   text: string,
-): { readonly href: string } | WebLocatorError {
+): { readonly href: string } | LocatorParseFailure {
   let url: URL;
   try {
     url = new URL(text);
@@ -145,54 +167,15 @@ export function stripFragment(text: string): string {
  * The spelling the model resubmits for a suffix that meant a literal colon.
  * Every colon of the last path segment is encoded, not only the one the split
  * took: a hint that leaves an earlier one behind splits again on the next
- * attempt, so the model pays another cycle per colon. The scheme, host, and
- * port colons precede the last slash and stay as the model wrote them.
+ * attempt, so the model pays another cycle per colon. The segment's own
+ * escapes are already canonical and are left alone; the suffix is encoded
+ * whole. The scheme, host, and port colons precede the last slash and stay as
+ * the model wrote them.
  */
-function encodedSuggestion(href: string, selector: string): string {
+function literalColonSpelling(href: string, selector: string): string {
   const lastSlash = href.lastIndexOf('/');
-  const segment = `${href.slice(lastSlash + 1)}:${selector}`.replaceAll(
-    ':',
-    '%3A',
-  );
-  return `Write this locator as ${href.slice(0, lastSlash + 1)}${segment}`;
-}
-
-/**
- * A suffix that meant lines the grammar cannot serve (`:12+`, `:4-5,12+`,
- * `:outline:49,119`). The forms the model can write are named
- * first and the literal-colon spelling second, because that model asked for
- * lines, not a path; encoding its colons requests a URL nobody serves.
- */
-const LINE_SELECTOR_ATTEMPT = /^\d+[-+]?$/u;
-// A digit is required: `:-` or `:,` names no line, so it is a literal colon.
-const RANGE_ATTEMPT = /^(?:(raw|outline):)?[\d,+-]*\d[\d,+-]*$/u;
-const RANGE_FORMS = {
-  lines:
-    'A line selector is :N, :N-M, or :N+K, or a comma-separated list of them, and a line number starts at 1.',
-  raw: 'A raw selector is :raw, or :raw: followed by N or N-M ranges separated by commas, and a line number starts at 1.',
-  outline:
-    'An outline takes at most one range, :outline:N, :outline:N-M, or :outline:N+K, and a line number starts at 1; read one outline per range.',
-} as const;
-
-function invalidSelectorMessage(href: string, selector: string): string {
-  const encoded = encodedSuggestion(href, selector);
-  const literal = `For a literal colon, ${lowerFirst(encoded)}`;
-  if (LINE_SELECTOR_ATTEMPT.test(selector)) {
-    const start = selector.replace(/[-+]$/u, '');
-    return `A line selector is :N, :N-M, or :N+K, and a line number starts at 1, so line ${start} is :${start}. ${literal}`;
-  }
-  const attempt = RANGE_ATTEMPT.exec(selector);
-  if (attempt === null) return encoded;
-  const member = attempt[1];
-  const forms =
-    member === 'raw' || member === 'outline'
-      ? RANGE_FORMS[member]
-      : RANGE_FORMS.lines;
-  return `${forms} ${literal}`;
-}
-
-function lowerFirst(text: string): string {
-  return `${text[0].toLowerCase()}${text.slice(1)}`;
+  const segment = href.slice(lastSlash + 1).replaceAll(':', '%3A');
+  return `${href.slice(0, lastSlash + 1)}${segment}%3A${encodeSelectorSuffix(selector)}`;
 }
 
 /**
@@ -204,8 +187,8 @@ function lowerFirst(text: string): string {
  * (`https://example.test:abc/`) is the only broken part of an otherwise
  * absolute URL.
  */
-function unparsableLocator(text: string): WebLocatorError {
-  const generic: WebLocatorError = {
+function unparsableLocator(text: string): LocatorParseFailure {
+  const generic: LocatorParseFailure = {
     type: 'invalid_path',
     message: INVALID_URL_MESSAGE,
   };
@@ -251,7 +234,7 @@ function unparsableLocator(text: string): WebLocatorError {
  */
 export function parseWebLocator(
   submitted: string,
-): WebLocator | WebLocatorError {
+): WebLocator | LocatorParseFailure {
   const text = stripFragment(submitted);
   // Admitted whole before the split: a userinfo the split would cut through
   // (`https://user:secret@host`) is refused here, so no later message can
@@ -267,10 +250,16 @@ export function parseWebLocator(
   // request and the permission decision use.
   const target = parseWebUrl(url);
   if ('type' in target) return target;
+  // The one refusal for a suffix outside the grammar, whatever the model was
+  // reaching for: the shared sentence names the working forms every source
+  // accepts, and this source's own sentence then names the spelling of the same
+  // locator with its colons literal.
   if (selector !== undefined && !isSelectorSuffix(selector)) {
     return {
       type: 'invalid_selector',
-      message: invalidSelectorMessage(target.href, selector),
+      message: selectorRefusalMessage(
+        literalColonSpelling(target.href, selector),
+      ),
     };
   }
   return selector === undefined

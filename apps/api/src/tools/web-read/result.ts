@@ -1,11 +1,10 @@
 import {
-  assertResolvedTarget,
   NativeFileError,
   applySelectorSuffix,
-  invalidSelectorMessage as packageSelectorMessage,
   measureNativeModelOutput,
   outlineReader,
   renderCollectedDirectory,
+  resolveEndRelativeSelector,
   selectMultiRangeLines,
   selectSourceLines,
   splitSourceLines,
@@ -44,6 +43,9 @@ type WebResultEnvelope = {
 const ADAPTER_OUTLINE_TOO_LARGE_MESSAGE =
   "The adapter document was cut at the web read's document bound, so an outline would omit structure; read it without :outline.";
 
+const ADAPTER_TAIL_TOO_LARGE_MESSAGE =
+  "The adapter document was cut at the web read's document bound, so its last lines are not the document's last lines; read the range from a line instead of a tail.";
+
 /** The envelope reports where the content came from: a probe that won names
  *  its own response's URL, and every other render names the call's. */
 function webResultEnvelope(
@@ -77,11 +79,6 @@ export async function buildWebReadResult(
       ...applySelectorSuffix(locator.url, locator.selector),
       reserveCodeUnits: measureNativeModelOutput(envelope),
     };
-    // A render holds its own text and its own line and entry counts, so the
-    // sources layer places every end-relative member before the target is
-    // built; one that still carries members would be served from line 1 or
-    // entry 1 under a range the request never named.
-    assertResolvedTarget(target);
     if (render.directory !== undefined) {
       return buildDirectoryReadResult(target, envelope, render.directory);
     }
@@ -91,13 +88,14 @@ export async function buildWebReadResult(
     return {
       status: 'error',
       type: error.type,
-      // A bare type or the package's generic forms sentence tells the model
-      // less than the web's own wording, which names the rendered lines.
+      // A selector the render could not serve carries no message of its own,
+      // and a bare type tells the model nothing it can act on, so the count it
+      // could not select within is reported. Wording a reader chose for a
+      // refusal of its own — a bound the grammar rejects, a media type that
+      // has no outline — is passed on unchanged.
       message:
-        error.type === 'invalid_selector' &&
-        (error.message === error.type ||
-          error.message === packageSelectorMessage())
-          ? selectorFailureMessage(selectorContent(render), locator.selector)
+        error.type === 'invalid_selector' && error.message === error.type
+          ? selectorFailureMessage(render.content, locator.selector)
           : error.message,
     };
   }
@@ -108,7 +106,15 @@ async function buildWebFileResult(
   envelope: WebResultEnvelope,
   render: WebRender,
 ): Promise<WebReadSuccess | WebReadFailure> {
-  if (target.outline) {
+  // The render holds its own text in memory, so its line count is the count
+  // an `N-` or a `-K` resolves against, exactly as a file's own lines are.
+  const renderedLines =
+    target.pending === undefined ? undefined : splitSourceLines(render.content);
+  const resolved =
+    renderedLines === undefined
+      ? target
+      : resolveEndRelativeSelector(target, renderedLines.length);
+  if (resolved.outline) {
     if (render.truncated === true) {
       return {
         status: 'error',
@@ -116,30 +122,46 @@ async function buildWebFileResult(
         message: ADAPTER_OUTLINE_TOO_LARGE_MESSAGE,
       };
     }
-    const read = await outlineReader(render.mediaType)(
-      splitSourceLines(render.content),
-      target,
-    );
+    const lines = renderedLines ?? splitSourceLines(render.content);
+    const read = await outlineReader(render.mediaType)(lines, resolved);
     return { ...read, ...envelope };
+  }
+  // A cut document's end is not the document's end, so a `-K` member is
+  // refused rather than answered with the wrong end. An `N-` member names a
+  // real start, and the ordinary truncation note already covers the cut.
+  if (
+    render.truncated === true &&
+    target.pending !== undefined &&
+    /(?:^|,)-/u.test(target.pending)
+  ) {
+    return {
+      status: 'error',
+      type: 'representation_too_large',
+      message: ADAPTER_TAIL_TOO_LARGE_MESSAGE,
+    };
   }
   // A comma request needs the multi-range walk: the render is text in
   // hand, so it cannot go through the file-backed stream reader, and
   // `selectSourceLines` serves one window.
   const read =
-    target.ranges === undefined
-      ? selectSourceLines(render.content, target, render.mediaType)
-      : selectMultiRangeLines(render.content, target, render.mediaType);
+    resolved.ranges === undefined
+      ? selectSourceLines(render.content, resolved, render.mediaType)
+      : selectMultiRangeLines(render.content, resolved, render.mediaType);
   return { ...read, ...envelope };
 }
 
 function directorySelectorFailure(
   target: ReadTarget,
 ): WebReadFailure | undefined {
+  // A comma list is refused whether it was placed or is still waiting for the
+  // listing's entry count: a flat slice has no second interval to show.
+  const comma =
+    target.ranges !== undefined || (target.pending?.includes(',') ?? false);
   const message = target.outline
     ? 'The :outline member is not supported for directory reads.'
     : target.raw
       ? 'The :raw selector is not supported for directory reads.'
-      : target.ranges !== undefined
+      : comma
         ? 'Comma-separated selectors are not supported for directory reads.'
         : undefined;
   return message === undefined
@@ -159,6 +181,10 @@ function buildDirectoryReadResult(
     reserveCodeUnits: measureNativeModelOutput(envelope),
     ...(target.offset > 0 && { offset: target.offset }),
     ...(target.limit !== undefined && { limit: target.limit }),
+    // The listing's own renderer places the pending members against the
+    // requested level's entry count and returns its empty page for one that
+    // starts past the last entry.
+    ...(target.pending !== undefined && { pending: target.pending }),
   };
   const result = renderCollectedDirectory(
     directory.displayPath,
@@ -169,15 +195,6 @@ function buildDirectoryReadResult(
     return { status: 'error', type: result.type, message: result.message };
   }
   return { ...result, ...envelope };
-}
-
-function selectorContent(render: WebRender): string {
-  if (render.directory === undefined) return render.content;
-  const result = renderCollectedDirectory(
-    render.directory.displayPath,
-    render.directory.entries,
-  );
-  return result.status === 'success' ? result.content : '';
 }
 
 /**
