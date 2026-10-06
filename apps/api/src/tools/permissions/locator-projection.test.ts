@@ -335,6 +335,17 @@ describe('native file permission projection', () => {
       ),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
+  it('rejects a selector-bearing Workspace-relative path after projection', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: '^/work/project/src/secret$' }],
+      },
+    };
+    expect(
+      decideNative(map, 'read', { path: 'src/secret:raw' }, '/work/project'),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
   it('admits a selector spelling through an anchored exact allow', () => {
     // Admission is text-only, so a literal file named `/tmp/file:1-2` is the
     // same text the suffix names: the clause cannot tell them apart.
@@ -630,6 +641,17 @@ describe('native file permission projection', () => {
     );
     expect(withoutReadSelector('file:///srv/a%3Ab/c%e2%82%ac%3A1-2')).toBe(
       'file:///srv/a%3Ab/c%e2%82%ac',
+    );
+  });
+  it('strips valid selectors with the Knowledge and skill parsers', () => {
+    expect(withoutReadSelector('kb://Space/notes/a.md:raw')).toBe(
+      'kb://Space/notes/a.md',
+    );
+    expect(withoutReadSelector('kb://Space/notes/a:old:raw')).toBe(
+      'kb://Space/notes/a:old:raw',
+    );
+    expect(withoutReadSelector('skill://pdf/SKILL.md:old:raw')).toBe(
+      'skill://pdf/SKILL.md:old:raw',
     );
   });
   it('cuts the selector the read tool splits off', () => {

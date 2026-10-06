@@ -107,15 +107,19 @@ locator, and the Workspace-relative path after resolution. Nothing else is
 removed from the text — a submitted web fragment stays in the submitted pass,
 while the parsed/requested web projection drops it. A clause therefore names
 the resource, not the window into it, so `^/srv/docs/guide\.md$` admits
-`/srv/docs/guide.md:10-20`, and a clause written against a selector spelling
-such as `:raw` matches no read at all. Three consequences are worth knowing:
+`/srv/docs/guide.md:10-20`, and a clause written against the selector spelling
+such as `:raw` matches no split-off read selector; it can still match ordinary
+URL text such as `#x:raw` or `?x=:raw`, which is not a selector. Three
+consequences are worth knowing:
 
 - Admission is text-only, so an exact allow for `/srv/docs/README` also admits
   a read of a literal file named `README:raw` when one exists.
-- The same gap cuts the other way: an exact reject can no longer single out a
-  literal file whose colon suffix fits the grammar. `^/data/report$` matches
-  `/data/report:2024` as `/data/report`, and the executor then reads the
-  literal file. Scope a reject to the resource, not to a selector spelling.
+- A selector-shaped literal filename cannot be singled out by a `read` reject.
+  `^/data/report$` matches `/data/report:2024` after selector removal, so that
+  read is refused. But `^/data/report:2024$` matches nothing for `read`, so it
+  cannot single out that literal file apart from `/data/report`; when an allow
+  names the resource, admission succeeds and the executor reads the literal
+  file. Scope a reject to the resource, not to a selector spelling.
 - `edit` and `write` are the exception: a mutation takes its path literally,
   so any selector-shaped suffix stays in every text they are matched on,
   including the decoded alias. `^/srv/app/config\.json$` admits the write of

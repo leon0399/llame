@@ -270,13 +270,17 @@ keeps its suffix in a `read`'s matched text. The canonical scenario heading
 body inverted; renaming it is left to spec synchronization.
 
 **Threat:** The projection stays text-only, so it trades exactness on both
-sides. An exact allow such as `^/srv/docs/README$` admits a read of a literal
-file named `/srv/docs/README:raw` when one exists, and an exact reject such as
-`^/data/report$` matches a read of the literal file `/data/report:2024` as
-`/data/report`, which the executor then reads. Both are the text-only gap the
-shipped policy already accepts for `write` rejects; no probe of the filesystem
-can tell a selector from a colon in a name, so a rule is scoped to the
-resource rather than to a selector spelling.
+\*\*sides. An exact allow such as `^/srv/docs/README$` admits a read of a literal
+file named `/srv/docs/README:raw` when one exists. An exact reject written for
+the resource, such as `^/data/report$`, matches a read of the literal file
+`/data/report:2024` after selector removal, so it refuses that read. Conversely,
+a reject written for the literal filename, `^/data/report:2024$`, matches
+nothing for `read`; it cannot single out that file apart from `/data/report`.
+When an allow names `/data/report`, admission succeeds and the executor reads
+the literal file. This is the text-only gap the shipped policy already accepts
+for `write` rejects; no probe of the filesystem can tell a selector from a colon
+in a name, so a rule is scoped to the resource rather than to a selector
+spelling.
 
 **Alternatives rejected:** Keeping host and web admission on the submitted
 text, which fails exact allows closed on any selector and makes a selector

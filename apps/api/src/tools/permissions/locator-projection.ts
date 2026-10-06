@@ -30,8 +30,24 @@ const NATIVE_FILE_PERMISSION_TOOL_IDS = new Set(['read', 'edit', 'write']);
 /** Removes only a valid read selector from a submitted locator. */
 export function withoutReadSelector(value: string): string {
   if (isFileAlias(value)) return withoutFileAliasSelector(value);
-  const scheme = parsePathScheme(value)?.scheme;
-  if (scheme !== undefined && scheme in WEB_LOCATOR_SCHEMES) {
+  const scheme = parsePathScheme(value);
+  if (scheme?.scheme === KNOWLEDGE_LOCATOR_SCHEME) {
+    const parsed = parseKnowledgeLocator(scheme.rest);
+    if ('type' in parsed || parsed.selector === undefined) return value;
+    const colon = scheme.rest.indexOf(':');
+    return colon < 0
+      ? value
+      : value.slice(0, value.length - scheme.rest.length + colon);
+  }
+  if (scheme?.scheme === SKILL_LOCATOR_SCHEME) {
+    const parsed = parseSkillLocator(scheme.rest);
+    if ('type' in parsed || parsed.selector === undefined) return value;
+    const colon = scheme.rest.indexOf(':');
+    return colon < 0
+      ? value
+      : value.slice(0, value.length - scheme.rest.length + colon);
+  }
+  if (scheme?.scheme !== undefined && scheme.scheme in WEB_LOCATOR_SCHEMES) {
     const fragmentFree = stripFragment(value);
     const { url, selector } = splitWebSelector(fragmentFree);
     return selector !== undefined && isSelectorSuffix(selector)

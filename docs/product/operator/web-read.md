@@ -208,7 +208,9 @@ clauses:
 
 - A locator is matched twice: as the model submitted it, with only a split-off
   read selector removed (so a submitted fragment remains), and as the read tool
-  parses it — fragment cut, host, port, and encoding normalized. A read
+  parses it — fragment cut, host, port, and encoding normalized. Only the
+  selector suffix itself is removed; text inside a kept fragment (for example,
+  `#x:raw`) remains in the submitted text and can still match a clause. A read
   selector is removed from both texts, so `^https://docs\.example\.com/guide$`
   admits `.../guide:raw` and a clause written against a selector spelling such
   as `:raw` matches no read. A reject matching either refuses the call; the

@@ -60,7 +60,7 @@ export function isDerivedLocatorKind(
 
 /**
  * Evaluates the read policy against a raw locator before applying its
- * `read` projection.
+ * `derived-locator projection`.
  */
 export type AdmitDerivedLocator = (
   kind: DerivedLocatorKind,
@@ -76,8 +76,8 @@ const PROJECT_DERIVED_LOCATOR = (_field: string, value: string): string =>
 
 /**
  * Builds one call's reject-only address admission check. A raw-text rejection
- * gets the same precedence as for a submitted call, then the read projection
- * is evaluated. Allows are not evaluated as address permissions: a domain
+ * gets the same precedence as for a submitted call, then the
+ * `derived-locator projection` is evaluated. Allows are not evaluated as address permissions: a domain
  * allowlist names the requested host, not the public addresses it resolves to
  * (design D3). A missing compiled policy cannot attribute an address decision
  * and therefore fails closed without reporting one.
