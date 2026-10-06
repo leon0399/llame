@@ -2,11 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-06
 
-- Fixed missing token usage on `openai-completions` and `opencode-go` models:
-  streaming Chat Completions requests now ask the server for usage
+- Fixed missing token usage on `openai-completions` models: streaming Chat
+  Completions requests now ask the server for usage
   (`stream_options.include_usage`), so a message's usage card shows input,
   output, and reasoning tokens, and priced models record cost, instead of
-  showing no counts. The e2e model server now reports a streaming request's
+  showing no counts. `opencode-go` requests share the client and now ask as
+  well. The e2e model server now reports a streaming request's
   usage only when the request asks, as real servers do. A new operator page
   covers vLLM-served models behind a LiteLLM gateway, including why its
   reasoning-effort levels can silently do nothing
