@@ -31,21 +31,20 @@ const NATIVE_FILE_PERMISSION_TOOL_IDS = new Set(['read', 'edit', 'write']);
 export function withoutReadSelector(value: string): string {
   if (isFileAlias(value)) return withoutFileAliasSelector(value);
   const scheme = parsePathScheme(value);
-  if (scheme?.scheme === KNOWLEDGE_LOCATOR_SCHEME) {
-    const parsed = parseKnowledgeLocator(scheme.rest);
+  const parse =
+    scheme?.scheme === KNOWLEDGE_LOCATOR_SCHEME
+      ? parseKnowledgeLocator
+      : scheme?.scheme === SKILL_LOCATOR_SCHEME
+        ? parseSkillLocator
+        : undefined;
+  if (scheme !== undefined && parse !== undefined) {
+    // Both parsers split the selector off at the first colon of the rest.
+    const parsed = parse(scheme.rest);
     if ('type' in parsed || parsed.selector === undefined) return value;
-    const colon = scheme.rest.indexOf(':');
-    return colon < 0
-      ? value
-      : value.slice(0, value.length - scheme.rest.length + colon);
-  }
-  if (scheme?.scheme === SKILL_LOCATOR_SCHEME) {
-    const parsed = parseSkillLocator(scheme.rest);
-    if ('type' in parsed || parsed.selector === undefined) return value;
-    const colon = scheme.rest.indexOf(':');
-    return colon < 0
-      ? value
-      : value.slice(0, value.length - scheme.rest.length + colon);
+    return value.slice(
+      0,
+      value.length - scheme.rest.length + scheme.rest.indexOf(':'),
+    );
   }
   if (scheme?.scheme !== undefined && scheme.scheme in WEB_LOCATOR_SCHEMES) {
     const fragmentFree = stripFragment(value);
