@@ -20,15 +20,14 @@ installed (see [skills](../../operator/skills.md)):
   it verbatim, still with the result envelope.
 - `skill://<name>/<path>[:selector]` reads a supporting file, with the same
   selector, truncation, and context behavior as any other read.
-- `skill://<name>/` lists the package directory, and `skill://` with an optional
-  `:N-M` or `:N+K` lists the catalog, which pages through `nextOffset` like a
-  directory listing.
+- `skill://<name>/` lists the package directory, and `skill://` with one
+  optional member lists the catalog (see [Listing](#listing)).
 
 `<name>` follows the Agent Skills name grammar, defined under
 [package format](../../operator/skills.md#package-format). `<path>` follows the
-same component and bounds rules as a [`kb://` path](kb.md#form). Every call
-re-reads the catalog, so a removed or newly invalid package fails immediately
-rather than serving stale bytes.
+component, bounds, and percent-encoding rules of a [`kb://` path](kb.md#form).
+Every call re-reads the catalog, so a removed or newly invalid package fails
+immediately rather than serving stale bytes.
 
 ## Accepted by
 
@@ -59,8 +58,13 @@ writing `$review`. Without that selection its body and resource reads return
 ## Listing
 
 `skill://<name>/` lists the package directory and `skill://` lists the catalog,
-paging through `nextOffset` like a directory listing. A manual-only package is
-omitted from the catalog until the user selects it.
+paging through `nextOffset` like a directory listing. A catalog request accepts
+one member — `:N`, `:N-M`, `:N+K`, `:N-`, or `:-K` — so `skill://:-10` is the last
+ten entries and `skill://:3-` every entry from the third on. A start past the
+last entry returns the empty page rather than a refusal, still carrying
+`skillCount`; comma lists, `:raw`, and `:outline` are refused as
+`invalid_selector`. A manual-only package is omitted from the catalog until the
+user selects it.
 
 The listing carries `locator`, `skillCount`, `skills`, and
 `skillPathInstruction`, with `nextOffset` only when the listing continues; it
@@ -70,12 +74,14 @@ single package was opened.
 ## Errors
 
 `unsupported_operation` for `edit` or `write`; `skill_requires_explicit_selection`
-for an unselected manual-only package; `invalid_path` for a malformed locator;
-`not_found` for a package that no installed source publishes or a supporting
-file that is absent; `skill_unavailable` for a package the catalog discovered
-whose files no longer validate; `skill_catalog_unavailable` for a catalog that
-cannot be read. The shared vocabulary is in
-[read](../tools/read.md#errors).
+for an unselected manual-only package; `invalid_path` for a malformed locator or
+resource path, which is judged before the suffix; `invalid_selector` for a
+suffix outside the selector grammar
+([selectors](../selectors.md#malformed-selectors)); `not_found` for a package
+that no installed source publishes or a supporting file that is absent;
+`skill_unavailable` for a package the catalog discovered whose files no longer
+validate; `skill_catalog_unavailable` for a catalog that cannot be read. The
+shared vocabulary is in [read](../tools/read.md#errors).
 
 ## Configured by
 

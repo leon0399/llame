@@ -20,14 +20,17 @@ file as it is. It is the tool for a partial change.
 
 | Argument  | Meaning                                         |
 | --------- | ----------------------------------------------- |
-| `path`    | a locator; a selector is not accepted           |
+| `path`    | a locator; the selector grammar does not apply  |
 | `oldText` | the exact current text to find                  |
 | `newText` | the replacement; empty string deletes the match |
 
 ## Locators
 
 An absolute host path, a `file://` alias, or a `kb://` locator; see
-[locators](../locators/index.md). A selector is rejected on `edit`.
+[locators](../locators/index.md). The selector grammar is not part of `edit`: a
+`kb://` locator that carries one is refused with `invalid_selector`, and on a
+host `path` or `file://` alias a trailing `:N-M` or `:raw` is part of the
+filename, so the edit targets a file whose name ends in that text.
 
 ## Result
 
