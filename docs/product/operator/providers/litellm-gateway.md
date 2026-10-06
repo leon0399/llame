@@ -44,12 +44,13 @@ gateway can accept different values. Declare them in the model entry's
 }
 ```
 
-LiteLLM forwards `reasoning_effort` only when the provider prefix in the
-model's `litellm_params.model` lists it among its supported parameters. The
-`hosted_vllm/` prefix does; a vLLM server routed through another prefix, such
-as the generic `openai/` one, may not. With the proxy's `drop_params` enabled,
-an unsupported field is discarded without an error, so every level behaves the
-same. The fix belongs in the proxy: route the model through `hosted_vllm/`.
+By default, LiteLLM forwards `reasoning_effort` only when the provider prefix
+in the model's `litellm_params.model` lists it among its supported parameters.
+The `hosted_vllm/` prefix does; a vLLM server routed through another prefix,
+such as the generic `openai/` one, may not. With the proxy's `drop_params`
+enabled, an unsupported field is discarded without an error, so every level
+behaves the same. The fix belongs in the proxy: route the model through
+`hosted_vllm/`.
 Where you cannot change the proxy, `allowed_openai_params` tells LiteLLM to
 forward the field for that request; the Chat Completions client copies an
 unrecognized `providerOptions` key into the request body as written.
