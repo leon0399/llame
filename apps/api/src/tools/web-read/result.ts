@@ -108,8 +108,12 @@ async function buildWebFileResult(
 ): Promise<WebReadSuccess | WebReadFailure> {
   // The render holds its own text in memory, so its line count is the count
   // an `N-` or a `-K` resolves against, exactly as a file's own lines are.
-  const lines = splitSourceLines(render.content);
-  const resolved = resolveEndRelativeSelector(target, lines.length);
+  const renderedLines =
+    target.pending === undefined ? undefined : splitSourceLines(render.content);
+  const resolved =
+    renderedLines === undefined
+      ? target
+      : resolveEndRelativeSelector(target, renderedLines.length);
   if (resolved.outline) {
     if (render.truncated === true) {
       return {
@@ -118,6 +122,7 @@ async function buildWebFileResult(
         message: ADAPTER_OUTLINE_TOO_LARGE_MESSAGE,
       };
     }
+    const lines = renderedLines ?? splitSourceLines(render.content);
     const read = await outlineReader(render.mediaType)(lines, resolved);
     return { ...read, ...envelope };
   }
@@ -126,8 +131,8 @@ async function buildWebFileResult(
   // real start, and the ordinary truncation note already covers the cut.
   if (
     render.truncated === true &&
-    (target.pending?.split(',').some((member) => member.startsWith('-')) ??
-      false)
+    target.pending !== undefined &&
+    /(?:^|,)-/u.test(target.pending)
   ) {
     return {
       status: 'error',

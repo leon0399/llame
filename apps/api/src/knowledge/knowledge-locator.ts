@@ -19,9 +19,11 @@ import {
   mapKnowledgeResolverFailure,
 } from './knowledge-results';
 import {
+  decodeRelativePath,
   encodeRelativePath,
   encodeSelectorSuffix,
   selectorRefusalMessage,
+  type LocatorParseFailure,
 } from '../tools/locator-spelling';
 import { type ToolContext } from '../tools/types';
 
@@ -40,16 +42,6 @@ export type ParsedKnowledgeLocator = {
 };
 
 /**
- * Why a locator did not parse. A suffix the grammar refuses on a locator that
- * does parse is `invalid_selector`, the answer every other source gives; a
- * part that is not a locator at all is `invalid_path`, as it has always been.
- */
-export type KnowledgeLocatorFailure = {
-  readonly type: 'invalid_path' | 'invalid_selector';
-  readonly message: string;
-};
-
-/**
  * Parse `<space-id>[/<path>][:selector]` and report why a locator that does
  * not parse failed. The path part is decoded and validated before the suffix
  * is judged, so a refusal for a suffix outside the grammar names a locator
@@ -57,7 +49,7 @@ export type KnowledgeLocatorFailure = {
  */
 export function parseKnowledgeLocator(
   rest: string,
-): ParsedKnowledgeLocator | KnowledgeLocatorFailure {
+): ParsedKnowledgeLocator | LocatorParseFailure {
   const separator = rest.indexOf('/');
   const knowledgeSpaceId = separator < 0 ? rest : rest.slice(0, separator);
   if (knowledgeSpaceId.length === 0) return invalidPathFailure();
@@ -68,27 +60,23 @@ export function parseKnowledgeLocator(
   const colon = remainder.indexOf(':');
   const selector = colon < 0 ? undefined : remainder.slice(colon + 1);
   const rawPath = colon < 0 ? remainder : remainder.slice(0, colon);
-  // A trailing separator addresses a directory; the native reader already
-  // fails a file target that carries one, and here it can only address the
-  // Space directory or a subdirectory.
+  // Preserve a trailing separator for directory semantics.
   const trailing = rawPath.endsWith('/');
-  const relativePath = decodeKnowledgePath(
-    trailing ? rawPath.slice(0, -1) : rawPath,
-  );
-  if (relativePath === undefined) return invalidPathFailure();
-  if (relativePath.length > 0 && !isSpaceRelativePath(relativePath)) {
+  if (rawPath === '/') return invalidPathFailure();
+  const relativePath = decodeRelativePath(trailing ? rawPath.slice(0, -1) : rawPath);
+  if (
+    relativePath === undefined ||
+    (relativePath.length > 0 && !isSpaceRelativePath(relativePath))
+  ) {
     return invalidPathFailure();
   }
   if (selector !== undefined && !isSelectorSuffix(selector)) {
-    // The Space directory has no resource path, so nothing is spelled for it.
-    const spelling =
-      relativePath.length === 0
-        ? undefined
-        : `${KNOWLEDGE_LOCATOR_SCHEME}://${knowledgeSpaceId}/${encodeRelativePath(relativePath)}%3A${encodeSelectorSuffix(selector)}`;
-    return {
-      type: 'invalid_selector',
-      message: selectorRefusalMessage(spelling),
-    };
+    return invalidKnowledgeSelector(
+      knowledgeSpaceId,
+      relativePath,
+      trailing,
+      selector,
+    );
   }
   if (relativePath.length === 0) {
     return selector === undefined
@@ -102,6 +90,38 @@ export function parseKnowledgeLocator(
   return trailing ? { ...base, trailingSeparator: true } : base;
 }
 
+function invalidKnowledgeSelector(
+  knowledgeSpaceId: string,
+  relativePath: string,
+  trailing: boolean,
+  selector: string,
+): LocatorParseFailure {
+  return {
+    type: 'invalid_selector',
+    message: selectorRefusalMessage(
+      knowledgeSelectorSpelling(
+        knowledgeSpaceId,
+        relativePath,
+        trailing,
+        selector,
+      ),
+    ),
+  };
+}
+
+function knowledgeSelectorSpelling(
+  knowledgeSpaceId: string,
+  relativePath: string,
+  trailing: boolean,
+  selector: string,
+): string | undefined {
+  if (relativePath.length === 0) return undefined;
+  return `${formatKnowledgeLocator({
+    knowledgeSpaceId,
+    relativePath,
+    ...(trailing && { trailingSeparator: true }),
+  })}%3A${encodeSelectorSuffix(selector)}`;
+}
 /**
  * The Knowledge path rules, applied where the locator is parsed rather than
  * where the adapter opens it: the same `validatePath` the adapter applies
@@ -117,22 +137,8 @@ function isSpaceRelativePath(relativePath: string): boolean {
   }
 }
 
-function invalidPathFailure(): KnowledgeLocatorFailure {
+function invalidPathFailure(): LocatorParseFailure {
   return { type: 'invalid_path', message: 'The Knowledge locator is invalid.' };
-}
-
-function decodeKnowledgePath(path: string): string | undefined {
-  try {
-    const segments = path
-      .split('/')
-      .map((segment) => decodeURIComponent(segment));
-    // Check before joining: validation cannot distinguish an introduced slash.
-    if (segments.some((segment) => segment.includes('/'))) return undefined;
-    return segments.join('/');
-  } catch (error) {
-    if (error instanceof URIError) return undefined;
-    throw error;
-  }
 }
 
 /**

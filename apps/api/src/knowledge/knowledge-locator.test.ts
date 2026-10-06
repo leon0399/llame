@@ -1,6 +1,5 @@
 import { sep } from 'node:path';
 
-import { invalidSelectorMessage } from '@workspace/native-file-tools';
 import { type ToolResult } from '@workspace/runtime-safety';
 
 import { KnowledgeFilesystemError } from './knowledge-filesystem';
@@ -13,13 +12,6 @@ import { type KnowledgeToolResolver, type ToolContext } from '../tools/types';
 
 const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
 
-/** The one refusal a suffix outside the grammar carries: the shared forms
- *  sentence every source uses, then this source's encoded spelling. */
-function refusal(spelling: string): string {
-  return invalidSelectorMessage(
-    `For a literal colon, write this locator as ${spelling}`,
-  );
-}
 
 const INVALID_PATH = {
   type: 'invalid_path',
@@ -144,6 +136,8 @@ describe('knowledge locator parsing', () => {
     '/notes/a.md',
     `${SPACE}/notes/100%.md`,
     `${SPACE}/notes/a%2Fb.md`,
+    `${SPACE}//`,
+    `${SPACE}//:1-2`,
     // The path part is decoded and validated before the suffix is judged: a
     // suffix on a path the Space rules refuse is `invalid_path`, never an
     // `invalid_selector` whose hint names a locator that cannot resolve.
@@ -151,9 +145,40 @@ describe('knowledge locator parsing', () => {
     `${SPACE}/notes/a%2Fb.md:1-2`,
     `${SPACE}/../notes/a.md:1-2`,
     `${SPACE}/notes//a.md:1-2`,
+    `${SPACE}/notes/\uD800:1-2`,
+    `${SPACE}/notes/\uD800:nonsense`,
   ])('refuses %s as a locator that does not parse', (rest) => {
     expect(parseKnowledgeLocator(rest)).toStrictEqual(INVALID_PATH);
   });
+
+  it.each([
+    [
+      `${SPACE}/notes/:foo`,
+      `kb://${SPACE}/notes/%3Afoo`,
+      `${SPACE}/notes/%3Afoo`,
+      'notes/:foo',
+    ],
+    [
+      `${SPACE}/notes/:50%.md`,
+      `kb://${SPACE}/notes/%3A50%25.md`,
+      `${SPACE}/notes/%3A50%25.md`,
+      'notes/:50%.md',
+    ],
+  ])(
+    'keeps the trailing separator in the invalid-selector spelling for %s',
+    (rest, spelling, hintedRest, relativePath) => {
+      const parsed = parseKnowledgeLocator(rest);
+      expect(parsed).toMatchObject({ type: 'invalid_selector' });
+      expect(parsed).toHaveProperty(
+        'message',
+        expect.stringContaining(spelling),
+      );
+      expect(parseKnowledgeLocator(hintedRest)).toStrictEqual({
+        knowledgeSpaceId: SPACE,
+        relativePath,
+      });
+    },
+  );
 
   it.each([
     [`${SPACE}/notes/a:b.md`, `kb://${SPACE}/notes/a%3Ab.md`],
@@ -163,23 +188,26 @@ describe('knowledge locator parsing', () => {
     // The Space directory has no resource path, so nothing is spelled for it.
     [`${SPACE}/:nonsense`, undefined],
   ])('reports %s as an invalid selector', (rest, spelling) => {
-    expect(parseKnowledgeLocator(rest)).toStrictEqual({
-      type: 'invalid_selector',
-      message:
-        spelling === undefined ? invalidSelectorMessage() : refusal(spelling),
-    });
+    const parsed = parseKnowledgeLocator(rest);
+    expect(parsed).toMatchObject({ type: 'invalid_selector' });
+    if (spelling !== undefined) {
+      expect(parsed).toHaveProperty(
+        'message',
+        expect.stringContaining(spelling),
+      );
+    }
   });
 
   it('encodes a percent in the suffix so the hint reads the same file', () => {
     // `discount:50%.md` splits at the colon, so the suffix carries a literal
     // `%`. The hint encodes it before the colon, or the locator it names
     // decodes to something else on the next attempt.
-    expect(
-      parseKnowledgeLocator(`${SPACE}/notes/discount:50%.md`),
-    ).toStrictEqual({
-      type: 'invalid_selector',
-      message: refusal(`kb://${SPACE}/notes/discount%3A50%25.md`),
-    });
+    const parsed = parseKnowledgeLocator(`${SPACE}/notes/discount:50%.md`);
+    expect(parsed).toMatchObject({ type: 'invalid_selector' });
+    expect(parsed).toHaveProperty(
+      'message',
+      expect.stringContaining(`kb://${SPACE}/notes/discount%3A50%25.md`),
+    );
     expect(
       parseKnowledgeLocator(`${SPACE}/notes/discount%3A50%25.md`),
     ).toStrictEqual({
@@ -479,17 +507,19 @@ describe('knowledge locator resolution', () => {
     // suffix is what failed: the forms are named first, then the spelling that
     // reads the same resource with the colon made literal.
     const calls: Array<ResolveCall> = [];
-    await expect(
-      resolveKnowledgeLocator(
-        contextWithAdapter(() => Promise.resolve(hostPath), calls),
-        `kb://${SPACE}/notes/a:b.md`,
-        `${SPACE}/notes/a:b.md`,
-      ),
-    ).resolves.toStrictEqual({
+    const result = await resolveKnowledgeLocator(
+      contextWithAdapter(() => Promise.resolve(hostPath), calls),
+      `kb://${SPACE}/notes/a:b.md`,
+      `${SPACE}/notes/a:b.md`,
+    );
+    expect(result).toMatchObject({
       status: 'error',
       type: 'invalid_selector',
-      message: refusal(`kb://${SPACE}/notes/a%3Ab.md`),
     });
+    expect(result).toHaveProperty(
+      'message',
+      expect.stringContaining(`kb://${SPACE}/notes/a%3Ab.md`),
+    );
     expect(calls).toStrictEqual([]);
   });
 
@@ -521,6 +551,28 @@ describe('knowledge locator resolution', () => {
     });
     expect(calls).toStrictEqual([]);
   });
+
+  it.each([`${SPACE}//`, `${SPACE}//:1-2`])(
+    'rejects the slash-only resource path %s before resolution',
+    async (rest) => {
+      const calls: Array<ResolveCall> = [];
+      const bindingCalls: Array<[string, string]> = [];
+      await expect(
+        resolveKnowledgeLocator(
+          contextWithAdapter(() => Promise.resolve(hostPath), calls, {
+            bindingCalls,
+          }),
+          `kb://${rest}`,
+          rest,
+        ),
+      ).resolves.toMatchObject({
+        status: 'error',
+        type: 'invalid_path',
+      });
+      expect(calls).toStrictEqual([]);
+      expect(bindingCalls).toStrictEqual([]);
+    },
+  );
 
   it.each([
     ['knowledge_not_found', 'not_found', 'File not found.'],

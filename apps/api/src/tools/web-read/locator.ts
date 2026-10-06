@@ -3,6 +3,7 @@ import { isSelectorSuffix } from '@workspace/native-file-tools';
 import {
   encodeSelectorSuffix,
   selectorRefusalMessage,
+  type LocatorParseFailure,
 } from '../locator-spelling';
 
 /**
@@ -11,11 +12,6 @@ import {
  * and exactly what policy matches.
  */
 export type WebLocator = { readonly url: string; readonly selector?: string };
-
-export type WebLocatorError = {
-  readonly type: 'invalid_path' | 'invalid_selector';
-  readonly message: string;
-};
 
 /**
  * The shipped trailing-selector grammar, reused unchanged: the `:raw` forms
@@ -101,7 +97,7 @@ function splitSelector(text: string): SplitLocator {
  */
 function parseWebUrl(
   text: string,
-): { readonly href: string } | WebLocatorError {
+): { readonly href: string } | LocatorParseFailure {
   let url: URL;
   try {
     url = new URL(text);
@@ -191,8 +187,8 @@ function literalColonSpelling(href: string, selector: string): string {
  * (`https://example.test:abc/`) is the only broken part of an otherwise
  * absolute URL.
  */
-function unparsableLocator(text: string): WebLocatorError {
-  const generic: WebLocatorError = {
+function unparsableLocator(text: string): LocatorParseFailure {
+  const generic: LocatorParseFailure = {
     type: 'invalid_path',
     message: INVALID_URL_MESSAGE,
   };
@@ -238,7 +234,7 @@ function unparsableLocator(text: string): WebLocatorError {
  */
 export function parseWebLocator(
   submitted: string,
-): WebLocator | WebLocatorError {
+): WebLocator | LocatorParseFailure {
   const text = stripFragment(submitted);
   // Admitted whole before the split: a userinfo the split would cut through
   // (`https://user:secret@host`) is refused here, so no later message can

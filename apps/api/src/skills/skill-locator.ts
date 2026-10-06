@@ -2,9 +2,11 @@ import { isSelectorSuffix } from '@workspace/native-file-tools';
 
 import { isValidSkillName } from './skill-name';
 import {
+  decodeRelativePath,
   encodeRelativePath,
   encodeSelectorSuffix,
   selectorRefusalMessage,
+  type LocatorParseFailure,
 } from '../tools/locator-spelling';
 
 /** The scheme this capability resolves; every other scheme fails closed. */
@@ -41,21 +43,11 @@ export type ParsedSkillLocator =
     };
 
 /**
- * Why a locator did not parse. A suffix the grammar refuses on a locator that
- * does parse is `invalid_selector`, the answer every other source gives; a
- * part that is not a locator at all is `invalid_path`, as it has always been.
- */
-export type SkillLocatorFailure = {
-  readonly type: 'invalid_path' | 'invalid_selector';
-  readonly message: string;
-};
-
-/**
  * The refusal for a suffix outside the grammar on a locator that names no
  * resource: the catalog and a package root have no encoded spelling to offer,
  * so only the shared sentence answers them.
  */
-const NO_RESOURCE_REFUSAL: SkillLocatorFailure = {
+const NO_RESOURCE_REFUSAL: LocatorParseFailure = {
   type: 'invalid_selector',
   message: selectorRefusalMessage(undefined),
 };
@@ -73,7 +65,7 @@ const NO_RESOURCE_REFUSAL: SkillLocatorFailure = {
  */
 export function parseSkillLocator(
   rest: string,
-): ParsedSkillLocator | SkillLocatorFailure {
+): ParsedSkillLocator | LocatorParseFailure {
   // `skill://` and `skill://:raw` address the catalog itself.
   if (rest.length === 0) return { catalog: true };
   if (rest.startsWith(':')) {
@@ -87,7 +79,7 @@ export function parseSkillLocator(
 
 function parsePackageLocator(
   rest: string,
-): ParsedSkillLocator | SkillLocatorFailure {
+): ParsedSkillLocator | LocatorParseFailure {
   const separator = rest.indexOf('/');
   const nameField = separator < 0 ? rest : rest.slice(0, separator);
   // Split before decoding so an encoded colon remains part of a filename.
@@ -120,12 +112,13 @@ function parsePackageLocator(
 function resourceLocator(
   name: string,
   remainder: string,
-): ParsedSkillLocator | SkillLocatorFailure {
+): ParsedSkillLocator | LocatorParseFailure {
   const colon = remainder.indexOf(':');
   const selector = colon < 0 ? undefined : remainder.slice(colon + 1);
   const rawPath = colon < 0 ? remainder : remainder.slice(0, colon);
   const trailing = rawPath.endsWith('/');
-  const relativePath = decodeSkillPath(
+  if (rawPath === '/') return invalidPathFailure();
+  const relativePath = decodeRelativePath(
     trailing ? rawPath.slice(0, -1) : rawPath,
   );
   if (relativePath === undefined) return invalidPathFailure();
@@ -139,9 +132,7 @@ function resourceLocator(
     return {
       type: 'invalid_selector',
       message: selectorRefusalMessage(
-        relativePath.length === 0
-          ? undefined
-          : `${SKILL_LOCATOR_SCHEME}://${name}/${encodeRelativePath(relativePath)}%3A${encodeSelectorSuffix(selector)}`,
+        skillSelectorSpelling(name, relativePath, trailing, selector),
       ),
     };
   }
@@ -157,22 +148,22 @@ function resourceLocator(
   return trailing ? { ...base, trailingSeparator: true } : base;
 }
 
-function invalidPathFailure(): SkillLocatorFailure {
+function invalidPathFailure(): LocatorParseFailure {
   return { type: 'invalid_path', message: 'The skill locator is invalid.' };
 }
 
-function decodeSkillPath(path: string): string | undefined {
-  try {
-    const segments = path
-      .split('/')
-      .map((segment) => decodeURIComponent(segment));
-    // Check before joining: validation cannot distinguish an introduced slash.
-    if (segments.some((segment) => segment.includes('/'))) return undefined;
-    return segments.join('/');
-  } catch (error) {
-    if (error instanceof URIError) return undefined;
-    throw error;
-  }
+function skillSelectorSpelling(
+  name: string,
+  relativePath: string,
+  trailing: boolean,
+  selector: string,
+): string | undefined {
+  if (relativePath.length === 0) return undefined;
+  return `${formatSkillLocator({
+    name,
+    relativePath,
+    ...(trailing && { trailingSeparator: true }),
+  })}%3A${encodeSelectorSuffix(selector)}`;
 }
 
 /**

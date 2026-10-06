@@ -1,5 +1,10 @@
 import { invalidSelectorMessage } from '@workspace/native-file-tools';
 
+export type LocatorParseFailure = {
+  readonly type: 'invalid_path' | 'invalid_selector';
+  readonly message: string;
+};
+
 /**
  * The one canonical encoding of a decoded relative path: each segment encoded,
  * the separators left as separators. A canonical resource identity and the
@@ -10,6 +15,40 @@ export function encodeRelativePath(relativePath: string): string {
     .split('/')
     .map((segment) => encodeURIComponent(segment))
     .join('/');
+}
+
+/**
+ * Decode each path segment exactly once, rejecting encoded separators and
+ * strings that cannot be passed through URI encoding safely.
+ */
+export function decodeRelativePath(path: string): string | undefined {
+  try {
+    const segments = path
+      .split('/')
+      .map((segment) => decodeURIComponent(segment));
+    // Check before joining: validation cannot distinguish an introduced slash
+    // or an unpaired surrogate after the segments have been combined.
+    if (
+      segments.some(
+        (segment) =>
+          segment.includes('/') || hasUnpairedSurrogate(segment),
+      )
+    ) {
+      return undefined;
+    }
+    return segments.join('/');
+  } catch (error) {
+    if (error instanceof URIError) return undefined;
+    throw error;
+  }
+}
+
+function hasUnpairedSurrogate(value: string): boolean {
+  const withoutPairs = value.replaceAll(
+    /[\uD800-\uDBFF][\uDC00-\uDFFF]/gu,
+    '',
+  );
+  return /[\uD800-\uDFFF]/u.test(withoutPairs);
 }
 
 /**

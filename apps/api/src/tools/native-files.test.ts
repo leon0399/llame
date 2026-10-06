@@ -1821,6 +1821,30 @@ describe('skill locator resolution', () => {
     ).toMatchObject({ status: 'success', kind: 'directory' });
   });
 
+  it.each(['skill://pdf//', 'skill://pdf//:1-2'])(
+    'rejects the slash-only skill resource path %s before catalog discovery',
+    async (path) => {
+      let catalogCalls = 0;
+      const catalog: SkillCatalogPort = {
+        getSnapshot: () => {
+          catalogCalls += 1;
+          throw new Error('catalog discovery should not run');
+        },
+      };
+      const result = await runTool(
+        nativeReadTool,
+        { path },
+        skillContext({ catalog }),
+        5,
+      );
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'invalid_path',
+      });
+      expect(catalogCalls).toBe(0);
+    },
+  );
+
   it('refuses edit and write on a skill locator without effect', async () => {
     const edit = await runTool(
       nativeEditTool,

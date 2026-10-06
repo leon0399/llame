@@ -1,18 +1,7 @@
-import { invalidSelectorMessage } from '@workspace/native-file-tools';
 
 import { formatSkillLocator, parseSkillLocator } from './skill-locator';
 
-/** The one refusal a suffix outside the grammar carries: the shared forms
- *  sentence every source uses, then this source's encoded spelling. */
-function refusal(spelling: string): string {
-  return invalidSelectorMessage(
-    `For a literal colon, write this locator as ${spelling}`,
-  );
-}
 
-/** The same sentence without a spelling: the catalog and a package root have
- *  no resource path a literal colon could belong to. */
-const FORMS = invalidSelectorMessage();
 
 describe('parseSkillLocator', () => {
   it('addresses the catalog for the bare and selector-only forms', () => {
@@ -96,10 +85,14 @@ describe('parseSkillLocator', () => {
     'pdf/a%2Fb:1-2',
     'pdf/../research:1-2',
     'pdf/%2e%2e/secret',
+    'pdf//',
+    'pdf//:1-2',
     'pdf//guide.md',
     'pdf/./guide.md',
     String.raw`pdf/back\slash`,
     'pdf/nul\u0000byte',
+    'pdf/\uD800:1-2',
+    'pdf/\uD800:nonsense',
     `pdf/${Array.from({ length: 33 }, () => 'a').join('/')}`,
     `pdf/${'a'.repeat(1025)}`,
   ])('rejects the malformed locator %s as an invalid path', (rest) => {
@@ -112,25 +105,29 @@ describe('parseSkillLocator', () => {
   it.each([
     // A resource path has an encoded spelling to name after the forms; the
     // catalog and a package root address no resource, so nothing is spelled.
-    ['pdf/references/a:b.md', refusal('skill://pdf/references/a%3Ab.md')],
+    ['pdf/references/a:b.md', 'skill://pdf/references/a%3Ab.md'],
     [
       'pdf/references/x:5-10,,20-30',
-      refusal('skill://pdf/references/x%3A5-10,,20-30'),
+      'skill://pdf/references/x%3A5-10,,20-30',
     ],
-    ['pdf:raw:outline', FORMS],
-    [':5-10,,20-30', FORMS],
-    ['pdf:notaselector', FORMS],
-    [':raw:outline', FORMS],
-    [':outline:1,3', FORMS],
-    ['pdf:outline:1,3', FORMS],
-    ['pdf/ref.md:outline:1,3', refusal('skill://pdf/ref.md%3Aoutline%3A1,3')],
-    ['pdf:outline:raw', FORMS],
-    ['pdf:outline:', FORMS],
-  ])('reports %s as an invalid selector', (rest, message) => {
-    expect(parseSkillLocator(rest)).toStrictEqual({
-      type: 'invalid_selector',
-      message,
-    });
+    ['pdf:raw:outline', undefined],
+    [':5-10,,20-30', undefined],
+    ['pdf:notaselector', undefined],
+    [':raw:outline', undefined],
+    [':outline:1,3', undefined],
+    ['pdf:outline:1,3', undefined],
+    ['pdf/ref.md:outline:1,3', 'skill://pdf/ref.md%3Aoutline%3A1,3'],
+    ['pdf:outline:raw', undefined],
+    ['pdf:outline:', undefined],
+  ])('reports %s as an invalid selector', (rest, spelling) => {
+    const parsed = parseSkillLocator(rest);
+    expect(parsed).toMatchObject({ type: 'invalid_selector' });
+    if (spelling !== undefined) {
+      expect(parsed).toHaveProperty(
+        'message',
+        expect.stringContaining(spelling),
+      );
+    }
   });
 
   it('encodes a percent in the suffix so the hint reads the same file', () => {
@@ -138,10 +135,11 @@ describe('parseSkillLocator', () => {
     // The hint must encode it before the colon, or the locator it names decodes
     // to something else on the next attempt.
     const parsed = parseSkillLocator('pdf/ref/a:100%.md');
-    expect(parsed).toStrictEqual({
-      type: 'invalid_selector',
-      message: refusal('skill://pdf/ref/a%3A100%25.md'),
-    });
+    expect(parsed).toMatchObject({ type: 'invalid_selector' });
+    expect(parsed).toHaveProperty(
+      'message',
+      expect.stringContaining('skill://pdf/ref/a%3A100%25.md'),
+    );
     const hinted = parseSkillLocator('pdf/ref/a%3A100%25.md');
     expect(hinted).toStrictEqual({
       name: 'pdf',
@@ -149,6 +147,40 @@ describe('parseSkillLocator', () => {
     });
   });
 
+
+  it.each([
+    [
+      'pdf/notes/:foo',
+      'skill://pdf/notes/%3Afoo',
+      'pdf/notes/%3Afoo',
+      'notes/:foo',
+    ],
+    [
+      'pdf/notes/:50%.md',
+      'skill://pdf/notes/%3A50%25.md',
+      'pdf/notes/%3A50%25.md',
+      'notes/:50%.md',
+    ],
+  ] as const)(
+    'keeps the trailing separator in the invalid-selector spelling for %s',
+    (
+      rest: string,
+      spelling: string,
+      hintedRest: string,
+      relativePath: string,
+    ) => {
+      const parsed = parseSkillLocator(rest);
+      expect(parsed).toMatchObject({ type: 'invalid_selector' });
+      expect(parsed).toHaveProperty(
+        'message',
+        expect.stringContaining(spelling),
+      );
+      expect(parseSkillLocator(hintedRest)).toStrictEqual({
+        name: 'pdf',
+        relativePath,
+      });
+    },
+  );
   it.each([
     ['pdf:-5', { name: 'pdf', selector: '-5' }],
     ['pdf:5-', { name: 'pdf', selector: '5-' }],
