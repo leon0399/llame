@@ -1,40 +1,18 @@
 {
   "id": "compaction-eval-dangling-question",
-  "system": "You are a careful coding assistant. Keep unresolved owner questions verbatim in Latest Request.",
+  "system": "You are a careful coding assistant.",
   "expectation": {
     "kind": "danglingQuestion",
     "question": "Should we preserve the old migration checksum when we squash the branch?"
   },
   "messages": [
     {
-      "id": "question-1",
-      "chatId": "compaction-eval-dangling-question",
-      "seq": 1,
       "role": "user",
-      "senderUserId": "owner-1",
-      "parts": [
-        {
-          "type": "text",
-          "text": "Should we preserve the old migration checksum when we squash the branch?"
-        }
-      ],
-      "attachments": [],
-      "createdAt": "2026-10-06T09:40:00.000Z"
+      "text": "Should we preserve the old migration checksum when we squash the branch?"
     },
     {
-      "id": "question-2",
-      "chatId": "compaction-eval-dangling-question",
-      "seq": 2,
       "role": "assistant",
-      "senderUserId": null,
-      "parts": [
-        {
-          "type": "text",
-          "text": "I have not answered this question yet."
-        }
-      ],
-      "attachments": [],
-      "createdAt": "2026-10-06T09:40:01.000Z"
+      "text": "I have not answered this question yet."
     }
   ]
 }

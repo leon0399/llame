@@ -1,70 +1,26 @@
 {
   "id": "compaction-eval-user-correction",
-  "system": "You are a careful coding assistant. Preserve exact user wording when the summarization instruction asks for it.",
+  "system": "You are a careful coding assistant.",
   "expectation": {
     "kind": "correction",
     "text": "15432"
   },
   "messages": [
     {
-      "id": "correction-1",
-      "chatId": "compaction-eval-user-correction",
-      "seq": 1,
       "role": "user",
-      "senderUserId": "owner-1",
-      "parts": [
-        {
-          "type": "text",
-          "text": "Set the staging worker port to 5432."
-        }
-      ],
-      "attachments": [],
-      "createdAt": "2026-10-06T09:00:00.000Z"
+      "text": "Set the staging worker port to 5432."
     },
     {
-      "id": "correction-2",
-      "chatId": "compaction-eval-user-correction",
-      "seq": 2,
       "role": "assistant",
-      "senderUserId": null,
-      "parts": [
-        {
-          "type": "text",
-          "text": "I changed the staging worker to port 5432."
-        }
-      ],
-      "attachments": [],
-      "createdAt": "2026-10-06T09:00:01.000Z"
+      "text": "I changed the staging worker to port 5432."
     },
     {
-      "id": "correction-3",
-      "chatId": "compaction-eval-user-correction",
-      "seq": 3,
       "role": "user",
-      "senderUserId": "owner-1",
-      "parts": [
-        {
-          "type": "text",
-          "text": "Correction: the staging worker listens on port 15432, not 5432."
-        }
-      ],
-      "attachments": [],
-      "createdAt": "2026-10-06T09:00:02.000Z"
+      "text": "Correction: the staging worker listens on port 15432, not 5432."
     },
     {
-      "id": "correction-4",
-      "chatId": "compaction-eval-user-correction",
-      "seq": 4,
       "role": "assistant",
-      "senderUserId": null,
-      "parts": [
-        {
-          "type": "text",
-          "text": "Understood; I will use 15432 from now on."
-        }
-      ],
-      "attachments": [],
-      "createdAt": "2026-10-06T09:00:03.000Z"
+      "text": "Understood; I will use 15432 from now on."
     }
   ]
 }

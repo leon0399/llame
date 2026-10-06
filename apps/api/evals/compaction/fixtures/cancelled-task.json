@@ -1,70 +1,26 @@
 {
   "id": "compaction-eval-cancelled-task",
-  "system": "You are a careful coding assistant. Preserve the conversation's latest state and do not revive cancelled work.",
+  "system": "You are a careful coding assistant.",
   "expectation": {
     "kind": "cancelled",
     "task": "drop-old-invoices"
   },
   "messages": [
     {
-      "id": "cancelled-1",
-      "chatId": "compaction-eval-cancelled-task",
-      "seq": 1,
       "role": "user",
-      "senderUserId": "owner-1",
-      "parts": [
-        {
-          "type": "text",
-          "text": "Please add the legacy billing migration named drop-old-invoices."
-        }
-      ],
-      "attachments": [],
-      "createdAt": "2026-10-06T09:10:00.000Z"
+      "text": "Please add the legacy billing migration named drop-old-invoices."
     },
     {
-      "id": "cancelled-2",
-      "chatId": "compaction-eval-cancelled-task",
-      "seq": 2,
       "role": "assistant",
-      "senderUserId": null,
-      "parts": [
-        {
-          "type": "text",
-          "text": "I have not made that change yet."
-        }
-      ],
-      "attachments": [],
-      "createdAt": "2026-10-06T09:10:01.000Z"
+      "text": "I have not made that change yet."
     },
     {
-      "id": "cancelled-3",
-      "chatId": "compaction-eval-cancelled-task",
-      "seq": 3,
       "role": "user",
-      "senderUserId": "owner-1",
-      "parts": [
-        {
-          "type": "text",
-          "text": "Cancel that task: do not add the legacy billing migration named drop-old-invoices."
-        }
-      ],
-      "attachments": [],
-      "createdAt": "2026-10-06T09:10:02.000Z"
+      "text": "Cancel that task: do not add the legacy billing migration named drop-old-invoices."
     },
     {
-      "id": "cancelled-4",
-      "chatId": "compaction-eval-cancelled-task",
-      "seq": 4,
       "role": "assistant",
-      "senderUserId": null,
-      "parts": [
-        {
-          "type": "text",
-          "text": "Cancelled; I will not add it."
-        }
-      ],
-      "attachments": [],
-      "createdAt": "2026-10-06T09:10:03.000Z"
+      "text": "Cancelled; I will not add it."
     }
   ]
 }

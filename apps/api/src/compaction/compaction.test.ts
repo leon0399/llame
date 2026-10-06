@@ -640,6 +640,15 @@ describe('buildCompactionRequest', () => {
       'Redaction takes precedence over verbatim quoting',
     );
     expect(COMPACTION_INSTRUCTION).toContain(
+      'do not quote it in "Latest Request"',
+    );
+    expect(COMPACTION_INSTRUCTION).toContain(
+      'moving "Active" items to "Completed" and replacing an answered question rather than repeating it',
+    );
+    expect(COMPACTION_INSTRUCTION).toContain(
+      '`[REDACTED]`; note that they were present',
+    );
+    expect(COMPACTION_INSTRUCTION).toContain(
       "Write in the conversation's language; never translate code, paths, identifiers, or errors.",
     );
     expect(COMPACTION_INSTRUCTION).toContain(

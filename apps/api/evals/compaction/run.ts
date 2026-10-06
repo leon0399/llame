@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
-import type { UnknownRecord } from '@workspace/runtime-safety';
+import { z } from 'zod';
 
 import {
   buildCompactionRequest,
@@ -13,7 +12,7 @@ import type { LlameConfig } from '../../src/instance-config/llame-config';
 import { loadProductUserAgent } from '../../src/instance-config/product-identity';
 import { ModelsService } from '../../src/models/models.service';
 import type { ModelClient } from '../../src/models/model-client';
-import type { StoredMessage, TextPart } from '../../src/chats/context-builder';
+import type { StoredMessage } from '../../src/chats/context-builder';
 
 const FIXTURE_FILES = [
   'user-correction.json',
@@ -36,19 +35,51 @@ const ENGLISH_LANGUAGE_MARKERS = [
   'not',
 ] as const;
 
-type FixtureExpectation =
-  | { kind: 'correction'; text: string }
-  | { kind: 'cancelled'; task: string }
-  | { kind: 'secret'; secret: string }
-  | { kind: 'nonEnglish' }
-  | { kind: 'danglingQuestion'; question: string };
+const fixtureMessageSchema = z
+  .object({
+    role: z.enum(['user', 'assistant']),
+    text: z.string(),
+  })
+  .strict();
 
-type Fixture = {
-  id: string;
-  system: string;
-  messages: Array<StoredMessage>;
-  expectation: FixtureExpectation;
-};
+const fixtureExpectationSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('correction'),
+      text: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('cancelled'),
+      task: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('secret'),
+      secret: z.string().min(1),
+    })
+    .strict(),
+  z.object({ kind: z.literal('nonEnglish') }).strict(),
+  z
+    .object({
+      kind: z.literal('danglingQuestion'),
+      question: z.string().min(1),
+    })
+    .strict(),
+]);
+
+const fixtureSchema = z
+  .object({
+    id: z.string().min(1),
+    system: z.string().min(1),
+    messages: z.array(fixtureMessageSchema),
+    expectation: fixtureExpectationSchema,
+  })
+  .strict();
+
+type Fixture = z.infer<typeof fixtureSchema>;
 
 type Outcome = {
   fixture: string;
@@ -72,160 +103,26 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function requiredStringField(
-  record: UnknownRecord,
-  key: string,
-  label: string,
-): string {
-  const value = record[key];
-  if (!isString(value) || value.trim().length === 0) {
-    throw new Error(`${label} must be a non-empty string`);
-  }
-  return value;
-}
+const FIXTURE_START_TIME = Date.parse('2026-10-06T00:00:00.000Z');
 
-function parseRole(
-  record: UnknownRecord,
-  label: string,
-): StoredMessage['role'] {
-  switch (record.role) {
-    case 'user':
-    case 'assistant':
-    case 'system':
-    case 'tool':
-    case 'checkpoint':
-      return record.role;
-    default:
-      throw new Error(`${label} must be a stored message role`);
-  }
-}
-
-function parseTextParts(record: UnknownRecord, label: string): Array<TextPart> {
-  const value = record.parts;
-  if (!Array.isArray(value)) {
-    throw new Error(`${label} must be an array`);
-  }
-
-  const parts: Array<TextPart> = [];
-  for (const [index, rawPart] of value.entries()) {
-    if (
-      !isRecord(rawPart) ||
-      rawPart.type !== 'text' ||
-      !isString(rawPart.text)
-    ) {
-      throw new Error(`${label}[${index}] must be a text part`);
-    }
-    parts.push({ type: 'text', text: rawPart.text });
-  }
-  return parts;
-}
-
-function parseStoredMessage(value: unknown, label: string): StoredMessage {
-  if (!isRecord(value)) {
-    throw new Error(`${label} must be an object`);
-  }
-
-  const createdAtText = requiredStringField(
-    value,
-    'createdAt',
-    `${label}.createdAt`,
-  );
-  const createdAt = new Date(createdAtText);
-  if (Number.isNaN(createdAt.valueOf())) {
-    throw new Error(`${label}.createdAt must be an ISO date`);
-  }
-
-  const seq = value.seq;
-  if (!isNumber(seq) || !Number.isInteger(seq)) {
-    throw new Error(`${label}.seq must be an integer`);
-  }
-
-  const senderUserIdValue = value.senderUserId;
-  if (senderUserIdValue !== null && !isString(senderUserIdValue)) {
-    throw new Error(`${label}.senderUserId must be a string or null`);
-  }
-  if (!Array.isArray(value.attachments)) {
-    throw new Error(`${label}.attachments must be an array`);
-  }
-
-  const message: StoredMessage = {
-    id: requiredStringField(value, 'id', `${label}.id`),
-    chatId: requiredStringField(value, 'chatId', `${label}.chatId`),
-    seq,
-    role: parseRole(value, `${label}.role`),
-    senderUserId: senderUserIdValue,
-    parts: parseTextParts(value, `${label}.parts`),
-    attachments: value.attachments,
-    createdAt,
-  };
-  if (value.usage !== undefined) {
-    message.usage = value.usage;
-  }
-  return message;
-}
-
-function parseExpectation(value: unknown, label: string): FixtureExpectation {
-  if (!isRecord(value)) {
-    throw new Error(`${label} must be an object`);
-  }
-
-  const kind = requiredStringField(value, 'kind', `${label}.kind`);
-  switch (kind) {
-    case 'correction':
-      return {
-        kind,
-        text: requiredStringField(value, 'text', `${label}.text`),
-      };
-    case 'cancelled':
-      return {
-        kind,
-        task: requiredStringField(value, 'task', `${label}.task`),
-      };
-    case 'secret':
-      return {
-        kind,
-        secret: requiredStringField(value, 'secret', `${label}.secret`),
-      };
-    case 'nonEnglish':
-      return { kind };
-    case 'danglingQuestion':
-      return {
-        kind,
-        question: requiredStringField(value, 'question', `${label}.question`),
-      };
-    default:
-      throw new Error(`${label}.kind is not a supported fixture check`);
-  }
-}
-
-function parseFixture(value: unknown, label: string): Fixture {
-  if (!isRecord(value)) {
-    throw new Error(`${label} must be an object`);
-  }
-  if (!Array.isArray(value.messages)) {
-    throw new Error(`${label}.messages must be an array`);
-  }
-
-  const messages: Array<StoredMessage> = [];
-  for (const [index, rawMessage] of value.messages.entries()) {
-    messages.push(
-      parseStoredMessage(rawMessage, `${label}.messages[${index}]`),
-    );
-  }
-
-  return {
-    id: requiredStringField(value, 'id', `${label}.id`),
-    system: requiredStringField(value, 'system', `${label}.system`),
-    messages,
-    expectation: parseExpectation(value.expectation, `${label}.expectation`),
-  };
+function synthesizeMessages(fixture: Fixture): Array<StoredMessage> {
+  return fixture.messages.map((message, index) => ({
+    id: `${fixture.id}-${index + 1}`,
+    chatId: fixture.id,
+    seq: index + 1,
+    role: message.role,
+    senderUserId: message.role === 'user' ? 'owner-1' : null,
+    parts: [{ type: 'text', text: message.text }],
+    attachments: [],
+    createdAt: new Date(FIXTURE_START_TIME + index * 1000),
+  }));
 }
 
 function loadFixture(fileName: string): Fixture {
   const filePath = path.resolve(__dirname, 'fixtures', fileName);
   try {
     const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
-    return parseFixture(parsed, fileName);
+    return fixtureSchema.parse(parsed);
   } catch (error: unknown) {
     throw new CompactionEvalSetupError(
       'fixture',
@@ -400,7 +297,7 @@ async function runFixture(
     const request = buildCompactionRequest({
       system: fixture.system,
       previous: undefined,
-      absorb: fixture.messages,
+      absorb: synthesizeMessages(fixture),
     });
     const result = client.streamText({
       system: request.system,
