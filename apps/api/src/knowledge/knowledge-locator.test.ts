@@ -227,6 +227,20 @@ describe('knowledge locator parsing', () => {
     });
   });
 
+  it('encodes an escaped separator in the suffix so the hint still parses', () => {
+    const parsed = parseKnowledgeLocator(`${SPACE}/notes/a:b%2Fc.md`);
+    expect(parsed).toHaveProperty(
+      'message',
+      expect.stringContaining(`kb://${SPACE}/notes/a%3Ab%252Fc.md`),
+    );
+    expect(
+      parseKnowledgeLocator(`${SPACE}/notes/a%3Ab%252Fc.md`),
+    ).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'notes/a:b%2Fc.md',
+    });
+  });
+
   it.each([
     [`${SPACE}/notes.md:5-`, '5-'],
     [`${SPACE}/notes.md:1-5:raw`, '1-5:raw'],
