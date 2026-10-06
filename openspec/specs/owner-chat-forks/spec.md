@@ -8,7 +8,7 @@ Allow an owner to create an independent conversation from a prefix of their own 
 
 ### Requirement: The owner selects a durable prefix
 
-The owner SHALL be able to fork their own Chat as a whole or through an inclusive user or assistant message. A whole-chat fork SHALL copy every durable message; an explicit anchor SHALL copy through the requested message. Run status SHALL NOT gate a fork, so a fork taken while a source Run is executing succeeds and copies the accepted user message. The source, its messages, and its compactions SHALL be read from one datastore snapshot and committed as one destination without a message-count cap. Forking SHALL NOT mutate the source. An absent source, foreign-owner source, or anchor outside the owned source Chat SHALL retain not-found behavior.
+The owner SHALL be able to fork their own Chat as a whole or through an inclusive user or assistant message. A whole-chat fork SHALL copy every durable message; an explicit anchor SHALL copy every user and assistant row at or below that anchor together with every `checkpoint` row whose absorbed-through sequence is at or below it. Run status SHALL NOT gate a fork, so a fork taken while a source Run is executing succeeds and copies the accepted user message. The source and its messages, `checkpoint` rows included, SHALL be read from one datastore snapshot and committed as one destination without a message-count cap. Forking SHALL NOT mutate the source. An absent source, foreign-owner source, or anchor outside the owned source Chat SHALL retain not-found behavior.
 
 #### Scenario: Whole-chat fork during an in-flight Run
 
@@ -34,25 +34,9 @@ Copied usage is the price of the copied message and SHALL be retained. Fork crea
 - **THEN** it shows the original usage and the original time
 - **AND** its context receipt resolves through the original Run while that Run exists
 
-### Requirement: Compactions within the prefix are copied with their lineage
-
-The fork SHALL copy every compaction whose coverage lies within the copied prefix, keeping `uptoSeq`, `summary`, `replacementHistory`, `usage`, and `createdAt` verbatim, allocating new identities, and remapping `parentId` to the copied parent. The fork's replay SHALL use the copied replacement history followed by the retained messages after its coverage boundary. The copy SHALL NOT rebuild a checkpoint from raw summary or compact during copying; a compaction that fails the existing write validation SHALL fail the whole fork.
-
-#### Scenario: The source has multiple compaction generations
-
-- **WHEN** the copied prefix covers a checkpoint with two ancestors
-- **THEN** the fork holds all three with internal lineage
-- **AND** its active replacement history, retained tail, and absorbed-message count equal the source's
-
-#### Scenario: A checkpoint covers messages beyond the anchor
-
-- **WHEN** the owner selects message 15 and the latest checkpoint covers through 20
-- **THEN** that checkpoint is not copied
-- **AND** an earlier checkpoint covering through 10 is copied and is the fork's active checkpoint
-
 ### Requirement: The fork's Chat row carries the source's frozen context
 
-The fork SHALL copy the source Chat's `createdAt` and every frozen prompt baseline stored on the Chat row: the recency-digest baseline, told-set, and re-bake marker, and the skill-catalog baseline, told names, and re-bake marker. Each marker SHALL be remapped to the copied compaction it names; when that compaction was not copied, the marker SHALL name the copied active compaction, or be null when none was copied, so a copied baseline stays bound to the copied checkpoint. At an anchor before the source's latest turn, the copied told-sets are the source's current ones; entries disclosed after the anchor are not announced again in the fork. The fork SHALL copy the source's current Workspace binding, including its canonical root, bound executor identity, and generation, even when the copied prefix ends before the source's latest turn; it SHALL NOT infer or roll back the binding from copied messages. The fork SHALL NOT copy `workspace_told`, `workspace_told_from`, or the Workspace persisted detach reason: because the copied prefix may not contain the narration the source received, the fork's first accepted turn SHALL narrate its current Workspace. The fork SHALL NOT resolve a new baseline, refresh the anchor, or emit a fork notice; under identical continuation inputs and runtime versions, its inherited model-facing prefix SHALL equal the source at the copied boundary. The fork's first Run SHALL re-check any copied Workspace binding before using it. Workspace MCP clients SHALL NOT be copied from the source Chat; when a copied binding remains valid, the fork's first Run SHALL start its own Workspace MCP clients. The fork's first turn SHALL begin an ordinary disclosure epoch for tool availability and model selection, as a new Chat does.
+The fork SHALL copy the source Chat's `createdAt` and every frozen prompt baseline stored on the Chat row: the recency-digest baseline, told-set, and re-bake marker, and the skill-catalog baseline, told names, and re-bake marker. Each marker SHALL be remapped to the copied checkpoint message it names; when that checkpoint row was not copied, the marker SHALL name the copied active checkpoint message, or be null when none was copied, so a copied baseline stays bound to the copied checkpoint. At an anchor before the source's latest turn, the copied told-sets are the source's current ones; entries disclosed after the anchor are not announced again in the fork. The fork SHALL copy the source's current Workspace binding, including its canonical root, bound executor identity, and generation, even when the copied prefix ends before the source's latest turn; it SHALL NOT infer or roll back the binding from copied messages. The fork SHALL NOT copy `workspace_told`, `workspace_told_from`, or the Workspace persisted detach reason: because the copied prefix may not contain the narration the source received, the fork's first accepted turn SHALL narrate its current Workspace. The fork SHALL NOT resolve a new baseline, refresh the anchor, or emit a fork notice; under identical continuation inputs and runtime versions, its inherited model-facing prefix SHALL equal the source at the copied boundary. The fork's first Run SHALL re-check any copied Workspace binding before using it. Workspace MCP clients SHALL NOT be copied from the source Chat; when a copied binding remains valid, the fork's first Run SHALL start its own Workspace MCP clients. The fork's first turn SHALL begin an ordinary disclosure epoch for tool availability and model selection, as a new Chat does.
 
 #### Scenario: The first local turn renders the source's prefix
 
@@ -62,8 +46,8 @@ The fork SHALL copy the source Chat's `createdAt` and every frozen prompt baseli
 
 #### Scenario: The anchor precedes the checkpoint that re-baked a baseline
 
-- **WHEN** the source's skill baseline was re-resolved at checkpoint `C2` and the owner selects an anchor that copies only `C1`
-- **THEN** the fork's skill marker names the copied `C1`
+- **WHEN** the source's skill baseline was re-resolved at checkpoint row `C2` and the owner selects an anchor that copies only `C1`
+- **THEN** the fork's skill marker names the copied `C1` message
 - **AND** the fork's first turn reuses the copied baseline instead of resolving the live catalog
 
 #### Scenario: Source has no baseline
@@ -91,13 +75,13 @@ The destination SHALL be a new private, unarchived Chat with the existing title-
 
 A fork SHALL confer no tool authority. Tool calls in a fork SHALL be evaluated exactly as in any Chat: by the executing process's permission policy and the caller's identity at call time. Copied history, receipts, and tool results SHALL NOT be read as approvals, and no approval or permission state SHALL be copied, because none is stored per Chat or per Run.
 
-The shared/public fork path SHALL remain the public transcript projection and SHALL receive no compaction, digest or skill baseline, usage, timestamp, creation time, or Workspace binding.
+The shared/public fork path SHALL remain the public transcript projection and SHALL receive no `checkpoint` row, digest or skill baseline, usage, timestamp, creation time, or Workspace binding.
 
 #### Scenario: A visitor forks a public compacted Chat
 
 - **WHEN** another user forks the source through the shared/public route
 - **THEN** the copy contains only the public transcript projection
-- **AND** it has no compactions, baselines, usage, or copied creation time
+- **AND** it has no checkpoint row, baselines, usage, or copied creation time
 
 #### Scenario: A fork calls a tool its source once used
 
@@ -110,3 +94,35 @@ The shared/public fork path SHALL remain the public transcript projection and SH
 - **WHEN** another user forks a public Chat whose source has an active Workspace binding
 - **THEN** the shared/public copy is unbound and discloses no Workspace root
 - **AND** it does not inherit the binding's executor identity, generation, `workspace_told`, `workspace_told_from`, or detach reason
+
+### Requirement: Checkpoint rows are copied with the prefix
+
+An owner fork SHALL copy every `checkpoint` row whose absorbed-through sequence is at or below the anchor as part of the ordinary message copy, keeping its stored parts, persisted checkpoint text, raw summary, and usage while allocating a new message identity. The copy SHALL NOT rebuild a checkpoint from a raw summary, re-render its stored text, or compact during copying, and a checkpoint row that fails the existing message write validation SHALL fail the whole fork.
+
+#### Scenario: A checkpoint beyond the anchor is not copied
+
+- **WHEN** the owner selects message 15 and the latest `checkpoint` row's absorbed-through sequence is 20
+- **THEN** that checkpoint is not copied
+- **AND** an earlier `checkpoint` row whose absorbed-through sequence is 10 is copied and is the fork's active checkpoint
+
+### Requirement: A copied checkpoint absorbs what its source absorbed
+
+Copied rows, checkpoint rows among them, SHALL take dense sequences from 1 in copied order as every other copied row does, so a copied checkpoint SHALL NOT preserve its source sequence. Its absorbed-through sequence SHALL be remapped onto the copied row it named, so that a copied checkpoint absorbs exactly what it absorbed in the source, and the fork's replay SHALL use the copied checkpoint followed by the copied rows after its absorbed-through sequence.
+
+#### Scenario: A copied checkpoint absorbs the same rows
+
+- **WHEN** an owner forks a Chat whose copied prefix contains a `checkpoint` row
+  whose absorbed-through sequence named the source row at `N`
+- **THEN** the fork holds a `checkpoint` row whose absorbed-through sequence names
+  the copied row that came from `N`, not a row at sequence `N`
+- **AND** its replayed checkpoint, retained rows, and absorbed-message count equal the source's
+
+### Requirement: A shared or public fork receives no checkpoint row
+
+A shared or public fork SHALL copy only text-only user and assistant rows and SHALL NOT copy a `checkpoint` row.
+
+#### Scenario: A shared fork receives no checkpoint row
+
+- **WHEN** another user forks a compacted Chat through the shared/public route
+- **THEN** the copy contains only the public transcript projection
+- **AND** it holds no `checkpoint` row and discloses no checkpoint text or raw summary

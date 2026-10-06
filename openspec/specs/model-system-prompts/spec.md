@@ -8,7 +8,7 @@ and llame-owned tool descriptions from one current safe context and admitted
 runtime catalog. System-only attempt receipts preserve prepared prompt text;
 only successful turns publish attempt-owned conversation context and minimal
 tool-availability comparison state. Model switches preserve portable committed
-history, with source-model transition compaction when necessary. Owner-only
+history. Owner-only
 inspection exposes system receipts without tool catalogs, host paths, or
 credentials.
 
@@ -248,16 +248,24 @@ that one context. Existing digest and temporal lifecycles SHALL retain their
 meaning. A missing selected model SHALL fail explicitly without fallback.
 
 The system prompt and admitted declarations SHALL stay fixed in memory for
-that attempt's target-model loop after transition preparation and final rendering. A trusted Workspace action admitted under `tool-calling` MAY extend the in-memory declarations without replacing existing declarations; each such addition SHALL take effect from the next model step, and Workspace exit, switch, or detach SHALL leave its declaration in the attempt-local catalog with an unavailable executor. The trusted executors and source declarations SHALL stay bound
-together in that memory; current invocation permissions, tenant/resource
-authority, and native recovery fences SHALL still apply. Source loss or drift
-during an MCP attempt SHALL use the existing unavailable-call behavior without
-substituting newer definitions.
+that attempt's target-model loop after the pre-step checkpoint publication and
+final rendering. A trusted Workspace action admitted under `tool-calling` MAY
+extend the in-memory declarations without replacing existing declarations; each
+such addition SHALL take effect from the next model step, and Workspace exit,
+switch, or detach SHALL leave its declaration in the attempt-local catalog with
+an unavailable executor. The trusted executors and source declarations SHALL
+stay bound together in that memory; current invocation permissions,
+tenant/resource authority, and native recovery fences SHALL still apply. Source
+loss or drift during an MCP attempt SHALL use the existing unavailable-call
+behavior without substituting newer definitions.
 
 Before target-model I/O, the worker SHALL persist its finalized system-only prompt receipt
-under a still-current attempt identity. Source-model transition summarization
-uses the successful source system receipt and separately identified operational
-events; a preliminary target sizing render SHALL not become a receipt. Full tool catalogs, templates, schemas,
+under a still-current attempt identity. The pre-step compaction summary request
+is not target-model I/O for that attempt: the attempt's receipt is bound after
+the checkpoint publishes and records the prompt actually sent, and the summary
+request's pre-re-bake render SHALL NOT become a receipt. The window variant of
+that publication uses the previous completed Run's successful system receipt
+and separately identified operational events. Full tool catalogs, templates, schemas,
 descriptions, and source/declaration hashes SHALL NOT be persisted as execution
 context. Minimal successful-turn id/state comparison records SHALL follow
 `tool-calling`. Any permitted retry SHALL resolve and render again rather than
@@ -309,7 +317,7 @@ using its predecessor's receipt, catalog, or model context.
 
 For a turn whose selected model differs from the most recent successfully committed prior run in the chat, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability. It MUST NOT synthesize, rewrite, or re-bind an originating model's provider-native thinking/signature/cache metadata for the target model; reasoning parts and their provider metadata replay under the `reasoning-output` capability, which passes each part back unchanged, omits before the request any part the target wire cannot represent, and lets the target provider ignore or drop the rest. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
 
-Tool observations are no longer display-only. They are replayed in the conventional tool-call/tool-result representation, carried across a model or provider switch in the target provider's expected form, with every replayed call accompanied by its result. Reasoning parts are likewise no longer display-only for the Chat that stores them: `reasoning-output` replays each part and any provider metadata it carries, unchanged; the system neither coerces it nor selects which parts to keep by content, while the selected adapter still omits a part its wire cannot represent. What this requirement still forbids is llame synthesizing, rewriting, or re-binding an originating model's provider-native metadata for a different model.
+Tool observations are no longer display-only. They are replayed in the conventional tool-call/tool-result representation, carried across a model or provider switch in the target provider's expected form, with every replayed call accompanied by its result. Reasoning parts are likewise no longer display-only for the Chat that stores them: `reasoning-output` replays each part and any provider metadata it carries, unchanged; the system neither coerces it nor selects which parts to keep by content, while the selected adapter still omits a part its wire cannot represent. What this requirement still forbids is llame synthesizing, rewriting, or re-binding an originating model's provider metadata for a different model.
 
 #### Scenario: User sends the next turn with a different model
 
@@ -322,30 +330,41 @@ Tool observations are no longer display-only. They are replayed in the conventio
 
 - **WHEN** an earlier assistant turn persisted reasoning, provider-native metadata, or settled tool activity/results alongside visible answer text
 - **AND** a later turn uses the same model or switches providers or models
+- **AND** the settled tool activity is above the active checkpoint's absorbed-through boundary, or no active checkpoint exists
 - **THEN** the later model receives the visible answer text through the canonical replay projection
 - **AND** it receives the earlier tool observations in the target provider's expected representation, each call accompanied by its result
 - **AND** the persisted reasoning parts and their provider metadata are passed back unchanged under `reasoning-output`, with no coercion, pruning, or re-binding for the later model
 
 #### Scenario: Target context window cannot fit portable history
 
-- **WHEN** a turn switches from model `A` to smaller-context model `B` and the complete request for `B` would exceed its configured context window or reserved output budget
+- **WHEN** a turn switches from model `A` to smaller-context model `B` and the
+  complete request for `B` would exceed its configured context window or
+  reserved output budget
 - **AND** model `A` plus its most recent system-prompt receipt remain executable
-- **THEN** the worker performs transition compaction with model `A` over history through the last assistant turn before invoking model `B`
+- **THEN** the worker compacts with model `A` over history through the last
+  assistant turn before invoking model `B`
 - **AND** the triggering user message remains outside the summarized prefix
-- **AND** model `B` receives its own prompt and tools, the resulting portable checkpoint, retained recent history, and the switch reminder plus triggering user text
+- **AND** model `B` receives its own prompt and tools, the resulting checkpoint
+  message, the user and assistant rows above its absorbed-through sequence, and
+  the switch reminder plus triggering user text
 
 #### Scenario: No capable source model is available
 
-- **WHEN** the target request does not fit and the prior model or its successful system-prompt receipt is unavailable or transition compaction fails
-- **THEN** the run fails before the target provider call with `context_incompatible`
+- **WHEN** the target request does not fit and the prior model or its successful
+  system-prompt receipt is unavailable or the source-model compaction fails
+- **THEN** the run fails before the target provider call with
+  `context_incompatible`
 - **AND** history is not silently truncated and no fallback model is selected
 
 #### Scenario: Over-window public-chat fork has no source execution context
 
-- **WHEN** the owner of a public-chat fork sends a turn whose portable fork history does not fit the selected model
-- **AND** no source-model system-prompt receipt owned by the fork owner can compact that history in one request
+- **WHEN** the owner of a public-chat fork sends a turn whose portable fork
+  history does not fit the selected model
+- **AND** no source-model system-prompt receipt owned by the fork owner can
+  compact that history in one request
 - **THEN** the run fails with `context_incompatible`
-- **AND** the system does not access the source owner's snapshots, prompt receipts, credentials, or non-public metadata
+- **AND** the system does not access the source owner's snapshots, prompt
+  receipts, credentials, or non-public metadata
 
 #### Scenario: Target model is unavailable
 
@@ -364,7 +383,7 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **THEN** the selected model receives its effective prompt normally
 - **AND** no model-switch reminder is created
 
-Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`; only attempt-generated rail context stays staged and publishes with a successful turn. Transition compaction SHALL use no persisted tool declarations and SHALL follow the source system-receipt contract below.
+Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`, except that a failed, cancelled, or expired Run supplies no measured context size, as the checkpoint contract below requires; only attempt-generated rail context stays staged and publishes with a successful turn. Compaction SHALL run in the Run's own attempt before its first model step and SHALL follow the checkpoint contract below. When the prepared request does not fit that attempt's model, the summary SHALL use the previous completed Run's model, that Run's system-prompt receipt and effort, and no tool declarations; it SHALL NOT load, reconstruct, or persist a historical tool catalog.
 
 ### Requirement: Model switches use canonical persisted context text and metadata
 
@@ -376,11 +395,10 @@ The producer SHALL carry a closed cause vocabulary, of which `model` covers a
 model change. A cause SHALL be a single value per item; simultaneous causes
 owned by different producers SHALL remain separate items. It SHALL retain the
 cause, prior public model id, target public model id, and target Run id as
-non-rendering metadata for transition compaction, the owner-facing boundary,
-and provenance. It SHALL NOT duplicate dimensions owned by another producer,
-notably tool availability. It SHALL also persist the complete canonical
-model-facing reminder beneath `data.text`. Client-supplied context parts MUST be
-rejected or discarded.
+non-rendering metadata for the owner-facing boundary and provenance. It SHALL
+NOT duplicate dimensions owned by another producer, notably tool availability.
+It SHALL also persist the complete canonical model-facing reminder beneath
+`data.text`. Client-supplied context parts MUST be rejected or discarded.
 
 The persisted text SHALL state that the active model changed before this user
 message, name the prior model and the current model, each as its display name
@@ -405,8 +423,8 @@ public llame model id SHALL render raw.
 Later request assembly SHALL use `data.text` at its stored author-time position
 associated with the triggering user text, following the `context-injection`
 producer order. It SHALL NOT reconstruct the reminder from model ids.
-Transition compaction and owner UI MAY use validated metadata, but a
-metadata/text disagreement SHALL NOT rewrite model replay.
+Owner UI MAY use validated metadata, but a metadata/text disagreement SHALL NOT
+rewrite model replay.
 
 #### Scenario: Switch metadata is assembled for the model
 
@@ -426,7 +444,7 @@ metadata/text disagreement SHALL NOT rewrite model replay.
 
 - **WHEN** a switch part's metadata and persisted text disagree
 - **THEN** the model receives the persisted text unchanged
-- **AND** transition/UI behavior validates metadata independently
+- **AND** UI behavior validates metadata independently
 
 #### Scenario: Client attempts to forge switch metadata
 
@@ -481,69 +499,165 @@ metadata/text disagreement SHALL NOT rewrite model replay.
   exact model-change record
 - **AND** no stored item is re-rendered from current catalog values
 
-### Requirement: Compaction preserves the completed Run's effective prompt and materializes replacement history
+### Requirement: Compaction publishes a summary-only checkpoint before the Run's first model step
 
-When a completed chat Run triggers full-current compaction, the summarization
-inference SHALL use that Run's selected model client, exact effective
-top-level system prompt and provider-facing tool declarations retained in that successful attempt's memory without executor functions, compactable conversation prefix, and
-a final synthetic user summarization instruction. It SHALL set
-`toolChoice: "none"`, MUST NOT execute tools, and SHALL accept text only.
+Before the Run's first model step, compaction SHALL be evaluated once against
+that attempt's prepared request, and exactly one variant SHALL be selected. A
+prepared request that does not fit the Run model's context window or reserved
+output budget, which covers a switch to a smaller-context target, SHALL select
+the window variant whether or not the measured context size also reaches the
+threshold, because a request that does not fit is also over the default
+threshold and only the window variant can summarize it. Otherwise a measured
+context size at or above the Run model's threshold SHALL select the threshold
+variant. No request SHALL be compacted by both variants.
 
-The instruction SHALL request the stable sections `Objective`, `Constraints and
-Preferences`, `Decisions and Rationale`, `Established Facts`, `Current State`,
-`Open Questions and Next Steps`, and `Critical References`.
+Measured context size SHALL be the previous completed assistant message's
+persisted final-request context size plus the estimate of the rows and rail
+items after it, and SHALL be counted only when the user turn that assistant row
+answers has a sequence above the active checkpoint's absorbed-through sequence;
+otherwise the whole request SHALL be estimated. That comparison SHALL be by the
+user turn rather than by the assistant row's own sequence, because a retried
+assistant row is rewritten in place and keeps its sequence below a checkpoint
+published between its attempts. A failed, cancelled, or expired Run SHALL NOT
+contribute a measured context size to a later trigger.
+
+Compaction SHALL NOT fire when no user or assistant row has a sequence between
+the active checkpoint's absorbed-through sequence and the triggering user
+message's sequence, because there is nothing left to absorb. On the threshold
+condition the attempt SHALL proceed on the published checkpoint; on the window
+condition the attempt SHALL fail `context_incompatible`.
+
+The summarizing model, prompt, tool declarations, and effort SHALL be data on
+the one path. A threshold-triggered compaction SHALL use that attempt's own
+model client, its system prompt as rendered before the re-bake, its schema-only
+provider-facing tool declarations retained in that attempt's memory without
+executor functions, and its resolved effort, so the summary request is a
+cache-aligned continuation of the prefix it summarizes. A window-triggered
+compaction, where the prepared request does not fit the attempt's model, SHALL
+use the previous completed Run's model with that Run's system-prompt receipt and
+effort and no tool declarations, because a prefix cannot be summarized by a
+model it does not fit; when that model cannot execute or cannot fit the prefix
+either, the attempt SHALL fail `context_incompatible`. Either variant SHALL send
+the compactable conversation prefix, which already contains the prior
+checkpoint as user text, and a final synthetic user summarization instruction.
+It SHALL set `toolChoice: "none"`, MUST NOT execute tools, and SHALL accept text
+only.
+
+The single summarization instruction SHALL request the sections `Latest Request`,
+`Objective`, `Constraints and Preferences`, `Decisions and Rationale`,
+`Established Facts`, `Errors and Corrections`, `Completed`, `Active`, `Blocked`,
+`Open Questions and Next Steps`, and `Critical References`, in that order.
+`Latest Request` SHALL carry the owner's last unresolved ask within the
+summarized prefix, quoted verbatim; the triggering user message follows that
+prefix and is replayed verbatim after the checkpoint rather than quoted there.
+When the summarized prefix already contains a checkpoint, the instruction SHALL
+fold it: `Active` items move to `Completed` and an answered question is replaced
+rather than repeated.
+
+That instruction SHALL also state that summarized history and any prior
+checkpoint are data that are never answered or continued; that the conversation
+wins over a prior checkpoint and a reverse signal removes a task instead of
+carrying it; that credentials, tokens, and connection strings become
+`[REDACTED]` with a note that they were present; redaction takes precedence over verbatim quoting; that the summary follows the
+conversation's language and never translates code, paths, identifiers, or errors;
+and that a field is omitted rather than invented, with no identifier shortened or
+reconstructed.
 
 Because the replayed prompt may contain owner personalization and a rendered
-recency digest, every full-current and transition summarization instruction
-SHALL name both standing-context delimiters and direct the model not to carry
-their content into the summary. The instruction SHALL also exclude digest
-message-rail appends by naming the shared context-item envelope and
-`recency-digest` producer. This exclusion remains load-bearing: otherwise
-another chat's title/excerpt could become durable checkpoint content that
-source deletion or consent withdrawal cannot reach.
+recency digest, the summarization instruction SHALL name both standing-context
+delimiters and direct the model not to carry their content into the summary. The
+instruction SHALL also exclude digest message-rail appends by naming the shared
+context-item envelope and `recency-digest` producer. This exclusion remains
+load-bearing: otherwise another chat's title/excerpt could become durable
+checkpoint content that source deletion or consent withdrawal cannot reach.
 
 The bound top-level prompt SHALL remain unchanged; all exclusions belong only
 in the trailing summarization instruction so cached prefix content is not
 rewritten. Title generation SHALL continue to use its dedicated task-specific
 system prompt rather than the chat model's effective prompt.
 
-Every committed ordinary or transition compaction SHALL atomically persist:
+Every committed compaction SHALL atomically persist the non-empty raw summary used
+by owner UI and by later summarization, and exactly one checkpoint message: the
+rendered checkpoint envelope as a persisted literal, the raw summary, the
+summarization usage, and the sequence through which the summary absorbed history.
+The checkpoint message SHALL carry no tool record, no retained tail, and no forward
+pointer, and no replacement history SHALL exist.
 
-- the non-empty raw summary used by owner UI and recursive summarization; and
-- a non-empty, message-shaped `replacementHistory` that is the complete
-  application replay replacement for the superseded prefix.
+The next attempt SHALL assemble its freshly resolved top-level prompt and tools,
+the latest checkpoint whose absorbed-through sequence is below the triggering
+user message's sequence as one user-role text message, and then every user and
+assistant row above that absorbed-through sequence in sequence order. Selection
+is by that boundary rather than by the checkpoint row's own sequence, because a
+pre-step checkpoint publishes above the user message it was published for. It
+SHALL NOT re-wrap the raw summary, re-render checkpoint text, or reconstruct any
+part from the summary. The raw summary remains separate; replay SHALL NOT parse
+it out of the checkpoint text.
 
-The first replacement record SHALL be a user-role UI message containing one
-text part with the complete final `<system-reminder>` checkpoint. Any retained
-compacted tool observations SHALL follow as final assistant UI records under
-the `tool-calling` capability. The replacement records and part order SHALL be
-the sole replay authority.
+A later compaction SHALL consume the previous checkpoint as user text plus newly
+absorbed messages and write a wholly new checkpoint message. No legacy checkpoint
+renderer or compatibility fallback SHALL exist. A checkpoint without valid
+non-empty stored checkpoint text SHALL fail closed rather than silently discard
+or regenerate history.
 
-The next attempt SHALL assemble its freshly resolved top-level prompt/tools,
-stored replacement history, retained recent history, and new user turn in that
-order. It SHALL NOT re-wrap the raw summary, re-render checkpoint text, or
-reconstruct any replacement part. The raw summary remains separate; replay
-SHALL NOT parse it out of the checkpoint text.
+The checkpoint message and the re-baked epoch state — the recency-digest
+baseline, the temporal anchor, the skill-catalog baseline, the workspace
+told-set, and the epoch markers naming the checkpoint message — SHALL commit in
+one transaction before the model step the compaction preceded and before that
+attempt resolves its own system prompt, its staged rail items, and its
+system-prompt receipt, so the receipt records the prompt actually sent and every
+re-baked value takes effect for the request the checkpoint precedes. A later
+failure of that attempt SHALL leave them in place, because a checkpoint
+describes committed history only, and a retry SHALL reuse the published
+checkpoint instead of paying a second summary call. Publication SHALL be
+idempotent across a worker-attempt cutover, and stale work SHALL NOT alter a
+prepared live attempt's context.
 
-A later compaction SHALL consume the previous replacement history plus newly
-absorbed messages and atomically write a wholly new replacement history. No
-legacy checkpoint renderer or compatibility fallback SHALL exist. An active
-compaction without valid non-empty replacement history SHALL fail closed rather
-than silently discard or regenerate history.
+Compaction SHALL estimate the request actually sent and SHALL NOT load,
+reconstruct, or persist a historical tool catalog. Tool execution remains
+disabled. If the request still does not fit after that one compaction, the
+attempt SHALL fail `context_incompatible`. Post-cutover failed-attempt output
+SHALL remain part of the record and enter compaction input like any other
+committed turn; only its staged rail items withhold until a successful turn.
+Existing history and checkpoints SHALL retain the preservation boundary defined
+by `context-injection`.
+
+The persisted checkpoint envelope SHALL state that the session state may already
+reflect work described in it and SHALL direct the assistant not to repeat that
+work.
 
 #### Scenario: Completed turn triggers compaction
 
-- **WHEN** a completed Run crosses its compaction threshold
-- **THEN** summarization uses the completed Run's bound prompt, model, portable
-  tools, compactable history, and trailing instruction
-- **AND** the committed row contains raw summary and complete replacement
-  history atomically
+- **WHEN** the prepared request of a Run reaches its model's threshold or does
+  not fit that model's window
+- **THEN** summarization runs inside that attempt before its first model step,
+  using the model, prompt, tool declarations, and effort the trigger selects,
+  its compactable history, and the single trailing instruction
+- **AND** the checkpoint message and its raw summary commit atomically before
+  that model step
+
+#### Scenario: A request over both the window and the threshold takes the window variant
+
+- **WHEN** a prepared request exceeds the Run model's threshold and also does not
+  fit that model's context window or reserved output budget
+- **THEN** only the window variant runs, with the previous completed Run's model,
+  its system-prompt receipt and effort, and no tool declarations
+- **AND** the threshold variant is not applied to the same request
+
+#### Scenario: A retry with a large triggering message does not compact again
+
+- **WHEN** an attempt evaluates the trigger with no user or assistant row
+  between the active checkpoint's absorbed-through sequence and the triggering
+  user message's sequence
+- **THEN** no checkpoint is published for the absent absorb set
+- **AND** a threshold-condition attempt proceeds on the published checkpoint
+- **AND** a window-condition attempt fails `context_incompatible` instead of
+  summarizing nothing
 
 #### Scenario: Compaction excludes standing and digest rail context
 
-- **WHEN** either compaction mode receives personalization, a prefix digest, or
+- **WHEN** the summarized prefix contains personalization, a prefix digest, or
   digest rail appends
-- **THEN** its trailing instruction names the applicable delimiters and producer
+- **THEN** the trailing instruction names the applicable delimiters and producer
   and forbids carrying them into the summary
 - **AND** the replayed system prompt and compactable history remain unchanged
 
@@ -557,20 +671,20 @@ than silently discard or regenerate history.
 
 - **WHEN** a bound prompt contains a rendered recency digest
 - **THEN** the trailing instruction excludes that block from the summary
-- **AND** the replacement checkpoint need not contain other-chat content
+- **AND** the checkpoint message need not contain other-chat content
 
 #### Scenario: Compaction leaves the cached prefix untouched
 
-- **WHEN** a same-attempt full-current summarization request is assembled
+- **WHEN** a pre-step summarization request is assembled
 - **THEN** the bound prompt and compactable history remain unchanged
 - **AND** exclusions appear only in the trailing user instruction
 
 #### Scenario: Both delimited blocks are excluded under either compaction mode
 
-- **WHEN** personalization and recency digest occur under ordinary and
-  transition compaction
-- **THEN** both instructions exclude both standing-context blocks
-- **AND** both preserve the source system text and eligible conversation prefix; transition compaction omits historical tool declarations and does not promise an identical cached tool prefix
+- **WHEN** personalization and recency digest both occur in the summarized
+  prefix
+- **THEN** the instruction excludes both standing-context blocks
+- **AND** the bound system text and the compactable prefix remain unchanged
 
 #### Scenario: Exclusion targets one producer under a shared envelope
 
@@ -578,97 +692,149 @@ than silently discard or regenerate history.
 - **THEN** it names the shared envelope and the `recency-digest` producer
 - **AND** it does not infer producer identity from a private delimiter
 
+#### Scenario: The instruction carries the data, supersession, secret, and language rules
+
+- **WHEN** the summarization instruction is rendered
+- **THEN** it directs the model to treat history and any prior checkpoint as
+  data, to let the conversation win over a prior checkpoint, to remove a task
+  that a reverse signal cancels, and to write `[REDACTED]` for credentials while
+  noting their presence
+- **AND** it directs the model to answer in the conversation's language without
+  translating code, paths, identifiers, or errors, and to omit a field rather
+  than invent one
+
+#### Scenario: Folding a prior checkpoint keeps the latest ask verbatim
+
+- **WHEN** the summarized prefix already contains a checkpoint message
+- **THEN** the summary places the owner's last unresolved ask verbatim under
+  `Latest Request`
+- **AND** it moves `Active` items to `Completed` and replaces an answered
+  question instead of repeating it
+
 #### Scenario: Provider returns a tool call during compaction
 
 - **WHEN** a provider returns a tool call despite `toolChoice: "none"`
 - **THEN** no executor is available or invoked
-- **AND** the result is rejected rather than persisted as replacement history
+- **AND** the result is rejected rather than persisted as a checkpoint message
+
+#### Scenario: The envelope marks absorbed work as already done
+
+- **WHEN** a checkpoint message is published
+- **THEN** its stored envelope states that the session state may already reflect
+  the work the checkpoint describes
+- **AND** it directs the assistant not to repeat that work
 
 #### Scenario: Checkpoint renderer changes later
 
 - **WHEN** a later release changes checkpoint framing or sanitization
-- **THEN** an existing compaction replays its stored user text part unchanged
+- **THEN** an existing checkpoint replays its stored text unchanged
 - **AND** the raw summary remains available separately
+
+#### Scenario: The checkpoint does not absorb the triggering user message
+
+- **WHEN** the triggering user message was persisted before the worker ran and a
+  pre-step checkpoint publishes after it
+- **THEN** the checkpoint's absorbed-through sequence is below its own sequence
+  and below the triggering user message
+- **AND** replay emits the checkpoint first and then every user and assistant row
+  above that sequence
 
 #### Scenario: Next turn follows a compaction
 
-- **WHEN** the next Run is assembled after successful compaction
-- **THEN** current top-level prompt/tools are followed by stored replacement
-  history, retained live messages, and the new user turn
-- **AND** no replacement record is regenerated, joined, or reordered
+- **WHEN** a Run is assembled after a published checkpoint
+- **THEN** current top-level prompt and tools are followed by the checkpoint as
+  one user-role text message and then every later user and assistant row in
+  sequence order
+- **AND** no checkpoint text is regenerated from the raw summary and no row is
+  reordered
 
 #### Scenario: Model changes after compaction
 
-- **WHEN** a model switch follows a stored replacement history
+- **WHEN** a model switch follows a stored checkpoint
 - **THEN** the target receives its current top-level prompt and tools
-- **AND** replacement history remains portable historical data before the new
+- **AND** the checkpoint replays as portable historical data before the new
   persisted switch reminder
 
 #### Scenario: Active compaction lacks replacement history
 
-- **WHEN** request assembly encounters an active compaction without valid
-  non-empty replacement history
+- **WHEN** request assembly encounters a checkpoint message without valid
+  non-empty stored checkpoint text
 - **THEN** preparation fails closed
-- **AND** it does not render a checkpoint from raw summary or treat an old
-  ledger as replay authority
+- **AND** it does not render a checkpoint from the raw summary
 
 #### Scenario: Transition compaction precedes a smaller-context target
 
-- **WHEN** a model switch requires source-model transition compaction
-- **THEN** the source model uses the last successful source system-prompt receipt and source effort to summarize only eligible committed history without tool declarations
-- **AND** the target request uses the resulting staged replacement history
-  before the retained triggering turn
+- **WHEN** a model switch requires compaction because the prepared request does
+  not fit the target's window
+- **THEN** the previous completed Run's model uses its last successful
+  system-prompt receipt and its own effort to summarize only eligible committed
+  history without tool declarations
+- **AND** the target request uses the resulting checkpoint message before the
+  triggering user message
 
 #### Scenario: A target attempt fails after transition preparation
 
-- **WHEN** transition compaction produced staged replacement history but the target attempt fails
-- **THEN** no staged checkpoint, digest/anchor refresh, or supersession marker becomes active
-- **AND** a retry starts from committed context and prepares anew
+- **WHEN** a checkpoint published before a model step and that attempt later
+  fails
+- **THEN** the checkpoint and the re-baked epoch state remain active
+- **AND** a retry reuses them instead of paying a second summary call
+
+#### Scenario: The receipt records the prompt sent after the re-bake
+
+- **WHEN** a pre-step checkpoint and its re-baked epoch state commit inside an
+  attempt
+- **THEN** that attempt resolves its own system prompt, its staged rail items,
+  and its system-prompt receipt only after that commit
+- **AND** the receipt records the prompt actually sent, and every re-baked value
+  takes effect for the request the checkpoint precedes
 
 #### Scenario: A completed turn starts ordinary compaction
 
-- **WHEN** the source turn has committed successfully and full-current compaction finishes
-- **THEN** its own transaction publishes the checkpoint and refreshed context state together
-- **AND** source/range/epoch fencing rejects stale publication under a newer prepared context
+- **WHEN** a worker-attempt cutover or a superseded attempt publishes a
+  checkpoint
+- **THEN** a second publication for the same chat and absorbed-through sequence is
+  a no-op and the attempt reads the surviving checkpoint
+- **AND** stale work does not alter a prepared live attempt's context
 
 #### Scenario: Partial rewind is requested
 
 - **WHEN** future functionality needs to summarize only a prefix or suffix
   around a retained historical boundary
-- **THEN** it does not reuse full-current or transition compaction
+- **THEN** it does not reuse this compaction
 - **AND** it requires a separately specified summary contract
-
-Transition compaction SHALL stage replacement history, digest/anchor refresh, context epoch, and supersession items in memory during target request preparation. It SHALL finalize the target prompts and receipt after that preparation and publish staged state only with target-turn success. Failure or supersession SHALL discard the staged state. Ordinary full-current compaction occurs after a successful turn and SHALL instead publish checkpoint and refreshed context state in its own atomic transaction, fenced by that successful source Run, covered message range, and expected epoch; stale work SHALL not alter a prepared live attempt's context.
-
-Later model-switch transition compaction SHALL use the successful source Run's system-prompt receipt and model/effort, SHALL omit tool declarations, and SHALL estimate the request actually sent. It SHALL NOT load, reconstruct, or persist a historical tool catalog. Tool execution remains disabled in both modes. Post-cutover failed-attempt output SHALL remain part of the record and enter ordinary and transition compaction input like any other committed turn; only its staged rail items withhold until a successful turn. Existing history and checkpoints SHALL retain the preservation boundary defined by `context-injection`.
 
 ### Requirement: Summarization instructions and the title prompts are packaged templates
 
-The full-current summarization instruction, the transition summarization
-instruction, the title-generation system prompt, and the title-generation user
-prompt SHALL be packaged template files owned by their modules and shipped with
-the executing process, rendered through the same engine and under the same
-producer-owned-values rule as item bodies under `context-injection`. They SHALL
-NOT be operator configuration: no configuration key SHALL select, replace, or
-disable one, and they SHALL remain outside system-prompt receipts.
+The summarization instruction, the title-generation system prompt, and the
+title-generation user prompt SHALL be packaged template files owned by their
+modules and shipped with the executing process, rendered through the same engine
+and under the same producer-owned-values rule as item bodies under
+`context-injection`. They SHALL NOT be operator configuration: no configuration
+key SHALL select, replace, or disable one, and they SHALL remain outside
+system-prompt receipts.
 
-The rendered instructions and prompts SHALL be byte-identical to their previous
-inline text, SHALL continue to request the stable summary sections, and SHALL
-continue to name both standing-context delimiters and the `recency-digest`
-producer under the shared envelope. The stable section list and the exclusion
-sentence SHALL be carried by the instruction template itself and verified
-against independently authored literal text rather than derived from or
-compared with a shared constant.
+The rendered title prompts SHALL be byte-identical to their previous inline
+text. The summarization instruction SHALL request the amended section headings
+this capability names and SHALL continue to name both standing-context
+delimiters and the `recency-digest` producer under the shared envelope. The
+section list and the exclusion sentence SHALL be carried by the instruction
+template itself and verified against independently authored literal text rather
+than derived from or compared with a shared constant.
 
 #### Scenario: Compaction request is unchanged by the template migration
 
-- **WHEN** full-current or transition compaction assembles its trailing instruction after this change
-- **THEN** the instruction text is byte-identical to the previous inline instruction
-- **AND** the bound prompt, compactable prefix, and tool-declaration behavior of that mode are unchanged
+- **WHEN** a checkpoint is created after the two summarization instructions
+  merge
+- **THEN** its trailing instruction is rendered from the single packaged
+  summarization template
+- **AND** the bound prompt, compactable prefix, and schema-only tool declarations
+  of that request are unchanged
 
 #### Scenario: Instruction template omits a stable section or the digest exclusion
 
-- **WHEN** a packaged instruction template no longer contains one of the stable section headings or no longer names the `recency-digest` producer under the shared envelope
+- **WHEN** a packaged instruction template no longer contains one of the required
+  section headings or no longer names the `recency-digest` producer under the
+  shared envelope
 - **THEN** the compaction contract check fails against its independently authored literal text
 - **AND** the omission cannot be masked by comparing the instruction with itself
 

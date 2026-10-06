@@ -429,15 +429,15 @@ The worker SHALL derive availability disclosure from its current attempt's admit
 
 For a configured MCP source that is not ready on the executing worker, previously committed exact ids that still match the current allowlist SHALL supplement availability-comparison input, even when the worker has never discovered that source. This SHALL be a separate non-admissible state-only input, never a `TurnToolCandidate` or an input to schema/classification/catalog admission. They SHALL carry only state and the current source's closed unavailable reason, never reconstructed declarations/classifications/executors, and SHALL not make `tools.<id>` true. Removed/disallowed/unconfigured ids are absent; a ready source's complete fresh discovery is authoritative about removal. No never-observed wildcard tool id SHALL be invented.
 
-On the first turn of a model-facing availability disclosure epoch, the reminder SHALL identify only eligible tools that are currently unavailable under the exact heading `Unavailable tools:`; callable tools are already advertised through the provider's native tool declarations on every request and SHALL NOT be duplicated in an initial prose inventory. A fresh conversation SHALL start the first disclosure epoch, and every newly active compaction checkpoint SHALL start another. On later turns within the epoch, the system SHALL compare each id's `absent`, `available`, or `unavailable` state between the current attempt's runtime state and the preceding successful turn's minimal id/state record in that epoch. Each changed id SHALL appear in exactly one group: absent to available as Added tools, available or unavailable to absent as Removed tools, absent to unavailable as Unavailable tools, available to unavailable as Became unavailable, and unavailable to available as Now available. Empty groups SHALL be omitted. `Added tools` SHALL contain only tools callable in the current Run. If availability is unchanged, no availability reminder SHALL be emitted, including while an outage persists.
+On the first turn of a model-facing availability disclosure epoch, the reminder SHALL identify only eligible tools that are currently unavailable under the exact heading `Unavailable tools:`; callable tools are already advertised through the provider's native tool declarations on every request and SHALL NOT be duplicated in an initial prose inventory. A fresh conversation SHALL start the first disclosure epoch, and every published checkpoint message SHALL start another under the rail epoch rule that `context-injection` states once. That epoch start stands even when the attempt it preceded later fails. On later turns within the epoch, the system SHALL compare each id's `absent`, `available`, or `unavailable` state between the current attempt's runtime state and the preceding successful turn's minimal id/state record in that epoch. Each changed id SHALL appear in exactly one group: absent to available as Added tools, available or unavailable to absent as Removed tools, absent to unavailable as Unavailable tools, available to unavailable as Became unavailable, and unavailable to available as Now available. Empty groups SHALL be omitted. `Added tools` SHALL contain only tools callable in the current Run. If availability is unchanged, no availability reminder SHALL be emitted, including while an outage persists.
 
 When an eligible tool keeps the same id and remains available but its canonical declaration changes, the current attempt SHALL advertise its fresh in-memory declaration through the provider's native tool contract. Declaration-only drift SHALL NOT produce an availability reminder and SHALL NOT be represented as a synthetic Removed-plus-Added transition.
 
-Only a successfully committed turn SHALL establish the comparison baseline. Its published reminder text remains model-visible until a context rewrite removes it. A failed, cancelled, expired, or superseded attempt SHALL publish no availability reminder to model history and SHALL not advance the baseline. Every retry compares with the same preceding committed turn, including after worker handoff.
+Only a successfully committed turn SHALL establish the comparison baseline. Its published reminder text remains model-visible until a context rewrite removes it. A failed, cancelled, expired, or superseded attempt SHALL publish no availability reminder to model history and SHALL not advance the baseline. Every retry compares with the same preceding committed turn, including after worker handoff, unless a checkpoint published before the step started a new epoch, in which case every retry of that Run uses the new epoch's initial semantics.
 
 When there is no successful observed baseline, including migrated non-observation, the attempt SHALL use initial-baseline semantics. Successful completion SHALL store only its sorted exact ids and available/unavailable states; empty observed state is distinct from no observation.
 
-The first successfully committed turn after a newly active compaction checkpoint SHALL use the same initial-baseline semantics as a fresh conversation and SHALL NOT compare against a pre-compaction record: it SHALL list currently unavailable eligible tools under `Unavailable tools:` and SHALL emit no reminder when all eligible tools are available. This new disclosure epoch SHALL NOT reset MCP clients, catalogs, reconnect backoff, attempt-local bindings, or other runtime or persisted state. A semantic checkpoint MAY retain prior tool outages, recoveries, or failures when they mattered to the conversation; those statements SHALL be treated as historical context rather than current availability. The current request's provider-native declarations and current runtime availability reminder, when present, SHALL establish current callability.
+The first successfully committed turn at or after a newly published checkpoint message SHALL use the same initial-baseline semantics as a fresh conversation and SHALL NOT compare against a pre-checkpoint record: it SHALL list currently unavailable eligible tools under `Unavailable tools:` and SHALL emit no reminder when all eligible tools are available. Because a checkpoint message publishes before the model step it was published for, that step's own turn is already the first turn of the new epoch. This new disclosure epoch SHALL NOT reset MCP clients, catalogs, reconnect backoff, attempt-local bindings, or other runtime or persisted state. A semantic checkpoint MAY retain prior tool outages, recoveries, or failures when they mattered to the conversation; those statements SHALL be treated as historical context rather than current availability. The current request's provider-native declarations and current runtime availability reminder, when present, SHALL establish current callability.
 
 At authoring time, the reminder SHALL instruct the model not to simulate removed or unavailable tools or invent their results. Tool ids and reason prose SHALL be rendered only from validated ids and closed server-authored reason codes. Its persisted position relative to other context items SHALL follow the `context-injection` capability's author-time order, and later replay SHALL preserve that stored position without re-rendering or re-sorting it.
 
@@ -490,16 +490,22 @@ At authoring time, the reminder SHALL instruct the model not to simulate removed
 
 #### Scenario: Compaction starts a degraded disclosure epoch
 
-- **WHEN** a newly active compaction checkpoint is followed by a turn with an eligible unavailable tool
+- **WHEN** a checkpoint message publishes before a model step and that step's turn has an eligible unavailable tool
 - **THEN** that turn uses fresh-conversation semantics and lists the tool under `Unavailable tools:`
-- **AND** it does not emit a transition relative to the pre-compaction manifest
+- **AND** it does not emit a transition relative to the pre-checkpoint record
 - **AND** a later unchanged turn does not repeat the reminder
 
 #### Scenario: Compaction starts a healthy disclosure epoch
 
-- **WHEN** a newly active compaction checkpoint is followed by a turn where every eligible tool is available
+- **WHEN** a checkpoint message publishes before a model step and that step's turn has every eligible tool available
 - **THEN** provider-native declarations advertise the callable tools
-- **AND** no availability reminder or pre-compaction transition is emitted
+- **AND** no availability reminder or pre-checkpoint transition is emitted
+
+#### Scenario: A failed attempt still starts the new epoch
+
+- **WHEN** a checkpoint message publishes before a model step and that attempt later fails
+- **THEN** the next successfully committed turn uses fresh-conversation disclosure semantics
+- **AND** it does not compare against a pre-checkpoint record
 
 #### Scenario: Compaction preserves relevant tool-failure history
 
@@ -765,29 +771,19 @@ boundaries, consecutive calls SHALL continue to project conservatively as
 standalone sequential matched pairs. This behavior SHALL NOT be generalized or
 rewritten by this change; its research/refactor is scoped by #599.
 
-Compaction SHALL replace the semantic observation ledger with final
-message-shaped replacement records. Ordinary and transition compaction SHALL:
+Tool activity SHALL remain available to the model until a checkpoint absorbs
+it, and no tool record SHALL cross that boundary. A checkpoint message SHALL
+carry no tool part, SHALL select and re-bound no payload, and SHALL recompute no
+budget; there SHALL be no semantic observation ledger, bounded replacement set,
+or compacted tool record to read back. Absorbed tool activity survives only as
+summary text, where the summary's `Errors and Corrections`, `Completed`, and
+`Critical References` content is the carrier. Rows after the latest checkpoint
+SHALL keep the ordinary bounded projection above unchanged, and replay of those
+rows SHALL NOT consult the checkpoint.
 
-1. correlate complete stored call/result observations by `toolCallId`;
-2. combine them with tool records from the previous replacement history;
-3. enforce the same complete-pair selection, per-pair limit, total 32,000-unit
-   budget, newer-pair preference, payload clearing, outcome preservation, and
-   bounded omission count; and
-4. persist the selected final AI SDK UI `tool-*` parts in replacement history,
-   with one complete pair per assistant replacement record and any omission
-   marker in its own assistant text record.
-
-The stored final replacement parts SHALL be the sole authority after compaction.
-Model replay and cache-aligned compaction input SHALL order the user checkpoint
-record first, the stored compacted tool records second, and the retained live
-window last. Replay SHALL NOT regenerate tool parts from semantic fields,
-re-clear payloads, recompute budgets, or reorder records. A later compaction MAY
-materialize a new bounded replacement and omit older complete records, but it
-SHALL consume the prior stored records rather than a ledger.
-
-Replacement history SHALL remain RLS-scoped internal state and SHALL NOT enter
-public DTOs, search indexes, or ordinary exports. No legacy ledger reader,
-empty-ledger sentinel, or inference from summary prose SHALL exist.
+Checkpoint text SHALL stay owner-scoped like the checkpoint row that carries it,
+and no tool observation SHALL be reconstructed from summary prose, from an older
+checkpoint's text, or from any inference about what an absorbed turn contained.
 
 The live tool loop SHALL continue to observe its own results within the turn
 that produced them.
@@ -849,7 +845,7 @@ that produced them.
 
 #### Scenario: The projection is labelled untrusted
 
-- **WHEN** an ordinary or compacted tool result is replayed
+- **WHEN** a tool result is replayed
 - **THEN** its own result content identifies it as untrusted tool output
 - **AND** instruction-like payload text carries no authority
 
@@ -863,7 +859,7 @@ that produced them.
 
 - **WHEN** the same unmodified ordinary stored tool part replays twice
 - **THEN** the current projector produces the same application content
-- **AND** final compacted UI parts replay directly from replacement history
+- **AND** no tool part is materialized at a checkpoint boundary
 
 #### Scenario: Interleaved text and tools retain chronology
 
@@ -888,27 +884,26 @@ that produced them.
 - **AND** exactly one bounded omission marker is retained and call/result counts
   remain equal
 
-#### Scenario: Compaction carries cleared observations across lineage
+#### Scenario: Absorbed tool activity crosses a checkpoint only as summary text
 
-- **WHEN** ordinary or transition compaction absorbs tool activity
-- **THEN** it writes already selected, bounded, payload-cleared final UI tool
-  parts into replacement history
-- **AND** the next request replays those stored records after the checkpoint and
-  before live history without a tool-observation renderer
+- **WHEN** a checkpoint message absorbs a range of history that contains tool
+  activity
+- **THEN** that activity is available to later requests only as summary text
+- **AND** the checkpoint message carries no tool record and replay of rows above
+  it uses the ordinary bounded projection
 
-#### Scenario: Recursive compaction consumes replacement history
+#### Scenario: Recursive compaction consumes the prior checkpoint's stored text
 
-- **WHEN** a later compaction supersedes a prior compaction
-- **THEN** it consumes prior stored replacement records plus newly absorbed
-  observations
-- **AND** it writes a wholly new bounded replacement rather than reconstructing
-  or extending a semantic ledger
+- **WHEN** a later checkpoint supersedes a prior checkpoint
+- **THEN** its summary input is the prior checkpoint's stored text plus the
+  newly absorbed rows
+- **AND** it writes no list of tool records and no record is carried forward
 
-#### Scenario: Existing compactions cannot recover already-absorbed observations
+#### Scenario: A checkpoint without stored text cannot recover absorbed observations
 
-- **WHEN** an active compaction lacks valid replacement history
+- **WHEN** an active checkpoint message lacks valid non-empty stored text
 - **THEN** request preparation fails closed
-- **AND** no old ledger or summary prose is used to invent tool observations
+- **AND** no tool observation is invented from summary prose or from any ledger
 
 #### Scenario: The live loop still observes its own tool results
 

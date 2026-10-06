@@ -22,9 +22,9 @@ the same reasoning part through the per-reasoning-part provider-metadata channel
 `reasoning-output` defines, and replay the block on later requests for the same
 chat. Within a tool-use turn the blocks SHALL be passed back; across turns the
 system SHALL pass back every block within the model context the request is
-built from. A prefix that compaction superseded is replaced by its replacement
-history under the existing context contract, so the blocks it held are not
-part of that context and are not replayed; that replacement is not llame-side
+built from. A prefix a checkpoint absorbed is replaced by that checkpoint
+message under the existing context contract, so the blocks it held are not part
+of that context and are not replayed; that replacement is not llame-side
 pruning of thinking. The adapter's reasoning-replay switch SHALL stay on as a
 client invariant, so an operator's `providerOptions` cannot turn replay off.
 The system SHALL NOT prune thinking blocks itself within the retained context:
@@ -149,10 +149,10 @@ A response that emits no thinking output SHALL remain a successful run.
 
 - **WHEN** compaction has superseded a prefix that held signed thinking blocks
   and a later request is built
-- **THEN** the request carries the compaction's replacement history in place of
+- **THEN** the request carries the compaction's checkpoint message in place of
   that prefix, without the superseded blocks
-- **AND** blocks in the retained context after the compaction boundary are
-  replayed unchanged
+- **AND** blocks in the context after the checkpoint's absorbed-through
+  sequence are replayed unchanged
 
 #### Scenario: Redacted thinking survives a tool continuation
 
