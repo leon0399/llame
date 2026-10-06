@@ -58,7 +58,7 @@ for the current owning layer. Checked tasks record completed work but never
 grant approval or publication permission. Keep each layer within the
 approximately 2,000-authored-line review budget against its immediate parent
 and report reproducible generated churn separately. Delivery policy:
-[CONTRIBUTING.md](../../../CONTRIBUTING.md).
+[CONTRIBUTING.md](../../../../CONTRIBUTING.md).
 
 ## 1. Proposal layer
 
@@ -131,10 +131,10 @@ Branch `read-selector-members/finalize`, parent
 history, and archive movement only. Entry requires every implementation layer
 to be published, reviewed, CI-green, and every task above checked.
 
-- [ ] 6.1 Use `$gh-stack` to enter `read-selector-members/finalize` from the published prompt-docs head; verify the parent, complete task checkoffs, and archive readiness before any `$openspec-sync-specs` command writes canonical specs
-- [ ] 6.2 Run `$openspec-sync-specs` for `native-file-tools` and `tool-call-permissions`, reconcile post-proposal canonical drift by hand before syncing, and verify every MODIFIED requirement retains its complete canonical sentence and scenario set plus only the approved edits
-- [ ] 6.3 Run `pnpm exec openspec status --change read-selector-members --json`, `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; stop on any incomplete artifact, unchecked task, unsynced requirement, or application change in the finalize diff
-- [ ] 6.4 Run `$openspec-archive-change` only after readiness is proved, then verify the moved archive preserves checked task history and the synchronized requirements, and that the finalize diff contains no application change
+- [x] 6.1 Use `$gh-stack` to enter `read-selector-members/finalize` from the published prompt-docs head; verify the parent, complete task checkoffs, and archive readiness before any `$openspec-sync-specs` command writes canonical specs
+- [x] 6.2 Run `$openspec-sync-specs` for `native-file-tools` and `tool-call-permissions`, reconcile post-proposal canonical drift by hand before syncing, and verify every MODIFIED requirement retains its complete canonical sentence and scenario set plus only the approved edits
+- [x] 6.3 Run `pnpm exec openspec status --change read-selector-members --json`, `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; stop on any incomplete artifact, unchecked task, unsynced requirement, or application change in the finalize diff
+- [x] 6.4 Run `$openspec-archive-change` only after readiness is proved, then verify the moved archive preserves checked task history and the synchronized requirements, and that the finalize diff contains no application change
 
 Post-archive gates, not pre-archive checkbox prerequisites: publish the
 finalize draft with `$gh-stack`, self-review its parent-relative archive diff,
