@@ -130,6 +130,21 @@ describe('inheritForkedChatState', () => {
     expect(noCheckpoints.inherited.skillCatalogRebakedFrom).toBeNull();
   });
 
+  it('falls back to the newest copied checkpoint when several are copied', () => {
+    const source = chat({
+      recencyDigestRebakedFrom: 'checkpoint-outside-prefix',
+      skillCatalogRebakedFrom: 'checkpoint-outside-prefix',
+    });
+
+    const { messageIds, inherited } = inheritForkedChatState(source, prefix);
+
+    expect(inherited.recencyDigestRebakedFrom).toBe(messageIds.get(latest.id));
+    expect(inherited.skillCatalogRebakedFrom).toBe(messageIds.get(latest.id));
+    expect(inherited.recencyDigestRebakedFrom).not.toBe(
+      messageIds.get(first.id),
+    );
+  });
+
   it('keeps null markers null and carries frozen state and the active binding', () => {
     const source = chat({
       recencyDigestBaseline: {
@@ -192,9 +207,11 @@ describe('copiedMessageRows', () => {
       FORK_CHAT_ID,
       FORK_CHAT_ID,
     ]);
-    expect(copied.map((item) => item.id)).not.toEqual(
-      rows.map((item) => item.id),
-    );
+    const copiedIds = copied.map((item) => item.id);
+    expect(new Set(copiedIds).size).toBe(rows.length);
+    expect(
+      copiedIds.filter((id) => rows.some((item) => item.id === id)),
+    ).toEqual([]);
     expect(copied[1].inReplyTo).toBe(copied[0].id);
     expect(copied[2].absorbedThroughSeq).toBe(2);
     expect(copied[2].parts).toEqual(checkpointRow.parts);

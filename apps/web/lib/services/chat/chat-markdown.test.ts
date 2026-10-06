@@ -277,13 +277,17 @@ describe("chatToMarkdown", () => {
       }),
       msg({
         role: "checkpoint",
+        // The owner DTO's row-level fields ride alongside the stored part.
+        summary: "PRIVATE_ROW_SUMMARY",
+        absorbedThroughSeq: 1,
+        absorbedMessageCount: 2,
         parts: [
           {
             type: "data-context",
             data: {
               producer: "compaction",
               form: "checkpoint",
-              text: "PRIVATE_STORED_CHECKPOINT_TEXT",
+              text: '<system-reminder producer="compaction" form="checkpoint">\nPRIVATE_STORED_CHECKPOINT_TEXT\n</system-reminder>',
               payload: { v: 1, summary: "PRIVATE_RAW_CHECKPOINT_SUMMARY" },
             },
           },

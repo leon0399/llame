@@ -179,7 +179,6 @@ d('compaction lineage over HTTP (#57)', () => {
     if (first === undefined) {
       throw new Error('Expected turn 2 to publish a compaction row');
     }
-    expect(first.role).toBe('checkpoint');
     expect(first.absorbedThroughSeq).toBe(
       (await userSeq(chatId, 'turn-2')) - 1,
     );
@@ -190,7 +189,12 @@ d('compaction lineage over HTTP (#57)', () => {
     const firstCall = compactionCalls()[0];
     expect(texts(firstCall)).toContain('turn-1');
     expect(texts(firstCall)).not.toContain('turn-2');
-    expect(texts(firstCall)).not.toContain('stored checkpoint');
+    // No checkpoint envelope in the raw-turn replay: the request is built from
+    // conversation rows only. The content is stringified, so the envelope's
+    // quotes may be escaped.
+    expect(texts(firstCall)).not.toMatch(
+      /<system-reminder producer=\\?"compaction\\?" form=\\?"checkpoint\\?">/u,
+    );
 
     // Turn 3: its trigger absorbs only what lies above the first boundary,
     // and the second compaction lands on top of the first.
@@ -201,7 +205,6 @@ d('compaction lineage over HTTP (#57)', () => {
     }
 
     // Lineage: the second row chains to the first and supersedes more history.
-    expect(second.role).toBe('checkpoint');
     expect(second.absorbedThroughSeq).toBeGreaterThan(
       first.absorbedThroughSeq!,
     );
@@ -213,6 +216,13 @@ d('compaction lineage over HTTP (#57)', () => {
     // delta, NOT full history: turn 2 and its reply, never the absorbed turn 1
     // and never turn 3, whose message triggered it.
     const firstCheckpoint = readCheckpointText(first);
+    // The fake model answers call N with `out-N`, so the first compaction call's
+    // summary is known without reading it back through the replay helpers.
+    const firstSummary = `out-${models.client.turns.indexOf(firstCall)}`;
+    expect(firstCheckpoint).toMatch(
+      /^<system-reminder producer="compaction" form="checkpoint">/u,
+    );
+    expect(firstCheckpoint).toContain(firstSummary);
     expect(compactionCalls()).toHaveLength(2);
     const secondCall = compactionCalls().find(
       (turn) => storedCheckpointText(turn.messages[0]) === firstCheckpoint,

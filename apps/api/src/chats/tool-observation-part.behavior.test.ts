@@ -4,6 +4,7 @@ import type { ToolResultPart as SdkToolResultPart } from 'ai';
 import {
   normalizeToolObservationOutcome,
   projectToolObservations,
+  renderToolObservationOmission,
   TOOL_OUTCOME_MAX_LENGTH,
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
@@ -63,6 +64,14 @@ describe('normalizeToolObservationOutcome', () => {
       ),
     ).toBe('error');
     expect(normalizeToolObservationOutcome(null, 'error')).toBe('error');
+  });
+});
+
+describe('renderToolObservationOmission', () => {
+  it('pins the model-facing omission marker byte for byte', () => {
+    expect(renderToolObservationOmission(2)).toBe(
+      '[2 earlier tool observations omitted to fit replay budget.]',
+    );
   });
 });
 

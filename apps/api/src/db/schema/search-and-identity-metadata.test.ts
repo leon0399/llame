@@ -161,7 +161,17 @@ describe('chat schema metadata', () => {
     );
   });
 
-  it('keeps the checkpoint boundary nullable and unique only when present', () => {
+  it('keeps the Workspace detach reason check named and closed', () => {
+    const check = getTableConfig(chats).checks.find(
+      ({ name }) => name === 'chats_workspace_detach_reason_check',
+    );
+    if (check === undefined) throw new Error('Workspace detach check missing');
+    expect(new PgDialect().sqlToQuery(check.value).sql).toBe(
+      `"chats"."workspace_detach_reason" IS NULL OR "chats"."workspace_detach_reason" IN ('executor_mismatch', 'executor_absent', 'root_missing', 'root_moved', 'permission_rejected', 'tool_not_allowed')`,
+    );
+  });
+
+  it('keeps the checkpoint boundary nullable, unique per chat when present, and tied to the checkpoint role', () => {
     const column = getTableConfig(messages).columns.find(
       ({ name }) => name === 'absorbed_through_seq',
     );
@@ -172,11 +182,25 @@ describe('chat schema metadata', () => {
     );
     if (index === undefined)
       throw new Error('checkpoint boundary index missing');
+    expect(index.config.unique).toBe(true);
+    expect(
+      index.config.columns.map((indexColumn) =>
+        'name' in indexColumn ? indexColumn.name : undefined,
+      ),
+    ).toEqual(['chat_id', 'absorbed_through_seq']);
     if (index.config.where === undefined) {
       throw new Error('checkpoint boundary predicate missing');
     }
     expect(new PgDialect().sqlToQuery(index.config.where).sql).toContain(
       'IS NOT NULL',
+    );
+    const check = getTableConfig(messages).checks.find(
+      ({ name }) => name === 'messages_checkpoint_boundary_check',
+    );
+    if (check === undefined)
+      throw new Error('checkpoint boundary check missing');
+    expect(new PgDialect().sqlToQuery(check.value).sql).toBe(
+      `("messages"."role"::text = 'checkpoint') = ("messages"."absorbed_through_seq" IS NOT NULL)`,
     );
   });
 

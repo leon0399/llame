@@ -248,6 +248,14 @@ export const messages = pgTable(
   (t) => [
     index('messages_chat_created_idx').on(t.chatId, t.createdAt),
     check('messages_seq_positive', sql`${t.seq} > 0`),
+    // A boundary names the checkpoint row that absorbed it and no other row
+    // carries one, so replay never reads a boundary-less checkpoint as "no
+    // checkpoint". Text comparison keeps the constraint valid in the same
+    // transaction that adds the `checkpoint` enum value.
+    check(
+      'messages_checkpoint_boundary_check',
+      sql`(${t.role}::text = 'checkpoint') = (${t.absorbedThroughSeq} IS NOT NULL)`,
+    ),
     // Ordering index: history is read with ORDER BY (chat_id, seq).
     uniqueIndex('messages_chat_seq_unique_idx').on(t.chatId, t.seq),
     uniqueIndex('messages_chat_absorbed_through_seq_uidx')

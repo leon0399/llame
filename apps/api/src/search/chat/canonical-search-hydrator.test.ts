@@ -226,14 +226,17 @@ describe('hydrateCanonicalSearchRows', () => {
       7, 11,
     ]);
     expect(JSON.stringify(result)).not.toContain('PRIVATE_CHECKPOINT_SUMMARY');
+    // Visible text and a nonzero range make the interval valid for any source
+    // role, so only the checkpoint role can reject it.
     const checkpointBoundary: CanonicalHydrationRow = {
       ...checkpoint,
+      message_parts: [{ type: 'text', text: 'PRIVATE_CHECKPOINT_SUMMARY' }],
       first_message_id: EMPTY_MESSAGE_ID,
       last_message_id: EMPTY_MESSAGE_ID,
       first_seq: '9',
       last_seq: '9',
       first_message_text_offset: 0,
-      last_message_text_offset_exclusive: 0,
+      last_message_text_offset_exclusive: 7,
     };
     expect(
       hydrateCanonicalSearchRows([checkpointBoundary], {

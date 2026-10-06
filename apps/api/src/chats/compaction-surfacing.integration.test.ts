@@ -87,24 +87,32 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
     }
   });
 
-  it('returns the latest checkpoint boundary for the owner', async () => {
+  it('returns the latest checkpoint strictly below the triggering sequence', async () => {
     const chat = await newChat(a);
     const firstMessage = await addMessage(chat, a);
     await addCheckpoint(chat, a, firstMessage.seq, 'summary up to one');
     const secondMessage = await addMessage(chat, a);
     await addCheckpoint(chat, a, secondMessage.seq, 'summary up to two');
+    const activeBefore = (beforeSeq: number) =>
+      tenantDb.runAs(a, (tx) =>
+        new MessagesRepository(tx).findActiveCheckpoint(chat, a, { beforeSeq }),
+      );
 
-    const latest = await tenantDb.runAs(a, (tx) =>
-      new MessagesRepository(tx).findActiveCheckpoint(chat, a, {
-        beforeSeq: secondMessage.seq + 2,
-      }),
-    );
-
-    expect(latest?.role).toBe('checkpoint');
-    expect(latest?.absorbedThroughSeq).toBe(secondMessage.seq);
-    expect(latest ? readCheckpointText(latest) : '').toContain(
+    const aboveBoth = await activeBefore(secondMessage.seq + 2);
+    expect(aboveBoth?.absorbedThroughSeq).toBe(secondMessage.seq);
+    expect(aboveBoth ? readCheckpointText(aboveBoth) : '').toContain(
       'summary up to two',
     );
+
+    // The comparison is exclusive: a checkpoint absorbed through the triggering
+    // sequence itself is not below it.
+    const atSecond = await activeBefore(secondMessage.seq);
+    expect(atSecond?.absorbedThroughSeq).toBe(firstMessage.seq);
+    expect(atSecond ? readCheckpointText(atSecond) : '').toContain(
+      'summary up to one',
+    );
+
+    expect(await activeBefore(firstMessage.seq)).toBeUndefined();
   });
 
   it('a cross-tenant read returns undefined (owner-scoped, no leak)', async () => {
@@ -118,6 +126,25 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
       }),
     );
     expect(asB).toBeUndefined();
+  });
+
+  it('a cross-tenant absorbed-message count returns nothing for the checkpoint', async () => {
+    const chat = await newChat(a);
+    const message = await addMessage(chat, a);
+    const checkpoint = await addCheckpoint(chat, a, message.seq, 'private');
+    const asOwner = await tenantDb.runAs(a, (tx) =>
+      new MessagesRepository(tx).countAbsorbedMessages(chat, a, [
+        checkpoint.id,
+      ]),
+    );
+    const asOther = await tenantDb.runAs(b, (tx) =>
+      new MessagesRepository(tx).countAbsorbedMessages(chat, b, [
+        checkpoint.id,
+      ]),
+    );
+
+    expect(asOwner.get(checkpoint.id)).toBe(1);
+    expect(asOther.size).toBe(0);
   });
 
   it('a chat with no checkpoint returns undefined', async () => {

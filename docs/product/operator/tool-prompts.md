@@ -205,9 +205,14 @@ baselines; it does not reset or discard live chats, and it makes no claim about
 context produced by failed pre-cutover Runs.
 
 The checkpoint storage cutover drops the old `compactions` table without
-conversion. Stop every API and worker before `pnpm db:migrate`, then start them
-together on the matching revision. A previously compacted Chat pays one summary
-call on its next over-threshold turn; no tool records cross a checkpoint.
+conversion, so it follows the same order. With the co-located `all` profile,
+quiesce acceptance and let the process drain accepted Runs, including any
+in-flight checkpoint write, before stopping it. With split `web` and worker
+processes, stop the API first, then let the workers drain before stopping them.
+Run `pnpm db:migrate` only once every API and worker is stopped, then start
+them together on the matching revision. A previously compacted Chat pays one
+summary call on its next over-threshold turn; no tool records cross a
+checkpoint.
 
 ## Troubleshooting
 

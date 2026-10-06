@@ -156,9 +156,11 @@ function renderChatPage(
   });
   // Seed the SAME cache entry SSR hydration provides on a real reload —
   // BEFORE the component (and its query observer) ever mounts, same timing
-  // as HydrationBoundary. The entry is the paginated normalized shape from
-  // the owner message response: the newest checkpoint row has already
-  // supplied `compaction` and is dropped only when building UI messages.
+  // as HydrationBoundary. The entry is the normalized cache shape: the seed's
+  // `compaction` stands in for what `normalizeChatMessagesResponse` derives
+  // from the newest checkpoint row, and its conversation rows are what
+  // `toChatUiMessages` keeps. history.test.ts covers both derivations; this
+  // suite pins how the page renders the result.
   const page = {
     messages: historyMessages.map((message, index) =>
       rawChatMessage({
@@ -351,7 +353,7 @@ describe("ChatPage — compaction checkpoint render", () => {
     ).toBeTruthy();
   });
 
-  it("reload parity: a compaction present in the RAW api-shaped messages payload (the real toChatUiMessages mapping, not a hand-shaped fixture) still renders after being routed through the same cache seeding a real reload uses", async () => {
+  it("reload parity: conversation rows mapped by the real toChatUiMessages (not a hand-shaped fixture) plus a seeded compaction still render the boundary through the same cache seeding a real reload uses", async () => {
     const chatId = "chat-reload-parity";
     const rawMessages: Array<ChatMessageResponse> = [
       {

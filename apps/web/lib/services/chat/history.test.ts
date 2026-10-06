@@ -68,14 +68,25 @@ describe("normalizeChatMessagesResponse", () => {
     ]);
   });
 
-  it("skips a checkpoint row missing a boundary field and reports none for a page without one", () => {
-    const incomplete = checkpointRow(6, 5, { summary: undefined });
+  it.each([
+    "absorbedThroughSeq",
+    "absorbedMessageCount",
+    "summary",
+    "stats",
+  ] as const)(
+    "skips a newer checkpoint row missing %s and falls back to the earlier complete one",
+    (field) => {
+      const incomplete = checkpointRow(6, 5, { [field]: undefined });
 
-    expect(
-      normalizeChatMessagesResponse({
-        messages: [checkpointRow(3, 2), incomplete],
-      }).compaction,
-    ).toMatchObject({ absorbedThroughSeq: 2 });
+      expect(
+        normalizeChatMessagesResponse({
+          messages: [checkpointRow(3, 2), incomplete],
+        }).compaction,
+      ).toMatchObject({ absorbedThroughSeq: 2 });
+    },
+  );
+
+  it("reports no transcript boundary for a page without a checkpoint row", () => {
     expect(
       normalizeChatMessagesResponse({ messages: [wireRow("user-1", 1)] })
         .compaction,

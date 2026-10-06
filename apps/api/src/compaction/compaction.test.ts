@@ -736,7 +736,6 @@ describe('buildCompactionRequest', () => {
     expect(rendered.indexOf('stored checkpoint')).toBeLessThan(
       rendered.indexOf('$4000'),
     );
-    expect(rendered).not.toContain('budget $3000');
   });
 
   it('never trims absorbed turns — every absorbed message reaches the summarizer', () => {

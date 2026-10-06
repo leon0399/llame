@@ -52,6 +52,21 @@ const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 type SqlClient = Sql;
 
+/** The raw wire shape of a checkpoint row's parts, pinned by the raw-SQL tests below. */
+const checkpointParts = JSON.stringify([
+  {
+    type: 'data-context',
+    data: {
+      v: 1,
+      producer: 'compaction',
+      form: 'checkpoint',
+      runId: '00000000-0000-4000-8000-000000000000',
+      payload: { v: 1, summary: 'private summary' },
+      text: '<system-reminder>private checkpoint</system-reminder>',
+    },
+  },
+]);
+
 /** Asserts a raw `sql` template-tag row carries a string `id`. */
 function assertRowId(r: unknown): asserts r is { id: string } {
   if (!isRecord(r) || typeof r.id !== 'string') {
@@ -312,25 +327,12 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
   it('checkpoint rows cross-tenant: B cannot read A checkpoint, nor write into A chat', async () => {
     const chatId = crypto.randomUUID();
     const checkpointId = crypto.randomUUID();
-    const parts = JSON.stringify([
-      {
-        type: 'data-context',
-        data: {
-          v: 1,
-          producer: 'compaction',
-          form: 'checkpoint',
-          runId: '00000000-0000-4000-8000-000000000000',
-          payload: { v: 1, summary: 'private summary' },
-          text: '<system-reminder>private checkpoint</system-reminder>',
-        },
-      },
-    ]);
 
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Long Chat')`;
       await tx`
         INSERT INTO messages (id, chat_id, seq, role, parts, absorbed_through_seq)
-        VALUES (${checkpointId}, ${chatId}, 11, 'checkpoint', ${parts}::jsonb, 10)`;
+        VALUES (${checkpointId}, ${chatId}, 11, 'checkpoint', ${checkpointParts}::jsonb, 10)`;
       const owned = await tx<
         Array<{ parts: unknown; absorbed_through_seq: string }>
       >`
@@ -339,7 +341,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         WHERE id = ${checkpointId}`;
       // postgres.js returns bigint columns as strings.
       expect(Number(owned[0]?.absorbed_through_seq)).toBe(10);
-      expect(owned[0]?.parts).toEqual(JSON.parse(parts));
+      expect(owned[0]?.parts).toEqual(JSON.parse(checkpointParts));
     });
     try {
       const rows = await asUser(
@@ -353,7 +355,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
           userBId,
           (tx) => tx`
             INSERT INTO messages (chat_id, seq, role, parts, absorbed_through_seq)
-            VALUES (${chatId}, 20, 'checkpoint', ${parts}::jsonb, 19)`,
+            VALUES (${chatId}, 20, 'checkpoint', ${checkpointParts}::jsonb, 19)`,
         ),
       ).rejects.toThrow(/row-level security|violates/i);
     } finally {
@@ -363,19 +365,6 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
   it('anonymous public reads exclude checkpoint rows from a public chat', async () => {
     const chatId = crypto.randomUUID();
     const checkpointId = crypto.randomUUID();
-    const parts = JSON.stringify([
-      {
-        type: 'data-context',
-        data: {
-          v: 1,
-          producer: 'compaction',
-          form: 'checkpoint',
-          runId: '00000000-0000-4000-8000-000000000000',
-          payload: { v: 1, summary: 'private summary' },
-          text: '<system-reminder>private checkpoint</system-reminder>',
-        },
-      },
-    ]);
 
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, visibility, title) VALUES (${chatId}, ${userAId}, 'public', 'Shared')`;
@@ -384,7 +373,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         VALUES (${chatId}, 1, 'user', ${userAId}, ${JSON.stringify([{ type: 'text', text: 'public question' }])}::jsonb)`;
       await tx`
         INSERT INTO messages (id, chat_id, seq, role, parts, absorbed_through_seq)
-        VALUES (${checkpointId}, ${chatId}, 2, 'checkpoint', ${parts}::jsonb, 1)`;
+        VALUES (${checkpointId}, ${chatId}, 2, 'checkpoint', ${checkpointParts}::jsonb, 1)`;
     });
     try {
       const rows = await runAsPublic(

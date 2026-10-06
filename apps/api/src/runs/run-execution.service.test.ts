@@ -7918,8 +7918,53 @@ describe('RunExecutionService executeRun — context window and late tool result
       maxSeq: 9,
       sinceSeq: 4,
     });
-    expect(JSON.stringify(capturing.streamOptions().messages[0])).toContain(
+    // The checkpoint's stored text is the only replayed history: one user
+    // message, not a summary embedded in some other message.
+    const storedCheckpointText: unknown = expect.stringContaining(
       'Earlier turns, summarized.',
+    );
+    const replayedContent: unknown = expect.arrayContaining([
+      { type: 'text', text: storedCheckpointText },
+    ]);
+    expect(capturing.streamOptions().messages).toEqual([
+      { role: 'user', content: replayedContent },
+    ]);
+  });
+
+  it('fails the attempt closed when the active checkpoint stores no usable text', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const stored = createCompactionCheckpointPart('Earlier turns, summarized.');
+    repositories.findActiveCheckpoint.mockResolvedValue({
+      ...activeCheckpoint({ uptoSeq: 4, createdAt: now }),
+      parts: [{ ...stored, data: { ...stored.data, text: '   ' } }],
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+      [],
+    );
+    recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const streamText = vi.spyOn(capturing.client, 'streamText');
+    const execution = makeExecutionService(capturing.client);
+
+    await expect(
+      execution.service.executeRun({
+        ...executionInput(capturing.client),
+        userMessage: {
+          id: messageId,
+          seq: 9,
+          parts: [{ type: 'text', text: 'hello' }],
+        },
+      }),
+    ).rejects.toBeInstanceOf(ModelContextExecutionError);
+    expect(streamText).not.toHaveBeenCalled();
+    const modelContextError: unknown = expect.objectContaining({
+      code: 'model_context_incompatible',
+    });
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({ error: modelContextError }),
     );
   });
 

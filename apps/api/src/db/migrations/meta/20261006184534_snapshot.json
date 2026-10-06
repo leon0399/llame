@@ -1,5 +1,5 @@
 {
-  "id": "573c0fdf-78ae-48ca-a6a5-e82360490fe4",
+  "id": "26a9098f-3a7c-4016-98fd-1d1de0048b16",
   "prevId": "ecde00ad-3250-41f3-ae99-5a76e0c3c809",
   "version": "7",
   "dialect": "postgresql",
@@ -883,6 +883,10 @@
         "messages_seq_positive": {
           "name": "messages_seq_positive",
           "value": "\"messages\".\"seq\" > 0"
+        },
+        "messages_checkpoint_boundary_check": {
+          "name": "messages_checkpoint_boundary_check",
+          "value": "(\"messages\".\"role\"::text = 'checkpoint') = (\"messages\".\"absorbed_through_seq\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": true

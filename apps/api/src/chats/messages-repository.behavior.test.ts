@@ -867,6 +867,7 @@ describe('MessagesRepository read shapes', () => {
     }
     const previewSql = new PgDialect().sqlToQuery(previewPredicate);
     expect(previewSql.sql).toContain('"messages"."role" in ($2, $3)');
+    expect(previewSql.params).toEqual([chat.ownerUserId, 'user', 'assistant']);
     const countSql = new PgDialect().sqlToQuery(countPredicate);
     expect(countSql.sql).toContain('"messages"."role" <> $3');
     expect(countSql.params).toEqual([chat.ownerUserId, chat.id, 'checkpoint']);

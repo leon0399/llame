@@ -84,5 +84,15 @@ describe('conversation evidence', () => {
       expect(isImmutableEvidenceMessage({ role: 'system' })).toBe(false);
       expect(isImmutableEvidenceMessage({ role: 'tool' })).toBe(false);
     });
+
+    it('excludes checkpoint rows even when their usage reads as completed', () => {
+      expect(
+        isImmutableEvidenceMessage({
+          role: 'checkpoint',
+          usage: { status: 'completed', inputTokens: 100 },
+        }),
+      ).toBe(false);
+      expect(isImmutableEvidenceMessage({ role: 'checkpoint' })).toBe(false);
+    });
   });
 });

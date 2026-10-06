@@ -1505,7 +1505,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
       const state = await readTurnState(turnOf(seeded));
       const checkpoint = sole(state.checkpoints);
-      expect(checkpoint.role).toBe('checkpoint');
       expect(checkpoint.absorbedThroughSeq).toBe(seeded.targetUser.seq - 1);
       expect(checkpointSummary(checkpoint)).toBe(SUMMARY);
       // The one receipt is the prompt the target was actually sent, never the

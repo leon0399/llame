@@ -234,6 +234,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
       content: COMPACTION_INSTRUCTION,
     });
     const rendered = JSON.stringify(sent?.messages);
+    expect(rendered).toContain('previous checkpoint');
     expect(rendered.indexOf('previous checkpoint')).toBeLessThan(
       rendered.indexOf('message 2'),
     );

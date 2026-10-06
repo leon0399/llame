@@ -439,6 +439,44 @@ describe('conversation message sequence database invariants', () => {
     }
   });
 
+  it('binds a boundary to the checkpoint role and keeps it unique per chat', async () => {
+    const chatId = await tenantDb.runAs(ownerUserId, (tx) =>
+      createChat(tx, 'Checkpoint boundary'),
+    );
+    const insertRow = (role: string, boundary: number | null) =>
+      tenantDb.runAs(ownerUserId, (tx) =>
+        tx.execute(dsql`
+          INSERT INTO messages (chat_id, seq, role, parts, absorbed_through_seq)
+          VALUES (
+            ${chatId},
+            (SELECT coalesce(max(seq), 0) + 1 FROM messages WHERE chat_id = ${chatId}),
+            ${role}::message_role,
+            ${JSON.stringify(textPart('row'))}::jsonb,
+            ${boundary}
+          )
+        `),
+      );
+
+    try {
+      await insertRow('user', null);
+      await expect(insertRow('checkpoint', null)).rejects.toMatchObject({
+        cause: expect.objectContaining({ code: '23514' }),
+      });
+      await expect(insertRow('user', 1)).rejects.toMatchObject({
+        cause: expect.objectContaining({ code: '23514' }),
+      });
+
+      await insertRow('checkpoint', 1);
+      await expect(insertRow('checkpoint', 1)).rejects.toMatchObject({
+        cause: expect.objectContaining({ code: '23505' }),
+      });
+    } finally {
+      await tenantDb.runAs(ownerUserId, (tx) =>
+        new ChatsRepository(tx).deleteById(chatId, ownerUserId),
+      );
+    }
+  });
+
   it('allocates dense one-based sequence values independently per chat', async () => {
     const chatA = await tenantDb.runAs(ownerUserId, (tx) =>
       createChat(tx, 'Local sequence A'),
