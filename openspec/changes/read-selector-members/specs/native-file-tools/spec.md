@@ -119,7 +119,9 @@ members all resolve empty fails as a start past the last line on a nonempty
 regular file or web render. On an empty regular file or web render, `-K` and
 `1-` return the shipped empty result (the start-past-EOF rule does not apply to
 a source with no last line at offset 0); any other `N-` fails as a start past
-the last line. On a listing or the catalog, an `N-` past the end returns the
+the last line when it is the first requested start of the sorted members, so a
+comma list that starts at line 1, such as `:1-,2-`, returns empty plural ranges
+as the multi-range rule states. On a listing or the catalog, an `N-` past the end returns the
 empty page those sources return today; an empty listing or catalog keeps its
 empty page for every member.
 
