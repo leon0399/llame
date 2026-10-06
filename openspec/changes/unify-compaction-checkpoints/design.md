@@ -244,6 +244,8 @@ path for the post-turn mode, and makes a retry re-summarize.
 `messages_public_read` excludes checkpoint rows through `role::text <>
 'checkpoint'` (the text comparison keeps the new enum value out of the DDL
 that adds it; Drizzle generates the `ALTER POLICY` from the `pgPolicy` edit).
+The threat is that checkpoint text is owner-derived conversation content, so a cross-tenant read would disclose an owner's data. The `messages` table SHALL remain RLS ENABLED and FORCE RLS under a trusted tenant identity, with fail-closed behavior; the owner policy remains unchanged, and the public policy excludes checkpoint rows.
+
 Search projection, `conversation_read`, the public message DTO, the shared-fork
 text copy, ordinary exports, the chat-list preview (latest row per owned chat)
 and the recency-digest message count exclude the role by column. A checkpoint
@@ -251,8 +253,9 @@ row whose stored text is empty or missing fails request preparation closed
 rather than replaying as an inert part, because an inert checkpoint would
 hide the rows it absorbed. The summary therefore never leaves owner scope
 through a row-level read, matching the protection the separate table had.
-Negative tests cover anonymous read, search, `conversation_read` and a shared
-fork of a compacted public chat.
+Negative tests cover anonymous read, search, `conversation_read`, a
+cross-tenant read in which tenant B cannot read tenant A's checkpoint row, and
+a shared fork of a compacted public chat.
 
 ### D7: Epoch markers name the checkpoint message; the epoch compares `seq`
 
@@ -386,9 +389,8 @@ backfill without request.
    compares it for equality with the active checkpoint and a stale value never
    matches (today's fail-safe), and an `UPDATE` on the FORCE-RLS `chats`
    table would silently touch nothing from a migration without identity.
-2. Deploy API and worker together; no dual-read.
-3. Rollback: restore from the pre-migration backup; the dropped rows are not
-   reconstructible from the new schema.
+2. Stop the API and workers, take the pre-migration backup at that stop, run the migration while all revisions remain stopped, and start the new API and worker revision together; this is the repository's established stop-migrate-start cutover, with no dual-read or mixed-revision run.
+3. Rollback: before any new revision runs, restore the pre-migration backup taken at the stop and start the previous API and worker revision together. Nothing runs between the backup and migration, so no writes after that backup are lost.
 
 ## Open Questions
 

@@ -4,7 +4,7 @@
 
 ### Requirement: Per-model compaction threshold
 
-A model catalog entry MAY declare an optional `compactionThresholdTokens`. The compaction trigger threshold for a run SHALL resolve to that per-model value when present, otherwise to `contextWindowTokens × COMPACTION_WINDOW_RATIO`. The threshold SHALL be compared against the measured context size inside the Run, before that Run's first model request. No instance-level compaction threshold or context-window override SHALL be read; the removed `COMPACTION_TOKEN_THRESHOLD` and `MODEL_CONTEXT_WINDOW_TOKENS` environment variables SHALL have no effect. Per-user and per-send threshold tiers are out of scope for this capability.
+A model catalog entry MAY declare an optional `compactionThresholdTokens`. The compaction trigger threshold for a run SHALL resolve to that per-model value when present, otherwise to `Math.floor(contextWindowTokens × COMPACTION_WINDOW_RATIO)`. The threshold SHALL be compared against the measured context size inside the Run, before that Run's first model request. No instance-level compaction threshold or context-window override SHALL be read; the removed `COMPACTION_TOKEN_THRESHOLD` and `MODEL_CONTEXT_WINDOW_TOKENS` environment variables SHALL have no effect. Per-user and per-send threshold tiers are out of scope for this capability.
 
 #### Scenario: Per-model override drives the trigger
 

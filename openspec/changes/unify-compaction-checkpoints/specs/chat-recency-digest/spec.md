@@ -59,9 +59,15 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 
 #### Scenario: The setting is disabled between resolution and request preparation
 
-- **WHEN** an owner disables `shareRecentChats` after the worker has resolved a baseline candidate but before its final pre-request owner-setting check
+- **WHEN** an owner disables `shareRecentChats` after the worker has resolved a baseline candidate but before its final pre-request owner-setting check, and before any checkpoint transaction has published that candidate
 - **THEN** the candidate is discarded and no new baseline or append is sent or committed
 - **AND** the run proceeds without digest content rather than failing
+
+#### Scenario: Sharing is withdrawn after checkpoint publication
+
+- **WHEN** an owner disables `shareRecentChats` after a checkpoint transaction has published a refreshed baseline but before the final pre-request owner-setting check
+- **THEN** the request proceeds without newly produced digest content
+- **AND** the published checkpoint and refreshed baseline remain committed
 
 #### Scenario: A failed attempt leaves no baseline
 

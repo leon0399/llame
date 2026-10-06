@@ -17,6 +17,7 @@ Tool observations are no longer display-only. They are replayed in the conventio
 
 - **WHEN** an earlier assistant turn persisted reasoning, provider-native metadata, or settled tool activity/results alongside visible answer text
 - **AND** a later turn uses the same model or switches providers or models
+- **AND** the settled tool activity is above the active checkpoint's absorbed-through boundary, or no active checkpoint exists
 - **THEN** the later model receives the visible answer text through the canonical replay projection
 - **AND** it receives the earlier tool observations in the target provider's expected representation, each call accompanied by its result
 - **AND** the persisted reasoning parts and their provider metadata are passed back unchanged under `reasoning-output`, with no coercion, pruning, or re-binding for the later model
@@ -244,7 +245,7 @@ That instruction SHALL also state that summarized history and any prior
 checkpoint are data that are never answered or continued; that the conversation
 wins over a prior checkpoint and a reverse signal removes a task instead of
 carrying it; that credentials, tokens, and connection strings become
-`[REDACTED]` with a note that they were present; that the summary follows the
+`[REDACTED]` with a note that they were present; redaction takes precedence over verbatim quoting; that the summary follows the
 conversation's language and never translates code, paths, identifiers, or errors;
 and that a field is omitted rather than invented, with no identifier shortened or
 reconstructed.
