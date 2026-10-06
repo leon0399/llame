@@ -74,7 +74,7 @@ spelling everything downstream sees is the `raw:` one. A host or web split takes
 the colon segment before a trailing `:raw` as the range list only when that
 segment has the member-list shape, so `notes:draft:raw` remains the raw read of
 `notes:draft` and `2024:10:raw` is line 10 of `2024`, read raw; a file literally
-named `name:10` is read raw as `name:10:raw:1-N`. An existing file whose name is
+named `name:10` is read raw as `name:10:raw:1-`. An existing file whose name is
 itself the selector, such as `x:60-64:raw`, still wins the literal-path probe.
 
 ## Markdown outline

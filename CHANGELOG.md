@@ -17,7 +17,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   it. `:<list>:raw` is the same read as `:raw:<list>` on every source, with
   `raw:` canonical downstream; one meaning changed with it — `name:10:raw` is
   now line 10 of `name` read raw instead of a raw read of a file literally named
-  `name:10`, which is still reachable as `name:10:raw:1-N`
+  `name:10`, which is still reachable as `name:10:raw:1-`
   ([#1025](https://github.com/leon0399/llame/issues/1025)).
 
 - **Breaking:** a trailing suffix that splits off a locator which itself parses

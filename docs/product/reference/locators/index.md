@@ -65,7 +65,7 @@ adapter directory in [web](web.md).
 
 `invalid_path` covers a refused locator form, an unimplemented scheme, and a
 `kb://` identifier with no Space. A trailing suffix outside the selector grammar
-is `invalid_selector` on every scheme, with one message naming the working
+on a supported locator that otherwise parses is `invalid_selector`, with one message naming the working
 forms and, where a literal colon has an encoded spelling, that spelling after
 them; see [malformed selectors](../selectors.md#malformed-selectors). A
 trailing representation member the scheme splits differently is refused rather
