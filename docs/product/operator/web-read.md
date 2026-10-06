@@ -199,16 +199,23 @@ A web read derives locators the model never wrote: redirect hops, an announced
 alternate, a suffix candidate, an `llms.txt` candidate, and an adapter target.
 Each one is evaluated against the `read` permission group before its request,
 as if the model had submitted it, through the same evaluator and the same
-projection the call used.
+normalization the call used, minus the read-selector removal a submitted call
+gets.
 It inherits nothing from the admitted call or from an earlier derived locator.
 
 The two forms policy sees differ, and the difference matters when you write
 clauses:
 
-- A locator is matched twice: as the model submitted it, and as the read tool
-  parses it — fragment cut, host, port, and encoding normalized, selector
-  kept. A reject matching either refuses the call; the allow is decided on the
-  parsed text, which is the one the request uses.
+- A locator is matched twice: as the model submitted it, with only a split-off
+  read selector removed (so a submitted fragment remains), and as the read tool
+  parses it — fragment cut, host, port, and encoding normalized. A read
+  selector is removed from both texts, so `^https://docs\.example\.com/guide$`
+  admits `.../guide:raw` and a clause written against a selector spelling such
+  as `:raw` matches no read. A reject matching either refuses the call; the
+  allow is decided on the parsed text, which is the one the request uses.
+- A derived locator carries no selector of the model's, so none is removed
+  from it: it is matched exactly as it will be requested, with its own
+  selector spelling kept, and a hop ending in `:5` is judged with that text.
 - A hop locator is the `Location` value resolved against the redirecting
   request's URL and serialized by the WHATWG parser as its `href`, with any
   fragment dropped: lowercase host, an internationalized host as punycode, a

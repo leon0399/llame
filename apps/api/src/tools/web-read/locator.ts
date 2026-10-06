@@ -34,7 +34,7 @@ const CREDENTIALS_MESSAGE =
   'A web locator must not carry credentials; remove the userinfo before the host.';
 
 /** A locator split from its trailing selector, before either is validated. */
-type SplitLocator = { url: string; selector?: string };
+type SplitLocator = { readonly url: string; readonly selector?: string };
 
 /**
  * Whether the colon at `index` may begin a selector, which only ever trails
@@ -55,7 +55,11 @@ function opensSelector(text: string, index: number): boolean {
   return !/[?#]/u.test(text);
 }
 
-function splitSelector(text: string): SplitLocator {
+/**
+ * The split {@link parseWebLocator} makes, exposed so permission matching
+ * strips exactly what the read tool splits off and nothing else.
+ */
+export function splitWebSelector(text: string): SplitLocator {
   const raw = RAW_SELECTOR.exec(text);
   if (raw !== null && opensSelector(text, raw.index)) {
     const before = text.slice(0, raw.index);
@@ -245,7 +249,7 @@ export function parseWebLocator(
       ? unparsableLocator(text)
       : admitted;
   }
-  const { url, selector } = splitSelector(text);
+  const { url, selector } = splitWebSelector(text);
   // The URL half is parsed in its own right, because that is the text the
   // request and the permission decision use.
   const target = parseWebUrl(url);

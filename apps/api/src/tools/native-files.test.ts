@@ -263,7 +263,7 @@ describe('Workspace-relative native paths', () => {
     }
   });
 
-  it('admits host suffix permissions before parsing an outline', async () => {
+  it('admits host path permissions before parsing an outline', async () => {
     const root = await mkdtemp(join(tmpdir(), 'outline-permission-'));
     const file = join(root, 'guide.md');
     await writeFile(file, '# Guide\n');
@@ -276,7 +276,7 @@ describe('Workspace-relative native paths', () => {
         {
           read: {
             allow: true,
-            reject: [{ field: 'path', literal: `${file}:outline` }],
+            reject: [{ field: 'path', literal: file }],
           },
         },
         'outline-permission',

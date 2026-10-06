@@ -172,6 +172,39 @@ describe('createDerivedAdmission', () => {
     });
   });
 
+  it('judges a hop ending in a selector-shaped segment with that text', () => {
+    // A derived locator is chosen by a server, so no selector is removed from
+    // it: the `:5` is part of the path the next request will use, and a list
+    // spelled before `:raw` keeps that order instead of the parser's.
+    const admit = createDerivedAdmission(
+      contextOf(
+        policy({
+          read: {
+            allow: [
+              {
+                field: 'path',
+                regex: String.raw`^https://docs\.example\.test/feed:5$`,
+              },
+              {
+                field: 'path',
+                regex: String.raw`^https://x\.test/a:5-9:raw$`,
+              },
+            ],
+          },
+        }),
+      ),
+    );
+
+    expect(admit('hop', 'https://DOCS.example.test/feed:5')).toMatchObject({
+      decision: 'allow',
+      reason: 'matched_allow',
+    });
+    expect(admit('hop', 'https://x.test/a:5-9:raw')).toMatchObject({
+      decision: 'allow',
+      reason: 'matched_allow',
+    });
+  });
+
   it('rejects a locator no clause admits and reports the refusal', () => {
     const compiled = policy({ read: { allow: true, reject: true } });
     const seen: Array<DerivedDecision> = [];

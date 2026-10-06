@@ -92,11 +92,43 @@ continues with other permitted work.
 
 For native `read`, `edit`, and `write`, the `path` value is projected to its
 logical locator before matching: a `kb://` locator is re-encoded once to
-`kb://<space-id>/<encoded-path>` with any read selector (`:N-M`, `:raw`)
-removed; a direct absolute path is matched as submitted, including trailing
-separators and selector-like suffixes. No filesystem or backing path is
-resolved during permission evaluation, and arbitrary MCP values receive no
-native normalization.
+`kb://<space-id>/<encoded-path>`, a `skill://` locator to its canonical
+identity, a `file://` or `file:` alias to its percent-decoded absolute host
+path, and a web locator to the URL its request will use, down to the host case,
+port, escapes, and fragment, as [web
+locators](../reference/locators/web.md#form) describes. A Workspace-relative
+host path is resolved against the Workspace root first. No filesystem or
+backing path is resolved during permission evaluation, and arbitrary MCP
+values receive no native normalization.
+
+A `read` is matched **without its read selector**, on every source: the direct
+host path, a decoded file alias, a `kb://` or `skill://` locator, a web
+locator, and the Workspace-relative path after resolution. Nothing else is
+removed from the text — a submitted web fragment stays in the submitted pass,
+while the parsed/requested web projection drops it. A clause therefore names
+the resource, not the window into it, so `^/srv/docs/guide\.md$` admits
+`/srv/docs/guide.md:10-20`, and a clause written against a selector spelling
+such as `:raw` matches no read at all. Three consequences are worth knowing:
+
+- Admission is text-only, so an exact allow for `/srv/docs/README` also admits
+  a read of a literal file named `README:raw` when one exists.
+- The same gap cuts the other way: an exact reject can no longer single out a
+  literal file whose colon suffix fits the grammar. `^/data/report$` matches
+  `/data/report:2024` as `/data/report`, and the executor then reads the
+  literal file. Scope a reject to the resource, not to a selector spelling.
+- `edit` and `write` are the exception: a mutation takes its path literally,
+  so any selector-shaped suffix stays in every text they are matched on,
+  including the decoded alias. `^/srv/app/config\.json$` admits the write of
+  `/srv/app/config.json` and refuses `/srv/app/config.json:1-5`, which names a
+  different file.
+
+The `:` alternative in the F1-F3 credential terminators stays load-bearing for
+the same reason: those rows also guard `edit`, `write`, and
+`enter_workspace`, where nothing is removed, and a colon-bearing name outside
+the read selector grammar, such as `/home/u/.ssh:old`, keeps its suffix in a
+`read`'s matched text, so F1 still catches it. F4 keeps catching a credential
+file a read selects into, because the selector is gone before the clause sees
+the text: `read /srv/.env:raw` is matched as `/srv/.env`.
 
 ## Limits
 
@@ -213,13 +245,14 @@ a separate derived locator.
 
 What the clause matches is locator text, not an address:
 
-- A `kb://` locator is projected before matching (selector removed, path
-  re-encoded); a web locator is matched twice, so `^https://docs\.example\.com/`
-  admits `.../guide:raw` and `HTTPS://docs.example.com/guide` alike. A reject
-  is the stricter of the two texts — a clause naming the host catches the
-  encoded, uppercase, default-port, and root-dot spellings of it — while an
-  allow is decided on the requested text, since that is the resource the call
-  reaches. The two forms are described in [web
+- A `kb://` locator is projected before matching (path re-encoded); a web
+  locator is matched twice, both times without its read selector, so
+  `^https://docs\.example\.com/` admits `.../guide:raw` and
+  `HTTPS://docs.example.com/guide` alike. A reject is the stricter of the two
+  texts — a clause naming the host catches the encoded, uppercase,
+  default-port, and root-dot spellings of it — while an allow is decided on the
+  requested text, since that is the resource the call reaches. The two forms
+  are described in [web
   reads](web-read.md#derived-locators-and-permission-admission).
 - A derived locator earns its own allow: a redirect hop is a different
   resource, so an allowlist admits a hop only when one of its clauses names the
