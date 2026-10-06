@@ -360,7 +360,7 @@ This logical-resource projection SHALL NOT rewrite executor arguments except tha
 
 - **WHEN** a permission group allows `^/srv/docs/` and a `read` call submits `file:///srv/docs/guide.md:10-20`
 - **THEN** the projection used for the allow is `/srv/docs/guide.md`, with the read selector removed from the submitted locator and from the decoded host path
-- **AND** selector validation and host execution still apply after permission admission, and the submitted locator reaches the tool unchanged; the scenario keeps its earlier name while the projection now removes the selector it once preserved
+- **AND** selector validation and host execution still apply after permission admission, and the submitted locator reaches the tool unchanged
 
 #### Scenario: A reject sees decoded file URL text
 
