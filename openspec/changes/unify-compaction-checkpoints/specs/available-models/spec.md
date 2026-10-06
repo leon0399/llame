@@ -15,7 +15,7 @@ A model catalog entry MAY declare an optional `compactionThresholdTokens`. The c
 #### Scenario: Falls back to the window-derived threshold
 
 - **WHEN** a run's model does not declare `compactionThresholdTokens`
-- **THEN** compaction triggers against `contextWindowTokens × COMPACTION_WINDOW_RATIO`
+- **THEN** compaction triggers against `Math.floor(contextWindowTokens × COMPACTION_WINDOW_RATIO)`
 
 #### Scenario: Instance compaction env vars are inert
 
