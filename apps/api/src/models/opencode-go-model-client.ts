@@ -104,6 +104,11 @@ export function createOpenCodeGoModelClient(
       provider: 'opencode-go',
       headers: { [OPENCODE_GO_CLIENT_HEADER]: 'llame' },
       fetch: rejectRedirects(globalThis.fetch),
+      // The gateway answers `stream_options.include_usage` with a stream that
+      // carries no finish reason and ends in a malformed cost chunk, which
+      // fails the Run (anomalyco/opencode#42918); without it the stream is
+      // clean, so Go requests never ask.
+      includeUsage: false,
       sessionHeader: (chat) => ({
         name: OPENCODE_GO_SESSION_HEADER,
         value: renderSessionValue(chat),

@@ -14,10 +14,12 @@ import {
   simulateReadableStream,
   streamText,
   tool,
+  type LanguageModelUsage,
   type ModelMessage,
 } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
+import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
 import { type ChatIdentity, type ModelObjectInput } from './model-client';
 import {
@@ -186,11 +188,13 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
     });
     // Exact settings, not objectContaining: proves the wire is the adapter's
     // own Chat Completions entry point at the entry's baseUrl, with no
-    // Responses-only construction option and no default departure.
+    // Responses-only construction option and no default departure other than
+    // asking for streaming usage.
     expect(createOpenAICompatibleMock).toHaveBeenCalledWith({
       name: 'openai-completions',
       baseURL: 'https://api.deepseek.com/v1',
       apiKey: 'sk-test',
+      includeUsage: true,
     });
     expect(provider).toHaveBeenCalledWith('deepseek-chat');
     const streamTextCall = streamTextMock.mock.calls[0]?.[0];
@@ -402,6 +406,7 @@ describe('createOpenAICompletionsModelClient — keyless provider', () => {
       name: 'openai-completions',
       baseURL: 'https://api.deepseek.com/v1',
       apiKey: KEYLESS_PLACEHOLDER_API_KEY,
+      includeUsage: true,
     });
   });
 
@@ -618,6 +623,84 @@ describe("createOpenAICompletionsModelClient — llame's product identity (desig
   });
 });
 
+/**
+ * The JSON object one fetch call sent as its body: the request as the adapter
+ * serialized it, read back through `Request`.
+ */
+async function sentBody(
+  ...[input, init]: Parameters<typeof globalThis.fetch>
+): Promise<UnknownRecord> {
+  const body: unknown = JSON.parse(await new Request(input, init).text());
+  if (!isRecord(body)) {
+    throw new TypeError('expected a JSON object request body');
+  }
+  return body;
+}
+
+describe('createOpenAICompletionsModelClient — streaming usage (run-usage-accounting)', () => {
+  it('asks for usage on every streaming request and reports what the server returns', async () => {
+    const answer =
+      'data: {"id":"chunk-1","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}\n\n';
+    const usage =
+      'data: {"id":"chunk-1","object":"chat.completion.chunk","created":0,"model":"deepseek-chat","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17,"completion_tokens_details":{"reasoning_tokens":2}}}\n\n';
+    // Like a real server, the stub sends the usage chunk only when the
+    // request asks for it, so a client that does not ask records nothing.
+    const fetchMock = vi.fn<typeof globalThis.fetch>(
+      async (
+        input: Parameters<typeof globalThis.fetch>[0],
+        init?: RequestInit,
+      ) => {
+        const streamOptions = (await sentBody(input, init))['stream_options'];
+        const asked =
+          isRecord(streamOptions) && streamOptions['include_usage'] === true;
+        return new Response(
+          [answer, ...(asked ? [usage] : []), 'data: [DONE]\n\n'].join(''),
+          { headers: { 'content-type': 'text/event-stream' } },
+        );
+      },
+    );
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = createOpenAICompletionsModelClient({
+        credential: 'sk-test',
+        providerModelId: 'deepseek-chat',
+        modelId: 'system:deepseek:deepseek-chat',
+        contextWindowTokens: 128_000,
+        baseUrl: 'https://api.deepseek.com/v1',
+        userAgent: USER_AGENT,
+      });
+      const reported: Array<LanguageModelUsage> = [];
+
+      await expect(
+        client.streamText({
+          chat: CHAT,
+          messages,
+          onRequestUsage: (requestUsage) => reported.push(requestUsage),
+        }).text,
+      ).resolves.toBe('done');
+
+      const call = fetchMock.mock.calls[0];
+      if (call === undefined) {
+        throw new TypeError('no fetch call was recorded');
+      }
+      await expect(sentBody(...call)).resolves.toMatchObject({
+        stream: true,
+        stream_options: { include_usage: true },
+      });
+      expect(reported).toHaveLength(1);
+      expect(reported[0]).toMatchObject({
+        inputTokens: 12,
+        outputTokens: 5,
+        outputTokenDetails: { reasoningTokens: 2 },
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+});
+
 describe('createOpenAICompletionsModelClient — configured provider name (design D2)', () => {
   it("composes the operator's options under the namespace the adapter derives from that name", async () => {
     const model = scriptedModel([textResponse('answer')]);
@@ -641,6 +724,7 @@ describe('createOpenAICompletionsModelClient — configured provider name (desig
       name: 'acme-wire',
       baseURL: 'https://api.deepseek.com/v1',
       apiKey: 'sk-test',
+      includeUsage: true,
     });
     expect(model.doStreamCalls[0]?.providerOptions).toEqual({
       acmeWire: { user: 'run-owner' },

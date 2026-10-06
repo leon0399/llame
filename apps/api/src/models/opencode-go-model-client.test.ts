@@ -555,6 +555,23 @@ describe('createOpenCodeGoModelClient — the headers and body llame sends (desi
     }
   });
 
+  it('does not ask the gateway for streaming usage', async () => {
+    const stub = serveFetch(streamResponse);
+    try {
+      const client = buildClient();
+
+      await expect(
+        client.streamText({ chat: MAIN_CHAT, messages }).text,
+      ).resolves.toBe('done');
+
+      // The gateway answers `stream_options.include_usage` with a stream that
+      // has no finish reason (anomalyco/opencode#42918), which fails the Run.
+      expect(await requestBody(stub)).not.toHaveProperty('stream_options');
+    } finally {
+      stub.restore();
+    }
+  });
+
   it('sends the same header set on the structured request', async () => {
     const stub = serveFetch(structuredResponse);
     try {

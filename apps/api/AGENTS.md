@@ -100,7 +100,9 @@ the Anthropic API. `openai-codex` and `opencode-go` reject `baseUrl` because
 each endpoint is fixed in code: the Codex Responses endpoint, and the OpenCode
 Go gateway at `https://opencode.ai/zen/go/v1`, whose `type` executes the Chat
 Completions module with the Go transport (a fixed base URL, its own headers,
-redirect rejection, and a required credential). `accountId` is accepted by
+redirect rejection, a required credential, and no streaming usage request,
+because the gateway answers `stream_options.include_usage` with a stream that
+has no finish reason). `accountId` is accepted by
 `openai-codex` alone; every other variant rejects it. A `key` is optional for
 the two OpenAI wires and for Messages, where an absent or empty resolution is
 keyless; `openai-codex` requires nonblank `key` and `accountId`, and
@@ -129,7 +131,10 @@ Responses wire would have adapted the request; `logprobs`, `logit_bias`,
 `prediction`, `service_tier`, `store`, `safety_identifier`,
 `parallel_tool_calls`, prompt-cache fields, and web-search `source` parts are
 unsupported; its usage converter has no `cacheWrite` field, which no cost
-formula reads. Forced tool choice with `strict` tool schemas, error schemas,
+formula reads. Every streaming request asks for usage
+(`stream_options.include_usage`) except on the Go transport, and no operator
+setting turns that off: a server that rejects the field fails every streaming
+request on that entry. Forced tool choice with `strict` tool schemas, error schemas,
 and cache-read usage are not regressed.
 
 **Breaking**: `type: "openai"` is deleted. Every existing entry fails boot as

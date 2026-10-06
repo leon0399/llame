@@ -40,5 +40,7 @@ below state additional ordering where a change needs it.
 
 - [Codex subscription](providers/codex-subscription.md): `openai-codex`.
 - [OpenCode Go](providers/opencode-go.md): `opencode-go`.
+- [LiteLLM gateway](providers/litellm-gateway.md): `openai-completions`
+  entries for vLLM-served models, token usage, and reasoning effort.
 - [Horizontal scaling](scaling.md): API and worker topology, worker profiles,
   and capacity.
