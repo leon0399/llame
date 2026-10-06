@@ -483,9 +483,6 @@ function mockNormalExecutionRepositories() {
       ...run,
       status: 'completed',
     });
-  const holdsActiveAttempt = vi
-    .spyOn(RunsRepository.prototype, 'holdsActiveAttempt')
-    .mockResolvedValue(true);
 
   const updateForAttempt = vi
     .spyOn(RunsRepository.prototype, 'updateForAttempt')
@@ -508,7 +505,9 @@ function mockNormalExecutionRepositories() {
   vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue(event);
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
-  vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+  const touch = vi
+    .spyOn(ChatsRepository.prototype, 'touch')
+    .mockResolvedValue(chat);
   vi.spyOn(
     CompactionsRepository.prototype,
     'findLatestByChatId',
@@ -551,7 +550,7 @@ function mockNormalExecutionRepositories() {
     markFinished,
     createAssistantReplyIfAbsent,
     updateUserMessageParts,
-    holdsActiveAttempt,
+    touch,
     updateForAttempt,
     recordContextItems,
     createReceipt,
@@ -6398,7 +6397,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       publication.findByCutoff.mockResolvedValue(input.duplicateCutoff);
     }
     if (input.fenceLost) {
-      spies.holdsActiveAttempt.mockResolvedValueOnce(false);
+      spies.updateForAttempt.mockResolvedValueOnce(undefined);
     }
     const client = input.client ?? answeringTriggerClient();
     const memory =
@@ -6938,10 +6937,14 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       }),
     });
 
-    expect(spies.holdsActiveAttempt).toHaveBeenCalledWith(
+    expect(spies.updateForAttempt).toHaveBeenCalledWith(
       runId,
       userId,
       testAttemptId,
+      { activeAttemptId: testAttemptId },
+    );
+    expect(spies.updateForAttempt.mock.invocationCallOrder[0]).toBeLessThan(
+      spies.touch.mock.invocationCallOrder[0],
     );
     expect(publication.create).not.toHaveBeenCalled();
     expect(publication.setTold).not.toHaveBeenCalled();

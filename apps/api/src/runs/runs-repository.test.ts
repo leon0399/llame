@@ -243,26 +243,6 @@ describe('RunsRepository', () => {
     await expect(repository.findById(run.id, run.userId)).resolves.toBe(run);
     expect(select).toHaveBeenCalledTimes(4);
   });
-  it('uses a key-share lock for the active-attempt fence predicates', async () => {
-    const { db, queries } = makeLoggedDb();
-
-    await new RunsRepository(db)
-      .holdsActiveAttempt('run-bound', 'owner-bound', 'attempt-bound')
-      .catch(() => undefined);
-
-    expect(queries).toHaveLength(1);
-    const query = queries[0];
-    expect(query?.sql).toContain('"runs"."id" = $');
-    expect(query?.sql).toContain('"runs"."user_id" = $');
-    expect(query?.sql).toContain('"runs"."active_attempt_id" = $');
-    expect(query?.sql).toContain('for key share');
-    expect(query?.params).toEqual([
-      'run-bound',
-      'owner-bound',
-      'attempt-bound',
-      1,
-    ]);
-  });
 
   it('records an optional worker id only when markStarted receives one', async () => {
     const { db, calls } = makeDb({ update: [[run], [run]] });

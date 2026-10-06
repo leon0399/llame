@@ -3652,25 +3652,28 @@ export class RunExecutionService {
       }
     }
     await this.tenantDb.runAs(input.run.userId, async (tx) => {
-      const chatsRepo = new ChatsRepository(tx);
-      const compactionsRepo = new CompactionsRepository(tx);
-      // Keep the chats row lock first, matching the chat loop: an accepted
-      // turn locks it in `touch` before it takes the run row lock. The fence
-      // below is a READ with `FOR KEY SHARE`, which is compatible with the
-      // `FOR NO KEY UPDATE` lock taken by `markFinished`; it therefore never
-      // waits on the runs row while holding chats.
-      const chat = await chatsRepo.touch(input.run.chatId, input.run.userId);
-      // A reclaimed attempt must not move epoch state under the live one.
-      const fenced = await new RunsRepository(tx).holdsActiveAttempt(
+      // A reclaimed or terminated attempt must not move epoch state under the
+      // live one. The write fence locks the non-terminal runs row for this
+      // attempt, so it serializes with a reclaim's `markStarted`. It runs
+      // first, before any chats lock, in the terminal transaction's order
+      // (runs, then chats), so a replacement attempt finishing concurrently
+      // waits on this transaction instead of deadlocking with it.
+      const fenced = await new RunsRepository(tx).updateForAttempt(
         input.run.runId,
         input.run.userId,
         input.attemptId,
+        { activeAttemptId: input.attemptId },
       );
       if (!fenced) {
         throw new ModelContextExecutionError(
           `Run ${input.run.runId} was reclaimed before checkpoint publication.`,
         );
       }
+      const chatsRepo = new ChatsRepository(tx);
+      const compactionsRepo = new CompactionsRepository(tx);
+      // Chats before memory, matching the chat loop, which locks the chats row
+      // in `touch` and only then takes `FOR SHARE` on memory settings.
+      const chat = await chatsRepo.touch(input.run.chatId, input.run.userId);
       const shareRecentChats = await this.memory.getForOwnerForBinding(
         tx,
         input.run.userId,
