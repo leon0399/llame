@@ -8,7 +8,7 @@
 | Integration | real Postgres, RLS, queue, HTTP | co-located `*.integration.test.ts`                             | `pnpm --filter api test:integration`                                |
 | Component   | browser behavior/a11y/visuals   | co-located `*.stories.tsx`                                     | `pnpm --filter <ws> test:stories`                                   |
 | Product E2E | full user flow                  | `e2e/<surface>/*.spec.ts`                                      | `pnpm test:e2e`                                                     |
-| Eval        | model-graded quality            | `apps/api/evals/*.test.ts`; `apps/api/evals/compaction/run.ts` | `pnpm --filter api test:evals`; `pnpm --filter api eval:compaction` |
+| Eval        | model-output quality            | `apps/api/evals/*.test.ts`; `apps/api/evals/compaction/run.ts` | `pnpm --filter api test:evals`; `pnpm --filter api eval:compaction` |
 
 Component tests are Vitest Browser Mode: `@storybook/addon-vitest` turns each
 story into a Chromium test. Stories run from the workspace that authors them:

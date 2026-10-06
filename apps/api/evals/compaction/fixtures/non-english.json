@@ -2,7 +2,9 @@
   "id": "compaction-eval-non-english",
   "system": "You are a careful coding assistant.",
   "expectation": {
-    "kind": "nonEnglish"
+    "kind": "nonEnglish",
+    "languageMarker": "todavía",
+    "fact": "puerto 8080"
   },
   "messages": [
     {

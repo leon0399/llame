@@ -4,6 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import {
+  COMPACTION_INSTRUCTION,
   buildCompactionRequest,
   normalizeCompactionSummary,
 } from '../../src/compaction/compaction';
@@ -11,8 +12,19 @@ import { loadInstanceConfig } from '../../src/instance-config/config-loader';
 import type { LlameConfig } from '../../src/instance-config/llame-config';
 import { loadProductUserAgent } from '../../src/instance-config/product-identity';
 import { ModelsService } from '../../src/models/models.service';
-import type { ModelClient } from '../../src/models/model-client';
+import type {
+  ModelClient,
+  ModelStreamResult,
+} from '../../src/models/model-client';
 import type { StoredMessage } from '../../src/chats/context-builder';
+
+const REQUIRED_HANDOFF_HEADINGS: Array<string> = [];
+for (const match of COMPACTION_INSTRUCTION.matchAll(/^## (.+)$/gmu)) {
+  const heading = match[1]?.trim();
+  if (heading !== undefined && heading.length > 0) {
+    REQUIRED_HANDOFF_HEADINGS.push(heading);
+  }
+}
 
 const FIXTURE_FILES = [
   'user-correction.json',
@@ -47,6 +59,7 @@ const fixtureExpectationSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('correction'),
       text: z.string().min(1),
+      superseded: z.string().min(1),
     })
     .strict(),
   z
@@ -61,7 +74,13 @@ const fixtureExpectationSchema = z.discriminatedUnion('kind', [
       secret: z.string().min(1),
     })
     .strict(),
-  z.object({ kind: z.literal('nonEnglish') }).strict(),
+  z
+    .object({
+      kind: z.literal('nonEnglish'),
+      languageMarker: z.string().min(1),
+      fact: z.string().min(1),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('danglingQuestion'),
@@ -80,6 +99,13 @@ const fixtureSchema = z
   .strict();
 
 type Fixture = z.infer<typeof fixtureSchema>;
+
+function redactFixtureSecret(detail: string, fixture: Fixture): string {
+  if (fixture.expectation.kind !== 'secret') {
+    return detail;
+  }
+  return detail.replaceAll(fixture.expectation.secret, '[REDACTED]');
+}
 
 type Outcome = {
   fixture: string;
@@ -183,6 +209,9 @@ function sectionBodies(summary: string): Map<string, string> {
 
   const saveSection = (): void => {
     if (heading !== undefined) {
+      if (sections.has(heading)) {
+        throw new Error(`duplicate ${heading} section`);
+      }
       sections.set(heading, body.join('\n').trim());
     }
   };
@@ -219,6 +248,16 @@ function checkSecret(summary: string, secret: string): Array<string> {
   return failures;
 }
 
+function checkRequiredHeadings(sections: Map<string, string>): Array<string> {
+  const failures: Array<string> = [];
+  for (const heading of REQUIRED_HANDOFF_HEADINGS) {
+    if (!sections.has(heading)) {
+      failures.push(`missing ${heading} section`);
+    }
+  }
+  return failures;
+}
+
 function checkSectionContains(
   sections: Map<string, string>,
   heading: string,
@@ -230,6 +269,32 @@ function checkSectionContains(
     return [`missing ${heading} section`];
   }
   return body.includes(expected) ? [] : [failure];
+}
+
+function checkCorrection(
+  sections: Map<string, string>,
+  expected: string,
+  superseded: string,
+): Array<string> {
+  const failures = checkSectionContains(
+    sections,
+    'Errors and Corrections',
+    expected,
+    'correction is missing from Errors and Corrections',
+  );
+  // A whole-token match: the corrected value (15432) contains the superseded
+  // one (5432) as a substring.
+  const supersededToken = new RegExp(
+    `(?<![\\w.])${superseded.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`)}(?![\\w])`,
+    'u',
+  );
+  for (const heading of ['Active', 'Open Questions and Next Steps']) {
+    const body = sections.get(heading);
+    if (body !== undefined && supersededToken.test(body)) {
+      failures.push(`superseded value remains under ${heading}`);
+    }
+  }
+  return failures;
 }
 
 function checkCancelledTask(
@@ -248,13 +313,19 @@ function checkCancelledTask(
   return failures;
 }
 
-function checkNonEnglish(sections: Map<string, string>): Array<string> {
-  if (sections.size === 0) {
-    return ['summary has no Markdown sections'];
-  }
-
+function checkNonEnglish(
+  sections: Map<string, string>,
+  languageMarker: string,
+  fact: string,
+): Array<string> {
   const failures: Array<string> = [];
   const body = withoutCodeSpans([...sections.values()].join('\n'));
+  if (!body.toLowerCase().includes(languageMarker.toLowerCase())) {
+    failures.push('summary does not contain the fixture language content');
+  }
+  if (!body.toLowerCase().includes(fact.toLowerCase())) {
+    failures.push('summary does not preserve the fixture fact');
+  }
   for (const marker of ENGLISH_LANGUAGE_MARKERS) {
     if (containsLanguageMarker(body, marker)) {
       failures.push(`English marker '${marker}' appears in section text`);
@@ -265,6 +336,10 @@ function checkNonEnglish(sections: Map<string, string>): Array<string> {
 
 function evaluateSummary(fixture: Fixture, summary: string): Array<string> {
   const sections = sectionBodies(summary);
+  const headingFailures = checkRequiredHeadings(sections);
+  if (headingFailures.length > 0) {
+    return headingFailures;
+  }
   switch (fixture.expectation.kind) {
     case 'secret':
       return checkSecret(summary, fixture.expectation.secret);
@@ -278,15 +353,55 @@ function evaluateSummary(fixture: Fixture, summary: string): Array<string> {
         'dangling question is not quoted under Latest Request',
       );
     case 'correction':
-      return checkSectionContains(
+      return checkCorrection(
         sections,
-        'Errors and Corrections',
         fixture.expectation.text,
-        'correction is missing from Errors and Corrections',
+        fixture.expectation.superseded,
       );
     case 'nonEnglish':
-      return checkNonEnglish(sections);
+      return checkNonEnglish(
+        sections,
+        fixture.expectation.languageMarker,
+        fixture.expectation.fact,
+      );
   }
+}
+
+async function readTextOnlySummary(result: ModelStreamResult): Promise<{
+  readonly summary: string | null;
+  readonly hasToolCall: boolean;
+}> {
+  const [text, toolCalls, finishReason] = await Promise.all([
+    Promise.resolve(result.text),
+    Promise.resolve(result.toolCalls).catch(() => []),
+    Promise.resolve(result.finishReason).catch(() => null),
+  ]);
+  const hasToolCall = toolCalls.length > 0 || finishReason === 'tool-calls';
+  return {
+    summary: hasToolCall ? null : normalizeCompactionSummary(text),
+    hasToolCall,
+  };
+}
+
+async function streamFixtureSummary(
+  client: ModelClient,
+  fixture: Fixture,
+): Promise<{
+  readonly summary: string | null;
+  readonly hasToolCall: boolean;
+}> {
+  const request = buildCompactionRequest({
+    system: fixture.system,
+    previous: undefined,
+    absorb: synthesizeMessages(fixture),
+  });
+  const result = client.streamText({
+    system: request.system,
+    messages: request.messages,
+    chat: { id: fixture.id, lane: 'main' },
+    toolChoice: 'none',
+  });
+  return readTextOnlySummary(result);
 }
 
 async function runFixture(
@@ -294,18 +409,17 @@ async function runFixture(
   fixture: Fixture,
 ): Promise<Outcome> {
   try {
-    const request = buildCompactionRequest({
-      system: fixture.system,
-      previous: undefined,
-      absorb: synthesizeMessages(fixture),
-    });
-    const result = client.streamText({
-      system: request.system,
-      messages: request.messages,
-      chat: { id: fixture.id, lane: 'main' },
-      toolChoice: 'none',
-    });
-    const summary = normalizeCompactionSummary(await result.text);
+    const { summary, hasToolCall } = await streamFixtureSummary(
+      client,
+      fixture,
+    );
+    if (hasToolCall) {
+      return {
+        fixture: fixture.id,
+        result: 'FAIL',
+        detail: 'model returned a tool call instead of a text-only summary',
+      };
+    }
     if (summary === null) {
       return {
         fixture: fixture.id,
@@ -325,7 +439,7 @@ async function runFixture(
     return {
       fixture: fixture.id,
       result: 'FAIL',
-      detail: errorMessage(error),
+      detail: redactFixtureSecret(errorMessage(error), fixture),
     };
   }
 }

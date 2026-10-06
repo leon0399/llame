@@ -28,8 +28,8 @@ OPENCODE_GO_API_KEY=... pnpm --filter api eval:compaction
 
 The command prints one `PASS` or `FAIL` row for each fixture and exits nonzero
 if setup fails, a model request fails, or any assertion fails. It is intentionally
-not part of `test:integration`, `test:coverage`, or CI; every run spends provider
-quota.
+not part of `test:integration`, `test:coverage`, or CI; runs that reach a model
+request spend provider quota.
 
 To check the setup failure without making a provider request, run:
 
@@ -51,9 +51,11 @@ Spanish conversation, and an unresolved question. The runner checks that:
 - the cancelled task is absent from `Active` and `Open Questions and Next
 Steps`;
 - the unresolved question is quoted verbatim under `Latest Request`;
-- the correction appears under `Errors and Corrections`; and
-- the Spanish summary has no English marker words in section bodies outside
-  code spans.
+- the correction appears under `Errors and Corrections` and the superseded
+  value is absent from the active or open-question sections; and
+- the Spanish summary contains the fixture's Spanish language marker and a
+  specified fact, with no English marker words in section bodies outside code
+  spans.
 
 The eval is a model-quality signal, not a replacement for the pinned-string
 unit tests for the packaged instruction and checkpoint envelope. A failed row

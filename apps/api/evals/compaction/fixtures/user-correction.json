@@ -3,7 +3,8 @@
   "system": "You are a careful coding assistant.",
   "expectation": {
     "kind": "correction",
-    "text": "15432"
+    "text": "15432",
+    "superseded": "5432"
   },
   "messages": [
     {
