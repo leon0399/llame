@@ -25,6 +25,7 @@ import {
   MAX_RESULT_CODE_UNITS,
   splitSourceLines,
 } from "./read";
+import { applySelectorSuffix } from "./path";
 import type { MultiReadSuccess, SingleReadSuccess } from "./source-lines";
 import { OUTLINE_UNSUPPORTED_MESSAGE } from "./representations";
 import { measureNativeModelOutput } from "./serialization";
@@ -34,6 +35,9 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
   return { ...original, opendir: vi.fn(original.opendir) };
 });
+
+const numbered = (count: number, fill = ""): string =>
+  Array.from({ length: count }, (_, i) => `line ${i + 1}${fill}\n`).join("");
 
 function assertFileSuccess(
   result: Awaited<ReturnType<typeof readFile>>,
@@ -56,6 +60,26 @@ function assertMultiFileSuccess(
     !("requestedRanges" in result)
   )
     throw new Error("Expected multi-range file success result");
+}
+
+/** The working forms, spelled as a model that has to write them again. */
+const WORKING_SELECTOR_FORMS = [
+  ":N",
+  ":N-M",
+  ":N+K",
+  ":N-",
+  ":-K",
+  ":raw",
+  ":outline",
+];
+
+/**
+ * A refusal a selector outside the grammar carries names every working form,
+ * so a model that wrote a nearly correct selector reads the whole grammar
+ * back rather than a bare type.
+ */
+function expectWorkingForms(message: string): void {
+  for (const form of WORKING_SELECTOR_FORMS) expect(message).toContain(form);
 }
 
 describe("native source reads", () => {
@@ -264,6 +288,184 @@ describe("native source reads", () => {
     });
   });
 
+  it("reads the last lines of a file through the count pass", async () => {
+    await writeFile(path, numbered(500));
+    const result = await readFile({ path: `${path}:-20` });
+    assertFileSuccess(result);
+    expect(result).toMatchObject({
+      requestedRange: { startLine: 481, endLine: 500 },
+      shownRange: { startLine: 480, endLine: 500 },
+      truncated: false,
+    });
+    expect(result.content.startsWith("480: line 480\n481: line 481\n")).toBe(
+      true,
+    );
+    expect(result.content.endsWith("500: line 500\n")).toBe(true);
+  });
+
+  it("clips a tail longer than the file to the whole file", async () => {
+    await writeFile(path, numbered(10));
+    expect(await readFile({ path: `${path}:-900` })).toMatchObject({
+      requestedRange: { startLine: 1, endLine: 10 },
+      shownRange: { startLine: 1, endLine: 10 },
+      truncated: false,
+    });
+  });
+
+  it("runs an open-ended member to the last line and continues past the cap", async () => {
+    await writeFile(path, "\n".repeat(3000));
+    const result = await readFile({ path: `${path}:50-` });
+    assertFileSuccess(result);
+    expect(result).toMatchObject({
+      requestedRange: { startLine: 50, endLine: 3000 },
+      shownRange: { startLine: 49, endLine: 2050 },
+      truncated: true,
+      nextOffset: 2049,
+    });
+    const resume = (result.nextOffset ?? 0) + 1;
+    const resumed = await readFile({ path: `${path}:${resume}-` });
+    assertFileSuccess(resumed);
+    // The continuation resumes at its own requested line, with its context.
+    expect(resumed.requestedRange).toEqual({
+      startLine: resume,
+      endLine: 3000,
+    });
+    expect(resumed.content.startsWith(`${resume - 1}: \n${resume}: \n`)).toBe(
+      true,
+    );
+  });
+
+  it("returns the empty result for a tail or open-ended member on an empty file", async () => {
+    await writeFile(path, "");
+    for (const selector of ["-5", "1-"]) {
+      expect(await readFile({ path: `${path}:${selector}` })).toMatchObject({
+        status: "success",
+        content: "",
+        requestedRange: null,
+        truncated: false,
+      });
+    }
+  });
+
+  it.each([
+    ["13-", 12],
+    ["5-", 0],
+  ])(
+    "refuses the open-ended member %s that starts past the last line",
+    async (selector, lines) => {
+      await writeFile(path, lines === 0 ? "" : numbered(lines));
+      // The member resolves to the shipped start-past-EOF window, whose
+      // refusal carries the bare type as its message: the spelling is inside
+      // the grammar and only its start is not in the file.
+      expect(await readFile({ path: `${path}:${selector}` })).toEqual({
+        status: "error",
+        type: "invalid_selector",
+        message: "invalid_selector",
+      });
+    },
+  );
+
+  it("reads a trailing colon member from the file beside it", async () => {
+    const notes = join(directory, "notes");
+    await writeFile(notes, "one\ntwo\nthree\nfour\nfive\nsix\n");
+    await writeFile(join(directory, "notes:5-"), "alpha\nbeta\ngamma\n");
+    // The trailing `:raw` claims the colon segment before it as its member
+    // list, so this is the open-ended member of `notes` and not the file
+    // named `notes:5-`.
+    const member = await readFile({ path: `${notes}:5-:raw` });
+    assertFileSuccess(member);
+    expect(member).toMatchObject({
+      path: notes,
+      representation: "raw",
+      requestedRange: { startLine: 5, endLine: 6 },
+      truncated: false,
+    });
+    expect(member.content).toBe("five\nsix\n");
+    // Spelling a member list after `:raw` keeps the literal file reachable.
+    const literal = await readFile({ path: `${notes}:5-:raw:1-2` });
+    assertFileSuccess(literal);
+    expect(literal).toMatchObject({
+      path: join(directory, "notes:5-"),
+      representation: "raw",
+      requestedRange: { startLine: 1, endLine: 2 },
+    });
+    expect(literal.content).toBe("alpha\nbeta\n");
+  });
+
+  it.each(["-5,-10", "1-,1-2", "-5,3-4"])(
+    "reads the comma request %s as an empty multi-range result on an empty file",
+    async (selector) => {
+      // The first requested start resolves empty, which is the shipped
+      // start-past-EOF window; the plural fields keep it a multi-range read,
+      // so it reports the empty ranges rather than a null single range.
+      await writeFile(path, "");
+      expect(await readFile({ path: `${path}:${selector}` })).toMatchObject({
+        status: "success",
+        content: "",
+        requestedRanges: [],
+        shownRanges: [],
+        truncated: false,
+      });
+    },
+  );
+
+  it("refuses a comma request whose first start resolves past the last line", async () => {
+    await writeFile(path, numbered(10));
+    expect(await readFile({ path: `${path}:11-,12-` })).toMatchObject({
+      status: "error",
+      type: "invalid_selector",
+    });
+  });
+
+  it.each([
+    ["with a trailing LF", "one\ntwo\n", 2],
+    ["without a trailing LF", "one\ntwo", 2],
+    ["with CRLF terminators", "one\r\ntwo\r\n", 2],
+    ["when empty", "", null],
+  ])("counts %s the way the source models lines", async (_, source, end) => {
+    await writeFile(path, source);
+    // The file's last line is line `count`, so the tail member's resolved
+    // `requestedRange` is the count the pass derived.
+    expect(await readFile({ path: `${path}:-1` })).toMatchObject(
+      end === null
+        ? { status: "success", requestedRange: null }
+        : { requestedRange: { endLine: end } },
+    );
+  });
+
+  it("refuses a non-regular file before counting it", async () => {
+    // A device has no end: the count pass would read forever, so the regular
+    // -file check on the open handle runs first.
+    expect(await readFile({ path: "/dev/zero:-5" })).toMatchObject({
+      status: "error",
+      type: "not_regular_file",
+    });
+  });
+
+  it.each([":nonsense", ":-0", ":outline:1,3", ":5-10,,20-30"])(
+    "names the working forms for the malformed selector %s",
+    async (selector) => {
+      await writeFile(path, "one\ntwo\n");
+      const result = await readFile({ path: `${path}${selector}` });
+      expect(result).toMatchObject({
+        status: "error",
+        type: "invalid_selector",
+      });
+      if (result.status !== "error") throw new Error("Expected a refusal");
+      expectWorkingForms(result.message);
+    },
+  );
+
+  it("names the working forms for a member the bounds refuse", async () => {
+    const result = await readFile({ path: `${directory}/notes:0-1` });
+    expect(result).toMatchObject({
+      status: "error",
+      type: "invalid_selector",
+    });
+    if (result.status !== "error") throw new Error("Expected a refusal");
+    expectWorkingForms(result.message);
+  });
+
   it("returns a directory listing for a directory target", async () => {
     await writeFile(path, "content");
     const result = await readFile({ path: directory });
@@ -362,6 +564,54 @@ describe("native source reads", () => {
       representation: "raw",
       content: "# Heading\nbody\n",
     });
+  });
+
+  it("scopes a Markdown read with an end-relative member", async () => {
+    const sourcePath = join(directory, "guide.md");
+    await writeFile(sourcePath, "# Title\nintro\n## Setup\nbody\ntail\n");
+    expect(await readFile({ path: `${sourcePath}:-2` })).toEqual({
+      status: "success",
+      kind: "file",
+      path: sourcePath,
+      representation: "text",
+      content: "1: # Title\n3: ## Setup\n4: body\n5: tail\n",
+      requestedRanges: [{ startLine: 4, endLine: 5 }],
+      shownRanges: [
+        { startLine: 1, endLine: 1 },
+        { startLine: 3, endLine: 5 },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("drops a later past-the-end member from a Markdown multi-range read", async () => {
+    const sourcePath = join(directory, "guide.md");
+    await writeFile(sourcePath, `# Title\n${"body\n".repeat(498)}`);
+    const result = await readFile({ path: `${sourcePath}:1-5,501-` });
+    assertMultiFileSuccess(result);
+    expect(result).toMatchObject({
+      requestedRanges: [{ startLine: 1, endLine: 5 }],
+      shownRanges: [{ startLine: 1, endLine: 6 }],
+      truncated: false,
+    });
+    expect(result.content).not.toContain("500: body");
+  });
+
+  it("scopes an outline with a tail member", async () => {
+    const sourcePath = join(directory, "outline.md");
+    await writeFile(
+      sourcePath,
+      `# Title\nintro\n## Setup\nbody\n## Use\nrun\n${"tail\n".repeat(10)}`,
+    );
+    const tail = await readFile({ path: `${sourcePath}:outline:-3` });
+    assertFileSuccess(tail);
+    expect(tail).toMatchObject({
+      representation: "outline",
+      requestedRange: { startLine: 14, endLine: 16 },
+    });
+    expect(tail.content).toContain("5: ## Use");
+    const scoped = await readFile({ path: `${sourcePath}:outline:14-16` });
+    expect(scoped).toEqual(tail);
   });
 
   it("recognizes and cuts an oversized Markdown heading", async () => {
@@ -507,6 +757,15 @@ describe("native source reads", () => {
       selectSourceLines("\n".repeat(2001), { path, offset: 0, raw: false }),
     ).toMatchObject({ truncated: true, nextOffset: 2000 });
   });
+
+  it("refuses an unresolved target in the buffered reader", () => {
+    // A caller holding text in hand knows its line count and places the
+    // end-relative members itself; an unplaced target would otherwise be read
+    // from line 1 under a range the request never named.
+    expect(() =>
+      selectSourceLines(numbered(10), applySelectorSuffix(path, "-3")),
+    ).toThrow("invalid_selector");
+  });
   it("preserves requested bounds independently of observed EOF in both readers", async () => {
     const source = "\n".repeat(2002);
     const target = { path, offset: 0, limit: 10_000, raw: false };
@@ -528,11 +787,6 @@ describe("native source reads", () => {
   });
 
   describe("multi-range reads", () => {
-    const numbered = (count: number, fill = ""): string =>
-      Array.from({ length: count }, (_, i) => `line ${i + 1}${fill}\n`).join(
-        "",
-      );
-
     it("merges touching expansions into one block", async () => {
       await writeFile(path, numbered(12));
       const result = await readFile({ path: `${path}:4-5,7-8` });
@@ -590,6 +844,60 @@ describe("native source reads", () => {
         Array.from({ length: 6 }, (_, i) => `line ${i + 5}\n`).join("") +
           Array.from({ length: 11 }, (_, i) => `line ${i + 20}\n`).join(""),
       );
+    });
+
+    it("drops a later open-ended member that starts past the last line", async () => {
+      await writeFile(path, numbered(500));
+      const result = await readFile({ path: `${path}:1-5,501-` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [{ startLine: 1, endLine: 5 }],
+        shownRanges: [{ startLine: 1, endLine: 6 }],
+        truncated: false,
+      });
+      expect(result.content).toBe(
+        `${Array.from({ length: 6 }, (_, i) => `${i + 1}: line ${i + 1}`).join("\n")}\n`,
+      );
+      expect(result.content).not.toContain("line 500");
+    });
+
+    it("resolves a tail and an open-ended member in one raw request", async () => {
+      await writeFile(path, numbered(40));
+      const canonical = await readFile({ path: `${path}:raw:1-5,30-` });
+      assertMultiFileSuccess(canonical);
+      const trailing = await readFile({ path: `${path}:1-5,30-:raw` });
+      expect(trailing).toEqual(canonical);
+      expect(canonical).toMatchObject({
+        requestedRanges: [
+          { startLine: 1, endLine: 5 },
+          { startLine: 30, endLine: 40 },
+        ],
+        shownRanges: [
+          { startLine: 1, endLine: 5 },
+          { startLine: 30, endLine: 40 },
+        ],
+      });
+      expect(canonical.content).toBe(
+        Array.from({ length: 5 }, (_, i) => `line ${i + 1}\n`).join("") +
+          Array.from({ length: 11 }, (_, i) => `line ${i + 30}\n`).join(""),
+      );
+    });
+
+    it("resolves a tail member beside an absolute one", async () => {
+      await writeFile(path, numbered(40));
+      const result = await readFile({ path: `${path}:1-5,-20` });
+      assertMultiFileSuccess(result);
+      expect(result).toMatchObject({
+        requestedRanges: [
+          { startLine: 1, endLine: 5 },
+          { startLine: 21, endLine: 40 },
+        ],
+        shownRanges: [
+          { startLine: 1, endLine: 6 },
+          { startLine: 20, endLine: 40 },
+        ],
+        truncated: false,
+      });
     });
 
     it("omits a later range that cannot fit and continues on retry", async () => {
@@ -1045,6 +1353,20 @@ describe("native reads resolved by a scheme owner", () => {
       requestedRange: { startLine: 2, endLine: 3 },
       shownRange: { startLine: 1, endLine: 4 },
     });
+  });
+
+  it("places an end-relative member against the resolved file's line count", async () => {
+    await writeFile(path, numbered(8));
+    const result = await readResolvedFile(path, {
+      displayPath: "skill://pdf/SKILL.md",
+      selector: "-3",
+    });
+    assertFileSuccess(result);
+    expect(result).toMatchObject({
+      requestedRange: { startLine: 6, endLine: 8 },
+      shownRange: { startLine: 5, endLine: 8 },
+    });
+    expect(result.content).toBe("5: line 5\n6: line 6\n7: line 7\n8: line 8\n");
   });
 
   it("never reinterprets the host path as a selector or a scheme", async () => {

@@ -1,5 +1,5 @@
 import { RESULT_TRUNCATE_CHARS } from "@workspace/runtime-safety";
-import { NativeFileError, type ReadTarget } from "./path";
+import { assertResolvedTarget, NativeFileError, type ReadTarget } from "./path";
 import { measureNativeModelOutput } from "./serialization";
 import { selectMarkdownSourceLines } from "./markdown-ancestors";
 export const MAX_READ_LINES = 2000;
@@ -61,6 +61,7 @@ export function selectSourceLines(
   mediaType?: string,
 ): ReadSuccess {
   if (target.ranges !== undefined) throw new NativeFileError("invalid_input");
+  assertResolvedTarget(target);
   if (mediaType === "text/markdown" && target.offset > 0 && !target.raw)
     return selectMarkdownSourceLines(source, target);
   const lines = splitSourceLines(source);

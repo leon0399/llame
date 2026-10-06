@@ -1520,8 +1520,20 @@ describe('skill locator resolution', () => {
   it('refuses catalog selectors the listing cannot express', async () => {
     await writePackage('research');
     // These parse as native selectors but have no listing meaning; silently
-    // answering with the first page would misreport the catalog.
-    for (const path of ['skill://:raw:1-5', 'skill://:1-1,2-2']) {
+    // answering with the first page would misreport the catalog. The last two
+    // are declined rather than placed: `5-` is an end-relative member this
+    // layer does not resolve against the catalog's entry count, and `1-2,-2`
+    // is a comma list whose `-2` member is end-relative.
+    for (const path of [
+      'skill://:raw:1-5',
+      'skill://:1-1,2-2',
+      // `raw:` accepts every member a bare list accepts, `N+K` included, so
+      // this is a selector the catalog declines rather than a malformed
+      // locator.
+      'skill://:raw:1+5',
+      'skill://:5-',
+      'skill://:1-2,-2',
+    ]) {
       expect(
         await runTool(nativeReadTool, { path }, skillContext(), 5),
       ).toMatchObject({
@@ -1529,16 +1541,34 @@ describe('skill locator resolution', () => {
         type: 'invalid_selector',
       });
     }
-    // `raw:` accepts only an `N-M` range, so this is a malformed locator
-    // rather than a selector the catalog declines.
-    expect(
-      await runTool(
+
+    // An end-relative member that `:outline` or `:raw` already refused still
+    // names what it asked for, not a malformed selector.
+    await expect(
+      runTool(
         nativeReadTool,
-        { path: 'skill://:raw:1+5' },
+        { path: 'skill://:outline:5-' },
         skillContext(),
         5,
       ),
-    ).toMatchObject({ status: 'error', type: 'invalid_path' });
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :outline member is not supported for the skill catalog.',
+    });
+    const raw = await runTool(
+      nativeReadTool,
+      { path: 'skill://:raw:5-' },
+      skillContext(),
+      5,
+    );
+    expect(raw).toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+    });
+    expect(String(raw.message)).toContain(
+      'comma ranges and :raw are not supported',
+    );
   });
 
   it('refuses a manual-only package without the turn selection', async () => {
