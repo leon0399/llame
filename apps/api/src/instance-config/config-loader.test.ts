@@ -3518,6 +3518,32 @@ describe('loadInstanceConfig — provider request headers (provider-request-head
     );
   });
 
+  it('rejects an unknown interpolation token inside escaped braces', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "X-Test": "{{sesion:id}}" }
+      }]
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'providers[p].headers.X-Test: unsupported interpolation token',
+    );
+  });
+
+  it('rejects a non-string provider header value with its schema path', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "X-Test": 5 }
+      }]
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow('/providers[p]/headers/X-Test');
+  });
+
   it('rejects an invalid header name by configuration path', () => {
     writeConfig(`{
       "providers": [{
@@ -3650,6 +3676,25 @@ describe('loadInstanceConfig — provider request headers (provider-request-head
       expect(errorMessage(error)).toContain('providers[p].headers.X-Test');
       expect(errorMessage(error)).not.toContain('header-secret');
       expect(errorMessage(error)).not.toContain('with-newline');
+    }
+  });
+
+  it('rejects a non-ASCII resolved header value without printing the value', () => {
+    const secret = 'prod→eu';
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "X-Test": "{env:HEADER_VALUE}" }
+      }]
+    }`);
+
+    try {
+      loadInstanceConfig({ HEADER_VALUE: secret });
+      expect.unreachable('expected a non-ASCII header value rejection');
+    } catch (error) {
+      expect(errorMessage(error)).toContain('providers[p].headers.X-Test');
+      expect(errorMessage(error)).not.toContain(secret);
     }
   });
 

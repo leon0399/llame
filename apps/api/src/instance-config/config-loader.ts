@@ -1485,8 +1485,7 @@ const DEFAULT_PROVIDER_HEADERS: Readonly<
   'opencode-go': { 'X-Session-Id': ['', ''] },
 };
 
-const PROVIDER_HEADER_TOKEN_PATTERN =
-  /(?<!\{)\{([A-Za-z][A-Za-z0-9_-]*):([^{}]*)\}/gu;
+const PROVIDER_HEADER_TOKEN_PATTERN = /\{([A-Za-z][A-Za-z0-9_-]*):([^{}]*)\}/gu;
 const PROVIDER_SESSION_TOKEN_PATTERN = /(?<!\{)\{session:id\}/gu;
 
 function assertValidProviderHeaderName(name: string, configPath: string): void {
@@ -1538,15 +1537,18 @@ function assertProviderHeaderNames(
 
 function resolveProviderHeaderValue(
   rawValue: string,
+  name: string,
   configPath: string,
   env: NodeJS.ProcessEnv,
 ): ReadonlyArray<string> {
   assertKnownProviderHeaderTokens(rawValue, configPath);
   return rawValue.split(PROVIDER_SESSION_TOKEN_PATTERN).map((part) => {
     const value = resolveInterpolatedString(part, configPath, env);
-    if (/[\r\n\0]/u.test(value)) {
+    try {
+      new Headers([[name, value]]);
+    } catch {
       throw new InstanceConfigError(
-        `${configPath}: resolved value contains forbidden control characters`,
+        `${configPath}: resolved value is not a valid header value`,
       );
     }
     return value;
@@ -1580,7 +1582,7 @@ function resolveProviderHeaders(
   for (const [name, rawValue] of Object.entries(rawHeaders)) {
     if (rawValue === null) continue;
     const configPath = `${headersPath}.${name}`;
-    headers[name] = resolveProviderHeaderValue(rawValue, configPath, env);
+    headers[name] = resolveProviderHeaderValue(rawValue, name, configPath, env);
   }
 
   return headers;
