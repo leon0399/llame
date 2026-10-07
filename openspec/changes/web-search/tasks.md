@@ -45,10 +45,10 @@ output.
 
 ## 0. `web-search/proposal` — planning artifacts
 
-- [ ] 0.1 Run the review rounds Leo requests on the proposal, design, and delta specs; verify each finding against the repository and cited upstream sources; commit each round separately and record it in the PR body
-- [ ] 0.2 Verify every MODIFIED and RENAMED block against its canonical requirement with a sentence-level diff, keeping every canonical scenario heading verbatim
-- [ ] 0.3 Verify `pnpm exec openspec validate web-search --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`
-- [ ] 0.4 SR: self-review the PR diff, fix accepted findings, then mark ready for Leo's approval
+- [x] 0.1 Run the review rounds Leo requests on the proposal, design, and delta specs; verify each finding against the repository and cited upstream sources; commit each round separately and record it in the PR body. Recorded: two rounds (spec consistency, feasibility), applied in `a9a92e8d` and `ba689c8f`
+- [x] 0.2 Verify every MODIFIED and RENAMED block against its canonical requirement with a sentence-level diff, keeping every canonical scenario heading verbatim
+- [x] 0.3 Verify `pnpm exec openspec validate web-search --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`
+- [x] 0.4 SR: self-review the PR diff, fix accepted findings, then mark ready for Leo's approval
 - [ ] 0.5 GR: complete the ready-PR monitoring loop and obtain Leo's approval of the published revision before creating `web-search/core`
 
 ## 1. `web-search/core` — configuration, tool, chain, Brave (design D1–D4, D6, D9–D12, D14)
