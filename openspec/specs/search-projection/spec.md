@@ -76,9 +76,9 @@ Each chunk SHALL store role-labelled original-cased presentation `content` for w
 
 ### Requirement: Only user-visible conversation text is indexed
 
-The chunker SHALL serialize only stable visible-message text from human-authored `user` turns and immutable eligible `assistant` turns. A retryable assistant row whose persisted content may still be replaced in place SHALL be excluded until it becomes immutable under the application's completed/legacy-immutable classification. System prompts, effective-context receipts, model-context parts, generated model-switch reminders, compaction rows, generated compaction summaries, deterministic checkpoint envelopes, tool-role messages, tool invocation payloads/results, model reasoning parts, cap notices, and attachments MUST NOT enter `search_chat_documents` in any form.
+The chunker SHALL serialize only stable visible-message text from human-authored `user` turns and immutable eligible `assistant` turns. A retryable assistant row whose persisted content may still be replaced in place SHALL be excluded until it becomes immutable under the application's completed/legacy-immutable classification. System prompts, effective-context receipts, model-context parts, generated model-switch reminders, `checkpoint` rows, the persisted checkpoint text and its raw summary, tool-role messages, tool invocation payloads/results, model reasoning parts, cap notices, and attachments MUST NOT enter `search_chat_documents` in any form.
 
-Original immutable user/assistant messages superseded in model context by a compaction SHALL remain canonical and searchable. Role labels and oversized-message anchors added solely for presentation context MUST appear only in original-cased projection content and MUST NOT enter normalized lexical content, internal canonical source intervals, or generated FTS vectors. Normalization SHALL preserve accents, code, identifiers, and URLs while applying the existing Unicode NFKC, whitespace-collapse, and lowercase rules to the lexical column only.
+Original immutable user/assistant messages superseded in model context by a checkpoint SHALL remain canonical and searchable. Role labels and oversized-message anchors added solely for presentation context MUST appear only in original-cased projection content and MUST NOT enter normalized lexical content, internal canonical source intervals, or generated FTS vectors. Normalization SHALL preserve accents, code, identifiers, and URLs while applying the existing Unicode NFKC, whitespace-collapse, and lowercase rules to the lexical column only.
 
 #### Scenario: Retryable assistant content is absent
 
@@ -104,8 +104,8 @@ Original immutable user/assistant messages superseded in model context by a comp
 
 #### Scenario: Compaction checkpoint is absent from the projection
 
-- **WHEN** compaction supersedes immutable original user/assistant messages in model context
-- **THEN** generated summary/checkpoint material stays outside the projection
+- **WHEN** a `checkpoint` row and its raw summary stand in model context for immutable original user/assistant messages
+- **THEN** no projection row contains the persisted checkpoint text or that raw summary
 - **AND** the immutable original visible text remains searchable and sequence-addressable
 
 #### Scenario: Synthetic role labels are absent from lexical data

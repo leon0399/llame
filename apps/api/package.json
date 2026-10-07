@@ -34,6 +34,7 @@
     "test": "vitest run --project unit",
     "test:coverage": "vitest run --coverage && crap-typescript --threshold 42 --format none --exclude 'src/db/migrations/**' --exclude 'src/testing/**' src",
     "test:evals": "RUN_MODEL_EVALS=1 vitest run --project integration qa-evals",
+    "eval:compaction": "tsx evals/compaction/run.ts",
     "test:evals:mcp-web-search": "RUN_MCP_WEB_SEARCH_EVAL=1 vitest run --project mcp-live-eval",
     "test:integration": "vitest run --project integration",
     "test:mutation": "pnpm --filter 'api^...' --workspace-concurrency=1 -r build && stryker run",

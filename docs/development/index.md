@@ -4,6 +4,8 @@ Contributor documentation. Not served to the assistant.
 
 - [Testing](testing.md): test layers, placement rules, mutation testing, and
   the CI job graph.
+- [Compaction eval](compaction-eval.md): provider-backed model eval and
+  fixture runbook for the production compaction request.
 - [Code quality gates](code-quality-targets.md): enforced ceilings and the
   command that owns each.
 - [Code quality rules](code-quality-tracker.md): how lint, mutation, and

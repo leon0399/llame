@@ -212,12 +212,11 @@ function useChatSideEffects({
   });
 }
 
-// Surface conversation compaction (#57): where older turns were folded into
-// a summary for the model's context. `compaction` arrives embedded in the
-// SAME messages fetch (#136) — no second, independently-failing request,
-// and no separate "is it enabled yet" gate to get wrong. Pure — no hooks —
-// so it can be called from anywhere in render; split out of
-// `useChatEngineState` purely to shrink that hook's own line count.
+// Surface conversation compaction as the checkpoint boundary (#57): the
+// checkpoint arrives as an owner history row, while `toChatUiMessages`
+// deliberately drops that non-conversation row before rendering. The
+// checkpoint's absorbed-through boundary still places the marker before the
+// triggering user row.
 function deriveChatTranscript(
   messages: Array<UIMessage>,
   chatMessages: Array<UIMessage>,
@@ -232,7 +231,7 @@ function deriveChatTranscript(
   // always this app's own `{ seq?: number }` shape (or absent).
   const compactionIndex = compactionBoundaryIndex(
     displayMessages as ReadonlyArray<{ metadata?: { seq?: number } }>,
-    compaction?.uptoSeq ?? null,
+    compaction?.absorbedThroughSeq ?? null,
   );
   return { displayMessages, compactionIndex };
 }

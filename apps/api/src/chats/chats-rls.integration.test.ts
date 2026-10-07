@@ -15,7 +15,7 @@
  * If TEST_DATABASE_URL is not set, all tests in this file are skipped.
  *
  * Acceptance criteria covered (#53):
- * - RLS ENABLED *and* FORCED on chats, messages, compactions, runs, and run_events
+ * - RLS ENABLED *and* FORCED on chats, messages, runs, and run_events
  * - the connecting role is non-superuser (otherwise the test would be meaningless)
  * - SET LOCAL app.current_user_id correctly scopes reads
  * - cross-tenant read returns zero rows (chats and messages)
@@ -45,11 +45,27 @@ import { SessionsRepository } from '../auth/sessions.repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { isRecord } from '@workspace/runtime-safety';
 import { ChatsService } from './chats.service';
+import { createCompactionCheckpointPart } from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 type SqlClient = Sql;
+
+/** The raw wire shape of a checkpoint row's parts, pinned by the raw-SQL tests below. */
+const checkpointParts = JSON.stringify([
+  {
+    type: 'data-context',
+    data: {
+      v: 1,
+      producer: 'compaction',
+      form: 'checkpoint',
+      runId: '00000000-0000-4000-8000-000000000000',
+      payload: { v: 1, summary: 'private summary' },
+      text: '<system-reminder>private checkpoint</system-reminder>',
+    },
+  },
+]);
 
 /** Asserts a raw `sql` template-tag row carries a string `id`. */
 function assertRowId(r: unknown): asserts r is { id: string } {
@@ -73,6 +89,11 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
   const asUser = <T>(userId: string, fn: (tx: TransactionSql) => Promise<T>) =>
     sql.begin(async (tx) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+      return fn(tx);
+    });
+  const runAsPublic = <T>(fn: (tx: TransactionSql) => Promise<T>) =>
+    sql.begin(async (tx) => {
+      await tx`SELECT set_config('app.current_user_id', '', true)`;
       return fn(tx);
     });
 
@@ -106,7 +127,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
-  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, compactions, runs, and run_events', async () => {
+  it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on chats, messages, runs, and run_events', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
     // A superuser or BYPASSRLS role would make every assertion below vacuous.
@@ -116,9 +137,9 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     const rows = await sql`
       SELECT relname, relrowsecurity, relforcerowsecurity
       FROM pg_class
-      WHERE relname IN ('chats', 'messages', 'compactions', 'runs', 'run_events')
+      WHERE relname IN ('chats', 'messages', 'runs', 'run_events')
       ORDER BY relname`;
-    expect(rows.length).toBe(5);
+    expect(rows.length).toBe(4);
     for (const r of rows) {
       expect(r.relrowsecurity).toBe(true); // ENABLE
       expect(r.relforcerowsecurity).toBe(true); // FORCE — the load-bearing bit
@@ -303,57 +324,68 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
-  // #57 — compaction summaries condense private conversation content, so they carry
-  // the same tenant boundary as the messages they supersede.
-  it('compactions cross-tenant: B cannot read A compactions, nor write into A chats', async () => {
+  it('checkpoint rows cross-tenant: B cannot read A checkpoint, nor write into A chat', async () => {
     const chatId = crypto.randomUUID();
-    const compactionId = crypto.randomUUID();
-    const replacementHistory = JSON.stringify([
-      {
-        role: 'user',
-        parts: [
-          {
-            type: 'text',
-            text: '<system-reminder>private checkpoint</system-reminder>',
-          },
-        ],
-      },
-    ]);
+    const checkpointId = crypto.randomUUID();
 
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Long Chat')`;
       await tx`
-        INSERT INTO compactions (id, chat_id, upto_seq, summary, replacement_history)
-        VALUES (${compactionId}, ${chatId}, 10, 'private summary', ${replacementHistory}::jsonb)`;
-      const owned = await tx`
-        SELECT replacement_history
-        FROM compactions
-        WHERE id = ${compactionId}`;
-      expect(owned[0]?.replacement_history).toEqual(
-        JSON.parse(replacementHistory),
-      );
+        INSERT INTO messages (id, chat_id, seq, role, parts, absorbed_through_seq)
+        VALUES (${checkpointId}, ${chatId}, 11, 'checkpoint', ${checkpointParts}::jsonb, 10)`;
+      const owned = await tx<
+        Array<{ parts: unknown; absorbed_through_seq: string }>
+      >`
+        SELECT parts, absorbed_through_seq
+        FROM messages
+        WHERE id = ${checkpointId}`;
+      // postgres.js returns bigint columns as strings.
+      expect(Number(owned[0]?.absorbed_through_seq)).toBe(10);
+      expect(owned[0]?.parts).toEqual(JSON.parse(checkpointParts));
     });
     try {
-      // Read denial: zero rows for another tenant.
       const rows = await asUser(
         userBId,
-        (tx) =>
-          tx`SELECT id, replacement_history FROM compactions WHERE id = ${compactionId}`,
+        (tx) => tx`SELECT id, parts FROM messages WHERE id = ${checkpointId}`,
       );
       expect(rows.length).toBe(0);
 
-      // Write denial: the policy's implicit WITH CHECK rejects an insert whose
-      // chat_id belongs to another tenant (fail closed, not silently open).
       await expect(
         asUser(
           userBId,
           (tx) => tx`
-            INSERT INTO compactions (chat_id, upto_seq, summary, replacement_history)
-            VALUES (${chatId}, 20, 'forged summary', ${replacementHistory}::jsonb)`,
+            INSERT INTO messages (chat_id, seq, role, parts, absorbed_through_seq)
+            VALUES (${chatId}, 20, 'checkpoint', ${checkpointParts}::jsonb, 19)`,
         ),
       ).rejects.toThrow(/row-level security|violates/i);
     } finally {
-      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`); // cascades to compactions
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
+    }
+  });
+  it('anonymous public reads exclude checkpoint rows from a public chat', async () => {
+    const chatId = crypto.randomUUID();
+    const checkpointId = crypto.randomUUID();
+
+    await asUser(userAId, async (tx) => {
+      await tx`INSERT INTO chats (id, owner_user_id, visibility, title) VALUES (${chatId}, ${userAId}, 'public', 'Shared')`;
+      await tx`
+        INSERT INTO messages (chat_id, seq, role, sender_user_id, parts)
+        VALUES (${chatId}, 1, 'user', ${userAId}, ${JSON.stringify([{ type: 'text', text: 'public question' }])}::jsonb)`;
+      await tx`
+        INSERT INTO messages (id, chat_id, seq, role, parts, absorbed_through_seq)
+        VALUES (${checkpointId}, ${chatId}, 2, 'checkpoint', ${checkpointParts}::jsonb, 1)`;
+    });
+    try {
+      const rows = await runAsPublic(
+        (tx) =>
+          tx<
+            Array<{ id: string; role: string }>
+          >`SELECT id, role FROM messages WHERE chat_id = ${chatId} ORDER BY seq`,
+      );
+      expect(rows.map((row) => row.role)).toEqual(['user']);
+      expect(rows.some((row) => row.id === checkpointId)).toBe(false);
+    } finally {
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
     }
   });
 
@@ -421,17 +453,10 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
-  // #666 — the cascade tests above cover a chat with messages only, a chat with a
-  // compaction only, and a chat with runs only. None covers a chat carrying BOTH,
-  // which is the ordinary shape of any conversation long enough to compact, and the
-  // one the production delete path actually meets.
-  //
-  // `messages` and `compactions` are sibling children of `chats` and Postgres does
-  // not order sibling FK cascades, so this asserts the whole tree goes in one
-  // statement regardless of which branch Postgres walks first. Any future constraint
-  // that makes a message undeletable while its compaction still exists turns this
-  // red — which is the point.
-  it('deleteById removes a chat carrying both messages and a compaction (sibling cascade)', async () => {
+  // #666 — verify the ordinary deletion shape carrying both ordinary messages
+  // and a checkpoint row. Checkpoints are messages, so the whole tree is one
+  // sibling FK cascade under chats.
+  it('deleteById removes a chat carrying both messages and a checkpoint', async () => {
     const deleted = await db.transaction(async (tx) => {
       await tx.execute(
         dsql`select set_config('app.current_user_id', ${userAId}, true)`,
@@ -455,32 +480,25 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         parts: [{ type: 'text', text: 'above the boundary' }],
       });
 
-      // upto_seq names the first message, so it is covered by the compaction
-      // while the second is not — the mixed case, not an all-or-nothing one.
-      await tx.execute(dsql`
-        INSERT INTO compactions (chat_id, upto_seq, summary, replacement_history)
-        VALUES (${chat.id}, ${first.seq}, 'summary', ${JSON.stringify([
-          { role: 'user', parts: [{ type: 'text', text: 'checkpoint' }] },
-        ])}::jsonb)`);
+      await messagesRepo.createCheckpoint({
+        chatId: chat.id,
+        absorbedThroughSeq: first.seq,
+        part: createCompactionCheckpointPart('summary'),
+      });
 
       const removed = await chatsRepo.deleteById(chat.id, userAId);
 
       const messagesLeft = await tx.execute(
         dsql`SELECT id FROM messages WHERE chat_id = ${chat.id}`,
       );
-      const compactionsLeft = await tx.execute(
-        dsql`SELECT id FROM compactions WHERE chat_id = ${chat.id}`,
-      );
       return {
         removed,
         messages: messagesLeft.length,
-        compactions: compactionsLeft.length,
       };
     });
 
     expect(deleted.removed).toBe(true);
     expect(deleted.messages).toBe(0);
-    expect(deleted.compactions).toBe(0);
   });
 
   // #68 — session housekeeping: deleteExpired purges expired/idle rows and
@@ -772,10 +790,9 @@ describeIfDb(
         });
       });
 
-      const aResult = await svc.getChatMessages(chat.id, userAId, {
+      const aMessages = await svc.getChatMessages(chat.id, userAId, {
         limit: 100,
       });
-      const aMessages = aResult?.messages;
       expect(aMessages).toHaveLength(2);
       expect(aMessages?.[0]).toEqual(
         expect.objectContaining({
@@ -802,8 +819,6 @@ describeIfDb(
         }),
       );
       expect(aMessages?.[0]?.seq).toBeLessThan(aMessages?.[1]?.seq ?? 0);
-      // No compaction on this chat — #136's embedded field stays undefined.
-      expect(aResult?.compaction).toBeUndefined();
 
       const bResult = await svc.getChatMessages(chat.id, userBId, {
         limit: 100,

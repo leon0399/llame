@@ -11,10 +11,10 @@ configured_by: ../../operator/native-files.md
 
 ## Form
 
-An absolute POSIX path is read, edited, or written as given, with an optional
-trailing `[:selector]` (see [selectors](../selectors.md)). Relative paths are
-valid only while a Workspace is entered; see
-[enter_workspace](../tools/enter-workspace.md).
+An absolute POSIX path is read, edited, or written as given; a `read` may carry
+a trailing `[:selector]` (see [selectors](../selectors.md)), which `edit` and
+`write` take as part of the filename. Relative paths are valid only while a
+Workspace is entered; see [enter_workspace](../tools/enter-workspace.md).
 
 `read`, `edit`, and `write` also accept `file://` and RFC 8089 minimal `file:`
 URLs as local-path aliases. Accepted forms are `file:///absolute/path`,
@@ -42,9 +42,9 @@ argument of `enter_workspace`; `file://` does not, and `bash` uses its own
 An absolute path or alias executes on the worker's filesystem with its OS user's
 authority and binds the Run to the configured executor. A valid alias binds the
 Run exactly as an absolute path does; Workspace root does not affect them.
-Permission allows and rejects match the decoded host path, not the URL form;
-the operator's regex recipes are under
-[tool-call permissions](../../operator/tool-call-permissions.md).
+Permission matching strips a `read`'s selector and not an `edit`'s or `write`'s,
+whose suffix is part of the filename; see
+[tool-call permissions](../../operator/tool-call-permissions.md#matching).
 
 Aliases are refused before filesystem access for a non-local authority, missing
 path, a literal query (`?`), fragment (`#`), backslash, C0 control or DEL,
@@ -66,10 +66,10 @@ target is a directory, and links and special entries are never opened. Child
 directories show up to 20 entries followed by `… N more`. Empty directories
 render `(empty directory)`.
 
-A trailing separator is optional: `/dir/` and `/dir` both work. Range selectors
-such as `:1-5` return a flat listing of root-level entries only, with no child
-content. `:raw` is not supported for directories. Directories over 10,000
-entries fail with `directory_too_large`.
+A trailing separator is optional: `/dir/` and `/dir` both work. A line member
+selects a flat listing of root-level entries only (see
+[selectors](../selectors.md#line-selectors)); directories over 10,000 entries
+fail with `directory_too_large`.
 
 Directory reads are bounded by a 10,000-entry traversal budget per directory.
 When the rendered two-level listing exceeds the result cap, child blocks are
@@ -78,11 +78,12 @@ truncated with `nextOffset`.
 
 ## Errors
 
-`invalid_path` for a refused alias; `not_found` for an absent path;
-`directory_too_large` for a directory over the traversal budget; `not_regular_file`
-and `file_exists` for mutations. `executor_unavailable` when the call needs the
-host executor the operator did not enable. The shared vocabulary is in
-[read](../tools/read.md#errors).
+`invalid_path` for a refused alias; `invalid_selector` for a suffix outside the
+selector grammar ([selectors](../selectors.md#malformed-selectors));
+`not_found` for an absent path; `directory_too_large` for a directory over the
+traversal budget; `not_regular_file` and `file_exists` for mutations.
+`executor_unavailable` when the call needs the host executor the operator did not
+enable. The shared vocabulary is in [read](../tools/read.md#errors).
 
 ## Configured by
 

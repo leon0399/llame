@@ -10,11 +10,7 @@
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  type Db,
-} from './chats-repository';
+import { ChatsRepository, type Db } from './chats-repository';
 import { MessagesRepository } from './messages-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import * as schema from '../db/schema';
@@ -892,224 +888,6 @@ describe('MessagesRepository — owner-scoped + chat-scoped', () => {
   });
 });
 
-describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
-  const ownerUserId = 'owner-xyz';
-  const chatId = 'chat-1';
-
-  it('findLatestByChatId scopes by chatId AND ownerUserId (join to chats.owner_user_id)', async () => {
-    const { db, queries } = makeMockDb();
-    await new CompactionsRepository(db)
-      .findLatestByChatId(chatId, ownerUserId)
-      .catch(() => null);
-    expect(queryContains(queries, ownerUserId)).toBe(true);
-    expect(queryContains(queries, chatId)).toBe(true);
-    expect(queryContains(queries, 1)).toBe(true);
-  });
-
-  it('findLatestByChatId can constrain the latest compaction before a turn seq', async () => {
-    const { db, queries } = makeMockDb();
-    await new CompactionsRepository(db)
-      .findLatestByChatId(chatId, ownerUserId, { beforeSeq: 42 })
-      .catch(() => null);
-
-    expect(queryContains(queries, ownerUserId)).toBe(true);
-    expect(queryContains(queries, chatId)).toBe(true);
-    expect(queryContains(queries, 42)).toBe(true);
-  });
-
-  it('findLatestByChatId can constrain the latest compaction inclusively at a target seq', async () => {
-    const { db, queries } = makeMockDb();
-    await new CompactionsRepository(db)
-      .findLatestByChatId(chatId, ownerUserId, { maxSeq: 42 })
-      .catch(() => null);
-
-    expect(queryContains(queries, ownerUserId)).toBe(true);
-    expect(queryContains(queries, chatId)).toBe(true);
-    expect(queryContains(queries, 42)).toBe(true);
-    expect(lastQuery(queries).sql).toContain('"upto_seq" <= $');
-  });
-
-  it('create inserts chat lineage, raw summary, and required replacement history', async () => {
-    const { db, queries } = makeMockDb();
-    await new CompactionsRepository(db)
-      .create({
-        chatId,
-        uptoSeq: 42,
-        parentId: 'compaction-parent',
-        summary: 'earlier turns summarized',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [
-              {
-                type: 'text',
-                text: '<system-reminder>checkpoint</system-reminder>',
-              },
-            ],
-          },
-        ],
-        usage: { status: 'completed' },
-      })
-      .catch(() => null);
-    expect(querySqlContains(queries, 'insert into "compactions"')).toBe(true);
-    expect(queryContains(queries, chatId)).toBe(true);
-    expect(queryContains(queries, 42)).toBe(true);
-    expect(queryContains(queries, 'compaction-parent')).toBe(true);
-    expect(queryContains(queries, 'earlier turns summarized')).toBe(true);
-    expect(
-      queryContains(
-        queries,
-        '[{"role":"user","parts":[{"type":"text","text":"<system-reminder>checkpoint</system-reminder>"}]}]',
-      ),
-    ).toBe(true);
-  });
-
-  it('createIfCutoffAbsent makes duplicate transition cutoffs a no-op', async () => {
-    const { db, queries } = makeMockDb();
-    await new CompactionsRepository(db)
-      .createIfCutoffAbsent({
-        chatId,
-        uptoSeq: 42,
-        parentId: 'compaction-parent',
-        summary: 'transition summary',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [
-              {
-                type: 'text',
-                text: '<system-reminder>transition</system-reminder>',
-              },
-            ],
-          },
-        ],
-      })
-      .catch(() => null);
-
-    expect(querySqlContains(queries, 'insert into "compactions"')).toBe(true);
-    expect(queryContains(queries, chatId)).toBe(true);
-    expect(queryContains(queries, 42)).toBe(true);
-    expect(
-      queryContains(
-        queries,
-        '[{"role":"user","parts":[{"type":"text","text":"<system-reminder>transition</system-reminder>"}]}]',
-      ),
-    ).toBe(true);
-    expect(querySqlContains(queries, 'on conflict')).toBe(true);
-  });
-
-  it('create rejects an empty replacement history before issuing an insert', async () => {
-    const { db, queries } = makeMockDb();
-
-    await expect(
-      new CompactionsRepository(db).create({
-        chatId,
-        uptoSeq: 42,
-        summary: 'summary',
-        replacementHistory: [],
-      }),
-    ).rejects.toThrow('replacement history');
-
-    expect(queries).toHaveLength(0);
-  });
-
-  it('create rejects a blank summary before issuing an insert', async () => {
-    const { db, queries } = makeMockDb();
-
-    await expect(
-      new CompactionsRepository(db).create({
-        chatId,
-        uptoSeq: 42,
-        summary: '   ',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [{ type: 'text', text: 'checkpoint' }],
-          },
-        ],
-      }),
-    ).rejects.toThrow('summary');
-
-    expect(queries).toHaveLength(0);
-  });
-
-  it('create rejects history without a user checkpoint text part', async () => {
-    const { db, queries } = makeMockDb();
-
-    await expect(
-      new CompactionsRepository(db).create({
-        chatId,
-        uptoSeq: 42,
-        summary: 'summary',
-        replacementHistory: [
-          {
-            role: 'assistant',
-            parts: [{ type: 'text', text: 'not a checkpoint' }],
-          },
-        ],
-      }),
-    ).rejects.toThrow('replacement history');
-
-    expect(queries).toHaveLength(0);
-  });
-
-  it('create rejects a checkpoint record containing more than one part', async () => {
-    const { db, queries } = makeMockDb();
-
-    await expect(
-      new CompactionsRepository(db).create({
-        chatId,
-        uptoSeq: 42,
-        summary: 'summary',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [
-              { type: 'text', text: 'checkpoint' },
-              { type: 'text', text: 'unexpected second part' },
-            ],
-          },
-        ],
-      }),
-    ).rejects.toThrow('replacement history');
-
-    expect(queries).toHaveLength(0);
-  });
-
-  it.each([
-    {
-      role: 'assistant' as const,
-      parts: [{ type: 'text', text: 'arbitrary assistant text' }],
-    },
-    {
-      role: 'user' as const,
-      parts: [{ type: 'text', text: 'later user record' }],
-    },
-  ])(
-    'create rejects an invalid later replacement record: %j',
-    async (record) => {
-      const { db, queries } = makeMockDb();
-
-      await expect(
-        new CompactionsRepository(db).create({
-          chatId,
-          uptoSeq: 42,
-          summary: 'summary',
-          replacementHistory: [
-            {
-              role: 'user',
-              parts: [{ type: 'text', text: 'checkpoint' }],
-            },
-            record,
-          ],
-        }),
-      ).rejects.toThrow('replacement history');
-
-      expect(queries).toHaveLength(0);
-    },
-  );
-});
-
 describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
   const ownerUserId = 'owner-xyz';
   const chatId = 'chat-1';
@@ -1141,11 +919,11 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(queryContains(queries, 'expired')).toBe(true);
   });
 
-  it('findMostRecentByChatMessageSequence orders by message seq, then deterministic retry ties, without filtering failed runs', async () => {
+  it('findMostRecentByMessageSequence orders by message seq, then deterministic retry ties, without filtering failed runs', async () => {
     const { db, queries } = makeMockDb();
 
     await new RunsRepository(db)
-      .findMostRecentByChatMessageSequence(chatId, ownerUserId)
+      .findMostRecentByMessageSequence(chatId, ownerUserId)
       .catch(() => null);
 
     expect(queryContains(queries, chatId)).toBe(true);
@@ -1157,11 +935,11 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(queryContains(queries, 1)).toBe(true);
   });
 
-  it('findMostRecentByChatMessageSequence with beforeSeq is owner-scoped and excludes the triggering seq', async () => {
+  it('findMostRecentByMessageSequence with beforeSeq is owner-scoped and excludes the triggering seq', async () => {
     const { db, queries } = makeMockDb();
 
     await new RunsRepository(db)
-      .findMostRecentByChatMessageSequence(chatId, ownerUserId, {
+      .findMostRecentByMessageSequence(chatId, ownerUserId, {
         beforeSeq: 42,
       })
       .catch(() => null);

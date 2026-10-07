@@ -37,6 +37,46 @@ export class NativeFileError extends Error {
   }
 }
 
+/**
+ * The working forms, named once for every source that refuses a selector
+ * outside them. A model that wrote a nearly correct selector learns one
+ * grammar here rather than a different one per source.
+ */
+const SELECTOR_FORMS =
+  "A line selector is :N, :N-M, :N+K, :N-, or :-K, or a comma-separated list of them; :raw is the whole file, or :raw: followed by a list of them; and :outline takes one of them after the colon. A line number starts at 1.";
+
+/**
+ * The one message for a suffix outside the grammar. Sources whose locator has
+ * an encoded spelling for a literal colon pass the sentence naming it; the
+ * host has none (`%3A` decodes to `:` there) and names the forms alone.
+ */
+export function invalidSelectorMessage(encodedSpelling?: string): string {
+  return encodedSpelling === undefined
+    ? SELECTOR_FORMS
+    : `${SELECTOR_FORMS} ${encodedSpelling}`;
+}
+
+/** One absolute member interval, zero-based, `limit` lines long. */
+type Interval = { offset: number; limit: number };
+
+/** The window a placed request reads, once its members are absolute. */
+export type PlacedWindow = Pick<
+  ReadTarget,
+  "offset" | "limit" | "ranges" | "expandedRanges"
+>;
+
+/**
+ * The readers' invariant: a target reaching any of them carries absolute
+ * members only. A target whose end-relative members are still pending would
+ * be read from line 1 under a `requestedRange` the request never asked for,
+ * so a source that has not placed them is refused instead. The source layer
+ * resolves against the count it holds before calling.
+ */
+export function assertResolvedTarget(target: ReadTarget): void {
+  if (target.pending !== undefined)
+    throw new NativeFileError("invalid_selector");
+}
+
 export type ReadTarget = {
   path: string;
   /** Canonical host path when it differs from `path` as given, which is how a
@@ -64,6 +104,15 @@ export type ReadTarget = {
    * re-merge. Absent for single-range reads.
    */
   expandedRanges?: Array<{ offset: number; limit: number }>;
+
+  /**
+   * The member list as written, when any of its members needs the source's
+   * count before the window can be placed. While it is set, `offset`,
+   * `limit`, `ranges`, and `expandedRanges` describe no read; the resolution
+   * step parses it against the count and fills them in. The applier already
+   * validated every member, so that step only places them.
+   */
+  pending?: string;
 };
 
 /**
@@ -85,37 +134,12 @@ export function parsePathScheme(
   };
 }
 
-/**
- * One member of a range selector. A bare `N` is the single line N, the form a
- * caller writes when it wants one line and the form a result's own line
- * prefixes teach it to write.
- */
-function parseRange(value: string) {
-  const match = /^(\d+)(?:([-+])(\d+))?$/.exec(value);
-  if (!match) throw new NativeFileError("invalid_selector");
-  const start = Number(match[1]);
-  const operand = match[3] === undefined ? start : Number(match[3]);
-  const end = match[2] === "+" ? start + (operand - 1) : operand;
-  if (
-    !Number.isSafeInteger(start) ||
-    start < 1 ||
-    !Number.isSafeInteger(operand) ||
-    operand < 1 ||
-    !Number.isSafeInteger(end) ||
-    end < start
-  ) {
-    throw new NativeFileError("invalid_selector");
-  }
-  return { offset: start - 1, limit: end - start + 1 };
-}
 /** Input members stay bounded so metadata and normalization work do too. */
 const MAX_SELECTOR_RANGES = 64;
 
-function mergeIntervals(
-  intervals: Array<{ offset: number; limit: number }>,
-): Array<{ offset: number; limit: number }> {
+function mergeIntervals(intervals: Array<Interval>): Array<Interval> {
   const sorted = [...intervals].sort((a, b) => a.offset - b.offset);
-  const merged: Array<{ offset: number; limit: number }> = [];
+  const merged: Array<Interval> = [];
   for (const current of sorted) {
     const last = merged.at(-1);
     if (last !== undefined && current.offset <= last.offset + last.limit) {
@@ -129,16 +153,129 @@ function mergeIntervals(
   return merged;
 }
 
+/** Every bound is a one-based positive safe integer, in every member form. */
+function bound(text: string): number {
+  const value = Number(text);
+  if (!Number.isSafeInteger(value) || value < 1)
+    throw new NativeFileError("invalid_selector", invalidSelectorMessage());
+  return value;
+}
+
 /**
- * Split a comma selector and validate every member with the single-range
- * rules. The shape gate already enforced each member's form (raw members are
- * `N-M`), so `parseRange` only repeats the numeric checks here.
+ * One member of a range selector. A bare `N` is the single line N, the form a
+ * caller writes when it wants one line and the form a result's own line
+ * prefixes teach it to write.
  */
-function parseRanges(value: string): Array<{ offset: number; limit: number }> {
+function parseRange(value: string): Interval {
+  const match = /^(\d+)(?:([-+])(\d+))?$/u.exec(value);
+  if (!match)
+    throw new NativeFileError("invalid_selector", invalidSelectorMessage());
+  const start = bound(match[1]);
+  const operand = match[3] === undefined ? start : bound(match[3]);
+  const end = match[2] === "+" ? start + (operand - 1) : operand;
+  if (!Number.isSafeInteger(end) || end < start)
+    throw new NativeFileError("invalid_selector", invalidSelectorMessage());
+  return { offset: start - 1, limit: end - start + 1 };
+}
+
+const THROUGH_END = /^(\d+)-$/u;
+const LAST_LINES = /^-(\d+)$/u;
+
+/**
+ * One member in any of its five forms, placed against the source's count:
+ * `N-` runs to the last line and `-K` takes the last K, clipping at line 1
+ * the way `tail` does, and a member past the last line is empty. A count of
+ * zero therefore validates a member's bounds without placing anything,
+ * which is how the applier checks every member it is given.
+ */
+function parseMember(value: string, count: number): Interval {
+  const throughEnd = THROUGH_END.exec(value);
+  if (throughEnd) {
+    const start = bound(throughEnd[1]);
+    return { offset: start - 1, limit: Math.max(0, count - start + 1) };
+  }
+  const lastLines = LAST_LINES.exec(value);
+  if (lastLines) {
+    const start = Math.max(1, count - bound(lastLines[1]) + 1);
+    return { offset: start - 1, limit: count - start + 1 };
+  }
+  return parseRange(value);
+}
+
+/**
+ * Split a comma selector. The shape gate already enforced each member's
+ * form, so the parsing that follows only repeats the numeric checks.
+ */
+function splitMembers(value: string): Array<string> {
   const members = value.split(",");
   if (members.length > MAX_SELECTOR_RANGES)
-    throw new NativeFileError("invalid_selector");
-  return mergeIntervals(members.map(parseRange));
+    throw new NativeFileError("invalid_selector", invalidSelectorMessage());
+  return members;
+}
+
+/**
+ * The window a placed request reads: one range, or the merged request with
+ * the one-line context growth every shipped reader already expects.
+ */
+function placeMembers(
+  members: Array<Interval>,
+  comma: boolean,
+  raw: boolean,
+): PlacedWindow {
+  const ranges = mergeIntervals(members);
+  if (!comma) return ranges[0];
+  return {
+    offset: ranges[0].offset,
+    ranges,
+    expandedRanges: raw
+      ? ranges.map((range) => ({ ...range }))
+      : expandRanges(ranges),
+  };
+}
+
+/**
+ * A pending member list placed against the source's count. A member past the
+ * last line is dropped here, before merge and context growth, so it emits
+ * nothing and adds no context line; when it is the first requested start it
+ * keeps the shipped start-past-EOF window, which the reader already refuses,
+ * and a comma request keeps its plural fields so that refusal reads as the
+ * empty multi-range result it is.
+ */
+export function resolvePendingSelector(
+  pending: string,
+  count: number,
+  raw = false,
+): PlacedWindow {
+  const comma = pending.includes(",");
+  const placed = pending.split(",").map((member) => parseMember(member, count));
+  const first = Math.min(...placed.map((member) => member.offset));
+  if (placed.some((member) => member.limit === 0 && member.offset === first))
+    return comma
+      ? { offset: first, ranges: [], expandedRanges: [] }
+      : { offset: first };
+  return placeMembers(
+    placed.filter((member) => member.limit > 0),
+    comma,
+    raw,
+  );
+}
+
+/**
+ * The one resolution step: place a target's end-relative members against the
+ * source's count and hand every reader the ordinary absolute target. A target
+ * with nothing pending comes back unchanged, so a source that already knows
+ * its count can call this unconditionally.
+ */
+export function resolveEndRelativeSelector(
+  target: ReadTarget,
+  count: number,
+): ReadTarget {
+  if (target.pending === undefined) return target;
+  const { pending, ...resolved } = target;
+  return {
+    ...resolved,
+    ...resolvePendingSelector(pending, count, target.raw),
+  };
 }
 
 /**
@@ -146,9 +283,7 @@ function parseRanges(value: string): Array<{ offset: number; limit: number }> {
  * overlap or sit adjacent. The trailing growth always applies; the reader
  * clips it at EOF. The leading growth clips at the first line here.
  */
-function expandRanges(
-  ranges: Array<{ offset: number; limit: number }>,
-): Array<{ offset: number; limit: number }> {
+function expandRanges(ranges: Array<Interval>): Array<Interval> {
   return mergeIntervals(
     ranges.map((range) => ({
       offset: Math.max(0, range.offset - 1),
@@ -215,14 +350,24 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
   return classifyParsedTarget(parsed);
 }
 
+/** One member: `N`, `N-M`, `N+K`, `N-`, or `-K`. */
+const MEMBER_SOURCE = String.raw`\d+(?:[+-]\d+|-)?|-\d+`;
+const MEMBER = `(?:${MEMBER_SOURCE})`;
+const MEMBER_LIST_SOURCE = `${MEMBER}(?:,${MEMBER})*`;
+
 /**
- * The whole selector grammar, in one place. A caller that must distinguish a
- * malformed selector from a colon that was never a selector at all tests the
- * shape first; everything else applies it and lets `parseRange` reject the
- * ranges this shape admits but the bounds do not.
+ * The whole selector grammar, in one place: the one member set in bare lists,
+ * `raw:` lists, and the outline's single member, plus both spellings of a raw
+ * read. A caller that must distinguish a malformed selector from a colon that
+ * was never a selector at all tests the shape first; everything else applies
+ * it and lets the member parsing reject the bounds this shape admits.
  */
-const SELECTOR_SUFFIX =
-  /^(?:raw(?::\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)?|outline(?::\d+(?:[-+]\d+)?)?|\d+(?:[-+]\d+)?(?:,\d+(?:[-+]\d+)?)*)$/u;
+const SELECTOR_SUFFIX = new RegExp(
+  `^(?:raw(?::${MEMBER_LIST_SOURCE})?|outline(?::${MEMBER})?|${MEMBER_LIST_SOURCE}:raw|${MEMBER_LIST_SOURCE})$`,
+  "u",
+);
+/** A `<list>:raw` split claims the segment before `:raw` only in this shape. */
+const MEMBER_LIST = new RegExp(`^${MEMBER_LIST_SOURCE}$`, "u");
 
 export function isSelectorSuffix(value: string): boolean {
   return SELECTOR_SUFFIX.test(value);
@@ -238,42 +383,37 @@ export function applySelectorSuffix(
   if (selector === "outline")
     return { path, offset: 0, raw: false, outline: true };
   if (!isSelectorSuffix(selector))
-    throw new NativeFileError("invalid_selector");
+    throw new NativeFileError("invalid_selector", invalidSelectorMessage());
+  const trailingRaw = /^(.*):raw$/u.exec(selector);
+  if (trailingRaw !== null && MEMBER_LIST.test(trailingRaw[1]))
+    return applyMembers(path, trailingRaw[1], true);
   const outline = /^outline:(.*)$/u.exec(selector);
-  if (outline) {
-    return {
-      path,
-      ...parseRange(outline[1]),
-      raw: false,
-      outline: true,
-    };
-  }
+  if (outline)
+    return { ...applyMembers(path, outline[1], false), outline: true };
   const raw = /^raw:(.*)$/u.exec(selector);
-  if (raw) return applyRangedSelector(path, raw[1], true);
-  return applyRangedSelector(path, selector, false);
+  if (raw) return applyMembers(path, raw[1], true);
+  return applyMembers(path, selector, false);
 }
 
 /**
- * Build a single- or multi-range target from validated members. A comma
+ * Apply validated members to a path. A single member is one window; a comma
  * request keeps its merged request for `requestedRanges` and reads the
- * context-grown intervals; `offset` stays the first requested start for the
- * shared EOF rule.
+ * context-grown intervals, with `offset` the first requested start for the
+ * shared EOF rule. A member only a source's count can place leaves the whole
+ * list pending, carried as written for the resolution step.
  */
-function applyRangedSelector(
-  path: string,
-  members: string,
-  raw: boolean,
-): ReadTarget {
-  if (!members.includes(",")) return { path, ...parseRange(members), raw };
-  const ranges = parseRanges(members);
+function applyMembers(path: string, value: string, raw: boolean): ReadTarget {
+  const members = splitMembers(value);
+  // A count of zero validates every member's bounds and places an
+  // end-relative one to nothing, so a member the count must place is exactly
+  // the one that comes back empty.
+  const intervals = members.map((member) => parseMember(member, 0));
+  if (intervals.some((member) => member.limit === 0))
+    return { path, offset: 0, raw, pending: value };
   return {
     path,
-    offset: ranges[0].offset,
     raw,
-    ranges,
-    expandedRanges: raw
-      ? ranges.map((range) => ({ ...range }))
-      : expandRanges(ranges),
+    ...placeMembers(intervals, members.length > 1, raw),
   };
 }
 
@@ -281,9 +421,12 @@ function applyRangedSelector(
  * Split the `path:selector` suffix off `input`: the `:raw` and `:outline`
  * forms claim everything after their marker, any other suffix splits at the
  * last colon past the last path separator, and everything else is a path with
- * no selector. The suffix is returned unvalidated — a caller that acts on it
- * applies the shared grammar, which rejects what the shape gate admits but the
- * ranges do not.
+ * no selector. A trailing `:raw` takes the colon segment before it as the
+ * range list when that segment has the member-list shape and emits the
+ * canonical `raw:<list>` spelling; any other segment stays on the path, so
+ * `notes:draft:raw` is still the raw read of `notes:draft`. The suffix is
+ * returned unvalidated — a caller that acts on it applies the shared grammar,
+ * which rejects what the shape gate admits but the bounds do not.
  */
 /** A native path split into its locator and optional read selector. */
 export interface SelectorSplit {
@@ -294,10 +437,10 @@ export interface SelectorSplit {
 export function splitSelectorSuffix(input: string): SelectorSplit {
   const raw = /:raw(?::([^:/]*))?$/.exec(input);
   if (raw) {
-    return {
-      path: input.slice(0, raw.index),
-      selector: raw[1] === undefined ? "raw" : `raw:${raw[1]}`,
-    };
+    const before = input.slice(0, raw.index);
+    if (raw[1] !== undefined)
+      return { path: before, selector: `raw:${raw[1]}` };
+    return rawSplit(before);
   }
   const outline = /:outline(?::([^:/]*))?$/.exec(input);
   if (outline) {
@@ -310,6 +453,21 @@ export function splitSelectorSuffix(input: string): SelectorSplit {
   return colon > input.lastIndexOf("/")
     ? { path: input.slice(0, colon), selector: input.slice(colon + 1) }
     : { path: input };
+}
+
+/**
+ * The `<list>:raw` spelling: the segment before a trailing `:raw` is the range
+ * list only when it has the member-list shape, so a path segment that merely
+ * ends in digits keeps its colon and stays the raw read of that path.
+ */
+function rawSplit(before: string): SelectorSplit {
+  const colon = before.lastIndexOf(":");
+  if (colon <= before.lastIndexOf("/"))
+    return { path: before, selector: "raw" };
+  const list = before.slice(colon + 1);
+  return MEMBER_LIST.test(list)
+    ? { path: before.slice(0, colon), selector: `raw:${list}` }
+    : { path: before, selector: "raw" };
 }
 
 /** Split a combined `path:selector` string, then apply the shared grammar. */

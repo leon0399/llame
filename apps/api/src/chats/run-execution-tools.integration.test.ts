@@ -65,7 +65,6 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { CompactionsRepository } from './compactions-repository';
 import {
   buildContext,
   isTextPart,
@@ -124,7 +123,10 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { turnTelemetryLogger } from './turn-telemetry';
-import { createModelChangeItem } from './context-item-producers';
+import {
+  createCompactionCheckpointPart,
+  createModelChangeItem,
+} from './context-item-producers';
 import { createContextItemPart, isContextItemPart } from './context-item';
 import {
   instructionsSeenPaths,
@@ -645,16 +647,17 @@ describeIfDb('executeRun tool-loop persistence', () => {
   function serviceWithTools(
     overrides?: ServiceWithToolsOverrides,
   ): RunExecutionService {
+    // The window variant is never exercised by this suite: every seeded
+    // context fits the mock model's context window, so a rejection catches a
+    // future scenario silently relying on it. The threshold variant resolves
+    // null, the summarizer's own "no checkpoint" answer.
     const noopCompaction: CompactionCapability = {
-      maybeCompact: async () => {},
-      // Never exercised by this suite: every seeded context fits the mock
-      // model's context window, so the transition-compaction branch never
-      // runs. A throw catches a future scenario silently relying on it.
-      compactForTransition: () => {
-        throw new Error(
-          'serviceWithTools.compactForTransition is not exercised by this suite',
-        );
-      },
+      summarizeCheckpoint: (request) =>
+        request.variant === 'window'
+          ? Promise.reject(
+              new Error('tools window summarization is not exercised'),
+            )
+          : Promise.resolve(null),
     };
     const noopTitles: TitleCapability = { maybeGenerateTitle: async () => {} };
     const resolved = resolveServiceWithTools(overrides);
@@ -5868,18 +5871,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(await instructionEvents(secondSeeded.run.id)).toEqual([]);
         expect(await stagedInstructionParts(secondSeeded)).toEqual([]);
 
-        // A compaction absorbs every message that carried the item.
+        // The checkpoint absorbs every message that carried the item.
         await tenantDb.runAs(userId, (tx) =>
-          new CompactionsRepository(tx).create({
+          new MessagesRepository(tx).createCheckpoint({
             chatId: seeded.chatId,
-            uptoSeq: secondSeeded.userMessage.seq,
-            summary: 'Earlier turns.',
-            replacementHistory: [
-              {
-                role: 'user',
-                parts: [{ type: 'text', text: 'Earlier turns.' }],
-              },
-            ],
+            absorbedThroughSeq: secondSeeded.userMessage.seq,
+            part: createCompactionCheckpointPart('Earlier turns.'),
           }),
         );
 

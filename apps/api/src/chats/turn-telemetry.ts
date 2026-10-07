@@ -26,6 +26,13 @@ export type TurnTelemetry = {
   reasoningTokens?: number;
   modelId: string;
   /**
+   * The final completed model request's input plus output tokens — the
+   * measured context size the compaction trigger reads; never part of the
+   * aggregate input/output/total. Absent — never null — unless that request
+   * reported at least one count and the receipts cover every step.
+   */
+  contextTokens?: number;
+  /**
    * The effort this call ran at, recorded wherever `modelId` is (see the
    * available-models spec). Absent — never null — when the run carried none.
    *
@@ -168,10 +175,23 @@ export function buildTurnTelemetry(
   };
 }
 
+function finalRequestContextTokens(
+  input: AggregateTurnTelemetryInput,
+): number | undefined {
+  const finalReceipt =
+    input.stepCount === undefined || input.receipts.length !== input.stepCount
+      ? undefined
+      : input.receipts.at(-1);
+  return finalReceipt === undefined
+    ? undefined
+    : requestContextTokens(finalReceipt);
+}
+
 export function aggregateTurnTelemetry(
   input: AggregateTurnTelemetryInput,
 ): TurnTelemetry & { complete: boolean } {
   const totals = aggregateReceiptTelemetry(input);
+  const contextTokens = finalRequestContextTokens(input);
   return {
     ...(totals.hasReportedCounts && {
       inputTokens: totals.inputTokens,
@@ -183,6 +203,7 @@ export function aggregateTurnTelemetry(
     ...(totals.everyReceiptHasReasoning && {
       reasoningTokens: totals.reasoningTokens,
     }),
+    ...(contextTokens !== undefined && { contextTokens }),
     ...(input.permissionMode === 'bypass' && {
       permissionMode: 'bypass' as const,
     }),

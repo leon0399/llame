@@ -1,4 +1,5 @@
 import {
+  invalidSelectorMessage,
   measureNativeModelOutput,
   OUTLINE_UNSUPPORTED_MESSAGE,
   renderCollectedDirectory,
@@ -217,25 +218,142 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('counts directory lines when a selector is malformed', async () => {
+  it('refuses a malformed selector without rendering the listing', async () => {
+    // The shared grammar rejects the bound, so the web passes that wording on
+    // rather than rewriting it, and the listing is never rendered to count.
+    const render = (entries: typeof directoryEntries) => ({
+      method: 'adapter' as const,
+      content: '',
+      directory: { displayPath: DIRECTORY_URL, entries },
+    });
+    const refusal = {
+      status: 'error',
+      type: 'invalid_selector',
+      message: invalidSelectorMessage(),
+    };
+    expect(
+      await buildWebReadResult(
+        { url: DIRECTORY_URL, selector: '0' },
+        DIRECTORY_URL,
+        render(directoryEntries),
+      ),
+    ).toEqual(refusal);
+    // The same refusal stands for a listing whose own render would fail, so
+    // the entries are never walked to produce a message.
+    expect(
+      await buildWebReadResult(
+        { url: DIRECTORY_URL, selector: '0' },
+        DIRECTORY_URL,
+        render(oversizedDirectory().entries),
+      ),
+    ).toEqual(refusal);
+  });
+
+  it('resolves end-relative members against the render’s own line count', async () => {
     const result = await buildWebReadResult(
-      { url: DIRECTORY_URL, selector: '0' },
-      DIRECTORY_URL,
-      {
-        method: 'adapter',
-        content: '',
-        directory: {
-          displayPath: DIRECTORY_URL,
-          entries: directoryEntries,
-        },
-      },
+      { url: GUIDE_URL, selector: '-40' },
+      GUIDE_URL,
+      { method: 'negotiated', content: renderedLines(100) },
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      requestedRange: { startLine: 61, endLine: 100 },
+      shownRange: { startLine: 60, endLine: 100 },
+      content: `${readWindow(60, 100).trimEnd()}`,
+    });
+  });
+
+  it('reports the rendered count for a member past the page’s end', async () => {
+    const result = await buildWebReadResult(
+      { url: GUIDE_URL, selector: '500-' },
+      GUIDE_URL,
+      { method: 'negotiated', content: renderedLines(100) },
     );
     expect(result).toEqual({
       status: 'error',
       type: 'invalid_selector',
       message:
-        'The selector :0 selected no line of this page, which rendered 24 lines numbered from 1. Write :N, :N-M, or :N+K within 1-24, or omit the selector to read from the start.',
+        'The selector :500- selected no line of this page, which rendered 100 lines numbered from 1. Write :N, :N-M, or :N+K within 1-100, or omit the selector to read from the start.',
     });
+  });
+
+  it('refuses a tail member of a document the web plane cut', async () => {
+    const render = {
+      method: 'adapter' as const,
+      content: renderedLines(100),
+      truncated: true,
+    };
+    // The end of a cut document is not the document's end, so the tail is
+    // refused rather than answered with the wrong end.
+    expect(
+      await buildWebReadResult(
+        { url: GUIDE_URL, selector: '-40' },
+        GUIDE_URL,
+        render,
+      ),
+    ).toEqual({
+      status: 'error',
+      type: 'representation_too_large',
+      message:
+        "The adapter document was cut at the web read's document bound, so its last lines are not the document's last lines; read the range from a line instead of a tail.",
+    });
+    // A raw read reaches the same end of the same cut text, so it is refused
+    // the same way.
+    expect(
+      await buildWebReadResult(
+        { url: GUIDE_URL, selector: 'raw:-40' },
+        GUIDE_URL,
+        render,
+      ),
+    ).toMatchObject({ status: 'error', type: 'representation_too_large' });
+    // A member that names a real start is served, and the raw read of the cut
+    // document keeps its shipped behavior.
+    expect(
+      await buildWebReadResult(
+        { url: GUIDE_URL, selector: '90-' },
+        GUIDE_URL,
+        render,
+      ),
+    ).toMatchObject({
+      status: 'success',
+      requestedRange: { startLine: 90, endLine: 100 },
+    });
+    expect(
+      await buildWebReadResult(
+        { url: GUIDE_URL, selector: 'raw' },
+        GUIDE_URL,
+        render,
+      ),
+    ).toMatchObject({ status: 'success', representation: 'raw' });
+  });
+
+  it('resolves end-relative members against a web directory’s entry count', async () => {
+    const directory = {
+      displayPath: DIRECTORY_URL,
+      entries: ['a', 'b', 'c', 'd'].map((name) => ({
+        name,
+        kind: 'file' as const,
+      })),
+    };
+    const result = await buildWebReadResult(
+      { url: DIRECTORY_URL, selector: '-2' },
+      DIRECTORY_URL,
+      { method: 'adapter', content: '', directory },
+    );
+    expect(result).toMatchObject({
+      status: 'success',
+      content: `${DIRECTORY_URL}\n  - c\n  - d\n`,
+      truncated: false,
+    });
+    // A start past the last entry is the empty page the listing returns for
+    // any request beyond it, not a refusal.
+    expect(
+      await buildWebReadResult(
+        { url: DIRECTORY_URL, selector: '9-' },
+        DIRECTORY_URL,
+        { method: 'adapter', content: '', directory },
+      ),
+    ).toMatchObject({ status: 'success', content: `${DIRECTORY_URL}\n` });
   });
 
   it('applies a positive offset to a directory selector', async () => {
@@ -295,24 +413,6 @@ describe('buildWebReadResult', () => {
     });
   });
 
-  it('reports no rendered text when a large directory selector cannot render', async () => {
-    expect(
-      await buildWebReadResult(
-        { url: DIRECTORY_URL, selector: '0' },
-        DIRECTORY_URL,
-        {
-          method: 'adapter',
-          content: '',
-          directory: oversizedDirectory(),
-        },
-      ),
-    ).toEqual({
-      status: 'error',
-      type: 'invalid_selector',
-      message:
-        'The selector :0 selected no line of this page, which rendered no text.',
-    });
-  });
   it('includes adapter provenance in the web envelope', async () => {
     const result = await buildWebReadResult({ url: GUIDE_URL }, GUIDE_URL, {
       method: 'adapter',

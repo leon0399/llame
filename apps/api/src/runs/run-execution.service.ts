@@ -16,7 +16,6 @@ import { canonicalJson, compareCodePoints } from '../canonical-json';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type Chat,
-  type Compaction,
   type Message,
   type ModelToolDeclaration,
   type Run,
@@ -39,16 +38,25 @@ import { type ModelClient } from '../models/model-client';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import {
   ChatsRepository,
-  CompactionsRepository,
-  isCompletedAssistantTurn,
   MessagesRepository,
+  isCompletedAssistantTurn,
 } from '../chats/chats-repository';
+import { type CheckpointMessage } from '../chats/messages-repository';
 import {
   CompactionService,
   toStoredMessages,
   type CompactionCapability,
+  type CompactionSummary,
 } from '../compaction/compaction.service';
-import { requestFitsContextWindow } from '../compaction/compaction';
+import {
+  countedContextTokens,
+  estimateContinuationTokens,
+  estimateModelRequestTokens,
+  planCompactionCheckpoint,
+  requestFitsContextWindow,
+  resolveCompactionThreshold,
+  type CompactionPlan,
+} from '../compaction/compaction';
 import { SearchIndexService } from '../search/search-index.service';
 import {
   ChatSearchQueryEmbedder,
@@ -63,7 +71,6 @@ import {
   type ChatReindexDispatcher,
 } from '../search/search-reindex-dispatch.service';
 import {
-  isModelChangeItem,
   createWorkspaceDetachNoticeItem,
   createWorkspaceSnapshotItem,
   createModelChangeItem,
@@ -73,6 +80,8 @@ import {
   createTemporalItem,
   deriveToolAvailabilityPayload,
   deriveToolAvailabilityPayloadFromStates,
+  createCompactionCheckpointPart,
+  toContextCheckpoint,
 } from '../chats/context-item-producers';
 import {
   CONTEXT_ITEM_PRODUCERS,
@@ -161,19 +170,20 @@ import { TitleService, type TitleCapability } from '../titles/title.service';
 import {
   aggregateTurnTelemetry,
   emitCompletedTurnTelemetryLog,
-  requestContextTokens,
   turnTelemetryLogger,
   type TurnTelemetry,
 } from '../chats/turn-telemetry';
 import {
-  ContextIncompatibleError,
   DYNAMIC_TOOL_EXECUTOR_RESOLVER,
   type BoundExecutableTool,
   type DynamicToolExecutorResolver,
-  ModelContextExecutionError,
   constrainDynamicToolResolver,
   resolveBoundExecutableTools,
 } from './snapshot-tool-execution';
+import {
+  ContextIncompatibleError,
+  ModelContextExecutionError,
+} from './model-context-errors';
 import {
   composeAttemptToolCatalog,
   finalizeEffectiveContext,
@@ -281,8 +291,8 @@ type WorkspaceStagedContext = {
 /**
  * The accepted-turn instructions load: what the turn's binding could stage
  * before its first request, plus the read identity every later system read of
- * the same Run reuses. `part` and `seenCanonicalPaths` are replaced in place
- * when a transition compaction rebuilds the history (design D5, D7).
+ * the same Run reuses. `part` and `seenCanonicalPaths` are replaced whenever
+ * the effective request history is rebuilt.
  */
 type TurnInstructions = {
   /** The bound root the accepted-turn trigger loads; undefined without one. */
@@ -299,9 +309,19 @@ type TurnInstructions = {
 type PreparedAttemptContext = BuiltContext & {
   /** Receipt-only data persisted before target-model I/O. */
   effectiveContext: SystemPromptReceiptInput;
-  /** Attempt-local catalog retained only in worker memory. */
+  /** The bound model catalog entry this pass resolved and rendered for. */
+  model: SystemModelCatalogEntry;
   toolCatalog: AttemptToolCatalog;
   stagedParts: Array<MessagePart>;
+  /** The stored rows this request was built from; the trigger plans on them. */
+  historyRows: Array<Message>;
+  /**
+   * The active checkpoint for this attempt — always the latest one whose
+   * absorbed-through sequence is below the triggering user message's, so the
+   * prompt anchor, the skill and workspace epochs, and the history cut all read
+   * one boundary.
+   */
+  latestCheckpoint: CheckpointMessage | undefined;
   /** Canonical instruction paths the effective history already discloses. */
   seenInstructionPaths: ReadonlySet<string>;
   recencyDigestInitialization?: RecencyDigestInitialization;
@@ -310,6 +330,27 @@ type PreparedAttemptContext = BuiltContext & {
   skillCatalogWrites: SkillCatalogWrites;
   workspaceWrites?: WorkspaceWrites;
   untitled: boolean;
+};
+type CompactionTriggerInput = {
+  run: ExecuteRunInput;
+  prepared: PreparedExecutionContext;
+  stagedParts: ReadonlyArray<MessagePart>;
+  historyRows: ReadonlyArray<Message>;
+  boundarySeq: number;
+};
+
+/**
+ * Everything the Run sends on its first model step (design D5): the request the
+ * attempt actually dispatches, its prepared context, and the turn instructions
+ * that complete it.
+ */
+type PreparedFirstStep = {
+  readonly request: {
+    readonly prepared: PreparedExecutionContext;
+    readonly contextItems: Array<RunContextItem>;
+  };
+  readonly context: PreparedAttemptContext;
+  readonly turnInstructions: TurnInstructions;
 };
 type AttemptDigestContext = {
   shareRecentChats: ResolvedMemorySettings;
@@ -322,7 +363,7 @@ type AttemptPromptInputs = AttemptDigestContext & {
   chat: Chat;
   model: SystemModelCatalogEntry;
   user: PromptUserInput | undefined;
-  compaction: Compaction | undefined;
+  checkpoint: CheckpointMessage | undefined;
   instanceTimezone: string;
   anchor: TemporalAnchor;
   /** This turn's skill-catalog decision: the rendered baseline and the notice. */
@@ -567,7 +608,7 @@ type ToolCompletedEventPayload = {
 /**
  * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
  * assembly, the model call, and every durable side effect (assistant turn,
- * run lifecycle + model.delta events, post-turn compaction/titling).
+ * run lifecycle + model.delta events, pre-step checkpointing and titling).
  *
  * Extracted from the HTTP-coupled ChatLoopService so the exact same execution
  * drives both venues: the queue worker calls executeRun and the request thread
@@ -712,7 +753,7 @@ export class RunExecutionService {
       : request;
     const { client } = input;
 
-    // Claim before any context preparation can invoke a model. Transition
+    // Claim before any context preparation can invoke a model. Pre-step
     // compaction is part of this run's execution budget and cancellation
     // lifecycle, not untracked pre-work. A cancel that won the worker pickup
     // TOCTOU is settled atomically here without spending on either model.
@@ -835,14 +876,15 @@ export class RunExecutionService {
       workspaceRoot,
       effectivePermissionMode,
     );
-    // Prompt/catalog resolution: the worker resolves both prompt surfaces
+    // Prompt/catalog resolution, the single pre-step compaction trigger, and the
+    // request this Run actually sends (design D4/D5): both prompt surfaces come
     // from the current owner state, admitted catalog, and boot-loaded
-    // templates. This replaces the accept-time snapshot binding.
+    // templates, and the receipt binds last, after any checkpoint published.
     let prepared: PreparedExecutionContext;
-    let attemptStagedParts: Array<MessagePart> = [];
+    let attemptStagedParts: Array<MessagePart>;
     // The request's rail record as dispatched, kept for the completed
     // outcome's finish-time write (extended there with the in-Run items).
-    let attemptContextItems: Array<RunContextItem> = [];
+    let attemptContextItems: Array<RunContextItem>;
     let attemptRecencyDigestTold:
       | NonNullable<Chat['recencyDigestTold']>
       | undefined;
@@ -851,87 +893,41 @@ export class RunExecutionService {
       | undefined;
     let attemptSkillCatalogWrites: SkillCatalogWrites | undefined;
     let attemptWorkspaceWrites: WorkspaceWrites | undefined;
-    let attemptToolAvailability: Array<TurnToolAvailabilityEntry> = [];
+    let attemptToolAvailability: Array<TurnToolAvailabilityEntry>;
     let turnInstructions: TurnInstructions;
     try {
-      const context = await this.prepareAttemptContext(
-        input,
+      const firstStep = await this.prepareAttemptForFirstStep({
+        run: input,
         attemptId,
-        workspacePreparation.chat,
-        workspacePreparation.root,
-        workspaceMcpKey,
-      );
-      attemptStagedParts = context.stagedParts;
-      attemptRecencyDigestTold = context.recencyDigestTold;
-      attemptRecencyDigestInitialization = context.recencyDigestInitialization;
-      attemptSkillCatalogWrites = context.skillCatalogWrites;
-      attemptWorkspaceWrites = context.workspaceWrites;
-      attemptToolAvailability = toTurnToolAvailability(
-        context.toolCatalog.availabilityManifest,
-      );
-
-      // The accepted turn stages its bound root's instruction chain before the
-      // first request (D5). It runs after the binding re-check and outside
-      // every transaction, because probing and reading candidates is
-      // filesystem and tool work; the item takes its rail slot directly after
-      // the workspace snapshot.
-      turnInstructions = await this.loadTurnInstructions(
-        input,
         workspacePreparation,
-        workspaceRoot,
+        workspaceMcpKey,
+        dynamicResolver: attemptDynamicResolver,
         effectivePermissionMode,
-        claim.nativeDeliverySequence,
-        attemptId,
-        context.seenInstructionPaths,
-        attemptStagedParts,
+        nativeDeliverySequence: claim.nativeDeliverySequence,
+        workspaceRootCell: workspaceRoot,
+        effort,
+      });
+      prepared = firstStep.request.prepared;
+      attemptContextItems = firstStep.request.contextItems;
+      attemptStagedParts = firstStep.context.stagedParts;
+      attemptRecencyDigestTold = firstStep.context.recencyDigestTold;
+      attemptRecencyDigestInitialization =
+        firstStep.context.recencyDigestInitialization;
+      attemptSkillCatalogWrites = firstStep.context.skillCatalogWrites;
+      attemptWorkspaceWrites = firstStep.context.workspaceWrites;
+      attemptToolAvailability = toTurnToolAvailability(
+        firstStep.context.toolCatalog.availabilityManifest,
       );
-
-      // Inject staged context items into the model request: prepend their
-      // rendered text to the triggering user message. Uses the same rendering
-      // path as userPartsToModelContent — context item parts carry data.text.
-      const contextMessages = context.messages;
-      this.prependStagedContextItems(contextMessages, attemptStagedParts);
-
-      let contextItems = [
-        ...context.contextItems,
-        ...toRunContextItems(attemptStagedParts),
-      ];
-      prepared = {
-        system: context.system,
-        messages: contextMessages,
-        untitled: context.untitled,
-        toolDeclarations: context.toolCatalog.declarations,
-        tools: await resolveBoundExecutableTools(
-          context.toolCatalog.declarations,
-          undefined,
-          constrainDynamicToolResolver(
-            attemptDynamicResolver,
-            context.toolCatalog.sourceById ?? new Map(),
-          ),
-        ),
-      };
-
-      // Transition compaction replaces the request wholesale when it runs, so
-      // the items recorded must be the rebuilt set — the initial build's
-      // items were never sent.
-      contextItems = await this.ensureRequestFitsContextWindow(
-        prepared,
-        contextItems,
-        attemptStagedParts,
-        input,
-        turnInstructions,
-      );
-      attemptContextItems = contextItems;
-      // Recorded only once the request is final: before this point a
-      // transition compaction can still replace it, and a preparation failure
-      // means no request was ever made. Recording earlier would durably assert
-      // a request the model never received. Fenced by activeAttemptId.
+      turnInstructions = firstStep.turnInstructions;
+      // Recorded only once the request is final: a preparation failure means no
+      // request was ever made, and recording earlier would durably assert a
+      // request the model never received. Fenced by activeAttemptId.
       const recorded = await this.tenantDb.runAs(input.userId, (tx) =>
         new RunsRepository(tx).updateForAttempt(
           input.runId,
           input.userId,
           attemptId,
-          { contextItems },
+          { contextItems: attemptContextItems },
         ),
       );
       // A miss means the owner-scoped row is gone — the chat was deleted out
@@ -1000,9 +996,9 @@ export class RunExecutionService {
       runId: input.runId,
     });
 
-    // `model.requested` describes the target inference, not source-model
-    // transition compaction. Record it only after preparation succeeds and
-    // immediately before the target call.
+    // `model.requested` describes the target inference, not the summary
+    // inference that may have preceded it. Record it only after preparation
+    // succeeds and immediately before the target call.
     await this.tenantDb.runAs(input.userId, async (tx) => {
       const events = new RunEventsRepository(tx);
       await events.append(input.runId, 'model.requested', {
@@ -1973,18 +1969,8 @@ export class RunExecutionService {
           }
           if (assistantTelemetry.status === 'completed') {
             await this.postCompletedRunWork({
-              finish,
-              requestUsageReceipts,
-              stepCount,
-              client,
               chatId: input.chatId,
               userId: input.userId,
-              system,
-              toolDeclarations: [
-                ...prepared.toolDeclarations,
-                ...toolAdditions.addedDeclarations,
-              ],
-              ...(effort !== undefined && { effort }),
               untitled,
               userMessage: input.userMessage,
             });
@@ -2016,34 +2002,36 @@ export class RunExecutionService {
   }
 
   /**
-   * Loads the latest compaction and the message history up to the run's
-   * triggering message, then rebuilds the context with `systemPrompt` — the
-   * shared core of both the initial per-run context build and a
-   * transition-compaction rebuild.
+   * Loads the active checkpoint and the message history after its boundary, up
+   * to the run's triggering message, then rebuilds the context with
+   * `systemPrompt` — the shared core of the initial per-run context build and
+   * the post-publication rebuild.
    *
-   * The same history read also yields the instruction files it already
-   * discloses (D7), so the caller never has to read the history twice.
+   * The read is the chat's whole live window, so it also yields the rows the
+   * compaction trigger plans on and the instruction files the history already
+   * discloses (D7); no caller reads the history twice.
    */
   private async rebuildContextForChat(
     tx: Db,
     input: ExecuteRunInput,
     systemPrompt: string,
   ): Promise<{
-    readonly context: ReturnType<typeof buildContext>;
+    readonly context: BuiltContext;
+    readonly historyRows: Array<Message>;
     readonly seenInstructionPaths: ReadonlySet<string>;
   }> {
-    const { chatId, userId, userMessage } = input;
-    const compaction = await new CompactionsRepository(tx).findLatestByChatId(
-      chatId,
-      userId,
-      { beforeSeq: userMessage.seq },
+    const messagesRepo = new MessagesRepository(tx);
+    const checkpoint = await messagesRepo.findActiveCheckpoint(
+      input.chatId,
+      input.userId,
+      { beforeSeq: input.userMessage.seq },
     );
-    const history = await new MessagesRepository(tx).findByChatId(
-      chatId,
-      userId,
+    const history = await messagesRepo.findByChatId(
+      input.chatId,
+      input.userId,
       {
-        maxSeq: userMessage.seq,
-        ...(compaction && { sinceSeq: compaction.uptoSeq }),
+        maxSeq: input.userMessage.seq,
+        sinceSeq: checkpoint?.absorbedThroughSeq,
       },
     );
     return {
@@ -2052,14 +2040,11 @@ export class RunExecutionService {
         // A Run's own request continues this Chat, so it replays the Chat's
         // persisted reasoning (D16).
         requestKind: 'continuation',
-        ...(compaction && {
-          compaction: {
-            summary: compaction.summary,
-            uptoSeq: compaction.uptoSeq,
-            replacementHistory: compaction.replacementHistory,
-          },
+        ...(checkpoint !== undefined && {
+          checkpoint: toContextCheckpoint(checkpoint),
         }),
       }),
+      historyRows: history,
       seenInstructionPaths: instructionsSeenPaths(
         history.flatMap((message) => message.parts),
       ),
@@ -2413,13 +2398,12 @@ export class RunExecutionService {
 
   /**
    * Recomputes the accepted-turn bundle against the attempt's effective
-   * history (D5, D7): once before the first request, and again when a
-   * transition compaction rebuilds the request. The rebuild decides the seen
-   * set — the item this attempt staged can no longer be what makes its files
-   * seen, and a file the rebuilt history discloses must not be staged again.
-   * The staged item is replaced in place, where every holder of the staged
-   * array — the request prepend, the finish-time persistence, and the Run
-   * record — sees the same content.
+   * history before the first request and whenever that history is rebuilt. The
+   * rebuild decides the seen set — the item this attempt staged can no longer
+   * be what makes its files seen, and a file the rebuilt history discloses must
+   * not be staged again. The staged item is replaced in place, where every
+   * holder of the staged array — the request prepend, finish-time persistence,
+   * and the Run record — sees the same content.
    */
   private async refreshTurnInstructions(
     turn: TurnInstructions,
@@ -2556,107 +2540,95 @@ export class RunExecutionService {
   }
 
   /**
-   * If the built request doesn't fit the target model's context window,
-   * attempts recovery via `compactAndRebuildForContextWindow` — or fails fast
-   * with `ContextIncompatibleError` when there is no model-switch anchor to
-   * transition from. Returns `contextItems` unchanged when the request
-   * already fits.
+   * Window precedence is fixed; empty ranges are no-ops unless the request
+   * does not fit.
    */
-  private async ensureRequestFitsContextWindow(
-    prepared: PreparedExecutionContext,
-    contextItems: ReturnType<typeof buildContext>['contextItems'],
-    stagedParts: Array<MessagePart>,
-    input: ExecuteRunInput,
-    turnInstructions: TurnInstructions,
-  ): Promise<ReturnType<typeof buildContext>['contextItems']> {
-    const reservedOutputTokens =
-      this.instanceConfig.config.runs.maxOutputTokens;
+  private async evaluateCompactionTrigger(
+    input: CompactionTriggerInput,
+  ): Promise<
+    | {
+        readonly variant: 'threshold' | 'window';
+        readonly plan: CompactionPlan;
+      }
+    | undefined
+  > {
+    const plan = planCompactionCheckpoint({
+      rows: toStoredMessages(input.historyRows),
+      boundarySeq: input.boundarySeq,
+      triggeringUserSeq: input.run.userMessage.seq,
+    });
+    const fits = requestFitsContextWindow({
+      system: input.prepared.system,
+      messages: input.prepared.messages,
+      toolDeclarations: input.prepared.toolDeclarations,
+      contextWindowTokens: input.run.client.contextWindowTokens,
+      reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
+    });
+    if (!fits) {
+      if (plan === null) {
+        throw new ContextIncompatibleError(
+          'The complete request exceeds the target model context window and no committed turn is left to summarize.',
+        );
+      }
+      return { variant: 'window', plan };
+    }
+    const measured = await this.measureAttemptContextTokens(input);
     if (
-      requestFitsContextWindow({
-        system: prepared.system,
-        messages: prepared.messages,
-        toolDeclarations: prepared.toolDeclarations,
-        contextWindowTokens: input.client.contextWindowTokens,
-        reservedOutputTokens,
+      measured <
+      resolveCompactionThreshold({
+        explicitThresholdTokens: input.run.client.compactionThresholdTokens,
+        contextWindowTokens: input.run.client.contextWindowTokens,
       })
     ) {
-      return contextItems;
+      return undefined;
     }
-    if (
-      !stagedParts.some(isModelChangeItem) &&
-      !input.userMessage.parts.some(isModelChangeItem)
-    ) {
-      throw new ContextIncompatibleError(
-        'The complete request exceeds the target model context window and no model-switch source context is available.',
-      );
-    }
-    return this.compactAndRebuildForContextWindow(
-      prepared,
-      input,
-      reservedOutputTokens,
-      stagedParts,
-      turnInstructions,
-    );
+    return plan === null ? undefined : { variant: 'threshold', plan };
   }
 
   /**
-   * Attempts one transition compaction and context rebuild, then re-checks;
-   * throws `ContextIncompatibleError` if compaction itself fails (unless the
-   * abort signal fired, which rethrows) or the rebuilt request still doesn't
-   * fit. Mutates `prepared.messages` and the staged parts in place — the
-   * accepted turn's instructions item is recomputed against the rebuilt
-   * history — and returns the rebuilt context items to record: the initial
-   * build's items were never sent.
+   * D4's measured size: the previous completed turn's persisted final-request
+   * context size plus the estimate of what this request adds after it. With no
+   * countable reply the whole request is estimated instead — the same
+   * provider-neutral preflight admission uses.
    */
-  private async compactAndRebuildForContextWindow(
-    prepared: PreparedExecutionContext,
-    input: ExecuteRunInput,
-    reservedOutputTokens: number | null,
-    stagedParts: Array<MessagePart>,
-    turnInstructions: TurnInstructions,
-  ): Promise<ReturnType<typeof buildContext>['contextItems']> {
-    try {
-      await this.compaction.compactForTransition({
-        chatId: input.chatId,
-        userId: input.userId,
-        triggeringUserSeq: input.userMessage.seq,
-        reservedOutputTokens,
-        abortSignal: input.abortSignal,
+  private async measureAttemptContextTokens(
+    input: CompactionTriggerInput,
+  ): Promise<number> {
+    const previousCompleted = await this.tenantDb.runAs(
+      input.run.userId,
+      (tx) =>
+        new RunsRepository(tx).findMostRecentCompletedByChatMessageSequence(
+          input.run.chatId,
+          input.run.userId,
+          { beforeSeq: input.run.userMessage.seq },
+        ),
+    );
+    const counted = countedContextTokens({
+      previousCompleted: previousCompleted && {
+        messageId: previousCompleted.run.messageId,
+        triggeringUserSeq: previousCompleted.triggeringUserSeq,
+      },
+      rows: input.historyRows,
+      boundarySeq: input.boundarySeq,
+    });
+    if (counted === undefined) {
+      return estimateModelRequestTokens({
+        system: input.prepared.system,
+        messages: input.prepared.messages,
+        toolDeclarations: input.prepared.toolDeclarations,
       });
-    } catch (error) {
-      if (input.abortSignal?.aborted) throw error;
-      throw new ContextIncompatibleError(
-        'The complete request does not fit the target model and transition compaction could not produce compatible context.',
-        { cause: error },
-      );
     }
-    const rebuilt = await this.tenantDb.runAs(input.userId, (tx) =>
-      this.rebuildContextForChat(tx, input, prepared.system),
-    );
-    // The rebuilt history decides the accepted-turn bundle: the item this
-    // attempt had staged can no longer be what made its files seen.
-    await this.refreshTurnInstructions(
-      turnInstructions,
-      stagedParts,
-      input,
-      rebuilt.seenInstructionPaths,
-    );
-    this.prependStagedContextItems(rebuilt.context.messages, stagedParts);
-    prepared.messages = rebuilt.context.messages;
-    if (
-      !requestFitsContextWindow({
-        system: prepared.system,
-        messages: prepared.messages,
-        toolDeclarations: prepared.toolDeclarations,
-        contextWindowTokens: input.client.contextWindowTokens,
-        reservedOutputTokens,
+    return (
+      counted.contextTokens +
+      estimateContinuationTokens({
+        rows: toStoredMessages(
+          input.historyRows.filter((row) => row.seq > counted.replySeq),
+        ),
+        railText: stagedContextTexts(input.stagedParts)
+          .map((part) => part.text)
+          .join(''),
       })
-    ) {
-      throw new ContextIncompatibleError(
-        'The complete request still exceeds the target model context window after one transition compaction.',
-      );
-    }
-    return [...rebuilt.context.contextItems, ...toRunContextItems(stagedParts)];
+    );
   }
 
   /**
@@ -3299,53 +3271,23 @@ export class RunExecutionService {
     });
   }
 
+  /**
+   * Post-turn work (#78 titling) runs after the terminal result is known, and
+   * only for a turn that committed something to title.
+   *
+   * Titling is awaited only to keep it inside the job's lifetime — the client's
+   * stream already ended at `run.completed`, so a title landing here is observed
+   * by a later refetch, not this turn's (#261 comment thread; #78's "before
+   * stream completion" wording predates the queue split). Failures are swallowed
+   * by TitleService. Compaction no longer runs here: the checkpoint publishes
+   * before the Run's first model step (design D4/D5).
+   */
   private async postCompletedRunWork(input: {
-    finish: FinishRunResult;
-    requestUsageReceipts: ReadonlyArray<LanguageModelUsage>;
-    stepCount: number;
-    client: ModelClient;
     chatId: string;
     userId: string;
-    system: string;
-    toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
-    effort?: string;
     untitled: boolean;
     userMessage: RunUserMessage;
   }): Promise<void> {
-    // Post-turn work (#57 compaction, #78 titling) runs after the terminal
-    // result is known. Only a winning completed Run compacts; a salvaged turn
-    // can still receive a title.
-    // Titling is awaited only to keep it inside the job's lifetime — the
-    // client's stream already ended at `run.completed`, so a title landing
-    // here is observed by a later refetch, not this turn's (#261 comment
-    // thread; #78's "before stream completion" wording predates the queue split).
-    // Failures are swallowed by TitleService. Compaction is fire-and-forget.
-    if (input.finish.outcome === 'won') {
-      const finalRequestUsage =
-        input.requestUsageReceipts.length === input.stepCount
-          ? input.requestUsageReceipts.at(-1)
-          : undefined;
-      const lastRequestTokens =
-        finalRequestUsage === undefined
-          ? undefined
-          : requestContextTokens(finalRequestUsage);
-      void this.compaction.maybeCompact({
-        chatId: input.chatId,
-        userId: input.userId,
-        client: input.client,
-        // The exact system prompt this turn used — the compaction request
-        // reuses it so its prefix hits the provider prompt cache this
-        // turn just populated (#57).
-        system: input.system,
-        toolDeclarations: input.toolDeclarations,
-        // Same reason the system prompt is reused: compaction runs
-        // immediately after the turn to land inside the provider's
-        // prompt-cache TTL, and a differing effort invalidates the
-        // message blocks that request shape exists to reuse.
-        ...(input.effort !== undefined && { effort: input.effort }),
-        lastRequestTokens,
-      });
-    }
     if (input.untitled) {
       await this.titles.maybeGenerateTitle({
         chatId: input.chatId,
@@ -3402,8 +3344,14 @@ export class RunExecutionService {
   }
 
   /**
-   * Resolve prompt, catalog, receipt, context items, and message history for
-   * one execution attempt. Runs inside a single tenant transaction.
+   * Resolve prompt, catalog, context items, and message history for one
+   * execution attempt. Runs inside a single tenant transaction.
+   *
+   * `bindReceipt` is false for the trigger's estimate pass: an attempt binds
+   * exactly one receipt, and it must describe the prompt the attempt actually
+   * sends — the one rendered after a pre-step checkpoint published (design D5).
+   * A pass that published nothing binds it; the pass that follows a publication
+   * does.
    */
   private async prepareAttemptContext(
     input: ExecuteRunInput,
@@ -3411,6 +3359,7 @@ export class RunExecutionService {
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
+    bindReceipt: boolean,
   ): Promise<PreparedAttemptContext> {
     return this.tenantDb.runAs(input.userId, (tx) =>
       this.prepareAttemptContextInTransaction(
@@ -3420,10 +3369,11 @@ export class RunExecutionService {
         workspaceChat,
         workspaceRoot,
         workspaceMcpKey,
+        bindReceipt,
       ),
     );
   }
-  /** Resolve and persist the receipt for the complete attempt context. */
+  /** Resolve the complete attempt context, binding its receipt on request. */
   private async prepareAttemptContextInTransaction(
     tx: Db,
     input: ExecuteRunInput,
@@ -3431,6 +3381,7 @@ export class RunExecutionService {
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
+    bindReceipt: boolean,
   ): Promise<PreparedAttemptContext> {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
@@ -3472,12 +3423,14 @@ export class RunExecutionService {
       prompt,
       catalog,
     );
-    await this.persistAttemptPromptReceipt(
-      tx,
-      input,
-      attemptId,
-      effectiveContext,
-    );
+    if (bindReceipt) {
+      await this.persistAttemptPromptReceipt(
+        tx,
+        input,
+        attemptId,
+        effectiveContext,
+      );
+    }
     const staged = await this.deriveAttemptStagedContext({
       tx,
       input,
@@ -3492,7 +3445,10 @@ export class RunExecutionService {
     return {
       ...built.context,
       seenInstructionPaths: built.seenInstructionPaths,
+      historyRows: built.historyRows,
+      latestCheckpoint: prompt.checkpoint,
       effectiveContext,
+      model: prompt.model,
       toolCatalog: catalog,
       stagedParts: staged.stagedParts,
       recencyDigestInitialization: prompt.recencyDigestInitialization,
@@ -3512,6 +3468,317 @@ export class RunExecutionService {
     };
   }
 
+  /** Re-bake after publication so the receipt binds the request actually sent. */
+  private async prepareAttemptForFirstStep(input: {
+    run: ExecuteRunInput;
+    attemptId: string;
+    workspacePreparation: WorkspacePreparation;
+    workspaceMcpKey: WorkspaceMcpKey | undefined;
+    dynamicResolver: DynamicToolExecutorResolver | undefined;
+    effectivePermissionMode: PermissionMode;
+    nativeDeliverySequence: number;
+    workspaceRootCell: WorkspaceRootCell;
+    effort: string | undefined;
+  }): Promise<PreparedFirstStep> {
+    const estimatePass = await this.prepareAttemptContext(
+      input.run,
+      input.attemptId,
+      input.workspacePreparation.chat,
+      input.workspacePreparation.root,
+      input.workspaceMcpKey,
+      false,
+    );
+    const turnInstructions = await this.loadTurnInstructions(
+      input.run,
+      input.workspacePreparation,
+      input.workspaceRootCell,
+      input.effectivePermissionMode,
+      input.nativeDeliverySequence,
+      input.attemptId,
+      estimatePass.seenInstructionPaths,
+      estimatePass.stagedParts,
+    );
+    const estimated = await this.assembleAttemptRequest(
+      estimatePass,
+      input.dynamicResolver,
+    );
+    const trigger = await this.evaluateCompactionTrigger({
+      run: input.run,
+      prepared: estimated.prepared,
+      stagedParts: estimatePass.stagedParts,
+      historyRows: estimatePass.historyRows,
+      boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
+    });
+    const summary =
+      trigger === undefined
+        ? undefined
+        : await this.compaction.summarizeCheckpoint(
+            trigger.variant === 'window'
+              ? {
+                  variant: 'window',
+                  chatId: input.run.chatId,
+                  userId: input.run.userId,
+                  triggeringUserSeq: input.run.userMessage.seq,
+                  plan: trigger.plan,
+                  reservedOutputTokens:
+                    this.instanceConfig.config.runs.maxOutputTokens,
+                  abortSignal: input.run.abortSignal,
+                }
+              : {
+                  variant: 'threshold',
+                  chatId: input.run.chatId,
+                  userId: input.run.userId,
+                  triggeringUserSeq: input.run.userMessage.seq,
+                  plan: trigger.plan,
+                  client: input.run.client,
+                  // The pre-re-bake render: the summary request continues the
+                  // prefix this very pass produced, cache included.
+                  system: estimated.prepared.system,
+                  toolDeclarations: estimated.prepared.toolDeclarations,
+                  ...(input.effort !== undefined && { effort: input.effort }),
+                  abortSignal: input.run.abortSignal,
+                },
+          );
+    let context = estimatePass;
+    let request = estimated;
+    if (summary !== undefined && summary !== null) {
+      await this.publishPreStepCompaction({
+        run: input.run,
+        attemptId: input.attemptId,
+        summary,
+        model: estimatePass.model,
+        workspaceRoot: input.workspacePreparation.root,
+      });
+      // Re-read rather than reuse the Workspace-prepared row: the publication
+      // just moved the digest baseline, the skill baseline and the workspace
+      // told-set, and this pass must render and disclose the epoch they now
+      // name instead of the one it estimated with (design D5).
+      const rebakedChat = await this.tenantDb.runAs(input.run.userId, (tx) =>
+        new ChatsRepository(tx).findById(input.run.chatId, input.run.userId),
+      );
+      context = await this.prepareAttemptContext(
+        input.run,
+        input.attemptId,
+        rebakedChat,
+        input.workspacePreparation.root,
+        input.workspaceMcpKey,
+        true,
+      );
+      // The published history decides the accepted-turn bundle: the item the
+      // estimate pass staged can no longer be what made its files seen.
+      await this.refreshTurnInstructions(
+        turnInstructions,
+        context.stagedParts,
+        input.run,
+        context.seenInstructionPaths,
+      );
+      request = await this.assembleAttemptRequest(
+        context,
+        input.dynamicResolver,
+      );
+    } else {
+      await this.tenantDb.runAs(input.run.userId, (tx) =>
+        this.persistAttemptPromptReceipt(
+          tx,
+          input.run,
+          input.attemptId,
+          context.effectiveContext,
+        ),
+      );
+    }
+    if (
+      !requestFitsContextWindow({
+        system: request.prepared.system,
+        messages: request.prepared.messages,
+        toolDeclarations: request.prepared.toolDeclarations,
+        contextWindowTokens: input.run.client.contextWindowTokens,
+        reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
+      })
+    ) {
+      throw new ContextIncompatibleError(
+        'The complete request still exceeds the target model context window after one compaction.',
+      );
+    }
+    return { request, context, turnInstructions };
+  }
+
+  /** The dispatchable request for one pass, with its staged rail prepended. */
+  private async assembleAttemptRequest(
+    context: PreparedAttemptContext,
+    dynamicResolver: DynamicToolExecutorResolver | undefined,
+  ): Promise<PreparedFirstStep['request']> {
+    const messages = context.messages;
+    this.prependStagedContextItems(messages, context.stagedParts);
+    return {
+      prepared: {
+        system: context.system,
+        messages,
+        untitled: context.untitled,
+        toolDeclarations: context.toolCatalog.declarations,
+        tools: await resolveBoundExecutableTools(
+          context.toolCatalog.declarations,
+          undefined,
+          constrainDynamicToolResolver(
+            dynamicResolver,
+            context.toolCatalog.sourceById ?? new Map(),
+          ),
+        ),
+      },
+      contextItems: [
+        ...context.contextItems,
+        ...toRunContextItems(context.stagedParts),
+      ],
+    };
+  }
+
+  /** Publish a checkpoint and its epoch state in one transaction before dispatch. */
+  private async publishPreStepCompaction(input: {
+    run: ExecuteRunInput;
+    attemptId: string;
+    summary: CompactionSummary;
+    model: SystemModelCatalogEntry;
+    workspaceRoot: string | undefined;
+  }): Promise<void> {
+    const initialShareRecentChats = await this.tenantDb.runAs(
+      input.run.userId,
+      (tx) => this.memory.getForOwnerForBinding(tx, input.run.userId),
+    );
+    let digestCandidate: RecencyDigestResolution | null = null;
+    if (initialShareRecentChats.shareRecentChats) {
+      try {
+        digestCandidate = await this.recencyDigest.resolveCandidate(
+          input.run.userId,
+          input.run.chatId,
+        );
+      } catch {
+        // Candidate titles and excerpts are owner content; do not attach the
+        // caught error to a log entry or an execution error.
+        this.logger.error('recency_digest_resolution_failed');
+        digestCandidate = null;
+      }
+    }
+    await this.tenantDb.runAs(input.run.userId, async (tx) => {
+      // A reclaimed or terminated attempt must not move epoch state under the
+      // live one. The write fence locks the non-terminal runs row for this
+      // attempt, so it serializes with a reclaim's `markStarted`. It runs
+      // first, before any chats lock, in the terminal transaction's order
+      // (runs, then chats), so a replacement attempt finishing concurrently
+      // waits on this transaction instead of deadlocking with it.
+      const fenced = await new RunsRepository(tx).updateForAttempt(
+        input.run.runId,
+        input.run.userId,
+        input.attemptId,
+        { activeAttemptId: input.attemptId },
+      );
+      if (!fenced) {
+        throw new ModelContextExecutionError(
+          `Run ${input.run.runId} was reclaimed before checkpoint publication.`,
+        );
+      }
+      const messagesRepo = new MessagesRepository(tx);
+      const chatsRepo = new ChatsRepository(tx);
+      // Chats before memory, matching the chat loop, which locks the chats row
+      // in `touch` and only then takes `FOR SHARE` on memory settings.
+      const chat = await chatsRepo.touch(input.run.chatId, input.run.userId);
+      const shareRecentChats = await this.memory.getForOwnerForBinding(
+        tx,
+        input.run.userId,
+      );
+      // Every publication of this chat takes the row lock above first, so this
+      // read is the race verdict: a surviving row means another attempt already
+      // published this boundary and re-baked the epoch for it.
+      if (
+        (await messagesRepo.findCheckpointByBoundary(
+          input.run.chatId,
+          input.run.userId,
+          input.summary.uptoSeq,
+        )) !== undefined
+      ) {
+        return;
+      }
+      const checkpoint = await messagesRepo.createCheckpoint({
+        chatId: input.run.chatId,
+        absorbedThroughSeq: input.summary.uptoSeq,
+        part: createCompactionCheckpointPart(input.summary.summary),
+        usage: input.summary.usage,
+      });
+      await this.rebakeCheckpointEpoch({
+        tx,
+        run: input.run,
+        chat,
+        checkpointId: checkpoint.id,
+        model: input.model,
+        workspaceRoot: input.workspaceRoot,
+        shareRecentChats,
+        digestCandidate,
+      });
+    });
+  }
+
+  /** Re-bake digest, skill, and workspace epoch state for a new checkpoint. */
+  private async rebakeCheckpointEpoch(input: {
+    tx: Db;
+    run: ExecuteRunInput;
+    chat: Chat | undefined;
+    checkpointId: string;
+    model: SystemModelCatalogEntry;
+    workspaceRoot: string | undefined;
+    shareRecentChats: ResolvedMemorySettings;
+    digestCandidate: RecencyDigestResolution | null;
+  }): Promise<void> {
+    const chatsRepo = new ChatsRepository(input.tx);
+    const skillState =
+      input.chat === undefined
+        ? undefined
+        : this.resolveSkillTurnState({
+            run: input.run,
+            chat: input.chat,
+            model: input.model,
+            workspaceRoot: input.workspaceRoot,
+            latestCheckpointId: input.checkpointId,
+          });
+    if (
+      input.chat?.recencyDigestBaseline != null &&
+      input.digestCandidate !== null &&
+      input.shareRecentChats.shareRecentChats
+    ) {
+      await chatsRepo.setRecencyDigest({
+        chatId: input.run.chatId,
+        ownerUserId: input.run.userId,
+        baseline: input.digestCandidate.baseline,
+        told: input.digestCandidate.told,
+        rebakedFrom: input.checkpointId,
+      });
+    }
+    if (skillState?.freeze !== undefined) {
+      await chatsRepo.setSkillCatalogBaseline({
+        chatId: input.run.chatId,
+        ownerUserId: input.run.userId,
+        baseline: skillState.freeze.baseline,
+        rebakedFrom: input.checkpointId,
+      });
+    }
+    if (skillState?.told !== undefined) {
+      await chatsRepo.updateSkillCatalogTold(
+        input.run.chatId,
+        input.run.userId,
+        [...skillState.told],
+      );
+    }
+    if (input.chat !== undefined) {
+      // Advance the epoch identity and reset the told root, so the snapshot the
+      // checkpoint absorbed is re-established by the request it precedes. A
+      // pending detach reason stays: only the Run that narrates it clears it.
+      await new WorkspaceBindingRepository(input.tx).setTold({
+        chatId: input.run.chatId,
+        ownerUserId: input.run.userId,
+        told: null,
+        toldFrom: input.checkpointId,
+        clearDetachReason: false,
+      });
+    }
+  }
+
   private async resolveAttemptPrompt(
     tx: Db,
     input: ExecuteRunInput,
@@ -3527,9 +3794,14 @@ export class RunExecutionService {
     }
     const model = this.models.validateModelSelection(input.client.model);
     const user = await this.personalization.resolvePromptUser(input.userId);
-    const compaction = await new CompactionsRepository(tx).findLatestByChatId(
+    // Bounded by the triggering turn, like the history cut and the epoch
+    // markers: a pre-step checkpoint publishes above the message it was
+    // published for, so an unbounded read could name an epoch this request is
+    // not in (design D4, D7).
+    const checkpoint = await new MessagesRepository(tx).findActiveCheckpoint(
       input.chatId,
       input.userId,
+      { beforeSeq: input.userMessage.seq },
     );
     const digest = await this.resolveAttemptDigest({
       tx,
@@ -3539,18 +3811,48 @@ export class RunExecutionService {
     });
     const instanceTimezone = resolveInstanceTimezone(this.logger);
     const anchor = formatTemporalAnchor(
-      compaction?.createdAt ?? chat.createdAt,
+      checkpoint?.createdAt ?? chat.createdAt,
       instanceTimezone,
     );
-    const extraSources =
-      workspaceRoot === undefined
-        ? undefined
-        : workspaceSkillSources(workspaceRoot);
-    const skillState = resolveTurnSkillState(
+    const skillState = this.resolveSkillTurnState({
+      run: input,
+      chat,
+      model,
+      workspaceRoot,
+      latestCheckpointId: checkpoint?.id ?? null,
+    });
+    return {
+      ...digest,
+      chat,
+      model,
+      user,
+      checkpoint,
+      instanceTimezone,
+      anchor,
+      skillState,
+    };
+  }
+
+  /**
+   * This epoch's skill-catalog decision, from the deps the attempt's own
+   * resolution and a checkpoint publication share: a checkpoint re-bakes the
+   * epoch the next attempt is about to start, so both must resolve it from the
+   * same catalog against the same marker.
+   */
+  private resolveSkillTurnState(input: {
+    run: ExecuteRunInput;
+    chat: Chat;
+    model: SystemModelCatalogEntry;
+    workspaceRoot: string | undefined;
+    latestCheckpointId: string | null;
+  }): SkillTurnState {
+    return resolveTurnSkillState(
       {
         skillCatalog: this.skillCatalog,
         skillDirectories: this.instanceConfig.config.skills.directories,
-        extraSources,
+        ...(input.workspaceRoot !== undefined && {
+          extraSources: workspaceSkillSources(input.workspaceRoot),
+        }),
         // Operator-facing: an unreadable operator catalog is logged, never
         // shown to the model. Workspace-source failures are intentionally
         // isolated by SkillCatalog and produce no diagnostic.
@@ -3560,22 +3862,12 @@ export class RunExecutionService {
           ),
       },
       {
-        chat,
-        runId: input.runId,
-        latestCompactionId: compaction?.id ?? null,
-        modelReferencesSkills: model.referencesSkills,
+        chat: input.chat,
+        runId: input.run.runId,
+        latestCheckpointId: input.latestCheckpointId,
+        modelReferencesSkills: input.model.referencesSkills,
       },
     );
-    return {
-      ...digest,
-      chat,
-      model,
-      user,
-      compaction,
-      instanceTimezone,
-      anchor,
-      skillState,
-    };
   }
 
   private async resolveAttemptDigest(input: {
@@ -3791,15 +4083,15 @@ export class RunExecutionService {
     prompt: AttemptPromptContext;
     effectiveContext: AttemptToolCatalog;
   }): Promise<AttemptStagedContext> {
-    const previousRun = await new RunsRepository(
-      input.tx,
-    ).findMostRecentByChatMessageSequence(
-      input.input.chatId,
-      input.input.userId,
-      {
-        beforeSeq: input.input.userMessage.seq,
-      },
-    );
+    const previousRun = (
+      await new RunsRepository(input.tx).findMostRecentByMessageSequence(
+        input.input.chatId,
+        input.input.userId,
+        {
+          beforeSeq: input.input.userMessage.seq,
+        },
+      )
+    )?.run;
 
     // The baseline is the most recent *successful* turn, not merely the most
     // recent one: a failed run publishes no context and never establishes an
@@ -3819,20 +4111,23 @@ export class RunExecutionService {
             { beforeSeq: input.input.userMessage.seq },
           );
 
-    // Every newly active compaction checkpoint starts a new disclosure epoch;
-    // the newly active boundary is judged against that same successful-turn
-    // baseline, so a failed attempt after the checkpoint cannot silently keep
-    // the run inside the pre-compaction epoch.
+    // Every newly active compaction checkpoint starts a new disclosure epoch,
+    // judged against that same successful-turn baseline by sequence rather than
+    // by time: a checkpoint published inside this Run's own attempt has a later
+    // createdAt but a boundary above its predecessor's turn, and a retried
+    // assistant row keeps its sequence (design D7). A failed attempt after the
+    // checkpoint cannot silently keep the run inside the pre-compaction epoch.
     const startsEpoch =
       previousCompletedRun === undefined ||
-      (input.prompt.compaction !== undefined &&
-        input.prompt.compaction.createdAt > previousCompletedRun.createdAt);
+      (input.prompt.checkpoint !== undefined &&
+        input.prompt.checkpoint.absorbedThroughSeq >=
+          previousCompletedRun.triggeringUserSeq);
     // The marker reports the re-bake to the first attempt that can publish
     // after it — the new epoch's first turn — so it rides the same boundary.
     const digestRebaked =
       startsEpoch &&
       input.prompt.chat.recencyDigestRebakedFrom ===
-        input.prompt.compaction?.id;
+        input.prompt.checkpoint?.id;
 
     const stagedParts: Array<MessagePart> = [];
     // Model selection is established by any run (failed runs included), so the
@@ -3856,7 +4151,7 @@ export class RunExecutionService {
     }
     const previousSuccessfulAvailability = startsEpoch
       ? undefined
-      : (previousCompletedRun?.turnToolAvailability ?? undefined);
+      : (previousCompletedRun?.run.turnToolAvailability ?? undefined);
     const availabilityPayload =
       previousSuccessfulAvailability === undefined
         ? deriveToolAvailabilityPayload({
@@ -3877,7 +4172,7 @@ export class RunExecutionService {
     const workspaceContext = this.deriveWorkspaceContext({
       runId: input.input.runId,
       chat: input.prompt.chat,
-      latestCompactionId: input.prompt.compaction?.id ?? null,
+      latestCheckpointId: input.prompt.checkpoint?.id ?? null,
     });
     stagedParts.push(...workspaceContext.parts);
     const workspaceWrites = workspaceContext.writes;
@@ -3928,12 +4223,12 @@ export class RunExecutionService {
   private deriveWorkspaceContext(input: {
     runId: string;
     chat: Chat;
-    latestCompactionId: string | null;
+    latestCheckpointId: string | null;
   }): WorkspaceStagedContext {
     const currentRoot = input.chat.workspaceRoot;
-    const latestCompactionId = input.latestCompactionId;
+    const latestCheckpointId = input.latestCheckpointId;
     const toldRoot =
-      input.chat.workspaceToldFrom === latestCompactionId
+      input.chat.workspaceToldFrom === latestCheckpointId
         ? input.chat.workspaceTold
         : null;
     const rawDetachReason = input.chat.workspaceDetachReason;
@@ -3956,7 +4251,7 @@ export class RunExecutionService {
       );
       writes = {
         told: currentRoot,
-        toldFrom: latestCompactionId,
+        toldFrom: latestCheckpointId,
         clearDetachReason: detachReason !== null,
       };
     }
@@ -3969,7 +4264,7 @@ export class RunExecutionService {
       );
       writes ??= {
         told: currentRoot,
-        toldFrom: latestCompactionId,
+        toldFrom: latestCheckpointId,
         clearDetachReason: true,
       };
     }
@@ -3986,12 +4281,7 @@ export class RunExecutionService {
     messages: ReturnType<typeof buildContext>['messages'],
     stagedParts: ReadonlyArray<MessagePart>,
   ): void {
-    const textParts = stagedParts.flatMap((p) => {
-      if (!isContextItemPart(p)) return [];
-      const text = p.data.text;
-      if (text === undefined || text.length === 0) return [];
-      return [{ type: 'text' as const, text }];
-    });
+    const textParts = stagedContextTexts(stagedParts);
     if (textParts.length === 0) return;
 
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -4012,4 +4302,21 @@ export class RunExecutionService {
       return;
     }
   }
+}
+
+/**
+ * The text an attempt's staged rail prepends to its triggering user message.
+ * Shared by the request assembly and the compaction trigger's estimate, which
+ * must measure the same text the model receives — the persisted rows do not
+ * carry it until the turn completes.
+ */
+function stagedContextTexts(
+  stagedParts: ReadonlyArray<MessagePart>,
+): Array<{ type: 'text'; text: string }> {
+  return stagedParts.flatMap((part) => {
+    if (!isContextItemPart(part)) return [];
+    const text = part.data.text;
+    if (text === undefined || text.length === 0) return [];
+    return [{ type: 'text' as const, text }];
+  });
 }

@@ -1,8 +1,11 @@
 export {
   applySelectorSuffix,
+  assertResolvedTarget,
+  invalidSelectorMessage,
   isSelectorSuffix,
   NativeFileError,
   parsePathScheme,
+  resolveEndRelativeSelector,
   resolveReadTarget,
   splitSelectorSuffix,
 } from "./path";

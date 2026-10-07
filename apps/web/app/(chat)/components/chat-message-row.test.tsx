@@ -28,11 +28,11 @@ function assistantMessage(): UIMessage {
 }
 
 const compaction: Compaction = {
-  uptoSeq: 10,
+  absorbedThroughSeq: 10,
   summary: "Earlier discussion summarized.",
   createdAt: "2026-01-01T00:00:00.000Z",
+  absorbedMessageCount: 5,
   stats: {
-    absorbedMessageCount: 5,
     beforeTokens: 2000,
     afterTokens: 500,
     modelId: null,
@@ -40,7 +40,7 @@ const compaction: Compaction = {
 };
 
 describe("messageBoundaries", () => {
-  it("renders the compaction boundary only at its own index", () => {
+  it("renders the checkpoint boundary only at its own index", () => {
     const at = messageBoundaries({
       message: assistantMessage(),
       index: 2,
@@ -69,7 +69,7 @@ describe("messageBoundaries", () => {
     expect(elsewhere.boundary).toBeNull();
   });
 
-  it("omits the compaction boundary entirely when there is no compaction", () => {
+  it("omits the checkpoint boundary entirely when there is no checkpoint", () => {
     const result = messageBoundaries({
       message: assistantMessage(),
       index: 0,

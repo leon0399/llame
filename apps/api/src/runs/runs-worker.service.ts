@@ -23,7 +23,7 @@ import {
 } from '../models/models.service';
 import { deadLetterQueue, QUEUE, type QueueConsumer } from '../queue/queue';
 import { RunAbortRegistry, type RunAbortRegistrar } from './run-abort-registry';
-import { ModelContextExecutionError } from './snapshot-tool-execution';
+import { ModelContextExecutionError } from './model-context-errors';
 import {
   RUN_CEILING_ABORT_REASON,
   RUN_TIMEOUT_ABORT_REASON,

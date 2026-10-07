@@ -2,7 +2,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { NativeFileError, applySelectorSuffix } from "./path";
+import {
+  NativeFileError,
+  applySelectorSuffix,
+  resolveEndRelativeSelector,
+} from "./path";
 import { readFile, readResolvedFile } from "./read";
 import type {
   DirectoryFailure,
@@ -13,7 +17,7 @@ import type {
 } from "./read";
 import { selectMultiRangeLines } from "./stream-read";
 import { measureNativeModelOutput } from "./serialization";
-import { selectSourceLines } from "./source-lines";
+import { selectSourceLines, splitSourceLines } from "./source-lines";
 
 /** What a native read reports, before the guard below narrows it. */
 type ReadOutcome =
@@ -70,11 +74,25 @@ describe("in-memory multi-range selection", () => {
     const fromFile = asMulti(await readFile({ path: `${path}:${selector}` }));
     const fromMemory = selectMultiRangeLines(
       source,
-      applySelectorSuffix(path, selector),
+      // A source already in hand knows its count, so it places the
+      // end-relative members exactly as the file reader's count pass does.
+      resolveEndRelativeSelector(
+        applySelectorSuffix(path, selector),
+        splitSourceLines(source).length,
+      ),
     );
     expect(fromMemory).toEqual(fromFile);
     return fromMemory;
   }
+
+  it("refuses a target whose end-relative members were never placed", () => {
+    // The walk decides from absolute members only: an unresolved target
+    // would walk nothing and report an empty multi-range request, which
+    // reads as "that page is empty" rather than as an unplaced selector.
+    expect(() =>
+      selectMultiRangeLines(numbered(12), applySelectorSuffix(path, "4-5,99-")),
+    ).toThrow("invalid_selector");
+  });
 
   it("reads two ranges with the context a local read gives", async () => {
     const result = await bothWays(numbered(12), "4-5,7-8");
@@ -133,6 +151,69 @@ describe("in-memory multi-range selection", () => {
         { startLine: 7, endLine: 8 },
       ],
     });
+  });
+
+  it("resolves a tail member against the file's line count", async () => {
+    const result = await bothWays(numbered(30), "5-10,-3");
+    expect(result).toMatchObject({
+      requestedRanges: [
+        { startLine: 5, endLine: 10 },
+        { startLine: 28, endLine: 30 },
+      ],
+      shownRanges: [
+        { startLine: 4, endLine: 11 },
+        { startLine: 27, endLine: 30 },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("resolves an open-ended member against the file's line count", async () => {
+    const result = await bothWays(numbered(12), "5-,8-10");
+    expect(result).toMatchObject({
+      requestedRanges: [{ startLine: 5, endLine: 12 }],
+      shownRanges: [{ startLine: 4, endLine: 12 }],
+    });
+  });
+
+  it("reads both raw orders as one request", async () => {
+    const canonical = await bothWays(numbered(40), "raw:1-5,-20");
+    expect(canonical).toMatchObject({
+      representation: "raw",
+      content: `${Array.from({ length: 5 }, (_, i) => `line ${i + 1}\n`).join("")}${Array.from(
+        { length: 20 },
+        (_, i) => `line ${i + 21}\n`,
+      ).join("")}`,
+      requestedRanges: [
+        { startLine: 1, endLine: 5 },
+        { startLine: 21, endLine: 40 },
+      ],
+      shownRanges: [
+        { startLine: 1, endLine: 5 },
+        { startLine: 21, endLine: 40 },
+      ],
+    });
+    expect(await bothWays(numbered(40), "1-5,-20:raw")).toEqual(canonical);
+  });
+
+  it("counts a file before an outline scope asks for its tail", async () => {
+    const outlinePath = join(directory, "source.md");
+    await writeFile(
+      outlinePath,
+      `# Title\nintro\n## Setup\nbody\n${"tail\n".repeat(196)}`,
+    );
+    const scoped = await readFile({ path: `${outlinePath}:outline:-200` });
+    expect(scoped).toMatchObject({
+      representation: "outline",
+      requestedRange: { startLine: 1, endLine: 200 },
+    });
+    expect(scoped).toHaveProperty(
+      "content",
+      expect.stringContaining("3: ## Setup"),
+    );
+    expect(await readFile({ path: `${outlinePath}:outline:1-200` })).toEqual(
+      scoped,
+    );
   });
 
   it("skips an oversized line and reports the hole as truncation", async () => {

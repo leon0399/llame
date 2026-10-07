@@ -4,6 +4,10 @@
  * Proves compaction-AFTER-compaction end to end: the second compaction must
  * read the previous summary + only the messages after its uptoSeq — never the
  * full history — and the next chat turn must likewise see summary + delta.
+ * Compaction is one synchronous trigger before a turn's first model request
+ * (unify-compaction-checkpoints D4), so the row a turn publishes exists when
+ * that turn's response has ended, and the user message that triggered it is
+ * never part of what it summarizes.
  * The unit tests cover each piece (repo sinceSeq predicate, planner, request
  * builder); this spec proves the composed loop against a live database.
  *
@@ -18,10 +22,9 @@ import { AppModule } from '../app.module';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
-import { CompactionsRepository } from '../chats/chats-repository';
+import { MessagesRepository } from '../chats/messages-repository';
 import { COMPACTION_INSTRUCTION } from '../compaction/compaction';
-import { COMPACTION_CHECKPOINT_ENVELOPE_PREFIX } from '../chats/context-item-producers';
-import { type Compaction } from '../db/schema';
+import { readCheckpointText } from '../chats/context-item-producers';
 import { ModelsService } from '../models/models.service';
 import {
   FakeModelsService,
@@ -29,12 +32,12 @@ import {
   cookieOf,
   expectRegisteredUserId,
 } from '../testing/support';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isString } from '@workspace/runtime-safety';
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 
-// Each turn is a full HTTP stream + fire-and-forget compaction poll.
+// Each turn is a full HTTP stream.
 vi.setConfig({ testTimeout: 30_000 });
 
 d('compaction lineage over HTTP (#57)', () => {
@@ -51,11 +54,10 @@ d('compaction lineage over HTTP (#57)', () => {
 
   beforeAll(async () => {
     models = new FakeModelsService();
-    // With the fake client's real usage (totalTokens: 8) every completed
-    // turn crosses this threshold, so compaction triggers as soon as the
-    // live window outgrows the keep-recent cap (providers-and-models-as-code,
-    // #167: per-model override, replacing the removed COMPACTION_TOKEN_THRESHOLD
-    // env var).
+    // A one-token threshold is crossed by any non-empty request, so every turn
+    // that has committed rows before its own user message compacts them before
+    // its first model request (providers-and-models-as-code, #167: per-model
+    // override, replacing the removed COMPACTION_TOKEN_THRESHOLD env var).
     models.client.compactionThresholdTokens = 1;
     const mod = await Test.createTestingModule({
       imports: [AppModule],
@@ -104,24 +106,28 @@ d('compaction lineage over HTTP (#57)', () => {
     expect(res.status).toBe(200);
   }
 
-  /** Polls for the chat's latest compaction until it differs from `after`. */
-  async function waitForCompaction(
-    chatId: string,
-    after: Compaction | undefined,
-  ): Promise<Compaction> {
-    const started = Date.now();
-    for (;;) {
-      const latest = await tenantDb.runAs(userId, (tx) =>
-        new CompactionsRepository(tx).findLatestByChatId(chatId, userId),
-      );
-      if (latest && latest.id !== after?.id) {
-        return latest;
-      }
-      if (Date.now() - started > 10_000) {
-        throw new Error('Timed out waiting for a compaction row');
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
+  const latestCheckpoint = async (chatId: string) => {
+    const rows = await tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(chatId, userId),
+    );
+    return rows
+      .filter((row) => row.role === 'checkpoint')
+      .sort((a, b) => b.seq - a.seq)[0];
+  };
+
+  /** The `seq` of the user message a turn sent, found by its text. */
+  async function userSeq(chatId: string, text: string): Promise<number> {
+    const rows = await tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(chatId, userId),
+    );
+    const row = rows.find(
+      (message) =>
+        message.role === 'user' && JSON.stringify(message.parts).includes(text),
+    );
+    if (row === undefined) {
+      throw new Error(`No user message carries ${text}`);
     }
+    return row.seq;
   }
 
   /** The compaction model calls, identified by their trailing instruction. */
@@ -153,56 +159,71 @@ d('compaction lineage over HTTP (#57)', () => {
     return part.type === 'text' ? part.text : null;
   }
 
-  function checkpointText(compaction: Compaction): string {
-    const first = compaction.replacementHistory[0];
-    const part = first?.parts[0];
-    if (
-      first?.role !== 'user' ||
-      first.parts.length !== 1 ||
-      !isRecord(part) ||
-      part.type !== 'text' ||
-      !isString(part.text)
-    ) {
-      throw new TypeError('Invalid persisted compaction replacement history');
-    }
-    return part.text;
-  }
-
   it('re-compaction absorbs the previous summary + only the delta, never the full history', async () => {
     // Distinct reply per model call, so summaries and replies are all unique
     // and "which text appears where" assertions cannot alias.
-    models.client.responses = Array.from({ length: 20 }, (_, i) => `out-${i}`);
+    models.client.responses = Array.from({ length: 40 }, (_, i) => `out-${i}`);
     const chatId = crypto.randomUUID();
 
-    // keep-recent is 8 messages; each turn persists 2 (user + assistant).
-    // Turns 1–4 stay within the keep window (absorb would be empty → no row);
-    // turn 5 makes the live window 10 messages → first compaction absorbs 2.
-    for (let i = 1; i <= 5; i++) {
-      await sendTurn(chatId, `turn-${i}`);
-    }
-    const first = await waitForCompaction(chatId, undefined);
-    expect(first.parentId).toBeNull();
+    // Turn 1: nothing lies between the (absent) boundary and the first user
+    // message, so the trigger is a no-op even over the threshold.
+    await sendTurn(chatId, 'turn-1');
+    expect(compactionCalls()).toHaveLength(0);
+    expect(await latestCheckpoint(chatId)).toBeUndefined();
 
-    // First compaction: no earlier summary — its request replays raw turns
-    // and must contain the oldest message.
-    const firstCall = compactionCalls()[0];
-    expect(texts(firstCall)).toContain('turn-1');
-    expect(texts(firstCall)).not.toContain(
-      COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
+    // Turn 2: its trigger absorbs turn 1 whole — no keep-recent window — and
+    // the row is there when the response ends, because it was written before
+    // the turn's first model request.
+    await sendTurn(chatId, 'turn-2');
+    const first = await latestCheckpoint(chatId);
+    if (first === undefined) {
+      throw new Error('Expected turn 2 to publish a compaction row');
+    }
+    expect(first.absorbedThroughSeq).toBe(
+      (await userSeq(chatId, 'turn-2')) - 1,
     );
 
-    // One more turn: the post-compaction window outgrows keep-recent again
-    // and a SECOND compaction lands on top of the first.
-    await sendTurn(chatId, 'turn-6');
-    const second = await waitForCompaction(chatId, first);
+    // First compaction: no earlier summary — its request replays raw turns,
+    // must contain the oldest message, and never the message that triggered it.
+    expect(compactionCalls()).toHaveLength(1);
+    const firstCall = compactionCalls()[0];
+    expect(texts(firstCall)).toContain('turn-1');
+    expect(texts(firstCall)).not.toContain('turn-2');
+    // No checkpoint envelope in the raw-turn replay: the request is built from
+    // conversation rows only. The content is stringified, so the envelope's
+    // quotes may be escaped.
+    expect(texts(firstCall)).not.toMatch(
+      /<system-reminder producer=\\?"compaction\\?" form=\\?"checkpoint\\?">/u,
+    );
+
+    // Turn 3: its trigger absorbs only what lies above the first boundary,
+    // and the second compaction lands on top of the first.
+    await sendTurn(chatId, 'turn-3');
+    const second = await latestCheckpoint(chatId);
+    if (second === undefined) {
+      throw new Error('Expected turn 3 to publish a compaction row');
+    }
 
     // Lineage: the second row chains to the first and supersedes more history.
-    expect(second.parentId).toBe(first.id);
-    expect(second.uptoSeq).toBeGreaterThan(first.uptoSeq);
+    expect(second.absorbedThroughSeq).toBeGreaterThan(
+      first.absorbedThroughSeq!,
+    );
+    expect(second.absorbedThroughSeq).toBe(
+      (await userSeq(chatId, 'turn-3')) - 1,
+    );
 
     // The second compaction's model input is the exact stored replacement +
-    // delta, NOT full history, and must not replay any superseded message.
-    const firstCheckpoint = checkpointText(first);
+    // delta, NOT full history: turn 2 and its reply, never the absorbed turn 1
+    // and never turn 3, whose message triggered it.
+    const firstCheckpoint = readCheckpointText(first);
+    // The fake model answers call N with `out-N`, so the first compaction call's
+    // summary is known without reading it back through the replay helpers.
+    const firstSummary = `out-${models.client.turns.indexOf(firstCall)}`;
+    expect(firstCheckpoint).toMatch(
+      /^<system-reminder producer="compaction" form="checkpoint">/u,
+    );
+    expect(firstCheckpoint).toContain(firstSummary);
+    expect(compactionCalls()).toHaveLength(2);
     const secondCall = compactionCalls().find(
       (turn) => storedCheckpointText(turn.messages[0]) === firstCheckpoint,
     );
@@ -211,25 +232,32 @@ d('compaction lineage over HTTP (#57)', () => {
       role: 'user',
       content: [{ type: 'text', text: firstCheckpoint }],
     });
+    expect(secondCall!.messages.slice(1, -1).map((m) => m.role)).toEqual([
+      'user',
+      'assistant',
+    ]);
     expect(texts(secondCall!)).toContain('turn-2');
-    expect(texts(secondCall!)).not.toContain('turn-1\n');
-    expect(texts(secondCall!)).not.toContain(
-      contentText(firstCall.messages[1]?.content),
-    );
+    expect(texts(secondCall!)).not.toContain('turn-1');
+    expect(texts(secondCall!)).not.toContain('turn-3');
 
     // And the NEXT chat turn reads the same shape: latest summary + live
-    // window only — turns absorbed by either compaction never re-enter
-    // the prompt.
-    await sendTurn(chatId, 'turn-7');
+    // window only — turns absorbed by any compaction never re-enter the
+    // prompt.
+    await sendTurn(chatId, 'turn-4');
+    const third = await latestCheckpoint(chatId);
+    if (third === undefined) {
+      throw new Error('Expected turn 4 to publish a compaction row');
+    }
     const lastChatTurn = models.client.turns
       .filter((t) => t.messages.at(-1)?.content !== COMPACTION_INSTRUCTION)
       .at(-1)!;
     expect(lastChatTurn.messages[0]).toEqual({
       role: 'user',
-      content: [{ type: 'text', text: checkpointText(second) }],
+      content: [{ type: 'text', text: readCheckpointText(third) }],
     });
-    expect(texts(lastChatTurn)).not.toContain('turn-1\n');
-    expect(texts(lastChatTurn)).not.toContain('turn-2\n');
-    expect(texts(lastChatTurn)).toContain('turn-7');
+    expect(texts(lastChatTurn)).not.toContain('turn-1');
+    expect(texts(lastChatTurn)).not.toContain('turn-2');
+    expect(texts(lastChatTurn)).not.toContain('turn-3');
+    expect(texts(lastChatTurn)).toContain('turn-4');
   });
 });

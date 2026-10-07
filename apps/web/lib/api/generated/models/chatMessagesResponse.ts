@@ -6,10 +6,7 @@
  * OpenAPI spec version: 0.1
  */
 import type { ChatMessageResponse } from "./chatMessageResponse";
-import type { CompactionResponse } from "./compactionResponse";
 
 export interface ChatMessagesResponse {
   messages: ChatMessageResponse[];
-  /** @nullable */
-  compaction: CompactionResponse | null;
 }

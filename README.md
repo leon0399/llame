@@ -83,9 +83,10 @@ pnpm dev
 `apps/api` needs `POSTGRES_URL` and any provider credentials referenced by
 `llame.config.jsonc`. `LLAME_CONFIG_PATH` overrides the file location. The config
 may be authored as JSONC (`.jsonc`/`.json`), YAML (`.yaml`/`.yml`, with anchors
-and merge keys resolved), or TOML (`.toml`), selected by extension. Upgrading from
-an existing `apps/api/llame.config.json`: rename it to `llame.config.jsonc` or
-set `LLAME_CONFIG_PATH` to it. Each provider entry declares its wire: `openai-responses`
+and merge keys resolved), or TOML (`.toml`), selected by extension. Without an
+override, the single `apps/api/llame.config.*` with a supported extension is
+loaded, so an existing `llame.config.json` keeps working; more than one fails
+startup. Each provider entry declares its wire: `openai-responses`
 calls the Responses API, with an optional `baseUrl` defaulting to OpenAI, and
 `openai-completions` calls Chat Completions on its required `baseUrl`.
 `anthropic-messages` calls the Anthropic Messages API, with an optional

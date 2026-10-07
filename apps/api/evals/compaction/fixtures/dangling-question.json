@@ -1,0 +1,18 @@
+{
+  "id": "compaction-eval-dangling-question",
+  "system": "You are a careful coding assistant.",
+  "expectation": {
+    "kind": "danglingQuestion",
+    "question": "Should we preserve the old migration checksum when we squash the branch?"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "text": "Should we preserve the old migration checksum when we squash the branch?"
+    },
+    {
+      "role": "assistant",
+      "text": "I have not answered this question yet."
+    }
+  ]
+}

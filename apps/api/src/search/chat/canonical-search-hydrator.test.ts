@@ -190,6 +190,62 @@ describe('hydrateCanonicalSearchRows', () => {
     ]);
   });
 
+  it('treats checkpoint rows as presentation and never as source boundaries', () => {
+    const checkpoint = row({
+      message_id: EMPTY_MESSAGE_ID,
+      message_seq: '9',
+      message_role: 'checkpoint',
+      message_parts: [
+        {
+          type: 'data-context',
+          data: {
+            producer: 'compaction',
+            form: 'checkpoint',
+            text: 'PRIVATE_CHECKPOINT_SUMMARY',
+            payload: { v: 1, summary: 'PRIVATE_CHECKPOINT_SUMMARY' },
+          },
+        },
+      ],
+    });
+
+    const result = hydrateCanonicalSearchRows(
+      [
+        row(),
+        checkpoint,
+        row({
+          message_id: LAST_MESSAGE_ID,
+          message_seq: '11',
+          message_role: 'assistant',
+          message_usage: { status: 'completed' },
+        }),
+      ],
+      { chatId: CHAT_ID, bestDocumentId: DOCUMENT_ID },
+    );
+
+    expect(result?.messages.map(({ messageSeq }) => messageSeq)).toEqual([
+      7, 11,
+    ]);
+    expect(JSON.stringify(result)).not.toContain('PRIVATE_CHECKPOINT_SUMMARY');
+    // Visible text and a nonzero range make the interval valid for any source
+    // role, so only the checkpoint role can reject it.
+    const checkpointBoundary: CanonicalHydrationRow = {
+      ...checkpoint,
+      message_parts: [{ type: 'text', text: 'PRIVATE_CHECKPOINT_SUMMARY' }],
+      first_message_id: EMPTY_MESSAGE_ID,
+      last_message_id: EMPTY_MESSAGE_ID,
+      first_seq: '9',
+      last_seq: '9',
+      first_message_text_offset: 0,
+      last_message_text_offset_exclusive: 7,
+    };
+    expect(
+      hydrateCanonicalSearchRows([checkpointBoundary], {
+        chatId: CHAT_ID,
+        bestDocumentId: DOCUMENT_ID,
+      }),
+    ).toBeNull();
+  });
+
   it('rejects a zero-visible first or last boundary', () => {
     const empty = {
       message_parts: [{ type: 'reasoning', text: 'hidden only' }],

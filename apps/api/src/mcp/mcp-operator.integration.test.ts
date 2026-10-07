@@ -291,16 +291,17 @@ function executionService(
   tenantDb: TenantDbService,
   runtime: McpRuntimeService,
 ): RunExecutionService {
+  // The window variant is never exercised by this suite: every seeded context
+  // fits the mock model's context window, so a rejection catches a future
+  // scenario silently relying on it. The threshold variant resolves null, the
+  // summarizer's own "no checkpoint" answer.
   const noopCompaction: CompactionCapability = {
-    maybeCompact: () => Promise.resolve(),
-    // Never exercised by this suite: every seeded context fits the mock
-    // model's context window, so the transition-compaction branch never
-    // runs. A throw catches a future scenario silently relying on it.
-    compactForTransition: () => {
-      throw new Error(
-        'mcp-operator compactForTransition is not exercised by this suite',
-      );
-    },
+    summarizeCheckpoint: (request) =>
+      request.variant === 'window'
+        ? Promise.reject(
+            new Error('mcp-operator window summarization is not exercised'),
+          )
+        : Promise.resolve(null),
   };
   return new RunExecutionService(
     tenantDb,

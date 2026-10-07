@@ -18,12 +18,15 @@ the same result bound, and the same `read` permission group as a file read.
 
 ## Form
 
-`read({ path: "https://example.test/guide" })`. A trailing selector is split off
-exactly as for `kb://` and `skill://`, and it addresses the returned text,
-never the URL: `https://example.test/guide:10-20` fetches the page and returns
-lines 10 through 20 of the rendered text. The grammar, the context lines, the
-range rules, and the truncation rules are the shared ones
-([selectors](../selectors.md)).
+`read({ path: "https://example.test/guide" })`. A trailing selector uses the
+shared grammar once the web path, query, fragment, and port rules have placed
+it, and it addresses the returned text, never the URL:
+`https://example.test/guide:10-20` fetches the page and returns
+lines 10 through 20 of the rendered text. Only a locator with a path carries
+one, and a locator carrying a query is never split: every colon the query opened
+is URL text, so `https://example.test/search?at=2026:10` is fetched as written.
+The grammar, the context lines, the range rules, and the truncation rules are
+the shared ones ([selectors](../selectors.md)).
 
 Only `http://` and `https://` are admitted. An unimplemented scheme, a
 non-web URL, and userinfo all fail with `invalid_path` before any request, and
@@ -50,9 +53,10 @@ The result's `path` reports the locator that was fetched:
 | `https://example.test/%7Euser?q=%2f` | `https://example.test/~user?q=%2F` |
 | `https://example.test/%%370rivate`   | `https://example.test/%2570rivate` |
 
-What no normalization can repair is still refused before any request, each
-with the spelling that would work: a text that is not a URL, a scheme outside
-`http` and `https`, a suffix outside the selector grammar, and userinfo
+What no normalization can repair is still refused before any request: a text
+that is not a URL, a scheme outside `http` and `https`, a suffix outside the
+selector grammar (`invalid_selector`; see
+[selectors](../selectors.md#malformed-selectors)), and userinfo
 (`https://user:secret@example.test/x`), whose message never echoes the
 credential.
 
@@ -72,18 +76,24 @@ two readings of `:N`:
 - A literal colon in the last path segment is written `%3A`:
   `https://w.example/wiki/Special%3ASearch`, because
   `https://w.example/wiki/Special:Search` splits at the colon and `Search` is
-  outside the grammar. `https://w.example/docs/2024:10` selects line 10 and
-  `:10-20` lines 10 through 20 of `https://w.example/docs/2024`.
+  outside the grammar — the refusal names the forms and then that encoded
+  spelling. `https://w.example/docs/2024:10` selects line 10 and `:10-20` lines
+  10 through 20 of `https://w.example/docs/2024`, and
+  `https://w.example/wiki/Special:-5` is the last five rendered lines of
+  `https://w.example/wiki/Special`.
 - A selector the render cannot serve — past the end, or empty — fails as
   `invalid_selector` reporting how many lines the page rendered, which is the
   one fact the model could not know before reading it.
 
 A fragment is cut before anything else reads the locator, because the request
 drops it anyway: `https://example.test/guide#install` is fetched as
-`https://example.test/guide`, and that fragment-free text is what a permission
-clause matched. Free text inside a fragment therefore cannot satisfy a clause
-the requested URL does not — an allow written for `/docs/` does not admit
-`https://evil.test/x#/docs/`.
+`https://example.test/guide`, and a selector written after it goes with it, so
+`guide#install:5-9` reads the whole page and `guide:5-9#install` is the working
+spelling. Permission evaluation matches the fragment-free requested text and the
+submitted text, which keeps its `#fragment`; see
+[tool-call permissions](../../operator/tool-call-permissions.md#matching). Free
+text inside a fragment therefore cannot satisfy a clause the requested URL does
+not — an allow written for `/docs/` does not admit `https://evil.test/x#/docs/`.
 
 A trailing separator stays inside the URL: `https://example.test/guide/` is
 fetched as written and is never read as a directory request.
@@ -213,7 +223,7 @@ admission](../../operator/web-read.md#derived-locators-and-permission-admission)
 
 A blob renders decoded UTF-8 source as plain lines with no heading, so `:N-M`
 addresses source lines. A directory renders the requested level and one child
-level in the host's two-level listing shape, including its `:N-M` selector and
+level in the host's two-level listing shape, including its selector and
 elision rules; a symlink renders as `- name@` and a submodule as `- name?`.
 A repository root renders `Description`, `Default branch`, `Visibility`, and
 `Language`, then the root listing and `## README`. A commit renders a summary
@@ -280,6 +290,8 @@ headers and the 5 MiB body cap are each request's own.
 Line selectors apply to the rendered text under the native rules
 ([selectors](../selectors.md)): the default window, context lines, merged
 ranges, `nextOffset`, and `truncated` all behave as they do for any other read.
+A `-K` member on an adapter document cut at the 5 MiB rendered-document bound is
+refused ([selectors](../selectors.md#media-types-and-errors)).
 
 ## Errors
 
@@ -291,6 +303,7 @@ ranges, `nextOffset`, and `truncated` all behave as they do for any other read.
 | `headers_timeout`          | no response headers arrived within 10 seconds                                                                                                              |
 | `call_timeout`             | the call passed 30 seconds across its requests                                                                                                             |
 | `body_too_large`           | the body declared or streamed more than 5 MiB                                                                                                              |
+| `representation_too_large` | a `-K` member or `:outline` on an adapter document cut at the 5 MiB rendered-document bound                                                                |
 | `http_status`              | a non-2xx, non-redirect status on the first response or a hop; a 429 also carries `Retry-After`, and the body is not returned                              |
 | `unsupported_content_type` | the response is not a text body, or declares no content type                                                                                               |
 | `invalid_redirect`         | a redirect status without a parsable `Location`, or a hop with userinfo or a non-web scheme; the target is never named; a fragment is dropped, not refused |

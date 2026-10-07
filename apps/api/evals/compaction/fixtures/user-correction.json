@@ -1,0 +1,27 @@
+{
+  "id": "compaction-eval-user-correction",
+  "system": "You are a careful coding assistant.",
+  "expectation": {
+    "kind": "correction",
+    "text": "15432",
+    "superseded": "5432"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "text": "Set the staging worker port to 5432."
+    },
+    {
+      "role": "assistant",
+      "text": "I changed the staging worker to port 5432."
+    },
+    {
+      "role": "user",
+      "text": "Correction: the staging worker listens on port 15432, not 5432."
+    },
+    {
+      "role": "assistant",
+      "text": "Understood; I will use 15432 from now on."
+    }
+  ]
+}

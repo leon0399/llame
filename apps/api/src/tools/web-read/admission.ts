@@ -1,6 +1,6 @@
 import { admitPermission } from '../permissions/admit';
 import { evaluatePermission } from '../permissions/evaluator';
-import { nativeFileProjection } from '../permissions/locator-projection';
+import { projectNativeFilePath } from '../permissions/locator-projection';
 import { type PermissionDecision } from '../permissions/types';
 import { type ToolContext } from '../types';
 
@@ -60,7 +60,7 @@ export function isDerivedLocatorKind(
 
 /**
  * Evaluates the read policy against a raw locator before applying its
- * `read` projection.
+ * `derived-locator projection`.
  */
 export type AdmitDerivedLocator = (
   kind: DerivedLocatorKind,
@@ -70,22 +70,25 @@ export type AdmitDerivedLocator = (
 /** Judges a canonical address against the full address locator for its request. */
 export type AdmitAddress = (address: string, locator: string) => boolean;
 
+/** Projects a derived locator exactly as the request will use it. */
+const PROJECT_DERIVED_LOCATOR = (_field: string, value: string): string =>
+  projectNativeFilePath(value);
+
 /**
  * Builds one call's reject-only address admission check. A raw-text rejection
- * gets the same precedence as for a submitted call, then the read projection
- * is evaluated. Allows are not evaluated as address permissions: a domain
+ * gets the same precedence as for a submitted call, then the
+ * `derived-locator projection` is evaluated. Allows are not evaluated as address permissions: a domain
  * allowlist names the requested host, not the public addresses it resolves to
  * (design D3). A missing compiled policy cannot attribute an address decision
  * and therefore fails closed without reporting one.
  */
 export function createAddressAdmission(context: ToolContext): AdmitAddress {
-  const projectFieldValue = nativeFileProjection('read');
   const report = context.onDerivedDecision;
   const reportedRefusals = new Set<string>();
 
   return (address, locator) => {
     const decision = admitPermission(context, (policy) =>
-      evaluateLocatorPermission(policy, locator, projectFieldValue),
+      evaluateLocatorPermission(policy, locator, PROJECT_DERIVED_LOCATOR),
     );
     if (decision === undefined) return false;
 
@@ -137,20 +140,19 @@ const NO_POLICY: PermissionDecision = {
 
 /**
  * Builds one call's admission check for its derived locators. Each locator
- * first gets the same as-written rejection check as a submitted call, then
- * the `read` projection decides whenever that check is allow or `no_allow`.
- * Nothing is cached and no decision carries to the next locator: a page that
- * is admitted at one URL cannot launder another through it.
+ * first gets the same as-written rejection check as a submitted call, then the
+ * derived-locator projection decides whenever that check is allow or
+ * `no_allow`. Nothing is cached and no decision carries to the next locator: a
+ * page that is admitted at one URL cannot launder another through it.
  */
 export function createDerivedAdmission(
   context: ToolContext,
 ): AdmitDerivedLocator {
-  const projectFieldValue = nativeFileProjection('read');
   const report = context.onDerivedDecision;
   return (kind, url) => {
     const decision =
       admitPermission(context, (policy) =>
-        evaluateLocatorPermission(policy, url, projectFieldValue),
+        evaluateLocatorPermission(policy, url, PROJECT_DERIVED_LOCATOR),
       ) ?? NO_POLICY;
     report?.({ kind, url, decision });
     return decision;

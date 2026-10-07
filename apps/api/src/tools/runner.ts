@@ -15,7 +15,10 @@ import { admitPermission } from './permissions/admit';
 import { isBashCommandField } from './permissions/bash-command-field';
 import { evaluatePermission } from './permissions/evaluator';
 import { declaredStringProperties } from './permissions/declared-fields';
-import { nativeFileProjection } from './permissions/locator-projection';
+import {
+  nativeFileProjection,
+  withoutReadSelector,
+} from './permissions/locator-projection';
 import { permissionDeniedResult } from './permissions/messages';
 import { isWorkspaceRelative, resolveWorkspacePath } from './workspace-path';
 import { type PermissionDecision } from './permissions/types';
@@ -215,7 +218,11 @@ function evaluateToolPermission(
     const submitted = evaluatePermission(policy, {
       ...options,
       args,
-      projectFieldValue: undefined,
+      projectFieldValue:
+        tool.id === 'read'
+          ? (field: string, value: string) =>
+              field === 'path' ? withoutReadSelector(value) : value
+          : undefined,
     });
     if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
       return submitted;

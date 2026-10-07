@@ -1,4 +1,4 @@
-import { NativeFileError, type ReadTarget } from "./path";
+import { assertResolvedTarget, NativeFileError, type ReadTarget } from "./path";
 import {
   createMarkdownScanner,
   type MarkdownHeading,
@@ -329,5 +329,6 @@ export async function outlineMarkdown(
   lines: AsyncIterable<string> | Iterable<string>,
   target: ReadTarget,
 ): Promise<SingleReadSuccess> {
+  assertResolvedTarget(target);
   return new MarkdownOutlineReader(target).read(lines);
 }

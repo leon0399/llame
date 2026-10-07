@@ -1,9 +1,6 @@
 /**
  * ChatsRepository — owner-scoped database access to the `chats`/`pins`
- * tables. Split from a single chats-repository.ts: MessagesRepository (the
- * `messages` table) and CompactionsRepository + findLiveWindow (the
- * `compactions` table) each moved to their own sibling file, re-exported
- * below so this module stays every existing consumer's one import path.
+ * tables. MessagesRepository owns the `messages` table.
  *
  * Every query filters by ownerUserId / chatId as defense-in-depth.
  * RLS is the primary isolation guarantee; these filters are the seatbelt.
@@ -52,14 +49,8 @@ import { EMBED_INPUT_VERSION } from '../search/embed-input-version';
 import { resolveSearchScopes } from './chats-search-scope';
 import type { SearchByOwnerOptions } from './chats-search-scope';
 
-export {
-  MessagesRepository,
-  type ConversationMessageLookup,
-} from './messages-repository';
-export {
-  CompactionsRepository,
-  findLiveWindow,
-} from './compactions-repository';
+export { MessagesRepository } from './messages-repository';
+export { type ConversationMessageLookup } from './conversation-message-lookup';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
 

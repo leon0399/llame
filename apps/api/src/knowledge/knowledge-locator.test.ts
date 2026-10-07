@@ -12,6 +12,11 @@ import { type KnowledgeToolResolver, type ToolContext } from '../tools/types';
 
 const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
 
+const INVALID_PATH = {
+  type: 'invalid_path',
+  message: 'The Knowledge locator is invalid.',
+};
+
 describe('knowledge locator parsing', () => {
   it.each([
     ['notes/Pet%20Projects.md', 'notes/Pet Projects.md'],
@@ -28,10 +33,12 @@ describe('knowledge locator parsing', () => {
     });
   });
 
-  it.each(['notes%2Fsecret.md', '100%.md', 'note.md:%31-2'])(
+  it.each(['notes%2Fsecret.md', '100%.md'])(
     'refuses invalid encoding in %s',
     (path) => {
-      expect(parseKnowledgeLocator(`${SPACE}/${path}`)).toBeUndefined();
+      expect(parseKnowledgeLocator(`${SPACE}/${path}`)).toStrictEqual(
+        INVALID_PATH,
+      );
     },
   );
 
@@ -85,7 +92,7 @@ describe('knowledge locator parsing', () => {
     });
   });
 
-  it('splits a comma selector and rejects a malformed suffix', () => {
+  it('splits a comma selector into the list it names', () => {
     expect(
       parseKnowledgeLocator(`${SPACE}/research/note.md:5-10,20-30`),
     ).toStrictEqual({
@@ -100,12 +107,6 @@ describe('knowledge locator parsing', () => {
       relativePath: 'research/note.md',
       selector: 'raw:5-10,20-30',
     });
-    expect(
-      parseKnowledgeLocator(`${SPACE}/research/note.md:5-10,,20-30`),
-    ).toBeUndefined();
-    expect(
-      parseKnowledgeLocator(`${SPACE}/research/note.md:outline:1,3`),
-    ).toBeUndefined();
   });
 
   // A selector on the Space directory itself: the colon opens the remainder,
@@ -132,11 +133,124 @@ describe('knowledge locator parsing', () => {
   it.each([
     '',
     '/notes/a.md',
-    `${SPACE}/notes/a:b.md`,
-    `${SPACE}/notes/a:b.md:41-53`,
-    `${SPACE}/notes/a.md:nonsense`,
-  ])('refuses %s', (rest) => {
-    expect(parseKnowledgeLocator(rest)).toBeUndefined();
+    `${SPACE}/notes/100%.md`,
+    `${SPACE}/notes/a%2Fb.md`,
+    `${SPACE}//`,
+    `${SPACE}//:1-2`,
+    // The path part is decoded and validated before the suffix is judged: a
+    // suffix on a path the Space rules refuse is `invalid_path`, never an
+    // `invalid_selector` whose hint names a locator that cannot resolve.
+    `${SPACE}/notes/100%.md:1-2`,
+    `${SPACE}/notes/a%2Fb.md:1-2`,
+    `${SPACE}/../notes/a.md:1-2`,
+    `${SPACE}/notes//a.md:1-2`,
+    `${SPACE}/notes/\uD800:1-2`,
+    `${SPACE}/notes/\uD800:nonsense`,
+  ])('refuses %s as a locator that does not parse', (rest) => {
+    expect(parseKnowledgeLocator(rest)).toStrictEqual(INVALID_PATH);
+  });
+
+  it.each([
+    [
+      `${SPACE}/notes/:foo`,
+      `kb://${SPACE}/notes/%3Afoo`,
+      `${SPACE}/notes/%3Afoo`,
+      'notes/:foo',
+    ],
+    [
+      `${SPACE}/notes/:50%.md`,
+      `kb://${SPACE}/notes/%3A50%25.md`,
+      `${SPACE}/notes/%3A50%25.md`,
+      'notes/:50%.md',
+    ],
+  ])(
+    'keeps the trailing separator in the invalid-selector spelling for %s',
+    (rest, spelling, hintedRest, relativePath) => {
+      const parsed = parseKnowledgeLocator(rest);
+      expect(parsed).toMatchObject({ type: 'invalid_selector' });
+      expect(parsed).toHaveProperty(
+        'message',
+        expect.stringContaining(spelling),
+      );
+      expect(parseKnowledgeLocator(hintedRest)).toStrictEqual({
+        knowledgeSpaceId: SPACE,
+        relativePath,
+      });
+    },
+  );
+
+  it.each([
+    [`${SPACE}/notes/a:b.md`, `kb://${SPACE}/notes/a%3Ab.md`],
+    [`${SPACE}/note.md:5-10,,20-30`, `kb://${SPACE}/note.md%3A5-10,,20-30`],
+    [`${SPACE}/note.md:raw:outline`, `kb://${SPACE}/note.md%3Araw%3Aoutline`],
+    [`${SPACE}/note.md:outline:1,3`, `kb://${SPACE}/note.md%3Aoutline%3A1,3`],
+    // The Space directory has no resource path, so nothing is spelled for it.
+    [`${SPACE}/:nonsense`, undefined],
+  ])('reports %s as an invalid selector', (rest, spelling) => {
+    const parsed = parseKnowledgeLocator(rest);
+    expect(parsed).toMatchObject({ type: 'invalid_selector' });
+    if (spelling !== undefined) {
+      expect(parsed).toHaveProperty(
+        'message',
+        expect.stringContaining(spelling),
+      );
+    }
+  });
+
+  it('encodes a percent in the suffix so the hint reads the same file', () => {
+    // `discount:50%.md` splits at the colon, so the suffix carries a literal
+    // `%`. The hint encodes it before the colon, or the locator it names
+    // decodes to something else on the next attempt.
+    const parsed = parseKnowledgeLocator(`${SPACE}/notes/discount:50%.md`);
+    expect(parsed).toMatchObject({ type: 'invalid_selector' });
+    expect(parsed).toHaveProperty(
+      'message',
+      expect.stringContaining(`kb://${SPACE}/notes/discount%3A50%25.md`),
+    );
+    expect(
+      parseKnowledgeLocator(`${SPACE}/notes/discount%3A50%25.md`),
+    ).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'notes/discount:50%.md',
+    });
+  });
+
+  it('keeps a valid escape in the suffix so the hint reads the same file', () => {
+    const parsed = parseKnowledgeLocator(`${SPACE}/notes/a:b%20c.md`);
+    expect(parsed).toHaveProperty(
+      'message',
+      expect.stringContaining(`kb://${SPACE}/notes/a%3Ab%20c.md`),
+    );
+    expect(parseKnowledgeLocator(`${SPACE}/notes/a%3Ab%20c.md`)).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'notes/a:b c.md',
+    });
+  });
+
+  it('encodes an escaped separator in the suffix so the hint still parses', () => {
+    const parsed = parseKnowledgeLocator(`${SPACE}/notes/a:b%2Fc.md`);
+    expect(parsed).toHaveProperty(
+      'message',
+      expect.stringContaining(`kb://${SPACE}/notes/a%3Ab%252Fc.md`),
+    );
+    expect(
+      parseKnowledgeLocator(`${SPACE}/notes/a%3Ab%252Fc.md`),
+    ).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'notes/a:b%2Fc.md',
+    });
+  });
+
+  it.each([
+    [`${SPACE}/notes.md:5-`, '5-'],
+    [`${SPACE}/notes.md:1-5:raw`, '1-5:raw'],
+    [`${SPACE}/notes.md:raw:1-5`, 'raw:1-5'],
+  ])('accepts the members and both raw spellings in %s', (rest, selector) => {
+    expect(parseKnowledgeLocator(rest)).toStrictEqual({
+      knowledgeSpaceId: SPACE,
+      relativePath: 'notes.md',
+      selector,
+    });
   });
 });
 
@@ -413,35 +527,77 @@ describe('knowledge locator resolution', () => {
     expect(calls).toStrictEqual([]);
   });
 
-  it('refuses an unparseable locator as an invalid path', async () => {
+  it('refuses a suffix outside the grammar with the shared message', async () => {
+    // The locator before the suffix is a resource this tool can read, so the
+    // suffix is what failed: the forms are named first, then the spelling that
+    // reads the same resource with the colon made literal.
     const calls: Array<ResolveCall> = [];
-    await expect(
-      resolveKnowledgeLocator(
-        contextWithAdapter(() => Promise.resolve(hostPath), calls),
-        `kb://${SPACE}/a:b.md`,
-        `${SPACE}/a:b.md`,
-      ),
-    ).resolves.toStrictEqual({
+    const result = await resolveKnowledgeLocator(
+      contextWithAdapter(() => Promise.resolve(hostPath), calls),
+      `kb://${SPACE}/notes/a:b.md`,
+      `${SPACE}/notes/a:b.md`,
+    );
+    expect(result).toMatchObject({
       status: 'error',
-      type: 'invalid_path',
-      message: 'The Knowledge locator is invalid.',
+      type: 'invalid_selector',
     });
+    expect(result).toHaveProperty(
+      'message',
+      expect.stringContaining(`kb://${SPACE}/notes/a%3Ab.md`),
+    );
+    expect(calls).toStrictEqual([]);
   });
 
-  it('refuses a malformed comma suffix as an invalid path', async () => {
+  it('refuses a suffix carrying its own colons without resolving it', async () => {
+    const rest = `${SPACE}/note.md:a:b.md:41-53`;
     const calls: Array<ResolveCall> = [];
     await expect(
       resolveKnowledgeLocator(
         contextWithAdapter(() => Promise.resolve(hostPath), calls),
-        `kb://${SPACE}/note.md:5-10,,20-30`,
-        `${SPACE}/note.md:5-10,,20-30`,
+        `kb://${rest}`,
+        rest,
+      ),
+    ).resolves.toMatchObject({ status: 'error', type: 'invalid_selector' });
+    expect(calls).toStrictEqual([]);
+  });
+
+  it('keeps invalid_path for a malformed locator part', async () => {
+    const calls: Array<ResolveCall> = [];
+    await expect(
+      resolveKnowledgeLocator(
+        contextWithAdapter(() => Promise.resolve(hostPath), calls),
+        `kb://${SPACE}/100%.md:1-2`,
+        `${SPACE}/100%.md:1-2`,
       ),
     ).resolves.toStrictEqual({
       status: 'error',
       type: 'invalid_path',
       message: 'The Knowledge locator is invalid.',
     });
+    expect(calls).toStrictEqual([]);
   });
+
+  it.each([`${SPACE}//`, `${SPACE}//:1-2`])(
+    'rejects the slash-only resource path %s before resolution',
+    async (rest) => {
+      const calls: Array<ResolveCall> = [];
+      const bindingCalls: Array<[string, string]> = [];
+      await expect(
+        resolveKnowledgeLocator(
+          contextWithAdapter(() => Promise.resolve(hostPath), calls, {
+            bindingCalls,
+          }),
+          `kb://${rest}`,
+          rest,
+        ),
+      ).resolves.toMatchObject({
+        status: 'error',
+        type: 'invalid_path',
+      });
+      expect(calls).toStrictEqual([]);
+      expect(bindingCalls).toStrictEqual([]);
+    },
+  );
 
   it.each([
     ['knowledge_not_found', 'not_found', 'File not found.'],

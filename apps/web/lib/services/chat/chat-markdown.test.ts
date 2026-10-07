@@ -267,10 +267,6 @@ describe("chatToMarkdown", () => {
               generatedReminderFixture: "PRIVATE_AVAILABILITY_REMINDER",
             },
           },
-          {
-            type: "conversation-checkpoint",
-            summary: "PRIVATE_GENERATED_COMPACTION_SUMMARY",
-          },
           { type: "text", text: "visible human text" },
         ],
         usage: {
@@ -279,11 +275,29 @@ describe("chatToMarkdown", () => {
           tools: [{ inputSchema: "PRIVATE_TOOL_SCHEMA" }],
         },
       }),
+      msg({
+        role: "checkpoint",
+        // The owner DTO's row-level fields ride alongside the stored part.
+        summary: "PRIVATE_ROW_SUMMARY",
+        absorbedThroughSeq: 1,
+        absorbedMessageCount: 2,
+        parts: [
+          {
+            type: "data-context",
+            data: {
+              producer: "compaction",
+              form: "checkpoint",
+              text: '<system-reminder producer="compaction" form="checkpoint">\nPRIVATE_STORED_CHECKPOINT_TEXT\n</system-reminder>',
+              payload: { v: 1, summary: "PRIVATE_RAW_CHECKPOINT_SUMMARY" },
+            },
+          },
+        ],
+      }),
     ]);
 
     expect(md).toContain("visible human text");
     expect(md).not.toMatch(
-      /PRIVATE_|context-receipt|system-reminder|data-tool-availability|conversation-checkpoint/i,
+      /PRIVATE_|context-receipt|system-reminder|data-tool-availability/i,
     );
   });
 

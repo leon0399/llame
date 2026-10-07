@@ -263,7 +263,7 @@ describe('Workspace-relative native paths', () => {
     }
   });
 
-  it('admits host suffix permissions before parsing an outline', async () => {
+  it('admits host path permissions before parsing an outline', async () => {
     const root = await mkdtemp(join(tmpdir(), 'outline-permission-'));
     const file = join(root, 'guide.md');
     await writeFile(file, '# Guide\n');
@@ -276,7 +276,7 @@ describe('Workspace-relative native paths', () => {
         {
           read: {
             allow: true,
-            reject: [{ field: 'path', literal: `${file}:outline` }],
+            reject: [{ field: 'path', literal: file }],
           },
         },
         'outline-permission',
@@ -868,7 +868,7 @@ describe('knowledge locator resolution', () => {
     expect(runAsCalls).toBe(0);
   });
 
-  it('rejects a malformed Knowledge outline range as invalid_path', async () => {
+  it('rejects a malformed Knowledge outline range as an invalid selector', async () => {
     await writeFile(join(directory, 'guide.md'), '# Guide\n');
     await expect(
       runTool(
@@ -877,19 +877,36 @@ describe('knowledge locator resolution', () => {
         knowledgeContext(),
         5,
       ),
-    ).resolves.toMatchObject({ status: 'error', type: 'invalid_path' });
+    ).resolves.toMatchObject({ status: 'error', type: 'invalid_selector' });
   });
 
-  it('keeps invalid_path for a malformed comma suffix', async () => {
-    await writeFile(join(directory, 'note.md'), 'a\nb\nc\n');
-    expect(
-      await runTool(
+  it('reads a note through the members the source count places', async () => {
+    await writeFile(join(directory, 'note.md'), 'a\nb\nc\nd\n');
+    // The Knowledge read reaches the same streaming reader as a host file, so
+    // `:-2` and `:2-` resolve against the note's own line count.
+    await expect(
+      runTool(
         nativeReadTool,
-        { path: `kb://${SPACE}/note.md:1-2,,3-4` },
+        { path: `kb://${SPACE}/note.md:-2` },
         knowledgeContext(),
         5,
       ),
-    ).toMatchObject({ status: 'error', type: 'invalid_path' });
+    ).resolves.toMatchObject({
+      status: 'success',
+      requestedRange: { startLine: 3, endLine: 4 },
+    });
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: `kb://${SPACE}/note.md:3-:raw` },
+        knowledgeContext(),
+        5,
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      representation: 'raw',
+      requestedRange: { startLine: 3, endLine: 4 },
+    });
   });
 
   it('keeps invalid_selector for out-of-range comma bounds', async () => {
@@ -1068,8 +1085,16 @@ describe('knowledge locator resolution', () => {
 
   it.each([
     ['kb://', 'invalid_path'],
-    [`kb://${SPACE}/notes/a:b.md`, 'invalid_path'],
+    [`kb://${SPACE}/notes/100%.md`, 'invalid_path'],
     ['vault://notes/a.md', 'invalid_path'],
+    // The locator before the suffix parses, so the suffix is what failed.
+    [`kb://${SPACE}/notes/a:b.md`, 'invalid_selector'],
+    [`kb://${SPACE}/note.md:5-10,,20-30`, 'invalid_selector'],
+    [`kb://${SPACE}/note.md:raw:outline`, 'invalid_selector'],
+    // A path the Space rules refuse is a malformed locator part, whatever
+    // suffix follows it.
+    [`kb://${SPACE}/../notes/a.md:1-2`, 'invalid_path'],
+    [`kb://${SPACE}/notes/100%.md:1-2`, 'invalid_path'],
   ])('refuses %s', async (path, type) => {
     expect(
       await runTool(nativeReadTool, { path }, knowledgeContext(), 5),
@@ -1340,6 +1365,44 @@ describe('skill locator resolution', () => {
     );
   });
 
+  it('reads a Skill package tail and both raw spellings the same way', async () => {
+    // The package's own line count places `N-` and `-K`, and `:<list>:raw` is
+    // the same read as `:raw:<list>` on every source.
+    const tail = await runTool(
+      nativeReadTool,
+      { path: 'skill://pdf:-2' },
+      skillContext(),
+      5,
+    );
+    expect(tail).toMatchObject({
+      status: 'success',
+      requestedRange: { startLine: 4, endLine: 5 },
+    });
+    for (const path of ['skill://pdf:4-5:raw', 'skill://pdf:raw:4-5']) {
+      expect(
+        await runTool(nativeReadTool, { path }, skillContext(), 5),
+      ).toMatchObject({
+        status: 'success',
+        representation: 'raw',
+        requestedRange: { startLine: 4, endLine: 5 },
+      });
+    }
+  });
+
+  it('refuses a Skill suffix outside the grammar with the shared message', async () => {
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://pdf/notes/a:b.md' },
+      skillContext(),
+      5,
+    );
+    expect(result).toMatchObject({ status: 'error', type: 'invalid_selector' });
+    expect(result).toHaveProperty(
+      'message',
+      expect.stringContaining('skill://pdf/notes/a%3Ab.md'),
+    );
+  });
+
   it('retains the Skill envelope for an outline', async () => {
     const result = await runTool(
       nativeReadTool,
@@ -1520,8 +1583,17 @@ describe('skill locator resolution', () => {
   it('refuses catalog selectors the listing cannot express', async () => {
     await writePackage('research');
     // These parse as native selectors but have no listing meaning; silently
-    // answering with the first page would misreport the catalog.
-    for (const path of ['skill://:raw:1-5', 'skill://:1-1,2-2']) {
+    // answering with the first page would misreport the catalog. A comma list
+    // is still declined: the catalog pages one range.
+    for (const path of [
+      'skill://:raw:1-5',
+      'skill://:1-1,2-2',
+      // `raw:` accepts every member a bare list accepts, `N+K` included, so
+      // this is a selector the catalog declines rather than a malformed
+      // locator.
+      'skill://:raw:1+5',
+      'skill://:1-2,-2',
+    ]) {
       expect(
         await runTool(nativeReadTool, { path }, skillContext(), 5),
       ).toMatchObject({
@@ -1529,16 +1601,71 @@ describe('skill locator resolution', () => {
         type: 'invalid_selector',
       });
     }
-    // `raw:` accepts only an `N-M` range, so this is a malformed locator
-    // rather than a selector the catalog declines.
-    expect(
-      await runTool(
+
+    // An end-relative member that `:outline` or `:raw` already refused still
+    // names what it asked for, not a malformed selector.
+    await expect(
+      runTool(
         nativeReadTool,
-        { path: 'skill://:raw:1+5' },
+        { path: 'skill://:outline:5-' },
         skillContext(),
         5,
       ),
-    ).toMatchObject({ status: 'error', type: 'invalid_path' });
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :outline member is not supported for the skill catalog.',
+    });
+    const raw = await runTool(
+      nativeReadTool,
+      { path: 'skill://:raw:5-' },
+      skillContext(),
+      5,
+    );
+    expect(raw).toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+    });
+    expect(String(raw.message)).toContain(
+      'comma ranges and :raw are not supported',
+    );
+  });
+
+  it('reads the catalog’s tail and its last entries through the count', async () => {
+    await writePackage('research');
+    await writePackage('analysis');
+    // The catalog resolves `N-` and `-K` against its own entry count, the way
+    // a listing resolves them against its requested level.
+    const tail = await runTool(
+      nativeReadTool,
+      { path: 'skill://:-2' },
+      skillContext(),
+      5,
+    );
+    expect(entryNames(tail)).toEqual(['pdf', 'research']);
+    const throughLast = await runTool(
+      nativeReadTool,
+      { path: 'skill://:3-' },
+      skillContext(),
+      5,
+    );
+    expect(entryNames(throughLast)).toEqual(['research']);
+    expect(throughLast).not.toHaveProperty('nextOffset');
+  });
+
+  it('returns the empty page for a start past the last entry', async () => {
+    await writePackage('research');
+    const past = await runTool(
+      nativeReadTool,
+      { path: 'skill://:95-' },
+      skillContext(),
+      5,
+    );
+    // A start past the end selects nothing, which the catalog returns as its
+    // empty page rather than as a refusal.
+    expect(entryNames(past)).toEqual([]);
+    expect(past).toMatchObject({ skillCount: 2 });
+    expect(past).not.toHaveProperty('nextOffset');
   });
 
   it('refuses a manual-only package without the turn selection', async () => {
@@ -1693,6 +1820,30 @@ describe('skill locator resolution', () => {
       ),
     ).toMatchObject({ status: 'success', kind: 'directory' });
   });
+
+  it.each(['skill://pdf//', 'skill://pdf//:1-2'])(
+    'rejects the slash-only skill resource path %s before catalog discovery',
+    async (path) => {
+      let catalogCalls = 0;
+      const catalog: SkillCatalogPort = {
+        getSnapshot: () => {
+          catalogCalls += 1;
+          throw new Error('catalog discovery should not run');
+        },
+      };
+      const result = await runTool(
+        nativeReadTool,
+        { path },
+        skillContext({ catalog }),
+        5,
+      );
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'invalid_path',
+      });
+      expect(catalogCalls).toBe(0);
+    },
+  );
 
   it('refuses edit and write on a skill locator without effect', async () => {
     const edit = await runTool(

@@ -141,14 +141,18 @@ function decodeCanonicalMessage(
     return null;
   }
 
-  if (row.message_role === 'system' || row.message_role === 'tool') {
+  // A checkpoint carries model-facing presentation text, never canonical
+  // source evidence. Keep it in the sequence walk so interior checkpoints
+  // preserve monotonic source coordinates, but never use it as a boundary.
+  const { message_role: role } = row;
+  if (role === 'checkpoint' || role === 'system' || role === 'tool') {
     return nonSourceMessage(messageSeq, 'presentation');
   }
 
   if (
-    (row.message_role !== 'user' && row.message_role !== 'assistant') ||
+    (role !== 'user' && role !== 'assistant') ||
     !isImmutableEvidenceMessage({
-      role: row.message_role,
+      role,
       usage: row.message_usage,
     }) ||
     !Array.isArray(row.message_parts)
@@ -160,7 +164,7 @@ function decodeCanonicalMessage(
   return {
     messageSeq,
     kind: 'source',
-    role: row.message_role,
+    role,
     timestamp,
     visibleText: visibleMessageText(row.message_parts),
   };

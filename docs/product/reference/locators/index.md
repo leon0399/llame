@@ -63,11 +63,15 @@ adapter directory in [web](web.md).
 
 ## Errors
 
-`invalid_path` covers a refused locator form, an unimplemented scheme, a `kb://`
-identifier with no Space, and a trailing representation member the scheme splits
-differently: `kb://` and `skill://` refuse `:outline:raw` and `:raw:outline`
-outright, where a host path or web locator reads `:outline:raw` as a raw read of
-a path or URL ending in `:outline`; see
+`invalid_path` covers a refused locator form, an unimplemented scheme, and a
+`kb://` identifier with no Space. A trailing suffix outside the selector grammar
+on a supported locator that otherwise parses is `invalid_selector`, with one message naming the working
+forms and, where a literal colon has an encoded spelling, that spelling after
+them; see [malformed selectors](../selectors.md#malformed-selectors). A
+trailing representation member the scheme splits differently is refused rather
+than reinterpreted: `:raw:outline` fails everywhere, and `kb://` and `skill://`
+refuse `:outline:raw`, where a host path or web locator reads it as a raw read
+of a path or URL ending in `:outline`; see
 [selectors](../selectors.md#markdown-outline). `not_found` covers a refused
 symbolic-link component on `kb://` and an absent path. The shared native
 vocabulary is in [read](../tools/read.md#errors).

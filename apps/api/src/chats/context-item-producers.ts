@@ -8,14 +8,14 @@
  * order items appear in belong to `context-item.ts`, so a producer cannot
  * forget any of them.
  *
- * `compaction` is the one producer with no persisted part: a checkpoint is a
- * row in `compactions`, whose `parentId` lineage and `uptoSeq` supersession
- * query cannot be expressed as a message part. It renders through the same
- * envelope anyway, so the model sees one convention rather than two.
+ * A compaction checkpoint is persisted as an ordinary `data-context` part on
+ * its own `checkpoint` message row. Its complete rendered text is the replay
+ * authority; the payload is only the structured owner-facing summary.
  */
 
+import type { ContextCheckpoint } from './context-builder';
+import type { CheckpointMessage } from './messages-repository';
 import {
-  CONTEXT_ITEM_TAG,
   isContextItemPart,
   type AuthoredContextItemPart,
   type ContextItemForm,
@@ -27,13 +27,14 @@ import {
   formatTemporalAnchor,
   isIanaTimeZone,
 } from '../prompts/temporal-anchor';
-import { type RecencyDigestEntry } from '../db/schema';
+import { type Message, type RecencyDigestEntry } from '../db/schema';
 import {
   isBoolean,
   isNumber,
   isString,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
+import { ModelContextExecutionError } from '../runs/model-context-errors';
 import {
   createRenderedContextItem,
   isExactRecord,
@@ -208,8 +209,8 @@ export function isModelChangePayload(
  *
  * A producer-derived view value, never persisted state: `ModelChangePayload`
  * keeps the two ids exactly as it always has, so an item written when the body
- * named only the destination still validates, still gates transition
- * compaction, and never depends on the catalog that authored its prose.
+ * named only the destination still validates and never depends on the catalog
+ * that authored its prose.
  *
  * `name` and `providerModelId` are read from the operator model catalog when
  * the body is authored. Both are operator-authored, so both are neutralized
@@ -243,15 +244,6 @@ export function createModelChangeItem(input: {
     payload,
     body: renderModelChange(input.oldModel, input.newModel),
   });
-}
-
-/** Does this turn carry a model change? Gates transition compaction. */
-export function isModelChangeItem(value: unknown): value is ContextItemPart {
-  return (
-    isContextItemPart(value) &&
-    value.data.producer === 'effective-context-change' &&
-    isModelChangePayload(value.data.payload)
-  );
 }
 
 /** One model as the template sees it: neutralized name, raw id, optional provider id. */
@@ -585,7 +577,7 @@ function renderTemporal(payload: TemporalPayload): string {
  * compaction
  * ------------------------------------------------------------------ */
 
-/** The checkpoint body: two framing sentences, then the neutralized summary. */
+/** The checkpoint body: three framing sentences, then the neutralized summary. */
 const renderCompactionCheckpointTemplate = loadPackagedTemplate<{
   readonly summary: string;
 }>(__dirname, 'compaction-checkpoint');
@@ -593,12 +585,12 @@ const renderCompactionCheckpointTemplate = loadPackagedTemplate<{
 /**
  * A checkpoint stands in for history it superseded, so it states that it is
  * historical context rather than a new request — which is already a precedence
- * statement, and deliberately the only one it carries.
+ * statement, and deliberately the only rank-setting language it carries.
  *
  * Unlike a one-off notice, a checkpoint is replayed on EVERY turn for the life
- * of the chat, so prose added here is paid for indefinitely. A second sentence
- * restating the rank in the rail's general terms measured ~35 tokens per
- * request and said nothing the sentence below does not.
+ * of the chat, so prose added here is paid for indefinitely. The third sentence
+ * is the justified addition: it tells the model that session state may already
+ * reflect the described work and not to repeat it.
  */
 export function renderCompactionCheckpoint(summary: string): string {
   // The summary is written by the summarizing model over conversation
@@ -612,8 +604,79 @@ export function renderCompactionCheckpoint(summary: string): string {
 
 export const COMPACTION_CHECKPOINT_FORM: ContextItemForm = 'checkpoint';
 
-/** The checkpoint's envelope opening, for callers matching on the prefix. */
-export const COMPACTION_CHECKPOINT_ENVELOPE_PREFIX = `<${CONTEXT_ITEM_TAG} producer="compaction" form="${COMPACTION_CHECKPOINT_FORM}">`;
+// Checkpoints are authored outside the attached-to-turn context-item path, so
+// they do not have a Run id of their own. Keep the existing context-item wire
+// shape valid with one stable sentinel; replay treats the persisted text as the
+// authority and never uses this identifier.
+const CHECKPOINT_PART_RUN_ID = '00000000-0000-4000-8000-000000000000';
+
+export function createCompactionCheckpointPart(
+  summary: string,
+): ContextItemPart {
+  if (summary.trim().length === 0) {
+    throw new TypeError('Invalid compaction checkpoint summary');
+  }
+  return createRenderedContextItem({
+    producer: 'compaction',
+    form: COMPACTION_CHECKPOINT_FORM,
+    runId: CHECKPOINT_PART_RUN_ID,
+    payload: { v: 1, summary },
+    body: renderCompactionCheckpoint(summary),
+  });
+}
+
+function checkpointPartOrThrow(row: Message) {
+  if (
+    row.role !== 'checkpoint' ||
+    !Array.isArray(row.parts) ||
+    row.parts.length !== 1
+  ) {
+    throw new ModelContextExecutionError(
+      `Checkpoint ${row.id} must contain exactly one context part.`,
+    );
+  }
+  const [part] = row.parts;
+  if (
+    !isContextItemPart(part) ||
+    part.data.producer !== 'compaction' ||
+    part.data.form !== COMPACTION_CHECKPOINT_FORM ||
+    !isString(part.data.text) ||
+    part.data.text.trim().length === 0
+  ) {
+    throw new ModelContextExecutionError(
+      `Checkpoint ${row.id} has an invalid or empty context part.`,
+    );
+  }
+  return { part, text: part.data.text };
+}
+
+export function readCheckpointText(row: Message): string {
+  return checkpointPartOrThrow(row).text;
+}
+
+/** The replay selection for a stored checkpoint row. */
+export function toContextCheckpoint(row: CheckpointMessage): ContextCheckpoint {
+  return {
+    text: readCheckpointText(row),
+    absorbedThroughSeq: row.absorbedThroughSeq,
+  };
+}
+
+export function checkpointSummary(row: Message): string {
+  const { part } = checkpointPartOrThrow(row);
+  const payload = part.data.payload;
+  if (
+    !isExactRecord(payload, ['summary', 'v']) ||
+    payload['v'] !== 1 ||
+    !isString(payload['summary']) ||
+    payload['summary'].trim().length === 0
+  ) {
+    throw new ModelContextExecutionError(
+      `Checkpoint ${row.id} has invalid summary metadata.`,
+    );
+  }
+  return payload['summary'];
+}
 
 /** Does this part carry a recency-digest delta or supersession? */
 export function isRecencyDigestItem(value: unknown): value is ContextItemPart {

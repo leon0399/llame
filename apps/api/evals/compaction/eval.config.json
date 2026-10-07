@@ -1,0 +1,20 @@
+{
+  "providers": [
+    {
+      "id": "opencode-go",
+      "type": "opencode-go",
+      "key": "{env:OPENCODE_GO_API_KEY}"
+    }
+  ],
+  "models": [
+    {
+      "id": "system:opencode-go:longcat-2.5-preview-free",
+      "provider": "opencode-go",
+      "providerModelId": "longcat-2.5-preview-free",
+      "contextWindowTokens": 128000
+    }
+  ],
+  "defaults": {
+    "modelId": "system:opencode-go:longcat-2.5-preview-free"
+  }
+}

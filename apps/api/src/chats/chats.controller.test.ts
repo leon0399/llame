@@ -11,7 +11,7 @@ import {
 import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
 import type { ChatLoopService } from './chat-loop.service';
 import * as schema from '../db/schema';
-import type { Chat, Compaction, Message } from '../db/schema';
+import type { Chat, Message } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import type { RunStreamResponder } from '../runs/run-stream-bridge';
 import {
@@ -48,6 +48,7 @@ const chatMessages: Array<Message> = [
     id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
     chatId: chat.id,
     seq: 1,
+    absorbedThroughSeq: null,
     role: 'user',
     senderUserId: 'verified-user',
     parts: [{ type: 'text', text: 'Hello' }],
@@ -60,6 +61,7 @@ const chatMessages: Array<Message> = [
     id: 'cc5ce18b-2f3a-4f6b-8c95-f9c6240a8f02',
     chatId: chat.id,
     seq: 2,
+    absorbedThroughSeq: null,
     role: 'assistant',
     senderUserId: null,
     parts: [{ type: 'text', text: 'Hi' }],
@@ -100,11 +102,7 @@ describe('ChatsController', () => {
         .mockResolvedValue(chat),
       getChatMessages: vi
         .fn<ChatsControllerService['getChatMessages']>()
-        .mockResolvedValue({
-          messages: chatMessages,
-          compaction: undefined,
-          absorbedMessageCount: null,
-        }),
+        .mockResolvedValue(chatMessages),
       updateChat: vi
         .fn<ChatsControllerService['updateChat']>()
         .mockResolvedValue(chat),
@@ -256,106 +254,6 @@ describe('ChatsController', () => {
           createdAt: new Date('2026-06-29T00:01:01.000Z'),
         },
       ],
-      compaction: null,
-    });
-  });
-
-  it('embeds the latest compaction (#136) with derived stats, null-safe when usage is absent', async () => {
-    const compaction: Compaction = {
-      id: '11111111-1111-1111-1111-111111111111',
-      chatId: chat.id,
-      uptoSeq: 5,
-      parentId: null,
-      summary: 'Absorbed the first five turns.',
-      replacementHistory: [
-        {
-          role: 'user',
-          parts: [
-            {
-              type: 'text',
-              text: '<system-reminder>checkpoint</system-reminder>',
-            },
-          ],
-        },
-      ],
-      usage: null,
-      createdAt: new Date('2026-07-06T00:00:00.000Z'),
-    };
-    const { controller } = makeController({
-      getChatMessages: vi.fn().mockResolvedValue({
-        messages: [],
-        compaction,
-        absorbedMessageCount: 5,
-      }),
-    });
-
-    const result = await controller.getChatMessages('verified-user', chat.id, {
-      limit: 100,
-    });
-
-    expect(result.compaction).toEqual({
-      uptoSeq: 5,
-      summary: 'Absorbed the first five turns.',
-      createdAt: new Date('2026-07-06T00:00:00.000Z'),
-      stats: {
-        absorbedMessageCount: 5,
-        beforeTokens: null,
-        afterTokens: null,
-        modelId: null,
-      },
-    });
-  });
-
-  it("embeds compaction stats derived from usage's input/output tokens and modelId, when present", async () => {
-    const compaction: Compaction = {
-      id: '22222222-2222-2222-2222-222222222222',
-      chatId: chat.id,
-      uptoSeq: 5,
-      parentId: null,
-      summary: 'Absorbed the first five turns.',
-      replacementHistory: [
-        {
-          role: 'user',
-          parts: [
-            {
-              type: 'text',
-              text: '<system-reminder>checkpoint</system-reminder>',
-            },
-          ],
-        },
-      ],
-      usage: {
-        inputTokens: 71_400,
-        cachedInputTokens: 0,
-        outputTokens: 1280,
-        totalTokens: 72_680,
-        modelId: 'system:openai:gpt-4o',
-        effort: 'high',
-        latencyMs: 500,
-        finishReason: 'stop',
-        status: 'completed',
-        costUsd: null,
-      },
-      createdAt: new Date('2026-07-06T00:00:00.000Z'),
-    };
-    const { controller } = makeController({
-      getChatMessages: vi.fn().mockResolvedValue({
-        messages: [],
-        compaction,
-        absorbedMessageCount: 5,
-      }),
-    });
-
-    const result = await controller.getChatMessages('verified-user', chat.id, {
-      limit: 100,
-    });
-
-    expect(result.compaction?.stats).toEqual({
-      absorbedMessageCount: 5,
-      beforeTokens: 71_400,
-      afterTokens: 1280,
-      modelId: 'system:openai:gpt-4o',
-      effort: 'high',
     });
   });
 
@@ -371,16 +269,12 @@ describe('ChatsController', () => {
 
   it('returns an empty message list for an owned chat with no messages', async () => {
     const { controller } = makeController({
-      getChatMessages: vi.fn().mockResolvedValue({
-        messages: [],
-        compaction: undefined,
-        absorbedMessageCount: null,
-      }),
+      getChatMessages: vi.fn().mockResolvedValue([]),
     });
 
     await expect(
       controller.getChatMessages('verified-user', chat.id, { limit: 100 }),
-    ).resolves.toEqual({ messages: [], compaction: null });
+    ).resolves.toEqual({ messages: [] });
   });
 
   it('passes message history pagination options to the service', async () => {
@@ -873,11 +767,7 @@ describe('ChatsController response plumbing', () => {
 
   it('forwards history pagination verbatim', async () => {
     const { controller, chatsService } = makeController();
-    chatsService.getChatMessages.mockResolvedValue({
-      messages: [],
-      compaction: undefined,
-      absorbedMessageCount: null,
-    });
+    chatsService.getChatMessages.mockResolvedValue([]);
 
     await controller.getChatMessages('u', chatId, {
       limit: 25,

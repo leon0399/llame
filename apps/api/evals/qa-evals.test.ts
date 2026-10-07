@@ -7,8 +7,8 @@
  *   1. happy path  — a question gets a coherent streamed answer
  *   2. injection   — adversarial text inside user content does not override the
  *                    system prompt
- *   3. overflow    — a long conversation triggers lineage compaction (#57) and
- *                    the chat stays coherent across it
+ *   3. overflow    — a long conversation triggers checkpoint publication (#57)
+ *                    and the chat stays coherent across it
  *
  * Unlike the other e2e suites this one does NOT fake the model client, so it
  * spends provider tokens. It is therefore double-gated and skipped by default:
@@ -42,8 +42,9 @@ import request from 'supertest';
 import { AppModule } from './../src/app.module';
 import { configureApp } from './../src/app.setup';
 import { TenantDbService } from './../src/db/tenant-db.service';
-import { CompactionsRepository } from './../src/chats/chats-repository';
-import { type Compaction } from './../src/db/schema';
+import { MessagesRepository } from './../src/chats/chats-repository';
+import { type Message } from './../src/db/schema';
+import { readCheckpointText } from './../src/chats/context-item-producers';
 import {
   cookieOf,
   expectRegisteredUserId,
@@ -55,24 +56,6 @@ const enabled =
 const d = enabled ? describe : describe.skip;
 const evalModelId =
   process.env.DEFAULT_MODEL_ID?.trim() || 'system:openai:gpt-5.4-mini';
-
-// A real model call (plus a compaction call) sits behind each turn.
-
-async function waitFor<T>(
-  poll: () => Promise<T | undefined>,
-  timeoutMs: number,
-  what: string,
-): Promise<T> {
-  const started = Date.now();
-  for (;;) {
-    const value = await poll();
-    if (value !== undefined) return value;
-    if (Date.now() - started > timeoutMs) {
-      throw new Error(`Timed out after ${timeoutMs}ms waiting for ${what}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-}
 
 d('Q&A harness evals (#58) — real model, real loop', () => {
   let app: INestApplication<import('http').Server>;
@@ -131,9 +114,11 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
     return streamedText(res.text);
   }
 
-  const latestCompaction = (chatId: string): Promise<Compaction | undefined> =>
+  const latestCheckpoint = (chatId: string): Promise<Message | undefined> =>
     tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chatId, userId),
+      new MessagesRepository(tx).findActiveCheckpoint(chatId, userId, {
+        beforeSeq: Number.MAX_SAFE_INTEGER,
+      }),
     );
 
   it('happy path: a question gets a coherent streamed answer', async () => {
@@ -169,9 +154,11 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
         'Reply with a one-sentence acknowledgement.',
     );
 
-    // Filler turns push the live window past the 300-token threshold; compaction
-    // keeps the most recent 8 messages verbatim, so the codename turn is absorbed
-    // into the summary once enough turns exist (each turn = 2 messages).
+    // Filler turns push the conversation past the 300-token threshold. Every
+    // turn weighs the conversation BEFORE its first model request, so the first
+    // turn that finds it over the threshold summarizes every row committed
+    // before its own message — the codename turn included — and publishes the
+    // checkpoint inside that same turn.
     //
     // Each filler carries a fixed ~800-char inert payload so the window size is
     // deterministic regardless of how tersely the model replies — a first run of
@@ -193,15 +180,17 @@ d('Q&A harness evals (#58) — real model, real loop', () => {
       );
     }
 
-    // Compaction is post-turn and fire-and-forget — poll for the lineage row.
-    const compaction = await waitFor(
-      () => latestCompaction(chatId),
-      60_000,
-      'a compactions row (did the threshold trigger?)',
-    );
-    // Auditable lineage: the row records what it superseded.
-    expect(compaction.uptoSeq).toBeGreaterThan(0);
-    expect(compaction.summary.length).toBeGreaterThan(0);
+    // The checkpoint is written before the model's first request of the turn
+    // whose trigger fired, so it is already there once the filler turns return.
+    const checkpoint = await latestCheckpoint(chatId);
+    if (checkpoint === undefined) {
+      throw new Error(
+        'Expected a checkpoint message (did the threshold trigger?)',
+      );
+    }
+    expect(checkpoint.role).toBe('checkpoint');
+    expect(checkpoint.absorbedThroughSeq).toBeGreaterThan(0);
+    expect(readCheckpointText(checkpoint).trim().length).toBeGreaterThan(0);
 
     // Coherence across the compaction boundary: the fact from the absorbed turn
     // must survive via the summary.

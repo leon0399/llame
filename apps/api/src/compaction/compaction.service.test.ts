@@ -1,9 +1,8 @@
 import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { type ToolSet } from 'ai';
 
 import type {
-  Chat,
-  Compaction,
   Message,
   ModelToolDeclaration,
   Run,
@@ -14,50 +13,21 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { createFakeModelClient } from '../models/fake-model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import type { ModelClient, ModelStreamInput } from '../models/model-client';
+import { createCompactionCheckpointPart } from '../chats/context-item-producers';
 import {
-  ChatsRepository,
-  CompactionsRepository,
   MessagesRepository,
-} from '../chats/chats-repository';
+  type CheckpointMessage,
+} from '../chats/messages-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
-import type { MemorySettingsBindingResolver } from '../memory/memory.service';
-import type {
-  RecencyDigestResolution,
-  RecencyDigestResolver,
-} from '../chats/recency-digest.service';
-import {
-  CompactionService,
-  toStoredMessages,
-  TransitionCompactionError,
-} from './compaction.service';
+import { ContextIncompatibleError } from '../runs/model-context-errors';
+import type { CompactionPlan } from './compaction';
+import { COMPACTION_INSTRUCTION } from './compaction';
+import { CompactionService, toStoredMessages } from './compaction.service';
 
 const chatId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ownerId = 'owner-1';
 const now = new Date('2026-09-01T00:00:00.000Z');
-
-const chat: Chat = {
-  id: chatId,
-  ownerUserId: ownerId,
-  title: null,
-  visibility: 'private',
-  createdAt: now,
-  updatedAt: now,
-  archivedAt: null,
-  projectId: null,
-  recencyDigestBaseline: null,
-  recencyDigestTold: null,
-  recencyDigestRebakedFrom: null,
-  skillCatalogBaseline: null,
-  skillCatalogRebakedFrom: null,
-  skillCatalogTold: null,
-  workspaceRoot: null,
-  workspaceExecutorId: null,
-  workspaceGeneration: 0,
-  workspaceTold: null,
-  workspaceToldFrom: null,
-  workspaceDetachReason: null,
-};
 
 function message(seq: number, role: Message['role'] = 'user'): Message {
   return {
@@ -69,23 +39,28 @@ function message(seq: number, role: Message['role'] = 'user'): Message {
     parts: [{ type: 'text', text: `message ${seq}` }],
     attachments: [],
     usage: null,
+    absorbedThroughSeq: null,
     inReplyTo: null,
     createdAt: now,
   };
 }
 
-const history = Array.from({ length: 9 }, (_, index) => message(index + 1));
-const compaction: Compaction = {
-  id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-  chatId,
-  uptoSeq: 1,
-  parentId: null,
-  summary: 'Objective\nKeep the work moving.',
-  replacementHistory: [
-    { role: 'user', parts: [{ type: 'text', text: 'previous' }] },
-  ],
-  usage: null,
-  createdAt: now,
+/**
+ * The absorbable prefix an attempt's plan hands to the summary request. It
+ * starts strictly above `previousCheckpoint.absorbedThroughSeq`, whose stored
+ * checkpoint is replayed in its place.
+ */
+function plan(): CompactionPlan {
+  return {
+    uptoSeq: 2,
+    absorb: toStoredMessages([message(2, 'assistant')]),
+  };
+}
+
+const previousCheckpoint: CheckpointMessage = {
+  ...message(1, 'checkpoint'),
+  absorbedThroughSeq: 1,
+  parts: [createCompactionCheckpointPart('previous checkpoint')],
 };
 
 const sourceAttemptId = '22222222-2222-4222-8222-222222222222';
@@ -94,7 +69,7 @@ const sourceRun: Run = {
   chatId,
   messageId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
   userId: ownerId,
-  modelId: 'model-1',
+  modelId: 'source-model-1',
   activeAttemptId: null,
   completedAttemptId: sourceAttemptId,
   turnToolAvailability: [],
@@ -116,23 +91,9 @@ const sourceReceipt: SystemPromptReceipt = {
   runId: sourceRun.id,
   attemptId: sourceAttemptId,
   source: 'project_default',
-  systemPrompt: 'system',
+  systemPrompt: 'the source run system prompt',
   promptHash: 'source-prompt-hash',
   createdAt: now,
-};
-
-const digest: RecencyDigestResolution = {
-  baseline: {
-    pinned: [],
-    recent: [],
-    pinnedShown: 0,
-    pinnedTotal: 0,
-    recentShown: 0,
-    recentTotal: 0,
-    compiledOn: '2026-09-01',
-  },
-  told: [],
-  candidates: [],
 };
 
 function makeService(client: ModelClient = createFakeModelClient(['summary'])) {
@@ -140,29 +101,16 @@ function makeService(client: ModelClient = createFakeModelClient(['summary'])) {
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
-  const runAs = vi
-    .spyOn(tenantDb, 'runAs')
-    .mockImplementation(
-      async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-        callback(db),
-    );
+  vi.spyOn(tenantDb, 'runAs').mockImplementation(
+    async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+      callback(db),
+  );
   const models = {
-    createClient: vi.fn(() => client),
-  };
-  const memory: MemorySettingsBindingResolver = {
-    getForOwnerForBinding: vi
-      .fn()
-      .mockResolvedValue({ shareRecentChats: false }),
-  };
-  const recencyDigest: RecencyDigestResolver = {
-    resolveCandidate: vi.fn().mockResolvedValue(digest),
+    createClient: vi.fn((_modelId: string) => client),
   };
   return {
-    service: new CompactionService(tenantDb, models, memory, recencyDigest),
-    runAs,
+    service: new CompactionService(tenantDb, models),
     models,
-    memory,
-    recencyDigest,
     client,
   };
 }
@@ -173,14 +121,16 @@ type StreamOverrides = Parameters<typeof wrapStreamTextResult>[1];
  * substitute the provider-side `toolCalls`/`finishReason` promises. */
 function recordingClient(options?: {
   responses?: Array<string>;
-  thresholdTokens?: number;
+  contextWindowTokens?: number;
   overrides?: StreamOverrides;
 }) {
-  const base = createFakeModelClient(options?.responses ?? ['summary text']);
+  const base = createFakeModelClient(
+    options?.responses ?? ['summary text'],
+    options?.contextWindowTokens ?? 128_000,
+  );
   const calls: Array<ModelStreamInput> = [];
-  const client = {
+  const client: ModelClient = {
     ...base,
-    compactionThresholdTokens: options?.thresholdTokens ?? 10,
     streamText: (input: ModelStreamInput) => {
       calls.push(input);
       return wrapStreamTextResult(
@@ -188,7 +138,7 @@ function recordingClient(options?: {
         options?.overrides ?? {},
       );
     },
-  } satisfies ModelClient;
+  };
   return { client, calls };
 }
 
@@ -198,44 +148,30 @@ const validTool: ModelToolDeclaration = {
   inputSchema: { type: 'object', properties: {} },
 };
 
-function mockTransitionRead(options?: {
-  previous?: Compaction;
-  run?: Run;
-  messages?: Array<Message>;
+/**
+ * The threshold variant needs only the active checkpoint read; the window
+ * variant additionally resolves its source run and that run's receipt.
+ */
+function mockReads(options?: {
+  previous?: CheckpointMessage;
+  source?: { run: Run; receipt?: SystemPromptReceipt | undefined } | undefined;
 }) {
-  const findLatest = vi.spyOn(
-    CompactionsRepository.prototype,
-    'findLatestByChatId',
+  const findActive = vi
+    .spyOn(MessagesRepository.prototype, 'findActiveCheckpoint')
+    .mockResolvedValue(options?.previous);
+  const findRun = vi.spyOn(
+    RunsRepository.prototype,
+    'findMostRecentCompletedByChatMessageSequence',
   );
-  findLatest.mockResolvedValue(undefined);
-  if (options?.previous) findLatest.mockResolvedValueOnce(options.previous);
-  const findMessages = vi
-    .spyOn(MessagesRepository.prototype, 'findByChatId')
-    .mockResolvedValue(options?.messages ?? [message(1, 'assistant')]);
-  const findRun = vi
-    .spyOn(
-      RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
-    )
-    .mockResolvedValue(options?.run ?? sourceRun);
-  vi.spyOn(
-    SystemPromptReceiptsRepository.prototype,
-    'findByAttempt',
-  ).mockResolvedValue(sourceReceipt);
-  const commit = vi
-    .spyOn(CompactionsRepository.prototype, 'createIfCutoffAbsent')
-    .mockResolvedValue(compaction);
-  return { findLatest, findMessages, findRun, commit };
-}
-
-function mockLiveWindow(previous?: Compaction) {
-  vi.spyOn(
-    CompactionsRepository.prototype,
-    'findLatestByChatId',
-  ).mockResolvedValue(previous);
-  vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
-    history,
+  findRun.mockResolvedValue(
+    options?.source
+      ? { run: options.source.run, triggeringUserSeq: 1 }
+      : undefined,
   );
+  const findReceipt = vi
+    .spyOn(SystemPromptReceiptsRepository.prototype, 'findByAttempt')
+    .mockResolvedValue(options?.source?.receipt);
+  return { findActive, findRun, findReceipt };
 }
 
 describe('CompactionService pure message boundary', () => {
@@ -247,462 +183,139 @@ describe('CompactionService pure message boundary', () => {
   });
 });
 
-describe('CompactionService maybeCompact', () => {
+describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('returns before database work when measured usage is below the model threshold', async () => {
-    const { service, runAs } = makeService();
-
-    await expect(
-      service.maybeCompact({
-        chatId,
-        userId: ownerId,
-        client: createFakeModelClient(['unused']),
-        system: 'system',
-        toolDeclarations: [],
-        lastRequestTokens: 9,
-      }),
-    ).resolves.toBeUndefined();
-    expect(runAs).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the context estimate when the final request reported no counts', async () => {
-    const client = createFakeModelClient(['summary text']);
-    Object.assign(client, { compactionThresholdTokens: 1 });
-    const setup = makeService(client);
-    mockLiveWindow();
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: undefined,
-    });
-
-    expect(create).toHaveBeenCalledOnce();
-  });
-
-  it('compacts a live window, records telemetry, and skips a stale checkpoint', async () => {
-    const client = createFakeModelClient(['summary text']);
-    Object.assign(client, { compactionThresholdTokens: 10 });
-    const { service, runAs, memory, recencyDigest } = makeService(client);
-    mockLiveWindow();
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-
-    await expect(
-      service.maybeCompact({
-        chatId,
-        userId: ownerId,
-        client,
-        system: 'system',
-        toolDeclarations: [],
-        effort: 'high',
-        lastRequestTokens: 100,
-      }),
-    ).resolves.toBeUndefined();
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        chatId,
-        uptoSeq: 1,
-        summary: 'summary text',
-        parentId: null,
-      }),
-    );
-    expect(memory.getForOwnerForBinding).toHaveBeenCalled();
-    expect(recencyDigest.resolveCandidate).toHaveBeenCalledWith(
-      ownerId,
-      chatId,
-    );
-    expect(runAs).toHaveBeenCalledTimes(2);
-
-    vi.restoreAllMocks();
-    const stale = makeService(createFakeModelClient(['summary text']));
-    mockLiveWindow();
-    vi.spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({
-        ...compaction,
-        id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-      });
-    const staleCreate = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-    await stale.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client: stale.client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-    expect(staleCreate).not.toHaveBeenCalled();
-  });
-
-  it('does not write an empty summary and survives digest resolution failure', async () => {
-    const emptyClient = createFakeModelClient(['']);
-    Object.assign(emptyClient, { compactionThresholdTokens: 10 });
-    const empty = makeService(emptyClient);
-    mockLiveWindow();
-    const emptyCreate = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    await empty.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client: empty.client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-    expect(emptyCreate).not.toHaveBeenCalled();
-
-    vi.restoreAllMocks();
-    const digestClient = createFakeModelClient(['summary text']);
-    Object.assign(digestClient, { compactionThresholdTokens: 10 });
-    const digestFailure = makeService(digestClient);
-    mockLiveWindow();
-    vi.spyOn(digestFailure.recencyDigest, 'resolveCandidate').mockRejectedValue(
-      new Error('digest unavailable'),
-    );
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-    await digestFailure.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client: digestFailure.client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-    expect(create).toHaveBeenCalledOnce();
-  });
-
-  it('updates the recency baseline only when the locked chat and consent require it', async () => {
-    const currentChat = { ...chat, recencyDigestBaseline: digest.baseline };
-    const client = createFakeModelClient(['summary text']);
-    Object.assign(client, { compactionThresholdTokens: 10 });
-    const setup = makeService(client);
-    mockLiveWindow();
-    setup.memory.getForOwnerForBinding = vi
-      .fn()
-      .mockResolvedValue({ shareRecentChats: true });
-    vi.spyOn(CompactionsRepository.prototype, 'create').mockResolvedValue(
-      compaction,
-    );
-    const setRecencyDigest = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
-      .mockResolvedValue(undefined);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(currentChat);
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client: setup.client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-    expect(setRecencyDigest).toHaveBeenCalledWith(
-      expect.objectContaining({ chatId, ownerUserId: ownerId }),
-    );
-  });
-
-  it('compacts at the exact threshold and carries effort, billing, tools, and latency', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(1000);
-    const { client, calls } = recordingClient({ thresholdTokens: 100 });
-    Object.assign(client, { billing: 'subscription' });
-    const setup = makeService(client);
-    mockLiveWindow();
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [validTool],
-      effort: 'high',
-      lastRequestTokens: 100,
-    });
-
-    const [written] = create.mock.calls[0] ?? [];
-    expect(written?.usage).toMatchObject({
-      effort: 'high',
-      modelId: 'fake-model',
-      status: 'completed',
-      latencyMs: 0,
-      billing: 'subscription',
-    });
-    expect(calls[0]?.effort).toBe('high');
-    expect(Object.keys(calls[0]?.tools ?? {})).toEqual(['search']);
-  });
-
-  // provider-api-selection D5: compaction shares the turn's `main` lane because
-  // its prefix IS the conversation's prefix. A different id or lane would put
-  // this request outside the turn's cache identity while looking identical.
-  it('sends the compacted Chat’s own id on the main lane', async () => {
+  it('summarizes with the attempt own client, prompt, schema-only tools and instruction', async () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);
-    mockLiveWindow();
-    vi.spyOn(CompactionsRepository.prototype, 'create').mockResolvedValue(
-      compaction,
-    );
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    const { findActive } = mockReads({ previous: previousCheckpoint });
 
-    await setup.service.maybeCompact({
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'threshold',
       chatId,
       userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
       client,
-      system: 'system',
+      system: 'the attempt pre-rebake system prompt',
       toolDeclarations: [validTool],
-      lastRequestTokens: 100,
+      effort: 'high',
     });
 
-    expect(calls[0]?.chat).toStrictEqual({ id: chatId, lane: 'main' });
-    // The identity rides the input field, never the request's own text.
-    const sent = JSON.stringify({
-      system: calls[0]?.system,
-      messages: calls[0]?.messages,
+    // The read is scoped to the checkpoint that is active for THIS turn.
+    expect(findActive).toHaveBeenCalledWith(chatId, ownerId, { beforeSeq: 3 });
+
+    const sent = calls[0];
+    expect(sent?.system).toBe('the attempt pre-rebake system prompt');
+    // provider-api-selection D5: the request prefix IS the conversation's
+    // prefix, so it shares the turn's own cache identity on the main lane.
+    expect(sent?.chat).toStrictEqual({ id: chatId, lane: 'main' });
+    expect(sent?.toolChoice).toBe('none');
+    expect(sent?.effort).toBe('high');
+
+    // Schema-only declarations: named and described, never executable — the
+    // summarizer has no tool to call even though the turn's tools are declared.
+    const tools: ToolSet = sent?.tools ?? {};
+    expect(Object.keys(tools)).toEqual(['search']);
+    expect(Object.values(tools).map((entry) => entry.execute)).toEqual([
+      undefined,
+    ]);
+
+    // The trailing instruction is the threshold one, after the compacted
+    // prefix (previous checkpoint first, then the absorbed turns).
+    expect(sent?.messages.at(-1)).toEqual({
+      role: 'user',
+      content: COMPACTION_INSTRUCTION,
     });
-    expect(sent).not.toContain(chatId);
+    const rendered = JSON.stringify(sent?.messages);
+    expect(rendered).toContain('previous checkpoint');
+    expect(rendered.indexOf('previous checkpoint')).toBeLessThan(
+      rendered.indexOf('message 2'),
+    );
+
+    expect(summary).toMatchObject({
+      uptoSeq: 2,
+      summary: 'summary text',
+    });
   });
 
-  it('omits effort and tools from the request and receipt when the turn had none', async () => {
+  it('omits effort from the request and the recorded usage when the turn had none', async () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);
-    mockLiveWindow();
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    mockReads();
 
-    await setup.service.maybeCompact({
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'threshold',
       chatId,
       userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
       client,
       system: 'system',
       toolDeclarations: [],
-      lastRequestTokens: 100,
     });
 
     expect(Object.keys(calls[0] ?? {})).not.toContain('effort');
+    expect(summary?.usage).not.toHaveProperty('effort');
+  });
+
+  it('records the summarization call usage with the attempt model and billing', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1000);
+    const { client } = recordingClient();
+    Object.assign(client, { billing: 'subscription' });
+    const setup = makeService(client);
+    mockReads();
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'threshold',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
+      client,
+      system: 'system',
+      toolDeclarations: [],
+      effort: 'high',
+    });
+
+    expect(summary?.usage).toMatchObject({
+      modelId: 'fake-model',
+      effort: 'high',
+      billing: 'subscription',
+      status: 'completed',
+      finishReason: 'stop',
+      latencyMs: 0,
+    });
+  });
+
+  it('sends no tools at all when the attempt declared none', async () => {
+    const { client, calls } = recordingClient();
+    const setup = makeService(client);
+    mockReads();
+
+    await setup.service.summarizeCheckpoint({
+      variant: 'threshold',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
+      client,
+      system: 'system',
+      toolDeclarations: [],
+    });
+
+    // `tools` is absent rather than an empty set, so a tool-less request is
+    // byte-identical to the turn's own tool-less request.
     expect(Object.keys(calls[0] ?? {})).not.toContain('tools');
-    const [written] = create.mock.calls[0] ?? [];
-    expect(written?.usage).not.toHaveProperty('effort');
   });
 
-  it('skips compaction when a declared tool schema cannot compile', async () => {
-    const { client } = recordingClient();
-    const setup = makeService(client);
-    mockLiveWindow();
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [
-        {
-          id: 'broken',
-          description: 'Unsupported dialect.',
-          inputSchema: { $schema: 'https://example.invalid/dialect' },
-        },
-      ],
-      lastRequestTokens: 100,
-    });
-
-    expect(create).not.toHaveBeenCalled();
-  });
-
-  it('reports a compaction failure instead of surfacing it into the turn', async () => {
-    const error = vi
-      .spyOn(Logger.prototype, 'error')
-      .mockImplementation(() => undefined);
-    const { client } = recordingClient();
-    const setup = makeService(client);
-    setup.runAs.mockRejectedValue(new Error('database unavailable'));
-
-    await expect(
-      setup.service.maybeCompact({
-        chatId,
-        userId: ownerId,
-        client,
-        system: 'system',
-        toolDeclarations: [],
-        lastRequestTokens: 100,
-      }),
-    ).resolves.toBeUndefined();
-    expect(error).toHaveBeenCalledWith(
-      `Compaction failed for chat ${chatId}`,
-      expect.any(String),
-    );
-  });
-
-  it('warns and writes nothing when the summary comes back empty', async () => {
+  it('rejects the summary when the provider returned a tool call despite toolChoice none', async () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
-    const { client } = recordingClient({ responses: [''] });
-    const setup = makeService(client);
-    mockLiveWindow();
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-
-    expect(create).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(
-      `Compaction summary came back empty for chat ${chatId}; skipping`,
-    );
-  });
-
-  it('records a digest resolution failure without naming chat content', async () => {
-    const error = vi
-      .spyOn(Logger.prototype, 'error')
-      .mockImplementation(() => undefined);
-    const { client } = recordingClient();
-    const setup = makeService(client);
-    mockLiveWindow();
-    vi.spyOn(setup.recencyDigest, 'resolveCandidate').mockRejectedValue(
-      new Error('digest unavailable'),
-    );
-    vi.spyOn(CompactionsRepository.prototype, 'create').mockResolvedValue(
-      compaction,
-    );
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-
-    expect(error).toHaveBeenCalledWith('recency_digest_resolution_failed');
-  });
-
-  it('discards its checkpoint when a concurrent compaction landed first', async () => {
-    const warn = vi
-      .spyOn(Logger.prototype, 'warn')
-      .mockImplementation(() => undefined);
-    const { client } = recordingClient();
-    const setup = makeService(client);
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
-      history,
-    );
-    vi.spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({
-        ...compaction,
-        id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-      });
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    const touch = vi
-      .spyOn(ChatsRepository.prototype, 'touch')
-      .mockResolvedValue(chat);
-
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-
-    expect(create).not.toHaveBeenCalled();
-    expect(touch).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(
-      `Concurrent compaction detected for chat ${chatId}; discarding this one`,
-    );
-  });
-
-  it('announces the committed cutoff', async () => {
-    const log = vi
-      .spyOn(Logger.prototype, 'log')
-      .mockImplementation(() => undefined);
-    const { client } = recordingClient();
-    const setup = makeService(client);
-    mockLiveWindow();
-    vi.spyOn(CompactionsRepository.prototype, 'create').mockResolvedValue(
-      compaction,
-    );
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-
-    expect(log).toHaveBeenCalledWith(
-      expect.stringContaining(`Compacted chat ${chatId} up to seq 1`),
-    );
-  });
-
-  it('leaves the recency baseline alone when the chat carries none', async () => {
-    const { client } = recordingClient();
-    const setup = makeService(client);
-    mockLiveWindow();
-    setup.memory.getForOwnerForBinding = vi
-      .fn()
-      .mockResolvedValue({ shareRecentChats: true });
-    vi.spyOn(CompactionsRepository.prototype, 'create').mockResolvedValue(
-      compaction,
-    );
-    const setRecencyDigest = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
-      .mockResolvedValue(undefined);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-
-    expect(setRecencyDigest).not.toHaveBeenCalled();
-  });
-
-  it('discards a summary the provider accompanied with a tool call', async () => {
     const { client } = recordingClient({
       overrides: {
         toolCalls: () => ({
@@ -714,25 +327,29 @@ describe('CompactionService maybeCompact', () => {
       },
     });
     const setup = makeService(client);
-    mockLiveWindow();
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    mockReads();
 
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-
-    expect(create).not.toHaveBeenCalled();
+    // A checkpoint may be summary text and nothing else: this request declared
+    // no tools, so a call has no executor here and its output is not text.
+    await expect(
+      setup.service.summarizeCheckpoint({
+        variant: 'threshold',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        client,
+        system: 'system',
+        toolDeclarations: [],
+      }),
+    ).resolves.toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      `Compaction summary came back empty for chat ${chatId}; proceeding without a checkpoint`,
+    );
   });
 
-  it('discards a summary the provider ended on tool calls', async () => {
+  it('rejects the summary when the provider ended on tool calls', async () => {
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const { client } = recordingClient({
       overrides: {
         toolCalls: () => ({ value: Promise.resolve([]) }),
@@ -740,22 +357,22 @@ describe('CompactionService maybeCompact', () => {
       },
     });
     const setup = makeService(client);
-    mockLiveWindow();
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    mockReads();
 
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-
-    expect(create).not.toHaveBeenCalled();
+    // A provider that ignored `toolChoice: 'none'` is the same rejection, even
+    // when its tool-call list came back empty.
+    await expect(
+      setup.service.summarizeCheckpoint({
+        variant: 'threshold',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        client,
+        system: 'system',
+        toolDeclarations: [],
+      }),
+    ).resolves.toBeNull();
   });
 
   it('keeps the summary when the provider tool-call promise rejects', async () => {
@@ -767,301 +384,81 @@ describe('CompactionService maybeCompact', () => {
       },
     });
     const setup = makeService(client);
-    mockLiveWindow();
-    const create = vi
-      .spyOn(CompactionsRepository.prototype, 'create')
-      .mockResolvedValue(compaction);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    mockReads();
 
-    await setup.service.maybeCompact({
-      chatId,
-      userId: ownerId,
-      client,
-      system: 'system',
-      toolDeclarations: [],
-      lastRequestTokens: 100,
-    });
-
-    expect(create).toHaveBeenCalledOnce();
-  });
-});
-
-describe('CompactionService compactForTransition', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
+    await expect(
+      setup.service.summarizeCheckpoint({
+        variant: 'threshold',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        client,
+        system: 'system',
+        toolDeclarations: [],
+      }),
+    ).resolves.toMatchObject({ summary: 'summary text' });
   });
 
-  it('rejects when no completed source prefix or source model is available', async () => {
-    const noPlan = makeService();
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(undefined);
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      message(1),
-    ]);
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
-    ).mockResolvedValue(undefined);
-    await expect(
-      noPlan.service.compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      }),
-    ).rejects.toBeInstanceOf(TransitionCompactionError);
-
-    vi.restoreAllMocks();
-    const noSource = makeService();
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(undefined);
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      message(1, 'assistant'),
-    ]);
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
-    ).mockResolvedValue(undefined);
-    await expect(
-      noSource.service.compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      }),
-    ).rejects.toBeInstanceOf(TransitionCompactionError);
-  });
-
-  it('maps source-model failures, invalid summaries, and superseded commits', async () => {
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(undefined);
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      message(1, 'assistant'),
-    ]);
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
-    ).mockResolvedValue(sourceRun);
-    vi.spyOn(
-      SystemPromptReceiptsRepository.prototype,
-      'findByAttempt',
-    ).mockResolvedValue(sourceReceipt);
-    const failingModels = makeService();
-    failingModels.models.createClient.mockImplementation(() => {
-      throw new Error('model unavailable');
-    });
-    await expect(
-      failingModels.service.compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      }),
-    ).rejects.toBeInstanceOf(TransitionCompactionError);
-
-    vi.restoreAllMocks();
-    const emptyClient = createFakeModelClient(['']);
-    const empty = makeService(emptyClient);
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(undefined);
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      message(1, 'assistant'),
-    ]);
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
-    ).mockResolvedValue(sourceRun);
-    vi.spyOn(
-      SystemPromptReceiptsRepository.prototype,
-      'findByAttempt',
-    ).mockResolvedValue(sourceReceipt);
-    await expect(
-      empty.service.compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      }),
-    ).rejects.toBeInstanceOf(TransitionCompactionError);
-
-    vi.restoreAllMocks();
-    const superseded = makeService(createFakeModelClient(['summary']));
-    vi.spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce({ ...compaction, uptoSeq: 10 });
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      message(1, 'assistant'),
-    ]);
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
-    ).mockResolvedValue(sourceRun);
-    vi.spyOn(
-      SystemPromptReceiptsRepository.prototype,
-      'findByAttempt',
-    ).mockResolvedValue(sourceReceipt);
-    await expect(
-      superseded.service.compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      }),
-    ).resolves.toBe('superseded');
-  });
-
-  it('names the missing prefix and the missing source context', async () => {
-    const noPlan = makeService();
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(undefined);
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      message(1),
-    ]);
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
-    ).mockResolvedValue(undefined);
-    await expect(
-      noPlan.service.compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      }),
-    ).rejects.toMatchObject({
-      name: 'TransitionCompactionError',
-      message:
-        'No completed assistant prefix is available for transition compaction.',
-    });
-
-    vi.restoreAllMocks();
-    const noSource = makeService();
-    vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(undefined);
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      message(1, 'assistant'),
-    ]);
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findMostRecentCompletedByChatMessageSequence',
-    ).mockResolvedValue(undefined);
-    await expect(
-      noSource.service.compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      }),
-    ).rejects.toMatchObject({
-      message:
-        'No owned source run context is available for transition compaction.',
-    });
-  });
-
-  it('names the unavailable source model and keeps its cause', async () => {
-    mockTransitionRead();
-    const modelError = new Error('model unavailable');
-    const setup = makeService();
-    setup.models.createClient.mockImplementation(() => {
-      throw modelError;
-    });
-
-    const failure = await setup.service
-      .compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      })
-      .catch((error: unknown) => error);
-
-    expect(failure).toBeInstanceOf(TransitionCompactionError);
-    expect(failure).toMatchObject({
-      name: 'TransitionCompactionError',
-      message:
-        "Source model 'model-1' is unavailable for transition compaction.",
-      cause: modelError,
-    });
-  });
-
-  it('refuses a transition request the source model cannot fit', async () => {
-    const { client } = recordingClient();
-    const setup = makeService(client);
-    const { commit } = mockTransitionRead();
-
-    await expect(
-      setup.service.compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10_000_000,
-      }),
-    ).rejects.toMatchObject({
-      message:
-        'The source model cannot fit transition compaction in one request.',
-    });
-    expect(commit).not.toHaveBeenCalled();
-  });
-
-  it('names an empty source-model summary', async () => {
+  it('warns and returns null for an empty summary', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
     const { client } = recordingClient({ responses: [''] });
     const setup = makeService(client);
-    mockTransitionRead();
+    mockReads();
 
     await expect(
-      setup.service.compactForTransition({
+      setup.service.summarizeCheckpoint({
+        variant: 'threshold',
         chatId,
         userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        client,
+        system: 'system',
+        toolDeclarations: [],
       }),
-    ).rejects.toMatchObject({
-      message:
-        'Source-model transition compaction returned no valid text summary.',
-    });
+    ).resolves.toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      `Compaction summary came back empty for chat ${chatId}; proceeding without a checkpoint`,
+    );
   });
 
-  it('wraps a source-model failure and preserves its cause', async () => {
-    const modelError = new Error('provider exploded');
+  it('warns and returns null when the provider call fails outright', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
     const base = createFakeModelClient(['summary']);
     const client: ModelClient = {
       ...base,
       streamText: () => {
-        throw modelError;
+        throw new Error('provider unavailable');
       },
     };
     const setup = makeService(client);
-    mockTransitionRead();
+    mockReads();
 
-    const failure = await setup.service
-      .compactForTransition({
+    // The request already fits its window, so a checkpoint is a nice-to-have:
+    // the attempt proceeds without one instead of failing the turn.
+    await expect(
+      setup.service.summarizeCheckpoint({
+        variant: 'threshold',
         chatId,
         userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      })
-      .catch((error: unknown) => error);
-
-    expect(failure).toMatchObject({
-      name: 'TransitionCompactionError',
-      message: 'Source-model transition compaction failed.',
-      cause: modelError,
-    });
+        triggeringUserSeq: 3,
+        plan: plan(),
+        client,
+        system: 'system',
+        toolDeclarations: [],
+      }),
+    ).resolves.toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      `Compaction summary failed for chat ${chatId}; proceeding without a checkpoint`,
+    );
   });
 
-  it('rethrows the original failure when the transition was aborted', async () => {
+  it('rethrows the original failure when the attempt was aborted', async () => {
     const controller = new AbortController();
     const aborted = new Error('aborted mid-stream');
     const base = createFakeModelClient(['summary']);
@@ -1073,138 +470,306 @@ describe('CompactionService compactForTransition', () => {
       },
     };
     const setup = makeService(client);
-    mockTransitionRead();
+    mockReads();
 
     await expect(
-      setup.service.compactForTransition({
+      setup.service.summarizeCheckpoint({
+        variant: 'threshold',
         chatId,
         userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        client,
+        system: 'system',
+        toolDeclarations: [],
         abortSignal: controller.signal,
       }),
     ).rejects.toBe(aborted);
   });
 
-  it('reuses the source run effort for the request and the receipt', async () => {
-    vi.spyOn(Date, 'now').mockReturnValue(1000);
-    const { client, calls } = recordingClient();
-    const setup = makeService(client);
-    const { commit } = mockTransitionRead({
-      run: { ...sourceRun, effort: 'high' },
-    });
+  it('refuses to start once the attempt signal is already aborted', async () => {
+    const setup = makeService();
+    const { findActive } = mockReads();
+    const controller = new AbortController();
+    const aborted = new Error('attempt aborted before summarizing');
+    controller.abort(aborted);
 
     await expect(
-      setup.service.compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      }),
-    ).resolves.toBe('created');
-    expect(calls[0]?.effort).toBe('high');
-    const [written] = commit.mock.calls[0] ?? [];
-    expect(written?.usage).toMatchObject({ effort: 'high', latencyMs: 0 });
-  });
-
-  it('omits effort when the source run carried none', async () => {
-    const { client, calls } = recordingClient();
-    const setup = makeService(client);
-    const { commit } = mockTransitionRead();
-
-    await expect(
-      setup.service.compactForTransition({
-        chatId,
-        userId: ownerId,
-        triggeringUserSeq: 2,
-        reservedOutputTokens: 10,
-      }),
-    ).resolves.toBe('created');
-    expect(Object.keys(calls[0] ?? {})).not.toContain('effort');
-    const [written] = commit.mock.calls[0] ?? [];
-    expect(written?.usage).not.toHaveProperty('effort');
-  });
-
-  it('scopes the transition read to the triggering sequence', async () => {
-    const { client } = recordingClient();
-    const setup = makeService(client);
-    const { findLatest, findMessages, findRun } = mockTransitionRead({
-      previous: compaction,
-      messages: [message(2, 'assistant')],
-    });
-
-    await expect(
-      setup.service.compactForTransition({
+      setup.service.summarizeCheckpoint({
+        variant: 'threshold',
         chatId,
         userId: ownerId,
         triggeringUserSeq: 3,
-        reservedOutputTokens: 10,
+        plan: plan(),
+        client: setup.client,
+        system: 'system',
+        toolDeclarations: [],
+        abortSignal: controller.signal,
       }),
-    ).resolves.toBe('created');
-    expect(findLatest).toHaveBeenNthCalledWith(1, chatId, ownerId, {
-      beforeSeq: 3,
+    ).rejects.toBe(aborted);
+    // No summary call, and no read of the checkpoint lineage either.
+    expect(findActive).not.toHaveBeenCalled();
+  });
+});
+
+describe('CompactionService.summarizeCheckpoint (window variant)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('summarizes with the previous completed run model, receipt prompt and persisted effort', async () => {
+    const { client, calls } = recordingClient();
+    const setup = makeService(client);
+    const { findRun, findReceipt } = mockReads({
+      previous: previousCheckpoint,
+      source: { run: { ...sourceRun, effort: 'high' }, receipt: sourceReceipt },
     });
-    expect(findMessages).toHaveBeenCalledWith(chatId, ownerId, {
-      maxSeq: 2,
-      sinceSeq: 1,
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'window',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
+      reservedOutputTokens: 10,
     });
+
+    // The source is the previous completed run, scoped below this turn.
     expect(findRun).toHaveBeenCalledWith(chatId, ownerId, { beforeSeq: 3 });
+    expect(findReceipt).toHaveBeenCalledWith(
+      sourceRun.id,
+      sourceAttemptId,
+      ownerId,
+    );
+    // The TARGET model cannot hold the prefix, so it is not the one asked.
+    expect(setup.models.createClient).toHaveBeenCalledWith('source-model-1');
+
+    const sent = calls[0];
+    // The source run own receipt prompt, so the prefix stays cache-aligned
+    // with the history that run actually replayed.
+    expect(sent?.system).toBe(sourceReceipt.systemPrompt);
+    expect(sent?.effort).toBe('high');
+    expect(sent?.chat).toStrictEqual({ id: chatId, lane: 'main' });
+    // A summary is text only: no declarations ride along here.
+    expect(Object.keys(sent ?? {})).not.toContain('tools');
+    expect(sent?.toolChoice).toBe('none');
+    expect(sent?.messages.at(-1)).toEqual({
+      role: 'user',
+      content: COMPACTION_INSTRUCTION,
+    });
+
+    expect(summary).toMatchObject({ uptoSeq: 2, summary: 'summary text' });
+    expect(summary?.usage).toMatchObject({ effort: 'high' });
   });
 
-  it('commits when the latest checkpoint is still the one it planned from', async () => {
-    const { client } = recordingClient();
+  it('omits effort when the source run persisted none', async () => {
+    const { client, calls } = recordingClient();
     const setup = makeService(client);
-    const { findLatest } = mockTransitionRead({ previous: compaction });
-    findLatest.mockResolvedValue(compaction);
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'window',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
+      reservedOutputTokens: 10,
+    });
+
+    expect(Object.keys(calls[0] ?? {})).not.toContain('effort');
+    expect(summary?.usage).not.toHaveProperty('effort');
+  });
+
+  it('fails context_incompatible when there is no previous completed run to summarize', async () => {
+    const { client, calls } = recordingClient();
+    const setup = makeService(client);
+    mockReads();
 
     await expect(
-      setup.service.compactForTransition({
+      setup.service.summarizeCheckpoint({
+        variant: 'window',
         chatId,
         userId: ownerId,
-        triggeringUserSeq: 2,
+        triggeringUserSeq: 3,
+        plan: plan(),
         reservedOutputTokens: 10,
       }),
-    ).resolves.toBe('created');
+    ).rejects.toBeInstanceOf(ContextIncompatibleError);
+    expect(calls).toHaveLength(0);
   });
 
-  it('commits when a rival checkpoint stopped short of this cutoff', async () => {
-    const { client } = recordingClient();
+  it('fails context_incompatible when the source run has no completed attempt to read a receipt from', async () => {
+    const { client, calls } = recordingClient();
     const setup = makeService(client);
-    const { findLatest } = mockTransitionRead();
-    findLatest.mockResolvedValueOnce(undefined).mockResolvedValueOnce({
-      ...compaction,
-      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-      uptoSeq: 0,
+    const { findReceipt } = mockReads({
+      source: { run: { ...sourceRun, completedAttemptId: null } },
     });
 
     await expect(
-      setup.service.compactForTransition({
+      setup.service.summarizeCheckpoint({
+        variant: 'window',
         chatId,
         userId: ownerId,
-        triggeringUserSeq: 2,
+        triggeringUserSeq: 3,
+        plan: plan(),
         reservedOutputTokens: 10,
       }),
-    ).resolves.toBe('created');
+    ).rejects.toMatchObject({
+      code: 'context_incompatible',
+      message:
+        'The complete request exceeds the target model context window and no previous completed run can summarize its history.',
+    });
+    expect(calls).toHaveLength(0);
+    expect(findReceipt).not.toHaveBeenCalled();
   });
 
-  it('defers to a rival checkpoint that reached exactly this cutoff', async () => {
-    const { client } = recordingClient();
+  it('fails context_incompatible when its receipt is gone', async () => {
+    const { client, calls } = recordingClient();
     const setup = makeService(client);
-    const { findLatest, commit } = mockTransitionRead();
-    findLatest.mockResolvedValueOnce(undefined).mockResolvedValueOnce({
-      ...compaction,
-      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
-      uptoSeq: 1,
-    });
+    mockReads({ source: { run: sourceRun, receipt: undefined } });
 
     await expect(
-      setup.service.compactForTransition({
+      setup.service.summarizeCheckpoint({
+        variant: 'window',
         chatId,
         userId: ownerId,
-        triggeringUserSeq: 2,
+        triggeringUserSeq: 3,
+        plan: plan(),
         reservedOutputTokens: 10,
       }),
-    ).resolves.toBe('superseded');
-    expect(commit).not.toHaveBeenCalled();
+    ).rejects.toMatchObject({
+      code: 'context_incompatible',
+      message:
+        'The complete request exceeds the target model context window and no previous completed run can summarize its history.',
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('names the unavailable source model and keeps its cause', async () => {
+    const setup = makeService();
+    const modelError = new Error('model unavailable');
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+    setup.models.createClient.mockImplementation(() => {
+      throw modelError;
+    });
+
+    const failure = await setup.service
+      .summarizeCheckpoint({
+        variant: 'window',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        reservedOutputTokens: 10,
+      })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ContextIncompatibleError);
+    expect(failure).toMatchObject({
+      message:
+        "Source model 'source-model-1' is unavailable to summarize the history this request carries.",
+      cause: modelError,
+    });
+  });
+
+  it('fails context_incompatible when the source model cannot fit the summary request either', async () => {
+    const { client, calls } = recordingClient({ contextWindowTokens: 1000 });
+    const setup = makeService(client);
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+    const failure = await setup.service
+      .summarizeCheckpoint({
+        variant: 'window',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        reservedOutputTokens: 10_000_000,
+      })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ContextIncompatibleError);
+    expect(failure).toMatchObject({
+      message:
+        'The complete request exceeds the target model context window and its source model cannot fit that history either.',
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('fails context_incompatible when the source model returns no usable summary', async () => {
+    const { client } = recordingClient({ responses: [''] });
+    const setup = makeService(client);
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+    await expect(
+      setup.service.summarizeCheckpoint({
+        variant: 'window',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        reservedOutputTokens: 10,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Source-model summarization returned no valid text summary.',
+    });
+  });
+
+  it('wraps a source-model failure and preserves its cause', async () => {
+    const boom = new Error('provider exploded');
+    const base = createFakeModelClient(['summary']);
+    const client: ModelClient = {
+      ...base,
+      streamText: () => {
+        throw boom;
+      },
+    };
+    const setup = makeService(client);
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+    const failure = await setup.service
+      .summarizeCheckpoint({
+        variant: 'window',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        reservedOutputTokens: 10,
+      })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(ContextIncompatibleError);
+    expect(failure).toMatchObject({
+      message:
+        'Source-model summarization of the history this request carries failed.',
+      cause: boom,
+    });
+  });
+
+  it('rethrows the original failure when the window summary was aborted', async () => {
+    const controller = new AbortController();
+    const aborted = new Error('aborted mid-summary');
+    const base = createFakeModelClient(['summary']);
+    const client: ModelClient = {
+      ...base,
+      streamText: () => {
+        controller.abort();
+        throw aborted;
+      },
+    };
+    const setup = makeService(client);
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+    await expect(
+      setup.service.summarizeCheckpoint({
+        variant: 'window',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        reservedOutputTokens: 10,
+        abortSignal: controller.signal,
+      }),
+    ).rejects.toBe(aborted);
   });
 });

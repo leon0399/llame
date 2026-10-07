@@ -1,21 +1,27 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
 
-import type { CompactionStats } from "@/lib/services/chat/history";
+import type { Compaction } from "@/lib/services/chat/history";
 import { CompactionBoundary } from "./compaction-boundary";
 
-const NO_STATS: CompactionStats = {
-  absorbedMessageCount: null,
+const NO_STATS: Compaction["stats"] = {
   beforeTokens: null,
   afterTokens: null,
   modelId: null,
 };
 
-const FULL_STATS: CompactionStats = {
-  absorbedMessageCount: 18,
+const FULL_STATS: Compaction["stats"] = {
   beforeTokens: 71_400,
   afterTokens: 12_800,
   modelId: "system:openai:gpt-4o",
+};
+
+const COMPACTION: Compaction = {
+  absorbedThroughSeq: 18,
+  absorbedMessageCount: 18,
+  summary: "The user asked about X and Y.",
+  createdAt: "2026-07-06T00:00:00.000Z",
+  stats: NO_STATS,
 };
 
 const MODELS = [
@@ -30,11 +36,7 @@ const MODELS = [
 const meta = {
   component: CompactionBoundary,
   tags: ["autodocs"],
-  args: {
-    summary: "The user asked about X and Y.",
-    createdAt: "2026-07-06T00:00:00.000Z",
-    stats: NO_STATS,
-  },
+  args: { compaction: COMPACTION },
   decorators: [
     (Story) => (
       <div className="w-144 max-w-full">
@@ -79,7 +81,9 @@ export const Collapsed: Story = {
  */
 export const Expanded: Story = {
   tags: ["ai-generated"],
-  args: { summary: "Compacted: discussed the roadmap." },
+  args: {
+    compaction: { ...COMPACTION, summary: "Compacted: discussed the roadmap." },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(
@@ -98,17 +102,19 @@ export const Expanded: Story = {
 };
 
 /**
- * The fully-informed state (#136 read-side merge): real compression stats in
- * the chip (message count + token savings) and the before→after + model line
- * inside the card.
- *
- * @summary chip savings and card breakdown with full stats
+ * The fully-informed state: the checkpoint row supplies the API-computed
+ * absorbed-message count while its persisted usage supplies token savings and
+ * model metadata in the chip and the before→after + model line inside the
+ * card.
  */
 export const WithStats: Story = {
   tags: ["ai-generated"],
   args: {
-    summary: "Compacted: discussed the roadmap.",
-    stats: FULL_STATS,
+    compaction: {
+      ...COMPACTION,
+      summary: "Compacted: discussed the roadmap.",
+      stats: FULL_STATS,
+    },
     models: MODELS,
   },
   play: async ({ canvasElement }) => {
@@ -127,46 +133,38 @@ export const WithStats: Story = {
 };
 
 /**
- * Degraded-stats fallback: an older or seeded compaction may carry only a
+ * Degraded-stats fallback: a checkpoint may carry only the API-computed
  * message count (no token usage) — the chip shows the count alone.
- *
- * @summary chip fallback when token stats are absent
  */
 export const CountOnlyStats: Story = {
   tags: ["ai-generated"],
-  args: {
-    summary: "Compacted.",
-    stats: {
-      absorbedMessageCount: 18,
-      beforeTokens: null,
-      afterTokens: null,
-      modelId: null,
-    },
-  },
+  args: { compaction: { ...COMPACTION, summary: "Compacted." } },
   play: async ({ canvasElement }) => {
     await expect(within(canvasElement).getByText("18 messages")).toBeVisible();
   },
 };
 
 /**
- * The no-stats fallback: with nothing derivable, both the chip and the
- * expanded card fall back to the same relative timestamp.
+ * The no-token-stats fallback: with no token usage to derive from, the
+ * expanded card shows a relative timestamp while the chip keeps the count.
  *
- * @summary relative-time fallback with no stats at all
+ * @summary relative-time card fallback without token stats
  */
 export const TimestampFallback: Story = {
   tags: ["ai-generated"],
   args: {
-    summary: "Compacted.",
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    compaction: {
+      ...COMPACTION,
+      summary: "Compacted.",
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByText(/2 hours ago/i)).toBeVisible();
+    await expect(canvas.getByText("18 messages")).toBeVisible();
     await userEvent.click(
       canvas.getByRole("button", { name: /context compacted/i }),
     );
-    // Both slots show the same relative time — two separate elements.
-    await expect(canvas.getAllByText(/2 hours ago/i)).toHaveLength(2);
+    await expect(canvas.getByText(/2 hours ago/i)).toBeVisible();
   },
 };

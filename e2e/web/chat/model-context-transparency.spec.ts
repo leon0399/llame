@@ -3,19 +3,19 @@
  * (openspec/changes/model-specific-system-prompts task 8.5).
  *
  * Exercises the real authenticated browser, durable worker run, immutable
- * context receipt, and DB-backed chat-search projection. The compaction row is
- * seeded deterministically, then a third real turn forces the search projection
- * to rebuild after every hidden context artifact exists.
+ * context receipt, and DB-backed chat-search projection. The checkpoint row is
+ * seeded deterministically, then a third real turn forces the search
+ * projection to rebuild after every hidden context artifact exists.
  */
 
 import { expect, test } from "../../support/fixtures";
-import { seedCompaction } from "./seed-compaction";
+import { seedCheckpoint } from "./seed-compaction";
 
 const ANSWER = "Mocked answer from the e2e model server.";
 const DEFAULT_MODEL_ID = "system:openai:gpt-5.4-mini";
 const TARGET_MODEL_ID = "e2e:context-target-carmine";
 const ORIGINAL_TEXT = "Remember e2eoriginaljuniper for the transparency proof.";
-const COMPACTION_SUMMARY =
+const CHECKPOINT_SUMMARY =
   "Generated checkpoint e2ecompactionlilac must stay out of chat search.";
 const EXPECTED_TARGET_PROMPT = `# E2E context target
 
@@ -149,8 +149,10 @@ test.describe("model-context transparency (browser, full stack)", () => {
     const { messages } = (await messagesResponse.json()) as {
       messages: Array<{ seq: number }>;
     };
-    const uptoSeq = Math.max(...messages.map((message) => message.seq));
-    seedCompaction(chatId, uptoSeq, COMPACTION_SUMMARY, {
+    const absorbedThroughSeq = Math.max(
+      ...messages.map((message) => message.seq),
+    );
+    seedCheckpoint(chatId, absorbedThroughSeq, CHECKPOINT_SUMMARY, {
       ownerUserId: account.id,
     });
 

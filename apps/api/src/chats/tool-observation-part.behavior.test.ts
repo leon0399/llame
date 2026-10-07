@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { ToolResultPart as SdkToolResultPart } from 'ai';
 
 import {
-  buildCompactionToolReplacementRecords,
   normalizeToolObservationOutcome,
   projectToolObservations,
+  renderToolObservationOmission,
   TOOL_OUTCOME_MAX_LENGTH,
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
-import type { MessagePart, StoredMessage } from './context-builder';
+import type { MessagePart } from './context-builder';
 import {
   REJECTED_URL_BOUND,
   rejectedHopUrl,
@@ -32,31 +32,6 @@ const toolPart = (overrides: UnknownRecord = {}): MessagePart => ({
   output: { status: 'success', value: 'private payload' },
   outcome: 'success',
   ...overrides,
-});
-
-const contextPart = (text: string): MessagePart => ({
-  type: 'data-context',
-  data: {
-    v: 1,
-    producer: 'instructions',
-    runId: '11111111-1111-4111-8111-111111111111',
-    payload: { files: [] },
-    text,
-  },
-});
-
-const assistantMessage = (
-  parts: Array<MessagePart>,
-  seq = 1,
-): StoredMessage => ({
-  id: `message-${seq}`,
-  chatId: 'chat-1',
-  seq,
-  role: 'assistant',
-  senderUserId: null,
-  parts,
-  attachments: [],
-  createdAt: new Date(0),
 });
 
 const toolOutputText = (
@@ -89,6 +64,14 @@ describe('normalizeToolObservationOutcome', () => {
       ),
     ).toBe('error');
     expect(normalizeToolObservationOutcome(null, 'error')).toBe('error');
+  });
+});
+
+describe('renderToolObservationOmission', () => {
+  it('pins the model-facing omission marker byte for byte', () => {
+    expect(renderToolObservationOmission(2)).toBe(
+      '[2 earlier tool observations omitted to fit replay budget.]',
+    );
   });
 });
 
@@ -475,84 +458,6 @@ describe('projectToolObservations', () => {
         output: { status: 'success', complete: true, results: bulk },
       }),
     ).toBe('success');
-  });
-});
-
-describe('buildCompactionToolReplacementRecords edge paths', () => {
-  it('skips non-assistant messages and malformed prior replacement history', () => {
-    const records = buildCompactionToolReplacementRecords({
-      previous: [
-        {
-          role: 'user',
-          parts: [{ type: 'text', text: 'checkpoint' }],
-        },
-        {
-          role: 'assistant',
-          parts: [{ type: 'text', text: 'not a replacement observation' }],
-        },
-      ],
-      absorb: [
-        {
-          ...assistantMessage([toolPart({ toolCallId: 'assistant-call' })]),
-        },
-        {
-          ...assistantMessage([toolPart({ toolCallId: 'user-call' })], 2),
-          role: 'user',
-        },
-      ],
-    });
-
-    expect(records).toHaveLength(1);
-    expect(JSON.stringify(records)).toContain('assistant-call');
-    expect(JSON.stringify(records)).not.toContain('user-call');
-  });
-
-  it('records the tool part only when a context item follows it', () => {
-    const records = buildCompactionToolReplacementRecords({
-      previous: [
-        {
-          role: 'user',
-          parts: [{ type: 'text', text: 'checkpoint' }],
-        },
-      ],
-      absorb: [
-        assistantMessage([
-          toolPart({ toolCallId: 'context-call' }),
-          contextPart('in-Run item text'),
-        ]),
-      ],
-    });
-
-    expect(records).toHaveLength(1);
-    expect(JSON.stringify(records)).toContain('context-call');
-    expect(JSON.stringify(records)).toContain('tool-search_conversations');
-    expect(JSON.stringify(records)).not.toContain('in-Run item text');
-  });
-
-  it('parses a prior omission marker and carries its count into new records', () => {
-    const records = buildCompactionToolReplacementRecords({
-      previous: [
-        {
-          role: 'user',
-          parts: [{ type: 'text', text: 'checkpoint' }],
-        },
-        {
-          role: 'assistant',
-          parts: [
-            {
-              type: 'text',
-              text: '[3 earlier tool observations omitted to fit replay budget.]',
-            },
-          ],
-        },
-      ],
-      absorb: [assistantMessage([toolPart({ toolCallId: 'new-call' })])],
-    });
-
-    expect(JSON.stringify(records.at(-1)?.parts[0])).toContain(
-      'earlier tool observations omitted',
-    );
-    expect(JSON.stringify(records)).toContain('[3 earlier tool observations');
   });
 });
 

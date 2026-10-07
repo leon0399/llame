@@ -119,17 +119,16 @@ export const chats = pgTable(
       Array<RecencyDigestToldEntry>
     >(),
     // Set only when compaction actually re-resolves the baseline. This is the
-    // durable event record for the one-shot supersession marker; compaction
-    // rows themselves exist even when re-resolution is correctly skipped.
+    // durable event record for the one-shot supersession marker; checkpoint
+    // rows exist even when re-resolution is correctly skipped.
     //
-    // Deliberately carries NO foreign key to `compactions.id`, unlike every
-    // other id-bearing column in this file. `compactions.chat_id` already
-    // references `chats.id` ON DELETE CASCADE, so a reference back would make
-    // the two tables mutually dependent and put a cycle on the shipped
-    // chat-deletion path. The constraint would buy nothing: a dangling id
-    // fails safe, because the only read compares it for equality with the
-    // active compaction's id and a stale value simply never matches, which
-    // withholds the marker rather than asserting a re-bake that did not happen.
+    // Deliberately carries NO foreign key to a checkpoint message. A checkpoint
+    // row references its chat, so a reference back would make the two records
+    // mutually dependent and put a cycle on the shipped chat-deletion path. The
+    // constraint would buy nothing: a dangling id fails safe, because the only
+    // read compares it for equality with the active checkpoint's id and a stale
+    // value simply never matches, which withholds the marker rather than
+    // asserting a re-bake that did not happen.
     recencyDigestRebakedFrom: uuid('recency_digest_rebaked_from'),
     // The frozen `skills` prompt projection (system-provided-skills D4).
     // NULL means this chat has never resolved a baseline; an instance with no
@@ -138,9 +137,9 @@ export const chats = pgTable(
     skillCatalogBaseline: jsonb(
       'skill_catalog_baseline',
     ).$type<SkillCatalogBaseline>(),
-    // The compaction id the baseline was resolved under. Same deliberate
+    // The checkpoint message id the baseline was resolved under. Same deliberate
     // absence of a foreign key as `recencyDigestRebakedFrom`: a stale value
-    // simply never matches the active compaction, so it re-resolves rather
+    // simply never matches the active checkpoint, so it re-resolves rather
     // than asserting a re-bake that did not happen.
     skillCatalogRebakedFrom: uuid('skill_catalog_rebaked_from'),
     // Names of the advertised entries this chat was last TOLD about (D6).
@@ -152,7 +151,7 @@ export const chats = pgTable(
     workspaceExecutorId: text('workspace_executor_id'),
     workspaceGeneration: integer('workspace_generation').notNull().default(0),
     workspaceTold: text('workspace_told'),
-    // The compaction epoch in which the Workspace snapshot was last told.
+    // The checkpoint epoch in which the Workspace snapshot was last told.
     // Deliberately carries no foreign key, matching skillCatalogRebakedFrom:
     // a stale id fails closed and causes the next turn to re-tell the snapshot.
     workspaceToldFrom: uuid('workspace_told_from'),
@@ -203,11 +202,12 @@ export const messageRole = pgEnum('message_role', [
   'assistant',
   'system',
   'tool',
+  'checkpoint',
 ]);
 
 // A durable conversation turn (AI SDK v6 UIMessage shape) with sender attribution.
 //
-// senderUserId is nullable: set for human turns; null for assistant/system/tool.
+// senderUserId is nullable: set for human turns; null for assistant/system/tool/checkpoint.
 // Resolves to a CANONICAL user (SPEC §7.1, §19.2).
 // text — FK to users.id which is text (NextAuth convention).
 export const messages = pgTable(
@@ -225,7 +225,10 @@ export const messages = pgTable(
     // the ContextBuilder order by it, not by created_at.
     seq: bigint('seq', { mode: 'number' }).notNull(),
     role: messageRole('role').notNull(),
-    // nullable: set for human turns; null for assistant/system/tool.
+    // The last Chat-local sequence absorbed by a checkpoint. NULL on every
+    // other message role.
+    absorbedThroughSeq: bigint('absorbed_through_seq', { mode: 'number' }),
+    // nullable: set for human turns; null for assistant/system/tool/checkpoint.
     // onDelete: set null — deleting a user anonymizes their past messages rather
     // than blocking the delete or cascading away conversation history.
     senderUserId: text('sender_user_id').references(() => users.id, {
@@ -245,8 +248,19 @@ export const messages = pgTable(
   (t) => [
     index('messages_chat_created_idx').on(t.chatId, t.createdAt),
     check('messages_seq_positive', sql`${t.seq} > 0`),
+    // A boundary names the checkpoint row that absorbed it and no other row
+    // carries one, so replay never reads a boundary-less checkpoint as "no
+    // checkpoint". Text comparison keeps the constraint valid in the same
+    // transaction that adds the `checkpoint` enum value.
+    check(
+      'messages_checkpoint_boundary_check',
+      sql`(${t.role}::text = 'checkpoint') = (${t.absorbedThroughSeq} IS NOT NULL)`,
+    ),
     // Ordering index: history is read with ORDER BY (chat_id, seq).
     uniqueIndex('messages_chat_seq_unique_idx').on(t.chatId, t.seq),
+    uniqueIndex('messages_chat_absorbed_through_seq_uidx')
+      .on(t.chatId, t.absorbedThroughSeq)
+      .where(sql`${t.absorbedThroughSeq} IS NOT NULL`),
     uniqueIndex('messages_in_reply_to_unique_idx').on(t.inReplyTo),
     uniqueIndex('messages_id_chat_id_unique_idx').on(t.id, t.chatId),
     // RLS: access messages only when their chat is owned by the current user
@@ -259,74 +273,16 @@ export const messages = pgTable(
     // Public sharing (SELECT-only): messages of a public chat, readable ONLY via
     // runAsPublic (current_user=''). Same identity gate as chats_public_read, so
     // it never OR-s into an owner read. A private chat's messages match neither
-    // this nor messages_owner under runAsPublic. No write.
+    // this nor messages_owner under runAsPublic. Checkpoint text is owner-derived
+    // summary content and must never cross the public boundary.
     pgPolicy('messages_public_read', {
       for: 'select',
-      using: sql`current_setting('app.current_user_id', true) = '' AND chat_id IN (SELECT id FROM chats WHERE visibility = 'public')`,
+      using: sql`current_setting('app.current_user_id', true) = '' AND chat_id IN (SELECT id FROM chats WHERE visibility = 'public') AND role::text <> 'checkpoint'`,
     }),
   ],
 ).enableRLS();
 
 export type Message = InferSelectModel<typeof messages>;
-
-export interface CompactionReplacementMessage {
-  role: 'user' | 'assistant';
-  parts: Array<unknown>;
-}
-
-// A context-compaction summary (#57) — a first-class row, not an opaque inline event,
-// so long chats stay auditable and rewindable (Hermes-style lineage, SPEC §2.1).
-//
-// A compaction supersedes every message with seq <= uptoSeq; the context builder then
-// assembles summary + messages after uptoSeq. `parentId` chains compactions: when a
-// compacted chat compacts again, the new row points at the one it absorbed, so the
-// full history remains reconstructable (messages are never deleted or mutated).
-export const compactions = pgTable(
-  'compactions',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    chatId: uuid('chat_id')
-      .notNull()
-      .references(() => chats.id, { onDelete: 'cascade' }),
-    // Supersedes all messages with messages.seq <= upto_seq in this chat.
-    uptoSeq: bigint('upto_seq', { mode: 'number' }).notNull(),
-    // Lineage: the previous compaction this one absorbed (null for the first).
-    parentId: uuid('parent_id').references((): AnyPgColumn => compactions.id, {
-      onDelete: 'set null',
-    }),
-    // Model-facing summary text (objective, constraints, decisions, pending items).
-    summary: text('summary').notNull(),
-    // Complete application replay replacement for the superseded prefix.
-    // Internal-only and runtime-validated before replay.
-    replacementHistory: jsonb('replacement_history')
-      .$type<Array<CompactionReplacementMessage>>()
-      .notNull(),
-    // Telemetry of the summarization call (TurnTelemetry shape), like messages.usage.
-    usage: jsonb('usage'),
-    createdAt: timestamptz('created_at').notNull().defaultNow(),
-  },
-  (t) => [
-    // Read path: latest compaction per chat (ORDER BY upto_seq DESC LIMIT 1).
-    uniqueIndex('compactions_chat_upto_seq_idx').on(t.chatId, t.uptoSeq),
-    uniqueIndex('compactions_id_chat_id_unique_idx').on(t.id, t.chatId),
-    foreignKey({
-      name: 'compactions_parent_id_chat_id_fk',
-      columns: [t.parentId, t.chatId],
-      foreignColumns: [t.id, t.chatId],
-    }),
-    // RLS: same shape as messages_owner. The migration ALSO issues
-    // FORCE ROW LEVEL SECURITY (Drizzle can't express it) — see migration 0009
-    // and the relforcerowsecurity assertion in chats-rls.integration.test.ts.
-    pgPolicy('compactions_owner', {
-      using: sql`chat_id IN (
-        SELECT id FROM chats
-        WHERE owner_user_id = current_setting('app.current_user_id', true)
-      )`,
-    }),
-  ],
-).enableRLS();
-
-export type Compaction = InferSelectModel<typeof compactions>;
 
 // The DB enum retains reserved future states for migration compatibility.
 // Current runtime code emits only the subset named in SPEC §9.3. DB-enforced,

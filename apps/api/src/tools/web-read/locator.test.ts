@@ -1,6 +1,17 @@
-import { isSelectorSuffix } from '@workspace/native-file-tools';
+import {
+  invalidSelectorMessage,
+  isSelectorSuffix,
+} from '@workspace/native-file-tools';
 
 import { canonicalHref, parseWebLocator } from './locator';
+
+/** The one refusal sentence every source shares, which this source follows
+ *  with the `%3A` spelling of the locator the model wrote. */
+function refusal(locator: string): string {
+  return invalidSelectorMessage(
+    `For a literal colon, write this locator as ${locator}`,
+  );
+}
 
 describe('parseWebLocator', () => {
   it('assembles the canonical URL for both admitted schemes', () => {
@@ -290,27 +301,100 @@ describe('parseWebLocator', () => {
     });
   });
 
-  it('names the range forms for a suffix outside the line grammar', () => {
-    // `:0` looks like a line but no file has one, and telling that model to
+  it('names the working forms and the encoded spelling for any suffix outside the grammar', () => {
+    // `:0` looks like a line but no page has one, and telling that model to
     // percent-encode the colon answers a question it did not ask.
     expect(parseWebLocator('https://example.test/guide:0')).toEqual({
       url: 'https://example.test/guide',
       selector: '0',
     });
+    // One literal pin of the composed sentence a model reads; the other cases
+    // build it with `refusal`.
     expect(parseWebLocator('https://example.test/guide:12+')).toEqual({
       type: 'invalid_selector',
       message:
-        'A line selector is :N, :N-M, or :N+K, and a line number starts at 1, so line 12 is :12. For a literal colon, write this locator as https://example.test/guide%3A12+',
+        'A line selector is :N, :N-M, :N+K, :N-, or :-K, or a comma-separated list of them; :raw is the whole file, or :raw: followed by a list of them; and :outline takes one of them after the colon. A line number starts at 1. For a literal colon, write this locator as https://example.test/guide%3A12+',
     });
-    // A suffix that is a word, or names no line, still gets the encoding
-    // hint alone.
+    // A suffix that is a word, or names no line, is refused the same way: the
+    // forms come first, and the spelling is the second sentence, not the whole
+    // answer as it was when a non-numeric suffix got the encoding alone.
     expect(parseWebLocator('https://w.example/wiki/Special:Search')).toEqual({
       type: 'invalid_selector',
-      message: 'Write this locator as https://w.example/wiki/Special%3ASearch',
+      message: refusal('https://w.example/wiki/Special%3ASearch'),
     });
     expect(parseWebLocator('https://w.example/wiki/Special:-')).toEqual({
       type: 'invalid_selector',
-      message: 'Write this locator as https://w.example/wiki/Special%3A-',
+      message: refusal('https://w.example/wiki/Special%3A-'),
+    });
+  });
+
+  it('encodes a percent in the suffix so the hint requests the same URL', () => {
+    // A literal `%` in the suffix would decode as an escape of its own, so the
+    // spelling encodes it before the colon. The last segment's own escapes are
+    // already canonical and stay as they are.
+    expect(parseWebLocator('https://example.test/a%20b:50%.md')).toEqual({
+      type: 'invalid_selector',
+      message: refusal('https://example.test/a%20b%3A50%25.md'),
+    });
+    expect(
+      parseWebLocator('https://example.test/a%20b%3A50%25.md'),
+    ).toStrictEqual({
+      url: 'https://example.test/a%20b%3A50%25.md',
+    });
+  });
+
+  it('keeps a valid percent escape in the suffix so the hint names the same URL', () => {
+    expect(parseWebLocator('https://example.test/a:b%20c')).toEqual({
+      type: 'invalid_selector',
+      message: refusal('https://example.test/a%3Ab%20c'),
+    });
+  });
+
+  it('reads the members that reach the end of the page', () => {
+    // `:12-` is a selector, not a misspelling to be told to write `:12`, and a
+    // numeric tail is the page's last lines rather than a literal colon.
+    expect(parseWebLocator('https://example.test/guide:12-')).toEqual({
+      url: 'https://example.test/guide',
+      selector: '12-',
+    });
+    expect(parseWebLocator('https://w.example/wiki/Special:-5')).toEqual({
+      url: 'https://w.example/wiki/Special',
+      selector: '-5',
+    });
+    // A trailing `:raw` claims the colon segment before it only when that
+    // segment is a member list, and emits the canonical spelling either way.
+    expect(
+      parseWebLocator('https://w.example/wiki/Special:Search:raw'),
+    ).toEqual({
+      url: 'https://w.example/wiki/Special:Search',
+      selector: 'raw',
+    });
+    expect(parseWebLocator('https://example.test/guide:60-64:raw')).toEqual({
+      url: 'https://example.test/guide',
+      selector: 'raw:60-64',
+    });
+    expect(parseWebLocator('https://example.test/guide:raw:60-64')).toEqual({
+      url: 'https://example.test/guide',
+      selector: 'raw:60-64',
+    });
+    expect(parseWebLocator('https://example.test/docs/2024:10:raw')).toEqual({
+      url: 'https://example.test/docs/2024',
+      selector: 'raw:10',
+    });
+    expect(parseWebLocator('https://h/doc.md:notes:draft:raw')).toEqual({
+      url: 'https://h/doc.md:notes:draft',
+      selector: 'raw',
+    });
+  });
+
+  it('never splits a range list out of a query or a fragment', () => {
+    // Both colons are URL text: a selector cannot precede a query, so the
+    // claim a trailing `:raw` could make does not survive one either.
+    const query = 'https://example.test/a?q=2024:10:raw';
+    expect(parseWebLocator(query)).toEqual({ url: query });
+    expect(parseWebLocator(`${query}#x`)).toEqual({ url: query });
+    expect(parseWebLocator('https://example.test/a#2024:10:raw')).toEqual({
+      url: 'https://example.test/a',
     });
   });
 
@@ -321,39 +405,44 @@ describe('parseWebLocator', () => {
       '5',
       '5-9',
       '5+3',
+      '5-',
+      '-5',
       '1-2,4+1',
+      '1-2,-4',
       'raw:5',
       'raw:5-9',
       'raw:1-2,4-5',
+      'raw:5+3',
+      'raw:-5',
+      '5-9:raw',
       'outline:5',
       'outline:5-9',
       'outline:5+3',
+      'outline:-5',
     ];
-    const unnamed = ['raw:5+3', 'outline:1,3'];
+    const unnamed = ['outline:1,3', 'nonsense', '-', '1--2'];
     expect(named.filter((selector) => !isSelectorSuffix(selector))).toEqual([]);
     expect(unnamed.filter((selector) => isSelectorSuffix(selector))).toEqual(
       [],
     );
   });
 
-  it('names the forms a raw, outline, or comma range attempt accepts', () => {
-    // Encoding these colons asks for a URL nobody serves: the model meant a
-    // range the grammar does not take, not a literal colon in the path.
+  it('names the same forms for a raw, outline, or comma range attempt', () => {
+    // One vocabulary for every suffix outside the grammar: the forms first,
+    // then the spelling of the locator, whether the model reached for lines
+    // or for a literal colon in the path.
     const page = 'https://example.test/guide';
     expect(parseWebLocator(`${page}:outline:49,119`)).toEqual({
       type: 'invalid_selector',
-      message:
-        'An outline takes at most one range, :outline:N, :outline:N-M, or :outline:N+K, and a line number starts at 1; read one outline per range. For a literal colon, write this locator as https://example.test/guide%3Aoutline%3A49,119',
+      message: refusal(`${page}%3Aoutline%3A49,119`),
     });
     expect(parseWebLocator(`${page}:raw:12+`)).toEqual({
       type: 'invalid_selector',
-      message:
-        'A raw selector is :raw, or :raw: followed by N or N-M ranges separated by commas, and a line number starts at 1. For a literal colon, write this locator as https://example.test/guide%3Araw%3A12+',
+      message: refusal(`${page}%3Araw%3A12+`),
     });
     expect(parseWebLocator(`${page}:4-5,12+`)).toEqual({
       type: 'invalid_selector',
-      message:
-        'A line selector is :N, :N-M, or :N+K, or a comma-separated list of them, and a line number starts at 1. For a literal colon, write this locator as https://example.test/guide%3A4-5,12+',
+      message: refusal(`${page}%3A4-5,12+`),
     });
   });
 

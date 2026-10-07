@@ -7,8 +7,76 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   longer restores the last turn from the pre-send history still in the cache,
   so the selections the send used stay in place
   ([#1084](https://github.com/leon0399/llame/issues/1084)).
+- Restored loading of an existing `llame.config.json`, parsed as JSONC as
+  before [#1082](https://github.com/leon0399/llame/pull/1082); startup no longer
+  demands a rename. With no `LLAME_CONFIG_PATH`, the loader uses whichever single
+  `llame.config.jsonc`, `.json`, `.yaml`, `.yml`, or `.toml` exists in its
+  working directory, and fails startup naming the files when more than one does.
+  The chat-search eval resolves its config the same way.
 
 # 2026-10-06
+
+- **Breaking:** Compaction storage is now a `checkpoint` message row with an
+  `absorbed_through_seq` boundary; the `compactions` table is dropped without
+  conversion. A previously compacted Chat pays one summary call on its next
+  over-threshold turn to create a checkpoint. Stop every API and worker, run
+  `pnpm db:migrate`, then start them together on the matching revision; mixed
+  old/new processes are unsupported. No tool records cross a checkpoint: only
+  its stored summary text is replayed
+  ([#806](https://github.com/leon0399/llame/issues/806)).
+- Compaction now uses one operational-handoff instruction for both trigger
+  paths, records the session-state/no-repeat clause in new checkpoint
+  envelopes, and ships an opt-in OpenCode Go model eval with redaction,
+  cancellation, language, correction, and unresolved-question checks
+  ([#806](https://github.com/leon0399/llame/issues/806)).
+
+- `read` line selectors gain two members and one spelling order. `:N-` reads
+  from line N through the source's last line and `:-K` reads its last K lines,
+  and `N`, `N-M`, `N+K`, `N-`, and `-K` are now one set accepted in a bare comma
+  list, in a `raw:` list (which gains `N+K`, `N-`, and `-K`), and as the
+  outline's single scope.
+  Each member resolves against its source's own count — a regular file's line
+  count, a web render's, a directory listing's root-level entry count, or the
+  skill catalog's entry count — so the requested range reported back is the
+  resolved absolute one, and a `-K` longer than the source returns the whole
+  source. A regular-file read whose selector carries `N-` or `-K` counts the
+  file's lines in one forward pass before the ordinary read, and a `-K` member
+  on a web adapter document that the web plane cut at its 5 MiB document bound
+  is refused as `representation_too_large` rather than serving the wrong end of
+  it. `:<list>:raw` is the same read as `:raw:<list>` on every source, with
+  `raw:` canonical downstream; one meaning changed with it — `name:10:raw` is
+  now line 10 of `name` read raw instead of a raw read of a file literally named
+  `name:10`, which is still reachable as `name:10:raw:1-`
+  ([#1025](https://github.com/leon0399/llame/issues/1025)).
+
+- **Breaking:** a trailing suffix that splits off a locator which itself parses
+  and then lies outside the selector grammar is now `invalid_selector` with one
+  message on every source, naming `:N`, `:N-M`, `:N+K`, `:N-`, `:-K`, comma
+  lists, `:raw`, and `:outline`. `kb://` and `skill://` answered that mistake
+  with `invalid_path`, web sometimes answered it with the percent-encoded
+  spelling alone, and a host path or `file://` alias answered
+  `invalid_selector` with the bare type string. The message is followed on a
+  `kb://` or `skill://` resource path and on web by the `%3A` spelling of the
+  same locator. A malformed locator part remains `invalid_path`, and the web
+  hint that answered `:12-` and `:12+` by telling the model to write `:12` is
+  replaced by that message, `:12-` now being a selector
+  ([#1025](https://github.com/leon0399/llame/issues/1025)).
+
+- **Breaking:** for `read`, every text permission evaluation matches now has
+  the split-off read selector removed: the host path and `file://` alias, the
+  web locator, the Workspace-relative path after it resolves, and the runner's
+  pass over the submitted arguments (`kb://` and `skill://` already dropped it).
+  A clause written against a resource therefore covers every selector spelling,
+  so `^/srv/docs/README$` admits `read("/srv/docs/README:raw")`, and a clause
+  written against a selector spelling now matches no read. `edit` and `write`
+  have no selector, so they keep any selector-shaped suffix in the matched text;
+  that is new for `kb://` and `skill://` paths, which dropped it on every tool
+  before, while on a host path it was always kept and names a different file. A
+  `kb://` mutation carrying one is refused as `invalid_selector` and a
+  `skill://` mutation as `unsupported_operation`. The literal-file and
+  `#fragment` consequences are in
+  [tool-call permissions](docs/product/operator/tool-call-permissions.md#matching)
+  ([#1025](https://github.com/leon0399/llame/issues/1025)).
 
 - Fixed missing token usage on `openai-completions` models: streaming Chat
   Completions requests now ask the server for usage
@@ -46,6 +114,24 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `llame.config.json` fails startup with instructions to rename it or set
   `LLAME_CONFIG_PATH`; give an explicit override to keep loading an existing
   legacy file ([#1082](https://github.com/leon0399/llame/pull/1082)).
+
+# 2026-10-02
+
+- Compaction now runs synchronously once before a Run's first model step
+  instead of fire-and-forget after the turn. A prepared request that does not
+  fit the Run's model summarizes through the previous completed Run's model,
+  receipt, and effort with no tool declarations, and fails `context_incompatible`
+  rather than truncating; otherwise the threshold variant fires when the
+  measured size (the previous completed reply's final-request size plus the
+  later estimate, or the whole-request estimate) reaches the model threshold
+  and summarizes with the attempt's own model, pre-re-bake prompt, schema-only
+  declarations, and effort. The checkpoint and its re-baked digest,
+  skill-catalog, and workspace epoch state publish before the attempt renders
+  its prompt and receipt and are kept when the attempt fails, so a retry reuses
+  them. The post-turn compaction, its staleness guard, the keep-recent window,
+  and the model-switch-only transition mode are removed. Replies now record the
+  final request's context size as `usage.contextTokens`
+  ([#806](https://github.com/leon0399/llame/issues/806)).
 
 # 2026-10-01
 

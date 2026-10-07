@@ -167,7 +167,7 @@ Model execution SHALL resolve a run's model to its catalog entry, that entry's `
 
 ### Requirement: Per-model compaction threshold
 
-A model catalog entry MAY declare an optional `compactionThresholdTokens`. The compaction trigger threshold for a run SHALL resolve to that per-model value when present, otherwise to `contextWindowTokens × COMPACTION_WINDOW_RATIO`. No instance-level compaction threshold or context-window override SHALL be read; the removed `COMPACTION_TOKEN_THRESHOLD` and `MODEL_CONTEXT_WINDOW_TOKENS` environment variables SHALL have no effect. Per-user and per-send threshold tiers are out of scope for this capability.
+A model catalog entry MAY declare an optional `compactionThresholdTokens`. The compaction trigger threshold for a run SHALL resolve to that per-model value when present, otherwise to `Math.floor(contextWindowTokens × COMPACTION_WINDOW_RATIO)`. The threshold SHALL be compared against the measured context size inside the Run, before that Run's first model request. No instance-level compaction threshold or context-window override SHALL be read; the removed `COMPACTION_TOKEN_THRESHOLD` and `MODEL_CONTEXT_WINDOW_TOKENS` environment variables SHALL have no effect. Per-user and per-send threshold tiers are out of scope for this capability.
 
 #### Scenario: Per-model override drives the trigger
 
@@ -178,7 +178,7 @@ A model catalog entry MAY declare an optional `compactionThresholdTokens`. The c
 #### Scenario: Falls back to the window-derived threshold
 
 - **WHEN** a run's model does not declare `compactionThresholdTokens`
-- **THEN** compaction triggers against `contextWindowTokens × COMPACTION_WINDOW_RATIO`
+- **THEN** compaction triggers against `Math.floor(contextWindowTokens × COMPACTION_WINDOW_RATIO)`
 
 #### Scenario: Instance compaction env vars are inert
 
@@ -255,14 +255,31 @@ Runs SHALL persist the selected opaque model id as a required field. The worker 
 - **THEN** it does not rewrite legacy JSON model attribution in `messages.usage`, `compactions.usage`, or `run_events.payload`
 - **AND** proof-of-concept JSON payloads can remain stale or be reset out of band
 
-### Requirement: Post-turn model use is explicit
+### Requirement: Model use for compaction and title generation is explicit
 
-Post-turn work SHALL use explicit model selection. Compaction SHALL use the model id selected for the triggering message/run. Title generation SHALL use a separate server-side `TITLE_GENERATION_MODEL_ID` that names a valid active system catalog id. The implementation SHALL NOT introduce a separate title-only model registry for this change.
+Compaction and title-generation work SHALL use explicit model selection, and
+one compaction selects exactly one of its two model sources. A prepared request
+that does not fit the Run model's window SHALL use the previous completed Run's
+model id whether or not the measured context size also reaches the threshold,
+because the model the attempt precedes cannot summarize a prefix it does not
+fit. A request that does fit and reaches the Run model's threshold SHALL use the
+model id stored on that Run. No compaction SHALL use both model ids. Title
+generation SHALL use a separate server-side `TITLE_GENERATION_MODEL_ID` that
+names a valid active system catalog id. The implementation SHALL NOT introduce
+a separate title-only model registry for this change.
 
 #### Scenario: Compaction uses triggering run model
 
-- **WHEN** a completed run triggers compaction
-- **THEN** the compaction model call uses the selected model id stored on that triggering run
+- **WHEN** a run's first model request is preceded by a compaction the Run's own
+  threshold triggered
+- **THEN** the compaction model call uses the selected model id stored on that run
+
+#### Scenario: A window-triggered compaction uses the previous completed run's model
+
+- **WHEN** a run's first model request is preceded by a compaction because the
+  prepared request does not fit that run's model window
+- **THEN** the compaction model call uses the previous completed run's model id
+- **AND** it sends no model id from the run that prepared the request
 
 #### Scenario: Title generation uses separate configured model
 
@@ -295,7 +312,7 @@ Assistant message and compaction usage telemetry SHALL include the opaque llame 
 #### Scenario: Compaction usage records model id
 
 - **WHEN** compaction usage telemetry is persisted after a compaction model call
-- **THEN** its usage telemetry includes the triggering run's selected opaque `modelId`
+- **THEN** its usage telemetry includes the opaque `modelId` of the model that ran that compaction: the triggering run's selected `modelId` on a threshold trigger, or the previous completed run's `modelId` on a window trigger
 - **AND** it does not write the legacy `model` field
 - **AND** it does not write the legacy `provider` field
 
@@ -549,36 +566,61 @@ A recorded effort is a receipt. Persisted effort values SHALL NOT be recomputed 
 - **WHEN** a model's declared levels or default change after a turn was recorded
 - **THEN** the previously persisted effort on that turn's usage, receipt, and events remains unchanged
 
-### Requirement: Post-turn model work inherits effort only where its request is prefix-aligned
+### Requirement: Compaction inherits effort from the Run whose prefix it reuses
 
-Compaction SHALL send the effort of the run whose prompt prefix it reuses, because a compaction request deliberately reproduces that run's system prompt and message prefix in order to reach the provider's prompt cache while it is still warm. Sending a different effort would invalidate the cache the request shape exists to exploit.
+Compaction SHALL send the effort of the Run whose prompt prefix it reuses,
+because a compaction request deliberately reproduces that Run's system prompt
+and message prefix in order to reach the provider's prompt cache while it is
+still warm. Sending a different effort would invalidate the cache the request
+shape exists to exploit.
 
-Full compaction after a completed turn SHALL use the triggering run's effort. Transition compaction SHALL use the **source** run's effort — the run whose model and system prompt the request reuses — and SHALL NOT use the effort submitted with the incoming turn, which was validated against a different model's declared levels and is not part of the reused prefix.
+A compaction that runs before a Run's first model request is a continuation of
+that Run's request rather than work after a completed turn, and its effort
+source is selected once. A window trigger, where the prepared request does not
+fit the Run model's window, SHALL send the previous completed Run's effort — the
+Run whose model and system-prompt receipt the summary request reuses — and
+SHALL NOT send the effort submitted with the incoming turn, which was validated
+against a different model's declared levels and is not part of the reused
+prefix. That window trigger SHALL apply whether or not the measured context size
+also reaches the threshold. Only when the request fits the Run model's window
+and the measured context size reaches the threshold SHALL the threshold trigger
+send the resolved effort of the attempt it precedes. There SHALL be no separate
+transition mode with a different effort source.
 
-The inherited effort SHALL be sent as persisted, without re-validation against current configuration, on the same receipt grounds as run execution.
+The inherited effort SHALL be sent as persisted, without re-validation against
+current configuration, on the same receipt grounds as run execution.
 
-Title generation SHALL send no effort. It executes on a separately configured model with its own system prompt, shares no prefix with any run, and the run's level may not exist in that model's vocabulary at all.
+Title generation SHALL send no effort. It executes on a separately configured
+model with its own system prompt, shares no prefix with any Run, and the Run's
+level may not exist in that model's vocabulary at all.
 
 #### Scenario: Compaction inherits the triggering run's effort
 
-- **WHEN** a completed run at some effort triggers compaction
+- **WHEN** a run at some resolved effort is preceded by a compaction its own
+  threshold triggered
 - **THEN** the compaction model call sends that same effort
 
 #### Scenario: Compaction of a run without effort sends none
 
-- **WHEN** a completed run that carried no effort triggers compaction
+- **WHEN** a run that resolved no effort is preceded by a compaction its own
+  threshold triggered
 - **THEN** the compaction model call sends no reasoning-effort parameter
 
-#### Scenario: Transition compaction uses the source run's effort
+#### Scenario: A window trigger uses the previous completed Run's effort
 
-- **WHEN** a model switch triggers transition compaction over a source run's prefix
-- **THEN** the compaction model call sends the source run's persisted effort
+- **WHEN** a model switch requires compaction because the prepared request does
+  not fit the selected model's window
+- **THEN** the compaction model call sends the previous completed Run's
+  persisted effort, the Run whose model and system-prompt receipt the request
+  reuses
 - **AND** it does not send the effort submitted with the incoming turn
 
 #### Scenario: Inherited effort is not re-validated
 
-- **WHEN** compaction inherits an effort that is no longer among its model's declared levels
-- **THEN** it sends the value unchanged rather than dropping it or substituting a current default
+- **WHEN** compaction inherits an effort that is no longer among its model's
+  declared levels
+- **THEN** it sends the value unchanged rather than dropping it or substituting
+  a current default
 
 #### Scenario: Compaction usage records its effort
 

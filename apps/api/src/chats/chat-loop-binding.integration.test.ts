@@ -36,31 +36,25 @@ import {
 } from '../memory/memory.service';
 import { type RecencyDigestResolver } from './recency-digest.service';
 import { isContextItemPart } from './context-item';
-import { isRecencyDigestItem } from './context-item-producers';
-import { renderConversationCheckpoint } from './context-builder';
+import {
+  createCompactionCheckpointPart,
+  isRecencyDigestItem,
+} from './context-item-producers';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { ChatLoopService } from './chat-loop.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-} from './chats-repository';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { type CheckpointMessage } from './messages-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type RunJob } from '../runs/run-queues';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { type CompactionCapability } from '../compaction/compaction.service';
 import { type TitleCapability } from '../titles/title.service';
-import {
-  type Chat,
-  type Compaction,
-  type RecencyDigestBaseline,
-  type Run,
-} from '../db/schema';
+import { type Chat, type RecencyDigestBaseline, type Run } from '../db/schema';
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
 import {
   type KnowledgeToolCandidateResolverInput,
@@ -98,17 +92,6 @@ function fakeInstanceConfig(
   };
 }
 
-function compactionReplacementHistory(
-  summary: string,
-): Compaction['replacementHistory'] {
-  return [
-    {
-      role: 'user',
-      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
-    },
-  ];
-}
-
 function baseline(
   overrides: Partial<RecencyDigestBaseline> = {},
 ): RecencyDigestBaseline {
@@ -123,6 +106,12 @@ function baseline(
     ...overrides,
   };
 }
+
+/**
+ * Sequence of the user row the seeded previous Run answers. It sits below the
+ * active checkpoint's boundary, so that checkpoint starts a new epoch.
+ */
+const previousRunUserSeq = 7;
 
 function previousRun(overrides: Partial<Run> = {}): Run {
   return {
@@ -148,16 +137,19 @@ function previousRun(overrides: Partial<Run> = {}): Run {
   };
 }
 
-function activeCompaction(): Compaction {
+function activeCheckpoint(): CheckpointMessage {
   const summary = 'Retains the latest messages.';
   return {
     id: '55555555-5555-4555-8555-555555555555',
     chatId: 'chat-id',
-    uptoSeq: 8,
-    parentId: null,
-    summary,
-    replacementHistory: compactionReplacementHistory(summary),
+    seq: 9,
+    role: 'checkpoint',
+    senderUserId: null,
+    parts: [createCompactionCheckpointPart(summary)],
+    attachments: [],
+    absorbedThroughSeq: 8,
     usage: null,
+    inReplyTo: null,
     createdAt: new Date('2026-08-11T08:00:03.000Z'),
   };
 }
@@ -205,7 +197,7 @@ describe('ChatLoopService accept/worker context binding', () => {
   function setup(options?: {
     failRunCreated?: boolean;
     previousRun?: Run;
-    activeCompaction?: Compaction;
+    activeCheckpoint?: CheckpointMessage;
     toolsAllowed?: ReadonlyArray<string>;
     runtime?: RuntimeCatalogSnapshotter;
     memory?: MemorySettingsBindingResolver;
@@ -220,7 +212,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     const {
       failRunCreated,
       previousRun: priorRun,
-      activeCompaction: compaction,
+      activeCheckpoint: checkpoint,
       toolsAllowed,
       runtime: runtimeOverride,
       memory: memoryOverride,
@@ -238,11 +230,12 @@ describe('ChatLoopService accept/worker context binding', () => {
       current: {
         id: 'message-id',
         chatId: 'chat-id',
-        seq: 1,
+        seq: checkpoint === undefined ? 1 : checkpoint.absorbedThroughSeq + 1,
         role: 'user',
         senderUserId: 'user-id',
         parts: [{ type: 'text', text: 'hello' }],
         attachments: [],
+        absorbedThroughSeq: null,
         usage: null,
         inReplyTo: null,
         createdAt: new Date(),
@@ -324,8 +317,12 @@ describe('ChatLoopService accept/worker context binding', () => {
       undefined,
     );
     const findPreviousRun = vi
-      .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
-      .mockResolvedValue(priorRun);
+      .spyOn(RunsRepository.prototype, 'findMostRecentByMessageSequence')
+      .mockResolvedValue(
+        priorRun === undefined
+          ? undefined
+          : { run: priorRun, triggeringUserSeq: previousRunUserSeq },
+      );
     // The availability baseline reads the most recent *genuine completed* turn:
     // the repository query only returns runs that finished successfully and
     // carry the winning attempt link. Mirror that contract over the fixture.
@@ -338,14 +335,14 @@ describe('ChatLoopService accept/worker context binding', () => {
         Promise.resolve(
           priorRun?.status === 'completed' &&
             priorRun.completedAttemptId !== null
-            ? priorRun
+            ? { run: priorRun, triggeringUserSeq: previousRunUserSeq }
             : undefined,
         ),
       );
     vi.spyOn(
-      CompactionsRepository.prototype,
-      'findLatestByChatId',
-    ).mockResolvedValue(compaction);
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(checkpoint);
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
       [],
     );
@@ -509,10 +506,17 @@ describe('ChatLoopService accept/worker context binding', () => {
       aborts,
       dispatcher,
     );
+    // The window variant is never exercised by this suite: every seeded turn
+    // fits this model, so a rejection catches a future scenario silently
+    // relying on it. The threshold variant resolves null, the summarizer's own
+    // "no checkpoint" answer.
     const noopCompaction: CompactionCapability = {
-      maybeCompact: () => Promise.resolve(),
-      compactForTransition: () =>
-        Promise.reject(new Error('transition compaction is not exercised')),
+      summarizeCheckpoint: (request) =>
+        request.variant === 'window'
+          ? Promise.reject(
+              new Error('binding window summarization is not exercised'),
+            )
+          : Promise.resolve(null),
     };
     const noopTitles: TitleCapability = {
       maybeGenerateTitle: () => Promise.resolve(),
@@ -1178,7 +1182,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     ).toHaveLength(0);
   });
 
-  it('starts a degraded availability epoch in the worker after retained-window compaction', async () => {
+  it('starts a degraded availability epoch in the worker when the checkpoint boundary reaches the prior completed turn', async () => {
     const id = 'mcp__web__search';
     const {
       service,
@@ -1189,9 +1193,16 @@ describe('ChatLoopService accept/worker context binding', () => {
       previousRun: previousRun({
         modelId: model.id,
         status: 'completed',
+        completedAttemptId: 'attempt-id',
         turnToolAvailability: [{ id, state: 'available' }],
+        // The Run was created after the checkpoint, but its triggering user
+        // sequence remains below the checkpoint boundary: sequence order is
+        // the epoch rule.
+        createdAt: new Date('2026-08-11T08:00:04.000Z'),
+        startedAt: new Date('2026-08-11T08:00:05.000Z'),
+        finishedAt: new Date('2026-08-11T08:00:06.000Z'),
       }),
-      activeCompaction: activeCompaction(),
+      activeCheckpoint: activeCheckpoint(),
       toolsAllowed: [id],
       runtime: {
         snapshotCandidates: () => [
@@ -1238,7 +1249,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       updateUserMessageParts,
     } = setup({
       previousRun: previous,
-      activeCompaction: activeCompaction(),
+      activeCheckpoint: activeCheckpoint(),
       baseline: digestBaseline,
       told: [],
       rebakedFrom: '55555555-5555-4555-8555-555555555555',
@@ -1274,7 +1285,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     const digestBaseline = baseline();
     const { service, executeAttempt, updateUserMessageParts } = setup({
       previousRun: previousRun({ modelId: model.id }),
-      activeCompaction: activeCompaction(),
+      activeCheckpoint: activeCheckpoint(),
       baseline: digestBaseline,
       told: [],
       rebakedFrom: '55555555-5555-4555-8555-555555555555',
@@ -1296,10 +1307,10 @@ describe('ChatLoopService accept/worker context binding', () => {
     expect(committedParts?.filter(isRecencyDigestItem)).toHaveLength(1);
   });
 
-  it('does not stage a digest supersession marker after sharing is disabled during compaction', async () => {
+  it('does not stage a digest supersession marker after sharing is disabled during checkpointing', async () => {
     const { service, executeAttempt, updateUserMessageParts } = setup({
       previousRun: previousRun({ modelId: model.id }),
-      activeCompaction: activeCompaction(),
+      activeCheckpoint: activeCheckpoint(),
       baseline: baseline(),
       told: [],
       memory: {
@@ -1323,7 +1334,7 @@ describe('ChatLoopService accept/worker context binding', () => {
   it('keeps a model-switch notice but no digest supersession marker when the prior attempt used another model', async () => {
     const { service, executeAttempt, updateUserMessageParts } = setup({
       previousRun: previousRun({ modelId: 'previous-model' }),
-      activeCompaction: activeCompaction(),
+      activeCheckpoint: activeCheckpoint(),
       baseline: baseline(),
       told: [],
       memory: {

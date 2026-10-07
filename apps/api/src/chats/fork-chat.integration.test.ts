@@ -6,10 +6,11 @@ import { NotFoundException } from '@nestjs/common';
  * - copies the seq-prefix into a NEW owned chat, order preserved, with
  *   `in_reply_to` REMAPPED to the copied user turn (not the original id) and
  *   `createdAt`/`usage` carried verbatim (design D2);
- * - copies the source's compactions and the frozen prompt state on its Chat
+ * - copies the source's checkpoint rows — remapping each absorbed boundary to
+ *   the copy of the row it named — and the frozen prompt state on its Chat
  *   row, so the fork's first turn renders the prefix its source would
- *   (design D1-D3);
- * - `forkSharedChat` stays the text-only public projection (D5);
+ *   (design D1-D3, D8);
+ * - `forkSharedChat` stays the text-only public projection (D5, D6);
  * - a cross-tenant fork throws + creates nothing (owner-scoped).
  *
  * TEST_DATABASE_URL-gated; run by test:integration.
@@ -17,30 +18,26 @@ import { NotFoundException } from '@nestjs/common';
 
 import { sql as dsql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 import { type Sql } from 'postgres';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 
 import * as schema from '../db/schema';
-import { type Chat, type Compaction } from '../db/schema';
+import { type Chat, type Message } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  findLiveWindow,
-  MessagesRepository,
-} from './chats-repository';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { toSharedChatResponse } from './dto/chats.dto';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { toStoredMessages } from '../compaction/compaction.service';
 import { isRecord } from '@workspace/runtime-safety';
+import { buildContext, type StoredMessage } from './context-builder';
 import {
-  buildContext,
-  renderConversationCheckpoint,
-  type StoredMessage,
-} from './context-builder';
+  createCompactionCheckpointPart,
+  toContextCheckpoint,
+} from './context-item-producers';
 import { resolveTurnSkillState } from './skill-turn-state';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { formatTemporalAnchor } from '../prompts/temporal-anchor';
@@ -64,7 +61,7 @@ const textOf = (parts: Array<unknown>): string | undefined => {
 };
 
 // Fixed instants for the inherited-context cases. The source Chat predates both
-// checkpoints, so a fork that lost the latest checkpoint resolves a DIFFERENT
+// checkpoint rows, so a fork that lost the latest checkpoint resolves a DIFFERENT
 // temporal anchor and cannot pass by accident. `SOURCE_CREATED_AT` is also the
 // value the owner fork must copy and the shared fork must not.
 const SOURCE_CREATED_AT = new Date('2026-08-01T09:15:00.000Z');
@@ -132,10 +129,8 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
   let b: string;
 
   beforeAll(async () => {
-    const postgres = await import('postgres');
-    const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sql = connect(TEST_DB_URL!, { ssl, max: 5 });
+    sql = postgres(TEST_DB_URL!, { ssl, max: 5 });
     db = drizzle(sql, { schema });
     tenantDb = new TenantDbService(db);
     service = new ChatsService(
@@ -214,20 +209,19 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     });
   };
 
-  // Seed a COMPACTED, context-bearing source: three turns (6 messages) with two
-  // compaction generations — C1 covering seq 1-2, C2 covering seq 1-4 and
-  // pointing at C1 — every frozen prompt column bound to C2, and a creation
-  // time preceding both checkpoints. Returns the rows as stored, which is
-  // exactly what a fork has to reproduce.
+  // Seed a COMPACTED, context-bearing source whose checkpoint rows sit where
+  // production publishes them — after the user row that triggered them:
+  //   seq 1 q1, 2 a1, 3 q2, 4 presentation row (never copied),
+  //   5 C1 (absorbs through 2), 6 a2, 7 q3, 8 C2 (absorbs through 6), 9 a3.
+  // Every frozen prompt column is bound to C2 (unless `bindMarkers` is off) and
+  // the Chat's creation time precedes both checkpoints. Returns the rows a fork
+  // copies, as stored, which is exactly what it has to reproduce.
   const seedCompactedSource = async (
     options: { visibility?: 'private' | 'public'; bindMarkers?: boolean } = {},
   ) => {
     const { bindMarkers = true } = options;
     return tenantDb.runAs(a, async (tx) => {
       const messages = new MessagesRepository(tx);
-      const compactions = new CompactionsRepository(tx);
-      const firstCheckpointId = crypto.randomUUID();
-      const latestCheckpointId = crypto.randomUUID();
       const chat = await new ChatsRepository(tx).create({
         ownerUserId: a,
         title: 'Compacted source',
@@ -235,11 +229,26 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         createdAt: SOURCE_CREATED_AT,
         recencyDigestBaseline: DIGEST_BASELINE,
         recencyDigestTold: DIGEST_TOLD,
-        recencyDigestRebakedFrom: bindMarkers ? latestCheckpointId : null,
         skillCatalogBaseline: SKILL_BASELINE,
         skillCatalogTold: ['research'],
-        skillCatalogRebakedFrom: bindMarkers ? latestCheckpointId : null,
       });
+      const checkpoint = async (
+        summary: string,
+        absorbedThroughSeq: number,
+        createdAt: Date,
+        inputTokens: number,
+      ) => {
+        const row = await messages.createCheckpoint({
+          chatId: chat.id,
+          absorbedThroughSeq,
+          part: createCompactionCheckpointPart(summary),
+          usage: { model: 'gpt-x', inputTokens },
+        });
+        await tx.execute(
+          dsql`UPDATE messages SET created_at = ${createdAt.toISOString()}::timestamptz WHERE id = ${row.id}`,
+        );
+        return { ...row, createdAt };
+      };
 
       const q1 = await messages.create({
         chatId: chat.id,
@@ -260,13 +269,39 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
             },
           },
           { type: 'text', text: 'q1' },
+          {
+            type: 'source-url',
+            sourceId: 'prefix-source',
+            url: 'https://prefix.example/source',
+          },
         ],
       });
       const a1 = await messages.create({
         chatId: chat.id,
         role: 'assistant',
         senderUserId: null,
-        parts: [{ type: 'text', text: 'a1' }],
+        // A copy is literal: tool observations and opaque provider metadata
+        // ride with the part they are bound to, even inside the absorbed prefix.
+        parts: [
+          { type: 'text', text: 'a1' },
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'prefix-call',
+            state: 'output-available',
+            input: { query: 'prefix' },
+            output: { results: ['prefix result'] },
+          },
+          {
+            type: 'reasoning',
+            text: 'prefix reasoning',
+            providerMetadata: {
+              openai: {
+                itemId: 'rs-prefix-1',
+                reasoningEncryptedContent: 'ENCRYPTED_PREFIX_STATE',
+              },
+            },
+          },
+        ],
         usage: { costUsd: 0.25, model: 'gpt-x', runId: 'run-1' },
         inReplyTo: q1.id,
       });
@@ -276,6 +311,19 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         senderUserId: a,
         parts: [{ type: 'text', text: 'q2' }],
       });
+      // A row no fork copies, so the later boundary has to move.
+      await messages.create({
+        chatId: chat.id,
+        role: 'system',
+        senderUserId: null,
+        parts: [{ type: 'text', text: 'internal presentation row' }],
+      });
+      const first = await checkpoint(
+        'Checkpoint 1',
+        a1.seq,
+        FIRST_CHECKPOINT_CREATED_AT,
+        10,
+      );
       const a2 = await messages.create({
         chatId: chat.id,
         role: 'assistant',
@@ -290,6 +338,12 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         senderUserId: a,
         parts: [{ type: 'text', text: 'q3' }],
       });
+      const latest = await checkpoint(
+        'Checkpoint 2',
+        a2.seq,
+        LATEST_CHECKPOINT_CREATED_AT,
+        20,
+      );
       const a3 = await messages.create({
         chatId: chat.id,
         role: 'assistant',
@@ -314,67 +368,57 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         inReplyTo: q3.id,
       });
 
-      const first = await compactions.create({
-        id: firstCheckpointId,
-        chatId: chat.id,
-        uptoSeq: a1.seq,
-        summary: 'Checkpoint 1',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [
-              {
-                type: 'text',
-                text: renderConversationCheckpoint('Checkpoint 1'),
-              },
-            ],
-          },
-        ],
-        usage: { model: 'gpt-x', inputTokens: 10 },
-        createdAt: FIRST_CHECKPOINT_CREATED_AT,
-      });
-      const latest = await compactions.create({
-        id: latestCheckpointId,
-        chatId: chat.id,
-        uptoSeq: a2.seq,
-        parentId: first.id,
-        summary: 'Checkpoint 2',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [
-              {
-                type: 'text',
-                text: renderConversationCheckpoint('Checkpoint 2'),
-              },
-            ],
-          },
-        ],
-        usage: { model: 'gpt-x', inputTokens: 20 },
-        createdAt: LATEST_CHECKPOINT_CREATED_AT,
-      });
+      if (bindMarkers) {
+        await tx.execute(dsql`
+          UPDATE chats
+          SET recency_digest_rebaked_from = ${latest.id},
+              skill_catalog_rebaked_from = ${latest.id}
+          WHERE id = ${chat.id} AND owner_user_id = ${a}
+        `);
+      }
+      const bound = await new ChatsRepository(tx).findById(chat.id, a);
+      if (bound === undefined) expect.unreachable('expected the seeded chat');
 
       return {
-        chat,
-        messages: [q1, a1, q2, a2, q3, a3],
-        compactions: [first, latest],
+        chat: bound,
+        rows: [q1, a1, q2, first, a2, q3, latest, a3],
+        checkpoints: [first, latest],
       };
     });
   };
 
+  const readMessages = (chatId: string, userId = a) =>
+    tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(chatId, userId),
+    );
+
+  // The two reads a turn after the fork makes (as `rebuildContextForChat`
+  // does): the active checkpoint, then every row past its boundary.
+  const replayWindow = (chatId: string) =>
+    tenantDb.runAs(a, async (tx) => {
+      const messages = new MessagesRepository(tx);
+      const checkpoint = await messages.findActiveCheckpoint(chatId, a, {
+        beforeSeq: Number.MAX_SAFE_INTEGER,
+      });
+      const history = await messages.findByChatId(chatId, a, {
+        sinceSeq: checkpoint?.absorbedThroughSeq,
+      });
+      return { checkpoint, history };
+    });
+
   // The system prompt a turn after the fork sends, rendered by the PRODUCTION
   // template renderer from ONE side's own stored state. The anchor resolution
-  // mirrors run-execution.service.ts: the latest checkpoint's creation time
-  // wins over the chat's.
+  // mirrors run-execution.service.ts: the active checkpoint row's creation
+  // time wins over the chat's.
   const renderFirstTurnSystemPrompt = (
     chat: Chat,
-    compaction: Compaction | undefined,
+    checkpoint: Message | undefined,
   ) =>
     renderSystemPromptTemplate({
       template: readFileSync(DEFAULT_CHAT_SYSTEM_PROMPT_PATH, 'utf8'),
       model: { id: 'system:fork:test', name: 'Fork Test' },
       anchor: formatTemporalAnchor(
-        compaction?.createdAt ?? chat.createdAt,
+        checkpoint?.createdAt ?? chat.createdAt,
         'UTC',
       ),
       chats: chat.recencyDigestBaseline ?? undefined,
@@ -386,13 +430,13 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
   // A first turn through the REAL skill resolver, with the live catalog a
   // re-resolution would reach. The reuse path returns before the catalog is
   // read, so which baseline a turn renders is decided by the Chat row alone.
-  const skillStateFor = (chat: Chat, latestCompactionId: string | null) =>
+  const skillStateFor = (chat: Chat, latestCheckpointId: string | null) =>
     resolveTurnSkillState(
       { skillCatalog: LIVE_CATALOG, skillDirectories: ['/skills'] },
       {
         chat,
         runId: crypto.randomUUID(),
-        latestCompactionId,
+        latestCheckpointId,
         modelReferencesSkills: true,
       },
     );
@@ -567,156 +611,18 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     }
   });
 
-  it('copies a compacted source wholesale and replays its checkpoint, not uncompacted history', async () => {
-    const source = await tenantDb.runAs(a, async (tx) => {
-      const chats = new ChatsRepository(tx);
-      const messages = new MessagesRepository(tx);
-      const compactions = new CompactionsRepository(tx);
-      const chat = await chats.create({ ownerUserId: a, title: 'Compacted' });
-      const prefixUserParts = [
-        {
-          type: 'data-context',
-          data: {
-            v: 1,
-            producer: 'temporal',
-            form: 'snapshot',
-            runId: '11111111-2222-4333-8444-555555555555',
-            text: '<system-reminder>source-time</system-reminder>',
-            payload: {
-              instant: '2026-08-25T04:13:39.795Z',
-              timeZone: 'Europe/Madrid',
-            },
-          },
-        },
-        { type: 'text', text: 'before compaction' },
-        {
-          type: 'source-url',
-          sourceId: 'private-source',
-          url: 'https://private.example/source',
-        },
-      ];
-      const prefixAssistantParts = [
-        {
-          type: 'reasoning',
-          text: 'private reasoning',
-          // D17: a copy is literal — opaque provider metadata rides with the
-          // part it is bound to.
-          providerMetadata: {
-            openai: {
-              itemId: 'rs-private-1',
-              reasoningEncryptedContent: 'ENCRYPTED_PRIVATE_STATE',
-            },
-          },
-        },
-        { type: 'text', text: 'prefix answer' },
-        {
-          type: 'tool-search_conversations',
-          toolCallId: 'private-call',
-          state: 'output-available',
-          input: { query: 'private' },
-          output: { results: ['private result'] },
-        },
-      ];
-      const prefixUser = await messages.create({
-        chatId: chat.id,
-        role: 'user',
-        senderUserId: a,
-        parts: prefixUserParts,
-      });
-      const prefixAssistant = await messages.create({
-        chatId: chat.id,
-        role: 'assistant',
-        senderUserId: null,
-        parts: prefixAssistantParts,
-        inReplyTo: prefixUser.id,
-      });
-      const liveUser = await messages.create({
-        chatId: chat.id,
-        role: 'user',
-        senderUserId: a,
-        parts: [{ type: 'text', text: 'after compaction' }],
-      });
-      const liveAssistant = await messages.create({
-        chatId: chat.id,
-        role: 'assistant',
-        senderUserId: null,
-        parts: [{ type: 'text', text: 'live answer' }],
-        inReplyTo: liveUser.id,
-      });
-
-      const checkpoint = await compactions.create({
-        chatId: chat.id,
-        uptoSeq: prefixAssistant.seq,
-        summary: 'source summary',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [
-              {
-                type: 'text',
-                text: renderConversationCheckpoint('source summary'),
-              },
-            ],
-          },
-        ],
-      });
-
-      return {
-        chat,
-        messages: [prefixUser, prefixAssistant, liveUser, liveAssistant],
-        checkpoint,
-      };
-    });
-
-    const compactedSource = await tenantDb.runAs(a, (tx) =>
-      findLiveWindow(tx, source.chat.id, a),
-    );
-    expect(compactedSource.compaction?.summary).toBe('source summary');
-    expect(compactedSource.history.map((message) => message.parts)).toEqual([
-      source.messages[2].parts,
-      source.messages[3].parts,
-    ]);
-
-    const forked = await service.forkChat(source.chat.id, a);
-    const copied = await tenantDb.runAs(a, (tx) =>
-      new MessagesRepository(tx).findByChatId(forked.id, a),
-    );
-    const sourceParts = source.messages.map((message) => message.parts);
-
-    expect(copied.map((message) => message.parts)).toEqual(sourceParts);
-    const forkReplay = await tenantDb.runAs(a, (tx) =>
-      findLiveWindow(tx, forked.id, a),
-    );
-    // The fork replays its source's checkpoint instead of re-expanding the
-    // turns that checkpoint absorbed — same replacement history, same retained
-    // tail, new row identity. (Copying the messages without the checkpoint is
-    // what left the fork rendering a different model-facing prefix.)
-    expect(forkReplay.compaction?.summary).toBe('source summary');
-    expect(forkReplay.compaction?.uptoSeq).toBe(source.checkpoint.uptoSeq);
-    expect(forkReplay.compaction?.replacementHistory).toEqual(
-      source.checkpoint.replacementHistory,
-    );
-    expect(forkReplay.compaction?.id).not.toBe(source.checkpoint.id);
-    expect(forkReplay.history.map((message) => message.parts)).toEqual(
-      compactedSource.history.map((message) => message.parts),
-    );
-  });
-
   it('forks a compacted, baseline-bearing source into the same model-facing prefix', async () => {
     const source = await seedCompactedSource();
 
     const forked = await service.forkChat(source.chat.id, a);
 
-    const copiedMessages = await tenantDb.runAs(a, (tx) =>
-      new MessagesRepository(tx).findByChatId(forked.id, a),
+    const copiedMessages = await readMessages(forked.id);
+    expect(copiedMessages).toHaveLength(source.rows.length);
+    const copiedIdBySourceId = new Map(
+      source.rows.map((row, index) => [row.id, copiedMessages[index].id]),
     );
-    const copiedCompactions = await tenantDb.runAs(a, (tx) =>
-      new CompactionsRepository(tx).findByChatId(forked.id, a),
-    );
-
-    expect(copiedMessages).toHaveLength(source.messages.length);
     copiedMessages.forEach((copied, index) => {
-      const original = source.messages[index];
+      const original = source.rows[index];
       // Dense sequences from 1 in copied order, every stored value verbatim —
       // including the Run id inside `usage` and the ids inside the context
       // part, which are copied as VALUES and never rewritten — with only
@@ -732,29 +638,24 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       expect(copied.usage).toEqual(original.usage);
       // Threading points at the COPIED turn, never at a source row.
       expect(copied.inReplyTo).toBe(
-        original.inReplyTo === null ? null : copiedMessages[index - 1].id,
+        original.inReplyTo === null
+          ? null
+          : copiedIdBySourceId.get(original.inReplyTo),
       );
     });
 
-    expect(copiedCompactions).toHaveLength(source.compactions.length);
-    const copiedLatest = copiedCompactions.at(-1);
-    if (copiedLatest === undefined)
-      expect.unreachable('expected copied compactions');
-    copiedCompactions.forEach((copied, index) => {
-      const original = source.compactions[index];
-      expect(copied.id).not.toBe(original.id);
-      expect(copied.chatId).toBe(forked.id);
-      expect(copied.uptoSeq).toBe(original.uptoSeq);
-      expect(copied.summary).toBe(original.summary);
-      expect(copied.replacementHistory).toEqual(original.replacementHistory);
-      expect(copied.usage).toEqual(original.usage);
-      expect(copied.createdAt).toEqual(original.createdAt);
-      // Lineage stays internal to the fork: the child points at the COPIED
-      // parent, so the whole chain the checkpoint UI walks came across.
-      expect(copied.parentId).toBe(
-        index === 0 ? null : copiedCompactions[index - 1].id,
-      );
-    });
+    // Each checkpoint's boundary names the COPY of the row it absorbed through.
+    // The presentation row is not copied, so the later boundary moves from
+    // source seq 6 to copied seq 5 while the earlier one stays at 2.
+    const copiedCheckpoints = copiedMessages.filter(
+      (message) => message.role === 'checkpoint',
+    );
+    expect(source.checkpoints.map((c) => c.absorbedThroughSeq)).toEqual([2, 6]);
+    expect(copiedCheckpoints.map((c) => c.absorbedThroughSeq)).toEqual([2, 5]);
+    const copiedLatest = copiedCheckpoints.at(-1);
+    if (copiedLatest === undefined) {
+      expect.unreachable('expected copied checkpoints');
+    }
 
     // The destination carries the source's creation time — the fork's context
     // began where its source's did — and every frozen prompt column...
@@ -770,35 +671,45 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       skillCatalogBaseline: source.chat.skillCatalogBaseline,
       skillCatalogTold: source.chat.skillCatalogTold,
     });
-    // ...with the two markers naming the COPIED checkpoint. The skill marker is
-    // what `baselineMatchesEpoch` compares against the chat's active
-    // compaction, so a source id (or a null beside a copied baseline) would
+    // ...with the two markers naming the COPIED checkpoint message. The skill
+    // marker is what `baselineMatchesEpoch` compares against the chat's active
+    // checkpoint, so a source id (or a null beside a copied baseline) would
     // re-resolve the live catalog on the fork's first turn.
+    expect(source.chat.skillCatalogRebakedFrom).toBe(source.checkpoints[1].id);
     expect(forked.recencyDigestRebakedFrom).toBe(copiedLatest.id);
     expect(forked.skillCatalogRebakedFrom).toBe(copiedLatest.id);
     // Non-vacuous: the inherited context is the seeded content, not two NULLs.
     expect(forked.recencyDigestBaseline).toEqual(DIGEST_BASELINE);
     expect(forked.skillCatalogBaseline).toEqual(SKILL_BASELINE);
 
-    // The checkpoint UI's absorbed count comes from the copied CHAIN: with the
-    // earlier checkpoint copied too, the fork absorbs 2 messages (4 - 2) like
-    // its source. A lone parentless copy of the latest checkpoint would report
-    // 4 and misdescribe the fork's coverage.
+    // The checkpoint UI's absorbed counts are API-computed from the boundaries:
+    // the fork reports what its source does (2 rows through each boundary).
     const [sourceRead, forkRead] = await Promise.all([
       service.getChatMessages(source.chat.id, a, { limit: 50 }),
       service.getChatMessages(forked.id, a, { limit: 50 }),
     ]);
-    expect(sourceRead?.absorbedMessageCount).toBe(2);
-    expect(forkRead?.absorbedMessageCount).toBe(
-      sourceRead?.absorbedMessageCount,
-    );
+    const absorbedCounts = (read: typeof sourceRead) =>
+      read
+        ?.filter((message) => message.role === 'checkpoint')
+        .map((message) => message.absorbedMessageCount);
+    expect(absorbedCounts(sourceRead)).toEqual([2, 2]);
+    expect(absorbedCounts(forkRead)).toEqual(absorbedCounts(sourceRead));
 
     const [sourceWindow, forkWindow] = await Promise.all([
-      tenantDb.runAs(a, (tx) => findLiveWindow(tx, source.chat.id, a)),
-      tenantDb.runAs(a, (tx) => findLiveWindow(tx, forked.id, a)),
+      replayWindow(source.chat.id),
+      replayWindow(forked.id),
     ]);
-    expect(sourceWindow.compaction?.summary).toBe('Checkpoint 2');
-    expect(sourceWindow.history).toHaveLength(2);
+    if (
+      sourceWindow.checkpoint === undefined ||
+      forkWindow.checkpoint === undefined
+    ) {
+      expect.unreachable('expected an active checkpoint on both sides');
+    }
+    expect(sourceWindow.checkpoint.id).toBe(source.checkpoints[1].id);
+    expect(forkWindow.checkpoint.id).toBe(copiedLatest.id);
+    expect(
+      sourceWindow.history.filter(({ role }) => role !== 'checkpoint'),
+    ).toHaveLength(2);
 
     // The same new user input on both sides: identical content, and identity
     // fields deliberately not shared (each chat's own id, a fresh message id,
@@ -835,10 +746,10 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       {
         systemPrompt: renderFirstTurnSystemPrompt(
           source.chat,
-          sourceWindow.compaction,
+          sourceWindow.checkpoint,
         ),
         requestKind: 'continuation',
-        compaction: sourceWindow.compaction,
+        checkpoint: toContextCheckpoint(sourceWindow.checkpoint),
       },
     );
     const forkContext = buildContext(
@@ -846,10 +757,10 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       {
         systemPrompt: renderFirstTurnSystemPrompt(
           forked,
-          forkWindow.compaction,
+          forkWindow.checkpoint,
         ),
         requestKind: 'continuation',
-        compaction: forkWindow.compaction,
+        checkpoint: toContextCheckpoint(forkWindow.checkpoint),
       },
     );
 
@@ -860,8 +771,9 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     // Equal system prompt: the same temporal anchor (the copied checkpoint's
     // creation time, not the fork's own), the same digest, the same catalog.
     expect(forkContext.system).toBe(sourceContext.system);
-    // Equal inherited history: the copied replacement history leads, the
-    // retained tail follows, then the identical new input.
+    // Equal inherited history: the stored checkpoint text leads, the retained
+    // tail follows (checkpoint rows are never replayed as ordinary rows), then
+    // the identical new input.
     expect(forkContext.messages).toEqual(sourceContext.messages);
     // Non-vacuous for the metadata half: the retained tail's reasoning part is
     // there with its opaque provider metadata, replayed from the FORK's copied
@@ -887,33 +799,30 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
 
   it('an anchor before the latest checkpoint copies only the earlier one and keeps the baseline bound to it', async () => {
     const source = await seedCompactedSource();
-    // seq 3 sits between the two checkpoints: C1 (uptoSeq 2) is inside the
-    // copied prefix, C2 (uptoSeq 4 — the one both markers name) is not.
-    const anchor = source.messages[2];
+    // seq 3 (q2) sits before BOTH checkpoint rows (seq 5 and 8), but C1
+    // absorbs through seq 2 — inside the copied prefix — while C2 (through
+    // seq 6, the one both markers name) is not.
+    const anchor = source.rows[2];
 
     const forked = await service.forkChat(source.chat.id, a, anchor.id);
 
-    const copiedMessages = await tenantDb.runAs(a, (tx) =>
-      new MessagesRepository(tx).findByChatId(forked.id, a),
-    );
-    expect(copiedMessages.map((message) => textOf(message.parts))).toEqual([
-      'q1',
-      'a1',
-      'q2',
+    const copiedMessages = await readMessages(forked.id);
+    expect(copiedMessages.map(({ role }) => role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'checkpoint',
     ]);
-    const copiedCompactions = await tenantDb.runAs(a, (tx) =>
-      new CompactionsRepository(tx).findByChatId(forked.id, a),
+    expect(copiedMessages.map(({ seq }) => seq)).toEqual([1, 2, 3, 4]);
+    const copiedEarlier = copiedMessages[3];
+    expect(copiedEarlier.absorbedThroughSeq).toBe(
+      source.checkpoints[0].absorbedThroughSeq,
     );
-    expect(copiedCompactions).toHaveLength(1);
-    const [copiedEarlier] = copiedCompactions;
-    expect(copiedEarlier.uptoSeq).toBe(source.compactions[0].uptoSeq);
-    expect(copiedEarlier.summary).toBe(source.compactions[0].summary);
-    expect(copiedEarlier.parentId).toBeNull();
+    expect(copiedEarlier.parts).toEqual(source.checkpoints[0].parts);
+    expect(copiedEarlier.id).not.toBe(source.checkpoints[0].id);
 
     // The copied earlier checkpoint is the fork's ACTIVE one...
-    const active = await tenantDb.runAs(a, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(forked.id, a),
-    );
+    const { checkpoint: active } = await replayWindow(forked.id);
     expect(active?.id).toBe(copiedEarlier.id);
     // ...and both markers name it rather than the source's uncopied C2.
     expect(forked.recencyDigestRebakedFrom).toBe(copiedEarlier.id);
@@ -933,14 +842,13 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const source = await seedCompactedSource({ bindMarkers: false });
 
     const forked = await service.forkChat(source.chat.id, a);
-    const active = await tenantDb.runAs(a, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(forked.id, a),
-    );
-    const sourceLatest = source.compactions.at(-1);
-    if (active === undefined || sourceLatest === undefined)
+    const { checkpoint: active } = await replayWindow(forked.id);
+    const sourceLatest = source.checkpoints.at(-1);
+    if (active === undefined || sourceLatest === undefined) {
       expect.unreachable('expected a checkpoint on both sides');
+    }
 
-    // The source holds a baseline whose marker is NULL while a compaction
+    // The source holds a baseline whose marker is NULL while a checkpoint
     // exists, so its own next turn re-resolves the live catalog rather than
     // reusing that baseline. The fork inherits the DECISION: a marker pointed
     // at the copied checkpoint would freeze a baseline its source no longer
@@ -1010,7 +918,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     expect(forked.workspaceDetachReason).toBeNull();
   });
 
-  it('forkSharedChat stays text-only — no compaction, context, usage, or copied creation time', async () => {
+  it('forkSharedChat stays text-only — no checkpoint, context, usage, or copied creation time', async () => {
     const source = await seedCompactedSource({ visibility: 'public' });
     await tenantDb.runAs(a, (tx) =>
       tx.execute(dsql`
@@ -1036,20 +944,18 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     // own fork of it.
     expect(forked.visibility).toBe('private');
 
-    const copiedMessages = await tenantDb.runAs(b, (tx) =>
-      new MessagesRepository(tx).findByChatId(forked.id, b),
-    );
+    const copiedMessages = await readMessages(forked.id, b);
+    const transcript = source.rows.filter(({ role }) => role !== 'checkpoint');
     // The transcript comes across...
-    expect(copiedMessages).toHaveLength(source.messages.length);
-    // ...but none of the owner's context: no copied usage, no compaction, no
-    // frozen baseline or marker, and a creation time of its own.
+    expect(copiedMessages).toHaveLength(transcript.length);
+    // ...but none of the owner's context: no checkpoint row or summary, no
+    // copied usage, no frozen baseline or marker, and a creation time of its
+    // own.
+    expect(copiedMessages.map(({ role }) => role)).not.toContain('checkpoint');
+    expect(JSON.stringify(copiedMessages)).not.toContain('Checkpoint');
     expect(copiedMessages.map(({ usage }) => usage)).toEqual(
-      source.messages.map(() => null),
+      transcript.map(() => null),
     );
-    const copiedCompactions = await tenantDb.runAs(b, (tx) =>
-      new CompactionsRepository(tx).findByChatId(forked.id, b),
-    );
-    expect(copiedCompactions).toEqual([]);
     expect({
       recencyDigestBaseline: forked.recencyDigestBaseline,
       recencyDigestTold: forked.recencyDigestTold,

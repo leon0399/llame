@@ -79,21 +79,16 @@ type ChatTranscriptCompactionBoundaryProps = {
   availableModels: ReadonlyArray<AvailableModel>;
 };
 
-/** The trailing compaction boundary, shown when it lands after the last
- *  loaded message. Split out of `ChatTranscriptMessages` as its own
- *  self-contained region. */
+/** The trailing checkpoint boundary, shown when it lands after the last
+ * loaded conversation row. Split out of `ChatTranscriptMessages` as its own
+ * self-contained region. */
 function ChatTranscriptCompactionBoundary({
   compaction,
   availableModels,
 }: ChatTranscriptCompactionBoundaryProps) {
   return (
     <div className="mx-auto w-full max-w-3xl md:px-6">
-      <CompactionBoundary
-        summary={compaction.summary}
-        createdAt={compaction.createdAt}
-        stats={compaction.stats}
-        models={availableModels}
-      />
+      <CompactionBoundary compaction={compaction} models={availableModels} />
     </div>
   );
 }
