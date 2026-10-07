@@ -164,12 +164,17 @@ export function resolveRestoredPermissionMode(
  *  catalog are ready, independent of the permission listing; the permission
  *  mode restores only when the listing has settled, so `bypass` is held back
  *  (not treated as withdrawn) while it is still loading and restored when the
- *  operator still offers it. A brand-new chat and a target-window view never
- *  restore. Values fall back to their current default when no longer valid. */
+ *  operator still offers it. A brand-new chat, a target-window view, and the
+ *  live view an accepted `#msg-N` send (finished or interrupted) remounts
+ *  never restore: after that send the composer already holds the selections
+ *  the newest turn used, while the cached history can still be the pre-send
+ *  snapshot (#1084). Values fall back to their current default when no
+ *  longer valid. */
 type UseChatLastTurnRestoreArgs = {
   chatId: string;
   chatMessages: ReadonlyArray<UIMessage>;
   initialChatExists: boolean;
+  mountedAfterTargetSend: boolean;
   targetSeq: number | null;
 };
 export function useChatLastTurnRestore(args: UseChatLastTurnRestoreArgs) {
@@ -183,12 +188,14 @@ export function useChatLastTurnRestore(args: UseChatLastTurnRestoreArgs) {
 function useChatModelEffortRestore({
   chatMessages,
   initialChatExists,
+  mountedAfterTargetSend,
   targetSeq,
 }: UseChatLastTurnRestoreArgs) {
   const { setSelectedModel, setSelectedEffort } = useChatContext();
   const modelsQuery = useModelsQuery();
   const handledRef = useRef(false);
-  const skipMount = !initialChatExists || targetSeq !== null;
+  const skipMount =
+    !initialChatExists || targetSeq !== null || mountedAfterTargetSend;
 
   useEffect(() => {
     if (skipMount || handledRef.current) return;
@@ -221,12 +228,14 @@ function useChatPermissionModeRestore({
   chatId,
   chatMessages,
   initialChatExists,
+  mountedAfterTargetSend,
   targetSeq,
 }: UseChatLastTurnRestoreArgs) {
   const { setPermissionMode } = useChatContext();
   const permissionModesQuery = usePermissionModesQuery();
   const appliedRef = useRef(false);
-  const skipMount = !initialChatExists || targetSeq !== null;
+  const skipMount =
+    !initialChatExists || targetSeq !== null || mountedAfterTargetSend;
 
   useEffect(() => {
     if (skipMount || appliedRef.current) return;

@@ -124,4 +124,33 @@ describe("useMessageTarget", () => {
     act(() => result.current.resolveLatest());
     await waitFor(() => expect(result.current.targetSeq).toBeNull());
   });
+
+  it("marks a post-send resolution and clears it on a later hash navigation", async () => {
+    window.history.replaceState(
+      window.history.state,
+      "",
+      "/chat/chat-1#msg-42",
+    );
+    const { result } = renderHook(() => useMessageTarget("chat-1"));
+
+    // A plain hash hydration is not a target send.
+    await waitFor(() => expect(result.current.targetSeq).toBe(42));
+    expect(result.current.resolvedAfterSend).toBe(false);
+
+    // An accepted target send returns the view to latest (#1084).
+    act(() => result.current.resolveLatest());
+    await waitFor(() => expect(result.current.resolvedAfterSend).toBe(true));
+
+    // A later hash navigation is a fresh navigation, not another resolution.
+    window.history.replaceState(
+      window.history.state,
+      "",
+      "/chat/chat-1#msg-43",
+    );
+    act(() => {
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() => expect(result.current.targetSeq).toBe(43));
+    expect(result.current.resolvedAfterSend).toBe(false);
+  });
 });

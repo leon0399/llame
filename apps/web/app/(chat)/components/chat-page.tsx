@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import type { UIMessage } from "ai";
 
@@ -51,7 +51,8 @@ export function ChatPage({
   initialDraftPhase,
 }: ChatPageProps) {
   const { registerViewedChat } = useActiveRuns();
-  const { resolveLatest, targetSeq } = useMessageTarget(chatId);
+  const { resolveLatest, targetSeq, resolvedAfterSend } =
+    useMessageTarget(chatId);
 
   // This page boundary owns foreground presence before any session data loads.
   // In particular, a rehydrated draft can wait with no ChatSessionContent while
@@ -70,6 +71,7 @@ export function ChatPage({
       initialChatExists={initialChatExists}
       initialDraftPhase={initialDraftPhase}
       onTargetSendFinished={resolveLatest}
+      resolvedAfterSend={resolvedAfterSend}
       targetSeq={targetSeq}
     />
   );
@@ -80,13 +82,21 @@ type ChatSessionProps = {
   initialChatExists: boolean;
   initialDraftPhase: DraftPhase | null;
   onTargetSendFinished: () => void;
+  // True when an accepted target send (finished or interrupted) resolved the
+  // view to latest (see useMessageTarget). ChatSession latches it per mount.
+  resolvedAfterSend: boolean;
   targetSeq: number | null;
 };
 
 type ChatSessionRender =
   | { kind: "hidden" }
   | { kind: "unavailable" }
-  | { kind: "ready"; contentProps: ChatSessionContentProps };
+  | {
+      kind: "ready";
+      // `mountedAfterTargetSend` is added at the JSX site (ChatSession): it is
+      // not part of the history/query-probe decisions this function makes.
+      contentProps: Omit<ChatSessionContentProps, "mountedAfterTargetSend">;
+    };
 
 /** The render decision for one `ChatSession` mount, derived from its state
  *  hook: hidden while an owner-mounted draft recovers, unavailable when a
@@ -141,6 +151,7 @@ function ChatSession({
   initialChatExists,
   initialDraftPhase,
   onTargetSendFinished,
+  resolvedAfterSend,
   targetSeq,
 }: ChatSessionProps) {
   const sessionState = useChatSessionState({
@@ -156,12 +167,18 @@ function ChatSession({
     initialChatExists,
     sessionState,
   );
+  // Latched for this mount: a later hash change that keeps the live view
+  // mounted must not re-enable the last-turn restore mid-session.
+  const [mountedAfterTargetSend] = useState(resolvedAfterSend);
 
   if (render.kind === "hidden") return null;
   if (render.kind === "unavailable") return <TargetUnavailable />;
   return (
     <ChatMarkdownProvider>
-      <ChatSessionContent {...render.contentProps} />
+      <ChatSessionContent
+        {...render.contentProps}
+        mountedAfterTargetSend={mountedAfterTargetSend}
+      />
     </ChatMarkdownProvider>
   );
 }
@@ -186,6 +203,10 @@ type ChatSessionContentProps = {
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
   initialChatExists: boolean;
+  // This live view was mounted by an accepted `#msg-N` send. The last-turn
+  // restore skips it (#1084): the composer already holds the selections that
+  // send used, while the cached history can still be the pre-send snapshot.
+  mountedAfterTargetSend: boolean;
   onLoadOlderMessages: () => void;
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;
