@@ -2,7 +2,7 @@
 
 ### Requirement: Operator configuration declares web search engines and a chain
 
-The config file SHALL accept an optional top-level `webSearch` object with an `engines` array and a `chain` array under the closed published schema. Each engine SHALL have a non-empty `id`, unique within `engines`, and a `type` discriminating its shape. `chain` SHALL be a non-empty, duplicate-free ordered list of engine ids. The built-in default SHALL be absent.
+The config file SHALL accept an optional top-level `webSearch` object with an `engines` array and a `chain` array under the closed published schema. Each engine SHALL have an `id` of 1 to 64 characters, unique within `engines`, and a `type` discriminating its shape. `chain` SHALL be a non-empty, duplicate-free ordered list of engine ids. The built-in default SHALL be absent.
 
 #### Scenario: Minimal configuration loads
 

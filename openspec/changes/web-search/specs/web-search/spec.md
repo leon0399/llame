@@ -56,7 +56,7 @@ Every result and citation `url` SHALL be parsed as a WHATWG URL with scheme `htt
 
 ### Requirement: Output fields are bounded within the result cap
 
-Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles SHALL be at most 200, snippets 300, and answers 8,000 units; `published` SHALL be present only as an ISO 8601 date; results SHALL be cut to `limit` and citations to 20.`notes` SHALL hold at most 10 entries of at most 200 units.
+Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles SHALL be at most 200, snippets 300, and answers 8,000 units; `published` SHALL be present only as an ISO 8601 date; results SHALL be cut to `limit` and citations to 20.`notes` SHALL hold at most 10 entries of at most 200 units; when more are due, the tenth SHALL count the rest.
 
 #### Scenario: Long snippet is cut
 
@@ -70,7 +70,7 @@ Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles
 
 ### Requirement: The serialized output fits the result cap
 
-When the JSON-serialized output, `query`, `engine`, and `notes` included, would exceed 15,000 UTF-16 units, trailing results or citations SHALL be dropped with a note until it fits, so generic result truncation never cuts a URL. An `answer` output SHALL keep at least its first citation; the field caps guarantee that an answer with one citation fits.
+When the JSON-serialized output, `query`, `engine`, and `notes` included, would exceed 15,000 UTF-16 units, trailing results or citations SHALL be dropped with a note until it fits, so generic result truncation never cuts a URL. An `answer` output SHALL keep at least its first citation; when it still does not fit, its answer text SHALL be cut further until it does.
 
 #### Scenario: Oversized output drops trailing entries
 

@@ -129,7 +129,9 @@ type WebSearchOutput =
 - The JSON-serialized output is kept under 15,000 units by dropping trailing results or
   citations with a note, so the runner's 16,000-unit truncation
   (`packages/runtime-safety/src/result-truncation.ts:171-172`) never cuts a URL. The budget counts
-  `query` (at most 1,000), `engine`, and `notes` (at most 10 entries of 200). An answer never
+  `query` (at most 1,000), `engine` (an id of at most 64), and `notes` (at most 10 entries of
+  200, the tenth counting any remainder). If JSON escaping still pushes an answer with one
+  citation over the bound, the answer text is cut further. An answer never
   drops its first citation: 8,000 + 1,000 + 2,000 of notes + one 2,248-unit citation is about
   13,300 units with JSON overhead, so one citation always fits, while 20 maximal citations
   (about 45,000 units) do not and are dropped from the tail.
