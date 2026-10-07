@@ -125,7 +125,7 @@ describe("useMessageTarget", () => {
     await waitFor(() => expect(result.current.targetSeq).toBeNull());
   });
 
-  it("marks a finished-send resolution and clears it on a later hash navigation", async () => {
+  it("marks a post-send resolution and clears it on a later hash navigation", async () => {
     window.history.replaceState(
       window.history.state,
       "",
@@ -133,11 +133,11 @@ describe("useMessageTarget", () => {
     );
     const { result } = renderHook(() => useMessageTarget("chat-1"));
 
-    // A plain hash hydration is not a finished target send.
+    // A plain hash hydration is not a target send.
     await waitFor(() => expect(result.current.targetSeq).toBe(42));
     expect(result.current.resolvedAfterSend).toBe(false);
 
-    // A finished target send returns the view to latest (#1084).
+    // An accepted target send returns the view to latest (#1084).
     act(() => result.current.resolveLatest());
     await waitFor(() => expect(result.current.resolvedAfterSend).toBe(true));
 

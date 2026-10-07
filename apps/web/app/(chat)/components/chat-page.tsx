@@ -82,8 +82,8 @@ type ChatSessionProps = {
   initialChatExists: boolean;
   initialDraftPhase: DraftPhase | null;
   onTargetSendFinished: () => void;
-  // True when a finished target send resolved the view to latest (see
-  // useMessageTarget). ChatSession latches it per mount.
+  // True when an accepted target send (finished or interrupted) resolved the
+  // view to latest (see useMessageTarget). ChatSession latches it per mount.
   resolvedAfterSend: boolean;
   targetSeq: number | null;
 };
@@ -203,7 +203,7 @@ type ChatSessionContentProps = {
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
   initialChatExists: boolean;
-  // This live view was mounted by a finished `#msg-N` send. The last-turn
+  // This live view was mounted by an accepted `#msg-N` send. The last-turn
   // restore skips it (#1084): the composer already holds the selections that
   // send used, while the cached history can still be the pre-send snapshot.
   mountedAfterTargetSend: boolean;

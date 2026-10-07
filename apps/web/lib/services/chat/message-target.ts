@@ -8,10 +8,11 @@ type MessageTargetState =
       chatId: string;
       resolved: true;
       targetSeq: number | null;
-      // True when `resolveLatest()` produced this state, i.e. a target-window
-      // send finished and returned the view to latest; false on any plain hash
-      // navigation. The remounted live view then skips the last-turn restore
-      // (#1084): the composer already holds the selections that send used.
+      // True when `resolveLatest()` produced this state, i.e. an accepted
+      // target-window send (finished or interrupted) returned the view to
+      // latest; false on any plain hash navigation. The remounted live view
+      // then skips the last-turn restore (#1084): the composer already holds
+      // the selections that send used.
       resolvedAfterSend: boolean;
     };
 
@@ -29,7 +30,7 @@ export function parseMessageTargetHash(hash: string): number | null {
  */
 export type MessageTargetControl = {
   targetSeq: number | null | undefined;
-  // Whether the current resolution came from a finished target send (see
+  // Whether the current resolution came from an accepted target send (see
   // MessageTargetState) rather than a hash navigation.
   resolvedAfterSend: boolean;
   resolveLatest: () => void;
