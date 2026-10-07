@@ -155,7 +155,6 @@ describe('resolveConfigPath', () => {
       }`,
     );
     expect(resolveConfigPath({}, tmpDir)).toBe(jsonPath);
-    process.env.LLAME_CONFIG_PATH = resolveConfigPath({}, tmpDir);
     expect(loadInstanceConfig().runs.timeoutSeconds).toBe(123);
   });
 
