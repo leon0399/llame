@@ -10,7 +10,7 @@ The single rail on which llame injects server-authored context into a chat's mod
 
 Every server-authored contribution to a chat's model-visible conversation that is not part of the system prompt SHALL be injected as a **context item** on one rail. An item SHALL be rendered inside a single canonical `<system-reminder>` envelope, and SHALL NOT introduce a top-level delimiter name of its own.
 
-A materialized compaction checkpoint SHALL remain a rail context item with producer `compaction` and form `checkpoint` for envelope and Run-receipt semantics. Its durable representation SHALL be the storage exception: a user-role replacement-history UI message containing one ordinary text part with the complete final canonical envelope, not a persisted `data-context` part. `model-system-prompts` SHALL own that storage and replay contract.
+A compaction checkpoint SHALL remain a rail context item with producer `compaction`, form `checkpoint`, and rail residency for envelope and Run-receipt semantics. It SHALL NOT be a storage exception: its durable representation SHALL be an ordinary persisted `data-context` part on a `checkpoint` row, and replay SHALL convert that row to one user-role text message exactly as it converts every other persisted rail part. `model-system-prompts` SHALL own the row's coverage boundary and replay-selection contract.
 
 The wire role SHALL remain `user`. A provider-level role for injected context SHALL NOT be invented, and items SHALL NOT be emitted as additional conversation messages of their own where a message already exists to carry them: items attached to a turn SHALL be carried inside that turn's triggering user message.
 
@@ -46,14 +46,14 @@ Each item SHALL occupy its **own text content block** within that message rather
 
 #### Scenario: A compaction checkpoint replaces history
 
-- **WHEN** compaction materializes replacement history for a superseded prefix
-- **THEN** its first record is a user-role UI message containing one ordinary
-  text part with the complete final checkpoint envelope
+- **WHEN** compaction publishes a checkpoint row for a superseded prefix
+- **THEN** the row carries one persisted `data-context` part whose text is the
+  complete final checkpoint envelope
 - **AND** the envelope and Run receipt retain producer `compaction` and form
-  `checkpoint`, while the stored record is not a `data-context` part and replays
-  without metadata reconstruction
+  `checkpoint`, and replay uses that stored text without metadata
+  reconstruction
 
-Worker-attempt contributions intended for conversation history SHALL be staged in memory before the model request that first carries them and published only with successful turn completion: turn-attached items in the triggering message, in-Run items on the Run's assistant message. Failed or superseded attempts SHALL not publish those staged rail parts; the attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order.
+Worker-attempt contributions intended for conversation history SHALL be staged in memory before the model request that first carries them and published only with successful turn completion: turn-attached items in the triggering message, in-Run items on the Run's assistant message. Failed or superseded attempts SHALL not publish those staged rail parts; the attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal; accepting a user message is not publishing a failed attempt's context. Committed parts retain the exact prepared text and existing envelope/order. A compaction checkpoint row and the epoch state published with it are not staged contributions: they commit in their own transaction before the model step they precede, and a later failure of that attempt SHALL NOT retract them.
 
 ### Requirement: The envelope states its own provenance and an operator cannot remove it
 
@@ -117,9 +117,11 @@ retain `data.v: 1`, and carry its complete final model-facing text beneath
 provenance, producer body, and closing delimiter. Writers SHALL require a
 non-empty string.
 
-The materialized compaction checkpoint SHALL retain the same canonical envelope
-and form while using the replacement-history storage exception above. It SHALL
-NOT be rewritten as a `data-context` part merely to preserve its semantic form.
+A compaction checkpoint SHALL declare producer `compaction`, form `checkpoint`,
+and rail residency on an ordinary persisted `data-context` part, and SHALL
+carry the complete final canonical envelope beneath `data.text` like every
+other persisted item. It SHALL NOT need a second storage shape to preserve its
+semantic form.
 
 `data.text` SHALL be the sole replay authority. Producer, form, Run linkage,
 and payload SHALL remain non-rendering metadata for validated machine behavior,
@@ -132,6 +134,12 @@ from replaying. A stored context part with missing text or the empty string
 SHALL remain stored but contribute no model-visible part. It SHALL NOT be
 backfilled or rendered from metadata. Whitespace-only text SHALL survive
 unchanged.
+
+A `checkpoint` row is the one exception to that inertness. A checkpoint message
+whose `data.text` is empty or missing SHALL fail request preparation closed
+rather than replay as an inert part, because an inert checkpoint would hide every
+row it absorbed and silently shrink the model-visible history. It SHALL NOT be
+backfilled or reconstructed from its raw summary either.
 
 #### Scenario: Reader encounters unknown metadata with persisted text
 
@@ -163,6 +171,8 @@ unchanged.
 - **WHEN** an existing context part carries metadata but no non-empty text
 - **THEN** it contributes no model-visible part
 - **AND** no current renderer is invoked to manufacture historical prose
+- **AND** a `checkpoint` row is not treated as one of those inert parts: its
+  request fails preparation instead of replaying without the rows it absorbed
 
 #### Scenario: Client supplies control metadata
 
@@ -260,7 +270,7 @@ When one producer contributes more than one item, those items SHALL be stored in
 
 In-Run items SHALL be ordered by the model step that triggered them and, within a step, by this same producer precedence; they are never re-sorted against the attached items of the triggering user message.
 
-Replay SHALL preserve the stored part order. It SHALL NOT re-sort historical items through the current precedence list or merge adjacent text parts. The compaction checkpoint is carried by replacement history of its own and follows that capability's placement rule rather than this attached-item list.
+Replay SHALL preserve the stored part order. It SHALL NOT re-sort historical items through the current precedence list or merge adjacent text parts. The compaction checkpoint is carried by a `checkpoint` row of its own and follows that capability's placement rule rather than this attached-item list.
 
 #### Scenario: Several producers fire on one turn
 
@@ -304,15 +314,17 @@ When worker preparation adds attempt-owned items beside already persisted messag
 Every context contribution SHALL be classified by **residency**:
 
 - **prefix-resident** — re-supplied in full on every request as part of the system prompt. Updating it means re-rendering the prompt. It is cheap to read on every turn and expensive to change, because a change invalidates the cached prefix for the whole conversation.
-- **rail-resident** — appended once as a context item and never re-sent. Updating it means appending another item. It is cheap to add and paid for in every later turn until compaction.
-- **rail-only** — a small complete statement of current state whose re-statement after each compaction is cheaper than a prefix baseline. It MAY be kept only on the rail: a `snapshot` is emitted when the state changes and re-emitted after compaction, rather than adding it to the system prompt. The Workspace producer uses this class.
+- **rail-resident** — appended once as a context item and never re-sent. Updating it means appending another item. It is cheap to add and paid for in every later turn until a checkpoint absorbs it.
+- **rail-only** — a small complete statement of current state whose re-statement after each checkpoint is cheaper than a prefix baseline. It MAY be kept only on the rail: a `snapshot` is emitted when the state changes and re-emitted after a checkpoint, rather than adding it to the system prompt. The Workspace producer uses this class.
 
 A new context surface SHALL be classified by this procedure:
 
 1. A contribution that is an **account of something that happened** SHALL be rail-resident.
-2. A contribution that is a **complete statement of current state** which changes **less often than compaction** SHALL be prefix-resident.
-3. A complete statement of current state which changes **more often than compaction** SHALL be a frozen prefix-resident baseline plus rail-resident deltas, re-baked at compaction, unless it qualifies as rail-only under step 4. A frequently-changing complete statement SHALL NOT be placed in the prefix, because that forfeits prefix caching for the whole conversation on every change.
-4. A small complete statement of current state whose re-statement after each compaction is cheaper than a prefix baseline MAY be rail-only, emitted as a `snapshot` on change and re-emitted after compaction.
+2. A contribution that is a **complete statement of current state** which changes **less often than a checkpoint** SHALL be prefix-resident.
+3. A complete statement of current state which changes **more often than a checkpoint** SHALL be a frozen prefix-resident baseline plus rail-resident deltas, re-baked when a checkpoint is published, unless it qualifies as rail-only under step 4. A frequently-changing complete statement SHALL NOT be placed in the prefix, because that forfeits prefix caching for the whole conversation on every change.
+4. A small complete statement of current state whose re-statement after each checkpoint is cheaper than a prefix baseline MAY be rail-only, emitted as a `snapshot` on change and re-emitted after a checkpoint.
+
+A re-bake or re-emission at a checkpoint SHALL take effect for the very request that checkpoint precedes, and SHALL survive a failure of that attempt.
 
 Residency SHALL be recorded for every contribution in the per-run record required below, so that a later audit reads one list regardless of where a contribution lived.
 
@@ -324,21 +336,21 @@ Residency SHALL be recorded for every contribution in the per-run record require
 
 #### Scenario: A new surface states rarely-changing state
 
-- **WHEN** a new context surface states current state that changes less often than the chat is compacted
+- **WHEN** a new context surface states current state that changes less often than the chat publishes checkpoints
 - **THEN** it is prefix-resident
 - **AND** a change to it re-renders the prompt rather than appending an item
 
 #### Scenario: A new surface states frequently-changing state
 
-- **WHEN** a new context surface states current state that changes more often than the chat is compacted
+- **WHEN** a new context surface states current state that changes more often than the chat publishes checkpoints
 - **THEN** it is a frozen prefix baseline with rail-resident deltas
-- **AND** the baseline is re-resolved at compaction rather than on every change
+- **AND** the baseline is re-resolved when a checkpoint is published rather than on every change
 
 #### Scenario: A new surface states compact current state
 
-- **WHEN** a new context surface states a small complete statement of current state whose re-statement after each compaction is cheaper than a prefix baseline
+- **WHEN** a new context surface states a small complete statement of current state whose re-statement after each checkpoint is cheaper than a prefix baseline
 - **THEN** it MAY be rail-only, with a `snapshot` emitted when the state changes
-- **AND** the snapshot is re-emitted after compaction rather than changing the system prompt
+- **AND** the snapshot is re-emitted after a checkpoint rather than changing the system prompt
 
 ### Requirement: A prefix change is announced only when history was conditioned on the old value
 
@@ -451,7 +463,9 @@ exception pending #599 rather than part of this change.
 
 ### Requirement: Compaction is the rail's re-baseline boundary
 
-Compaction SHALL be the single boundary at which rail state is re-established. A producer whose items express deltas against a baseline SHALL treat a newly active compaction checkpoint as starting a fresh baseline, rather than comparing across it. A producer whose contribution is a frozen prefix baseline SHALL re-resolve it at compaction and at no other time.
+A published compaction checkpoint SHALL be the single boundary at which rail state is re-established. A producer whose items express deltas against a baseline SHALL treat a newly published checkpoint as starting a fresh baseline, rather than comparing across it. A producer whose contribution is a frozen prefix baseline SHALL re-resolve it when a checkpoint is published and at no other time.
+
+The checkpoint and the epoch state published with it commit before the model step they precede, so a producer re-baselines for the very request that follows the checkpoint rather than for a later turn. A failure of that attempt SHALL NOT retract them, and a retry reuses them.
 
 This rule SHALL be stated once for the rail and inherited, rather than derived independently per producer.
 
@@ -459,17 +473,17 @@ Standing context that is re-supplied on every request SHALL be excluded from the
 
 #### Scenario: A delta producer crosses a compaction
 
-- **WHEN** the first turn after a newly active checkpoint is prepared
-- **THEN** a delta producer establishes a fresh baseline rather than comparing against pre-compaction state
+- **WHEN** a checkpoint is published before a model step
+- **THEN** a delta producer establishes a fresh baseline for that very request rather than comparing against pre-checkpoint state
 - **AND** no transition is reported across the boundary
 
 #### Scenario: A frozen baseline crosses a compaction
 
-- **WHEN** a chat with a frozen prefix baseline is compacted
-- **THEN** the baseline is re-resolved
+- **WHEN** a chat with a frozen prefix baseline publishes a checkpoint
+- **THEN** the baseline is re-resolved in the same transaction, before the model step that follows
 - **AND** it is not re-resolved by any other event
 
-Frozen per-chat digest and temporal baselines retain their owning lifecycles. This requirement SHALL not freeze owner-variable resolution, runtime tool catalogs, or descriptions across attempts. Availability comparisons use the previous successful turn's minimal id/state record within the current epoch; failed attempts never establish an epoch baseline.
+Frozen per-chat digest and temporal baselines retain their owning lifecycles. This requirement SHALL not freeze owner-variable resolution, runtime tool catalogs, or descriptions across attempts. Availability comparisons use the previous successful turn's minimal id/state record within the current epoch; failed attempts never establish such a comparison baseline, and the epoch state a checkpoint publishes with itself survives the failure of the attempt it preceded. A new rail epoch SHALL begin when the active checkpoint's absorbed-through sequence is at or above the sequence of the previous completed Run's triggering user message. That boundary SHALL NOT be decided by comparing checkpoint creation times, and SHALL NOT be read off the sequence of an assistant row, because a retried assistant row keeps its sequence below a checkpoint published between its attempts.
 
 ### Requirement: An item is either persisted-literal or bind-time
 
@@ -504,14 +518,15 @@ because a stored statement about the present request could become false later.
   item
 - **THEN** no stale copy of that item appears in history
 
-An attempt-generated item intended for later conversation history SHALL be staged as a pending persisted-literal contribution. Its exact prepared text is used in the current request, then atomically committed on successful completion. A failure discards that pending contribution. This staging does not add a new wire-format item kind or permit a bind-time-only producer to persist into message history.
+An attempt-generated item intended for later conversation history SHALL be staged as a pending persisted-literal contribution. Its exact prepared text is used in the current request, then atomically committed on successful completion. A failure discards that pending contribution. A compaction checkpoint row is not a pending contribution: it is published with the epoch state it re-bakes before the step it precedes, and that state survives the attempt's failure. This staging does not add a new wire-format item kind or permit a bind-time-only producer to persist into message history.
 
 ### Requirement: Worker-attempt cutover preserves existing conversation state
 
 The new successful-attempt publication rule and the retention of failed-attempt output SHALL
 apply to attempts executed after the coordinated runtime cutover. Cutover SHALL
-preserve existing messages and reminders, active summaries/checkpoints, and
-digest baseline/told-set state without rebuilding, clearing, or adding
+preserve existing messages and reminders, digest baseline/told-set state, and
+the epoch identity a live checkpoint publishes under, without rebuilding,
+clearing, or adding
 retrospective replay filters. Existing state SHALL retain its ordinary
 compaction, digest, and owner-access rules. These prospective rules SHALL NOT
 claim to remove failed pre-cutover Run contributions from existing history or
@@ -545,9 +560,10 @@ so intentional omission remains distinguishable from absence; metadata SHALL
 NOT be rendered to fill it. A bind-time item SHALL record its final computed
 text.
 
-When request preparation rebuilds the request after transition compaction, the
-record SHALL describe the rebuilt request. A Run whose preparation fails before
-dispatch SHALL record no injected items.
+When request preparation rebuilds the request after a checkpoint published before
+its first model step, the record SHALL describe the rebuilt request, including the
+checkpoint's stored text. A Run whose preparation fails before dispatch SHALL
+record no injected items.
 
 The record SHALL identify the winning attempt and remain separate from its system-prompt-only receipt and the minimal availability comparison record. It SHALL commit with successful turn publication. Failed-attempt injected-item lists SHALL not become this record or model history; their system-only receipts and necessary operational events remain separate.
 Content copied from outside the chat SHALL remain non-erasable through deletion
@@ -603,8 +619,15 @@ assistant message SHALL be mapped to one user-role message containing one text
 part with `data.text`, emitted directly after the tool-result message of the
 tool part that precedes it in stored order, or in its stored position when that
 tool pair was omitted by the replay budget; it SHALL NOT be merged into the
-assistant message's own content or into the tool-result message. It SHALL then pass the ordered
-parts to the AI SDK rather than manually constructing a joined transcript.
+assistant message's own content or into the tool-result message. A `data-context`
+part on a `checkpoint` row SHALL be mapped to one user-role message containing one
+text part with `data.text`, emitted in place of the rows through that checkpoint's
+absorbed-through sequence and ahead of every later user and assistant row.
+Selection is by that boundary rather than by the checkpoint row's own sequence: a
+Run SHALL take the latest checkpoint whose absorbed-through sequence is below the
+triggering user message's sequence, because a checkpoint published before the step
+sits above the user row it was published for. It SHALL then pass the ordered parts
+to the AI SDK rather than manually constructing a joined transcript.
 
 This SHALL be an application-level best-effort invariant, not a promise of
 provider-wire byte identity. SDK conversion, role grouping, and provider
@@ -613,9 +636,18 @@ remain a documented exception pending #599 because stored parts do not prove
 step boundaries.
 
 The current top-level system prompt is outside message history and MAY change.
-Compaction MAY replace only the prefix it explicitly supersedes, using the
-materialized replacement history required by `model-system-prompts` and
-`tool-calling`.
+A checkpoint MAY replace only the prefix it explicitly supersedes, through the
+coverage boundary and replay-selection rule required by `model-system-prompts`;
+no other stored form of superseded history is replayed.
+
+#### Scenario: A checkpoint row crosses the SDK boundary
+
+- **WHEN** a chat's effective history is replayed for one triggering user message
+- **THEN** the checkpoint supplied as one user-role message carrying its stored
+  text is the latest checkpoint whose absorbed-through sequence is below that user
+  message's sequence
+- **AND** no user or assistant row through that checkpoint's absorbed-through
+  sequence is supplied
 
 #### Scenario: Context data crosses the SDK boundary
 
@@ -649,7 +681,7 @@ materialized replacement history required by `model-system-prompts` and
 
 The proactively eligible skill catalog for a Chat SHALL be computed from that Chat's effective skill sources, as defined by `agent-skills`, and SHALL be classified as a frozen prefix-resident baseline with rail-resident deltas. The baseline SHALL be the `skills` prompt projection defined by `model-system-prompts`: admitted entries in code-point name order, each with name and description, plus the count of proactively eligible entries omitted. Admission SHALL retain whole entries while the admitted count stays within 256 and the cumulative UTF-8 length of name and description stays within 16 KiB, so that template-owned per-entry markup cannot multiply the bound; omission SHALL be disclosed through that count whenever the baseline admits at least one entry, and the proactively eligible set SHALL remain inspectable through `read("skill://")` regardless.
 
-The baseline and the names of the entries the Chat was last told SHALL be persisted on the Chat row under owner isolation, following the recency-digest precedent, together with the compaction identity under which the baseline was resolved. Accepted-turn preparation SHALL reuse the stored baseline only when a baseline is persisted and its recorded identity equals the Chat's latest compaction identity — a Chat that has never been compacted records both as absent and keeps reusing its first baseline — and SHALL otherwise resolve the current catalog from that Chat's effective skill sources and start a new baseline and told state in the same accepted-turn transaction as the user message and Run. No baseline SHALL be written for a Chat whose effective skill source set is empty. Package edits, model switches, and other prompt contributions SHALL NOT refresh the baseline. A transition compaction inside an already-bound Run SHALL leave that Run's bound prompt unchanged; the next accepted turn starts the refreshed baseline. Caller-supplied owner identifiers SHALL NOT authorize baseline or told-state reads or mutations.
+The baseline and the names of the entries the Chat was last told SHALL be persisted on the Chat row under owner isolation, following the recency-digest precedent, together with the identity of the checkpoint message under which the baseline was resolved. Accepted-turn preparation SHALL reuse the stored baseline only when a baseline is persisted and its recorded identity equals the Chat's latest checkpoint message — a Chat that has published no checkpoint records both as absent and keeps reusing its first baseline — and SHALL otherwise resolve the current catalog from that Chat's effective skill sources and start a new baseline and told state in the same accepted-turn transaction as the user message and Run. No baseline SHALL be written for a Chat whose effective skill source set is empty. Package edits, model switches, and other prompt contributions SHALL NOT refresh the baseline. A checkpoint published before a Run's first model request SHALL re-resolve the baseline in the same transaction as that checkpoint, so the request that follows it renders the refreshed baseline. Caller-supplied owner identifiers SHALL NOT authorize baseline or told-state reads or mutations. The epoch that identity comparison serves SHALL be the rail epoch that `Compaction is the rail's re-baseline boundary` defines, which states its boundary once.
 
 The baseline SHALL enter the prompt only through the template projection. A template that does not reference `skills` SHALL render no catalog, and no server-rendered block SHALL be appended outside the template. Operator-authored descriptions SHALL be neutralized before composing the prompt or any item and SHALL replay from persisted text without another sanitization pass.
 
@@ -661,14 +693,15 @@ The baseline SHALL enter the prompt only through the template projection. A temp
 
 #### Scenario: Compaction starts a new baseline
 
-- **WHEN** a Chat is compacted after catalog notices have accumulated
-- **THEN** the next accepted turn resolves the current catalog as its new baseline and told state
+- **WHEN** a Chat publishes a checkpoint after catalog notices have accumulated
+- **THEN** that checkpoint's publication resolves the current catalog as its new baseline and told state
 - **AND** old deltas are not applied again against that new baseline
 
-#### Scenario: Transition compaction occurs inside a Run
+#### Scenario: A pre-step checkpoint refreshes the baseline inside a Run
 
-- **WHEN** context fitting triggers compaction after a Run has bound its prompt
-- **THEN** that Run keeps its bound skill baseline and the next user turn starts the refreshed baseline
+- **WHEN** context fitting publishes a checkpoint before a Run's first model request
+- **THEN** that Run's request renders the baseline the checkpoint refreshed
+- **AND** the next accepted turn reuses that baseline rather than resolving another
 
 #### Scenario: Operator template omits the namespace
 
@@ -783,7 +816,8 @@ Before resolving effective skill sources, explicit `$skill` activation, Workspac
 At each accepted user turn, accepted-turn preparation SHALL compare the Chat's current Workspace
 root, or its absence, with the root last narrated to the Chat, or the absence of any narration. For
 that comparison, the stored `workspace_told` SHALL be treated as null whenever its
-`workspace_told_from` differs from the Chat's latest compaction identity; when those identities
+`workspace_told_from` names a different checkpoint message than the Chat's latest
+checkpoint row; when those identities
 match, the stored told root is used. When the current and comparison roots differ, the `workspace`
 producer SHALL emit a rail-resident item with form `snapshot`: it SHALL name the canonical root
 and state that the Workspace selects a working root but does not confine host authority, or, when a
@@ -792,9 +826,19 @@ reason persisted during attempt preparation SHALL be consumed from the Chat's pe
 inferred from the current unbound state, by emitting a separate rail-resident item with form
 `notice` in the same turn. The notice SHALL name that reason, and the persisted reason SHALL be
 cleared only when the Run that narrates it completes. The producer SHALL stage the narrated root,
-or its absence, and the latest compaction identity as `workspace_told` and `workspace_told_from`;
-the same accepted-turn transaction SHALL write both values, and the compaction path SHALL NOT
-write Chat state. A Chat that has never been bound and has no narrated root SHALL receive no notice.
+or its absence, and the latest checkpoint message as `workspace_told` and `workspace_told_from`;
+the same accepted-turn transaction that commits the successful turn SHALL write
+both values, and the only other writer SHALL be a checkpoint's publication
+transaction, which advances `workspace_told_from` to name its own row and resets
+the told root, so the state is not left suppressed by a narration the checkpoint
+superseded. The `workspace` producer re-derives its snapshot after that
+transaction commits and before the model step the checkpoint precedes, so the
+re-established state takes effect for that very request rather than on a later
+turn. That snapshot is staged like any other: the successful turn the checkpoint
+preceded records the re-narrated root and the checkpoint's identity in its own
+accepted-turn transaction, so the next turn finds the root already told within
+the epoch, and a failed attempt records neither value, leaving its retry to
+re-derive the same snapshot.
 Workspace state SHALL NOT be placed in the system prompt. Each successful Run that sends a
 Workspace snapshot or notice SHALL include each exact item text, producer, form, and rail residency
 in its owner-scoped Run context-item record under the existing recording rules.
@@ -813,11 +857,12 @@ in its owner-scoped Run context-item record under the existing recording rules.
 
 #### Scenario: Compaction re-establishes Workspace state
 
-- **WHEN** a compaction becomes active for a Chat that is still bound and its stored
-  `workspace_told_from` names an earlier compaction or is null
-- **THEN** the next accepted turn treats the told state as null for comparison and emits a
-  snapshot re-establishing the current root
+- **WHEN** a checkpoint becomes active for a Chat that is still bound and its stored
+  `workspace_told_from` names an earlier checkpoint message or is null
+- **THEN** the first request the checkpoint precedes treats the told state as null
+  for comparison and carries a snapshot re-establishing the current root
 - **AND** the snapshot remains rail-resident rather than changing the system prompt
+- **AND** the successful turn records that root against the checkpoint's identity, so the next turn emits no second snapshot for the same root
 
 #### Scenario: A never-bound Chat receives no Workspace notice
 
