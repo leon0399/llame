@@ -11,8 +11,9 @@ requests for gateways such as LiteLLM.
 Every `providers[]` entry SHALL accept an optional `headers` object whose keys
 are header names and whose values are a string or `null`. A value of another
 type, or two keys equal under ASCII case-folding, SHALL fail startup naming the
-configuration path. No header name is reserved. The map is server-only and
-SHALL NOT be returned by the models endpoint.
+configuration path. A key that the runtime's `Headers` rejects as a header name
+SHALL fail startup naming the configuration path. No header name is reserved. The
+map is server-only and SHALL NOT be returned by the models endpoint.
 
 #### Scenario: A header map on any provider type loads
 
@@ -23,6 +24,11 @@ SHALL NOT be returned by the models endpoint.
 
 - **WHEN** one entry's `headers` declares both `X-Tag` and `x-tag`
 - **THEN** startup fails naming the colliding header paths without printing either value
+
+#### Scenario: An invalid header name fails startup
+
+- **WHEN** an entry declares `"headers": { "bad name": "x" }`
+- **THEN** startup fails naming the header path
 
 #### Scenario: The map never reaches a client of the API
 
@@ -60,7 +66,13 @@ Each provider type SHALL have a default header map: `{ "X-Session-Id": "{session
 
 ### Requirement: Operator header values take precedence over the client's own
 
-An operator string value SHALL replace any header the client sends under the same name, compared under ASCII case-folding, including `User-Agent`, credentials, and the session and identity headers other capabilities require; those requirements describe the default. `null` and an empty render SHALL withdraw only the operator or default value, never a client-set header. The Messages adapter merges an operator `anthropic-beta` with its own betas.
+An operator string value SHALL replace any header the client sends under the same name, compared under ASCII case-folding, including `User-Agent`, credentials, and the session and identity headers other capabilities require; those requirements describe the default. `null` and an empty render SHALL withdraw only the operator or default value, never a client-set header.
+
+#### Scenario: The Messages adapter merges a lowercase anthropic-beta
+
+- **WHEN** an `anthropic-messages` entry declares `"headers": { "anthropic-beta": "x" }`
+- **THEN** its requests carry `x` merged with the adapter's own betas
+- **AND** a differently cased `Anthropic-Beta` is replaced by the adapter's own value
 
 #### Scenario: An operator User-Agent replaces llame's
 
@@ -85,12 +97,17 @@ An operator string value SHALL replace any header the client sends under the sam
 
 ### Requirement: Header values are templates resolved at startup
 
-A header string value SHALL resolve `{env:…}` and `{path:…}` once at startup under the existing interpolation rules and SHALL render `{session:id}` per request. Any other `{name:…}` token SHALL fail startup naming the path. A value that renders empty SHALL send no operator or default value for that header.
+A header string value SHALL resolve `{env:…}` and `{path:…}` once at startup under the existing interpolation rules and SHALL render `{session:id}` per request. Any other `{name:…}` token SHALL fail startup naming the path. A value that renders empty SHALL send no operator or default value for that header. Interpolated output SHALL NOT be rescanned for `{session:id}`.
 
 #### Scenario: Interpolation and the variable combine
 
 - **WHEN** a value is `"{env:DEPLOY}:{session:id}"` and `DEPLOY` is `prod`
 - **THEN** a main-lane request for Chat `c1` carries the value `prod:c1`
+
+#### Scenario: Interpolated text is not rescanned
+
+- **WHEN** a value is `"{env:TAG}"` and `TAG` resolves to `{session:id}`
+- **THEN** requests carry that literal text
 
 #### Scenario: An unknown variable fails startup
 

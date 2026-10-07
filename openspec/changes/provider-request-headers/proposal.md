@@ -1,12 +1,15 @@
 ## Why
 
 llame sends no conversation-correlation header a gateway can read. LiteLLM,
-which an operator can place in front of any provider entry, resolves a session
-from a bare `X-Session-Id` request header to keep a conversation on one
-deployment for prompt-cache affinity and to group spend and traces by
-conversation ([LiteLLM PR #39802](https://github.com/BerriAI/litellm/pull/39802),
-[request headers](https://docs.litellm.ai/docs/proxy/request_headers)). Today
-every turn of a Chat reaches such a gateway as an unrelated request.
+which an operator can place in front of any provider entry, reads a bare
+`X-Session-Id` unconditionally into its session id for spend-log and trace
+grouping ([LiteLLM PR #39802](https://github.com/BerriAI/litellm/pull/39802),
+code only; its [request-headers documentation](https://docs.litellm.ai/docs/proxy/request_headers)
+does not list the bare header yet). Deployment pinning for prompt-cache affinity
+additionally requires the gateway's
+`router_settings.optional_pre_call_checks: ["session_affinity"]`, which is off
+by default. Today every turn of a Chat reaches such a gateway as an unrelated
+request.
 
 The transport-neutral Chat identity this needs already exists: #809 added the
 required `chat: { id, lane }` field to both model-client inputs and supplies it

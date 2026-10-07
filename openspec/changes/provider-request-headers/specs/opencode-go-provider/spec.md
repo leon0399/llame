@@ -43,24 +43,24 @@ that entry's requests (`provider-request-headers`).
 
 #### Scenario: The main turn carries the Chat identity
 
-- **WHEN** a run streams its main turn through an `opencode-go` provider
+- **WHEN** a run streams its main turn through an `opencode-go` provider whose header map does not override the session header
 - **THEN** the request carries the Chat's identifier in the session header
 - **AND** the gateway accepts the request without a missing-session rejection
 
 #### Scenario: Compaction carries the conversation's own identity
 
-- **WHEN** a source-model compaction request is made for a Chat on the same provider
+- **WHEN** a source-model compaction request is made for a Chat on the same provider whose header map does not override the session header
 - **THEN** it carries the same session value as that Chat's main turn
 - **AND** the summarization request can reuse the conversation's prefix identity
 
 #### Scenario: Title generation carries the title lane
 
-- **WHEN** the title service generates a title through an `opencode-go` provider
+- **WHEN** the title service generates a title through an `opencode-go` provider whose header map does not override the session header
 - **THEN** the request carries the Chat's identifier under the `title:` prefix
 - **AND** a title failure leaves the completed answer unaffected under the existing title contract
 
 #### Scenario: The identity survives a retry, a restart, and a compaction
 
-- **WHEN** the same Chat's turn is retried, executed by a restarted worker, or preceded by a compaction
+- **WHEN** the same Chat's turn is retried, executed by a restarted worker, or preceded by a compaction through an entry whose header map does not override the session header
 - **THEN** each request carries the same session value for that lane
 - **AND** no request mints a new identity for an existing Chat

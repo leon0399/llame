@@ -65,7 +65,7 @@ Source inspection, 2026-10-07; nothing was run.
 | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | OMP (`can1357/oh-my-pi` `355b5d9`)                                                    | Per-provider, data-declared names: Codex `session_id`/`session-id`, xAI `x-grok-conv-id`, OpenCode `x-opencode-session`, Anthropic `X-Claude-Code-Session-Id`, OpenRouter body `session_id`. No generic `X-Session-Id`; OMP #6122 asks for an opt-in one. Title calls use a derived per-Chat id after a same-session 400 (#10619). |
 | OpenCode v1 (`dev` `ecc4916`, `packages/opencode/src/session/llm/request.ts:188-203`) | `X-Session-Id` + `x-session-affinity` to every non-OpenCode provider; `x-opencode-*` to OpenCode providers.                                                                                                                                                                                                                        |
-| OpenCode v2 (`v2` `119cb15`, `packages/core/src/session/model-request.ts:266-274`)    | `X-Session-Id`, `x-session-affinity`, and `x-opencode-*` to every provider, Go included; the value is the parent's id for children and forks.                                                                                                                                                                                      |
+| OpenCode v2 (`v2` `119cb15`, `packages/core/src/session/model-request.ts:266-274`)    | `X-Session-Id`, `x-session-affinity`, and `x-opencode-*` to every provider, Go included; the value is the parent's id for child sessions and the fork source's id for forks.                                                                                                                                                       |
 | LiteLLM                                                                               | Reads inbound `X-Session-Id` for its own affinity and spend logs (PR #39802); strips client headers upstream unless forwarding is enabled.                                                                                                                                                                                         |
 | Claude Code                                                                           | Sends `x-claude-code-session-id`; disables its gateway-hint headers on custom base URLs because proxies may reject unknown headers ([gateway protocol](https://code.claude.com/docs/en/llm-gateway-protocol#gateway-hint-headers)).                                                                                                |
 
@@ -76,6 +76,11 @@ Source inspection, 2026-10-07; nothing was run.
 `providers[].headers` is an object from header name to `string | null`,
 accepted on every provider type. The provider entry owns it because whether a
 header has a reader depends on the endpoint, not the model.
+
+At startup, each name is checked with Node's own `Headers` acceptance rule; no
+second header-name grammar is maintained. The resolved map uses a null
+prototype, like MCP headers in `config-loader.ts`'s `resolveMcpHeaders`, so a
+`__proto__` key remains an own property.
 
 Rejected:
 
@@ -131,31 +136,36 @@ exported function renders both, and the Go client's private
 reconfirmed). When #1096 retires the `title` lane, the variable becomes the
 Chat's id everywhere without a configuration change.
 
+LiteLLM only accepts session ids of at least eight characters consisting of
+alphanumerics, hyphens, or underscores, so it discards `title:<chatId>` and
+does not group title requests. That is the accepted trade until issue #1096
+retires the title lane.
+
 Rejected:
 
 - **`{chat:id}`.** It misnames the title-lane value.
 - **The raw id on every lane.** Leo chose to keep `title:<chatId>` until #1096.
 
-### D5: Existing interpolation at startup, one substitution per request
+### D5: Existing interpolation at startup, single-pass parts per request
 
-Each string value goes through `interpolateStringWithSubstitutions`
-(`packages/config-interpolation/src/interpolation.ts:76`) once at startup. It
-already copies an unknown token such as `{session:id}` through literally. Before
-that, one check over the raw value fails startup, naming the path, on any
-`{name:…}` token other than `env:`, `path:`, and `session:id`, because a typo
-such as `{sesion:id}` would otherwise be sent verbatim. Per request, the client
-replaces `{session:id}` with the rendered identity. A value that renders empty
-sends no operator or default value for that header, so `{env:NAME:-}` with
-`NAME` unset works as a switch.
-
-An environment value that itself contains `{session:id}` is substituted too,
-and `{{session:id}` cannot produce a literal; neither has a use, so neither is
-specified.
+Each string value is checked on raw authored text for unknown `{name:…}` tokens,
+then split at authored `{session:id}` tokens; an escaped `{{session:id}` is not
+a token or a split point. Each literal part independently goes through
+`interpolateStringWithSubstitutions`
+(`packages/config-interpolation/src/interpolation.ts:76`) once at startup. The
+resolved value is stored as the ordered list of literal parts and session
+slots. Per request, the parts are joined with the rendered identity. Text
+produced by `{env:…}` or `{path:…}` is therefore never rescanned for
+`{session:id}`, and `{{session:id}` yields a literal `{session:id}`. A value
+that renders empty sends no operator or default value for that header, so
+`{env:NAME:-}` with `NAME` unset works as a switch.
 
 Rejected:
 
-- **A segment parser that tracks literal, secret, and variable parts.** It
-  only adds an escape and a no-rescan rule nobody needs (round-1 review).
+- **A segment parser that tracks literal, secret, and variable parts.** The
+  split-into-parts form is the minimum needed to preserve the existing
+  single-pass interpolation rule while supporting one request-time variable
+  (round-1 review).
 
 ### D6: Operator values win; nothing is reserved
 
@@ -164,11 +174,13 @@ replaces any header the client would send under that name: `user-agent`, Go's
 `x-opencode-session` and `x-opencode-client`, Codex's `originator`, a
 credential header. Requirements elsewhere that name those headers describe the
 default. `null` and an empty render withdraw only the operator or default
-value; they never strip a header the client sets itself. Two adapter limits
-remain: the adapter may append its own token to an operator `User-Agent`, as it
-does to llame's, and `@ai-sdk/anthropic@3.0.118` merges a per-call
-`anthropic-beta` with its own betas (`dist/index.mjs:3989-3996`) rather than
-replacing them.
+value; they never strip a header the client sets itself.
+Two adapter limits remain: the adapter may append its own token to an operator
+`User-Agent`, as it does to llame's, and
+`@ai-sdk/anthropic@3.0.118` uses the exact-key lookup in
+`getBetasFromHeaders`: it merges an operator `anthropic-beta` with its own
+betas only when the key is spelled exactly lowercase `anthropic-beta`; another
+casing is replaced by the adapter's own value (`dist/index.mjs:3992-3996`).
 
 Rejected:
 
