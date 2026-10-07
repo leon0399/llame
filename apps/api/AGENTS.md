@@ -63,7 +63,8 @@ Restricted sandboxes may need local-bind permission for Stryker.
 merge keys supported), or TOML — the format is chosen by the file extension
 (`.jsonc`/`.json`, `.yaml`/`.yml`, or `.toml`). It owns providers, models, run
 timers, trust proxy, tools, MCP, embeddings, and worker profiles. Default path is
-under `apps/api`; `LLAME_CONFIG_PATH` overrides. Bare env vars are not config;
+under `apps/api`, falling back to an existing `llame.config.json` there;
+`LLAME_CONFIG_PATH` overrides. Bare env vars are not config;
 only `{env:...}` and `{path:...}` interpolation expose environment values and
 mark them secret.
 

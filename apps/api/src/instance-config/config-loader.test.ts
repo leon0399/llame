@@ -145,38 +145,43 @@ describe('resolveConfigPath', () => {
     );
   });
 
-  it('fails boot when only the legacy llame.config.json exists (no override)', () => {
+  it('falls back to llame.config.json and parses it as JSONC when the .jsonc default is absent', () => {
+    const jsonPath = path.join(tmpDir, 'llame.config.json');
     writeFileSync(
-      path.join(tmpDir, 'llame.config.json'),
-      '{"providers":[],"models":[]}',
+      jsonPath,
+      `{
+        // comment
+        "runs": { "timeoutSeconds": 123, },
+      }`,
     );
-    expect(() => resolveConfigPath({}, tmpDir)).toThrow(InstanceConfigError);
-    expect(() => resolveConfigPath({}, tmpDir)).toThrow(/llame\.config\.json/);
-    // An explicit override keeps working alongside a legacy file.
-    expect(
-      resolveConfigPath({ LLAME_CONFIG_PATH: 'llame.config.json' }, tmpDir),
-    ).toBe(path.join(tmpDir, 'llame.config.json'));
+    expect(resolveConfigPath({}, tmpDir)).toBe(jsonPath);
+    process.env.LLAME_CONFIG_PATH = resolveConfigPath({}, tmpDir);
+    expect(loadInstanceConfig().runs.timeoutSeconds).toBe(123);
   });
 
-  it('does not throw when no legacy config exists (no override)', () => {
+  it('prefers llame.config.jsonc when both default names exist', () => {
+    writeFileSync(path.join(tmpDir, 'llame.config.json'), '{}');
+    writeFileSync(path.join(tmpDir, 'llame.config.jsonc'), '{}');
     expect(resolveConfigPath({}, tmpDir)).toBe(
       path.join(tmpDir, 'llame.config.jsonc'),
     );
   });
 
-  it('does not throw when only the legacy llame.config.json exists but the new default is also present', () => {
-    writeFileSync(
-      path.join(tmpDir, 'llame.config.json'),
-      '{"providers":[],"models":[]}',
-    );
-    writeFileSync(
-      path.join(tmpDir, 'llame.config.jsonc'),
-      '{"providers":[],"models":[]}',
-    );
+  it('returns the absent .jsonc default when no config exists (no override)', () => {
     expect(resolveConfigPath({}, tmpDir)).toBe(
       path.join(tmpDir, 'llame.config.jsonc'),
     );
   });
+
+  it.each(['yaml', 'yml', 'toml'])(
+    'fails boot when only an undiscovered llame.config.%s exists (no override)',
+    (ext) => {
+      writeFileSync(path.join(tmpDir, `llame.config.${ext}`), '');
+      expect(() => resolveConfigPath({}, tmpDir)).toThrow(
+        new RegExp(`llame\\.config\\.${ext}`, 'u'),
+      );
+    },
+  );
 });
 
 describe('resolvePermissionModes', () => {

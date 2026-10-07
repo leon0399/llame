@@ -1,12 +1,14 @@
 import { readFileSync } from 'node:fs';
-import path from 'node:path';
 
 import {
   createOpenAIEmbeddingBackend,
   type OpenAIEmbeddingBackendConfig,
 } from '../../openai-embedding-backend';
 import { type EmbeddingBackend } from '../../core/embedding-backend';
-import { parseConfigText } from '../../../instance-config/config-loader';
+import {
+  parseConfigText,
+  resolveConfigPath,
+} from '../../../instance-config/config-loader';
 import {
   interpolateString,
   InterpolationError,
@@ -36,12 +38,10 @@ export function resolveSecret(v: unknown): string | undefined {
 }
 
 export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
-  const configPath = path.resolve(
-    process.cwd(),
-    process.env['LLAME_CONFIG_PATH'] ?? 'llame.config.jsonc',
-  );
+  let configPath: string;
   let raw: string;
   try {
+    configPath = resolveConfigPath();
     raw = readFileSync(configPath, 'utf8');
   } catch {
     return undefined;
