@@ -8,7 +8,7 @@ import {
   type Engine,
   type EngineRequest,
 } from './chain';
-import { normalizeSearchOutput } from './output';
+import { normalizeOutput } from './output';
 
 export const webSearchInputSchema = z.strictObject({
   query: z.string().min(1).max(1000),
@@ -70,8 +70,6 @@ export const webSearchTool: Tool<WebSearchArguments> = {
       request,
       buildEngineLookup(config),
     );
-    return 'status' in result
-      ? result
-      : normalizeSearchOutput(result, input.limit);
+    return 'status' in result ? result : normalizeOutput(result, input.limit);
   },
 };

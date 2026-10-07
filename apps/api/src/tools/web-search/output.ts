@@ -68,8 +68,6 @@ export function canonicalUrl(raw: string): string | undefined {
     return undefined;
   }
 }
-export const canonicalizeSearchUrl = canonicalUrl;
-
 function isoPublished(value: string | undefined): string | undefined {
   if (
     value === undefined ||
@@ -246,5 +244,3 @@ export function normalizeOutput(
   const fields = capFields(source, limit);
   return fields.status === 'error' ? fields : fitBudget(source, fields);
 }
-
-export const normalizeSearchOutput = normalizeOutput;

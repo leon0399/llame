@@ -1,5 +1,8 @@
 import { parseWebLocator } from '../web-read/locator';
-import { canonicalizeSearchUrl, normalizeSearchOutput } from './output';
+import {
+  canonicalUrl as canonicalizeSearchUrl,
+  normalizeOutput as normalizeSearchOutput,
+} from './output';
 import {
   type RawCitation,
   type RawResult,
