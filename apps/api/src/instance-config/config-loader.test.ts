@@ -145,34 +145,37 @@ describe('resolveConfigPath', () => {
     );
   });
 
-  it('fails boot when only the legacy llame.config.json exists (no override)', () => {
+  it('discovers a lone llame.config.json and parses it as JSONC', () => {
+    const jsonPath = path.join(tmpDir, 'llame.config.json');
     writeFileSync(
-      path.join(tmpDir, 'llame.config.json'),
-      '{"providers":[],"models":[]}',
+      jsonPath,
+      `{
+        // comment
+        "runs": { "timeoutSeconds": 123, },
+      }`,
     );
-    expect(() => resolveConfigPath({}, tmpDir)).toThrow(InstanceConfigError);
-    expect(() => resolveConfigPath({}, tmpDir)).toThrow(/llame\.config\.json/);
-    // An explicit override keeps working alongside a legacy file.
-    expect(
-      resolveConfigPath({ LLAME_CONFIG_PATH: 'llame.config.json' }, tmpDir),
-    ).toBe(path.join(tmpDir, 'llame.config.json'));
+    expect(resolveConfigPath({}, tmpDir)).toBe(jsonPath);
+    expect(loadInstanceConfig().runs.timeoutSeconds).toBe(123);
   });
 
-  it('does not throw when no legacy config exists (no override)', () => {
-    expect(resolveConfigPath({}, tmpDir)).toBe(
-      path.join(tmpDir, 'llame.config.jsonc'),
+  it.each(['jsonc', 'json', 'yaml', 'yml', 'toml'])(
+    'discovers a lone llame.config.%s (no override)',
+    (ext) => {
+      const file = path.join(tmpDir, `llame.config.${ext}`);
+      writeFileSync(file, '');
+      expect(resolveConfigPath({}, tmpDir)).toBe(file);
+    },
+  );
+
+  it('fails boot when more than one llame.config.* exists (no override)', () => {
+    writeFileSync(path.join(tmpDir, 'llame.config.json'), '{}');
+    writeFileSync(path.join(tmpDir, 'llame.config.jsonc'), '{}');
+    expect(() => resolveConfigPath({}, tmpDir)).toThrow(
+      /multiple config files: .*llame\.config\.jsonc, .*llame\.config\.json;/u,
     );
   });
 
-  it('does not throw when only the legacy llame.config.json exists but the new default is also present', () => {
-    writeFileSync(
-      path.join(tmpDir, 'llame.config.json'),
-      '{"providers":[],"models":[]}',
-    );
-    writeFileSync(
-      path.join(tmpDir, 'llame.config.jsonc'),
-      '{"providers":[],"models":[]}',
-    );
+  it('returns the absent .jsonc default when no config exists (no override)', () => {
     expect(resolveConfigPath({}, tmpDir)).toBe(
       path.join(tmpDir, 'llame.config.jsonc'),
     );

@@ -1,5 +1,14 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-07
+
+- Restored loading of an existing `llame.config.json`, parsed as JSONC as
+  before [#1082](https://github.com/leon0399/llame/pull/1082); startup no longer
+  demands a rename. With no `LLAME_CONFIG_PATH`, the loader uses whichever single
+  `llame.config.jsonc`, `.json`, `.yaml`, `.yml`, or `.toml` exists in its
+  working directory, and fails startup naming the files when more than one does.
+  The chat-search eval resolves its config the same way.
+
 # 2026-10-06
 
 - **Breaking:** Compaction storage is now a `checkpoint` message row with an

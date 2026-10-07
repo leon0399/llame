@@ -7,7 +7,8 @@ read_when:
 # Operator
 
 The instance configuration is `apps/api/llame.config.jsonc` (default; override
-with `LLAME_CONFIG_PATH`). Its format is chosen by the file extension: JSONC
+with `LLAME_CONFIG_PATH`). Without an override, whichever single
+`llame.config.<ext>` exists there loads; more than one fails startup. Its format is chosen by the file extension: JSONC
 (`.jsonc`/`.json`), YAML with anchors and merge keys (`.yaml`/`.yml`), or TOML
 (`.toml`). It and every file it references are read when an API or
 worker process starts, so a change applies only after every API and worker
