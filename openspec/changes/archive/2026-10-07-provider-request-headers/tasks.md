@@ -8,7 +8,7 @@ master <- provider-request-headers/proposal <- provider-request-headers/headers 
 
 The Chat identity channel this change renders shipped with the archived
 `opencode-go-provider` change (#809); no layer changes a model-client input or
-a call site. Process: [CONTRIBUTING](../../../CONTRIBUTING.md).
+a call site. Process: [CONTRIBUTING](../../../../CONTRIBUTING.md).
 
 Layers, each with its branch, parent, ownership, authored-size estimate against
 its parent (tests, specs, and docs included; no generated output is involved),
@@ -64,7 +64,7 @@ and the closure of #881.
 - [x] 2.6 [headers] Add a dated `CHANGELOG.md` entry: the new `headers` map, the default `X-Session-Id` on four provider types and how to remove it, the Codex opt-in, and that operator values override llame's own headers including `User-Agent`; then close #881 with authorization after verifying each acceptance item in `proposal.md` is covered by a test.
 - [x] 2.7 [headers] Prove the layer locally with `pnpm --filter api lint`, `typecheck`, and `test:coverage`, `pnpm --filter api build`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; measure the parent-relative authored diff against the budget; publish or refresh the draft with `$gh-stack`. Recorded 2026-10-07: `pnpm --filter api lint` and `typecheck` pass; focused unit run of `src/instance-config`, `src/models`, `src/runs/run-execution.service.test.ts`, `src/titles`, and the two search unit files 1,152 passed (2 `resolveConfigPath` failures from an untracked local `apps/api/llame.config.json`, pass on a clean checkout); the three touched integration files 16 passed; `pnpm --filter api build`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check` pass; full `test:coverage` left to CI. Authored diff against `proposal`: 1,138 lines (1,051 added, 87 deleted), within budget.
 - [x] 2.8 [headers] SR: self-review the draft PR's parent-relative diff against `REVIEW_GUIDE.md` and the approved scope, with an independent subagent on the configuration boundary and the header precedence; fix accepted findings with new commits, rerun affected checks, update the PR body, and mark ready. Recorded: one code-review and one ponytail-review subagent; accepted the `{path:}` file-location error, identifier-only token names (JSON values load verbatim), anthropic-beta and Go null-header tests, the single `withRequestHeaders` helper, and the simpler overlay, split, and tests; kept the `RequestHeaders` alias the anti-slop lint rule needs.
-- [ ] 2.9 [headers] GR: after ready, run the Ready-PR monitoring loop to completion on the current head (terminal passing CI, every expected reviewer complete, zero actionable unresolved feedback) before creating `finalize`.
+- [x] 2.9 [headers] GR: after ready, run the Ready-PR monitoring loop to completion on the current head (terminal passing CI, every expected reviewer complete, zero actionable unresolved feedback) before creating `finalize`. Recorded on finalize: head `ab609082`. CI is terminal and passing; the cancelled Product e2e job (a Playwright install cancellation) passed on rerun. CodeRabbit and pullfrog approved, Codex completed with no findings, the three pullfrog threads were fixed in `ab609082` and resolved, and monitoring covered the 15-minute floor.
 
 ## 3. Finalize layer
 
@@ -74,9 +74,9 @@ archive movement only; never an application fix. Enter the branch with
 `$gh-stack` from the implementation top **before** `$openspec-sync-specs`
 writes any canonical spec.
 
-- [ ] 3.1 [finalize] Confirm with `$gh-stack` that `provider-request-headers/finalize` sits on the published, reviewed, CI-green `headers` layer and that every task above is checked.
-- [ ] 3.2 [finalize] Use `$openspec-sync-specs` to create the `provider-request-headers` capability and apply the `instance-config`, `provider-api-selection`, and `opencode-go-provider` deltas; verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass and every shipped scenario heading survives.
-- [ ] 3.3 [finalize] Verify archive readiness with `openspec status --change provider-request-headers --json` and every tracked task checked; then use `$openspec-archive-change` and verify strict `--specs` and `--all` validation, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] 3.1 [finalize] Confirm with `$gh-stack` that `provider-request-headers/finalize` sits on the published, reviewed, CI-green `headers` layer and that every task above is checked. Recorded: finalize sits on `ab609082`, and every task above is checked.
+- [x] 3.2 [finalize] Use `$openspec-sync-specs` to create the `provider-request-headers` capability and apply the `instance-config`, `provider-api-selection`, and `opencode-go-provider` deltas; verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass and every shipped scenario heading survives. Recorded: `provider-request-headers` was created and three MODIFIED deltas applied (`instance-config` 1, `opencode-go-provider` 2, `provider-api-selection` 2). Every canonical block equals its delta block (whitespace-normalized), and every shipped scenario heading survives. `validate --specs --strict` and `--all --strict` report the same pre-existing failures as `e90b4aa`, and the new spec and change pass.
+- [x] 3.3 [finalize] Verify archive readiness with `openspec status --change provider-request-headers --json` and every tracked task checked; then use `$openspec-archive-change` and verify strict `--specs` and `--all` validation, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`. Recorded: all artifacts are done and every task is checked before `openspec archive --skip-specs`.
 
 ## Workflow follow-up
 
