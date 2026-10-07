@@ -80,7 +80,8 @@ harness-owned sub-request. No peer fans out across arbitrary vendors.
 ### D1: One code-owned tool; engine choice is operator-only
 
 `web_search` is registered beside `read` with a strict input schema `{ query, recency?, limit? }`:
-`query` is a non-empty string, `recency` is `day | week | month | year`, `limit` is an integer
+`query` is a string of 1 to 1,000 UTF-16 units (a model cannot blow the output budget through
+the echoed query), `recency` is `day | week | month | year`, `limit` is an integer
 1–20 defaulting to 10. The model never names an engine.
 
 Alternatives rejected: structured filters (`includeDomains`, `after`, `country`), which most
@@ -127,9 +128,11 @@ type WebSearchOutput =
   sliced to `limit` and citations to 20.
 - The JSON-serialized output is kept under 15,000 units by dropping trailing results or
   citations with a note, so the runner's 16,000-unit truncation
-  (`packages/runtime-safety/src/result-truncation.ts:171-172`) never cuts a URL. An 8,000-unit
-  answer plus 20 bounded citations always fits, so a grounded answer never loses its last
-  citation.
+  (`packages/runtime-safety/src/result-truncation.ts:171-172`) never cuts a URL. The budget counts
+  `query` (at most 1,000), `engine`, and `notes` (at most 10 entries of 200). An answer never
+  drops its first citation: 8,000 + 1,000 + 2,000 of notes + one 2,248-unit citation is about
+  13,300 units with JSON overhead, so one citation always fits, while 20 maximal citations
+  (about 45,000 units) do not and are dropped from the tail.
 - `notes` record what the answering engine ignored, for example `recency is not supported by
 duckduckgo`, and which earlier engines failed or were empty.
 - Citations are deduplicated by URL.
@@ -162,14 +165,13 @@ Entry shapes, all with optional `timeoutSeconds` (positive integer, default 60):
 | `searxng`      | `baseUrl` (required, absolute http(s)) |
 | `duckduckgo`   | none                                   |
 | `aggregate`    | `engines` (two or more distinct ids)   |
-| `model-hosted` | `model` (a `models[].id`), `effort`?   |
+| `model-hosted` | `model` (a `models[].id`)              |
 
 `key` and `baseUrl` use the existing interpolation and are protected as secrets when
 interpolated. Validation at startup: unique ids; every `chain` and `aggregate.engines` id exists;
 `aggregate` children are `brave`, `exa`, `exa-mcp`, `perplexity`, `searxng`, or `duckduckgo` (no
 nested aggregates, no `model-hosted`); `model-hosted.model` names a model whose provider type is
-`openai-responses`, `openai-codex`, or `anthropic-messages`, and its `effort`, when set, is one of
-that model's effort levels; a `chain` is non-empty and has no duplicates. `web_search` in `tools.allowed` without `webSearch.chain` fails startup naming
+`openai-responses`, `openai-codex`, or `anthropic-messages`; a `chain` is non-empty and has no duplicates. `web_search` in `tools.allowed` without `webSearch.chain` fails startup naming
 `webSearch.chain`.
 
 Each engine type's schema branch, loader shape, and validation land in the layer that ships its
@@ -246,7 +248,8 @@ All requests carry the product User-Agent, reject redirects, and read at most 5 
 server do not enforce it. It parses the tool's text content block by block (`Title:`/`URL:`
 blocks separated by `---`) and skips a block without a `URL:` line rather than failing the
 response, because highlights are page text that can contain the separator. Exa's success text
-`No search results found` is `empty`. An `isError` result is classified by the status its text carries (401/403
+text beginning `No search results found` (the deployed string continues `. Please try a
+different query.`) is `empty`. An `isError` result is classified by the status its text carries (401/403
 `auth`, 429 or Exa's free-limit message `rate_limited`, otherwise `upstream_error`), and an HTTP
 429 from the transport is `rate_limited`. Other unparsable output is `upstream_error`.
 
@@ -283,10 +286,12 @@ existing bounds.
 A `model-hosted` engine builds the referenced model's client as a Run would (provider
 credentials, base URL, configured headers, `providerOptions` composition) and issues one request
 on a new `search` session lane, so `{session:id}` renders `search:<chatId>` rather than the main
-lane's Chat id. Effort is the engine's optional `effort`, validated at startup against the referenced model's
-effort levels, else that model's `defaultEffort` when it declares `reasoning`, else none. The
-Run's effort belongs to a different model and is never inherited. The override exists because
-OpenAI web search rejects `gpt-5` at `minimal` effort, a plausible chat default:
+lane's Chat id. The request carries no reasoning effort, as title generation carries none: the Run's effort
+belongs to a different model, and leaving the effort layer empty keeps
+`provider-api-selection`'s four-layer composition and the Messages effort rule true as written.
+The provider default then applies, which also avoids OpenAI's rejection of web search on
+`gpt-5` at `minimal` effort. An operator who needs a specific effort sets it in the referenced
+model entry's `providerOptions`:
 
 - system text from a packaged template instructing the model to search, answer concisely, and cite
   sources; user text is the query, plus a recency phrase when `recency` is set. No chat history,

@@ -7,7 +7,7 @@ configures, falls back between, fans out across, or delegates to a provider's ho
 
 ### Requirement: The web search tool has one stable model-facing contract
 
-The code-owned inventory SHALL include `web_search`, classified `read_only`, eligible only through its own exact `tools.allowed` entry and authorized per call by `tools.permissions.web_search`. Its input SHALL be a strict object with a required non-empty `query` string, an optional `recency` of `day`, `week`, `month`, or `year`, and an optional integer `limit` from 1 to 20 that defaults to 10. The model SHALL NOT be able to select an engine.
+The code-owned inventory SHALL include `web_search`, classified `read_only`, eligible only through its own exact `tools.allowed` entry and authorized per call by `tools.permissions.web_search`. Its input SHALL be a strict object with a required `query` string of 1 to 1,000 UTF-16 units, an optional `recency` of `day`, `week`, `month`, or `year`, and an optional integer `limit` from 1 to 20 that defaults to 10. The model SHALL NOT be able to select an engine.
 
 #### Scenario: Unknown argument is refused
 
@@ -56,7 +56,7 @@ Every result and citation `url` SHALL be parsed as a WHATWG URL with scheme `htt
 
 ### Requirement: Output fields are bounded within the result cap
 
-Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles SHALL be at most 200, snippets 300, and answers 8,000 units; `published` SHALL be present only as an ISO 8601 date; results SHALL be cut to `limit` and citations to 20. When the JSON-serialized output would exceed 15,000 units, trailing results or citations SHALL be dropped with a note, so generic truncation never cuts a URL.
+Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles SHALL be at most 200, snippets 300, and answers 8,000 units; `published` SHALL be present only as an ISO 8601 date; results SHALL be cut to `limit` and citations to 20.`notes` SHALL hold at most 10 entries of at most 200 units.
 
 #### Scenario: Long snippet is cut
 
@@ -68,11 +68,21 @@ Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles
 - **WHEN** a hosted engine answers with 12,000 units of text and three citations
 - **THEN** the answer is cut to 8,000 units with a note and all three citations remain
 
+### Requirement: The serialized output fits the result cap
+
+When the JSON-serialized output, `query`, `engine`, and `notes` included, would exceed 15,000 UTF-16 units, trailing results or citations SHALL be dropped with a note until it fits, so generic result truncation never cuts a URL. An `answer` output SHALL keep at least its first citation; the field caps guarantee that an answer with one citation fits.
+
 #### Scenario: Oversized output drops trailing entries
 
 - **WHEN** 20 results with maximum-length fields would serialize beyond 15,000 characters
 - **THEN** trailing results are dropped until the output fits, with a note stating how many
 - **AND** every remaining URL is complete
+
+#### Scenario: A maximal answer keeps a citation
+
+- **WHEN** a hosted engine answers with 8,000 units of text and 20 citations whose URLs are each 2,000 units long, for a 1,000-unit query
+- **THEN** trailing citations are dropped with a note until the output fits
+- **AND** at least the first citation remains
 
 ### Requirement: The chain tries engines in order and advances on failure or emptiness
 
@@ -192,7 +202,7 @@ Engine types SHALL be `brave`, `exa`, and `perplexity` (Search API) with a requi
 
 ### Requirement: Model-hosted engines run a bounded grounded sub-request
 
-A `model-hosted` engine SHALL send one request to its configured model, with that model's credentials and headers on the `search` session lane, the engine's `effort`, else the model's default effort, and never the Run's, and the provider's hosted web search enabled. The request SHALL contain only packaged instructions, the query, and a recency phrase when set. It SHALL answer with the final text and, as citations, the URLs that text cites.
+A `model-hosted` engine SHALL send one request to its configured model, with that model's credentials and headers on the `search` session lane, no reasoning effort, as title generation sends none, and never the Run's, and the provider's hosted web search enabled. The request SHALL contain only packaged instructions, the query, and a recency phrase when set. It SHALL answer with the final text and, as citations, the URLs that text cites.
 
 #### Scenario: Different Run model
 

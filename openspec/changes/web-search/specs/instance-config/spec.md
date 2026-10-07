@@ -21,7 +21,7 @@ The config file SHALL accept an optional top-level `webSearch` object with an `e
 
 ### Requirement: Web search engine entries have fixed per-type shapes
 
-Each engine entry MAY set `timeoutSeconds`, a positive integer defaulting to 60. `brave`, `exa`, and `perplexity` SHALL require `key`; `exa-mcp` SHALL accept an optional `key`; `searxng` SHALL require an absolute `http:` or `https:` `baseUrl`; `duckduckgo` SHALL accept no other field; `aggregate` SHALL require `engines` with two or more distinct ids; and `model-hosted` SHALL require `model` and accept an optional `effort`. `key` and `baseUrl` SHALL be interpolated secrets.
+Each engine entry MAY set `timeoutSeconds`, a positive integer defaulting to 60. `brave`, `exa`, and `perplexity` SHALL require `key`; `exa-mcp` SHALL accept an optional `key`; `searxng` SHALL require an absolute `http:` or `https:` `baseUrl`; `duckduckgo` SHALL accept no other field; `aggregate` SHALL require `engines` with two or more distinct ids; and `model-hosted` SHALL require `model`. `key` and `baseUrl` SHALL be interpolated secrets.
 
 #### Scenario: Missing key fails startup
 
@@ -40,7 +40,7 @@ Each engine entry MAY set `timeoutSeconds`, a positive integer defaulting to 60.
 
 ### Requirement: Web search references are validated at startup
 
-Every id in `webSearch.chain` and in an `aggregate` entry's `engines` SHALL name a defined engine. An `aggregate` child SHALL be a `brave`, `exa`, `exa-mcp`, `perplexity`, `searxng`, or `duckduckgo` engine. A `model-hosted` entry's `model` SHALL name a `models[]` entry whose provider type is `openai-responses`, `openai-codex`, or `anthropic-messages`, and its `effort`, when set, SHALL be one of that model's declared effort levels. Any violation SHALL fail startup naming the offending path.
+Every id in `webSearch.chain` and in an `aggregate` entry's `engines` SHALL name a defined engine. An `aggregate` child SHALL be a `brave`, `exa`, `exa-mcp`, `perplexity`, `searxng`, or `duckduckgo` engine. A `model-hosted` entry's `model` SHALL name a `models[]` entry whose provider type is `openai-responses`, `openai-codex`, or `anthropic-messages`. Any violation SHALL fail startup naming the offending path.
 
 #### Scenario: Unknown chain id fails startup
 
@@ -61,11 +61,6 @@ Every id in `webSearch.chain` and in an `aggregate` entry's `engines` SHALL name
 
 - **WHEN** an `aggregate` entry sets `engines` to `["brave", "brave"]`
 - **THEN** startup fails naming that entry's `engines` path
-
-#### Scenario: Hosted effort outside the model's levels fails startup
-
-- **WHEN** a `model-hosted` entry sets `effort: "minimal"` and its model declares no `minimal` effort level
-- **THEN** startup fails naming that entry's `effort` path
 
 #### Scenario: Hosted engine inside an aggregate fails startup
 

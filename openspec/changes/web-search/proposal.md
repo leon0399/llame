@@ -28,7 +28,8 @@ already provide ([#1102](https://github.com/leon0399/llame/issues/1102)).
     ranks with Reciprocal Rank Fusion.
   - `model-hosted`: a bounded sub-request to a configured `models[]` entry whose provider is
     `openai-responses`, `openai-codex`, or `anthropic-messages`, with that provider's hosted
-    search enabled. It runs whatever model the Run uses.
+    search enabled. The sub-request always uses that referenced model, so a Run on any model,
+    including one with no hosted search, can search through it.
 - The chain tries engines in order; a failure or an empty result advances to the next engine. Each
   engine attempt is bounded by its `timeoutSeconds` (default 60); the whole call is bounded by the
   existing `tools.callTimeoutSeconds` (default 120).
@@ -94,6 +95,8 @@ Decisions from the 2026-10-07 design session (grilling rounds Q1–Q20):
   that `read`'s `path` clauses do not restrict `web_search`.
 - `provider-request-headers`: "The session variable renders the Chat identity per lane" adds the
   `search` lane rendered as `search:<chatId>`.
+- `provider-api-selection`: "Language-model requests carry the Chat identity" adds `search` to
+  the closed lane set and names the hosted-search sub-request as its only sender.
 
 Deliberately unchanged:
 
@@ -102,6 +105,10 @@ Deliberately unchanged:
   `web_search` group, so operators who never enable search copy nothing new.
 - `tool-prompt-templates`: the new packaged description follows the existing rule for every
   llame-owned tool.
+- `provider-api-selection` "Model provider options are forwarded under a fixed precedence" and
+  `anthropic-messages-provider` effort mapping: a hosted sub-request carries no Run effort, as
+  title generation does, so the four-layer composition and the Messages effort rule hold as
+  written.
 
 ## Impact
 
