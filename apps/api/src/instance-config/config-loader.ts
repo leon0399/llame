@@ -1485,7 +1485,8 @@ const DEFAULT_PROVIDER_HEADERS: Readonly<
   'opencode-go': { 'X-Session-Id': ['', ''] },
 };
 
-const PROVIDER_HEADER_TOKEN_PATTERN = /\{([^{}:]+):([^{}]*)\}/gu;
+const PROVIDER_HEADER_TOKEN_PATTERN =
+  /(?<!\{)\{([A-Za-z][A-Za-z0-9_-]*):([^{}]*)\}/gu;
 const PROVIDER_SESSION_TOKEN_PATTERN = /(?<!\{)\{session:id\}/gu;
 
 function assertValidProviderHeaderName(name: string, configPath: string): void {
@@ -1501,10 +1502,6 @@ function assertKnownProviderHeaderTokens(
   configPath: string,
 ): void {
   for (const match of raw.matchAll(PROVIDER_HEADER_TOKEN_PATTERN)) {
-    const index = match.index;
-    // `{{` is the interpolation escape for a literal `{`; do not inspect the
-    // second brace as the start of a template token.
-    if (index > 0 && raw[index - 1] === '{') continue;
     const name = match[1];
     const body = match[2];
     if (
@@ -1545,17 +1542,15 @@ function resolveProviderHeaderValue(
   env: NodeJS.ProcessEnv,
 ): ReadonlyArray<string> {
   assertKnownProviderHeaderTokens(rawValue, configPath);
-  const parts = rawValue.split(PROVIDER_SESSION_TOKEN_PATTERN);
-  for (let index = 0; index < parts.length; index += 1) {
-    const value = resolvePrivateMcpString(parts[index] ?? '', configPath, env);
+  return rawValue.split(PROVIDER_SESSION_TOKEN_PATTERN).map((part) => {
+    const value = resolveInterpolatedString(part, configPath, env);
     if (/[\r\n\0]/u.test(value)) {
       throw new InstanceConfigError(
         `${configPath}: resolved value contains forbidden control characters`,
       );
     }
-    parts[index] = value;
-  }
-  return parts;
+    return value;
+  });
 }
 
 function resolveProviderHeaders(
@@ -1566,33 +1561,26 @@ function resolveProviderHeaders(
 ): RequestHeaderTemplates {
   const headers: Record<string, ReadonlyArray<string>> = {};
   Object.setPrototypeOf(headers, null);
-  const namesByFold = new Map<string, string>();
+  const headersPath = `providers[${providerId}].headers`;
 
+  if (rawHeaders !== undefined) {
+    assertProviderHeaderNames(rawHeaders, headersPath);
+  }
+
+  const operatorNames = new Set(
+    Object.keys(rawHeaders ?? {}).map(asciiCaseFold),
+  );
   for (const [name, value] of Object.entries(DEFAULT_PROVIDER_HEADERS[type])) {
-    headers[name] = value;
-    namesByFold.set(asciiCaseFold(name), name);
+    if (!operatorNames.has(asciiCaseFold(name))) {
+      headers[name] = value;
+    }
   }
 
   if (rawHeaders === undefined) return headers;
-  const headersPath = `providers[${providerId}].headers`;
-  assertProviderHeaderNames(rawHeaders, headersPath);
   for (const [name, rawValue] of Object.entries(rawHeaders)) {
+    if (rawValue === null) continue;
     const configPath = `${headersPath}.${name}`;
-    const folded = asciiCaseFold(name);
-    const prior = namesByFold.get(folded);
-
-    if (rawValue === null) {
-      if (prior !== undefined) {
-        delete headers[prior];
-        namesByFold.delete(folded);
-      }
-      continue;
-    }
-
-    const parts = resolveProviderHeaderValue(rawValue, configPath, env);
-    if (prior !== undefined) delete headers[prior];
-    headers[name] = parts;
-    namesByFold.set(folded, name);
+    headers[name] = resolveProviderHeaderValue(rawValue, configPath, env);
   }
 
   return headers;

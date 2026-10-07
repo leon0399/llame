@@ -40,8 +40,7 @@ import {
   trackAbortSettlement,
 } from './openai-model-client';
 import {
-  overlayHeaders,
-  renderRequestHeaders,
+  withRequestHeaders,
   type RequestHeaderTemplates,
 } from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
@@ -181,29 +180,6 @@ function providerOptionsNamespace(providerName: string): string {
 }
 
 /**
- * The per-call headers every request this client issues carries (design D6):
- * llame's product token, the session header its Chat renderer produces when
- * configured, and the startup-resolved operator map overlaid last. Per call
- * rather than provider-level because values can change with the Chat and the
- * SDK replaces the product token on structured requests; fixed transport
- * headers ride the provider settings.
- */
-function perCallHeaders(
-  config: OpenAICompletionsModelClientConfig,
-  chat: ChatIdentity,
-): Record<string, string> {
-  const headers: Record<string, string> = productUserAgentHeaders(config);
-  if (config.sessionHeader !== undefined) {
-    const { name, value } = config.sessionHeader(chat);
-    headers[name] = value;
-  }
-  return overlayHeaders(
-    headers,
-    renderRequestHeaders(config.requestHeaders, chat),
-  );
-}
-
-/**
  * One composed record under the configured provider name's namespace — the
  * camel-case the adapter derives from it, not the adapter's own
  * `openaiCompatible` key — for a streaming and a structured-generation
@@ -260,6 +236,22 @@ function composeStructuredProviderOptions(
       reservedPaths: COMPLETIONS_RESERVED_PROVIDER_OPTION_PATHS,
     }),
   );
+}
+
+/**
+ * Builds the headers for one request, including the product user-agent,
+ * optional transport session identity, and rendered operator templates.
+ */
+function perCallHeaders(
+  config: OpenAICompletionsModelClientConfig,
+  chat: ChatIdentity,
+) {
+  const baseHeaders = productUserAgentHeaders(config);
+  if (config.sessionHeader !== undefined) {
+    const { name, value } = config.sessionHeader(chat);
+    baseHeaders[name] = value;
+  }
+  return withRequestHeaders(baseHeaders, config.requestHeaders, chat);
 }
 
 /** The redirect statuses a response can answer with (the web-read set). */
@@ -356,6 +348,7 @@ function runOpenAICompatibleStream(
       maxOutputTokens: config.maxOutputTokens,
     }),
   };
+
   // The shared tool loop: without it `streamText` stops after one step.
   applyToolCallingOptions(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
@@ -419,13 +412,14 @@ export function createOpenAICompletionsModelClient(
     }),
     streamText: (input: ModelStreamInput) =>
       runOpenAICompatibleStream(provider, config, dependencies, input),
-    generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
-      generateToolBoundObject(provider(config.providerModelId), input, {
+    generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) => {
+      return generateToolBoundObject(provider(config.providerModelId), input, {
         headers: perCallHeaders(config, input.chat),
         ...composeStructuredProviderOptions(config),
         ...(config.maxOutputTokens !== undefined && {
           maxOutputTokens: config.maxOutputTokens,
         }),
-      }),
+      });
+    },
   };
 }

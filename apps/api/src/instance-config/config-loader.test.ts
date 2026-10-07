@@ -3411,37 +3411,32 @@ describe('loadInstanceConfig — provider request headers (provider-request-head
       'openai-responses',
       '"id": "responses", "type": "openai-responses"',
       { 'X-Session-Id': ['', ''] },
-      {},
     ],
     [
       'openai-completions',
       '"id": "completions", "type": "openai-completions", "baseUrl": "https://example.test/v1"',
       { 'X-Session-Id': ['', ''] },
-      {},
     ],
     [
       'anthropic-messages',
       '"id": "anthropic", "type": "anthropic-messages"',
       { 'X-Session-Id': ['', ''] },
-      {},
     ],
     [
       'openai-codex',
       '"id": "codex", "type": "openai-codex", "key": "key", "accountId": "account"',
-      {},
       {},
     ],
     [
       'opencode-go',
       '"id": "go", "type": "opencode-go", "key": "key"',
       { 'X-Session-Id': ['', ''] },
-      {},
     ],
   ] as const)(
     'resolves the %s default header map when headers is absent',
-    (_type, provider, expected, env) => {
+    (_type, provider, expected) => {
       writeConfig(`{ "providers": [{ ${provider} }] }`);
-      expect(loadInstanceConfig(env).providers[0]?.headers).toEqual(expected);
+      expect(loadInstanceConfig().providers[0]?.headers).toEqual(expected);
     },
   );
 
@@ -3455,6 +3450,21 @@ describe('loadInstanceConfig — provider request headers (provider-request-head
     }`);
 
     expect(loadInstanceConfig().providers[0]?.headers).toEqual({});
+  });
+
+  it('loads an opencode-go null header without changing its defaults', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "go",
+        "type": "opencode-go",
+        "key": "key",
+        "headers": { "x-opencode-session": null }
+      }]
+    }`);
+
+    expect(loadInstanceConfig().providers[0]?.headers).toEqual({
+      'X-Session-Id': ['', ''],
+    });
   });
 
   it('replaces a default header with the operator value and casing', () => {
@@ -3571,6 +3581,25 @@ describe('loadInstanceConfig — provider request headers (provider-request-head
     });
   });
 
+  it('keeps a JSON-valued header literal as one resolved part', () => {
+    writeConfig(
+      JSON.stringify({
+        providers: [
+          {
+            id: 'p',
+            type: 'openai-responses',
+            headers: { 'X-Test': '{"_user":"llame"}' },
+          },
+        ],
+      }),
+    );
+
+    expect(loadInstanceConfig().providers[0]?.headers).toEqual({
+      'X-Session-Id': ['', ''],
+      'X-Test': ['{"_user":"llame"}'],
+    });
+  });
+
   it('resolves environment interpolation at startup and retains the session token', () => {
     writeConfig(`{
       "providers": [{
@@ -3602,7 +3631,6 @@ describe('loadInstanceConfig — provider request headers (provider-request-head
       'X-Session-Id': ['', ''],
       'X-Test': [''],
     });
-    expect(Object.hasOwn(headers ?? {}, 'X-Test')).toBe(true);
   });
 
   it('rejects a control character in a resolved header without printing the value', () => {
@@ -3625,8 +3653,9 @@ describe('loadInstanceConfig — provider request headers (provider-request-head
     }
   });
 
-  it('reports a missing header path interpolation by configuration path, not value', () => {
-    const missingPath = path.join(tmpDir, 'missing-header-secret');
+  it('reports a missing header path interpolation by file location, not value', () => {
+    const missingPath = path.join(tmpDir, 'missing-header-file');
+    const secret = 'header-secret';
     writeConfig(`{
       "providers": [{
         "id": "p",
@@ -3640,7 +3669,8 @@ describe('loadInstanceConfig — provider request headers (provider-request-head
       expect.unreachable('expected a missing header path interpolation');
     } catch (error) {
       expect(errorMessage(error)).toContain('providers[p].headers.X-Test');
-      expect(errorMessage(error)).not.toContain('header-secret');
+      expect(errorMessage(error)).toContain(missingPath);
+      expect(errorMessage(error)).not.toContain(secret);
     }
   });
 });

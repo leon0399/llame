@@ -11,6 +11,7 @@ import {
 
 import {
   type BillingMode,
+  type ChatIdentity,
   createModelStreamFinishCallback,
   type ModelClient,
   type ModelObjectInput,
@@ -18,9 +19,9 @@ import {
   type ModelStreamResult,
 } from './model-client';
 import {
-  overlayHeaders,
-  renderRequestHeaders,
+  withRequestHeaders,
   type RequestHeaderTemplates,
+  type RequestHeaders,
 } from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
 import type { TokenPrice } from './model-catalog';
@@ -57,18 +58,10 @@ export const KEYLESS_PLACEHOLDER_API_KEY = 'keyless-no-credential-configured';
  * lowercase so it replaces the adapter's own header instead of duplicating it.
  * Single-sourced here so no client can drift on the key or the value.
  */
-export function productUserAgentHeaders(config: { userAgent: string }) {
+export function productUserAgentHeaders(config: {
+  userAgent: string;
+}): RequestHeaders {
   return { 'user-agent': config.userAgent };
-}
-
-function requestHeadersFor(
-  config: Pick<OpenAIModelClientConfig, 'userAgent' | 'requestHeaders'>,
-  chat: ModelStreamInput['chat'],
-) {
-  return overlayHeaders(
-    productUserAgentHeaders(config),
-    renderRequestHeaders(config.requestHeaders, chat),
-  );
 }
 
 /**
@@ -524,6 +517,17 @@ function responsesProviderOptions(
 }
 
 /**
+ * Builds the per-call headers shared by streaming and structured requests.
+ */
+function perCallHeaders(config: OpenAIModelClientConfig, chat: ChatIdentity) {
+  return withRequestHeaders(
+    productUserAgentHeaders(config),
+    config.requestHeaders,
+    chat,
+  );
+}
+
+/**
  * Attaches the rendered operator request headers and this wire's provider
  * options, composed from four layers under one precedence (design D5): this
  * wire's per-request-kind default (the displayable reasoning summary, which
@@ -544,7 +548,7 @@ function applyRequestOptions(
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
 ): void {
-  streamOptions.headers = requestHeadersFor(config, input.chat);
+  streamOptions.headers = perCallHeaders(config, input.chat);
   const { providerOptions } = responsesProviderOptions(
     composeProviderOptions({
       defaults: { reasoningSummary: 'auto' },
@@ -768,7 +772,7 @@ export function createOpenAIModelClient(
     ...(config.generateObject !== false && {
       generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
         generateToolBoundObject(openai(config.providerModelId), input, {
-          headers: requestHeadersFor(config, input.chat),
+          headers: perCallHeaders(config, input.chat),
           ...composeStructuredProviderOptions(config),
           ...(config.maxOutputTokens !== undefined && {
             maxOutputTokens: config.maxOutputTokens,

@@ -25,37 +25,29 @@ export function renderSessionId(chat: ChatIdentity): string {
 }
 
 /**
- * Renders the templates for one request by joining each value's parts with
- * the session id. A value that renders empty is omitted, so `{env:NAME:-}`
- * with `NAME` unset sends nothing (D5).
+ * Renders the templates for one request and overlays them on the base headers,
+ * matching names case-insensitively so the operator's rendered value wins.
+ * Joining each value's parts with the session id keeps interpolation startup-
+ * resolved and omits values that render empty (D5/D6).
  */
-export function renderRequestHeaders(
+export function withRequestHeaders(
+  base: Readonly<RequestHeaders>,
   templates: RequestHeaderTemplates,
   chat: ChatIdentity,
 ): RequestHeaders {
   const sessionId = renderSessionId(chat);
-  return Object.fromEntries(
+  const rendered = Object.fromEntries(
     Object.entries(templates)
       .map(([name, parts]) => [name, parts.join(sessionId)] as const)
       .filter(([, value]) => value.length > 0),
   );
-}
-
-/**
- * Lays `overlay` over `base`, matching names case-insensitively, so exactly
- * one value per header name is sent and the overlay's wins (D6/D7).
- */
-export function overlayHeaders(
-  base: Readonly<RequestHeaders>,
-  overlay: Readonly<RequestHeaders>,
-): RequestHeaders {
   const overridden = new Set(
-    Object.keys(overlay).map((name) => name.toLowerCase()),
+    Object.keys(rendered).map((name) => name.toLowerCase()),
   );
   return Object.fromEntries([
     ...Object.entries(base).filter(
       ([name]) => !overridden.has(name.toLowerCase()),
     ),
-    ...Object.entries(overlay),
+    ...Object.entries(rendered),
   ]);
 }

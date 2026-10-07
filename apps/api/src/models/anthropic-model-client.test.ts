@@ -196,6 +196,36 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
     );
   });
 
+  it('merges a lowercase operator Anthropic-Beta with the adapter beta on streaming requests', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, {
+      requestHeaders: { 'anthropic-beta': ['operator-beta'] },
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages, effort: 'high' }).text,
+    ).resolves.toBe('hello');
+
+    const beta = firstRequest(harness).headers.get('anthropic-beta');
+    expect(beta).toContain('operator-beta');
+    expect(beta).toContain('thinking-binding-controls-2026-08-01');
+  });
+
+  it('lets the adapter beta replace a differently cased operator Anthropic-Beta on streaming requests', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, {
+      requestHeaders: { 'Anthropic-Beta': ['operator-beta'] },
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages, effort: 'high' }).text,
+    ).resolves.toBe('hello');
+
+    expect(firstRequest(harness).headers.get('anthropic-beta')).toBe(
+      'thinking-binding-controls-2026-08-01',
+    );
+  });
+
   it('passes the keyless placeholder instead of omitting the api key', async () => {
     const harness = buildHarness({ streamEvents: hello });
     const client = buildClient(harness, { credential: undefined });

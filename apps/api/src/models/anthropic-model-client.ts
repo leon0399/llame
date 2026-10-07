@@ -21,8 +21,7 @@ import {
   type ProviderOptionRecord,
 } from './provider-options';
 import {
-  overlayHeaders,
-  renderRequestHeaders,
+  withRequestHeaders,
   type RequestHeaderTemplates,
 } from './request-headers';
 import {
@@ -375,9 +374,10 @@ function buildStreamOptions(
     maxRetries: NO_AUTOMATIC_RETRY,
     // llame's identity rides every request (design D6), per call: the
     // provider-level headers cannot carry it on structured requests.
-    headers: overlayHeaders(
+    headers: withRequestHeaders(
       productUserAgentHeaders(config),
-      renderRequestHeaders(config.requestHeaders, input.chat),
+      config.requestHeaders,
+      input.chat,
     ),
     ...messagesProviderOptions(composeMessagesOptions(config, input.effort)),
     ...(config.maxOutputTokens !== undefined && {
@@ -458,9 +458,10 @@ async function runAnthropicObject<OBJECT>(
       maxRetries: NO_AUTOMATIC_RETRY,
       // llame's identity rides every request (design D6), per call: this
       // path's request would otherwise present as the bare adapter's token.
-      headers: overlayHeaders(
+      headers: withRequestHeaders(
         productUserAgentHeaders(config),
-        renderRequestHeaders(config.requestHeaders, input.chat),
+        config.requestHeaders,
+        input.chat,
       ),
       ...(input.schemaName !== undefined && { schemaName: input.schemaName }),
       ...(input.schemaDescription !== undefined && {

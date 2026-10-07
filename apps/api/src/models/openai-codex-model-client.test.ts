@@ -26,92 +26,62 @@ const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
 const USER_AGENT = 'llame/0.0.0-test';
 
 describe('createOpenAICodexModelClient', () => {
-  it('serializes a self-contained non-stored Responses request through the real SDK', async () => {
-    const fetchMock = vi
-      .fn<typeof globalThis.fetch>()
-      .mockResolvedValue(
-        new Response(
-          [
-            'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"item-1"}}\n\n',
-            'data: {"type":"response.output_text.delta","item_id":"item-1","delta":"done"}\n\n',
-            'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
-            'data: [DONE]\n\n',
-          ].join(''),
-          { headers: { 'content-type': 'text/event-stream' } },
-        ),
-      );
-    const previousFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock;
+  it.each([
+    [{}, null],
+    [{ 'X-Session-Id': ['', ''] }, CHAT.id],
+  ] as const)(
+    'sends the default or configured session header through the wrapped Responses client',
+    async (requestHeaders, expectedSessionId) => {
+      const fetchMock = vi
+        .fn<typeof globalThis.fetch>()
+        .mockResolvedValue(
+          new Response(
+            [
+              'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"item-1"}}\n\n',
+              'data: {"type":"response.output_text.delta","item_id":"item-1","delta":"done"}\n\n',
+              'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+              'data: [DONE]\n\n',
+            ].join(''),
+            { headers: { 'content-type': 'text/event-stream' } },
+          ),
+        );
+      const previousFetch = globalThis.fetch;
+      globalThis.fetch = fetchMock;
 
-    try {
-      const client = createOpenAICodexModelClient({
-        credential: 'access-token',
-        accountId: 'account-id',
-        providerModelId: 'gpt-test',
-        modelId: 'system:codex:gpt-test',
-        contextWindowTokens: 128_000,
-        userAgent: USER_AGENT,
-        requestHeaders: {},
-      });
+      try {
+        const client = createOpenAICodexModelClient({
+          credential: 'access-token',
+          accountId: 'account-id',
+          providerModelId: 'gpt-test',
+          modelId: 'system:codex:gpt-test',
+          contextWindowTokens: 128_000,
+          userAgent: USER_AGENT,
+          requestHeaders,
+        });
 
-      await expect(
-        client.streamText({ chat: CHAT, messages }).text,
-      ).resolves.toBe('done');
+        await expect(
+          client.streamText({ chat: CHAT, messages }).text,
+        ).resolves.toBe('done');
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        'https://chatgpt.com/backend-api/codex/responses',
-        expect.anything(),
-      );
-      const serializedCall = JSON.stringify(fetchMock.mock.calls);
-      expect(serializedCall).toContain(String.raw`\"model\":\"gpt-test\"`);
-      expect(serializedCall).toContain(String.raw`\"stream\":true`);
-      expect(serializedCall).toContain(String.raw`\"store\":false`);
-      expect(serializedCall).not.toContain('item_reference');
-      expect(serializedCall).not.toContain('previous_response_id');
-      const [, init] = fetchMock.mock.calls[0] ?? [];
-      expect(new Headers(init?.headers).get('x-session-id')).toBeNull();
-    } finally {
-      globalThis.fetch = previousFetch;
-    }
-  });
-  it('sends an operator session header through the wrapped Responses client', async () => {
-    const fetchMock = vi
-      .fn<typeof globalThis.fetch>()
-      .mockResolvedValue(
-        new Response(
-          [
-            'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"item-1"}}\n\n',
-            'data: {"type":"response.output_text.delta","item_id":"item-1","delta":"done"}\n\n',
-            'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
-            'data: [DONE]\n\n',
-          ].join(''),
-          { headers: { 'content-type': 'text/event-stream' } },
-        ),
-      );
-    const previousFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock;
-
-    try {
-      const client = createOpenAICodexModelClient({
-        credential: 'access-token',
-        accountId: 'account-id',
-        providerModelId: 'gpt-test',
-        modelId: 'system:codex:gpt-test',
-        contextWindowTokens: 128_000,
-        userAgent: USER_AGENT,
-        requestHeaders: { 'X-Session-Id': ['', ''] },
-      });
-
-      await expect(
-        client.streamText({ chat: CHAT, messages }).text,
-      ).resolves.toBe('done');
-
-      const [, init] = fetchMock.mock.calls[0] ?? [];
-      expect(new Headers(init?.headers).get('x-session-id')).toBe(CHAT.id);
-    } finally {
-      globalThis.fetch = previousFetch;
-    }
-  });
+        expect(fetchMock).toHaveBeenCalledWith(
+          'https://chatgpt.com/backend-api/codex/responses',
+          expect.anything(),
+        );
+        const serializedCall = JSON.stringify(fetchMock.mock.calls);
+        expect(serializedCall).toContain(String.raw`\"model\":\"gpt-test\"`);
+        expect(serializedCall).toContain(String.raw`\"stream\":true`);
+        expect(serializedCall).toContain(String.raw`\"store\":false`);
+        expect(serializedCall).not.toContain('item_reference');
+        expect(serializedCall).not.toContain('previous_response_id');
+        const [, init] = fetchMock.mock.calls[0] ?? [];
+        expect(new Headers(init?.headers).get('x-session-id')).toBe(
+          expectedSessionId,
+        );
+      } finally {
+        globalThis.fetch = previousFetch;
+      }
+    },
+  );
 
   it("carries the configured product token on the request's user-agent (design D6)", async () => {
     const fetchMock = vi

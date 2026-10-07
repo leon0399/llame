@@ -433,10 +433,12 @@ describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () =>
 });
 
 describe('createOpenCodeGoModelClient — the Chat identity as the session header (design D3/D4/D5)', () => {
-  it("sends the main lane's Chat id verbatim", async () => {
+  it("keeps Go's adapter session header when the operator does not configure it", async () => {
     const stub = serveFetch(streamResponse);
     try {
-      const client = buildClient();
+      const client = buildClient({
+        requestHeaders: { 'X-Session-Id': ['', ''] },
+      });
 
       await expect(
         client.streamText({ chat: MAIN_CHAT, messages }).text,
