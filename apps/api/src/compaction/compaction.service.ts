@@ -8,30 +8,26 @@ import {
   ModelsService,
   type ModelClientFactory,
 } from '../models/models.service';
-import { CompactionsRepository } from '../chats/chats-repository';
+import { MessagesRepository } from '../chats/messages-repository';
 import {
   buildCompactionRequest,
-  buildCompactionReplacementHistory,
   normalizeCompactionSummary,
   requestFitsContextWindow,
   type CompactionPlan,
   type CompactionVariant,
 } from './compaction';
 import {
+  type ContextCheckpoint,
   type ModelMessage,
   type StoredMessage,
 } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
-import {
-  type Compaction,
-  type CompactionReplacementMessage,
-  type Message,
-  type ModelToolDeclaration,
-} from '../db/schema';
+import type { Message, ModelToolDeclaration } from '../db/schema';
+import { toContextCheckpoint } from '../chats/context-item-producers';
 import { isRecord } from '@workspace/runtime-safety';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
-import { ContextIncompatibleError } from '../runs/snapshot-tool-execution';
+import { ContextIncompatibleError } from '../runs/model-context-errors';
 
 function schemaOnlyTools(
   declarations: ReadonlyArray<ModelToolDeclaration>,
@@ -89,11 +85,8 @@ type SummaryInference = {
 export type CompactionSummary = {
   /** Absorbed-through sequence: the last row before the triggering message. */
   readonly uptoSeq: number;
-  /** The checkpoint lineage read while preparing this summary. */
-  readonly parentId: string | null;
   readonly summary: string;
-  readonly replacementHistory: Array<CompactionReplacementMessage>;
-  /** Telemetry of the summarization call, as `compactions.usage` stores it. */
+  /** Telemetry of the summarization call. */
   readonly usage: unknown;
 };
 
@@ -167,13 +160,14 @@ export class CompactionService {
     input: CompactionSummaryRequest,
   ): Promise<CompactionSummary | null> {
     input.abortSignal?.throwIfAborted();
-    const previous = await this.tenantDb.runAs(input.userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(
+    const checkpoint = await this.tenantDb.runAs(input.userId, (tx) =>
+      new MessagesRepository(tx).findActiveCheckpoint(
         input.chatId,
         input.userId,
         { beforeSeq: input.triggeringUserSeq },
       ),
     );
+    const previous = checkpoint && toContextCheckpoint(checkpoint);
     return input.variant === 'window'
       ? this.summarizeWithSourceModel(input, previous)
       : this.summarizeWithAttemptModel(input, previous);
@@ -186,7 +180,7 @@ export class CompactionService {
    */
   private async summarizeWithAttemptModel(
     input: Extract<CompactionSummaryRequest, { variant: 'threshold' }>,
-    previous: Compaction | undefined,
+    previous: ContextCheckpoint | undefined,
   ): Promise<CompactionSummary | null> {
     const request = buildCompactionRequest({
       system: input.system,
@@ -226,7 +220,6 @@ export class CompactionService {
       request: input,
       summary: inference.summary,
       inference,
-      previous,
     });
   }
 
@@ -240,7 +233,7 @@ export class CompactionService {
    */
   private async summarizeWithSourceModel(
     input: Extract<CompactionSummaryRequest, { variant: 'window' }>,
-    previous: Compaction | undefined,
+    previous: ContextCheckpoint | undefined,
   ): Promise<CompactionSummary> {
     const source = await this.tenantDb.runAs(input.userId, async (tx) => {
       const found = await new RunsRepository(
@@ -333,28 +326,19 @@ export class CompactionService {
       request: input,
       summary: inference.summary,
       inference,
-      previous,
     });
   }
 
-  /** The publishable row contents of one accepted inference. */
   private toCheckpoint(input: {
     client: ModelClient;
     effort: string | undefined;
     request: CompactionSummaryRequest;
     summary: string;
     inference: SummaryInference;
-    previous: Compaction | undefined;
   }): CompactionSummary {
     return {
       uptoSeq: input.request.plan.uptoSeq,
-      parentId: input.previous?.id ?? null,
       summary: input.summary,
-      replacementHistory: buildCompactionReplacementHistory({
-        summary: input.summary,
-        previous: input.previous?.replacementHistory,
-        absorb: input.request.plan.absorb,
-      }),
       usage: buildTurnTelemetry({
         usage: input.inference.usage,
         finishReason: input.inference.finishReason,

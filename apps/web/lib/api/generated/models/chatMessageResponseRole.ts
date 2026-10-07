@@ -14,4 +14,5 @@ export const ChatMessageResponseRole = {
   assistant: "assistant",
   system: "system",
   tool: "tool",
+  checkpoint: "checkpoint",
 } as const;

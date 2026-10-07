@@ -17,6 +17,7 @@ import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { createCompactionCheckpointPart } from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 if (!TEST_DB_URL) {
@@ -230,6 +231,63 @@ describe('conversation source repository lookup', () => {
       );
       await tenantDb.runAs(ownerA, (tx) =>
         new ChatsRepository(tx).deleteById(interleavedChat.id, ownerA),
+      );
+    }
+  });
+
+  it('treats a checkpoint row as a direct miss and skips it as a neighbor', async () => {
+    const chat = await createChat(ownerA, 'Checkpoint between turns');
+
+    try {
+      const user = await createMessage(ownerA, {
+        chatId: chat.id,
+        role: 'user',
+        text: 'before the checkpoint',
+      });
+      const assistant = await createMessage(ownerA, {
+        chatId: chat.id,
+        role: 'assistant',
+        text: 'answer',
+        usage: { status: 'completed' },
+      });
+      const checkpoint = await tenantDb.runAs(ownerA, (tx) =>
+        new MessagesRepository(tx).createCheckpoint({
+          chatId: chat.id,
+          absorbedThroughSeq: assistant.seq,
+          part: createCompactionCheckpointPart('PRIVATE_CHECKPOINT_SUMMARY'),
+        }),
+      );
+      const trailingUser = await createMessage(ownerA, {
+        chatId: chat.id,
+        role: 'user',
+        text: 'after the checkpoint',
+      });
+      const read = (seq: number) =>
+        tenantDb.runAs(ownerA, (tx) =>
+          new MessagesRepository(tx).findConversationMessage(
+            chat.id,
+            ownerA,
+            seq,
+          ),
+        );
+
+      expect([
+        user.seq,
+        assistant.seq,
+        checkpoint.seq,
+        trailingUser.seq,
+      ]).toEqual([1, 2, 3, 4]);
+      await expect(read(checkpoint.seq)).resolves.toBeUndefined();
+      await expect(read(assistant.seq)).resolves.toMatchObject({
+        previousMessageSeq: user.seq,
+        nextMessageSeq: trailingUser.seq,
+      });
+      await expect(read(trailingUser.seq)).resolves.toMatchObject({
+        previousMessageSeq: assistant.seq,
+      });
+    } finally {
+      await tenantDb.runAs(ownerA, (tx) =>
+        new ChatsRepository(tx).deleteById(chat.id, ownerA),
       );
     }
   });

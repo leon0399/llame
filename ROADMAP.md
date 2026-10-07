@@ -135,7 +135,7 @@ container, process-confinement, or VM realization remains capability design.
 
 Link one standalone Node to one personal upstream and synchronize portable
 personal state bidirectionally. Git reconciles Profile and Knowledge Spaces; the
-application protocol reconciles Chats, branches, messages, compactions, and
+application protocol reconciles Chats, branches, messages, checkpoint rows, and
 finalized receipts. Initial and later synchronization use the same event and Git
 paths. Credentials, host paths, Workspace contents, queue rows, leases, and raw
 runtime state remain local.

@@ -1,6 +1,6 @@
 # llame current architecture
 
-**Status:** Current cross-cutting contract. Updated 2026-08-24.
+**Status:** Current cross-cutting contract. Updated 2026-10-06.
 
 This file records system boundaries and invariants that span capabilities. It is not a future feature inventory, release plan, API catalogue, schema sketch, or research report.
 
@@ -38,13 +38,13 @@ No first-party CLI or Android Node, standalone personal store, Node enrollment, 
 
 ## 2. Conversation continuity
 
-### 2.1 Compaction and provenance lineage
+### 2.1 Compaction checkpoint
 
-Context compaction stores an RLS-scoped summary with an `upto_seq` boundary and `parent_id` lineage. Source messages remain unchanged; model context becomes a typed historical checkpoint plus retained later messages. A Run attempt evaluates compaction once, before its first model step. A prepared request that does not fit the Run's model compacts through the previous completed Run's model, its prompt receipt, and its effort with no tool declarations, and fails `context_incompatible` instead of truncating when that source is unavailable or the summary still does not fit. Otherwise the request compacts once the measured size — the previous completed reply's final-request size plus the estimate of the later rows, or the whole-request estimate — reaches the Run model's threshold, summarizing through the attempt's own model, pre-re-bake prompt, schema-only declarations, and effort. The checkpoint and its re-baked digest, skill-catalog, and workspace epoch state commit in one transaction before the attempt renders its prompt and receipt, and survive a failed attempt. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
+Context compaction stores an RLS-scoped `checkpoint` message row with one summary `data-context` part and an `absorbed_through_seq` boundary. Source messages remain unchanged; there is no separate `compactions` table, replacement history, or lineage. Checkpoint rows are excluded from the public messages policy and public projections. Model context becomes the stored checkpoint text plus retained later user and assistant messages; no tool records cross a checkpoint. A Run attempt evaluates compaction once, before its first model step. A prepared request that does not fit the Run's model compacts through the previous completed Run's model, its prompt receipt, and its effort with no tool declarations, and fails `context_incompatible` instead of truncating when that source is unavailable or the summary still does not fit. Otherwise the request compacts once the measured size — the previous completed reply's final-request size plus the estimate of the later rows, or the whole-request estimate — reaches the Run model's threshold, summarizing through the attempt's own model, pre-re-bake prompt, schema-only declarations, and effort. The checkpoint and its re-baked digest, skill-catalog, and workspace epoch state commit in one transaction before the attempt renders its prompt and receipt, and survive a failed attempt. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
 
 ### 2.2 Owner forks
 
-An owner fork is a literal same-owner copy of a selected durable prefix: every message with its original timestamp and usage, every in-prefix compaction with its lineage, and the source Chat row's `createdAt` with its frozen recency-digest and skill-catalog baselines, told-sets, and re-bake markers remapped onto the copied checkpoints. The copy renders the same model-facing context its source would, creates no Run, and mutates no source, while the shared/public fork path stays a text-only public projection carrying no compaction, baseline, usage, timestamp, or copied creation time. See [`chats.service.ts`](apps/api/src/chats/chats.service.ts) and [`owner-chat-forks`](openspec/specs/owner-chat-forks/spec.md).
+An owner fork is a literal same-owner copy of a selected durable prefix: every user and assistant message in the prefix with its original timestamp and usage, and every checkpoint whose `absorbed_through_seq` boundary is in the prefix, with copied boundaries and re-bake markers remapped onto copied checkpoint rows. The copy renders the same model-facing context its source would, creates no Run, and mutates no source, while the shared/public fork path stays a text-only public projection carrying no checkpoint, baseline, usage, timestamp, or copied creation time. See [`chats.service.ts`](apps/api/src/chats/chats.service.ts) and [`owner-chat-forks`](openspec/specs/owner-chat-forks/spec.md).
 
 ## 6. Identity and ownership
 
@@ -85,7 +85,7 @@ Run attempt; `complete` marks whether that aggregate covers the Run's spend,
 and failed or cancelled Runs keep their known usage. `usage.contextTokens` is
 recorded when every model step of the attempt reported a usage receipt and the
 final request reported a count; otherwise the next trigger estimates the
-request. Every newly written assistant and published compaction usage record
+request. Every newly written assistant and published checkpoint usage record
 stamps its resolved `billing` mode at write time. See
 [`run-usage-accounting`](openspec/specs/run-usage-accounting/spec.md).
 

@@ -12,14 +12,13 @@ import { sql as dsql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 
-import {
-  type Chat,
-  type CompactionReplacementMessage,
-  type Message,
-  type RecencyDigestBaseline,
-  type Run,
-  type SkillCatalogBaseline,
-  type SystemPromptReceipt,
+import type {
+  Chat,
+  Message,
+  RecencyDigestBaseline,
+  Run,
+  SkillCatalogBaseline,
+  SystemPromptReceipt,
 } from '../db/schema';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -46,24 +45,18 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-} from '../chats/chats-repository';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import {
   RecencyDigestService,
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
 import { type AuthoredContextItemPart } from '../chats/context-item';
 import {
-  COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
+  checkpointSummary,
+  createCompactionCheckpointPart,
   createModelChangeItem,
 } from '../chats/context-item-producers';
-import {
-  renderConversationCheckpoint,
-  type MessagePart,
-} from '../chats/context-builder';
+import type { MessagePart } from '../chats/context-builder';
 import {
   RUN_TIMEOUT_ABORT_REASON,
   RunExecutionService,
@@ -80,11 +73,6 @@ import { CompactionService } from './compaction.service';
 import { type KnowledgeToolResolver } from '../tools/types';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import { TOOL_REGISTRY } from '../tools/registry';
-import {
-  isRecord,
-  isString,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
 import { contentText } from '../testing/support';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -241,32 +229,6 @@ function renderEpochPrompt(input: {
     chats: input.chats ?? undefined,
     skills: input.skills,
     admittedToolIds: [],
-  });
-}
-
-function replacementHistoryFor(
-  summary: string,
-): Array<CompactionReplacementMessage> {
-  return [
-    {
-      role: 'user',
-      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
-    },
-  ];
-}
-
-function replacementToolParts(
-  history: Array<CompactionReplacementMessage>,
-): Array<UnknownRecord> {
-  return history.slice(1).flatMap((record) => {
-    const part = record.parts[0];
-    return record.role === 'assistant' &&
-      record.parts.length === 1 &&
-      isRecord(part) &&
-      isString(part.type) &&
-      part.type.startsWith('tool-')
-      ? [part]
-      : [];
   });
 }
 
@@ -504,47 +466,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       await sql.end();
     }
   });
-
-  async function seedHistory(messagePairs = 5, withToolObservations = false) {
-    return tenantDb.runAs(userId, async (tx) => {
-      const chat = await new ChatsRepository(tx).create({
-        ownerUserId: userId,
-      });
-      doomedChats.push(chat.id);
-      const messages = new MessagesRepository(tx);
-      for (let index = 0; index < messagePairs; index++) {
-        const user = await messages.create({
-          chatId: chat.id,
-          role: 'user',
-          senderUserId: userId,
-          parts: [{ type: 'text', text: `request-${index}` }],
-        });
-        await messages.create({
-          chatId: chat.id,
-          role: 'assistant',
-          inReplyTo: user.id,
-          parts: withToolObservations
-            ? [
-                {
-                  type: 'tool-search_conversations',
-                  toolCallId: `history-call-${index}`,
-                  state: 'output-available',
-                  input: { query: `query-${index}` },
-                  output: {
-                    status: 'success',
-                    value: `PRIVATE-PAYLOAD-${index}`,
-                  },
-                  outcome: 'success',
-                },
-                { type: 'text', text: `answer-${index}` },
-              ]
-            : [{ type: 'text', text: `answer-${index}` }],
-          usage: { status: 'completed' },
-        });
-      }
-      return chat;
-    });
-  }
 
   /**
    * A chat whose last completed Run executed on `sourceModel` and whose next
@@ -863,20 +784,23 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     });
   }
 
-  const latestCheckpoint = (chatId: string) =>
-    tenantDb.runAs(userId, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chatId, userId),
+  const latestCheckpoint = async (chatId: string) => {
+    const rows = await tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+    return rows
+      .filter((row) => row.role === 'checkpoint')
+      .sort((a, b) => b.seq - a.seq)[0];
+  };
 
   /** Everything a turn's attempts leave behind, read at one point in time. */
   const readTurnState = (turn: Turn) =>
     tenantDb.runAs(userId, async (tx: Db) => ({
       run: await new RunsRepository(tx).findById(turn.runId, userId),
       chat: await new ChatsRepository(tx).findById(turn.chatId, userId),
-      checkpoints: await new CompactionsRepository(tx).findByChatId(
-        turn.chatId,
-        userId,
-      ),
+      checkpoints: (
+        await new MessagesRepository(tx).findByChatId(turn.chatId, userId)
+      ).filter((row) => row.role === 'checkpoint'),
       receipts: await new SystemPromptReceiptsRepository(tx).findByOwnedRun(
         turn.runId,
         userId,
@@ -955,9 +879,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       // The row, and the epoch state it re-based, are what the Run then sent.
       const state = await readTurnState(turn);
       const checkpoint = sole(state.checkpoints);
+      expect(checkpointSummary(checkpoint)).toBe(SUMMARY);
       expect(checkpoint).toMatchObject({
-        summary: SUMMARY,
-        uptoSeq: seeded.targetUser.seq - 1,
+        absorbedThroughSeq: seeded.targetUser.seq - 1,
         usage: { effort: 'low' },
       });
       const freshSystem = renderEpochPrompt({
@@ -1045,9 +969,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const published = await readTurnState(turn);
       const checkpoint = sole(published.checkpoints);
       expect(published.run?.status).toBe('running_model');
+      expect(checkpointSummary(checkpoint)).toBe(SUMMARY);
       expect(checkpoint).toMatchObject({
-        summary: SUMMARY,
-        uptoSeq: seeded.targetUser.seq - 1,
+        absorbedThroughSeq: seeded.targetUser.seq - 1,
       });
       expect(published.chat).toMatchObject({
         recencyDigestRebakedFrom: checkpoint.id,
@@ -1359,9 +1283,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         expect(contentText(targetRequest.messages[0].content)).toBe(
           OLD_REQUEST,
         );
-        expect(JSON.stringify(targetRequest.messages)).not.toContain(
-          COMPACTION_CHECKPOINT_ENVELOPE_PREFIX,
-        );
         const state = await readTurnState(turnOf(seeded));
         expect(state.checkpoints).toHaveLength(0);
         expect(state.run?.status).toBe('completed');
@@ -1431,88 +1352,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         expect(state.chat?.recencyDigestRebakedFrom).toBeNull();
       },
     );
-
-    it('carries cleared replacement records from one checkpoint into the next', async () => {
-      const chat = await seedHistory(2, true);
-      const service = runService(createCompactionService(unexercisedModels));
-      const calls: Array<ModelStreamInput> = [];
-
-      const firstTurn = await addTurn(chat.id, 'request-2');
-      const first = await service.executeRun(
-        requestFor(
-          firstTurn,
-          attemptClient({
-            calls,
-            summary: { response: 'FIRST SUMMARY' },
-            answer: 'answer-2',
-            compactionThresholdTokens: 1,
-          }),
-        ),
-      );
-      await first.consumeStream?.();
-      const firstCheckpoint = await latestCheckpoint(chat.id);
-
-      expect(firstCheckpoint?.uptoSeq).toBe(firstTurn.user.seq - 1);
-      expect(firstCheckpoint?.replacementHistory[0]).toMatchObject({
-        role: 'user',
-        parts: [{ type: 'text' }],
-      });
-      expect(firstCheckpoint?.replacementHistory[0]?.parts[0]).toMatchObject({
-        text: expect.stringContaining('FIRST SUMMARY'),
-      });
-      const clearedRecords = [0, 1].map((index) => ({
-        type: 'tool-search_conversations',
-        toolCallId: `history-call-${index}`,
-        state: 'output-available',
-        input: {},
-        output: expect.stringContaining('Outcome: success'),
-        outcome: 'success',
-      }));
-      expect(
-        replacementToolParts(firstCheckpoint?.replacementHistory ?? []),
-      ).toEqual(clearedRecords);
-      expect(JSON.stringify(firstCheckpoint?.replacementHistory)).not.toContain(
-        'PRIVATE-PAYLOAD',
-      );
-      // The summary request itself read the raw observations, and never the
-      // turn that triggered it.
-      const firstRequest = JSON.stringify(
-        calls.find(isSummaryRequest)?.messages,
-      );
-      expect(firstRequest).toContain('PRIVATE-PAYLOAD-0');
-      expect(firstRequest).toContain('PRIVATE-PAYLOAD-1');
-      expect(firstRequest).not.toContain('request-2');
-
-      const secondTurn = await addTurn(chat.id, 'request-3');
-      const second = await service.executeRun(
-        requestFor(
-          secondTurn,
-          attemptClient({
-            calls,
-            summary: { response: 'SECOND SUMMARY' },
-            compactionThresholdTokens: 1,
-          }),
-        ),
-      );
-      await second.consumeStream?.();
-      const secondCheckpoint = await latestCheckpoint(chat.id);
-
-      expect(secondCheckpoint?.parentId).toBe(firstCheckpoint?.id);
-      expect(secondCheckpoint?.uptoSeq).toBe(secondTurn.user.seq - 1);
-      expect(
-        replacementToolParts(secondCheckpoint?.replacementHistory ?? []),
-      ).toEqual(clearedRecords);
-      const secondRequest = JSON.stringify(
-        calls.filter(isSummaryRequest)[1]?.messages,
-      );
-      expect(secondRequest).toContain('FIRST SUMMARY');
-      expect(secondRequest).toContain('history-call-0');
-      expect(secondRequest).toContain('history-call-1');
-      expect(secondRequest).not.toContain('PRIVATE-PAYLOAD');
-      expect(secondRequest).toContain('request-2');
-      expect(secondRequest).toContain('answer-2');
-      expect(secondRequest).not.toContain('request-3');
-    });
   });
 
   describe('window trigger', () => {
@@ -1627,9 +1466,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           {
             type: 'text',
             text: expect.stringMatching(
-              new RegExp(
-                `^${COMPACTION_CHECKPOINT_ENVELOPE_PREFIX.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)}`,
-              ),
+              /^<system-reminder producer="compaction" form="checkpoint">/u,
             ),
           },
         ],
@@ -1653,10 +1490,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(JSON.stringify(targetRequest)).not.toContain(
         seeded.sourceReceipt?.systemPrompt ?? '',
       );
-      expect(JSON.stringify(targetRequest.messages)).toContain(
+      expect(JSON.stringify(targetRequest.messages)).not.toContain(
         'transition-tool-call',
       );
-      expect(JSON.stringify(targetRequest.messages)).toContain(
+      expect(JSON.stringify(targetRequest.messages)).not.toContain(
         'Outcome: timeout',
       );
       expect(JSON.stringify(targetRequest.messages)).not.toContain(
@@ -1668,18 +1505,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
       const state = await readTurnState(turnOf(seeded));
       const checkpoint = sole(state.checkpoints);
-      expect(checkpoint.uptoSeq).toBe(seeded.targetUser.seq - 1);
-      expect(checkpoint.summary).toBe(SUMMARY);
-      expect(replacementToolParts(checkpoint.replacementHistory)).toEqual([
-        {
-          type: 'tool-search_conversations',
-          toolCallId: 'transition-tool-call',
-          state: 'output-available',
-          input: {},
-          output: expect.stringContaining('Outcome: timeout'),
-          outcome: 'timeout',
-        },
-      ]);
+      expect(checkpoint.absorbedThroughSeq).toBe(seeded.targetUser.seq - 1);
+      expect(checkpointSummary(checkpoint)).toBe(SUMMARY);
       // The one receipt is the prompt the target was actually sent, never the
       // source run's.
       expect(sole(state.receipts).systemPrompt).toBe(targetRequest.system);
@@ -1717,7 +1544,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(
         contentText(targetRequest.messages.at(-1)?.content ?? ''),
       ).not.toContain('You are now');
-      expect((await latestCheckpoint(seeded.chat.id))?.summary).toBe(SUMMARY);
+      expect(checkpointSummary(await latestCheckpoint(seeded.chat.id))).toBe(
+        SUMMARY,
+      );
     });
 
     it('settles a cancel requested before the claim without spending on a summary', async () => {
@@ -1813,11 +1642,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       await sourceStartedPromise;
       const concurrentSummary = '## Objective\nUse the newer checkpoint.';
       await tenantDb.runAs(userId, (tx) =>
-        new CompactionsRepository(tx).create({
+        new MessagesRepository(tx).createCheckpoint({
           chatId: seeded.chat.id,
-          uptoSeq: seeded.targetUser.seq - 1,
-          summary: concurrentSummary,
-          replacementHistory: replacementHistoryFor(concurrentSummary),
+          absorbedThroughSeq: seeded.targetUser.seq - 1,
+          part: createCompactionCheckpointPart(concurrentSummary),
+          usage: null,
         }),
       );
       resolveSummary('## Objective\nDiscard this stale summary.');
@@ -1832,7 +1661,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       );
       const settled = await readTurnState(turnOf(seeded));
       expect(settled.run?.status).toBe('completed');
-      expect(sole(settled.checkpoints).summary).toBe(concurrentSummary);
+      expect(checkpointSummary(sole(settled.checkpoints))).toBe(
+        concurrentSummary,
+      );
     });
 
     it('publishes its own cutoff when a concurrent checkpoint covers less of the history', async () => {
@@ -1861,14 +1692,14 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       );
       await sourceStartedPromise;
       await tenantDb.runAs(userId, (tx) =>
-        new CompactionsRepository(tx).create({
+        new MessagesRepository(tx).createCheckpoint({
           chatId: seeded.chat.id,
           // Absorbs the old request but not the assistant turn that answered it.
-          uptoSeq: seeded.targetUser.seq - 2,
-          summary: '## Objective\nOrdinary checkpoint is not far enough.',
-          replacementHistory: replacementHistoryFor(
+          absorbedThroughSeq: seeded.targetUser.seq - 2,
+          part: createCompactionCheckpointPart(
             '## Objective\nOrdinary checkpoint is not far enough.',
           ),
+          usage: null,
         }),
       );
       const windowSummary = '## Objective\nUse the complete window checkpoint.';
@@ -1883,8 +1714,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         windowSummary,
       );
       const checkpoint = await latestCheckpoint(seeded.chat.id);
-      expect(checkpoint?.uptoSeq).toBe(seeded.targetUser.seq - 1);
-      expect(checkpoint?.summary).toBe(windowSummary);
+      expect(checkpoint?.absorbedThroughSeq).toBe(seeded.targetUser.seq - 1);
+      expect(checkpoint && checkpointSummary(checkpoint)).toBe(windowSummary);
     });
 
     it.each([

@@ -98,11 +98,16 @@ const chat: Chat = {
   workspaceDetachReason: null,
 };
 
-const message = (seq: number, role: Message['role'] = 'user'): Message => ({
+const message = (
+  seq: number,
+  role: Message['role'] = 'user',
+  absorbedThroughSeq: number | null = null,
+): Message => ({
   id: `message-${seq}`,
   chatId: chat.id,
   seq,
   role,
+  absorbedThroughSeq,
   senderUserId: role === 'user' ? chat.ownerUserId : null,
   parts: [{ type: 'text', text: `message ${seq}` }],
   attachments: [],
@@ -801,7 +806,7 @@ describe('MessagesRepository read shapes', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('skips the query entirely for an empty chat-id set', async () => {
+  it('skips the query entirely for an empty id set', async () => {
     const db: Db = drizzle.mock({ schema });
     const calls: Array<ChainCall> = [];
     const distinct = vi
@@ -820,16 +825,26 @@ describe('MessagesRepository read shapes', () => {
     await expect(
       new MessagesRepository(db).countPerChat([], chat.ownerUserId),
     ).resolves.toEqual(new Map());
+    await expect(
+      new MessagesRepository(db).countAbsorbedMessages(
+        chat.id,
+        chat.ownerUserId,
+        [],
+      ),
+    ).resolves.toEqual(new Map());
     expect(distinct).not.toHaveBeenCalled();
     expect(select).not.toHaveBeenCalled();
   });
 
-  it('partitions the preview and earliest-user reads on chat id', async () => {
+  it('filters checkpoint rows before preview DISTINCT ON and recency counts', async () => {
     const db: Db = drizzle.mock({ schema });
     const calls: Array<ChainCall> = [];
     const distinct = vi
       .spyOn(db, 'selectDistinctOn')
       .mockImplementation(() => asQuery(recordingQuery([], calls)));
+    vi.spyOn(db, 'select').mockImplementation(() =>
+      asQuery(recordingQuery([], calls)),
+    );
     const repository = new MessagesRepository(db);
 
     await repository.findLatestPerOwnedChat(chat.ownerUserId);
@@ -837,9 +852,25 @@ describe('MessagesRepository read shapes', () => {
       [chat.id],
       chat.ownerUserId,
     );
+    await repository.countPerChat([chat.id], chat.ownerUserId);
 
     expect(distinct).toHaveBeenNthCalledWith(1, [schema.messages.chatId]);
     expect(distinct).toHaveBeenNthCalledWith(2, [schema.messages.chatId]);
+    const predicates = calls.flatMap((call) =>
+      call.method === 'where' ? [call.argument] : [],
+    );
+    expect(predicates).toHaveLength(3);
+    const previewPredicate = predicates[0];
+    const countPredicate = predicates[2];
+    if (!is(previewPredicate, SQL) || !is(countPredicate, SQL)) {
+      throw new Error('Expected preview/count predicates');
+    }
+    const previewSql = new PgDialect().sqlToQuery(previewPredicate);
+    expect(previewSql.sql).toContain('"messages"."role" in ($2, $3)');
+    expect(previewSql.params).toEqual([chat.ownerUserId, 'user', 'assistant']);
+    const countSql = new PgDialect().sqlToQuery(countPredicate);
+    expect(countSql.sql).toContain('"messages"."role" <> $3');
+    expect(countSql.params).toEqual([chat.ownerUserId, chat.id, 'checkpoint']);
   });
 
   it('writes nothing for an empty bulk copy', async () => {
@@ -944,5 +975,80 @@ describe('MessagesRepository conversation lookup shape', () => {
       createdAt: new Date(7000),
       nextMessageSeq: 9,
     });
+  });
+});
+
+/**
+ * The one statement `run` issues, as Drizzle renders it for Postgres. The mock
+ * client has no connection, so the call rejects once the logger has seen it.
+ */
+async function renderedStatement<Result>(
+  run: (repository: MessagesRepository) => Promise<Result>,
+) {
+  const statements: Array<{ sql: string; params: ReadonlyArray<unknown> }> = [];
+  const db: Db = drizzle.mock({
+    schema,
+    logger: { logQuery: (sql, params) => statements.push({ sql, params }) },
+  });
+  await run(new MessagesRepository(db)).catch(() => undefined);
+  const [statement] = statements;
+  if (statements.length !== 1 || statement === undefined) {
+    throw new Error(`Expected one statement, saw ${statements.length}`);
+  }
+  return statement;
+}
+
+describe('MessagesRepository checkpoint query shapes', () => {
+  it('counts user and assistant rows between the previous boundary and each checkpoint, scoped to the owner', async () => {
+    const statement = await renderedStatement((repository) =>
+      repository.countAbsorbedMessages(chat.id, chat.ownerUserId, [
+        'checkpoint-1',
+        'checkpoint-2',
+      ]),
+    );
+
+    expect(statement.sql).toContain(
+      'left join "messages" on ("messages"."chat_id" = "checkpoint"."chat_id" and "messages"."role" in ($1, $2) and "messages"."seq" <= "checkpoint"."absorbed_through_seq" and "messages"."seq" > coalesce((select max("absorbed_through_seq") from "messages" "previous_checkpoint" where ("previous_checkpoint"."chat_id" = "checkpoint"."chat_id" and "previous_checkpoint"."absorbed_through_seq" < "checkpoint"."absorbed_through_seq")), 0))',
+    );
+    expect(statement.sql).toContain(
+      'where ("checkpoint"."chat_id" = $3 and "chats"."owner_user_id" = $4 and "checkpoint"."role" = $5 and "checkpoint"."id" in ($6, $7)) group by "checkpoint"."id"',
+    );
+    expect(statement.params).toEqual([
+      'user',
+      'assistant',
+      chat.id,
+      chat.ownerUserId,
+      'checkpoint',
+      'checkpoint-1',
+      'checkpoint-2',
+    ]);
+  });
+
+  it('selects the rows up to the anchor plus checkpoints that absorbed only up to it, owner-scoped and oldest-first', async () => {
+    const statement = await renderedStatement((repository) =>
+      repository.findForkSource(chat.id, chat.ownerUserId, 5),
+    );
+
+    expect(statement.sql).toContain(
+      'where ("messages"."chat_id" = $1 and "chats"."owner_user_id" = $2 and ("messages"."seq" <= $3 or ("messages"."role" = $4 and "messages"."absorbed_through_seq" <= $5))) order by "messages"."seq" asc',
+    );
+    expect(statement.params).toEqual([
+      chat.id,
+      chat.ownerUserId,
+      5,
+      'checkpoint',
+      5,
+    ]);
+  });
+
+  it('selects the whole owned chat when there is no fork anchor', async () => {
+    const statement = await renderedStatement((repository) =>
+      repository.findForkSource(chat.id, chat.ownerUserId, undefined),
+    );
+
+    expect(statement.sql).toContain(
+      'where ("messages"."chat_id" = $1 and "chats"."owner_user_id" = $2) order by "messages"."seq" asc',
+    );
+    expect(statement.params).toEqual([chat.id, chat.ownerUserId]);
   });
 });

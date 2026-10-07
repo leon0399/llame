@@ -5,7 +5,8 @@
  *   (via the projection), FTS + trigram fused by RRF, with a highlighted snippet;
  * - case-insensitive end-to-end incl. non-ASCII (Cyrillic) — fixes #171;
  * - typo/partial-word matches via the trigram leg;
- * - EXCLUDES system/tool content from matches + snippets (no prompt/tool leak);
+ * - EXCLUDES system/tool/checkpoint content from matches + snippets (no prompt,
+ *   tool, or summary leak);
  * - blank/whitespace → []; wildcard chars escaped (no full-table dump);
  * - an untitled chat can still match by content (title: null in the result);
  * - cross-tenant chats never match, and another user's PUBLIC chat never matches;
@@ -22,32 +23,16 @@ import { type Sql } from 'postgres';
 import { and, eq, sql } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
-import { type Compaction } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { SearchIndexService } from '../search/search-index.service';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-} from './chats-repository';
-import { renderConversationCheckpoint } from './context-builder';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { createCompactionCheckpointPart } from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = Sql;
 
 const text = (t: string) => [{ type: 'text', text: t }];
-
-function compactionReplacementHistory(
-  summary: string,
-): Compaction['replacementHistory'] {
-  return [
-    {
-      role: 'user',
-      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
-    },
-  ];
-}
 
 describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
   let sqlClient: SqlClient;
@@ -188,10 +173,6 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
             },
           },
           {
-            type: 'conversation-checkpoint',
-            summary: 'zzcheckpointindigo',
-          },
-          {
             type: 'tool-search_conversations',
             inputSchema: 'zztoolschemamercury',
           },
@@ -200,11 +181,13 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
       },
     ]);
     await tenantDb.runAs(a, (tx) =>
-      new CompactionsRepository(tx).create({
+      new MessagesRepository(tx).createCheckpoint({
         chatId: controlProjectionChat,
-        uptoSeq: 1,
-        summary: 'zzcompactionlilac',
-        replacementHistory: compactionReplacementHistory('zzcompactionlilac'),
+        absorbedThroughSeq: 1,
+        part: createCompactionCheckpointPart(
+          'zzcheckpointindigo zzcompactionlilac',
+        ),
+        usage: { modelId: 'checkpoint-model' },
       }),
     );
 
@@ -316,6 +299,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
       expect(
         (await search(a, query)).some((r) => r.id === controlProjectionChat),
       ).toBe(false);
+      expect(await search(b, query)).toEqual([]);
     }
 
     const visible = (await search(a, 'zzhumanoriginalgreen')).find(

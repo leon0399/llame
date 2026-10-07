@@ -65,7 +65,6 @@ import {
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
-  toCompactionResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
 
@@ -230,13 +229,8 @@ export class ChatsController {
     return toChatResponse(chat);
   }
 
-  // Messages + the chat's latest compaction (#57) embedded as `compaction`,
-  // in one round trip (#136: this used to be a separate `GET :id/compaction`
-  // call — folded in here so the client never has to stitch two responses
-  // together, and there's no second, independently-failing fetch). The
-  // embed is owner-scoped like everything else on this route — NOT exposed
-  // via the shared-chat view (a cross-tenant/foreign id 404s exactly like
-  // before; embedding a field doesn't change that).
+  // Owner history: checkpoint rows are included (with their boundary, summary
+  // and absorbed-message count); public projections use a separate DTO.
   @Get(':id/messages')
   @ApiOperation({ operationId: 'getChatMessages' })
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -251,21 +245,16 @@ export class ChatsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: OwnerChatMessagesQueryDto,
   ): Promise<ChatMessagesResponse> {
-    const result = await this.chatsService.getChatMessages(id, userId, {
+    const messages = await this.chatsService.getChatMessages(id, userId, {
       limit: query.limit,
       beforeSeq: query.beforeSeq,
       targetSeq: query.targetSeq,
     });
-    if (!result) {
+    if (!messages) {
       throw new NotFoundException(`Chat ${id} not found`);
     }
 
-    return {
-      messages: result.messages.map(toChatMessageResponse),
-      compaction: result.compaction
-        ? toCompactionResponse(result.compaction, result.absorbedMessageCount)
-        : null,
-    };
+    return { messages: messages.map(toChatMessageResponse) };
   }
 
   // Create-or-append (#86): posting the first message to a not-yet-existing chat id creates
@@ -410,7 +399,7 @@ export class ChatsController {
   }
 
   // Hard delete. Owner-scoped (RLS + ownerUserId); the FK cascade removes the
-  // chat's messages, compactions, runs → run_events in one statement.
+  // chat's messages, runs → run_events in one statement.
   @Delete(':id')
   @ApiOperation({ operationId: 'deleteChat' })
   @HttpCode(204)

@@ -33,7 +33,6 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
 import {
-  type Compaction,
   type ModelToolDeclaration,
   type Run,
   type TurnToolAvailabilityEntry,
@@ -70,11 +69,7 @@ import { type KnowledgeToolResolver } from '../tools/types';
 import { TOOL_REGISTRY } from '../tools/registry';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-} from './chats-repository';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { canonicalJson } from '../runs/effective-context-resolver';
 import * as effectiveContextResolver from '../runs/effective-context-resolver';
 import { hashWithDomain } from '../canonical-json';
@@ -82,22 +77,11 @@ import {
   type ToolAvailabilityManifestV1,
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
-import { renderConversationCheckpoint } from './context-builder';
+import { createCompactionCheckpointPart } from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = Sql;
-
-function compactionReplacementHistory(
-  summary: string,
-): Compaction['replacementHistory'] {
-  return [
-    {
-      role: 'user',
-      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
-    },
-  ];
-}
 
 const workerKnowledgeResolver: KnowledgeToolResolver = {
   listForOwnerPage: () => Promise.resolve({ spaces: [] }),
@@ -1623,11 +1607,10 @@ describeIfDb(
         { id: 'mcp__docs__lookup', state: 'available' },
       ]);
       await tenantDb.runAs(userId, (tx) =>
-        new CompactionsRepository(tx).create({
+        new MessagesRepository(tx).createCheckpoint({
           chatId: degradedChatId,
-          uptoSeq: beforeCompaction.userMessage.seq,
-          summary: 'A prior tool outage mattered historically.',
-          replacementHistory: compactionReplacementHistory(
+          absorbedThroughSeq: beforeCompaction.userMessage.seq,
+          part: createCompactionCheckpointPart(
             'A prior tool outage mattered historically.',
           ),
         }),
@@ -1674,13 +1657,10 @@ describeIfDb(
         { id: 'mcp__docs__lookup', state: 'unavailable' },
       ]);
       await tenantDb.runAs(userId, (tx) =>
-        new CompactionsRepository(tx).create({
+        new MessagesRepository(tx).createCheckpoint({
           chatId: healthyChatId,
-          uptoSeq: degradedBefore.userMessage.seq,
-          summary: 'Historical outage summary.',
-          replacementHistory: compactionReplacementHistory(
-            'Historical outage summary.',
-          ),
+          absorbedThroughSeq: degradedBefore.userMessage.seq,
+          part: createCompactionCheckpointPart('Historical outage summary.'),
         }),
       );
       const healthyAfterCompaction = await persistWithContext(

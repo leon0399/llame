@@ -3,7 +3,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { type ToolSet } from 'ai';
 
 import type {
-  Compaction,
   Message,
   ModelToolDeclaration,
   Run,
@@ -14,10 +13,14 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { createFakeModelClient } from '../models/fake-model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import type { ModelClient, ModelStreamInput } from '../models/model-client';
-import { CompactionsRepository } from '../chats/chats-repository';
+import { createCompactionCheckpointPart } from '../chats/context-item-producers';
+import {
+  MessagesRepository,
+  type CheckpointMessage,
+} from '../chats/messages-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
-import { ContextIncompatibleError } from '../runs/snapshot-tool-execution';
+import { ContextIncompatibleError } from '../runs/model-context-errors';
 import type { CompactionPlan } from './compaction';
 import {
   COMPACTION_INSTRUCTION,
@@ -39,6 +42,7 @@ function message(seq: number, role: Message['role'] = 'user'): Message {
     parts: [{ type: 'text', text: `message ${seq}` }],
     attachments: [],
     usage: null,
+    absorbedThroughSeq: null,
     inReplyTo: null,
     createdAt: now,
   };
@@ -46,8 +50,8 @@ function message(seq: number, role: Message['role'] = 'user'): Message {
 
 /**
  * The absorbable prefix an attempt's plan hands to the summary request. It
- * starts strictly above `previousCompaction.uptoSeq`, whose stored checkpoint
- * is replayed in its place.
+ * starts strictly above `previousCheckpoint.absorbedThroughSeq`, whose stored
+ * checkpoint is replayed in its place.
  */
 function plan(): CompactionPlan {
   return {
@@ -56,17 +60,10 @@ function plan(): CompactionPlan {
   };
 }
 
-const previousCompaction: Compaction = {
-  id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-  chatId,
-  uptoSeq: 1,
-  parentId: null,
-  summary: 'Objective\nKeep the work moving.',
-  replacementHistory: [
-    { role: 'user', parts: [{ type: 'text', text: 'previous checkpoint' }] },
-  ],
-  usage: null,
-  createdAt: now,
+const previousCheckpoint: CheckpointMessage = {
+  ...message(1, 'checkpoint'),
+  absorbedThroughSeq: 1,
+  parts: [createCompactionCheckpointPart('previous checkpoint')],
 };
 
 const sourceAttemptId = '22222222-2222-4222-8222-222222222222';
@@ -159,11 +156,11 @@ const validTool: ModelToolDeclaration = {
  * variant additionally resolves its source run and that run's receipt.
  */
 function mockReads(options?: {
-  previous?: Compaction;
+  previous?: CheckpointMessage;
   source?: { run: Run; receipt?: SystemPromptReceipt | undefined } | undefined;
 }) {
-  const findLatest = vi
-    .spyOn(CompactionsRepository.prototype, 'findLatestByChatId')
+  const findActive = vi
+    .spyOn(MessagesRepository.prototype, 'findActiveCheckpoint')
     .mockResolvedValue(options?.previous);
   const findRun = vi.spyOn(
     RunsRepository.prototype,
@@ -177,7 +174,7 @@ function mockReads(options?: {
   const findReceipt = vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'findByAttempt')
     .mockResolvedValue(options?.source?.receipt);
-  return { findLatest, findRun, findReceipt };
+  return { findActive, findRun, findReceipt };
 }
 
 describe('CompactionService pure message boundary', () => {
@@ -197,7 +194,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
   it('summarizes with the attempt own client, prompt, schema-only tools and instruction', async () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);
-    const { findLatest } = mockReads({ previous: previousCompaction });
+    const { findActive } = mockReads({ previous: previousCheckpoint });
 
     const summary = await setup.service.summarizeCheckpoint({
       variant: 'threshold',
@@ -212,7 +209,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     });
 
     // The read is scoped to the checkpoint that is active for THIS turn.
-    expect(findLatest).toHaveBeenCalledWith(chatId, ownerId, { beforeSeq: 3 });
+    expect(findActive).toHaveBeenCalledWith(chatId, ownerId, { beforeSeq: 3 });
 
     const sent = calls[0];
     expect(sent?.system).toBe('the attempt pre-rebake system prompt');
@@ -237,6 +234,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
       content: COMPACTION_INSTRUCTION,
     });
     const rendered = JSON.stringify(sent?.messages);
+    expect(rendered).toContain('previous checkpoint');
     expect(rendered.indexOf('previous checkpoint')).toBeLessThan(
       rendered.indexOf('message 2'),
     );
@@ -245,10 +243,6 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     expect(summary).toMatchObject({
       uptoSeq: 2,
       summary: 'summary text',
-    });
-    expect(summary?.replacementHistory[0]).toMatchObject({
-      role: 'user',
-      parts: [{ type: 'text' }],
     });
   });
 
@@ -499,7 +493,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
 
   it('refuses to start once the attempt signal is already aborted', async () => {
     const setup = makeService();
-    const { findLatest } = mockReads();
+    const { findActive } = mockReads();
     const controller = new AbortController();
     const aborted = new Error('attempt aborted before summarizing');
     controller.abort(aborted);
@@ -518,7 +512,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
       }),
     ).rejects.toBe(aborted);
     // No summary call, and no read of the checkpoint lineage either.
-    expect(findLatest).not.toHaveBeenCalled();
+    expect(findActive).not.toHaveBeenCalled();
   });
 });
 
@@ -531,7 +525,7 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);
     const { findRun, findReceipt } = mockReads({
-      previous: previousCompaction,
+      previous: previousCheckpoint,
       source: { run: { ...sourceRun, effort: 'high' }, receipt: sourceReceipt },
     });
 

@@ -9,14 +9,11 @@
  * focus is render wiring, not run polling, which contexts/active-runs-context.test.tsx
  * already covers). The AI SDK's useChat and next/navigation are mocked —
  * neither has an in-process seam.
- *
- * #136 read-side merge: compaction is no longer a separate query/cache
- * entry — it arrives embedded in the SAME `chatQueryKeys.messages(chatId)`
- * cache entry as `{ messages, compaction }` (`ChatHistory`, history.ts).
- * This also closes the "silent second-fetch failure" gap from the earlier
- * owner-reported render bug: there is now exactly one fetch, so "the fetch
- * failed" and "no compaction exists" can no longer be confused with each
- * other the way a separate, independently-erroring query could.
+ * Checkpoint rows are part of the SAME `chatQueryKeys.messages(chatId)`
+ * cache entry as the conversation rows. `normalizeChatMessagesResponse`
+ * extracts the owner checkpoint boundary before `toChatUiMessages` drops
+ * non-conversation rows. This suite's reload seed mirrors that one-fetch
+ * shape.
  */
 
 import {
@@ -90,14 +87,12 @@ import {
   toChatUiMessages,
   type ChatMessageResponse,
   type Compaction,
-  type CompactionStats,
 } from "@/lib/services/chat/history";
 
 import { ChatPage } from "./chat-page";
 import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
 
-const NO_STATS: CompactionStats = {
-  absorbedMessageCount: null,
+const NO_STATS: Compaction["stats"] = {
   beforeTokens: null,
   afterTokens: null,
   modelId: null,
@@ -149,7 +144,10 @@ afterEach(() => {
 
 function renderChatPage(
   chatId: string,
-  seed: { messages: typeof useChatMessages; compaction: Compaction | null },
+  seed: {
+    messages: typeof useChatMessages;
+    compaction: Compaction | null;
+  },
   targetSeq?: number,
   historyMessages = seed.messages,
 ) {
@@ -158,10 +156,11 @@ function renderChatPage(
   });
   // Seed the SAME cache entry SSR hydration provides on a real reload —
   // BEFORE the component (and its query observer) ever mounts, same timing
-  // as HydrationBoundary. The entry is the paginated raw-page shape (#187:
-  // one seeded newest page; compaction embedded per #136), routed through
-  // the one seeding helper the real page.tsx uses, so this test cannot
-  // drift from the production cache shape.
+  // as HydrationBoundary. The entry is the normalized cache shape: the seed's
+  // `compaction` stands in for what `normalizeChatMessagesResponse` derives
+  // from the newest checkpoint row, and its conversation rows are what
+  // `toChatUiMessages` keeps. history.test.ts covers both derivations; this
+  // suite pins how the page renders the result.
   const page = {
     messages: historyMessages.map((message, index) =>
       rawChatMessage({
@@ -259,17 +258,22 @@ describe("ChatPage — compaction checkpoint render", () => {
     renderChatPage(chatId, {
       messages: useChatMessages,
       compaction: {
-        uptoSeq: 2,
+        absorbedThroughSeq: 2,
         summary: "The user said hi, assistant replied hello.",
         createdAt: "2026-07-06T00:00:00.000Z",
+        absorbedMessageCount: 2,
         stats: NO_STATS,
       },
     });
 
+    const boundary = await screen.findByRole("button", {
+      name: /context compacted/i,
+    });
+    expect(boundary.textContent).toContain("2 messages");
+    const triggeringUser = screen.getByText("more");
     expect(
-      await screen.findByRole("button", {
-        name: /context compacted/i,
-      }),
+      boundary.compareDocumentPosition(triggeringUser) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
@@ -293,9 +297,10 @@ describe("ChatPage — compaction checkpoint render", () => {
     renderChatPage(chatId, {
       messages: useChatMessages,
       compaction: {
-        uptoSeq: 10,
+        absorbedThroughSeq: 10,
         summary: "Old turns summarized.",
         createdAt: "2026-07-06T00:00:00.000Z",
+        absorbedMessageCount: 1,
         stats: NO_STATS,
       },
     });
@@ -307,7 +312,7 @@ describe("ChatPage — compaction checkpoint render", () => {
     ).toBeTruthy();
   });
 
-  it("renders the checkpoint at the BOTTOM when every loaded message is within the summarized span (Leo's reported scenario: uptoSeq near the end of a long history)", async () => {
+  it("renders the checkpoint at the BOTTOM when every loaded message is within the summarized span (absorbedThroughSeq near the end of a long history)", async () => {
     const chatId = "chat-bbc4f06e";
     useChatMessages = [
       {
@@ -333,9 +338,10 @@ describe("ChatPage — compaction checkpoint render", () => {
     renderChatPage(chatId, {
       messages: useChatMessages,
       compaction: {
-        uptoSeq: 202,
+        absorbedThroughSeq: 202,
         summary: "Compacted up to seq 202.",
         createdAt: "2026-07-06T00:00:00.000Z",
+        absorbedMessageCount: 1,
         stats: NO_STATS,
       },
     });
@@ -347,7 +353,7 @@ describe("ChatPage — compaction checkpoint render", () => {
     ).toBeTruthy();
   });
 
-  it("reload parity: a compaction present in the RAW api-shaped messages payload (the real toChatUiMessages mapping, not a hand-shaped fixture) still renders after being routed through the same cache seeding a real reload uses", async () => {
+  it("reload parity: conversation rows mapped by the real toChatUiMessages (not a hand-shaped fixture) plus a seeded compaction still render the boundary through the same cache seeding a real reload uses", async () => {
     const chatId = "chat-reload-parity";
     const rawMessages: Array<ChatMessageResponse> = [
       {
@@ -391,9 +397,10 @@ describe("ChatPage — compaction checkpoint render", () => {
     renderChatPage(chatId, {
       messages: useChatMessages,
       compaction: {
-        uptoSeq: 1,
+        absorbedThroughSeq: 1,
         summary: "Absorbed the first turn.",
         createdAt: "2026-07-06T00:00:00.000Z",
+        absorbedMessageCount: 1,
         stats: NO_STATS,
       },
     });

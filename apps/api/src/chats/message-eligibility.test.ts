@@ -33,6 +33,16 @@ describe('eligibleMessagePredicate', () => {
     expect(text).toContain("\"m\".usage ->> 'status' = 'completed'");
   });
 
+  it('admits no role besides user and assistant, so checkpoint rows are never eligible', () => {
+    const { sql: text } = compile('m');
+
+    expect(text.match(/\.role = '[a-z]+'/gu)).toEqual([
+      ".role = 'user'",
+      ".role = 'assistant'",
+    ]);
+    expect(text).not.toContain('checkpoint');
+  });
+
   it('ANDs the role check with the usage-completeness check for assistant rows', () => {
     const { sql: text } = compile('m');
     const assistantBranch = text.slice(

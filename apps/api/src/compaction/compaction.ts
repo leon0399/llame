@@ -2,11 +2,12 @@
  * Compaction planning (#57) — pure logic for context compaction.
  *
  * When a Run's prepared request reaches its model's compaction threshold, or no
- * longer fits that model's window, older turns are absorbed into a summary row
- * (`compactions` table) that supersedes them; the ContextBuilder then assembles
- * summary + later turns. Messages are never deleted or mutated — the summary
- * row's uptoSeq/parentId keep the full history auditable and rewindable
- * (Hermes-style lineage, SPEC §2.1).
+ * longer fits that model's window, older turns are absorbed into a checkpoint
+ * row (role `checkpoint`, stored in `messages`) that supersedes them; the
+ * ContextBuilder then assembles the checkpoint's stored text + later turns.
+ * Messages are never deleted or mutated — the checkpoint's absorbedThroughSeq
+ * keeps the full history auditable and rewindable (Hermes-style lineage,
+ * SPEC §2.1).
  *
  * One trigger, one request shape: which model, prompt, declarations and effort
  * fill it is data (design D4). This module is deliberately DB-free — the
@@ -16,21 +17,14 @@
 
 import {
   buildContext,
-  renderConversationCheckpoint,
+  type ContextCheckpoint,
   type ModelRequestContext,
   type ModelMessage,
   type StoredMessage,
 } from '../chats/context-builder';
-import { buildCompactionToolReplacementRecords } from '../chats/tool-observation-part';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
-import type {
-  CompactionReplacementMessage,
-  Message,
-  ModelToolDeclaration,
-} from '../db/schema';
-
-type CompactionReplacementHistory = Array<CompactionReplacementMessage>;
+import type { Message, ModelToolDeclaration } from '../db/schema';
 
 /**
  * When the model's context window is known (MODEL_CONTEXT_WINDOW_TOKENS),
@@ -318,7 +312,7 @@ export function planCompactionCheckpoint(input: {
  *
  * - `system` is the prompt of the run whose prefix this request reproduces
  *   (passed by the caller), NOT a dedicated summarizer prompt;
- * - the previous stored replacement history and absorbed turns are replayed
+ * - the previous checkpoint's stored text and the absorbed turns are replayed
  *   through the SAME buildContext path the live turn used, so the request
  *   preserves the byte-identical stored prefix that populated the provider's
  *   prompt cache;
@@ -333,13 +327,7 @@ export function planCompactionCheckpoint(input: {
  */
 export function buildCompactionRequest(input: {
   system: string;
-  previous:
-    | {
-        summary: string;
-        uptoSeq: number;
-        replacementHistory: CompactionReplacementHistory;
-      }
-    | undefined;
+  previous: ContextCheckpoint | undefined;
   absorb: Array<StoredMessage>;
   variant: CompactionVariant;
 }): ModelRequestContext {
@@ -348,7 +336,7 @@ export function buildCompactionRequest(input: {
     // Summarization input, not a continuation: reasoning the absorbed turns
     // persisted must not be folded into the checkpoint (D16).
     requestKind: 'compaction',
-    ...(input.previous && { compaction: input.previous }),
+    ...(input.previous !== undefined && { checkpoint: input.previous }),
   });
 
   messages.push({
@@ -360,26 +348,4 @@ export function buildCompactionRequest(input: {
   });
 
   return { system, messages };
-}
-
-export function buildCompactionReplacementHistory(input: {
-  summary: string;
-  previous: CompactionReplacementHistory | undefined;
-  absorb: Array<StoredMessage>;
-}): Array<CompactionReplacementMessage> {
-  return [
-    {
-      role: 'user',
-      parts: [
-        {
-          type: 'text',
-          text: renderConversationCheckpoint(input.summary),
-        },
-      ],
-    },
-    ...buildCompactionToolReplacementRecords({
-      previous: input.previous,
-      absorb: input.absorb,
-    }),
-  ];
 }

@@ -1,18 +1,8 @@
 /**
- * Compaction read (surfacing) on a live DB (RLS):
- * - the owner reads their chat's LATEST compaction (highest upto_seq);
+ * Checkpoint read (surfacing) on a live DB (RLS):
+ * - the owner reads the latest checkpoint by absorbed-history boundary;
  * - a cross-tenant read returns undefined (owner-scoped, no leak);
- * - a chat with no compaction returns undefined.
- *
- * Also covers the #136 read-side merge — `ChatsService.getChatMessages`
- * embeds this same compaction (+ derived stats) into the messages response,
- * rather than a separate `GET :id/compaction` endpoint. The repository-level
- * tests above stay as the cheaper regression for `findLatestByChatId` itself;
- * the service-level describe block below proves the EMBED specifically:
- * present when a compaction exists, null-safe stats, absorbed-message-count
- * math across a compaction chain, and — the thing embedding must NOT change —
- * a foreign/cross-tenant chat id still resolves to `undefined` (404), same as
- * before this field existed.
+ * - a chat with no checkpoint returns undefined.
  *
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
@@ -24,33 +14,21 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 
 import * as schema from '../db/schema';
-import { type Compaction, type Message } from '../db/schema';
+import { type Message } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-} from './chats-repository';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
-import { renderConversationCheckpoint } from './context-builder';
+import {
+  createCompactionCheckpointPart,
+  readCheckpointText,
+} from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = Sql;
 
-function compactionReplacementHistory(
-  summary: string,
-): Compaction['replacementHistory'] {
-  return [
-    {
-      role: 'user',
-      parts: [{ type: 'text', text: renderConversationCheckpoint(summary) }],
-    },
-  ];
-}
-
-describeIfDb('compaction surfacing — RLS + latest', () => {
+describeIfDb('checkpoint surfacing — RLS + latest', () => {
   let sql: SqlClient;
   let db: Db;
   let tenantDb: TenantDbService;
@@ -64,6 +42,29 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
     );
     return id;
   };
+
+  const addMessage = (chatId: string, owner: string): Promise<Message> =>
+    tenantDb.runAs(owner, (tx) =>
+      new MessagesRepository(tx).create({
+        chatId,
+        role: 'user',
+        parts: [{ type: 'text', text: 'hi' }],
+      }),
+    );
+
+  const addCheckpoint = (
+    chatId: string,
+    owner: string,
+    absorbedThroughSeq: number,
+    summary: string,
+  ) =>
+    tenantDb.runAs(owner, (tx) =>
+      new MessagesRepository(tx).createCheckpoint({
+        chatId,
+        absorbedThroughSeq,
+        part: createCompactionCheckpointPart(summary),
+      }),
+    );
 
   beforeAll(async () => {
     const postgres = await import('postgres');
@@ -86,57 +87,78 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
     }
   });
 
-  it('returns the LATEST compaction (highest upto_seq) for the owner', async () => {
+  it('returns the latest checkpoint strictly below the triggering sequence', async () => {
     const chat = await newChat(a);
-    const first = await tenantDb.runAs(a, (tx) =>
-      new CompactionsRepository(tx).create({
-        chatId: chat,
-        uptoSeq: 10,
-        summary: 'summary up to 10',
-        replacementHistory: compactionReplacementHistory('summary up to 10'),
-      }),
+    const firstMessage = await addMessage(chat, a);
+    await addCheckpoint(chat, a, firstMessage.seq, 'summary up to one');
+    const secondMessage = await addMessage(chat, a);
+    await addCheckpoint(chat, a, secondMessage.seq, 'summary up to two');
+    const activeBefore = (beforeSeq: number) =>
+      tenantDb.runAs(a, (tx) =>
+        new MessagesRepository(tx).findActiveCheckpoint(chat, a, { beforeSeq }),
+      );
+
+    const aboveBoth = await activeBefore(secondMessage.seq + 2);
+    expect(aboveBoth?.absorbedThroughSeq).toBe(secondMessage.seq);
+    expect(aboveBoth ? readCheckpointText(aboveBoth) : '').toContain(
+      'summary up to two',
     );
-    await tenantDb.runAs(a, (tx) =>
-      new CompactionsRepository(tx).create({
-        chatId: chat,
-        uptoSeq: 25,
-        parentId: first.id,
-        summary: 'summary up to 25',
-        replacementHistory: compactionReplacementHistory('summary up to 25'),
-      }),
+
+    // The comparison is exclusive: a checkpoint absorbed through the triggering
+    // sequence itself is not below it.
+    const atSecond = await activeBefore(secondMessage.seq);
+    expect(atSecond?.absorbedThroughSeq).toBe(firstMessage.seq);
+    expect(atSecond ? readCheckpointText(atSecond) : '').toContain(
+      'summary up to one',
     );
-    const latest = await tenantDb.runAs(a, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chat, a),
-    );
-    expect(latest?.uptoSeq).toBe(25);
-    expect(latest?.summary).toBe('summary up to 25');
+
+    expect(await activeBefore(firstMessage.seq)).toBeUndefined();
   });
 
   it('a cross-tenant read returns undefined (owner-scoped, no leak)', async () => {
     const chat = await newChat(a);
-    await tenantDb.runAs(a, (tx) =>
-      new CompactionsRepository(tx).create({
-        chatId: chat,
-        uptoSeq: 5,
-        summary: 'private summary',
-        replacementHistory: compactionReplacementHistory('private summary'),
-      }),
-    );
+    const message = await addMessage(chat, a);
+    await addCheckpoint(chat, a, message.seq, 'private summary');
+
     const asB = await tenantDb.runAs(b, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chat, b),
+      new MessagesRepository(tx).findActiveCheckpoint(chat, b, {
+        beforeSeq: message.seq + 2,
+      }),
     );
     expect(asB).toBeUndefined();
   });
 
-  it('a chat with no compaction returns undefined', async () => {
+  it('a cross-tenant absorbed-message count returns nothing for the checkpoint', async () => {
     const chat = await newChat(a);
+    const message = await addMessage(chat, a);
+    const checkpoint = await addCheckpoint(chat, a, message.seq, 'private');
+    const asOwner = await tenantDb.runAs(a, (tx) =>
+      new MessagesRepository(tx).countAbsorbedMessages(chat, a, [
+        checkpoint.id,
+      ]),
+    );
+    const asOther = await tenantDb.runAs(b, (tx) =>
+      new MessagesRepository(tx).countAbsorbedMessages(chat, b, [
+        checkpoint.id,
+      ]),
+    );
+
+    expect(asOwner.get(checkpoint.id)).toBe(1);
+    expect(asOther.size).toBe(0);
+  });
+
+  it('a chat with no checkpoint returns undefined', async () => {
+    const chat = await newChat(a);
+    const message = await addMessage(chat, a);
     const none = await tenantDb.runAs(a, (tx) =>
-      new CompactionsRepository(tx).findLatestByChatId(chat, a),
+      new MessagesRepository(tx).findActiveCheckpoint(chat, a, {
+        beforeSeq: message.seq + 1,
+      }),
     );
     expect(none).toBeUndefined();
   });
 
-  describe('ChatsService.getChatMessages — embedded compaction (#136)', () => {
+  describe('ChatsService.getChatMessages — checkpoint rows', () => {
     let chatsService: ChatsService;
 
     beforeAll(() => {
@@ -149,172 +171,43 @@ describeIfDb('compaction surfacing — RLS + latest', () => {
       );
     });
 
-    const addMessage = (chatId: string, owner: string) =>
-      tenantDb.runAs(owner, (tx) =>
-        new MessagesRepository(tx).create({
-          chatId,
-          role: 'user',
-          parts: [{ type: 'text', text: 'hi' }],
-        }),
-      );
-
-    it('embeds compaction: null when the chat has never compacted', async () => {
+    it('returns checkpoint rows with their boundary and absorbed count', async () => {
       const chat = await newChat(a);
-      await addMessage(chat, a);
+      const first = await addMessage(chat, a);
+      const second = await addMessage(chat, a);
+      await addCheckpoint(chat, a, second.seq, 'older context');
 
       const result = await chatsService.getChatMessages(chat, a, { limit: 10 });
+      const checkpoint = result?.find(
+        (message) => message.role === 'checkpoint',
+      );
 
-      expect(result).toBeDefined();
-      expect(result?.compaction).toBeUndefined();
+      expect(checkpoint).toMatchObject({
+        role: 'checkpoint',
+        absorbedThroughSeq: second.seq,
+        absorbedMessageCount: 2,
+      });
+      expect(first.seq).toBeLessThan(second.seq);
+      expect(checkpoint ? readCheckpointText(checkpoint) : '').toContain(
+        'older context',
+      );
     });
 
-    it('embeds the LATEST compaction with null-safe stats when usage is absent', async () => {
+    it('does not leak checkpoint rows across tenants', async () => {
       const chat = await newChat(a);
-      for (let i = 0; i < 3; i++) await addMessage(chat, a);
-      await tenantDb.runAs(a, (tx) =>
-        new CompactionsRepository(tx).create({
-          chatId: chat,
-          uptoSeq: 3,
-          summary: 'no-usage summary',
-          replacementHistory: compactionReplacementHistory('no-usage summary'),
-        }),
-      );
-
-      const result = await chatsService.getChatMessages(chat, a, { limit: 10 });
-
-      expect(result?.compaction?.summary).toBe('no-usage summary');
-      expect(result?.compaction?.uptoSeq).toBe(3);
-      // First compaction, no parent — absorbed count is uptoSeq itself.
-      expect(result?.absorbedMessageCount).toBe(3);
-    });
-
-    it('derives before/after token counts and modelId from usage when present', async () => {
-      const chat = await newChat(a);
-      await addMessage(chat, a);
-      await tenantDb.runAs(a, (tx) =>
-        new CompactionsRepository(tx).create({
-          chatId: chat,
-          uptoSeq: 1,
-          summary: 'with usage',
-          replacementHistory: compactionReplacementHistory('with usage'),
-          usage: {
-            inputTokens: 71_400,
-            cachedInputTokens: 0,
-            outputTokens: 1280,
-            totalTokens: 72_680,
-            modelId: 'system:openai:gpt-4o',
-            latencyMs: 500,
-            finishReason: 'stop',
-            status: 'completed',
-            costUsd: null,
-          },
-        }),
-      );
-
-      const result = await chatsService.getChatMessages(chat, a, { limit: 10 });
-
-      expect(result?.compaction?.uptoSeq).toBe(1);
-    });
-
-    it('computes absorbedMessageCount as the DELTA across a compaction chain', async () => {
-      const chat = await newChat(a);
-      for (let i = 0; i < 30; i++) await addMessage(chat, a);
-      const first = await tenantDb.runAs(a, (tx) =>
-        new CompactionsRepository(tx).create({
-          chatId: chat,
-          uptoSeq: 10,
-          summary: 'first',
-          replacementHistory: compactionReplacementHistory('first'),
-        }),
-      );
-      await tenantDb.runAs(a, (tx) =>
-        new CompactionsRepository(tx).create({
-          chatId: chat,
-          uptoSeq: 25,
-          parentId: first.id,
-          summary: 'second',
-          replacementHistory: compactionReplacementHistory('second'),
-        }),
-      );
-
-      const result = await chatsService.getChatMessages(chat, a, { limit: 50 });
-
-      expect(result?.compaction?.uptoSeq).toBe(25);
-      // 25 - 10, NOT 25 (the chain's earlier span isn't re-counted).
-      expect(result?.absorbedMessageCount).toBe(15);
-    });
-
-    it('selects the latest compaction applicable to a target-ended history window', async () => {
-      const chat = await newChat(a);
-      const messages: Array<Message> = [];
-      for (let i = 0; i < 25; i++) {
-        messages.push(await addMessage(chat, a));
-      }
-      const first = await tenantDb.runAs(a, (tx) =>
-        new CompactionsRepository(tx).create({
-          chatId: chat,
-          uptoSeq: messages[9].seq,
-          summary: 'target first',
-          replacementHistory: compactionReplacementHistory('target first'),
-        }),
-      );
-      await tenantDb.runAs(a, (tx) =>
-        new CompactionsRepository(tx).create({
-          chatId: chat,
-          uptoSeq: messages[19].seq,
-          parentId: first.id,
-          summary: 'target second',
-          replacementHistory: compactionReplacementHistory('target second'),
-        }),
-      );
-
-      const cases = [
-        { target: messages[4].seq, summary: undefined },
-        { target: messages[9].seq, summary: 'target first' },
-        { target: messages[14].seq, summary: 'target first' },
-        { target: messages[19].seq, summary: 'target second' },
-        { target: messages[24].seq, summary: 'target second' },
-      ];
-
-      for (const { target, summary } of cases) {
-        const result = await chatsService.getChatMessages(chat, a, {
-          limit: 10,
-          targetSeq: target,
-        });
-
-        expect(result?.messages.at(-1)?.seq).toBe(target);
-        expect(result?.compaction?.summary).toBe(summary);
-        if (result?.compaction) {
-          expect(result.compaction.uptoSeq).toBeLessThanOrEqual(target);
-        }
-      }
-    });
-
-    it('a foreign/cross-tenant chat id still resolves to undefined — embedding the field does not change 404 behavior', async () => {
-      const chat = await newChat(a);
-      await addMessage(chat, a);
-      await tenantDb.runAs(a, (tx) =>
-        new CompactionsRepository(tx).create({
-          chatId: chat,
-          uptoSeq: 1,
-          summary: 'owner-only summary',
-          replacementHistory:
-            compactionReplacementHistory('owner-only summary'),
-        }),
-      );
+      const message = await addMessage(chat, a);
+      await addCheckpoint(chat, a, message.seq, 'owner-only summary');
 
       const asB = await chatsService.getChatMessages(chat, b, { limit: 10 });
-
       expect(asB).toBeUndefined();
     });
 
-    it('a nonexistent chat id resolves to undefined, same as before the embed', async () => {
+    it('returns undefined for a nonexistent chat', async () => {
       const result = await chatsService.getChatMessages(
         crypto.randomUUID(),
         a,
         { limit: 10 },
       );
-
       expect(result).toBeUndefined();
     });
   });

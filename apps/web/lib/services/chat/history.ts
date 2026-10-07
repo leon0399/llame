@@ -1,59 +1,61 @@
 import type { UIMessage } from "ai";
-import type { ChatMessagesResponse as GeneratedChatMessagesResponse } from "../../api/generated/models";
+import type {
+  ChatMessagesResponse as GeneratedChatMessagesResponse,
+  CheckpointStatsResponse,
+} from "../../api/generated/models";
 
 export type ChatMessageResponse = {
   id: string;
   chatId: string;
   seq: number;
-  role: UIMessage["role"] | "tool";
+  role: UIMessage["role"] | "tool" | "checkpoint";
   senderUserId: string | null;
   parts: UIMessage["parts"];
   attachments: Array<unknown>;
   usage: unknown;
   inReplyTo: string | null;
   createdAt: string;
+  absorbedThroughSeq?: number;
+  absorbedMessageCount?: number;
+  summary?: string;
+  stats?: CheckpointStatsResponse;
 };
 
 /**
- * Display-relevant subset of a compaction's usage telemetry (#136). All
- * fields are null-safe: an older/seeded compaction may carry no usage at
- * all, and `absorbedMessageCount` is independent of usage entirely (pure
- * seq arithmetic on the api side) so it can be present even when the rest
- * isn't. `beforeTokens`/`afterTokens` are the summarization call's own
- * input/output token counts (the size of what got absorbed vs. the size of
- * the summary that replaced it) — not a literal "chat context size before
- * vs. after" figure, which isn't persisted anywhere.
+ * The checkpoint row fields the transcript boundary reads. The API sends all
+ * of them on every checkpoint row; `absorbedThroughSeq` places the boundary.
  */
-export type CompactionStats = {
-  absorbedMessageCount: number | null;
-  beforeTokens: number | null;
-  afterTokens: number | null;
-  modelId: string | null;
-};
-
-/**
- * The chat's latest compaction (#57), embedded in the messages response
- * (#136) instead of a separate `GET :id/compaction` round trip.
- */
-export type Compaction = {
-  uptoSeq: number;
-  summary: string;
-  createdAt: string;
-  stats: CompactionStats;
-};
+export type Compaction = Required<
+  Pick<
+    ChatMessageResponse,
+    "absorbedThroughSeq" | "absorbedMessageCount" | "summary" | "stats"
+  >
+> &
+  Pick<ChatMessageResponse, "createdAt">;
 
 export type ChatMessagesResponse = {
   messages: Array<ChatMessageResponse>;
   compaction: Compaction | null;
 };
 
+function isCompaction(
+  message: ChatMessageResponse,
+): message is ChatMessageResponse & Compaction {
+  return (
+    message.role === "checkpoint" &&
+    message.absorbedThroughSeq !== undefined &&
+    message.absorbedMessageCount !== undefined &&
+    message.summary !== undefined &&
+    message.stats !== undefined
+  );
+}
+
 /** Adapt the generated unknown-part wire contract to the AI SDK UI facade. */
 export function normalizeChatMessagesResponse(
   response: GeneratedChatMessagesResponse,
 ): ChatMessagesResponse {
-  return {
-    compaction: response.compaction,
-    messages: response.messages.map((message) => ({
+  const messages: Array<ChatMessageResponse> = response.messages.map(
+    (message) => ({
       ...message,
       // SAFETY: the wire contract types `parts` as opaque objects only
       // because OpenAPI cannot express the AI SDK's discriminated part
@@ -61,8 +63,10 @@ export function normalizeChatMessagesResponse(
       // rows, and persists exactly the shapes `UIMessage["parts"]` allows
       // (see AGENTS.md "Preserve stored conversation parts wholesale").
       parts: message.parts as UIMessage["parts"],
-    })),
-  };
+    }),
+  );
+  const compaction = [...messages].reverse().find(isCompaction);
+  return { compaction: compaction ?? null, messages };
 }
 
 /** The combined shape `ChatPage` renders from — one query, one fetch. */
@@ -443,8 +447,7 @@ function isChatUiMessageResponse(
 // Decoupled from the full ChatMessagesResponse (just the `messages` field it
 // actually needs) so a caller that already unwrapped `.messages` from a
 // paginated walk (which discards the response's other fields) can pass the
-// plain array straight through, without needing to fabricate a `compaction`
-// field just to satisfy the type.
+// plain array straight through without fabricating a checkpoint boundary.
 export function toChatUiMessages(response: {
   messages: Array<ChatMessageResponse>;
 }): Array<UIMessage> {

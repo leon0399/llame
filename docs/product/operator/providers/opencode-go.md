@@ -92,8 +92,8 @@ model the gateway rejects fails at request time (below), not at startup.
 
 Every language-model request llame makes for a Chat carries the gateway's
 session header, `x-opencode-session`, rendered from the Chat's identity: the
-Chat's own id verbatim for the main turn and for both compaction paths, and
-`title:<id>` for title generation, so a summarization request reuses the
+Chat's own id verbatim for the main turn and the compaction summary request,
+and `title:<id>` for title generation, so a summarization request reuses the
 conversation's prefix identity while a title request gets its own. The value
 is stable across retries, worker restarts, compaction, and model switches
 within the Chat. It is the Chat's own identifier, not a credential; it never

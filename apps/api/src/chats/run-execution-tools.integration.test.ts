@@ -65,7 +65,6 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { CompactionsRepository } from './compactions-repository';
 import {
   buildContext,
   isTextPart,
@@ -124,7 +123,10 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { turnTelemetryLogger } from './turn-telemetry';
-import { createModelChangeItem } from './context-item-producers';
+import {
+  createCompactionCheckpointPart,
+  createModelChangeItem,
+} from './context-item-producers';
 import { createContextItemPart, isContextItemPart } from './context-item';
 import {
   instructionsSeenPaths,
@@ -5869,18 +5871,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(await instructionEvents(secondSeeded.run.id)).toEqual([]);
         expect(await stagedInstructionParts(secondSeeded)).toEqual([]);
 
-        // A compaction absorbs every message that carried the item.
+        // The checkpoint absorbs every message that carried the item.
         await tenantDb.runAs(userId, (tx) =>
-          new CompactionsRepository(tx).create({
+          new MessagesRepository(tx).createCheckpoint({
             chatId: seeded.chatId,
-            uptoSeq: secondSeeded.userMessage.seq,
-            summary: 'Earlier turns.',
-            replacementHistory: [
-              {
-                role: 'user',
-                parts: [{ type: 'text', text: 'Earlier turns.' }],
-              },
-            ],
+            absorbedThroughSeq: secondSeeded.userMessage.seq,
+            part: createCompactionCheckpointPart('Earlier turns.'),
           }),
         );
 

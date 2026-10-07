@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-06
 
+- **Breaking:** Compaction storage is now a `checkpoint` message row with an
+  `absorbed_through_seq` boundary; the `compactions` table is dropped without
+  conversion. A previously compacted Chat pays one summary call on its next
+  over-threshold turn to create a checkpoint. Stop every API and worker, run
+  `pnpm db:migrate`, then start them together on the matching revision; mixed
+  old/new processes are unsupported. No tool records cross a checkpoint: only
+  its stored summary text is replayed
+  ([#806](https://github.com/leon0399/llame/issues/806)).
+
 - `read` line selectors gain two members and one spelling order. `:N-` reads
   from line N through the source's last line and `:-K` reads its last K lines,
   and `N`, `N-M`, `N+K`, `N-`, and `-K` are now one set accepted in a bare comma

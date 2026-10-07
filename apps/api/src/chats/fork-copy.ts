@@ -1,17 +1,11 @@
 /**
- * The pure projection an owner fork applies to its source
- * (complete-owner-forks D2-D3): which storage identities the copy allocates,
- * which Chat-row state travels with it, and what the copied message rows look
- * like. `ChatsService` owns the transaction and the writes; everything decided
- * here is decided without a database.
- *
- * Split out of `chats.service.ts` for the same reason as its siblings
- * (`assistant-completion.ts`, `message-eligibility.ts`): the rule is worth
- * reading on its own, and the service should read as the sequence of writes it
- * performs.
+ * The pure projection an owner fork applies to its source: which Chat-row
+ * state travels with it and what the copied message rows look like.
+ * `ChatsService` owns the transaction and writes; everything decided here is
+ * decided without a database.
  */
 
-import { type Chat, type Compaction, type MessageRole } from '../db/schema';
+import { type Chat, type MessageRole } from '../db/schema';
 import { type ChatInheritedValues } from './chats-repository';
 
 /**
@@ -23,78 +17,98 @@ export type CopyableMessage = {
   id: string;
   role: MessageRole;
   parts: Array<unknown>;
-  senderUserId: string | null;
   attachments: Array<unknown>;
+  senderUserId: string | null;
   inReplyTo: string | null;
+  seq?: number;
+  absorbedThroughSeq?: number | null;
   createdAt?: Date;
   usage?: unknown;
 };
 
 /**
- * Repoint one of a Chat row's re-bake markers at the fork's copies of the
- * compactions. `baselineMatchesEpoch` reuses a stored baseline only while its
- * marker equals the chat's active (latest) compaction id, so each case is
- * forced:
- *
- * - `null` stays `null` — the source re-resolves that baseline, and the fork
- *   has to re-resolve it the same way rather than pinning a baseline the
- *   source would replace;
- * - a marker naming a COPIED compaction becomes that copy's new id;
- * - a marker naming a compaction OUTSIDE the copied prefix (the anchor stopped
- *   before that checkpoint) becomes the copied active compaction's new id, or
- *   `null` when the prefix copied none. Leaving the stale id in place, or
- *   nulling it beside a copied baseline, would make the fork's first turn
- *   re-resolve the live catalog and change its system prompt.
+ * A row's sequence is needed only for owner-fork boundary selection/remapping.
  */
-function remapRebakeMarker(
-  marker: string | null,
-  copiedCompactionIds: ReadonlyMap<string, string>,
-  activeCompactionId: string | null,
-): string | null {
-  if (marker === null) return null;
-  return copiedCompactionIds.get(marker) ?? activeCompactionId;
+type SequencedCopyableMessage = CopyableMessage & { seq: number };
+
+/**
+ * Owner forks copy ordinary conversation rows through the anchor and copy a
+ * checkpoint when the conversation rows it absorbed end at or before it. A
+ * checkpoint is stored after its absorbed rows, so filtering on its own seq
+ * would incorrectly omit a checkpoint when the anchor is inside the live tail.
+ */
+export function selectForkMessages(
+  messages: ReadonlyArray<SequencedCopyableMessage>,
+  maxSeq: number | undefined,
+): Array<SequencedCopyableMessage> {
+  return messages.filter((message) => {
+    if (message.role === 'checkpoint') {
+      return (
+        message.absorbedThroughSeq !== undefined &&
+        message.absorbedThroughSeq !== null &&
+        (maxSeq === undefined || message.absorbedThroughSeq <= maxSeq)
+      );
+    }
+
+    return (
+      (message.role === 'user' || message.role === 'assistant') &&
+      (maxSeq === undefined || message.seq <= maxSeq)
+    );
+  });
 }
 
 /**
- * The fork's compaction identities and the Chat-row values that reference
- * them, decided together: the destination Chat row must already name the
- * checkpoints its baselines were re-baked at, so the ids are pre-assigned
- * before anything is inserted. `compactions` is the prefix's lineage
- * oldest-first, so its last row is the copied chat's active checkpoint.
- *
- * The frozen baselines and told-sets travel verbatim — the fork continues the
- * disclosure the source made, rather than resolving its own. Workspace root,
- * executor, and generation travel too, while Workspace told, toldFrom, and
- * detach state stay local to the source attempt.
+ * Repoint one of a Chat row's re-bake markers at the fork's copies of the
+ * checkpoint messages. `activeCheckpointId` is the newest copied checkpoint.
+ * A marker naming an uncopied checkpoint falls back to that active copy, or to
+ * null when the copied prefix contains no checkpoint.
+ */
+function remapRebakeMarker(
+  marker: string | null,
+  copiedCheckpointIds: ReadonlyMap<string, string>,
+  activeCheckpointId: string | null,
+): string | null {
+  if (marker === null) return null;
+  return copiedCheckpointIds.get(marker) ?? activeCheckpointId;
+}
+
+/**
+ * Preallocate copied message identities and derive the Chat-row values that
+ * reference them. The destination Chat must already name copied checkpoints
+ * before it is inserted.
  */
 export function inheritForkedChatState(
   source: Chat,
-  compactions: ReadonlyArray<Compaction>,
+  toCopy: ReadonlyArray<SequencedCopyableMessage>,
 ) {
-  const compactionIds = new Map<string, string>(
-    compactions.map((compaction) => [compaction.id, crypto.randomUUID()]),
+  const messageIds = new Map<string, string>(
+    toCopy.map((message) => [message.id, crypto.randomUUID()]),
   );
-  const active = compactions.at(-1);
-  const activeCompactionId =
-    active === undefined ? null : (compactionIds.get(active.id) ?? null);
+  const copiedCheckpointIds = new Map<string, string>();
+  for (const message of toCopy) {
+    if (message.role === 'checkpoint') {
+      copiedCheckpointIds.set(message.id, messageIds.get(message.id)!);
+    }
+  }
+  const activeCheckpointId = [...copiedCheckpointIds.values()].at(-1) ?? null;
 
   return {
-    compactionIds,
+    messageIds,
     inherited: {
       createdAt: source.createdAt,
       recencyDigestBaseline: source.recencyDigestBaseline,
       recencyDigestTold: source.recencyDigestTold,
       recencyDigestRebakedFrom: remapRebakeMarker(
         source.recencyDigestRebakedFrom,
-        compactionIds,
-        activeCompactionId,
+        copiedCheckpointIds,
+        activeCheckpointId,
       ),
       skillCatalogBaseline: source.skillCatalogBaseline,
       skillCatalogTold: source.skillCatalogTold,
       skillCatalogRebakedFrom: remapRebakeMarker(
         source.skillCatalogRebakedFrom,
-        compactionIds,
-        activeCompactionId,
+        copiedCheckpointIds,
+        activeCheckpointId,
       ),
       workspaceRoot: source.workspaceRoot,
       workspaceExecutorId: source.workspaceExecutorId,
@@ -103,21 +117,7 @@ export function inheritForkedChatState(
   };
 }
 
-/**
- * The copied message rows, in source order with dense sequences from 1. Ids
- * are pre-assigned before any insert — `createMany`'s chunked bulk insert has
- * no per-row RETURNING to learn a new id mid-batch, and a reply's `inReplyTo`
- * only ever points to an earlier row in the same prefix (lower `seq`), so
- * every reference is guaranteed to already be mapped.
- *
- * Only storage identity is rewritten. Nothing inside `parts` or `usage` is
- * touched, so a copied assistant keeps the tool-call ids and the original Run
- * id its history recorded, as values.
- */
-export function copiedMessageRows(
-  toCopy: ReadonlyArray<CopyableMessage>,
-  chatId: string,
-): Array<{
+type CopiedMessageRow = {
   id: string;
   chatId: string;
   seq: number;
@@ -125,26 +125,62 @@ export function copiedMessageRows(
   senderUserId: string | null;
   parts: Array<unknown>;
   attachments: Array<unknown>;
+  absorbedThroughSeq: number | null;
   inReplyTo: string | null;
   createdAt?: Date;
   usage?: unknown;
-}> {
-  const idMap = new Map(toCopy.map((m) => [m.id, crypto.randomUUID()]));
+};
+
+function checkpointBoundaryForCopy(
+  message: CopyableMessage,
+  newSeqBySourceSeq: ReadonlyMap<number, number>,
+): number | null {
+  if (message.role !== 'checkpoint') return null;
+  if (
+    message.absorbedThroughSeq === undefined ||
+    message.absorbedThroughSeq === null
+  ) {
+    throw new Error(`Checkpoint ${message.id} is missing absorbedThroughSeq`);
+  }
+  const copiedBoundary = newSeqBySourceSeq.get(message.absorbedThroughSeq);
+  if (copiedBoundary === undefined) {
+    throw new Error(
+      `Checkpoint ${message.id} names a row outside the copied prefix`,
+    );
+  }
+  return copiedBoundary;
+}
+
+/**
+ * The copied message rows, in source order with dense sequences from 1. Ids
+ * are pre-assigned before any insert so `inReplyTo` and checkpoint boundaries
+ * can be remapped without a per-row RETURNING round-trip.
+ */
+export function copiedMessageRows(
+  toCopy: ReadonlyArray<CopyableMessage>,
+  chatId: string,
+  messageIds: ReadonlyMap<string, string> = new Map(
+    toCopy.map((message) => [message.id, crypto.randomUUID()]),
+  ),
+): Array<CopiedMessageRow> {
+  const newSeqBySourceSeq = new Map(
+    toCopy.map((message, index) => [message.seq ?? index + 1, index + 1]),
+  );
   return toCopy.map((message, index) => ({
-    id: idMap.get(message.id)!,
+    id: messageIds.get(message.id)!,
     chatId,
     seq: index + 1,
     role: message.role,
     senderUserId: message.senderUserId,
     parts: message.parts,
     attachments: message.attachments,
+    absorbedThroughSeq: checkpointBoundaryForCopy(message, newSeqBySourceSeq),
     inReplyTo: message.inReplyTo
-      ? (idMap.get(message.inReplyTo) ?? null)
+      ? (messageIds.get(message.inReplyTo) ?? null)
       : null,
     // Both forks pass all-or-nothing: an absent value reaches the INSERT as
-    // `undefined` and so takes the column default (`now()` for `createdAt`,
-    // NULL for `usage`) rather than an explicit null. The shared fork omits
-    // both, which is how its rows keep no time or price of their own.
+    // `undefined` and takes the column default (`now()` for `createdAt`,
+    // NULL for `usage`) rather than an explicit null.
     createdAt: message.createdAt,
     usage: message.usage,
   }));

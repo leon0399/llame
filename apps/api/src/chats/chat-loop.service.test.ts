@@ -22,11 +22,7 @@ import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { ChatLoopService } from './chat-loop.service';
 import { isInflightUniqueViolation } from './inflight-unique-violation';
-import {
-  ChatsRepository,
-  CompactionsRepository,
-  MessagesRepository,
-} from './chats-repository';
+import { ChatsRepository, MessagesRepository } from './chats-repository';
 
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 const model: SystemModelCatalogEntry = {
@@ -73,6 +69,7 @@ const userMessage: Message = {
   senderUserId: chat.ownerUserId,
   parts: [{ type: 'text', text: 'hello' }],
   attachments: [],
+  absorbedThroughSeq: null,
   usage: null,
   inReplyTo: null,
   createdAt: now,
@@ -178,10 +175,6 @@ function makeService(options?: {
   const createUserMessageIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
     .mockResolvedValue(userMessage);
-  vi.spyOn(
-    CompactionsRepository.prototype,
-    'findLatestByChatId',
-  ).mockResolvedValue(undefined);
   vi.spyOn(SystemPromptsService.prototype, 'render').mockReturnValue(
     'Bound prompt',
   );
