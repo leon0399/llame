@@ -8,7 +8,7 @@ Operator config-as-code: an optional, strictly-validated `llame.config.jsonc` (d
 
 ### Requirement: Optional operator config file
 
-The system SHALL load an operator-owned configuration file at startup and use its contents as the source of system-wide (operator) settings. The default location SHALL be `llame.config.jsonc` in the API's runtime working directory (co-located with `.env.local`), overridable via the `LLAME_CONFIG_PATH` environment variable (absolute path wins when set). The file SHALL be optional: when absent, the system SHALL boot on documented built-in defaults without error. The file SHALL be parsed by extension: `.jsonc` and `.json` as **JSONC** (JSON with comments and trailing commas), `.yaml` and `.yml` as YAML (with anchors and merge keys resolved), and `.toml` as TOML; any other extension SHALL fail startup naming the file. When no `LLAME_CONFIG_PATH` override is set and the default `llame.config.jsonc` is absent, the system SHALL load `llame.config.json` from the same directory when present, parsed as JSONC. When neither is present but a `llame.config.yaml`, `llame.config.yml`, or `llame.config.toml` is, the system SHALL fail startup naming that file and instructing the operator to set `LLAME_CONFIG_PATH` to it. It is deploy-time, version-controllable source of truth (config-as-code) and SHALL NOT hold tenant-owned (per-user, per-chat) data.
+The system SHALL load an operator-owned configuration file at startup and use its contents as the source of system-wide (operator) settings. The default location SHALL be `llame.config.jsonc` in the API's runtime working directory (co-located with `.env.local`), overridable via the `LLAME_CONFIG_PATH` environment variable (absolute path wins when set). The file SHALL be optional: when absent, the system SHALL boot on documented built-in defaults without error. The file SHALL be parsed by extension: `.jsonc` and `.json` as **JSONC** (JSON with comments and trailing commas), `.yaml` and `.yml` as YAML (with anchors and merge keys resolved), and `.toml` as TOML; any other extension SHALL fail startup naming the file. When no `LLAME_CONFIG_PATH` override is set, the system SHALL load whichever single `llame.config.jsonc`, `llame.config.json`, `llame.config.yaml`, `llame.config.yml`, or `llame.config.toml` exists in that directory, and SHALL fail startup naming the files when more than one exists. It is deploy-time, version-controllable source of truth (config-as-code) and SHALL NOT hold tenant-owned (per-user, per-chat) data.
 
 #### Scenario: File present and valid
 
@@ -16,11 +16,16 @@ The system SHALL load an operator-owned configuration file at startup and use it
 - **THEN** its values populate the operator/system settings
 - **AND** startup succeeds
 
-#### Scenario: JSON default name still loads
+#### Scenario: Any supported extension is discovered
 
-- **WHEN** no `LLAME_CONFIG_PATH` is set, `llame.config.jsonc` is absent, and `llame.config.json` is present
-- **THEN** `llame.config.json` is loaded and parsed as JSONC
+- **WHEN** no `LLAME_CONFIG_PATH` is set and the only config file is `llame.config.json` (or `.yaml`, `.yml`, `.toml`)
+- **THEN** that file is loaded, `.json` parsed as JSONC
 - **AND** startup succeeds without requiring a rename
+
+#### Scenario: Ambiguous default config
+
+- **WHEN** no `LLAME_CONFIG_PATH` is set and more than one `llame.config.*` file with a supported extension exists
+- **THEN** startup fails naming those files
 
 #### Scenario: File absent
 

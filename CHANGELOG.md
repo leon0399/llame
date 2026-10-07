@@ -2,15 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-07
 
-- Restored loading of an existing `llame.config.json`: with no
-  `LLAME_CONFIG_PATH` and no `llame.config.jsonc`, the loader now uses
-  `llame.config.json` from the same directory and parses it as JSONC, as before
-  [#1082](https://github.com/leon0399/llame/pull/1082). Startup no longer fails
-  demanding a rename; `llame.config.jsonc` stays the default and wins when both
-  exist. A lone `llame.config.yaml`, `.yml`, or `.toml` at
-  the default location still fails startup, now pointing at `LLAME_CONFIG_PATH`
-  instead of a rename that would change its format. The chat-search eval
-  resolves its config the same way.
+- Restored loading of an existing `llame.config.json`, parsed as JSONC as
+  before [#1082](https://github.com/leon0399/llame/pull/1082); startup no longer
+  demands a rename. With no `LLAME_CONFIG_PATH`, the loader uses whichever single
+  `llame.config.jsonc`, `.json`, `.yaml`, `.yml`, or `.toml` exists in its
+  working directory, and fails startup naming the files when more than one does.
+  The chat-search eval resolves its config the same way.
 
 # 2026-10-06
 

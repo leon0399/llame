@@ -145,7 +145,7 @@ describe('resolveConfigPath', () => {
     );
   });
 
-  it('falls back to llame.config.json and parses it as JSONC when the .jsonc default is absent', () => {
+  it('discovers a lone llame.config.json and parses it as JSONC', () => {
     const jsonPath = path.join(tmpDir, 'llame.config.json');
     writeFileSync(
       jsonPath,
@@ -158,11 +158,20 @@ describe('resolveConfigPath', () => {
     expect(loadInstanceConfig().runs.timeoutSeconds).toBe(123);
   });
 
-  it('prefers llame.config.jsonc when both default names exist', () => {
+  it.each(['jsonc', 'json', 'yaml', 'yml', 'toml'])(
+    'discovers a lone llame.config.%s (no override)',
+    (ext) => {
+      const file = path.join(tmpDir, `llame.config.${ext}`);
+      writeFileSync(file, '');
+      expect(resolveConfigPath({}, tmpDir)).toBe(file);
+    },
+  );
+
+  it('fails boot when more than one llame.config.* exists (no override)', () => {
     writeFileSync(path.join(tmpDir, 'llame.config.json'), '{}');
     writeFileSync(path.join(tmpDir, 'llame.config.jsonc'), '{}');
-    expect(resolveConfigPath({}, tmpDir)).toBe(
-      path.join(tmpDir, 'llame.config.jsonc'),
+    expect(() => resolveConfigPath({}, tmpDir)).toThrow(
+      /multiple config files: .*llame\.config\.jsonc, .*llame\.config\.json;/u,
     );
   });
 
@@ -171,16 +180,6 @@ describe('resolveConfigPath', () => {
       path.join(tmpDir, 'llame.config.jsonc'),
     );
   });
-
-  it.each(['yaml', 'yml', 'toml'])(
-    'fails boot when only an undiscovered llame.config.%s exists (no override)',
-    (ext) => {
-      writeFileSync(path.join(tmpDir, `llame.config.${ext}`), '');
-      expect(() => resolveConfigPath({}, tmpDir)).toThrow(
-        new RegExp(`llame\\.config\\.${ext}`, 'u'),
-      );
-    },
-  );
 });
 
 describe('resolvePermissionModes', () => {
