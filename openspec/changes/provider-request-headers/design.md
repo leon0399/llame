@@ -54,8 +54,8 @@ Inspected at `master` `e90b4aa` (2026-10-07). See proposal.md for motivation.
 
 - A general template language. One variable today; #765 adds
   `{session:parentId}` under the same rules.
-- Model-level headers, embedding-request headers, and any override of a
-  reserved header.
+- Model-level headers, embedding-request headers, and stripping headers the
+  client or adapter sets.
 
 ## Prior art
 
@@ -94,8 +94,10 @@ Rejected:
 
 The resolved map is the type's default map with the operator's map laid over
 it, key by key, comparing names by ASCII case-folding. An operator string
-replaces the default value and its casing; `null` removes the header; a
-`null` for a name with no default is accepted and removes nothing. Defaults:
+replaces the default value and its casing; `null` removes a default-map header;
+a `null` for a name with no default is accepted and removes nothing. Two keys in
+one operator map that collide under case-folding fail startup, because the
+overlay would otherwise depend on key order. Defaults:
 `{ "X-Session-Id": "{session:id}" }` for `openai-responses`,
 `openai-completions`, `anthropic-messages`, and `opencode-go`; `{}` for
 `openai-codex`.
@@ -120,7 +122,7 @@ the upstream request (line 234), and deletes only the `x-opencode-*` and
 261-268). So `X-Session-Id` reaches the upstream vendor unread by Go. OpenCode's
 shipped v2 client sends it on every Go request (prior-art table), so the
 vendors behind Go already receive it and llame's request matches first-party
-traffic. `x-opencode-session` stays code-owned and reserved: the gateway keys
+traffic. llame always sends `x-opencode-session` itself; the gateway keys
 sticky routing on it.
 
 ### D4: `{session:id}` is the lane-rendered Chat identity
@@ -154,8 +156,8 @@ A resolved secret is never rescanned, so an environment value that contains
 `{session:id}` is sent as that literal text. Rendering a request concatenates
 the segments. A value that renders empty is not sent, so `{env:NAME:-}` with
 `NAME` unset omits the header, matching the "empty resolution means unset"
-rule. Startup also rejects a header name that is not an HTTP token and a
-resolved value containing CR, LF, or NUL, naming the path only.
+rule. Header names and values get no further startup validation: an invalid
+one fails at request time in `fetch`, as any malformed request does.
 
 Rejected:
 
@@ -163,40 +165,34 @@ Rejected:
   It cannot tell an escaped `{{session:id}` from the variable, and it lets a
   resolved secret inject a variable.
 
-### D6: Reserved header names per type
+### D6: Operator values win; nothing is reserved
 
-Startup fails, naming the path, when the merged-in operator map names a
-reserved header (ASCII case-insensitive):
-
-| Type                 | Reserved                                                                |
-| -------------------- | ----------------------------------------------------------------------- |
-| every type           | `authorization`, `content-type`, `content-length`, `host`, `user-agent` |
-| `anthropic-messages` | `x-api-key`, `anthropic-version`, `anthropic-beta`                      |
-| `openai-codex`       | `chatgpt-account-id`, `originator`, `openai-beta`, `accept`             |
-| `opencode-go`        | `x-opencode-session`, `x-opencode-client`                               |
-
-`null` on a reserved name fails too: removal is also an override. Two names in
-one map that collide under case-folding fail, as for MCP. `anthropic-beta` is
-reserved because the client composes betas from `providerOptions`; a raw
-header would bypass that. `user-agent` is reserved by
-`provider-api-selection`'s identity requirement and stays so until a separate
-issue decides otherwise.
+The rendered operator map is applied last on every request, so a string value
+replaces any header the client or adapter would send under that name:
+`user-agent`, Go's `x-opencode-session` and `x-opencode-client`, Codex's
+`originator`, a credential header. `null` only removes a default-map entry; it
+does not strip headers the client or adapter sets itself. The adapter may
+still append its own token to an operator `User-Agent`, as it does to llame's.
 
 Rejected:
 
-- **No reserved list, last writer wins.** A misconfigured map could drop the
-  credential or claim another product's identity.
+- **Per-type reserved lists.** They cost a list per type kept in sync with
+  each adapter's internals, to stop an operator from changing a request the
+  operator already controls through `key` and `baseUrl`. Leo's decision:
+  YAGNI.
 
 ### D7: Clients render once per request and send per call
 
 The factory passes each client its resolved segment map. Each client renders
 it from `chat` on every streaming and structured request and puts the result
-in the per-call `headers` beside `user-agent`, the place the session hook
-already uses. The Completions client's `sessionHeader` hook is replaced by
-that rendered map: Go's `x-opencode-session` becomes a fixed code-owned
-template in the Go client, and the operator map renders beside it. The Codex
-client passes the map through to the Responses client it wraps. Per call, not
-at provider construction, because the variable changes per request.
+in the per-call `headers` after its own `user-agent` and session header, so
+the operator's value wins; per-call headers already override construction
+headers in the installed adapters, which the implementation layer's tests
+prove per client. The Completions client's `sessionHeader` hook is replaced by
+that rendered map: Go's `x-opencode-session` becomes a code-owned template in
+the Go client that the operator map can override. The Codex client passes the
+map through to the Responses client it wraps. Per call, not at provider
+construction, because the variable changes per request.
 
 ### D8: Interpolated values are secrets and are redacted from failures
 
@@ -235,6 +231,9 @@ The runbook warns against that configuration.
 - [An operator writes a credential as a literal header value] -> It is not
   marked secret because nothing distinguishes it from any other literal; the
   docs say to use `{env:}` or `{path:}` for credentials, as for MCP headers.
+- [An operator override claims another product's client identity, or breaks
+  authentication] -> The operator's decision under that provider's terms;
+  llame's defaults never do either. The runbooks say so.
 - [A future Claude subscription type (#754) inherits a default] -> #754 is an
   executor path, not a `ModelClient` type, so no map reaches it. A
   subscription type added later declares its own default, and `{}` is the

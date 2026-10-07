@@ -6,7 +6,8 @@ The client SHALL send llame's product `User-Agent` as `provider-api-selection`
 requires of every provider, and SHALL additionally send the gateway's client
 header naming llame. It SHALL NOT send the gateway's request-identifier or
 project headers unless the entry's operator header map adds them, and SHALL
-NOT claim another product's client identity. Neither
+NOT claim another product's client identity. An operator header map value
+replaces either identity header for that entry's requests. Neither
 header is a credential and neither carries owner, Chat, tenant, or credential
 data.
 

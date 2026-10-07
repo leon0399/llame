@@ -9,10 +9,10 @@ requests for gateways such as LiteLLM.
 ### Requirement: Provider entries accept an operator header map
 
 Every `providers[]` entry SHALL accept an optional `headers` object whose keys
-are HTTP header names and whose values are a string or `null`. A key that is
-not a valid HTTP header-name token, a value of another type, or two keys equal
-under ASCII case-folding SHALL fail startup naming the configuration path. The
-map is server-only and SHALL NOT be returned by the models endpoint.
+are header names and whose values are a string or `null`. A value of another
+type, or two keys equal under ASCII case-folding, SHALL fail startup naming the
+configuration path. No header name is reserved. The map is server-only and
+SHALL NOT be returned by the models endpoint.
 
 #### Scenario: A header map on any provider type loads
 
@@ -24,11 +24,6 @@ map is server-only and SHALL NOT be returned by the models endpoint.
 - **WHEN** one entry's `headers` declares both `X-Tag` and `x-tag`
 - **THEN** startup fails naming the colliding header paths without printing either value
 
-#### Scenario: An invalid header name fails startup
-
-- **WHEN** an entry's `headers` declares a key that contains a space or a colon
-- **THEN** startup fails naming the configuration path
-
 #### Scenario: The map never reaches a client of the API
 
 - **WHEN** the models endpoint lists a model whose provider entry declares `headers`
@@ -36,7 +31,7 @@ map is server-only and SHALL NOT be returned by the models endpoint.
 
 ### Requirement: Provider types supply default headers under the operator map
 
-Each provider type SHALL have a default header map: `{ "X-Session-Id": "{session:id}" }` for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`, and an empty map for `openai-codex`. The effective map SHALL be the default with the operator's map laid over it key by key, comparing names by ASCII case-folding: a string replaces the default, and `null` removes it.
+Each provider type SHALL have a default header map: `{ "X-Session-Id": "{session:id}" }` for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`, and an empty map for `openai-codex`. The effective map SHALL be the default with the operator's map laid over it key by key, comparing names by ASCII case-folding: a string replaces the default, and `null` removes a default entry.
 
 #### Scenario: An entry without a map sends the default
 
@@ -68,30 +63,29 @@ Each provider type SHALL have a default header map: `{ "X-Session-Id": "{session
 - **WHEN** a request is made through an entry of any type whose map does not name `x-session-affinity`
 - **THEN** the request carries no `x-session-affinity` header
 
-### Requirement: Reserved headers cannot be configured
+### Requirement: Operator header values take precedence over the client's own
 
-The operator map SHALL NOT name, with a string or `null`, a header llame or the provider adapter owns, compared under ASCII case-folding: `authorization`, `content-type`, `content-length`, `host`, and `user-agent` for every type; `x-api-key`, `anthropic-version`, and `anthropic-beta` for `anthropic-messages`; `chatgpt-account-id`, `originator`, `openai-beta`, and `accept` for `openai-codex`; and `x-opencode-session` and `x-opencode-client` for `opencode-go`.
+An operator string value SHALL replace any header the client or adapter would otherwise send under the same name, compared under ASCII case-folding, including `User-Agent` and headers a provider type sets itself. `null` SHALL remove only a default-map entry; it SHALL NOT strip a header the client or adapter sets. Tokens an adapter appends after an operator value are outside llame's control.
 
-#### Scenario: A reserved header fails startup
+#### Scenario: An operator User-Agent replaces llame's
 
-- **WHEN** an entry's `headers` names `Authorization`, or an `anthropic-messages` entry's names `anthropic-beta`
-- **THEN** startup fails naming the header path without printing its value
+- **WHEN** an `openai-completions` entry declares `"headers": { "User-Agent": "acme-gateway-client/1" }`
+- **THEN** its streaming and structured requests carry a `User-Agent` that begins with `acme-gateway-client/1`, not llame's product token
 
-#### Scenario: Removing a reserved header fails startup
+#### Scenario: An operator value replaces a provider type's own header
+
+- **WHEN** an `opencode-go` entry declares `"headers": { "x-opencode-client": "custom" }`
+- **THEN** its requests carry `x-opencode-client: custom` and no second value for that header
+
+#### Scenario: Null does not strip a client-owned header
 
 - **WHEN** an `opencode-go` entry declares `"headers": { "x-opencode-session": null }`
-- **THEN** startup fails naming the header path
-- **AND** the gateway session header is never omitted from a request
-
-#### Scenario: The identity header cannot be overridden
-
-- **WHEN** an entry's `headers` names `User-Agent` in any casing
-- **THEN** startup fails naming the header path
-- **AND** no request carries an operator-supplied product identity
+- **THEN** startup succeeds
+- **AND** its requests still carry the gateway session header llame renders
 
 ### Requirement: Header values are templates resolved at startup
 
-A header string value SHALL be parsed once at startup: `{{` is a literal `{`, `{env:…}` and `{path:…}` resolve under the existing interpolation rules, `{session:id}` is a request-time variable, and any other `{name:…}` token SHALL fail startup naming the path. Resolved interpolation output SHALL be treated as literal text. A value that renders empty SHALL omit the header, and a resolved value containing CR, LF, or NUL SHALL fail startup.
+A header string value SHALL be parsed once at startup: `{{` is a literal `{`, `{env:…}` and `{path:…}` resolve under the existing interpolation rules, `{session:id}` is a request-time variable, and any other `{name:…}` token SHALL fail startup naming the path. Resolved interpolation output SHALL be treated as literal text. A value that renders empty SHALL omit the header.
 
 #### Scenario: Interpolation and the variable combine
 
@@ -118,11 +112,6 @@ A header string value SHALL be parsed once at startup: `{{` is a literal `{`, `{
 
 - **WHEN** a value is `"{env:TAG:-}"` and `TAG` is unset
 - **THEN** requests carry no header of that name
-
-#### Scenario: A control character fails startup
-
-- **WHEN** a value's interpolation resolves to text containing a line feed
-- **THEN** startup fails naming the header path without printing the resolved value
 
 ### Requirement: The session variable renders the Chat identity per lane
 
@@ -164,8 +153,8 @@ A header value segment resolved from `{env:…}` or `{path:…}` SHALL be treate
 
 #### Scenario: A startup error does not print a secret value
 
-- **WHEN** a header whose value is resolved from `{path:…}` fails startup validation
-- **THEN** the error names the configuration path and file location, not the resolved value
+- **WHEN** a header value's `{path:…}` token fails to resolve at startup
+- **THEN** the error names the configuration path and file location, not any resolved value
 
 #### Scenario: An echoed secret is redacted from a failure
 

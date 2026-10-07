@@ -34,12 +34,10 @@ which headers a request carries. This change implements issue #881.
   The variable is not a secret.
 - Send the rendered headers on every language-model request a client makes,
   streaming and structured alike, so auxiliary calls carry them too.
-- Reserve the headers llame or the provider adapter owns. A map that names one
-  fails startup: `authorization`, `content-type`, `content-length`, `host`, and
-  `user-agent` for every type; `x-api-key`, `anthropic-version`, and
-  `anthropic-beta` for `anthropic-messages`; `chatgpt-account-id`,
-  `originator`, `openai-beta`, and `accept` for `openai-codex`; and
-  `x-opencode-session` and `x-opencode-client` for `opencode-go`.
+- Apply the operator's string values last, so one replaces any header the
+  client or adapter would otherwise send, `User-Agent` included. No header name
+  is reserved; an operator who overrides a credential, protocol, or identity
+  header owns the result.
 - Treat a header value that uses `{env:…}` or `{path:…}` as a secret under the
   existing non-disclosure rules, and redact it from provider failure messages.
 - Observable change for existing configurations: every request from an
@@ -63,9 +61,9 @@ which headers a request carries. This change implements issue #881.
   `title:<chatId>`, not the Chat's id. Title generation keeps its own lane until
   #1096 redesigns it.
 - The Chat's own identifier is sent verbatim (#809 settled this; reconfirmed).
-- `User-Agent` stays reserved. Overriding it lets configuration claim another
-  product's client identity, which `provider-api-selection` forbids; unlocking
-  it needs its own issue and terms-of-service analysis.
+- No header name is reserved, `User-Agent` included. An operator override is
+  the operator's decision under that provider's terms; llame's own default
+  identity stays `llame/<version>` and claims no other product.
 - `x-session-affinity` is not a default anywhere: no surveyed gateway reads it
   independently.
 - The OpenCode Go gateway does not read `X-Session-Id` and forwards non-OpenCode
@@ -77,45 +75,45 @@ which headers a request carries. This change implements issue #881.
 ### New Capabilities
 
 - `provider-request-headers`: the operator header map on provider entries,
-  per-type defaults and their merge, reserved names, the request-time session
-  variable and its rendering per lane, secret handling of interpolated values,
-  and the guarantee that every language-model request carries the rendered
-  headers.
+  per-type defaults and their merge, operator precedence over the client's own
+  headers, the request-time session variable and its rendering per lane, secret
+  handling of interpolated values, and the guarantee that every language-model
+  request carries the rendered headers.
 
 ### Modified Capabilities
 
 - `instance-config`: requirement "Provider list configuration" adds the
-  optional `headers` key to every variant's shape, and replaces the Codex
-  variant's rejection of arbitrary headers with the reserved-name rule. The
-  "Missing or invalid Codex configuration" scenario keeps its heading; its
-  body stops listing a header field as forbidden.
-- `provider-api-selection`: requirement "Language-model requests carry the
-  Chat identity" stops saying a client ignores the identity when it has no
+  optional `headers` key to every variant's shape and stops rejecting headers
+  on the Codex variant. The "Missing or invalid Codex configuration" scenario
+  keeps its heading; its body stops listing a header field as forbidden.
+- `provider-api-selection`: requirement "Every provider request identifies
+  llame" keeps llame's identity as the default but lets an operator `headers`
+  value replace it. Requirement "Language-model requests carry the Chat
+  identity" stops saying a client ignores the identity when it has no
   consumer, because the header map makes every client a potential renderer;
   the scenario "A client with no consumer sends nothing extra" keeps its
   heading and now covers an entry whose effective header map is empty, and
   "The identity is not a credential" now says headers, plural.
 - `opencode-go-provider`: requirement "Requests identify llame as the client"
   stops listing an affinity header as forbidden, because `X-Session-Id` is now
-  sent by default; `x-session-affinity`, `x-opencode-request`, and
-  `x-opencode-project` stay unsent unless the operator adds them.
+  sent by default, and lets the operator map override the client's headers;
+  `x-session-affinity`, `x-opencode-request`, and `x-opencode-project` stay
+  unsent unless the operator adds them.
 
 Deliberately unchanged:
 
-- `provider-api-selection` "Every provider request identifies llame": its rule
-  that no operator configuration surface overrides the identity already
-  covers the reserved `user-agent` name.
 - `subscription-access-openai-codex` "Fixed direct inference transport": it
   names no headers, and the opt-in adds no destination.
 - `opencode-go-provider` "Every request for a Chat carries its session
-  identity": `x-opencode-session` stays code-owned and always sent.
+  identity": llame still always sends `x-opencode-session`; an operator value
+  for that name replaces it like any other header.
 
 ## Impact
 
 - `apps/api/src/instance-config/llame.config.schema.json` (`headers` on
   `$defs.providerEntry`), `llame-config.ts` (raw and resolved provider
   configs), `config-loader.ts` (one header resolver shared by the five provider
-  resolvers, the reserved-name lists, default merge).
+  resolvers, default merge, template parsing).
 - `apps/api/src/models/model-client-factory.ts` (pass the resolved header map
   into each client), `openai-model-client.ts` (Responses, also the Codex
   wrapper), `openai-completions-model-client.ts` (the existing session-header
@@ -136,7 +134,6 @@ Deliberately unchanged:
 - `x-parent-session-id` and a `{session:parentId}` variable. They arrive with
   child agents (#765), which must also decide whether a child's `X-Session-Id`
   carries its own id or its parent's, as OpenCode v2 does for cache reuse.
-- Overriding `User-Agent` or any other reserved header.
 - Model-level header maps. Whether a header has a reader depends on the
   endpoint, which the provider entry owns.
 - Codex's native correlation (`session-id` header, `prompt_cache_key`), which
@@ -157,8 +154,9 @@ Deliberately unchanged:
 - `"X-Session-Id": null` on such an entry removes the header; an
   `openai-codex` entry sends it only when its map adds it.
 - No request carries `x-session-affinity` unless an operator map adds it.
-- A map naming a reserved header, two names that collide case-insensitively,
-  or an unknown `{scheme:…}` token fails startup naming the path, never a
-  resolved value.
+- Two names in one map that collide case-insensitively, or an unknown
+  `{scheme:…}` token, fail startup naming the path, never a resolved value.
+- An operator `User-Agent` value replaces llame's on every request of that
+  entry.
 - An interpolated header value appears in no log, error, or run failure
   message.

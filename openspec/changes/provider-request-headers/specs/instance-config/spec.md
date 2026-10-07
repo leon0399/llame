@@ -6,7 +6,7 @@ The config file SHALL support a top-level `providers` array of duplicable provid
 
 Resolved `key` values SHALL never be written to logs, errors, or diagnostics; a load-time error on a provider field SHALL identify the entry by `id` and the field name, never the resolved value.
 
-The `openai-codex` variant SHALL require `{ id, type, key, accountId }` and MAY declare `billing` and `headers`, with nonblank resolved strings for `key` and `accountId`, supporting existing interpolation. It SHALL reject `baseUrl`; its `headers` map is limited by the reserved-header rule of `provider-request-headers`. Resolved `accountId` values SHALL receive the same non-disclosure protections as credentials. Embedding model entries SHALL NOT reference an `openai-codex`, `anthropic-messages`, or `opencode-go` provider.
+The `openai-codex` variant SHALL require `{ id, type, key, accountId }` and MAY declare `billing` and `headers`, with nonblank resolved strings for `key` and `accountId`, supporting existing interpolation. It SHALL reject `baseUrl`. Resolved `accountId` values SHALL receive the same non-disclosure protections as credentials. Embedding model entries SHALL NOT reference an `openai-codex`, `anthropic-messages`, or `opencode-go` provider.
 
 #### Scenario: Duplicable providers of the same type coexist
 
@@ -74,7 +74,7 @@ The `openai-codex` variant SHALL require `{ id, type, key, accountId }` and MAY 
 
 #### Scenario: Missing or invalid Codex configuration
 
-- **WHEN** a Codex credential file is missing, JSON is invalid, its pointer is absent or not a string, either resolved credential is blank, a forbidden endpoint field is supplied, or its `headers` map names a reserved header
+- **WHEN** a Codex credential file is missing, JSON is invalid, its pointer is absent or not a string, either resolved credential is blank, or a forbidden endpoint field is supplied
 - **THEN** startup fails with a field-identifying diagnostic without resolved values or file contents
 
 #### Scenario: Subscription provider cannot back embeddings
