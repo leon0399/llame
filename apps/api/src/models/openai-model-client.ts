@@ -11,12 +11,18 @@ import {
 
 import {
   type BillingMode,
+  type ChatIdentity,
   createModelStreamFinishCallback,
   type ModelClient,
   type ModelObjectInput,
   type ModelStreamInput,
   type ModelStreamResult,
 } from './model-client';
+import {
+  withRequestHeaders,
+  type RequestHeaderTemplates,
+  type RequestHeaders,
+} from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
 import type { TokenPrice } from './model-catalog';
 import {
@@ -52,7 +58,9 @@ export const KEYLESS_PLACEHOLDER_API_KEY = 'keyless-no-credential-configured';
  * lowercase so it replaces the adapter's own header instead of duplicating it.
  * Single-sourced here so no client can drift on the key or the value.
  */
-export function productUserAgentHeaders(config: { userAgent: string }) {
+export function productUserAgentHeaders(config: {
+  userAgent: string;
+}): RequestHeaders {
   return { 'user-agent': config.userAgent };
 }
 
@@ -420,6 +428,8 @@ export type OpenAIModelClientConfig = {
    * provider-level `User-Agent` with its own token on structured requests.
    */
   userAgent: string;
+  /** Startup-resolved operator header templates rendered for every request. */
+  requestHeaders: RequestHeaderTemplates;
   baseUrl?: string;
   /** Fixed-provider transport headers. */
   headers?: Record<string, string>;
@@ -507,10 +517,21 @@ function responsesProviderOptions(
 }
 
 /**
- * Attaches the request's per-call llame identity header (design D6) and its
- * provider options, composed from four layers under one precedence (design
- * D5): this wire's per-request-kind default (the displayable reasoning
- * summary, which the structured-generation path does not take — see
+ * Builds the per-call headers shared by streaming and structured requests.
+ */
+function perCallHeaders(config: OpenAIModelClientConfig, chat: ChatIdentity) {
+  return withRequestHeaders(
+    productUserAgentHeaders(config),
+    config.requestHeaders,
+    chat,
+  );
+}
+
+/**
+ * Attaches the rendered operator request headers and this wire's provider
+ * options, composed from four layers under one precedence (design D5): this
+ * wire's per-request-kind default (the displayable reasoning summary, which
+ * the structured-generation path does not take — see
  * `composeStructuredProviderOptions`), the operator's object, the run's
  * effort, and the client's invariants — each layer replaces or removes what
  * the earlier ones set, never the other way around. The operator's reserved
@@ -527,7 +548,7 @@ function applyRequestOptions(
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
 ): void {
-  streamOptions.headers = productUserAgentHeaders(config);
+  streamOptions.headers = perCallHeaders(config, input.chat);
   const { providerOptions } = responsesProviderOptions(
     composeProviderOptions({
       defaults: { reasoningSummary: 'auto' },
@@ -751,7 +772,7 @@ export function createOpenAIModelClient(
     ...(config.generateObject !== false && {
       generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
         generateToolBoundObject(openai(config.providerModelId), input, {
-          headers: productUserAgentHeaders(config),
+          headers: perCallHeaders(config, input.chat),
           ...composeStructuredProviderOptions(config),
           ...(config.maxOutputTokens !== undefined && {
             maxOutputTokens: config.maxOutputTokens,

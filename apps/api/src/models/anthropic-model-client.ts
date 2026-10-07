@@ -21,6 +21,10 @@ import {
   type ProviderOptionRecord,
 } from './provider-options';
 import {
+  withRequestHeaders,
+  type RequestHeaderTemplates,
+} from './request-headers';
+import {
   applyToolCallingOptions,
   awaitSettlementAfter,
   bindReasoningChannel,
@@ -147,6 +151,7 @@ export type AnthropicModelClientConfig = {
    * before composition.
    */
   providerOptions?: ProviderOptionRecord;
+  requestHeaders: RequestHeaderTemplates;
   /**
    * Whether the model entry declares a `reasoning` vocabulary: only then does
    * the client default the adapter's thinking option to adaptive thinking with
@@ -369,7 +374,11 @@ function buildStreamOptions(
     maxRetries: NO_AUTOMATIC_RETRY,
     // llame's identity rides every request (design D6), per call: the
     // provider-level headers cannot carry it on structured requests.
-    headers: productUserAgentHeaders(config),
+    headers: withRequestHeaders(
+      productUserAgentHeaders(config),
+      config.requestHeaders,
+      input.chat,
+    ),
     ...messagesProviderOptions(composeMessagesOptions(config, input.effort)),
     ...(config.maxOutputTokens !== undefined && {
       maxOutputTokens: config.maxOutputTokens,
@@ -449,7 +458,11 @@ async function runAnthropicObject<OBJECT>(
       maxRetries: NO_AUTOMATIC_RETRY,
       // llame's identity rides every request (design D6), per call: this
       // path's request would otherwise present as the bare adapter's token.
-      headers: productUserAgentHeaders(config),
+      headers: withRequestHeaders(
+        productUserAgentHeaders(config),
+        config.requestHeaders,
+        input.chat,
+      ),
       ...(input.schemaName !== undefined && { schemaName: input.schemaName }),
       ...(input.schemaDescription !== undefined && {
         schemaDescription: input.schemaDescription,

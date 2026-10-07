@@ -148,6 +148,7 @@ function buildClient(
     modelId: 'system:opencode-go:glm-5.3-flash',
     contextWindowTokens: 200_000,
     userAgent: USER_AGENT,
+    requestHeaders: { 'X-Session-Id': ['', ''] },
     ...overrides,
   });
 }
@@ -432,10 +433,12 @@ describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () =>
 });
 
 describe('createOpenCodeGoModelClient — the Chat identity as the session header (design D3/D4/D5)', () => {
-  it("sends the main lane's Chat id verbatim", async () => {
+  it("keeps Go's adapter session header when the operator does not configure it", async () => {
     const stub = serveFetch(streamResponse);
     try {
-      const client = buildClient();
+      const client = buildClient({
+        requestHeaders: { 'X-Session-Id': ['', ''] },
+      });
 
       await expect(
         client.streamText({ chat: MAIN_CHAT, messages }).text,
@@ -506,6 +509,9 @@ describe('createOpenCodeGoModelClient — the Chat identity as the session heade
       expect(requestHeaders(stub).get('x-opencode-session')).toBe(
         `title:${TITLE_CHAT.id}`,
       );
+      expect(requestHeaders(stub).get('x-session-id')).toBe(
+        `title:${TITLE_CHAT.id}`,
+      );
     } finally {
       stub.restore();
     }
@@ -525,7 +531,7 @@ describe('createOpenCodeGoModelClient — the headers and body llame sends (desi
       const headers = requestHeaders(stub);
       // The full header set, in order: the SDK's own content type and
       // credential header, llame's product token, Go's fixed client header,
-      // and the session header rendered from the Chat identity. A header
+      // the gateway session header, and the generic session identity. A header
       // added to this request fails this test.
       expect([...headers.keys()].sort()).toEqual([
         'authorization',
@@ -533,16 +539,17 @@ describe('createOpenCodeGoModelClient — the headers and body llame sends (desi
         'user-agent',
         'x-opencode-client',
         'x-opencode-session',
+        'x-session-id',
       ]);
       expect(headers.get('user-agent')).toMatch(/^llame\/0\.0\.0-test( |$)/);
       expect(headers.get('x-opencode-client')).toBe('llame');
       expect(headers.get('x-opencode-session')).toBe(MAIN_CHAT.id);
-      // Never sent: the gateway's request-id and project headers, the generic
-      // sticky-session pair (#881), and any other product's identity.
+      expect(headers.get('x-session-id')).toBe(MAIN_CHAT.id);
+      // Never sent: the gateway's request-id and project headers or sticky
+      // affinity marker.
       for (const absent of [
         'x-opencode-request',
         'x-opencode-project',
-        'x-session-id',
         'x-session-affinity',
       ]) {
         expect(headers.get(absent)).toBeNull();
@@ -593,11 +600,52 @@ describe('createOpenCodeGoModelClient — the headers and body llame sends (desi
         'user-agent',
         'x-opencode-client',
         'x-opencode-session',
+        'x-session-id',
       ]);
       expect(headers.get('user-agent')).toMatch(/^llame\/0\.0\.0-test ai\//);
       expect(headers.get('x-opencode-client')).toBe('llame');
       expect(headers.get('x-opencode-session')).toBe(MAIN_CHAT.id);
+      expect(headers.get('x-session-id')).toBe(MAIN_CHAT.id);
       expect(await recordedRequest(stub).text()).not.toMatch(/cache/i);
+    } finally {
+      stub.restore();
+    }
+  });
+  it("lets an operator replace Go's client identity header", async () => {
+    const stub = serveFetch(streamResponse);
+    try {
+      const client = buildClient({
+        requestHeaders: {
+          'x-opencode-client': ['custom'],
+          'X-Session-Id': ['', ''],
+        },
+      });
+
+      await expect(
+        client.streamText({ chat: MAIN_CHAT, messages }).text,
+      ).resolves.toBe('done');
+
+      expect(requestHeaders(stub).get('x-opencode-client')).toBe('custom');
+    } finally {
+      stub.restore();
+    }
+  });
+
+  it("keeps Go's gateway session header when its operator render is empty", async () => {
+    const stub = serveFetch(streamResponse);
+    try {
+      const client = buildClient({
+        requestHeaders: {
+          'x-opencode-session': [''],
+          'X-Session-Id': ['', ''],
+        },
+      });
+
+      await expect(
+        client.streamText({ chat: MAIN_CHAT, messages }).text,
+      ).resolves.toBe('done');
+
+      expect(requestHeaders(stub).get('x-opencode-session')).toBe(MAIN_CHAT.id);
     } finally {
       stub.restore();
     }
@@ -788,7 +836,12 @@ describe('createOpenCodeGoModelClient — cost is unknown unless declared (desig
   function goClient(pricingUsdPer1M?: ModelPricingUsdPer1M): ModelClient {
     return createModelClient({
       userAgent: USER_AGENT,
-      provider: { id: 'opencode-go', type: 'opencode-go', key: CREDENTIAL },
+      provider: {
+        id: 'opencode-go',
+        type: 'opencode-go',
+        key: CREDENTIAL,
+        headers: {},
+      },
       model: {
         id: 'system:opencode-go:glm-5.3-flash',
         source: 'system',

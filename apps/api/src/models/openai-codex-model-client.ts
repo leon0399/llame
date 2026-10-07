@@ -9,6 +9,7 @@ import {
 import type { BillingMode, ModelClient } from './model-client';
 import type { TokenPrice } from './model-catalog';
 import type { ProviderOptionRecord } from './provider-options';
+import type { RequestHeaderTemplates } from './request-headers';
 
 export const CODEX_RESPONSES_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 
@@ -25,6 +26,8 @@ type OpenAICodexModelClientConfig = {
    * untouched by it.
    */
   userAgent: string;
+  /** Startup-resolved operator header templates forwarded to Responses. */
+  requestHeaders: RequestHeaderTemplates;
   /**
    * Operator request options (`models[].providerOptions`), forwarded to the
    * Responses client as its inner record: it wraps them under `openai` and
@@ -90,6 +93,7 @@ export function createOpenAICodexModelClient(
       modelId: config.modelId,
       contextWindowTokens: config.contextWindowTokens,
       userAgent: config.userAgent,
+      requestHeaders: config.requestHeaders,
       baseUrl: CODEX_RESPONSES_BASE_URL,
       headers: {
         'ChatGPT-Account-ID': config.accountId,

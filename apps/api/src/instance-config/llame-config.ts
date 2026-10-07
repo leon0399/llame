@@ -8,6 +8,7 @@
  */
 
 import type { BillingMode } from '../models/model-client';
+import type { RequestHeaderTemplates } from '../models/request-headers';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
@@ -44,6 +45,7 @@ export type OpenAIResponsesProviderConfig = {
   key: string | null;
   /** `null` uses the client's own default (OpenAI's hosted API). */
   baseUrl: string | null;
+  headers: RequestHeaderTemplates;
 };
 
 /**
@@ -58,6 +60,7 @@ export type OpenAICompletionsProviderConfig = {
   billing?: BillingMode;
   key: string | null;
   baseUrl: string;
+  headers: RequestHeaderTemplates;
 };
 
 /**
@@ -73,6 +76,7 @@ export type AnthropicMessagesProviderConfig = {
   key: string | null;
   /** `null` uses the client's own default (the Anthropic API). */
   baseUrl: string | null;
+  headers: RequestHeaderTemplates;
 };
 
 export type OpenAICodexProviderConfig = {
@@ -81,6 +85,7 @@ export type OpenAICodexProviderConfig = {
   billing?: BillingMode;
   key: string;
   accountId: string;
+  headers: RequestHeaderTemplates;
 };
 
 /**
@@ -97,6 +102,7 @@ export type OpenCodeGoProviderConfig = {
   billing?: BillingMode;
   type: 'opencode-go';
   key: string;
+  headers: RequestHeaderTemplates;
 };
 
 export type ProviderConfig =
@@ -210,6 +216,7 @@ export type RawProviderEntry =
       billing?: BillingMode;
       key?: unknown;
       baseUrl?: unknown;
+      headers?: Record<string, string | null>;
     }
   | {
       id: string;
@@ -218,6 +225,7 @@ export type RawProviderEntry =
       key?: unknown;
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       baseUrl: string | null;
+      headers?: Record<string, string | null>;
     }
   | {
       id: string;
@@ -225,6 +233,7 @@ export type RawProviderEntry =
       billing?: BillingMode;
       key?: unknown;
       baseUrl?: unknown;
+      headers?: Record<string, string | null>;
     }
   | {
       id: string;
@@ -232,6 +241,7 @@ export type RawProviderEntry =
       billing?: BillingMode;
       key: string | null;
       accountId: string | null;
+      headers?: Record<string, string | null>;
     }
   | {
       id: string;
@@ -239,6 +249,7 @@ export type RawProviderEntry =
       billing?: BillingMode;
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       key: string | null;
+      headers?: Record<string, string | null>;
     };
 
 /**

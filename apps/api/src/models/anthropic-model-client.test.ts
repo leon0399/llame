@@ -32,7 +32,7 @@ const hello = messageEnvelope(textBlock(0, 'hello'));
 
 /**
  * The Chat identity every input carries (design D3). It is a fact the client
- * receives: nothing in this suite asserts that a client reads it.
+ * receives; the request-header tests below assert its lane-specific rendering.
  */
 const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
 
@@ -154,6 +154,75 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
     // llame's token leads, and the SDK's own tokens follow it.
     expect(firstRequest(harness).headers.get('user-agent')).toMatch(
       /^llame\/9\.9\.9-canary( |$)/,
+    );
+  });
+
+  it('renders configured request headers on a main-lane streaming request', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, {
+      requestHeaders: { 'X-Session-Id': ['', ''] },
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
+
+    expect(firstRequest(harness).headers.get('x-session-id')).toBe('chat-test');
+  });
+
+  it('does not send a session header when the resolved map is empty', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, { requestHeaders: {} });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
+
+    expect(firstRequest(harness).headers.get('x-session-id')).toBeNull();
+  });
+
+  it('lets an operator User-Agent replace llame’s token on streaming requests', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, {
+      requestHeaders: { 'User-Agent': ['acme-gateway-client/1'] },
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
+
+    expect(firstRequest(harness).headers.get('user-agent')).toMatch(
+      /^acme-gateway-client\/1/,
+    );
+  });
+
+  it('merges a lowercase operator Anthropic-Beta with the adapter beta on streaming requests', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, {
+      requestHeaders: { 'anthropic-beta': ['operator-beta'] },
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages, effort: 'high' }).text,
+    ).resolves.toBe('hello');
+
+    const beta = firstRequest(harness).headers.get('anthropic-beta');
+    expect(beta).toContain('operator-beta');
+    expect(beta).toContain('thinking-binding-controls-2026-08-01');
+  });
+
+  it('lets the adapter beta replace a differently cased operator Anthropic-Beta on streaming requests', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, {
+      requestHeaders: { 'Anthropic-Beta': ['operator-beta'] },
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages, effort: 'high' }).text,
+    ).resolves.toBe('hello');
+
+    expect(firstRequest(harness).headers.get('anthropic-beta')).toBe(
+      'thinking-binding-controls-2026-08-01',
     );
   });
 

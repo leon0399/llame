@@ -137,6 +137,7 @@ function buildClient(
     modelId: 'system:deepseek:deepseek-chat',
     contextWindowTokens: 128_000,
     userAgent: USER_AGENT,
+    requestHeaders: {},
     baseUrl: 'https://api.deepseek.com/v1',
     ...overrides,
   };
@@ -421,6 +422,7 @@ describe('createOpenAICompletionsModelClient — keyless provider', () => {
       modelId: 'system:local:llama-local',
       contextWindowTokens: 32_000,
       userAgent: USER_AGENT,
+      requestHeaders: {},
       baseUrl: 'http://localhost:11434/v1',
     });
 
@@ -604,6 +606,7 @@ describe("createOpenAICompletionsModelClient — llame's product identity (desig
         contextWindowTokens: 128_000,
         baseUrl: 'https://api.deepseek.com/v1',
         userAgent: 'llame/9.9.9-canary',
+        requestHeaders: {},
       });
 
       await expect(
@@ -670,6 +673,7 @@ describe('createOpenAICompletionsModelClient — streaming usage (run-usage-acco
         contextWindowTokens: 128_000,
         baseUrl: 'https://api.deepseek.com/v1',
         userAgent: USER_AGENT,
+        requestHeaders: {},
       });
       const reported: Array<LanguageModelUsage> = [];
 
@@ -753,13 +757,12 @@ describe('createOpenAICompletionsModelClient — configured provider name (desig
   });
 });
 
-describe('createOpenAICompletionsModelClient — no provider override and no renderer configured (design D2/D3)', () => {
-  it('sends the requests it sent before this layer, on both language-model paths', async () => {
+describe('createOpenAICompletionsModelClient — operator headers on both paths', () => {
+  it('sends custom headers on streaming and structured requests and lets User-Agent win', async () => {
     const previousFetch = globalThis.fetch;
     try {
-      // The REAL adapter and the real SDK, only the transport stubbed: every
-      // header key here is one llame sends, so an added session header — or
-      // any other transport addition — fails this test.
+      // The REAL adapter and the real SDK, only the transport stubbed: the
+      // serialized request carries the operator's custom header and User-Agent.
       globalThis.fetch = vi
         .fn<typeof globalThis.fetch>()
         .mockResolvedValue(
@@ -779,6 +782,11 @@ describe('createOpenAICompletionsModelClient — no provider override and no ren
         contextWindowTokens: 128_000,
         baseUrl: 'https://api.deepseek.com/v1',
         userAgent: USER_AGENT,
+        requestHeaders: {
+          'x-litellm-tags': ['llame'],
+          'User-Agent': ['acme-gateway-client/1'],
+          'X-Session-Id': ['', ''],
+        },
       });
 
       await expect(
@@ -790,7 +798,18 @@ describe('createOpenAICompletionsModelClient — no provider override and no ren
         'authorization',
         'content-type',
         'user-agent',
+        'x-litellm-tags',
+        'x-session-id',
       ]);
+      expect(new Headers(streamingInit?.headers).get('x-litellm-tags')).toBe(
+        'llame',
+      );
+      expect(new Headers(streamingInit?.headers).get('x-session-id')).toBe(
+        CHAT.id,
+      );
+      expect(new Headers(streamingInit?.headers).get('user-agent')).toMatch(
+        /^acme-gateway-client\/1/,
+      );
 
       globalThis.fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
         new Response(
@@ -826,7 +845,7 @@ describe('createOpenAICompletionsModelClient — no provider override and no ren
       );
 
       const object = await client.generateObject?.({
-        chat: CHAT,
+        chat: { ...CHAT, lane: 'title' },
         messages,
         schemaName: 'chat_title',
         schema: z.object({ title: z.string() }),
@@ -838,7 +857,18 @@ describe('createOpenAICompletionsModelClient — no provider override and no ren
         'authorization',
         'content-type',
         'user-agent',
+        'x-litellm-tags',
+        'x-session-id',
       ]);
+      expect(new Headers(structuredInit?.headers).get('x-litellm-tags')).toBe(
+        'llame',
+      );
+      expect(new Headers(structuredInit?.headers).get('x-session-id')).toBe(
+        `title:${CHAT.id}`,
+      );
+      expect(new Headers(structuredInit?.headers).get('user-agent')).toMatch(
+        /^acme-gateway-client\/1/,
+      );
     } finally {
       globalThis.fetch = previousFetch;
     }

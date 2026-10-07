@@ -167,6 +167,7 @@ export function buildClient(
     modelId: 'system:anthropic:claude-opus-4-8',
     contextWindowTokens: 200_000,
     userAgent: USER_AGENT,
+    requestHeaders: {},
     reasoningDeclared: true,
     ...overrides,
   };

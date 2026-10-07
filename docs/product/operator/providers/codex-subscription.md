@@ -29,6 +29,8 @@ the [operator index](../index.md#operator):
       "key": "{path:/run/secrets/codex-auth.json|json:/tokens/access_token}",
       "accountId": "{path:/run/secrets/codex-auth.json|json:/tokens/account_id}",
       "billing": "subscription",
+      // Codex has no default provider headers; opt in when a gateway needs it:
+      // "headers": { "X-Session-Id": "{session:id}" },
     },
   ],
   "models": [
@@ -43,11 +45,13 @@ the [operator index](../index.md#operator):
 }
 ```
 
-`key` and `accountId` must resolve to nonblank strings. `baseUrl` and custom
-headers are rejected. The fixed transport uses the Codex Responses endpoint;
+`key` and `accountId` must resolve to nonblank strings. `baseUrl` is rejected.
+Codex sends no default provider headers; add
+`"headers": { "X-Session-Id": "{session:id}" }` to opt in when a gateway needs
+session affinity. The fixed transport uses the Codex Responses endpoint;
 llame reads these fields once at API/worker startup and never reads refresh or
-ID tokens or writes the credential file. Omit `pricingUsdPer1M` when the cost
-is unknown: completed Run telemetry retains token counts and latency with
+ID tokens or writes the credential file. Omit `pricingUsdPer1M` when the cost is
+unknown: completed Run telemetry retains token counts and latency with
 `costUsd: null`.
 
 `billing` accepts `"usage"` or `"subscription"` on a provider or model; the

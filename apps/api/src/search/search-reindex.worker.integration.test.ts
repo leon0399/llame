@@ -100,6 +100,7 @@ describeIfDb(
               type: 'openai-responses' as const,
               key: 'k',
               baseUrl: null,
+              headers: {},
             },
           ],
           embeddingModels: [fakeModel(modelId)],

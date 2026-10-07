@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-07
 
+- Added a per-provider `headers` map of string or `null` values. The
+  `openai-responses`, `openai-completions`, `anthropic-messages`, and
+  `opencode-go` types default to `X-Session-Id: {session:id}`; set that entry
+  to `null` to remove it. `openai-codex` has no default and opts in through
+  the map. Operator values overlay llame's headers, including `User-Agent`
+  and credentials
+  ([#881](https://github.com/leon0399/llame/issues/881)).
+
 - Fixed the composer reverting its model, reasoning effort, or permission mode
   after a send from a `#msg-N` message link: returning to the live view no
   longer restores the last turn from the pre-send history still in the cache,

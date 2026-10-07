@@ -13,6 +13,20 @@ Token usage needs no configuration. Reasoning effort needs two things the
 gateway does not tell you: the values the model accepts, and whether LiteLLM
 forwards them.
 
+## Session affinity
+
+llame sends `X-Session-Id` by default on an `openai-completions` provider: the
+Chat id for main turns and compaction, and `title:<chatId>` for title
+generation. LiteLLM reads the header into its session id, which groups spend
+logs and traces by Chat. Pinning a Chat to one deployment for prompt-cache
+affinity is a separate router check that LiteLLM ships off; enable it with
+`router_settings.optional_pre_call_checks: ["session_affinity"]`.
+
+LiteLLM accepts only session ids of at least eight letters, digits, hyphens,
+or underscores, so it discards the `title:<chatId>` value and title requests
+are not grouped. If a strict proxy rejects the header, remove it on that
+provider with `"headers": { "X-Session-Id": null }`.
+
 ## Token usage
 
 llame asks for usage on every streaming Chat Completions request

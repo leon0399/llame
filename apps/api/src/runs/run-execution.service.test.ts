@@ -3567,6 +3567,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
         modelId: 'system:test:test-model',
         contextWindowTokens: 128_000,
         userAgent: 'llame/0.0.0-test',
+        requestHeaders: {},
         baseUrl: 'https://endpoint.example.test/v1',
         fetch: () =>
           Promise.resolve(
@@ -4131,6 +4132,7 @@ function createToolLoopClient(
       modelId: 'fake-model',
       contextWindowTokens: 128_000,
       userAgent: 'llame/test',
+      requestHeaders: {},
       baseUrl: 'https://example.test/v1',
     },
     {

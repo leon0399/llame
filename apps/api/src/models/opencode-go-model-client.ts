@@ -1,7 +1,7 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { streamText } from 'ai';
 
-import type { BillingMode, ChatIdentity, ModelClient } from './model-client';
+import type { BillingMode, ModelClient } from './model-client';
 import type { TokenPrice } from './model-catalog';
 import { rejectRedirects } from './openai-codex-model-client';
 import {
@@ -9,6 +9,10 @@ import {
   type OpenAICompletionsModelClientDependencies,
 } from './openai-completions-model-client';
 import type { ProviderOptionRecord } from './provider-options';
+import {
+  renderSessionId,
+  type RequestHeaderTemplates,
+} from './request-headers';
 
 /**
  * The Go gateway's fixed Chat Completions root (design D1/D2): OpenCode Go
@@ -38,6 +42,8 @@ type OpenCodeGoModelClientConfig = {
   contextWindowTokens: number;
   /** llame's product token and version (`llame/<version>`), sent per call by the wire client. */
   userAgent: string;
+  /** Startup-resolved operator header templates rendered for every request. */
+  requestHeaders: RequestHeaderTemplates;
   /**
    * Operator request options (`models[].providerOptions`), forwarded to the
    * wire client as its inner record: it composes them under the namespace the
@@ -58,18 +64,6 @@ type OpenCodeGoModelClientConfig = {
   billing?: BillingMode;
   compactionThresholdTokens?: number;
 };
-
-/**
- * The Chat identity as the gateway reads it (design D4/D5): the Chat's own
- * id, verbatim for the conversation's lane — the main turn and compaction,
- * whose requests reuse the conversation's prefix — and under the `title:`
- * prefix for title generation, whose prompt shares nothing with it. A prefix,
- * not a suffix, because the gateway picks its first upstream candidate from a
- * hash of the identity's last four characters.
- */
-function renderSessionValue(chat: ChatIdentity): string {
-  return chat.lane === 'title' ? `title:${chat.id}` : chat.id;
-}
 
 /**
  * Creates a model client for an `opencode-go` provider entry: the Chat
@@ -100,6 +94,7 @@ export function createOpenCodeGoModelClient(
       modelId: config.modelId,
       contextWindowTokens: config.contextWindowTokens,
       userAgent: config.userAgent,
+      requestHeaders: config.requestHeaders,
       baseUrl: OPENCODE_GO_BASE_URL,
       provider: 'opencode-go',
       headers: { [OPENCODE_GO_CLIENT_HEADER]: 'llame' },
@@ -111,7 +106,7 @@ export function createOpenCodeGoModelClient(
       includeUsage: false,
       sessionHeader: (chat) => ({
         name: OPENCODE_GO_SESSION_HEADER,
-        value: renderSessionValue(chat),
+        value: renderSessionId(chat),
       }),
       ...(config.providerOptions !== undefined && {
         providerOptions: config.providerOptions,

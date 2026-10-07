@@ -41,6 +41,7 @@ function configuredCodexModels(): ModelsService {
           type: 'openai-codex',
           key: 'integration-access-token',
           accountId: 'integration-account-id',
+          headers: {},
         },
       ],
       models: [

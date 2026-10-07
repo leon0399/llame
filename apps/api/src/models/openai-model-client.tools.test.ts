@@ -168,6 +168,7 @@ function buildClient(model: MockLanguageModelV3) {
       modelId: 'system:openai:gpt-test',
       contextWindowTokens: 128_000,
       userAgent: USER_AGENT,
+      requestHeaders: {},
     },
     { createOpenAI: () => provider, streamText },
   );
@@ -893,6 +894,7 @@ describe('createOpenAIModelClient — capability surface', () => {
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
         pricing: { inputUsdPer1M: 1, outputUsdPer1M: 2 },
+        requestHeaders: {},
         compactionThresholdTokens: 4000,
       },
       { createOpenAI: () => provider, streamText },
@@ -970,6 +972,7 @@ describe('createOpenAIModelClient — structured output', () => {
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: () => provider, streamText },
     );
@@ -1133,6 +1136,7 @@ describe('createOpenAIModelClient — reasoning channel settlement (D18)', () =>
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: () => provider, streamText: stream },
     );

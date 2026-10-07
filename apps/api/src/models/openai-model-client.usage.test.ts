@@ -103,6 +103,7 @@ describe('provider request usage receipts', () => {
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: 'llame/test',
+        requestHeaders: {},
       },
       { createOpenAI: () => provider, streamText },
     );
@@ -204,6 +205,7 @@ describe('provider request usage receipts', () => {
           modelId: 'system:openai:gpt-test',
           contextWindowTokens: 128_000,
           userAgent: 'llame/test',
+          requestHeaders: {},
         },
         { createOpenAI: () => provider, streamText },
       );
@@ -234,6 +236,7 @@ describe('provider request usage receipts', () => {
       modelId: 'system:openai:gpt-test',
       contextWindowTokens: 128_000,
       userAgent: 'llame/test',
+      requestHeaders: {},
     };
     const dependencies = { createOpenAI: () => provider, streamText };
 
