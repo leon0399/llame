@@ -78,9 +78,9 @@ Decisions from the 2026-10-07 design session (grilling rounds Q1–Q20):
 ### Modified Capabilities
 
 - `tool-calling`: "Code-owned tools stay internal and own-data while MCP is the only external-tool
-  path" is RENAMED to "Code-owned tools stay own-data, and only MCP, web read, and web search fetch
-  external content for the model" and MODIFIED to name native web `read` and `web_search` as the
-  code-owned tools that fetch external content for the model, and to acknowledge host `bash` and
+  path" is RENAMED to "Code-owned tools stay own-data, and web read and web search are the only
+  code-owned web tools" and MODIFIED to name native web `read` and `web_search` as the code-owned
+  web tools, to let a `web-search` engine use a vendor MCP tool as its transport, and to acknowledge host `bash` and
   query embeddings; its scenarios keep their headings with rewritten bodies. An ADDED
   requirement admits `web_search` into the attempt-local read-only loop, as `conversation_read` and
   `knowledge_search` are.

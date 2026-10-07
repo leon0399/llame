@@ -56,12 +56,17 @@ Every result and citation `url` SHALL be parsed as a WHATWG URL with scheme `htt
 
 ### Requirement: Output fields are bounded within the result cap
 
-Titles and citation titles SHALL be at most 200 and snippets at most 300 characters, `published` SHALL be present only when it parses as an ISO 8601 date, results SHALL be cut to the call's `limit`, and citations to 20. When the serialized output would exceed 15,000 characters, trailing results or citations SHALL be dropped with a note, so the generic result truncation never cuts a URL.
+Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles SHALL be at most 200, snippets 300, and answers 8,000 units; `published` SHALL be present only as an ISO 8601 date; results SHALL be cut to `limit` and citations to 20. When the JSON-serialized output would exceed 15,000 units, trailing results or citations SHALL be dropped with a note, so generic truncation never cuts a URL.
 
 #### Scenario: Long snippet is cut
 
 - **WHEN** an engine returns a 2,000-character snippet
 - **THEN** the stored and model-visible snippet is at most 300 characters
+
+#### Scenario: Long answer is cut
+
+- **WHEN** a hosted engine answers with 12,000 units of text and three citations
+- **THEN** the answer is cut to 8,000 units with a note and all three citations remain
 
 #### Scenario: Oversized output drops trailing entries
 
@@ -71,7 +76,7 @@ Titles and citation titles SHALL be at most 200 and snippets at most 300 charact
 
 ### Requirement: The chain tries engines in order and advances on failure or emptiness
 
-The call SHALL run the engines of `webSearch.chain` in order and SHALL return the first engine outcome with at least one result or a grounded answer. An engine that fails or returns no results SHALL advance the chain. A returned output's notes SHALL name each earlier engine that failed, with its class, or was empty. When the chain is exhausted and any engine was empty, the call SHALL succeed with zero results.
+The call SHALL run the engines of `webSearch.chain` in order and SHALL return the first engine outcome with at least one result or a grounded answer. An engine that fails or returns no results SHALL advance the chain. A returned output's notes SHALL name every other attempted engine that failed, with its class, or was empty. When the chain is exhausted and any engine was empty, the call SHALL succeed with zero results.
 
 #### Scenario: Failure falls through
 
@@ -90,6 +95,12 @@ The call SHALL run the engines of `webSearch.chain` in order and SHALL return th
 - **WHEN** the chain is `["brave", "exa"]`, `brave` fails with `auth`, and `exa` returns no results
 - **THEN** the call succeeds with `kind: "results"`, an empty `results` list, and `engine: "exa"`
 - **AND** its notes name `brave` with `auth`
+
+#### Scenario: A failure after an empty engine is noted
+
+- **WHEN** the chain is `["brave", "exa"]`, `brave` returns no results, and `exa` fails with `auth`
+- **THEN** the call succeeds with an empty `results` list and `engine: "brave"`
+- **AND** its notes name `exa` with `auth`
 
 ### Requirement: Total failure is a fixed, non-disclosing error
 
@@ -127,12 +138,17 @@ Each engine attempt SHALL be aborted after its `timeoutSeconds`, defaulting to 6
 
 ### Requirement: Aggregate engines fan out and merge by rank fusion
 
-An `aggregate` engine SHALL run all its children concurrently and wait until each settles. It SHALL group results by canonical URL ignoring a leading `www.` and a trailing path `/`, score each URL by `Σ 1/(60 + rank)` over the children that returned it, order by score, keep the longest snippet, and cut to `limit`. With no child results it SHALL be empty when at least one child was empty, and fail otherwise.
+An `aggregate` engine SHALL run all its children concurrently and wait until each settles. It SHALL group results by canonical URL ignoring a leading `www.` and a trailing path `/`, score each URL by `Σ 1/(60 + rank)` over the children that returned it, order by score, emit each group with its best-ranked member's URL, keep the longest snippet, and cut to `limit`. With no child results it SHALL be empty when at least one child was empty, and fail otherwise.
 
 #### Scenario: Shared result ranks first
 
 - **WHEN** child A returns `[u1, u2]` and child B returns `[u3, u1]`
 - **THEN** the merged order begins with `u1`
+
+#### Scenario: A grouped result keeps a real spelling
+
+- **WHEN** child A returns `https://www.example.com/docs/` first and child B returns `https://example.com/docs` second
+- **THEN** one merged entry is emitted with URL `https://www.example.com/docs/`
 
 #### Scenario: Partial failure still answers
 
@@ -176,7 +192,7 @@ Engine types SHALL be `brave`, `exa`, and `perplexity` (Search API) with a requi
 
 ### Requirement: Model-hosted engines run a bounded grounded sub-request
 
-A `model-hosted` engine SHALL send one request to its configured model, with that model's credentials and headers on the `search` session lane, the model's default effort and never the Run's, and the provider's hosted web search enabled. The request SHALL contain only packaged instructions, the query, and a recency phrase when set. It SHALL answer with the final text and, as citations, the URLs that text cites.
+A `model-hosted` engine SHALL send one request to its configured model, with that model's credentials and headers on the `search` session lane, the engine's `effort`, else the model's default effort, and never the Run's, and the provider's hosted web search enabled. The request SHALL contain only packaged instructions, the query, and a recency phrase when set. It SHALL answer with the final text and, as citations, the URLs that text cites.
 
 #### Scenario: Different Run model
 
@@ -205,11 +221,11 @@ The persisted tool part SHALL contain the normalized output and no raw vendor pa
 #### Scenario: A public share omits the search
 
 - **WHEN** the owner publicly shares a chat containing a `web_search` call
-- **THEN** the shared view contains neither the query nor any result
+- **THEN** the shared view contains no `web_search` tool part, input, output, or notes
 
 ### Requirement: The chat renders web search results as links
 
-The web chat SHALL render `web_search` tool parts, live and from history, with a dedicated renderer: results as numbered title links with host, date, and snippet; answers as Markdown followed by numbered citation links; the engine id and notes; a running state; and the error on failure. Only `http:` and `https:` URLs SHALL render as links, under the same external-link safety handling as assistant Markdown.
+The web chat SHALL render `web_search` tool parts, live and from history, with a dedicated renderer: results as numbered title links with host, date, and snippet; answers as Markdown followed by numbered citation links; the engine id and notes; a running state; a cancelled state for a cancelled call; and the error on failure. Only `http:` and `https:` URLs SHALL render as links, under the same external-link safety handling as assistant Markdown.
 
 #### Scenario: Results are clickable
 
@@ -220,6 +236,11 @@ The web chat SHALL render `web_search` tool parts, live and from history, with a
 
 - **WHEN** a completed `web_search` part of kind `answer` is displayed
 - **THEN** each citation renders as a link to its URL
+
+#### Scenario: A cancelled search is not shown as an error
+
+- **WHEN** a `web_search` part settled as cancelled is displayed
+- **THEN** it renders in the cancelled state without error text
 
 #### Scenario: Historical part renders the same
 

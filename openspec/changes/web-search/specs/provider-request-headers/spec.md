@@ -2,7 +2,7 @@
 
 ### Requirement: The session variable renders the Chat identity per lane
 
-`{session:id}` SHALL render the request's Chat identity exactly as the `opencode-go` session header does: the Chat's identifier, verbatim, on the `main` lane (the main turn and compaction), under a `title:` prefix on the `title` lane, and under a `search:` prefix on the `search` lane used by the hosted-search sub-requests of `web-search` model-hosted engines. It is not a secret.
+`{session:id}` SHALL render the request's Chat identity as the `opencode-go` session header does for the `main` and `title` lanes: the Chat's identifier, verbatim, on the `main` lane (the main turn and compaction), and under a `title:` prefix on the `title` lane. It SHALL render under a `search:` prefix on the `search` lane used by the hosted-search sub-requests of `web-search` model-hosted engines. It is not a secret.
 
 #### Scenario: Main turn and compaction share the value
 

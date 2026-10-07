@@ -121,11 +121,15 @@ type WebSearchOutput =
   (`parseWebLocator`) is never applied, because it refuses `Help:Contents` and rewrites
   `page:10`. A literal `:` in the last path segment of a query-free URL is emitted as `%3A`, the
   spelling `read` fetches literally. URLs over 2,048 characters are dropped.
-- `title` and citation titles are capped at 200 and `snippet` at 300 characters; `published` is
-  kept only when it parses as an ISO date. Results are sliced to `limit` and citations to 20.
-- The serialized output is kept under 15,000 characters by dropping trailing results or
-  citations with a note, so the runner's 16,000-character truncation
-  (`packages/runtime-safety/src/result-truncation.ts`) never cuts a URL.
+- Lengths are JavaScript UTF-16 code units, cut at a code-point boundary, the unit the runner's
+  cap measures. `title` and citation titles are capped at 200, `snippet` at 300, and `answer` at
+  8,000 (cut with a note); `published` is kept only when it parses as an ISO date. Results are
+  sliced to `limit` and citations to 20.
+- The JSON-serialized output is kept under 15,000 units by dropping trailing results or
+  citations with a note, so the runner's 16,000-unit truncation
+  (`packages/runtime-safety/src/result-truncation.ts:171-172`) never cuts a URL. An 8,000-unit
+  answer plus 20 bounded citations always fits, so a grounded answer never loses its last
+  citation.
 - `notes` record what the answering engine ignored, for example `recency is not supported by
 duckduckgo`, and which earlier engines failed or were empty.
 - Citations are deduplicated by URL.
@@ -158,14 +162,14 @@ Entry shapes, all with optional `timeoutSeconds` (positive integer, default 60):
 | `searxng`      | `baseUrl` (required, absolute http(s)) |
 | `duckduckgo`   | none                                   |
 | `aggregate`    | `engines` (two or more distinct ids)   |
-| `model-hosted` | `model` (a `models[].id`)              |
+| `model-hosted` | `model` (a `models[].id`), `effort`?   |
 
 `key` and `baseUrl` use the existing interpolation and are protected as secrets when
 interpolated. Validation at startup: unique ids; every `chain` and `aggregate.engines` id exists;
 `aggregate` children are `brave`, `exa`, `exa-mcp`, `perplexity`, `searxng`, or `duckduckgo` (no
 nested aggregates, no `model-hosted`); `model-hosted.model` names a model whose provider type is
-`openai-responses`, `openai-codex`, or `anthropic-messages`; a `chain` is non-empty and has no
-duplicates. `web_search` in `tools.allowed` without `webSearch.chain` fails startup naming
+`openai-responses`, `openai-codex`, or `anthropic-messages`, and its `effort`, when set, is one of
+that model's effort levels; a `chain` is non-empty and has no duplicates. `web_search` in `tools.allowed` without `webSearch.chain` fails startup naming
 `webSearch.chain`.
 
 Each engine type's schema branch, loader shape, and validation land in the layer that ships its
@@ -212,6 +216,8 @@ merge:
   trailing `/` from the path, keeping the query string;
 - scores each URL by Reciprocal Rank Fusion, `Σ 1 / (60 + rank)` over the children that returned
   it, with 1-based rank, ties broken by best single rank then child order;
+- emits each group with the URL of its best-ranked member (ties by child order); the stripped
+  form is only a grouping key, because `www.` and a trailing `/` can address different resources;
 - keeps the longest snippet and the first non-empty title and date seen in child order;
 - slices to `limit`.
 
@@ -235,8 +241,12 @@ All requests carry the product User-Agent, reject redirects, and read at most 5 
 | `searxng`    | `GET <baseUrl>/search?format=json`                                                                  | `time_range` (`week` sent as `month`, noted) | local slice   | left in query                                            |
 | `duckduckgo` | `POST https://html.duckduckgo.com/html/` form `q`, parsed with `linkedom`; redirect URLs unwrapped  | `df=d/w/m/y`                                 | local slice   | left in query                                            |
 
-`exa-mcp` parses the tool's text content into results. Exa's success text `No search results
-found` is `empty`. An `isError` result is classified by the status its text carries (401/403
+`exa-mcp` sends `query`, `numResults`, and `objective` (the query text): the deployed
+`web_search_exa` schema marks `objective` required even though the public source and today's
+server do not enforce it. It parses the tool's text content block by block (`Title:`/`URL:`
+blocks separated by `---`) and skips a block without a `URL:` line rather than failing the
+response, because highlights are page text that can contain the separator. Exa's success text
+`No search results found` is `empty`. An `isError` result is classified by the status its text carries (401/403
 `auth`, 429 or Exa's free-limit message `rate_limited`, otherwise `upstream_error`), and an HTTP
 429 from the transport is `rate_limited`. Other unparsable output is `upstream_error`.
 
@@ -273,8 +283,10 @@ existing bounds.
 A `model-hosted` engine builds the referenced model's client as a Run would (provider
 credentials, base URL, configured headers, `providerOptions` composition) and issues one request
 on a new `search` session lane, so `{session:id}` renders `search:<chatId>` rather than the main
-lane's Chat id. Effort is the referenced model's `defaultEffort` when it declares `reasoning`, and
-none otherwise; the Run's effort belongs to a different model and is never inherited:
+lane's Chat id. Effort is the engine's optional `effort`, validated at startup against the referenced model's
+effort levels, else that model's `defaultEffort` when it declares `reasoning`, else none. The
+Run's effort belongs to a different model and is never inherited. The override exists because
+OpenAI web search rejects `gpt-5` at `minimal` effort, a plausible chat default:
 
 - system text from a packaged template instructing the model to search, answer concisely, and cite
   sources; user text is the query, plus a recency phrase when `recency` is set. No chat history,
@@ -337,12 +349,16 @@ renderer built on the shared tool component:
 
 - `results`: a numbered list of title links with host, date, and snippet;
 - `answer`: the answer as Markdown followed by numbered citation links;
-- the engine id and notes; a `searching` state while running; the error text on failure.
+- the engine id and notes; a `searching` state while running; a cancelled state when the part
+  carries llame's cancellation marker, as the generic tool view shows today
+  (`apps/web/app/(chat)/components/chat-message-row.tsx:59-62`); the error text on failure.
 
-Links render only for `http:`/`https:` URLs and go through the same `linkSafety` handling as
-assistant Markdown links, so a result link is no easier to follow than a link the model wrote.
-The renderer lives in `packages/ui` with stories, and takes the chat's Markdown renderer as a
-prop, as message rows receive it from `ChatMarkdownProvider`.
+Links render only for `http:`/`https:` URLs, and every result and citation link is rendered as
+an escaped Markdown link through the chat's Markdown renderer, so Streamdown's own `linkSafety`
+confirmation applies, the same one assistant links get. `linkSafety` is a Streamdown prop and
+its modal is not exported (`streamdown@2.5.0` `dist/index.d.ts:389-398,492`), so plain anchors
+could not share it. The renderer lives in `packages/ui` with stories, and takes the chat's
+Markdown renderer as a prop, as message rows receive it from `ChatMarkdownProvider`.
 
 ### D14: Packaged description
 
