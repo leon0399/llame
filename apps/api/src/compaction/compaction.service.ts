@@ -186,7 +186,6 @@ export class CompactionService {
       system: input.system,
       previous,
       absorb: input.plan.absorb,
-      variant: input.variant,
     });
     let inference: SummaryInference;
     try {
@@ -279,7 +278,6 @@ export class CompactionService {
       system: source.receipt.systemPrompt,
       previous,
       absorb: input.plan.absorb,
-      variant: input.variant,
     });
     if (
       !requestFitsContextWindow({

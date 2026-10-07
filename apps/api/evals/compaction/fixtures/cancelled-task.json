@@ -1,0 +1,26 @@
+{
+  "id": "compaction-eval-cancelled-task",
+  "system": "You are a careful coding assistant.",
+  "expectation": {
+    "kind": "cancelled",
+    "task": "drop-old-invoices"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "text": "Please add the legacy billing migration named drop-old-invoices."
+    },
+    {
+      "role": "assistant",
+      "text": "I have not made that change yet."
+    },
+    {
+      "role": "user",
+      "text": "Cancel that task: do not add the legacy billing migration named drop-old-invoices."
+    },
+    {
+      "role": "assistant",
+      "text": "Cancelled; I will not add it."
+    }
+  ]
+}

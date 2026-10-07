@@ -36,9 +36,9 @@ import type { Message, ModelToolDeclaration } from '../db/schema';
 export const COMPACTION_WINDOW_RATIO = 0.8;
 
 /**
- * Which trigger produced the summary request (design D4). Both variants send
- * the same shape; only the instruction body differs, because the window variant
- * summarizes a prefix with a model that never saw the target's turn.
+ * Which trigger produced the summary request (design D4). The threshold and
+ * window variants still select different model and prompt inputs in
+ * CompactionService, but both use the same summarization instruction.
  */
 export type CompactionVariant = 'threshold' | 'window';
 
@@ -50,9 +50,9 @@ export type CompactionVariant = 'threshold' | 'window';
  * (OpenAI-style strict prefix matching) covers the absorbed bulk; only this
  * trailing instruction is uncached. What the summary must preserve comes from
  * #57: objective, constraints, decisions, pending items — working state, not
- * prose. The section headings the summary must use are literal text in each
- * instruction template; `compaction.test.ts` authors its own heading list and
- * asserts it against the rendered instruction.
+ * prose. The section headings and rules are literal text in
+ * `prompts/instruction.md`; `compaction.test.ts` pins them against the
+ * rendered instruction.
  */
 
 /**
@@ -83,24 +83,14 @@ export type CompactionVariant = 'threshold' | 'window';
  * the replayed system prompt would work too and is rejected: that changes the
  * prefix and makes the whole (deliberately large) call cold.
  *
- * The sentence is literal text in `prompts/instruction.md` and, in its own
- * copy, in `prompts/instruction-transition.md`: D3 makes distinct bodies
- * distinct files, so the two modes carry the exclusion themselves rather than
- * sharing one interpolated constant, and the test pins it against both.
+ * The sentence is literal text in `prompts/instruction.md`: the exclusion
+ * stays in the packaged trailing instruction, and the test pins it verbatim.
  */
 const renderCompactionInstructionTemplate = loadPackagedTemplate<
   Record<string, never>
 >(__dirname, 'instruction');
 
 export const COMPACTION_INSTRUCTION = renderCompactionInstructionTemplate({});
-
-/** The transition-up-to instruction: a distinct body, fixed text, no values. */
-const renderTransitionCompactionInstructionTemplate = loadPackagedTemplate<
-  Record<string, never>
->(__dirname, 'instruction-transition');
-
-export const TRANSITION_COMPACTION_INSTRUCTION =
-  renderTransitionCompactionInstructionTemplate({});
 
 /** Accept only non-empty text from a compaction inference. */
 export function normalizeCompactionSummary(value: unknown): string | null {
@@ -316,10 +306,9 @@ export function planCompactionCheckpoint(input: {
  *   through the SAME buildContext path the live turn used, so the request
  *   preserves the byte-identical stored prefix that populated the provider's
  *   prompt cache;
- * - the summarize instruction rides as the final user message, chosen by
- *   `variant`: the threshold trigger's own turn continues the conversation,
- *   while the window trigger's source model carries a prefix the target could
- *   not hold.
+ * - the summarize instruction rides as the final user message. Both trigger
+ *   paths use the same instruction; the variant only selects the model inputs
+ *   assembled by CompactionService.
  *
  * With OpenAI-style strict-prefix caching this makes the absorbed bulk (the
  * expensive part — up to the whole threshold) a cache read instead of a fresh
@@ -329,7 +318,6 @@ export function buildCompactionRequest(input: {
   system: string;
   previous: ContextCheckpoint | undefined;
   absorb: Array<StoredMessage>;
-  variant: CompactionVariant;
 }): ModelRequestContext {
   const { system, messages } = buildContext(input.absorb, {
     systemPrompt: input.system,
@@ -341,10 +329,7 @@ export function buildCompactionRequest(input: {
 
   messages.push({
     role: 'user',
-    content:
-      input.variant === 'window'
-        ? TRANSITION_COMPACTION_INSTRUCTION
-        : COMPACTION_INSTRUCTION,
+    content: COMPACTION_INSTRUCTION,
   });
 
   return { system, messages };

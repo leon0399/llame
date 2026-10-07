@@ -22,10 +22,7 @@ import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.r
 import { RunsRepository } from '../runs/runs-repository';
 import { ContextIncompatibleError } from '../runs/model-context-errors';
 import type { CompactionPlan } from './compaction';
-import {
-  COMPACTION_INSTRUCTION,
-  TRANSITION_COMPACTION_INSTRUCTION,
-} from './compaction';
+import { COMPACTION_INSTRUCTION } from './compaction';
 import { CompactionService, toStoredMessages } from './compaction.service';
 
 const chatId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -238,7 +235,6 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     expect(rendered.indexOf('previous checkpoint')).toBeLessThan(
       rendered.indexOf('message 2'),
     );
-    expect(rendered).not.toContain(TRANSITION_COMPACTION_INSTRUCTION);
 
     expect(summary).toMatchObject({
       uptoSeq: 2,
@@ -559,7 +555,7 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
     expect(sent?.toolChoice).toBe('none');
     expect(sent?.messages.at(-1)).toEqual({
       role: 'user',
-      content: TRANSITION_COMPACTION_INSTRUCTION,
+      content: COMPACTION_INSTRUCTION,
     });
 
     expect(summary).toMatchObject({ uptoSeq: 2, summary: 'summary text' });

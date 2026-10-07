@@ -45,6 +45,7 @@ pnpm --filter api typecheck
 pnpm --filter api test
 pnpm --filter api test:integration
 pnpm --filter api test:evals
+pnpm --filter api eval:compaction
 pnpm --filter api test:mutation:dry
 pnpm --filter api test:mutation
 ```

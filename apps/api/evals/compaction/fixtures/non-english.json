@@ -1,0 +1,27 @@
+{
+  "id": "compaction-eval-non-english",
+  "system": "You are a careful coding assistant.",
+  "expectation": {
+    "kind": "nonEnglish",
+    "languageMarker": "todavía",
+    "fact": "puerto 8080"
+  },
+  "messages": [
+    {
+      "role": "user",
+      "text": "Necesito actualizar el servicio de pagos antes del viernes. El código de despliegue es `pnpm run deploy:staging`."
+    },
+    {
+      "role": "assistant",
+      "text": "El servicio usa el puerto 8080 y todavía no se ha actualizado."
+    },
+    {
+      "role": "user",
+      "text": "La próxima acción es revisar los registros y ejecutar `pnpm test`; no traduzcas ese comando."
+    },
+    {
+      "role": "assistant",
+      "text": "Todavía no hemos aplicado el cambio; los registros deben revisarse primero."
+    }
+  ]
+}

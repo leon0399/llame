@@ -18,6 +18,16 @@
       }
     },
     {
+      // The opt-in model eval must forward the provider key while forcing its
+      // own config path through the production config loader. It is a
+      // CommonJS tsx entrypoint, so top-level await is unavailable.
+      "files": ["evals/compaction/run.ts"],
+      "rules": {
+        "anti-slop/forbid-process-env-outside-env-ts": "off",
+        "unicorn/prefer-top-level-await": "off"
+      }
+    },
+    {
       // Nest DI and decorated handlers own these signatures.
       "files": [
         "src/chats/chat-loop.service.ts",

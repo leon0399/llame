@@ -10,6 +10,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   old/new processes are unsupported. No tool records cross a checkpoint: only
   its stored summary text is replayed
   ([#806](https://github.com/leon0399/llame/issues/806)).
+- Compaction now uses one operational-handoff instruction for both trigger
+  paths, records the session-state/no-repeat clause in new checkpoint
+  envelopes, and ships an opt-in OpenCode Go model eval with redaction,
+  cancellation, language, correction, and unresolved-question checks
+  ([#806](https://github.com/leon0399/llame/issues/806)).
 
 - `read` line selectors gain two members and one spelling order. `:N-` reads
   from line N through the source's last line and `:-K` reads its last K lines,

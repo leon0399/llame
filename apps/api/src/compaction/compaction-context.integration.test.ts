@@ -64,10 +64,7 @@ import {
 } from '../runs/run-execution.service';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import {
-  COMPACTION_INSTRUCTION,
-  TRANSITION_COMPACTION_INSTRUCTION,
-} from './compaction';
+import { COMPACTION_INSTRUCTION } from './compaction';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { CompactionService } from './compaction.service';
 import { type KnowledgeToolResolver } from '../tools/types';
@@ -235,10 +232,7 @@ function renderEpochPrompt(input: {
 /** A summary request, told apart from the Run's own request by its trailing instruction. */
 function isSummaryRequest(request: ModelStreamInput): boolean {
   const last = request.messages.at(-1)?.content;
-  return (
-    last === COMPACTION_INSTRUCTION ||
-    last === TRANSITION_COMPACTION_INSTRUCTION
-  );
+  return last === COMPACTION_INSTRUCTION;
 }
 
 function sole<T>(rows: ReadonlyArray<T>): T {
@@ -1201,7 +1195,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const fence = /<([a-z][a-z0-9_]*)>/u.exec(packagedPrompt)?.[1];
       expect(fence).toBeDefined();
       expect(COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
-      expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
       expect(summaryRequest.messages.at(-1)?.content).toBe(
         COMPACTION_INSTRUCTION,
       );
@@ -1421,7 +1414,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(sourceRequest.tools).toBeUndefined();
       expect(sourceRequest.messages.at(-1)).toEqual({
         role: 'user',
-        content: TRANSITION_COMPACTION_INSTRUCTION,
+        content: COMPACTION_INSTRUCTION,
       });
 
       // D7: a run whose source receipt carried personalization still compacts,
@@ -1432,15 +1425,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(sourceRequest.system).toContain('Preferred name: Ana');
       expect(sourceRequest.system).toContain('<user_chat_history>');
       expect(sourceRequest.system).toContain('private excerpt');
-      expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
-        '<user_personalization>',
-      );
-      expect(TRANSITION_COMPACTION_INSTRUCTION).toMatch(
+      expect(COMPACTION_INSTRUCTION).toContain('<user_personalization>');
+      expect(COMPACTION_INSTRUCTION).toMatch(
         /do not carry any content out of/i,
       );
-      expect(TRANSITION_COMPACTION_INSTRUCTION).toContain(
-        '<user_chat_history>',
-      );
+      expect(COMPACTION_INSTRUCTION).toContain('<user_chat_history>');
       expect(JSON.stringify(sourceRequest.messages)).not.toContain(
         'CURRENT TRIGGER',
       );
@@ -1536,7 +1525,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(createSourceClient).toHaveBeenCalledWith(TARGET_MODEL);
       expect(sole(sourceCalls).messages.at(-1)).toEqual({
         role: 'user',
-        content: TRANSITION_COMPACTION_INSTRUCTION,
+        content: COMPACTION_INSTRUCTION,
       });
       expect(sole(sourceCalls).system).toBe(seeded.sourceReceipt?.systemPrompt);
       const targetRequest = sole(targetCalls);

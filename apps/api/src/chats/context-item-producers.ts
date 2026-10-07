@@ -577,7 +577,7 @@ function renderTemporal(payload: TemporalPayload): string {
  * compaction
  * ------------------------------------------------------------------ */
 
-/** The checkpoint body: two framing sentences, then the neutralized summary. */
+/** The checkpoint body: three framing sentences, then the neutralized summary. */
 const renderCompactionCheckpointTemplate = loadPackagedTemplate<{
   readonly summary: string;
 }>(__dirname, 'compaction-checkpoint');
@@ -585,12 +585,12 @@ const renderCompactionCheckpointTemplate = loadPackagedTemplate<{
 /**
  * A checkpoint stands in for history it superseded, so it states that it is
  * historical context rather than a new request — which is already a precedence
- * statement, and deliberately the only one it carries.
+ * statement, and deliberately the only rank-setting language it carries.
  *
  * Unlike a one-off notice, a checkpoint is replayed on EVERY turn for the life
- * of the chat, so prose added here is paid for indefinitely. A second sentence
- * restating the rank in the rail's general terms measured ~35 tokens per
- * request and said nothing the sentence below does not.
+ * of the chat, so prose added here is paid for indefinitely. The third sentence
+ * is the justified addition: it tells the model that session state may already
+ * reflect the described work and not to repeat it.
  */
 export function renderCompactionCheckpoint(summary: string): string {
   // The summary is written by the summarizing model over conversation
