@@ -210,6 +210,16 @@ the redaction there is defensive; the Completions and Responses paths pass
 upstream messages through and need it. A header value with no interpolation is
 not secret: the operator wrote it in the file.
 
+### D9: `opencode-go` stays a provider type
+
+The map removes #809 D1's first reason for the type (the session header could
+not come from configuration), but an `openai-completions` entry with
+`"x-opencode-session": "{session:id}"` still cannot replace it: it requests
+`stream_options.include_usage`, which Go answers with a stream that fails the
+run (`opencode-go-model-client.ts:107-111`), and it follows redirects, reports
+the wrong provider identity, loads keyless, and lets `baseUrl` move a Go key.
+The runbook warns against that configuration.
+
 ## Risks / Trade-offs
 
 - [A strict proxy behind `anthropic-messages`, `openai-responses`, or
