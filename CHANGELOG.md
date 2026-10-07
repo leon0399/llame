@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-07
+
+- Fixed the composer reverting its model, reasoning effort, or permission mode
+  after a send from a `#msg-N` message link: returning to the live view no
+  longer restores the last turn from the pre-send history still in the cache,
+  so the selections the send used stay in place
+  ([#1084](https://github.com/leon0399/llame/issues/1084)).
+
 # 2026-10-06
 
 - Fixed missing token usage on `openai-completions` models: streaming Chat

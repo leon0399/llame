@@ -125,7 +125,7 @@ describe("useMessageTarget", () => {
     await waitFor(() => expect(result.current.targetSeq).toBeNull());
   });
 
-  it("records a post-send resolution time and clears it on a later hash navigation", async () => {
+  it("marks a finished-send resolution and clears it on a later hash navigation", async () => {
     window.history.replaceState(
       window.history.state,
       "",
@@ -134,20 +134,14 @@ describe("useMessageTarget", () => {
     const { result } = renderHook(() => useMessageTarget("chat-1"));
 
     // A plain hash hydration is not a finished target send.
-    await waitFor(() => expect(result.current.lastResolvedAt).toBeNull());
+    await waitFor(() => expect(result.current.targetSeq).toBe(42));
+    expect(result.current.resolvedAfterSend).toBe(false);
 
-    // Finish a target send: the resolve stamps when the view returned to
-    // latest, so the live restore can tell a pre-send snapshot from the
-    // post-send refetch (#1084).
-    const before = Date.now();
+    // A finished target send returns the view to latest (#1084).
     act(() => result.current.resolveLatest());
-    await waitFor(() =>
-      expect(result.current.lastResolvedAt).toBeTypeOf("number"),
-    );
-    expect(result.current.lastResolvedAt!).toBeGreaterThanOrEqual(before);
+    await waitFor(() => expect(result.current.resolvedAfterSend).toBe(true));
 
-    // A later hash navigation is a fresh navigation, not another resolution:
-    // the marker clears so the next live mount has nothing to wait for.
+    // A later hash navigation is a fresh navigation, not another resolution.
     window.history.replaceState(
       window.history.state,
       "",
@@ -156,6 +150,7 @@ describe("useMessageTarget", () => {
     act(() => {
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
-    await waitFor(() => expect(result.current.lastResolvedAt).toBeNull());
+    await waitFor(() => expect(result.current.targetSeq).toBe(43));
+    expect(result.current.resolvedAfterSend).toBe(false);
   });
 });

@@ -164,25 +164,16 @@ export function resolveRestoredPermissionMode(
  *  catalog are ready, independent of the permission listing; the permission
  *  mode restores only when the listing has settled, so `bypass` is held back
  *  (not treated as withdrawn) while it is still loading and restored when the
- *  operator still offers it. A brand-new chat and a target-window view never
- *  restore. Values fall back to their current default when no longer valid.
- *
- *  The restore never latches onto a stale pre-send history window
- *  (`chatMessagesFresh` false): the surface it defers on is the remounted live
- *  view right after a finished `#msg-N` send (#1084). Because `ChatSession` is
- *  keyed by `targetSeq`, resolving to latest remounts this hook against the
- *  live messages cache, which can still be the SSR-seeded pre-send snapshot —
- *  data dated before the send finished — until refreshChatData's invalidation
- *  refetch lands. Latching from that window restores an older turn's
- *  selections and never recovers once the fresh history arrives; waiting for
- *  the post-invalidation refetch guarantees the restore reads the post-send
- *  truth. A plain open/navigation has nothing to wait for and stays eligible
- *  on the first render. */
+ *  operator still offers it. A brand-new chat, a target-window view, and the
+ *  live view a finished `#msg-N` send remounts never restore: after that send
+ *  the composer already holds the selections the newest turn used, while the
+ *  cached history can still be the pre-send snapshot (#1084). Values fall
+ *  back to their current default when no longer valid. */
 type UseChatLastTurnRestoreArgs = {
   chatId: string;
   chatMessages: ReadonlyArray<UIMessage>;
-  chatMessagesFresh: boolean;
   initialChatExists: boolean;
+  mountedAfterTargetSend: boolean;
   targetSeq: number | null;
 };
 export function useChatLastTurnRestore(args: UseChatLastTurnRestoreArgs) {
@@ -195,18 +186,18 @@ export function useChatLastTurnRestore(args: UseChatLastTurnRestoreArgs) {
  *  pick is never reverted. */
 function useChatModelEffortRestore({
   chatMessages,
-  chatMessagesFresh,
   initialChatExists,
+  mountedAfterTargetSend,
   targetSeq,
 }: UseChatLastTurnRestoreArgs) {
   const { setSelectedModel, setSelectedEffort } = useChatContext();
   const modelsQuery = useModelsQuery();
   const handledRef = useRef(false);
-  const skipMount = !initialChatExists || targetSeq !== null;
+  const skipMount =
+    !initialChatExists || targetSeq !== null || mountedAfterTargetSend;
 
   useEffect(() => {
     if (skipMount || handledRef.current) return;
-    if (!chatMessagesFresh) return; // live view may still show the pre-send snapshot
     if (chatMessages.length === 0) return; // history still loading
     const data = modelsQuery.data;
     if (!data || data.models.length === 0) return;
@@ -220,7 +211,6 @@ function useChatModelEffortRestore({
   }, [
     skipMount,
     chatMessages,
-    chatMessagesFresh,
     modelsQuery.data,
     setSelectedModel,
     setSelectedEffort,
@@ -236,18 +226,18 @@ function useChatModelEffortRestore({
 function useChatPermissionModeRestore({
   chatId,
   chatMessages,
-  chatMessagesFresh,
   initialChatExists,
+  mountedAfterTargetSend,
   targetSeq,
 }: UseChatLastTurnRestoreArgs) {
   const { setPermissionMode } = useChatContext();
   const permissionModesQuery = usePermissionModesQuery();
   const appliedRef = useRef(false);
-  const skipMount = !initialChatExists || targetSeq !== null;
+  const skipMount =
+    !initialChatExists || targetSeq !== null || mountedAfterTargetSend;
 
   useEffect(() => {
     if (skipMount || appliedRef.current) return;
-    if (!chatMessagesFresh) return; // live view may still show the pre-send snapshot
     if (chatMessages.length === 0) return;
     if (permissionModesQuery.isPending) return; // not settled yet
     appliedRef.current = true;
@@ -262,7 +252,6 @@ function useChatPermissionModeRestore({
     skipMount,
     chatId,
     chatMessages,
-    chatMessagesFresh,
     permissionModesQuery.isPending,
     permissionModesQuery.data,
     setPermissionMode,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import type { UIMessage } from "ai";
 
@@ -51,7 +51,8 @@ export function ChatPage({
   initialDraftPhase,
 }: ChatPageProps) {
   const { registerViewedChat } = useActiveRuns();
-  const { resolveLatest, targetSeq, lastResolvedAt } = useMessageTarget(chatId);
+  const { resolveLatest, targetSeq, resolvedAfterSend } =
+    useMessageTarget(chatId);
 
   // This page boundary owns foreground presence before any session data loads.
   // In particular, a rehydrated draft can wait with no ChatSessionContent while
@@ -69,8 +70,8 @@ export function ChatPage({
       chatId={chatId}
       initialChatExists={initialChatExists}
       initialDraftPhase={initialDraftPhase}
-      lastResolvedAt={lastResolvedAt}
       onTargetSendFinished={resolveLatest}
+      resolvedAfterSend={resolvedAfterSend}
       targetSeq={targetSeq}
     />
   );
@@ -80,13 +81,10 @@ type ChatSessionProps = {
   chatId: string;
   initialChatExists: boolean;
   initialDraftPhase: DraftPhase | null;
-  // The time of the last finished target send that resolved this view to
-  // latest, or null on a plain open/navigation (see useMessageTarget). The
-  // live view compares its history query's `dataUpdatedAt` against it so the
-  // last-turn restore never latches onto the pre-send snapshot that is still
-  // in the cache right after the remount (#1084).
-  lastResolvedAt: number | null;
   onTargetSendFinished: () => void;
+  // True when a finished target send resolved the view to latest (see
+  // useMessageTarget). ChatSession latches it per mount.
+  resolvedAfterSend: boolean;
   targetSeq: number | null;
 };
 
@@ -95,25 +93,10 @@ type ChatSessionRender =
   | { kind: "unavailable" }
   | {
       kind: "ready";
-      // `chatMessagesFresh` is added at the JSX site (ChatSession): it is not
-      // part of the history/query-probe decisions this function makes.
-      contentProps: Omit<ChatSessionContentProps, "chatMessagesFresh">;
+      // `mountedAfterTargetSend` is added at the JSX site (ChatSession): it is
+      // not part of the history/query-probe decisions this function makes.
+      contentProps: Omit<ChatSessionContentProps, "mountedAfterTargetSend">;
     };
-
-/** Fresh-eligible history for the last-turn restore (#1084): true once the
- *  history the live view reads is at-or-after the last finished target send's
- *  resolution (the invalidated refetch replaced the pre-send snapshot), or on
- *  a plain open/navigation with no resolution to wait for (`lastResolvedAt`
- *  is null). */
-function isChatHistoryFreshForRestore(
-  historyQuery: ReturnType<typeof useChatSessionState>["historyQuery"],
-  lastResolvedAt: number | null,
-): boolean {
-  return (
-    lastResolvedAt === null ||
-    (historyQuery.dataUpdatedAt ?? 0) >= lastResolvedAt
-  );
-}
 
 /** The render decision for one `ChatSession` mount, derived from its state
  *  hook: hidden while an owner-mounted draft recovers, unavailable when a
@@ -167,8 +150,8 @@ function ChatSession({
   chatId,
   initialChatExists,
   initialDraftPhase,
-  lastResolvedAt,
   onTargetSendFinished,
+  resolvedAfterSend,
   targetSeq,
 }: ChatSessionProps) {
   const sessionState = useChatSessionState({
@@ -184,10 +167,9 @@ function ChatSession({
     initialChatExists,
     sessionState,
   );
-  const chatMessagesFresh = isChatHistoryFreshForRestore(
-    sessionState.historyQuery,
-    lastResolvedAt,
-  );
+  // Latched for this mount: a later hash change that keeps the live view
+  // mounted must not re-enable the last-turn restore mid-session.
+  const [mountedAfterTargetSend] = useState(resolvedAfterSend);
 
   if (render.kind === "hidden") return null;
   if (render.kind === "unavailable") return <TargetUnavailable />;
@@ -195,7 +177,7 @@ function ChatSession({
     <ChatMarkdownProvider>
       <ChatSessionContent
         {...render.contentProps}
-        chatMessagesFresh={chatMessagesFresh}
+        mountedAfterTargetSend={mountedAfterTargetSend}
       />
     </ChatMarkdownProvider>
   );
@@ -217,14 +199,14 @@ function TargetUnavailable() {
 type ChatSessionContentProps = {
   chatId: string;
   chatMessages: Array<UIMessage>;
-  // Fresh-eligible history for the last-turn restore: false only right after
-  // a finished target send, while the cache still holds the pre-send snapshot
-  // (see isChatHistoryFreshForRestore / #1084). Gates useChatLastTurnRestore.
-  chatMessagesFresh: boolean;
   compaction: Compaction | null;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
   initialChatExists: boolean;
+  // This live view was mounted by a finished `#msg-N` send. The last-turn
+  // restore skips it (#1084): the composer already holds the selections that
+  // send used, while the cached history can still be the pre-send snapshot.
+  mountedAfterTargetSend: boolean;
   onLoadOlderMessages: () => void;
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;

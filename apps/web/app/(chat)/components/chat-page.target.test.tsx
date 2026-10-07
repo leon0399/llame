@@ -114,8 +114,8 @@ const MODELS_RESPONSE: ModelsResponse = {
       name: "GPT-5.4 mini",
       contextWindowTokens: 400_000,
     },
-    // A real but non-default choice, so a test can tell a restore that read
-    // the pre-send snapshot apart from one that read the post-send history.
+    // A real but non-default choice, so a test can tell a restore from a
+    // stale history snapshot apart from the composer's current selection.
     {
       id: "system:openai:gpt-5.4",
       source: "system",
@@ -472,12 +472,13 @@ describe("ChatPage target hydration", () => {
     ).toBe(true);
   });
 
-  it("restores the model from the post-send history, not the pre-send snapshot, after a #msg-N send", async () => {
+  it("keeps the sent selections instead of restoring the pre-send snapshot after a #msg-N send", async () => {
     // #1084: a finished target send remounts the live view while the ordinary
     // messages cache still holds the pre-send SSR snapshot (refreshChatData
-    // invalidates only after resolveLatest is queued). The last-turn restore
-    // must defer past that stale window and latch the post-send history once
-    // the invalidated refetch lands.
+    // invalidates only after resolveLatest is queued). The composer already
+    // holds the selections that send used, so the remounted view must not run
+    // the last-turn restore at all — neither from the stale snapshot nor once
+    // the post-send history lands.
     const user = userEvent.setup();
     const staleSeed: ChatMessagesResponse = {
       compaction: null,
@@ -489,7 +490,7 @@ describe("ChatPage target hydration", () => {
           parts: [{ type: "text", text: "newest" }],
           role: "assistant",
           // The pre-send snapshot's last completed turn used the non-default
-          // model — restoring from it is what the bug does.
+          // model; restoring from it reverts the selection the send used.
           usage: { status: "completed", modelId: "system:openai:gpt-5.4" },
         }),
       ],
@@ -514,8 +515,7 @@ describe("ChatPage target hydration", () => {
           seq: 1000,
           parts: [{ type: "text", text: "latest durable answer" }],
           role: "assistant",
-          // The post-send history's last completed turn used the default
-          // model — this is the selection the restore must land on.
+          // The post-send turn used the composer's selection: the default.
           usage: {
             status: "completed",
             modelId: "system:openai:gpt-5.4-mini",
@@ -524,9 +524,9 @@ describe("ChatPage target hydration", () => {
       ],
     };
 
-    // Hold the post-send (ordinary/latest) history back until the live view has
-    // remounted against the pre-send snapshot, so a pre-#1084 latch deterministically
-    // reads the stale turn instead of racing an instant refetch.
+    // Hold the post-send (ordinary/latest) history back until the live view
+    // has remounted against the pre-send snapshot, so a restore that latched
+    // there deterministically reads the stale turn.
     let resolveFresh!: (value: ChatMessagesResponse) => void;
     const freshGate = new Promise<ChatMessagesResponse>((resolve) => {
       resolveFresh = resolve;
@@ -553,11 +553,10 @@ describe("ChatPage target hydration", () => {
       mocks.capturedOnFinish?.({});
     });
 
-    // The live view remounted against the held-back pre-send snapshot: the
-    // fresh history has not landed, so the restore must still be holding.
+    // The live view remounted against the held-back pre-send snapshot.
     await waitFor(() => expect(screen.getByText("newest")).toBeTruthy());
-    expect(screen.queryByRole("combobox")?.getAttribute("aria-label")).not.toBe(
-      "Select model, GPT-5.4",
+    expect(screen.getByRole("combobox").getAttribute("aria-label")).toBe(
+      "Select model, GPT-5.4 mini",
     );
 
     act(() => {

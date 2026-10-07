@@ -8,13 +8,11 @@ type MessageTargetState =
       chatId: string;
       resolved: true;
       targetSeq: number | null;
-      // The wall-clock time of the last `resolveLatest()` — i.e. when a
-      // target-window send finished and the view was returned to latest. `null`
-      // on any plain navigation (no target send finished). Consumed by the
-      // live view's last-turn restore (chat-page.tsx) to tell a pre-send SSR
-      // history snapshot — cache data dated before this timestamp — apart from
-      // the post-send refetch that replaces it (#1084).
-      lastResolvedAt: number | null;
+      // True when `resolveLatest()` produced this state, i.e. a target-window
+      // send finished and returned the view to latest; false on any plain hash
+      // navigation. The remounted live view then skips the last-turn restore
+      // (#1084): the composer already holds the selections that send used.
+      resolvedAfterSend: boolean;
     };
 
 export function parseMessageTargetHash(hash: string): number | null {
@@ -31,9 +29,9 @@ export function parseMessageTargetHash(hash: string): number | null {
  */
 export type MessageTargetControl = {
   targetSeq: number | null | undefined;
-  // The time of the last target-send resolution (see MessageTargetState), or
-  // null when no target send has finished since the last hash navigation.
-  lastResolvedAt: number | null;
+  // Whether the current resolution came from a finished target send (see
+  // MessageTargetState) rather than a hash navigation.
+  resolvedAfterSend: boolean;
   resolveLatest: () => void;
 };
 
@@ -49,10 +47,7 @@ export function useMessageTarget(chatId: string): MessageTargetControl {
         chatId,
         resolved: true,
         targetSeq: parseMessageTargetHash(window.location.hash),
-        // A plain hash navigation, not a finished target send: nothing has
-        // resolved to latest, so there is no "post-send fresh history" to wait
-        // for on the next live mount.
-        lastResolvedAt: null,
+        resolvedAfterSend: false,
       });
     };
 
@@ -66,7 +61,7 @@ export function useMessageTarget(chatId: string): MessageTargetControl {
       chatId,
       resolved: true,
       targetSeq: null,
-      lastResolvedAt: Date.now(),
+      resolvedAfterSend: true,
     });
   }, [chatId]);
 
@@ -74,7 +69,7 @@ export function useMessageTarget(chatId: string): MessageTargetControl {
     resolveLatest,
     targetSeq:
       state.chatId === chatId && state.resolved ? state.targetSeq : undefined,
-    lastResolvedAt:
-      state.chatId === chatId && state.resolved ? state.lastResolvedAt : null,
+    resolvedAfterSend:
+      state.chatId === chatId && state.resolved && state.resolvedAfterSend,
   };
 }
