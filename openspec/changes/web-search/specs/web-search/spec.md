@@ -1,0 +1,190 @@
+## Purpose
+
+Lets the model search the web through one stable code-owned tool whose engines the operator
+configures, falls back between, fans out across, or delegates to a provider's hosted search.
+
+## ADDED Requirements
+
+### Requirement: The web search tool has one stable model-facing contract
+
+The code-owned inventory SHALL include `web_search`, classified `read_only`, eligible only through its own exact `tools.allowed` entry and authorized per call by `tools.permissions.web_search`. Its input SHALL be a strict object with a required non-empty `query` string, an optional `recency` of `day`, `week`, `month`, or `year`, and an optional integer `limit` from 1 to 20 that defaults to 10. The model SHALL NOT be able to select an engine.
+
+#### Scenario: Unknown argument is refused
+
+- **WHEN** the model calls `web_search` with `{ "query": "x", "engine": "brave" }`
+- **THEN** the call fails schema validation and no engine is contacted
+
+#### Scenario: Default limit
+
+- **WHEN** the model calls `web_search` with only a query and the answering engine returns 15 results
+- **THEN** the output contains at most 10 results
+
+#### Scenario: Permission rejection sends nothing
+
+- **WHEN** `tools.permissions.web_search` rejects a call by a clause on `query`
+- **THEN** the call returns the permission rejection observation
+- **AND** no outbound request is made by any engine
+
+### Requirement: Output is a closed, normalized union
+
+A successful call SHALL return either `kind: "results"` with `results` entries of `title`, `url`, optional `snippet`, and optional `published`, or `kind: "answer"` with `answer` text and at least one citation of `url` and optional `title`. Both SHALL carry `engine` (the answering engine's operator id), `query`, and optional `notes`. No vendor payload field outside this shape SHALL appear in the output.
+
+#### Scenario: Results output from a result engine
+
+- **WHEN** a result engine returns three hits
+- **THEN** the output is `kind: "results"` with three entries and `engine` set to that engine's operator id
+
+#### Scenario: Ignored option is noted
+
+- **WHEN** the call sets `recency` and the answering engine cannot apply it
+- **THEN** the output's `notes` states that `recency` was not applied by that engine
+
+### Requirement: Result fields are canonical and bounded
+
+Every result and citation `url` SHALL be an absolute `http:` or `https:` URL canonicalized as native `read` canonicalizes web locators; entries whose URL fails that SHALL be dropped. Titles SHALL be at most 200 and snippets at most 300 characters, `published` SHALL be present only when it parses as an ISO 8601 date, and results SHALL be cut to the call's `limit`.
+
+#### Scenario: Non-web URL is dropped
+
+- **WHEN** an engine returns entries with URLs `javascript:alert(1)` and `https://Example.com/a#top`
+- **THEN** the output contains only `https://example.com/a`
+
+#### Scenario: Long snippet is cut
+
+- **WHEN** an engine returns a 2,000-character snippet
+- **THEN** the stored and model-visible snippet is at most 300 characters
+
+### Requirement: The chain tries engines in order and advances on failure or emptiness
+
+The call SHALL run the engines of `webSearch.chain` in order and SHALL return the first engine outcome with at least one result or a grounded answer. An engine that fails or returns no results SHALL advance the chain. When the chain is exhausted and any engine was empty, the call SHALL succeed with zero results and notes naming each failed engine and its class.
+
+#### Scenario: Failure falls through
+
+- **WHEN** the chain is `["brave", "exa"]`, `brave` answers HTTP 503, and `exa` returns results
+- **THEN** the output carries `exa`'s results with `engine: "exa"`
+- **AND** its notes name `brave` with `upstream_error`
+
+#### Scenario: Empty falls through
+
+- **WHEN** the chain is `["brave", "exa"]`, `brave` returns no results, and `exa` returns results
+- **THEN** the output carries `exa`'s results
+
+#### Scenario: All engines empty or failed
+
+- **WHEN** every chain engine either returns no results or fails, and at least one returned no results
+- **THEN** the call succeeds with `kind: "results"` and an empty `results` list
+- **AND** its notes name each failed engine and its class
+
+### Requirement: Total failure is a fixed, non-disclosing error
+
+When every chain engine fails, the call SHALL return a tool error naming each attempted engine id with one class from `auth`, `rate_limited`, `challenge`, `timeout`, `ungrounded`, or `upstream_error`. Engine errors, notes, logs, and Run events SHALL NOT contain upstream status text or bodies, request headers, configured keys, or configured base URLs.
+
+#### Scenario: Authorization failure
+
+- **WHEN** the only chain engine answers HTTP 401 with a body echoing its key
+- **THEN** the tool error names that engine with class `auth`
+- **AND** neither the key nor the body appears in the tool part, Run events, or logs
+
+#### Scenario: Rate limit
+
+- **WHEN** the only chain engine answers HTTP 429
+- **THEN** the tool error names that engine with class `rate_limited`
+
+### Requirement: Engine and call deadlines bound every search
+
+Each engine attempt SHALL be aborted after its `timeoutSeconds`, defaulting to 60, and classified `timeout`. The whole call, including every chain step and aggregate child, SHALL be bounded by `tools.callTimeoutSeconds`; when it elapses, every in-flight engine request SHALL be aborted and the call SHALL settle with the runner's timeout observation. Run cancellation SHALL abort in-flight engine requests.
+
+#### Scenario: Slow engine advances the chain
+
+- **WHEN** the first chain engine has `timeoutSeconds: 5` and does not answer within 5 seconds
+- **THEN** its request is aborted, it is recorded as `timeout`, and the next engine runs
+
+#### Scenario: Cancellation aborts requests
+
+- **WHEN** the owner cancels the Run while an engine request is in flight
+- **THEN** that request is aborted and the tool call settles as cancelled
+
+### Requirement: Aggregate engines fan out and merge by rank fusion
+
+An `aggregate` engine SHALL run all its children concurrently and wait until each settles. It SHALL group results by canonical URL ignoring a leading `www.` and a trailing path `/`, score each URL by `Σ 1/(60 + rank)` over the children that returned it, order by score, keep the longest snippet, and cut to `limit`. It SHALL be empty only when no child returned results and one was empty.
+
+#### Scenario: Shared result ranks first
+
+- **WHEN** child A returns `[u1, u2]` and child B returns `[u3, u1]`
+- **THEN** the merged order begins with `u1`
+
+#### Scenario: Partial failure still answers
+
+- **WHEN** one child fails with `rate_limited` and another returns results
+- **THEN** the aggregate returns the successful child's results with a note naming the failed child
+
+#### Scenario: Every child fails
+
+- **WHEN** every child of an aggregate fails
+- **THEN** the aggregate outcome is `upstream_error` and the chain advances
+
+### Requirement: API and keyless engines speak their vendor wire
+
+Engine types SHALL be `brave`, `exa`, and `perplexity` (Search API) with a required key; `searxng` against its configured `baseUrl`; `exa-mcp`, calling Exa's hosted MCP `web_search_exa` tool from llame code with an optional key; and `duckduckgo`, posting to the HTML endpoint. Each SHALL map `recency` and `limit` where its vendor supports them, and send a key only to its own host.
+
+#### Scenario: Keyless Exa MCP
+
+- **WHEN** an `exa-mcp` engine without a key runs a query
+- **THEN** llame calls the hosted MCP tool itself and returns normalized results
+- **AND** no MCP tool from that endpoint is declared to the model
+
+#### Scenario: DuckDuckGo challenge
+
+- **WHEN** the DuckDuckGo endpoint answers with its bot-challenge page
+- **THEN** the engine outcome is `challenge` and the chain advances
+
+#### Scenario: Redirect is refused
+
+- **WHEN** an API engine's response is an HTTP redirect
+- **THEN** the redirect is not followed and the outcome is `upstream_error`
+
+### Requirement: Model-hosted engines run a bounded grounded sub-request
+
+A `model-hosted` engine SHALL send one request to its configured model, using that model's provider credentials and headers, with the provider's hosted web search enabled. The request SHALL contain only packaged instructions, the query, and a recency phrase when set; no chat history, system prompt, or other Run context. It SHALL answer with the final text and the response's URL sources as citations.
+
+#### Scenario: Different Run model
+
+- **WHEN** a Run on an `opencode-go` model calls `web_search` and the chain's engine is `model-hosted` on an `anthropic-messages` model
+- **THEN** the call returns `kind: "answer"` with citations from the Anthropic sub-request
+
+#### Scenario: Ungrounded answer is a failure
+
+- **WHEN** the hosted sub-request returns text with no URL source
+- **THEN** the engine outcome is `ungrounded` and the chain advances
+
+#### Scenario: No chat context leaves the instance
+
+- **WHEN** a model-hosted engine runs inside a chat with prior turns and a system prompt
+- **THEN** the sub-request contains neither the prior turns nor the system prompt
+
+### Requirement: Stored output is the normalized result only
+
+The persisted tool part SHALL contain the normalized output and no raw vendor payload. It SHALL replay into later turns as untrusted tool output like any other tool result, and SHALL NOT appear in public chat shares.
+
+#### Scenario: Reload reproduces the output
+
+- **WHEN** the owner reloads a chat after a `web_search` call completed
+- **THEN** the reloaded tool part equals the normalized output the model received
+
+### Requirement: The chat renders web search results as links
+
+The web chat SHALL render `web_search` parts with a dedicated renderer: results as a numbered list of title links with host, date, and snippet; answers as Markdown followed by numbered citation links; the engine id and notes; a running state; and the error on failure. Only `http:` and `https:` URLs SHALL render as links, opening a new tab with `rel="noopener noreferrer nofollow"`.
+
+#### Scenario: Results are clickable
+
+- **WHEN** a completed `web_search` part with three results is displayed
+- **THEN** three title links to the result URLs are shown
+
+#### Scenario: Answer citations are clickable
+
+- **WHEN** a completed `web_search` part of kind `answer` is displayed
+- **THEN** each citation renders as a link to its URL
+
+#### Scenario: Historical part renders the same
+
+- **WHEN** a chat containing a `web_search` part is loaded from history
+- **THEN** it renders exactly as it did live
