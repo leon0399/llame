@@ -64,11 +64,8 @@ Source inspection, 2026-10-07; nothing was run.
 | Harness                                                                               | Generic session header policy                                                                                                                                                                                                                                                                                                      |
 | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | OMP (`can1357/oh-my-pi` `355b5d9`)                                                    | Per-provider, data-declared names: Codex `session_id`/`session-id`, xAI `x-grok-conv-id`, OpenCode `x-opencode-session`, Anthropic `X-Claude-Code-Session-Id`, OpenRouter body `session_id`. No generic `X-Session-Id`; OMP #6122 asks for an opt-in one. Title calls use a derived per-Chat id after a same-session 400 (#10619). |
-| pi-mono (`27c7b6f`)                                                                   | Native Codex headers; nothing on Anthropic OAuth, deliberately.                                                                                                                                                                                                                                                                    |
 | OpenCode v1 (`dev` `ecc4916`, `packages/opencode/src/session/llm/request.ts:188-203`) | `X-Session-Id` + `x-session-affinity` to every non-OpenCode provider; `x-opencode-*` to OpenCode providers.                                                                                                                                                                                                                        |
 | OpenCode v2 (`v2` `119cb15`, `packages/core/src/session/model-request.ts:266-274`)    | `X-Session-Id`, `x-session-affinity`, and `x-opencode-*` to every provider, Go included; the value is the parent's id for children and forks.                                                                                                                                                                                      |
-| Kilo (`6f5e9ca`)                                                                      | As OpenCode v1, including provider `anthropic`.                                                                                                                                                                                                                                                                                    |
-| goose, OpenClaw, Hermes                                                               | One configurable or endpoint-gated session header; Hermes adds arbitrary affinity headers per custom provider as opt-in.                                                                                                                                                                                                           |
 | LiteLLM                                                                               | Reads inbound `X-Session-Id` for its own affinity and spend logs (PR #39802); strips client headers upstream unless forwarding is enabled.                                                                                                                                                                                         |
 | Claude Code                                                                           | Sends `x-claude-code-session-id`; disables its gateway-hint headers on custom base URLs because proxies may reject unknown headers ([gateway protocol](https://code.claude.com/docs/en/llm-gateway-protocol#gateway-hint-headers)).                                                                                                |
 
@@ -139,40 +136,39 @@ Rejected:
 - **`{chat:id}`.** It misnames the title-lane value.
 - **The raw id on every lane.** Leo chose to keep `title:<chatId>` until #1096.
 
-### D5: Header values are parsed into segments at startup
+### D5: Existing interpolation at startup, one substitution per request
 
-Each string value is scanned once, at startup, into segments:
+Each string value goes through `interpolateStringWithSubstitutions`
+(`packages/config-interpolation/src/interpolation.ts:76`) once at startup. It
+already copies an unknown token such as `{session:id}` through literally. Before
+that, one check over the raw value fails startup, naming the path, on any
+`{name:…}` token other than `env:`, `path:`, and `session:id`, because a typo
+such as `{sesion:id}` would otherwise be sent verbatim. Per request, the client
+replaces `{session:id}` with the rendered identity. A value that renders empty
+sends no operator or default value for that header, so `{env:NAME:-}` with
+`NAME` unset works as a switch.
 
-- `{{` is a literal `{`.
-- `{session:id}` is the request-time variable.
-- `{env:…}` and `{path:…}` are resolved with the existing interpolation
-  functions and recorded as secret segments.
-- Any other `{name:…}` token fails startup naming the path. Interpolation
-  elsewhere copies unknown tokens literally; a header value fails closed
-  because a typo such as `{sesion:id}` would otherwise be sent verbatim.
-- Everything else is literal text.
-
-A resolved secret is never rescanned, so an environment value that contains
-`{session:id}` is sent as that literal text. Rendering a request concatenates
-the segments. A value that renders empty is not sent, so `{env:NAME:-}` with
-`NAME` unset omits the header, matching the "empty resolution means unset"
-rule. Header names and values get no further startup validation: an invalid
-one fails at request time in `fetch`, as any malformed request does.
+An environment value that itself contains `{session:id}` is substituted too,
+and `{{session:id}` cannot produce a literal; neither has a use, so neither is
+specified.
 
 Rejected:
 
-- **Interpolating the whole value first, then substituting the variable.**
-  It cannot tell an escaped `{{session:id}` from the variable, and it lets a
-  resolved secret inject a variable.
+- **A segment parser that tracks literal, secret, and variable parts.** It
+  only adds an escape and a no-rescan rule nobody needs (round-1 review).
 
 ### D6: Operator values win; nothing is reserved
 
 The rendered operator map is applied last on every request, so a string value
-replaces any header the client or adapter would send under that name:
-`user-agent`, Go's `x-opencode-session` and `x-opencode-client`, Codex's
-`originator`, a credential header. `null` only removes a default-map entry; it
-does not strip headers the client or adapter sets itself. The adapter may
-still append its own token to an operator `User-Agent`, as it does to llame's.
+replaces any header the client would send under that name: `user-agent`, Go's
+`x-opencode-session` and `x-opencode-client`, Codex's `originator`, a
+credential header. Requirements elsewhere that name those headers describe the
+default. `null` and an empty render withdraw only the operator or default
+value; they never strip a header the client sets itself. Two adapter limits
+remain: the adapter may append its own token to an operator `User-Agent`, as it
+does to llame's, and `@ai-sdk/anthropic@3.0.118` merges a per-call
+`anthropic-beta` with its own betas (`dist/index.mjs:3989-3996`) rather than
+replacing them.
 
 Rejected:
 
@@ -181,30 +177,36 @@ Rejected:
   operator already controls through `key` and `baseUrl`. Leo's decision:
   YAGNI.
 
-### D7: Clients render once per request and send per call
+### D7: Clients overlay the rendered map on their per-call headers
 
-The factory passes each client its resolved segment map. Each client renders
-it from `chat` on every streaming and structured request and puts the result
-in the per-call `headers` after its own `user-agent` and session header, so
-the operator's value wins; per-call headers already override construction
-headers in the installed adapters, which the implementation layer's tests
-prove per client. The Completions client's `sessionHeader` hook is replaced by
-that rendered map: Go's `x-opencode-session` becomes a code-owned template in
-the Go client that the operator map can override. The Codex client passes the
-map through to the Responses client it wraps. Per call, not at provider
-construction, because the variable changes per request.
+The factory passes each client its resolved map. Each client renders it from
+`chat` on every streaming and structured request and overlays it on the
+per-call headers it already builds (`user-agent`, and Go's session header from
+the existing `sessionHeader` hook), deleting any case-folded match first so
+one value per name is sent. Per-call headers override construction headers in
+the installed adapters (`combineHeaders`, then `normalizeHeaders`, last write
+wins), which the implementation layer's tests prove per client. The Go client's
+`renderSessionValue` moves to one shared export that `{session:id}` also uses.
+The Codex client passes the map through to the Responses client it wraps.
 
-### D8: Interpolated values are secrets and are redacted from failures
+### D8: Interpolated values get the provider key's non-disclosure
 
-Every resolved `{env:}` / `{path:}` segment value joins a frozen
-protected-values list on the resolved provider config. Startup diagnostics
-name the path, never the value. Each client applies `redactProtectedString`
-from `@workspace/runtime-safety` to the failure message it reports to the run,
-the one place an upstream echo of a request header could reach the owner. The
-Messages and Codex clients already replace failures with bounded messages, so
-the redaction there is defensive; the Completions and Responses paths pass
-upstream messages through and need it. A header value with no interpolation is
-not secret: the operator wrote it in the file.
+An interpolated header value is as secret as `key`, and gets the same
+treatment: startup errors name the path, never the value, and llame logs no
+request headers. No client redacts `key` from a provider's echoed error today
+(`@workspace/runtime-safety` is imported there only for type guards), so
+header values get no runtime redaction either; a provider that echoes a header
+in its error is outside the guarantee for both. One leak is llame's own: Node's
+`Headers` rejects a value containing CR or LF with a `TypeError` that quotes
+it, which would reach the run's failure message. So a resolved value containing
+CR, LF, or NUL fails startup naming the path.
+
+Rejected:
+
+- **Redacting echoed values in every client's failure paths.** Round-1 review
+  found it needs every rejection, `onError`, structured, and logging path in
+  four clients, plus a change to the Chat Completions failure contract, to
+  protect against a case `key` is not protected against.
 
 ### D9: `opencode-go` stays a provider type
 

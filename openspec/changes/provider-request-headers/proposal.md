@@ -38,8 +38,9 @@ which headers a request carries. This change implements issue #881.
   client or adapter would otherwise send, `User-Agent` included. No header name
   is reserved; an operator who overrides a credential, protocol, or identity
   header owns the result.
-- Treat a header value that uses `{env:…}` or `{path:…}` as a secret under the
-  existing non-disclosure rules, and redact it from provider failure messages.
+- Treat a header value that uses `{env:…}` or `{path:…}` as a secret with the
+  provider `key`'s protection: startup errors name the path, never the value,
+  and a resolved value containing CR, LF, or NUL fails startup.
 - Observable change for existing configurations: every request from an
   `openai-responses`, `openai-completions`, `anthropic-messages`, or
   `opencode-go` entry now carries `X-Session-Id` unless the entry removes it.
@@ -96,17 +97,22 @@ which headers a request carries. This change implements issue #881.
   "The identity is not a credential" now says headers, plural.
 - `opencode-go-provider`: requirement "Requests identify llame as the client"
   stops listing an affinity header as forbidden, because `X-Session-Id` is now
-  sent by default, and lets the operator map override the client's headers;
-  `x-session-affinity`, `x-opencode-request`, and `x-opencode-project` stay
-  unsent unless the operator adds them.
+  sent by default, scopes its identity rules to llame's own values, and lets
+  the operator map override the client's headers; `x-session-affinity`,
+  `x-opencode-request`, and `x-opencode-project` stay unsent unless the
+  operator adds them. Requirement "Every request for a Chat carries its
+  session identity" gains one sentence: an operator value for the session
+  header replaces it.
 
 Deliberately unchanged:
 
-- `subscription-access-openai-codex` "Fixed direct inference transport": it
-  names no headers, and the opt-in adds no destination.
-- `opencode-go-provider` "Every request for a Chat carries its session
-  identity": llame still always sends `x-opencode-session`; an operator value
-  for that name replaces it like any other header.
+- `subscription-access-openai-codex` "Fixed direct inference transport" and
+  `opencode-go-provider` "Fixed transport for a key-only entry": they say the
+  request uses the entry's credential. The new capability's precedence
+  requirement states that requirements naming a client header describe its
+  default, so an operator credential override needs no edit to either.
+- `provider-api-selection` "Chat Completions failures reach the run as bounded
+  messages": no failure message is rewritten (design.md D8).
 
 ## Impact
 
@@ -158,5 +164,5 @@ Deliberately unchanged:
   `{scheme:…}` token, fail startup naming the path, never a resolved value.
 - An operator `User-Agent` value replaces llame's on every request of that
   entry.
-- An interpolated header value appears in no log, error, or run failure
-  message.
+- A header value resolved from `{env:…}` or `{path:…}` appears in no startup
+  error or llame log line, and a CR, LF, or NUL in one fails startup.

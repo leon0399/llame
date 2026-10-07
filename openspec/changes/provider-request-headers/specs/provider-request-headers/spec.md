@@ -58,14 +58,9 @@ Each provider type SHALL have a default header map: `{ "X-Session-Id": "{session
 - **WHEN** an `openai-codex` entry declares `"headers": { "X-Session-Id": "{session:id}" }`
 - **THEN** its requests carry `X-Session-Id` rendered from the request's Chat identity
 
-#### Scenario: No default sends an affinity header
-
-- **WHEN** a request is made through an entry of any type whose map does not name `x-session-affinity`
-- **THEN** the request carries no `x-session-affinity` header
-
 ### Requirement: Operator header values take precedence over the client's own
 
-An operator string value SHALL replace any header the client or adapter would otherwise send under the same name, compared under ASCII case-folding, including `User-Agent` and headers a provider type sets itself. `null` SHALL remove only a default-map entry; it SHALL NOT strip a header the client or adapter sets. Tokens an adapter appends after an operator value are outside llame's control.
+An operator string value SHALL replace any header the client sends under the same name, compared under ASCII case-folding, including `User-Agent`, credentials, and the session and identity headers other capabilities require; those requirements describe the default. `null` and an empty render SHALL withdraw only the operator or default value, never a client-set header. The Messages adapter merges an operator `anthropic-beta` with its own betas.
 
 #### Scenario: An operator User-Agent replaces llame's
 
@@ -83,9 +78,14 @@ An operator string value SHALL replace any header the client or adapter would ot
 - **THEN** startup succeeds
 - **AND** its requests still carry the gateway session header llame renders
 
+#### Scenario: An empty render does not strip a client-owned header
+
+- **WHEN** an `opencode-go` entry declares `"headers": { "x-opencode-session": "{env:S:-}" }` and `S` is unset
+- **THEN** its requests carry the gateway session header llame renders
+
 ### Requirement: Header values are templates resolved at startup
 
-A header string value SHALL be parsed once at startup: `{{` is a literal `{`, `{env:…}` and `{path:…}` resolve under the existing interpolation rules, `{session:id}` is a request-time variable, and any other `{name:…}` token SHALL fail startup naming the path. Resolved interpolation output SHALL be treated as literal text. A value that renders empty SHALL omit the header.
+A header string value SHALL resolve `{env:…}` and `{path:…}` once at startup under the existing interpolation rules and SHALL render `{session:id}` per request. Any other `{name:…}` token SHALL fail startup naming the path. A value that renders empty SHALL send no operator or default value for that header.
 
 #### Scenario: Interpolation and the variable combine
 
@@ -98,24 +98,14 @@ A header string value SHALL be parsed once at startup: `{{` is a literal `{`, `{
 - **THEN** startup fails naming the header path
 - **AND** the token is never sent verbatim
 
-#### Scenario: An escaped brace is literal
-
-- **WHEN** a value is `"{{session:id}"`
-- **THEN** requests carry the literal text `{session:id}`
-
-#### Scenario: Interpolated text is not rescanned
-
-- **WHEN** a value is `"{env:TAG}"` and `TAG` resolves to the text `{session:id}`
-- **THEN** requests carry that literal text, not the Chat identity
-
 #### Scenario: An empty value omits the header
 
-- **WHEN** a value is `"{env:TAG:-}"` and `TAG` is unset
+- **WHEN** a value is `"{env:TAG:-}"` for a header the client does not set itself, and `TAG` is unset
 - **THEN** requests carry no header of that name
 
 ### Requirement: The session variable renders the Chat identity per lane
 
-`{session:id}` SHALL render the request's Chat identity: the Chat's identifier, verbatim, on the `main` lane, and the identifier under a `title:` prefix on the `title` lane, the same rendering the `opencode-go` session header uses. It SHALL be identical for every request of one lane of one Chat across retries, worker restarts, compaction, and model switches, and SHALL differ between Chats. It is not a secret.
+`{session:id}` SHALL render the request's Chat identity exactly as the `opencode-go` session header does: the Chat's identifier, verbatim, on the `main` lane (the main turn and compaction), and under a `title:` prefix on the `title` lane. It is not a secret.
 
 #### Scenario: Main turn and compaction share the value
 
@@ -124,39 +114,28 @@ A header string value SHALL be parsed once at startup: `{{` is a literal `{`, `{
 
 #### Scenario: Title generation carries the title lane
 
-- **WHEN** the title service generates a title through an entry that sends `X-Session-Id`
-- **THEN** the request carries `title:` followed by the Chat's identifier
-
-#### Scenario: Two Chats differ and one Chat is stable
-
-- **WHEN** two turns of one Chat and one turn of another Chat are made through the same entry
-- **THEN** the first Chat's two requests carry the same value
-- **AND** the second Chat's request carries a different value
+- **WHEN** the title service makes a structured-generation request through an entry that sends `X-Session-Id`
+- **THEN** the serialized request carries `title:` followed by the Chat's identifier
 
 ### Requirement: Every language-model request carries the rendered headers
 
-Every language-model request a provider client makes SHALL carry the entry's effective header map rendered for that request, on streaming and structured-generation requests alike, including compaction and title generation. The rendered headers SHALL NOT reach model context, persisted message parts, or owner-visible output. Embedding requests are exempt.
-
-#### Scenario: An auxiliary request carries the headers
-
-- **WHEN** title generation makes a structured-generation request through an entry with an effective header map
-- **THEN** the serialized request carries every header in that map, rendered for the title lane
+Every language-model request a provider client makes SHALL carry the entry's effective header map rendered for that request, on streaming and structured-generation requests alike, including compaction and title generation. llame SHALL NOT place rendered headers in model context, persisted message parts, or owner-visible output. Embedding requests are exempt.
 
 #### Scenario: A configured custom header reaches the provider
 
 - **WHEN** an `openai-completions` entry declares `"headers": { "x-litellm-tags": "llame" }`
 - **THEN** its streaming and structured requests both carry `x-litellm-tags: llame`
 
-### Requirement: Interpolated header values are never disclosed
+### Requirement: Interpolated header values get the provider key's non-disclosure
 
-A header value segment resolved from `{env:…}` or `{path:…}` SHALL be treated as a secret: it SHALL appear in no log, diagnostic, startup error, or run failure message, and a provider failure message that contains it SHALL have it redacted before it reaches the run. A segment written literally in the file is not a secret.
+A header value resolved from `{env:…}` or `{path:…}` SHALL receive the same protection as a provider `key`: llame SHALL NOT write it to a log, diagnostic, or startup error. A resolved value containing CR, LF, or NUL SHALL fail startup naming the path, because the runtime's header validation error would quote it. A provider that echoes a request header in its own error message is outside this guarantee, as for `key`.
 
 #### Scenario: A startup error does not print a secret value
 
 - **WHEN** a header value's `{path:…}` token fails to resolve at startup
 - **THEN** the error names the configuration path and file location, not any resolved value
 
-#### Scenario: An echoed secret is redacted from a failure
+#### Scenario: A control character fails startup without disclosure
 
-- **WHEN** a provider rejects a request with a message that contains a resolved interpolated header value
-- **THEN** the run's failure message contains a redaction marker in place of that value
+- **WHEN** a header value's `{env:…}` token resolves to text containing a line feed
+- **THEN** startup fails naming the header path without printing the resolved value
