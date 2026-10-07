@@ -218,7 +218,8 @@ Rejected:
 - **Redacting echoed values in every client's failure paths.** Round-1 review
   found it needs every rejection, `onError`, structured, and logging path in
   four clients, plus a change to the Chat Completions failure contract, to
-  protect against a case `key` is not protected against.
+  protect against a case `key` is not protected against. Issue #1098 owns
+  one redaction choke point for every provider secret.
 
 ### D9: `opencode-go` stays a provider type
 
