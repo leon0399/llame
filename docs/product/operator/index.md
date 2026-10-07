@@ -21,6 +21,8 @@ below state additional ordering where a change needs it.
   `write`, `bash`, Workspace entry, and permission modes.
 - [Web reads](web-read.md): `http(s)://` reads, web adapters, address pinning,
   and the web threat model.
+- [Web search](web-search.md): Brave engine configuration, fallback chains,
+  deadlines, permissions, and result-storage terms.
 - [Tool-call permissions](tool-call-permissions.md): `tools.permissions`
   groups, clause matching, and the recommended policy.
 - [Tool prompt templates](tool-prompts.md): replacing tool descriptions and

@@ -45,6 +45,9 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   is pinned to an admitted address, under 10 s header, 30 s call, and 5 MiB
   body bounds. See
   [web read setup](docs/product/operator/web-read.md).
+- Optional `web_search` through the Brave engine and an
+  operator-configured chain, with bounded normalized results. See
+  [web search setup](docs/product/operator/web-search.md).
 - Owner-scoped Markdown Knowledge Spaces: `knowledge_search` over live files
   (including uncommitted changes), plus `kb://` reads through the native
   `read` tool, operator-configured and allowlisted.

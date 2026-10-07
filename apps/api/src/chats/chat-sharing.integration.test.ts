@@ -86,6 +86,25 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
         parts: [
           { type: 'reasoning', text: 'PRIVATE_THINKING about a memory' },
           { type: 'text', text: 'the public answer' },
+          {
+            type: 'tool-web_search',
+            toolCallId: 'shared-web-search-call',
+            state: 'output-available',
+            input: { query: 'private search query' },
+            output: {
+              kind: 'results',
+              engine: 'brave',
+              query: 'private search query',
+              results: [
+                {
+                  title: 'Private search result',
+                  url: 'https://private-search.example/result',
+                  snippet: 'PRIVATE_SEARCH_SNIPPET',
+                },
+              ],
+            },
+            outcome: 'success',
+          },
         ],
       });
     });
@@ -206,7 +225,8 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     const serialized = JSON.stringify(dto);
     expect(serialized).not.toContain('PRIVATE_THINKING');
     expect(serialized).toContain('the public answer');
-    // No identity fields.
+    expect(serialized).not.toContain('tool-web_search');
+    expect(serialized).not.toContain('PRIVATE_SEARCH_SNIPPET');
     expect(serialized).not.toContain('senderUserId');
     expect(serialized).not.toContain(owner);
 

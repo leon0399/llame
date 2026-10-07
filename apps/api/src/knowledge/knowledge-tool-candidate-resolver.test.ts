@@ -18,6 +18,7 @@ import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 import { bashTool } from '../tools/bash';
 import { searchConversationsTool } from '../tools/search-conversations';
 import { conversationReadTool } from '../tools/conversation-read';
+import { webSearchTool } from '../tools/web-search/tool';
 import { TOOL_REGISTRY } from '../tools/registry';
 
 const OWNER_ID = 'owner-a';
@@ -168,6 +169,11 @@ describe('KnowledgeToolCandidateResolver', () => {
         source: { type: 'code_owned' },
         state: 'available',
         tool: knowledgeSearchTool,
+      },
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: webSearchTool,
       },
     ]);
   });

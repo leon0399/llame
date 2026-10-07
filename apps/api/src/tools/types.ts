@@ -10,7 +10,10 @@ import {
 import { type QueryEmbedderPort } from '../search/chat-search-query-embedder';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { type WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
-import { type WebAdapterConfig } from '../instance-config/llame-config';
+import {
+  type WebAdapterConfig,
+  type WebSearchConfig,
+} from '../instance-config/llame-config';
 import { type CompiledPolicy } from './permissions/types';
 import { type PermissionMode } from './permissions/permission-mode';
 import { type WorkspaceRootCell } from './workspace-path';
@@ -106,6 +109,8 @@ export interface ToolContext {
   readonly permissionPolicy?: CompiledPolicy;
   /** Ordered, boot-validated web adapters enabled by instance configuration. */
   readonly webAdapters?: ReadonlyArray<WebAdapterConfig>;
+  /** Ordered, boot-validated web search engines enabled by instance configuration. */
+  readonly webSearch?: WebSearchConfig;
   /**
    * Trusted effective per-attempt permission mode. Absent means default policy
    * evaluation.

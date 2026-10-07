@@ -1120,6 +1120,7 @@ export class RunExecutionService {
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
       webAdapters: this.instanceConfig.config.tools.webAdapters,
+      webSearch: this.instanceConfig.config.webSearch,
       permissionMode: effectivePermissionMode,
     };
     const { maxStepsPerRun, callTimeoutSeconds } =
@@ -2333,6 +2334,7 @@ export class RunExecutionService {
       skillCatalog: this.skillCatalog,
       permissionPolicy: this.permissionPolicy,
       webAdapters: this.instanceConfig.config.tools.webAdapters,
+      webSearch: this.instanceConfig.config.webSearch,
       permissionMode: effectivePermissionMode,
     };
   }
