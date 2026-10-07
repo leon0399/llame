@@ -9,18 +9,28 @@ otherwise.
   `tools.permissions` under the Run's permission mode, and bounds execution by the per-tool
   override or the global `tools.callTimeoutSeconds`, whose built-in default is 120
   (`apps/api/src/instance-config/llame-config.ts:512-513,598`).
-- Native `read` is the only code-owned egress today. Its HTTP client is specialized to GET,
+- Native `read` is the only code-owned tool that fetches external content for the model today (host `bash` has the process's network access). Its HTTP client is specialized to GET,
   redirect admission, locator and address permission, and text rendering
   (`apps/api/src/tools/web-read/execute.ts:20-44`, `http-client.ts:99-117`). Its operator
-  adapters live under `tools.webAdapters` (`llame-config.ts:516`).
+  adapters live under `tools.webAdapters` (`llame-config.ts:517`).
 - Provider clients are dispatched by provider `type` (`apps/api/src/models/model-client-factory.ts:63-173`).
   The installed adapters export hosted search tools: `openai.tools.webSearch` in
   `@ai-sdk/openai@3.0.97` and `anthropic.tools.webSearch_20250305` and `webSearch_20260209` in
   `@ai-sdk/anthropic@3.0.118`. No llame code uses them. The Codex client streams only and has no
   structured generation (`apps/api/src/models/openai-codex-model-client.ts:14-119`).
-- `@modelcontextprotocol/sdk` is already a dependency (`apps/api/package.json:52`) behind the
-  `mcpServers` client (`apps/api/src/mcp/mcp-server-client.ts`). `linkedom` is installed
+- The `mcpServers` client speaks Streamable HTTP through `@ai-sdk/mcp`'s `createMCPClient`
+  (`apps/api/src/mcp/mcp-server-client.ts:1-5`) with `redirect: 'error'` and a byte-bounded fetch
+  (`mcp-server-client.ts:1041-1066`); `@modelcontextprotocol/sdk` is used only for the stdio
+  transport, as `pnpm-workspace.yaml:77-81` records. `linkedom` is installed
   (`apps/api/package.json:75`).
+- Every model request carries a `ChatIdentity` whose lane is `main` or `title`
+  (`apps/api/src/models/model-client.ts:29`), and `{session:id}` renders per lane
+  (`openspec/specs/provider-request-headers/spec.md`).
+- The live stream emits tool activity as `dynamic-tool` parts, while history stores
+  `tool-${toolName}` parts (`apps/api/src/runs/run-stream-bridge.ts:93-95`,
+  `apps/api/src/runs/assistant-transcript.ts:337-346`); the chat dispatches both through
+  `getToolName` (`apps/web/app/(chat)/components/chat-message-row.tsx:56-71`). Assistant Markdown
+  links go through `linkSafety` (`packages/ui/src/components/custom/model-output-streamdown.tsx:85-93`).
 - Successful tool results are capped at 16,000 characters
   (`packages/runtime-safety/src/result-truncation.ts:11-12`), framed as untrusted on replay
   (`apps/api/src/chats/tool-observation-part.ts:213-270`), and excluded from public shares.
@@ -103,14 +113,22 @@ type WebSearchOutput =
     };
 ```
 
-- `engine` is the operator id of the engine that answered; for `aggregate`, the aggregate's id.
-- Every `url` must parse as `http:` or `https:` and is canonicalized as web `read` canonicalizes
-  locators (lowercase scheme and host, fragment removed). Entries failing that are dropped.
-- `title` is capped at 200 and `snippet` at 300 characters; `published` is kept only when it parses
-  as an ISO date. Results are sliced to `limit`.
+- `engine` is the operator id of the engine that answered; for `aggregate`, the aggregate's id;
+  when the chain ends empty, the last empty engine's id.
+- Every `url` is WHATWG-parsed, must be `http:` or `https:` without userinfo, has its fragment
+  removed (`stripFragment`) and its path and query escapes normalized (`canonicalHref`), both
+  exported by `apps/api/src/tools/web-read/locator.ts:148,165`. Selector splitting
+  (`parseWebLocator`) is never applied, because it refuses `Help:Contents` and rewrites
+  `page:10`. A literal `:` in the last path segment of a query-free URL is emitted as `%3A`, the
+  spelling `read` fetches literally. URLs over 2,048 characters are dropped.
+- `title` and citation titles are capped at 200 and `snippet` at 300 characters; `published` is
+  kept only when it parses as an ISO date. Results are sliced to `limit` and citations to 20.
+- The serialized output is kept under 15,000 characters by dropping trailing results or
+  citations with a note, so the runner's 16,000-character truncation
+  (`packages/runtime-safety/src/result-truncation.ts`) never cuts a URL.
 - `notes` record what the answering engine ignored, for example `recency is not supported by
 duckduckgo`, and which earlier engines failed or were empty.
-- `answer` relies on the generic 16,000-character cap; citations are deduplicated by URL.
+- Citations are deduplicated by URL.
 
 Alternative rejected: OpenClaw's `raw` passthrough branch. Every engine here is code-owned, so
 there is no unnormalized producer.
@@ -139,7 +157,7 @@ Entry shapes, all with optional `timeoutSeconds` (positive integer, default 60):
 | `perplexity`   | `key` (required)                       |
 | `searxng`      | `baseUrl` (required, absolute http(s)) |
 | `duckduckgo`   | none                                   |
-| `aggregate`    | `engines` (two or more engine ids)     |
+| `aggregate`    | `engines` (two or more distinct ids)   |
 | `model-hosted` | `model` (a `models[].id`)              |
 
 `key` and `baseUrl` use the existing interpolation and are protected as secrets when
@@ -149,6 +167,9 @@ nested aggregates, no `model-hosted`); `model-hosted.model` names a model whose 
 `openai-responses`, `openai-codex`, or `anthropic-messages`; a `chain` is non-empty and has no
 duplicates. `web_search` in `tools.allowed` without `webSearch.chain` fails startup naming
 `webSearch.chain`.
+
+Each engine type's schema branch, loader shape, and validation land in the layer that ships its
+executor, so no layer accepts a type it cannot run.
 
 Alternatives rejected: `tools.webSearch`, which has the `tools.webAdapters` precedent but would
 put vendor credentials in the tool-policy section; engines as `models[]` entries (oh-my-pi), which
@@ -164,15 +185,16 @@ answer with at least one citation), `empty`, or a failure class:
 
 | Class            | Cause                                                        |
 | ---------------- | ------------------------------------------------------------ |
-| `auth`           | HTTP 401 or 403                                              |
+| `auth`           | HTTP 401 or 403 (SearXNG 403 is `upstream_error`, see D6)    |
 | `rate_limited`   | HTTP 429, or an MCP rate-limit error                         |
 | `challenge`      | A recognized bot-challenge page (DuckDuckGo `anomaly-modal`) |
 | `timeout`        | The engine deadline elapsed                                  |
-| `ungrounded`     | A hosted answer without any URL source                       |
+| `ungrounded`     | A hosted answer that is empty or cites no URL                |
 | `upstream_error` | Any other transport, status, protocol, or parse failure      |
 
-The first `results` or `answer` ends the call. When the chain is exhausted, the call returns an
-empty `results` output if any engine was `empty`, with notes naming each failed engine and class;
+The first `results` or `answer` ends the call, with notes naming each earlier engine that failed
+(and its class) or was empty. When the chain is exhausted, the call returns an empty `results`
+output carrying the last empty engine's id if any engine was `empty`, with the same notes;
 otherwise it returns a tool error naming each attempted engine id and class. Messages are fixed
 text: no status line, body, header, key, or configured URL.
 
@@ -204,34 +226,55 @@ under its own `timeoutSeconds`, and the call deadline above it.
 
 All requests carry the product User-Agent, reject redirects, and read at most 5 MiB.
 
-| Engine       | Request                                                                                             | `recency`                                    | `limit`       | `site:` / `-site:`                                      |
-| ------------ | --------------------------------------------------------------------------------------------------- | -------------------------------------------- | ------------- | ------------------------------------------------------- |
-| `brave`      | `GET https://api.search.brave.com/res/v1/web/search`, `X-Subscription-Token`                        | `freshness=pd/pw/pm/py`                      | `count`       | left in query                                           |
-| `exa`        | `POST https://api.exa.ai/search`, `x-api-key`                                                       | `startPublishedDate` from the current date   | `numResults`  | `includeDomains` / `excludeDomains`, removed from query |
-| `exa-mcp`    | MCP `tools/call` `web_search_exa` at `https://mcp.exa.ai/mcp`; `x-api-key` when a key is configured | note: ignored                                | `numResults`  | left in query                                           |
-| `perplexity` | `POST https://api.perplexity.ai/search`, bearer                                                     | `search_recency_filter`                      | `max_results` | `search_domain_filter`, removed from query              |
-| `searxng`    | `GET <baseUrl>/search?format=json`                                                                  | `time_range` (`week` sent as `month`, noted) | local slice   | left in query                                           |
-| `duckduckgo` | `POST https://html.duckduckgo.com/html/` form `q`, parsed with `linkedom`; redirect URLs unwrapped  | `df=d/w/m/y`                                 | local slice   | left in query                                           |
+| Engine       | Request                                                                                             | `recency`                                    | `limit`       | `site:` / `-site:`                                       |
+| ------------ | --------------------------------------------------------------------------------------------------- | -------------------------------------------- | ------------- | -------------------------------------------------------- |
+| `brave`      | `GET https://api.search.brave.com/res/v1/web/search`, `X-Subscription-Token`                        | `freshness=pd/pw/pm/py`                      | `count`       | left in query                                            |
+| `exa`        | `POST https://api.exa.ai/search`, `x-api-key`                                                       | `startPublishedDate` from the current date   | `numResults`  | `includeDomains` / `excludeDomains`, removed from query  |
+| `exa-mcp`    | MCP `tools/call` `web_search_exa` at `https://mcp.exa.ai/mcp`; `x-api-key` when a key is configured | note: ignored                                | `numResults`  | left in query                                            |
+| `perplexity` | `POST https://api.perplexity.ai/search`, bearer                                                     | `search_recency_filter`                      | `max_results` | `search_domain_filter` (one mode, at most 20), see below |
+| `searxng`    | `GET <baseUrl>/search?format=json`                                                                  | `time_range` (`week` sent as `month`, noted) | local slice   | left in query                                            |
+| `duckduckgo` | `POST https://html.duckduckgo.com/html/` form `q`, parsed with `linkedom`; redirect URLs unwrapped  | `df=d/w/m/y`                                 | local slice   | left in query                                            |
 
-`exa-mcp` parses the tool's text content into results; a response without parsable entries is
-`upstream_error`. DuckDuckGo's challenge page is detected by its `anomaly-modal` marker. Response
-fields an adapter does not map are discarded before normalization.
+`exa-mcp` parses the tool's text content into results. Exa's success text `No search results
+found` is `empty`. An `isError` result is classified by the status its text carries (401/403
+`auth`, 429 or Exa's free-limit message `rate_limited`, otherwise `upstream_error`), and an HTTP
+429 from the transport is `rate_limited`. Other unparsable output is `upstream_error`.
 
-### D7: MCP engines use the SDK client
+Perplexity's domain filter is either an allowlist or a denylist, never both, with at most 20
+domains: when any `site:` is present only `site:` hosts are mapped and `-site:` stays in the
+query; otherwise `-site:` hosts are mapped; hosts beyond 20 stay in the query; a note records
+what stayed. `after:` and `before:` stay in the query text for every engine.
 
-`exa-mcp` creates one SDK `Client` over Streamable HTTP per engine per process on first use,
-performs the normal initialize handshake, and reuses the connection. A transport error discards
-the connection; the next call reconnects. No `mcpServers` discovery, catalog, or availability
+SearXNG answers 403 when its instance does not enable the JSON format (`search.formats`), so a
+SearXNG 403 is `upstream_error`, not `auth`, and the runbook requires `search.formats: [html,
+json]`. DuckDuckGo's challenge page is detected by its `anomaly-modal` marker. Response fields an
+adapter does not map are discarded before normalization.
+
+### D7: MCP engines use llame's existing MCP client
+
+`exa-mcp` creates one `@ai-sdk/mcp` client over its `http` transport per engine per process on
+first use, with `redirect: 'error'` and a byte-bounded fetch built like the `mcpServers` client's,
+performs the initialize handshake, and reuses the connection. A transport error discards the
+connection; the next call reconnects. No `mcpServers` discovery, catalog, or availability
 machinery is involved, and the remote tool is never shown to the model.
 
-Alternative rejected: raw JSON-RPC `tools/call` without initialize (OpenCode, Kilo, oh-my-pi). It
-is smaller, but breaks if the endpoint starts requiring the handshake or answers with an event
-stream, and llame already depends on a client that handles both.
+Q11 chose "the MCP SDK client" on the premise, stated in the design session, that `mcpServers`
+used it. It does not: the repository's HTTP MCP client is `@ai-sdk/mcp`, and the workspace
+catalog reserves `@modelcontextprotocol/sdk` for stdio. Using `@ai-sdk/mcp` keeps Q11's intent
+(reuse the protocol client the repository already trusts) and its redirect and size bounds.
+
+Alternatives rejected: raw JSON-RPC `tools/call` without initialize (OpenCode, Kilo, oh-my-pi),
+which breaks if the endpoint starts requiring the handshake or answers with an event stream; the
+`@modelcontextprotocol/sdk` HTTP `Client`, which would be a second HTTP MCP stack without the
+existing bounds.
 
 ### D8: Model-hosted engines are bounded sub-requests
 
-A `model-hosted` engine builds the referenced model's client exactly as a Run would (provider
-credentials, base URL, configured headers, `providerOptions` composition) and issues one request:
+A `model-hosted` engine builds the referenced model's client as a Run would (provider
+credentials, base URL, configured headers, `providerOptions` composition) and issues one request
+on a new `search` session lane, so `{session:id}` renders `search:<chatId>` rather than the main
+lane's Chat id. Effort is the referenced model's `defaultEffort` when it declares `reasoning`, and
+none otherwise; the Run's effort belongs to a different model and is never inherited:
 
 - system text from a packaged template instructing the model to search, answer concisely, and cite
   sources; user text is the query, plus a recency phrase when `recency` is set. No chat history,
@@ -241,8 +284,10 @@ credentials, base URL, configured headers, `providerOptions` composition) and is
 - Anthropic Messages: `anthropic.tools.webSearch_20250305({ maxUses: 5 })`. `20260209` is not used:
   without `allowed_callers: ["direct"]` it returns HTTP 400 and otherwise provisions code
   execution.
-- The answer is the final text; citations are the response's URL sources. No URL source means
-  `ungrounded`.
+- The answer is the final text; citations are the URLs that text cites: OpenAI `url_citation`
+  annotations, Anthropic `web_search_result_location` citations. Retrieved but uncited results
+  are not citations (the Anthropic adapter emits a `source` part for every retrieved result).
+  Empty final text, including a paused turn, or text citing no URL is `ungrounded`.
 - `site:` hosts map to OpenAI `filters.allowedDomains` and Anthropic `allowedDomains`.
 - Request usage is discarded (Q16); billing is the provider's.
 
@@ -286,15 +331,18 @@ request metadata. Replay, compaction, and neutralization treat it as any tool re
 
 ### D13: Dedicated chat renderer
 
-`apps/web` dispatches `tool-web_search` parts to a renderer built on the shared tool component:
+`apps/web` dispatches every tool part for which `isToolUIPart(part) && getToolName(part) ===
+"web_search"`, covering the live `dynamic-tool` part and the stored `tool-web_search` part, to a
+renderer built on the shared tool component:
 
 - `results`: a numbered list of title links with host, date, and snippet;
 - `answer`: the answer as Markdown followed by numbered citation links;
 - the engine id and notes; a `searching` state while running; the error text on failure.
 
-Links render only for `http:`/`https:` URLs, open in a new tab, and carry
-`rel="noopener noreferrer nofollow"`. The renderer lives in `packages/ui` with stories so it can
-be tested without a running API.
+Links render only for `http:`/`https:` URLs and go through the same `linkSafety` handling as
+assistant Markdown links, so a result link is no easier to follow than a link the model wrote.
+The renderer lives in `packages/ui` with stories, and takes the chat's Markdown renderer as a
+prop, as message rows receive it from `ChatMarkdownProvider`.
 
 ### D14: Packaged description
 
@@ -342,5 +390,5 @@ renderable and replayable.
 
 ## Open Questions
 
-None. Defaults that do not change the contract (OpenAI `searchContextSize`, Anthropic `maxUses`,
-snippet caps) may be tuned in their layers.
+None. OpenAI `searchContextSize` may be tuned in its layer; changing a bound the spec states
+(field caps, citation count, output size) requires a spec change.

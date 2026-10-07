@@ -6,7 +6,7 @@ The config file SHALL accept an optional top-level `webSearch` object with an `e
 
 #### Scenario: Minimal configuration loads
 
-- **WHEN** the file sets `webSearch` to one `duckduckgo` engine with id `ddg` and `chain: ["ddg"]`
+- **WHEN** the file sets `webSearch` to one `brave` engine with id `brave`, a `key`, and `chain: ["brave"]`
 - **THEN** startup succeeds with that engine as the only chain entry
 
 #### Scenario: Unknown engine key fails startup
@@ -21,7 +21,7 @@ The config file SHALL accept an optional top-level `webSearch` object with an `e
 
 ### Requirement: Web search engine entries have fixed per-type shapes
 
-Each engine entry MAY set `timeoutSeconds`, a positive integer defaulting to 60. `brave`, `exa`, and `perplexity` SHALL require `key`; `exa-mcp` SHALL accept an optional `key`; `searxng` SHALL require an absolute `http:` or `https:` `baseUrl`; `duckduckgo` SHALL accept no other field; `aggregate` SHALL require `engines` with two or more ids; and `model-hosted` SHALL require `model`. `key` and `baseUrl` SHALL use the existing interpolation and secret protection.
+Each engine entry MAY set `timeoutSeconds`, a positive integer defaulting to 60. `brave`, `exa`, and `perplexity` SHALL require `key`; `exa-mcp` SHALL accept an optional `key`; `searxng` SHALL require an absolute `http:` or `https:` `baseUrl`; `duckduckgo` SHALL accept no other field; `aggregate` SHALL require `engines` with two or more distinct ids; and `model-hosted` SHALL require `model`. `key` and `baseUrl` SHALL use the existing interpolation and secret protection.
 
 #### Scenario: Missing key fails startup
 
@@ -30,8 +30,8 @@ Each engine entry MAY set `timeoutSeconds`, a positive integer defaulting to 60.
 
 #### Scenario: Interpolated key is never disclosed
 
-- **WHEN** a `brave` engine's `key` is `{env:BRAVE_API_KEY}` and the variable is unset
-- **THEN** startup fails naming the config path and the variable name, not any value
+- **WHEN** a `brave` engine's `key` is `{env:BRAVE_API_KEY}`, the variable is set, and the engine's requests fail with HTTP 401
+- **THEN** the variable's value appears in no startup error, tool output, Run event, or log
 
 #### Scenario: Relative SearXNG URL fails startup
 
@@ -56,6 +56,11 @@ Every id in `webSearch.chain` and in an `aggregate` entry's `engines` SHALL name
 
 - **WHEN** a `model-hosted` entry names a model whose provider type is `openai-completions`
 - **THEN** startup fails naming that entry's `model` path
+
+#### Scenario: Duplicate aggregate child fails startup
+
+- **WHEN** an `aggregate` entry sets `engines` to `["brave", "brave"]`
+- **THEN** startup fails naming that entry's `engines` path
 
 #### Scenario: Hosted engine inside an aggregate fails startup
 

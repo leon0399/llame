@@ -10,8 +10,8 @@ already provide ([#1102](https://github.com/leon0399/llame/issues/1102)).
 ## What Changes
 
 - A new code-owned `web_search` tool with one stable schema `{ query, recency?, limit? }`.
-  Search operators (`"phrase"`, `site:`, `-site:`, `after:`, `before:`) stay in the query text;
-  each engine maps the ones its vendor supports natively. The tool is `read_only`, needs its own
+  Search operators stay in the query text; engines whose vendor has native domain filters map
+  `site:` and `-site:` to them, and every other operator is passed through as written. The tool is `read_only`, needs its own
   `tools.allowed` entry, and is authorized per call by `tools.permissions.web_search`.
 - One normalized result: `kind: "results"` (title, URL, optional snippet and published date) or
   `kind: "answer"` (answer text plus citations), with the answering engine id and notes about
@@ -20,8 +20,9 @@ already provide ([#1102](https://github.com/leon0399/llame/issues/1102)).
   `type`, and an ordered `chain[]` of engine ids. Engine types:
   - `brave`, `exa`, `perplexity` (Search API): direct vendor APIs with a required key.
   - `searxng`: a self-hosted SearXNG JSON endpoint at a required `baseUrl`.
-  - `exa-mcp`: Exa's hosted MCP endpoint, called by llame code (not the model) through the MCP
-    SDK client; the key is optional and raises Exa's rate limits.
+  - `exa-mcp`: Exa's hosted MCP endpoint, called by llame code (not the model) through the
+    `@ai-sdk/mcp` client llame already uses for `mcpServers`; the key is optional and raises
+    Exa's rate limits.
   - `duckduckgo`: the HTML endpoint, best-effort and documented as unsupported by the vendor.
   - `aggregate`: runs two or more result engines concurrently, deduplicates by canonical URL, and
     ranks with Reciprocal Rank Fusion.
@@ -34,12 +35,16 @@ already provide ([#1102](https://github.com/leon0399/llame/issues/1102)).
 - Failures reach the model as one error naming each attempted engine and a fixed failure class;
   upstream bodies, keys, and configured URLs never do.
 - Allowlisting `web_search` without a `webSearch.chain` fails startup.
-- The web chat renders `web_search` parts with a dedicated renderer: clickable result and
-  citation links, the engine label, and notes, live and after reload.
-- `tool-calling`'s rule that MCP is the only external-tool path is rewritten to name the two
-  code-owned egress paths, native web `read` and `web_search`. The current text already
-  contradicts shipped web `read`.
-- Hosted search sub-requests are not recorded in Run usage, like title generation.
+- The web chat renders `web_search` parts with a dedicated renderer: result and citation links
+  under the same link-safety handling as assistant Markdown, the engine label, and notes, live and
+  after reload.
+- Result URLs are canonical `read` locators: a literal colon in the last path segment is emitted
+  as `%3A`, so a result can be passed to `read` unchanged.
+- `tool-calling`'s rule that MCP is the only external-tool path is rewritten: the current text
+  already contradicts shipped web `read` and host `bash`. `native-file-tools`' rule that no web
+  tool id or configuration block is added is scoped to fetching through `read`.
+- Hosted search sub-requests use a new `search` session lane (`X-Session-Id: search:<chatId>`)
+  and are not recorded in Run usage, like title generation.
 
 ## Assumptions, confirmed with Leo
 
@@ -52,7 +57,7 @@ Decisions from the 2026-10-07 design session (grilling rounds Q1–Q20):
   subscription (Q5=B).
 - Configuration is a top-level `webSearch` section (Q6=A), Exa ships as two types (Q7=C), the
   operator configures an explicit chain with no auto-detection (Q10=A), MCP engines use the SDK
-  client (Q11=A), Perplexity uses its Search API (Q12=A), DuckDuckGo and SearXNG both ship
+  client (Q11=A; realized as `@ai-sdk/mcp`, see design D7), Perplexity uses its Search API (Q12=A), DuckDuckGo and SearXNG both ship
   (Q13=C), and an empty result falls through (Q14=B).
 - Full normalized results are stored in the tool part as in-conversation context, not a search
   index (Q8=A). The runbook states each vendor's storage terms.
@@ -73,23 +78,28 @@ Decisions from the 2026-10-07 design session (grilling rounds Q1–Q20):
 ### Modified Capabilities
 
 - `tool-calling`: "Code-owned tools stay internal and own-data while MCP is the only external-tool
-  path" is RENAMED to "Code-owned tools stay own-data, and external network access is limited to
-  MCP, web read, and web search" and MODIFIED to name native web `read` and `web_search` as the
-  code-owned egress paths; its scenarios keep their headings with rewritten bodies. An ADDED
+  path" is RENAMED to "Code-owned tools stay own-data, and only MCP, web read, and web search fetch
+  external content for the model" and MODIFIED to name native web `read` and `web_search` as the
+  code-owned tools that fetch external content for the model, and to acknowledge host `bash` and
+  query embeddings; its scenarios keep their headings with rewritten bodies. An ADDED
   requirement admits `web_search` into the attempt-local read-only loop, as `conversation_read` and
   `knowledge_search` are.
 - `instance-config`: ADDED requirements for the `webSearch` section, engine entry shapes,
   reference validation, and the allowlist dependency.
-- `run-usage-accounting`: "Compaction and title spend stay separate categories" also excludes
-  hosted web-search sub-requests from assistant message usage.
+- `run-usage-accounting`: "Message usage aggregates every model request of its attempt" and
+  "Compaction and title spend stay separate categories" exclude hosted web-search sub-requests
+  from every usage, completeness, and reasoning rule.
+- `native-file-tools`: "Web locators are fetched by the native read tool" scopes its "no web tool
+  id, `tools.allowed` entry, configuration block" sentence to fetching a web locator, and states
+  that `read`'s `path` clauses do not restrict `web_search`.
+- `provider-request-headers`: "The session variable renders the Chat identity per lane" adds the
+  `search` lane rendered as `search:<chatId>`.
 
 Deliberately unchanged:
 
 - `tool-call-permissions`: `web_search` uses an ordinary exact-id group; no evaluator change. The
   recommended portable map stays at nine groups, and the web-search runbook documents the
   `web_search` group, so operators who never enable search copy nothing new.
-- `native-file-tools`: web `read` behavior is unchanged; search results are handed to `read` as
-  ordinary locators.
 - `tool-prompt-templates`: the new packaged description follows the existing rule for every
   llame-owned tool.
 
@@ -99,8 +109,8 @@ Deliberately unchanged:
   result normalization, per-engine adapters, and the packaged description under `prompts/tools/`.
 - `apps/api/src/instance-config`: `webSearch` raw/resolved types, built-in default, published
   `llame.config.schema.json`, loader validation, and `llame.config.jsonc.example`.
-- `apps/api/src/models`: a bounded hosted-search request on the Responses, Codex, and Messages
-  clients, using `openai.tools.webSearch` (`@ai-sdk/openai@3.0.97`) and
+- `apps/api/src/models`: the `search` Chat lane and a bounded hosted-search request on the
+  Responses, Codex, and Messages clients, using `openai.tools.webSearch` (`@ai-sdk/openai@3.0.97`) and
   `anthropic.tools.webSearch_20250305` (`@ai-sdk/anthropic@3.0.118`).
 - `apps/web` and `packages/ui`: the `tool-web_search` renderer and its stories.
 - Tests that pin the code-owned inventory or the "no outbound requests" scenario.
@@ -125,8 +135,9 @@ Deliberately unchanged:
   a chain gets search results in a chat, rendered as clickable links that survive reload.
 - Every listed engine type returns normalized output end to end, verified against a deterministic
   fixture server; the chain falls through on failure and on empty results.
-- `aggregate` merges concurrent children and is empty only when every child is empty.
+- `aggregate` merges concurrent children; with no child results it is empty when at least one
+  child was empty and fails otherwise.
 - A `model-hosted` engine answers with citations from a Run on a different model, and an answer
-  without a URL source is treated as an engine failure.
+  that is empty or cites no URL is treated as an engine failure.
 - A call rejected by `tools.permissions` sends no outbound request; credentials and upstream bodies
   never appear in tool output, logs, or Run events.

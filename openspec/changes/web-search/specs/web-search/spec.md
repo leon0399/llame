@@ -27,7 +27,7 @@ The code-owned inventory SHALL include `web_search`, classified `read_only`, eli
 
 ### Requirement: Output is a closed, normalized union
 
-A successful call SHALL return either `kind: "results"` with `results` entries of `title`, `url`, optional `snippet`, and optional `published`, or `kind: "answer"` with `answer` text and at least one citation of `url` and optional `title`. Both SHALL carry `engine` (the answering engine's operator id), `query`, and optional `notes`. No vendor payload field outside this shape SHALL appear in the output.
+A successful call SHALL return either `kind: "results"` with `results` entries of `title`, `url`, optional `snippet`, and optional `published`, or `kind: "answer"` with `answer` text and at least one citation of `url` and optional `title`. Both SHALL carry `engine`, `query`, and optional `notes`. `engine` SHALL be the operator id of the answering engine, or of the last empty engine when the chain ends empty. No other vendor field SHALL appear.
 
 #### Scenario: Results output from a result engine
 
@@ -39,23 +39,39 @@ A successful call SHALL return either `kind: "results"` with `results` entries o
 - **WHEN** the call sets `recency` and the answering engine cannot apply it
 - **THEN** the output's `notes` states that `recency` was not applied by that engine
 
-### Requirement: Result fields are canonical and bounded
+### Requirement: Result URLs are canonical web locators
 
-Every result and citation `url` SHALL be an absolute `http:` or `https:` URL canonicalized as native `read` canonicalizes web locators; entries whose URL fails that SHALL be dropped. Titles SHALL be at most 200 and snippets at most 300 characters, `published` SHALL be present only when it parses as an ISO 8601 date, and results SHALL be cut to the call's `limit`.
+Every result and citation `url` SHALL be parsed as a WHATWG URL with scheme `http:` or `https:` and no userinfo, have its fragment removed and its path and query escapes normalized as native `read` normalizes web locators, and SHALL NOT have a selector split off. A literal `:` in the last path segment of a query-free URL SHALL be emitted as `%3A`. Entries failing this, or longer than 2,048 characters, SHALL be dropped.
 
-#### Scenario: Non-web URL is dropped
+#### Scenario: Non-web and credential URLs are dropped
 
-- **WHEN** an engine returns entries with URLs `javascript:alert(1)` and `https://Example.com/a#top`
+- **WHEN** an engine returns entries with URLs `javascript:alert(1)`, `https://user:pw@example.com/a`, and `https://Example.com/a#top`
 - **THEN** the output contains only `https://example.com/a`
+
+#### Scenario: A colon in the last segment stays readable
+
+- **WHEN** an engine returns `https://en.wikipedia.org/wiki/Category:Search_engines`
+- **THEN** the output URL is `https://en.wikipedia.org/wiki/Category%3ASearch_engines`
+- **AND** passing it to `read` fetches that page rather than refusing a selector
+
+### Requirement: Output fields are bounded within the result cap
+
+Titles and citation titles SHALL be at most 200 and snippets at most 300 characters, `published` SHALL be present only when it parses as an ISO 8601 date, results SHALL be cut to the call's `limit`, and citations to 20. When the serialized output would exceed 15,000 characters, trailing results or citations SHALL be dropped with a note, so the generic result truncation never cuts a URL.
 
 #### Scenario: Long snippet is cut
 
 - **WHEN** an engine returns a 2,000-character snippet
 - **THEN** the stored and model-visible snippet is at most 300 characters
 
+#### Scenario: Oversized output drops trailing entries
+
+- **WHEN** 20 results with maximum-length fields would serialize beyond 15,000 characters
+- **THEN** trailing results are dropped until the output fits, with a note stating how many
+- **AND** every remaining URL is complete
+
 ### Requirement: The chain tries engines in order and advances on failure or emptiness
 
-The call SHALL run the engines of `webSearch.chain` in order and SHALL return the first engine outcome with at least one result or a grounded answer. An engine that fails or returns no results SHALL advance the chain. When the chain is exhausted and any engine was empty, the call SHALL succeed with zero results and notes naming each failed engine and its class.
+The call SHALL run the engines of `webSearch.chain` in order and SHALL return the first engine outcome with at least one result or a grounded answer. An engine that fails or returns no results SHALL advance the chain. A returned output's notes SHALL name each earlier engine that failed, with its class, or was empty. When the chain is exhausted and any engine was empty, the call SHALL succeed with zero results.
 
 #### Scenario: Failure falls through
 
@@ -67,12 +83,13 @@ The call SHALL run the engines of `webSearch.chain` in order and SHALL return th
 
 - **WHEN** the chain is `["brave", "exa"]`, `brave` returns no results, and `exa` returns results
 - **THEN** the output carries `exa`'s results
+- **AND** its notes name `brave` as empty
 
 #### Scenario: All engines empty or failed
 
-- **WHEN** every chain engine either returns no results or fails, and at least one returned no results
-- **THEN** the call succeeds with `kind: "results"` and an empty `results` list
-- **AND** its notes name each failed engine and its class
+- **WHEN** the chain is `["brave", "exa"]`, `brave` fails with `auth`, and `exa` returns no results
+- **THEN** the call succeeds with `kind: "results"`, an empty `results` list, and `engine: "exa"`
+- **AND** its notes name `brave` with `auth`
 
 ### Requirement: Total failure is a fixed, non-disclosing error
 
@@ -98,6 +115,11 @@ Each engine attempt SHALL be aborted after its `timeoutSeconds`, defaulting to 6
 - **WHEN** the first chain engine has `timeoutSeconds: 5` and does not answer within 5 seconds
 - **THEN** its request is aborted, it is recorded as `timeout`, and the next engine runs
 
+#### Scenario: The call deadline aborts every engine
+
+- **WHEN** `tools.callTimeoutSeconds` elapses while a chain engine's request is in flight
+- **THEN** that request is aborted, no later chain engine starts, and the call settles with the runner's timeout observation
+
 #### Scenario: Cancellation aborts requests
 
 - **WHEN** the owner cancels the Run while an engine request is in flight
@@ -105,7 +127,7 @@ Each engine attempt SHALL be aborted after its `timeoutSeconds`, defaulting to 6
 
 ### Requirement: Aggregate engines fan out and merge by rank fusion
 
-An `aggregate` engine SHALL run all its children concurrently and wait until each settles. It SHALL group results by canonical URL ignoring a leading `www.` and a trailing path `/`, score each URL by `Σ 1/(60 + rank)` over the children that returned it, order by score, keep the longest snippet, and cut to `limit`. It SHALL be empty only when no child returned results and one was empty.
+An `aggregate` engine SHALL run all its children concurrently and wait until each settles. It SHALL group results by canonical URL ignoring a leading `www.` and a trailing path `/`, score each URL by `Σ 1/(60 + rank)` over the children that returned it, order by score, keep the longest snippet, and cut to `limit`. With no child results it SHALL be empty when at least one child was empty, and fail otherwise.
 
 #### Scenario: Shared result ranks first
 
@@ -117,14 +139,24 @@ An `aggregate` engine SHALL run all its children concurrently and wait until eac
 - **WHEN** one child fails with `rate_limited` and another returns results
 - **THEN** the aggregate returns the successful child's results with a note naming the failed child
 
+#### Scenario: A failed and an empty child are empty
+
+- **WHEN** one child fails with `auth` and the other returns no results
+- **THEN** the aggregate outcome is empty and the chain advances
+
 #### Scenario: Every child fails
 
 - **WHEN** every child of an aggregate fails
 - **THEN** the aggregate outcome is `upstream_error` and the chain advances
 
+#### Scenario: Cancellation aborts every child
+
+- **WHEN** the Run is cancelled while two aggregate children are in flight
+- **THEN** both requests are aborted
+
 ### Requirement: API and keyless engines speak their vendor wire
 
-Engine types SHALL be `brave`, `exa`, and `perplexity` (Search API) with a required key; `searxng` against its configured `baseUrl`; `exa-mcp`, calling Exa's hosted MCP `web_search_exa` tool from llame code with an optional key; and `duckduckgo`, posting to the HTML endpoint. Each SHALL map `recency` and `limit` where its vendor supports them, and send a key only to its own host.
+Engine types SHALL be `brave`, `exa`, and `perplexity` (Search API) with a required key; `searxng` against its configured `baseUrl`; `exa-mcp`, calling Exa's hosted MCP `web_search_exa` tool from llame code with an optional key; and `duckduckgo`, posting to the HTML endpoint. Each SHALL map `recency` and `limit` where its vendor supports them, refuse redirects, and send a key only to its own host.
 
 #### Scenario: Keyless Exa MCP
 
@@ -137,14 +169,14 @@ Engine types SHALL be `brave`, `exa`, and `perplexity` (Search API) with a requi
 - **WHEN** the DuckDuckGo endpoint answers with its bot-challenge page
 - **THEN** the engine outcome is `challenge` and the chain advances
 
-#### Scenario: Redirect is refused
+#### Scenario: A redirect never carries the key
 
-- **WHEN** an API engine's response is an HTTP redirect
-- **THEN** the redirect is not followed and the outcome is `upstream_error`
+- **WHEN** a `brave` engine's response is a redirect to another host
+- **THEN** the redirect is not followed, no request reaches the other host, and the outcome is `upstream_error`
 
 ### Requirement: Model-hosted engines run a bounded grounded sub-request
 
-A `model-hosted` engine SHALL send one request to its configured model, using that model's provider credentials and headers, with the provider's hosted web search enabled. The request SHALL contain only packaged instructions, the query, and a recency phrase when set; no chat history, system prompt, or other Run context. It SHALL answer with the final text and the response's URL sources as citations.
+A `model-hosted` engine SHALL send one request to its configured model, with that model's credentials and headers on the `search` session lane, the model's default effort and never the Run's, and the provider's hosted web search enabled. The request SHALL contain only packaged instructions, the query, and a recency phrase when set. It SHALL answer with the final text and, as citations, the URLs that text cites.
 
 #### Scenario: Different Run model
 
@@ -153,7 +185,7 @@ A `model-hosted` engine SHALL send one request to its configured model, using th
 
 #### Scenario: Ungrounded answer is a failure
 
-- **WHEN** the hosted sub-request returns text with no URL source
+- **WHEN** the hosted sub-request returns empty text, or text that cites no URL
 - **THEN** the engine outcome is `ungrounded` and the chain advances
 
 #### Scenario: No chat context leaves the instance
@@ -170,9 +202,14 @@ The persisted tool part SHALL contain the normalized output and no raw vendor pa
 - **WHEN** the owner reloads a chat after a `web_search` call completed
 - **THEN** the reloaded tool part equals the normalized output the model received
 
+#### Scenario: A public share omits the search
+
+- **WHEN** the owner publicly shares a chat containing a `web_search` call
+- **THEN** the shared view contains neither the query nor any result
+
 ### Requirement: The chat renders web search results as links
 
-The web chat SHALL render `web_search` parts with a dedicated renderer: results as a numbered list of title links with host, date, and snippet; answers as Markdown followed by numbered citation links; the engine id and notes; a running state; and the error on failure. Only `http:` and `https:` URLs SHALL render as links, opening a new tab with `rel="noopener noreferrer nofollow"`.
+The web chat SHALL render `web_search` tool parts, live and from history, with a dedicated renderer: results as numbered title links with host, date, and snippet; answers as Markdown followed by numbered citation links; the engine id and notes; a running state; and the error on failure. Only `http:` and `https:` URLs SHALL render as links, under the same external-link safety handling as assistant Markdown.
 
 #### Scenario: Results are clickable
 
