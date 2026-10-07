@@ -23,7 +23,7 @@ type ActiveRunSummary = {
 type QueryRows =
   | ReadonlyArray<Run>
   | ReadonlyArray<RunEvent>
-  | ReadonlyArray<{ runs: Run }>
+  | ReadonlyArray<{ runs: Run; triggeringSeq: number }>
   | ReadonlyArray<{ run_events: RunEvent }>
   | ReadonlyArray<ActiveRunSummary>;
 
@@ -186,15 +186,18 @@ describe('RunsRepository', () => {
     expect(values[1]).not.toHaveProperty('permissionMode');
   });
 
-  it('finds the most recent run and applies a strict message-sequence bound', async () => {
-    const { db } = makeDb({ select: [[{ runs: run }], []] });
+  it('findMostRecentByMessageSequence returns the run and triggering sequence, with a strict message-sequence bound', async () => {
+    const triggeringUserSeq = 7;
+    const { db } = makeDb({
+      select: [[{ runs: run, triggeringSeq: triggeringUserSeq }], []],
+    });
     const repository = new RunsRepository(db);
 
     await expect(
-      repository.findMostRecentByChatMessageSequence(run.chatId, run.userId),
-    ).resolves.toBe(run);
+      repository.findMostRecentByMessageSequence(run.chatId, run.userId),
+    ).resolves.toEqual({ run, triggeringUserSeq });
     await expect(
-      repository.findMostRecentByChatMessageSequence(run.chatId, run.userId, {
+      repository.findMostRecentByMessageSequence(run.chatId, run.userId, {
         beforeSeq: 10,
       }),
     ).resolves.toBeUndefined();
@@ -203,7 +206,7 @@ describe('RunsRepository', () => {
   it('binds owner, chat, and sequence cursor in the recent-run query', async () => {
     const { db, queries } = makeLoggedDb();
     await new RunsRepository(db)
-      .findMostRecentByChatMessageSequence('chat-bound', 'owner-bound', {
+      .findMostRecentByMessageSequence('chat-bound', 'owner-bound', {
         beforeSeq: 10,
       })
       .catch(() => undefined);

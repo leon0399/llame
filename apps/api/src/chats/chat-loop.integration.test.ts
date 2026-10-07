@@ -425,13 +425,17 @@ describeIfDb(
         dispatch,
       );
 
+      // The window variant is never exercised by this suite: every seeded turn
+      // fits this model, so a rejection catches a future scenario silently
+      // relying on it. The threshold variant resolves null, the summarizer's
+      // own "no checkpoint" answer.
       const noopCompaction: CompactionCapability = {
-        maybeCompact: async () => {},
-        compactForTransition: () => {
-          throw new Error(
-            'chat-loop integration compactForTransition is not exercised',
-          );
-        },
+        summarizeCheckpoint: (request) =>
+          request.variant === 'window'
+            ? Promise.reject(
+                new Error('chat-loop window summarization is not exercised'),
+              )
+            : Promise.resolve(null),
       };
       runExecution = new RunExecutionService(
         tenantDb,
@@ -1291,13 +1295,11 @@ describeIfDb(
       const firstJob = dispatchCalls.at(-1);
       if (!firstJob) throw new Error('Expected first context dispatch');
       await executeWorker(firstJob, { consume: false });
-      const firstRun = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findMostRecentByChatMessageSequence(
-          chatId,
-          userId,
-        ),
+      const firstRunResult = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findMostRecentByMessageSequence(chatId, userId),
       );
-      if (!firstRun) throw new Error('Expected first run');
+      if (!firstRunResult) throw new Error('Expected first run');
+      const firstRun = firstRunResult.run;
       const firstReceipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           firstRun.id,

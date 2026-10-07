@@ -194,10 +194,6 @@ function makeService(options?: {
   const markFinished = vi
     .spyOn(RunsRepository.prototype, 'markFinished')
     .mockResolvedValue(run);
-  vi.spyOn(
-    RunsRepository.prototype,
-    'findMostRecentByChatMessageSequence',
-  ).mockResolvedValue(undefined);
   const createRun = vi
     .spyOn(RunsRepository.prototype, 'create')
     .mockImplementation((runInput) =>

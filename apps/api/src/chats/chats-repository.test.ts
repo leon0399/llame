@@ -964,38 +964,19 @@ describe('CompactionsRepository — owner-scoped + chat-scoped (#57)', () => {
     ).toBe(true);
   });
 
-  it('createIfCutoffAbsent makes duplicate transition cutoffs a no-op', async () => {
+  it('findByCutoff scopes by chatId, the cutoff sequence and ownerUserId', async () => {
     const { db, queries } = makeMockDb();
     await new CompactionsRepository(db)
-      .createIfCutoffAbsent({
-        chatId,
-        uptoSeq: 42,
-        parentId: 'compaction-parent',
-        summary: 'transition summary',
-        replacementHistory: [
-          {
-            role: 'user',
-            parts: [
-              {
-                type: 'text',
-                text: '<system-reminder>transition</system-reminder>',
-              },
-            ],
-          },
-        ],
-      })
+      .findByCutoff(chatId, ownerUserId, 42)
       .catch(() => null);
 
-    expect(querySqlContains(queries, 'insert into "compactions"')).toBe(true);
+    expect(lastQuery(queries).sql).toContain('inner join "chats"');
+    expect(lastQuery(queries).sql).toContain('"compactions"."chat_id" = $');
+    expect(lastQuery(queries).sql).toContain('"compactions"."upto_seq" = $');
+    expect(lastQuery(queries).sql).toContain('"chats"."owner_user_id" = $');
     expect(queryContains(queries, chatId)).toBe(true);
     expect(queryContains(queries, 42)).toBe(true);
-    expect(
-      queryContains(
-        queries,
-        '[{"role":"user","parts":[{"type":"text","text":"<system-reminder>transition</system-reminder>"}]}]',
-      ),
-    ).toBe(true);
-    expect(querySqlContains(queries, 'on conflict')).toBe(true);
+    expect(queryContains(queries, ownerUserId)).toBe(true);
   });
 
   it('create rejects an empty replacement history before issuing an insert', async () => {
@@ -1141,11 +1122,11 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(queryContains(queries, 'expired')).toBe(true);
   });
 
-  it('findMostRecentByChatMessageSequence orders by message seq, then deterministic retry ties, without filtering failed runs', async () => {
+  it('findMostRecentByMessageSequence orders by message seq, then deterministic retry ties, without filtering failed runs', async () => {
     const { db, queries } = makeMockDb();
 
     await new RunsRepository(db)
-      .findMostRecentByChatMessageSequence(chatId, ownerUserId)
+      .findMostRecentByMessageSequence(chatId, ownerUserId)
       .catch(() => null);
 
     expect(queryContains(queries, chatId)).toBe(true);
@@ -1157,11 +1138,11 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(queryContains(queries, 1)).toBe(true);
   });
 
-  it('findMostRecentByChatMessageSequence with beforeSeq is owner-scoped and excludes the triggering seq', async () => {
+  it('findMostRecentByMessageSequence with beforeSeq is owner-scoped and excludes the triggering seq', async () => {
     const { db, queries } = makeMockDb();
 
     await new RunsRepository(db)
-      .findMostRecentByChatMessageSequence(chatId, ownerUserId, {
+      .findMostRecentByMessageSequence(chatId, ownerUserId, {
         beforeSeq: 42,
       })
       .catch(() => null);

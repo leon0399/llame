@@ -645,16 +645,17 @@ describeIfDb('executeRun tool-loop persistence', () => {
   function serviceWithTools(
     overrides?: ServiceWithToolsOverrides,
   ): RunExecutionService {
+    // The window variant is never exercised by this suite: every seeded
+    // context fits the mock model's context window, so a rejection catches a
+    // future scenario silently relying on it. The threshold variant resolves
+    // null, the summarizer's own "no checkpoint" answer.
     const noopCompaction: CompactionCapability = {
-      maybeCompact: async () => {},
-      // Never exercised by this suite: every seeded context fits the mock
-      // model's context window, so the transition-compaction branch never
-      // runs. A throw catches a future scenario silently relying on it.
-      compactForTransition: () => {
-        throw new Error(
-          'serviceWithTools.compactForTransition is not exercised by this suite',
-        );
-      },
+      summarizeCheckpoint: (request) =>
+        request.variant === 'window'
+          ? Promise.reject(
+              new Error('tools window summarization is not exercised'),
+            )
+          : Promise.resolve(null),
     };
     const noopTitles: TitleCapability = { maybeGenerateTitle: async () => {} };
     const resolved = resolveServiceWithTools(overrides);

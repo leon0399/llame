@@ -7,7 +7,6 @@ import {
   createTemporalItem,
   createWorkspaceDetachNoticeItem,
   createWorkspaceSnapshotItem,
-  isModelChangeItem,
   isModelChangePayload,
   isRecencyDigestDeltaPayload,
   isRecencyDigestItem,
@@ -76,33 +75,9 @@ describe('model-change producer', () => {
       newModel: { id: 'system:new', name: 'New Model' },
     });
 
-    expect(isModelChangeItem(item)).toBe(true);
     expect(item.data.payload).toEqual(modelPayload);
     expect(item.data.text).toContain('You were running as Old Model');
     expect(item.data.text).toContain('You are now New Model');
-  });
-
-  it('rejects model items with another producer or invalid payload', () => {
-    const temporal = createTemporalItem({
-      runId: RUN_ID,
-      instant: new Date('2026-08-19T16:36:00.000Z'),
-      timeZone: 'UTC',
-    });
-    const invalidPayload: ContextItemPart = {
-      type: 'data-context',
-      data: {
-        v: 1,
-        producer: 'effective-context-change',
-        form: 'notice',
-        runId: RUN_ID,
-        payload: { cause: 'model', fromModelId: '', toModelId: 'new' },
-        text: 'invalid',
-      },
-    };
-
-    expect(isModelChangeItem(temporal)).toBe(false);
-    expect(isModelChangeItem(invalidPayload)).toBe(false);
-    expect(isModelChangeItem(null)).toBe(false);
   });
 
   it('refuses to create an item from empty model ids', () => {
@@ -382,20 +357,6 @@ describe('model-change exact wording', () => {
         newModel: { id: '' },
       }),
     ).toThrow('Invalid server-authored model change metadata');
-  });
-
-  it('does not treat another producer carrying a model payload as a model change', () => {
-    const model = createModelChangeItem({
-      runId: RUN_ID,
-      oldModel: { id: 'system:old' },
-      newModel: { id: 'system:new' },
-    });
-    const impostor: ContextItemPart = {
-      ...model,
-      data: { ...model.data, producer: 'temporal' },
-    };
-
-    expect(isModelChangeItem(impostor)).toBe(false);
   });
 });
 

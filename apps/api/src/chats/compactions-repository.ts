@@ -26,6 +26,34 @@ export class CompactionsRepository {
   constructor(private readonly db: Db) {}
 
   /**
+   * The compaction a chat published at one exact absorbed-through sequence, or
+   * undefined when that cutoff is still free. Publication takes the chat row
+   * lock before this read, so an answer here means the checkpoint is already
+   * standing and its epoch state was re-baked by whoever published it.
+   * Owner-scoped as defense-in-depth, mirroring `findLatestByChatId`.
+   */
+  async findByCutoff(
+    chatId: string,
+    ownerUserId: string,
+    uptoSeq: number,
+  ): Promise<Compaction | undefined> {
+    const rows = await this.db
+      .select()
+      .from(compactions)
+      .innerJoin(chats, eq(compactions.chatId, chats.id))
+      .where(
+        and(
+          eq(compactions.chatId, chatId),
+          eq(compactions.uptoSeq, uptoSeq),
+          eq(chats.ownerUserId, ownerUserId),
+        ),
+      )
+      .limit(1);
+
+    return rows.map((row) => row.compactions)[0];
+  }
+
+  /**
    * Latest compaction for a chat (highest uptoSeq), optionally bounded by an
    * inclusive maximum, or undefined when the chat has never compacted. The
    * existing `beforeSeq` option remains an exclusive bound for callers walking
@@ -121,33 +149,6 @@ export class CompactionsRepository {
       .insert(compactions)
       .values(compactionInsertValues(input))
       .returning();
-
-    return created;
-  }
-
-  /**
-   * Record a compaction only when no peer already owns the same chat/cutoff.
-   * Used by transition compaction after its model call, where duplicate job
-   * delivery may legitimately race on the unique cutoff.
-   */
-  async createIfCutoffAbsent(input: {
-    chatId: string;
-    uptoSeq: number;
-    parentId?: string | null;
-    summary: string;
-    replacementHistory: Array<CompactionReplacementMessage>;
-    usage?: unknown;
-  }): Promise<Compaction | undefined> {
-    assertCompactionWrite(input.summary, input.replacementHistory);
-
-    const [created] = await this.db
-      .insert(compactions)
-      .values(compactionInsertValues(input))
-      .onConflictDoNothing({
-        target: [compactions.chatId, compactions.uptoSeq],
-      })
-      .returning();
-
     return created;
   }
 }
@@ -195,11 +196,8 @@ function assertCompactionWrite(
   }
 }
 
-/**
- * Load a chat's live context window (#57) in one place: the latest compaction
- * (optionally bounded to a turn) plus the messages after it. Shared by the chat
- * loop (bounded by the triggering turn's seq + message cap) and the compaction
- * service (unbounded) so the lineage read semantics cannot drift between them.
+/** Load the latest compaction and the messages after it, optionally bounded by
+ * `maxSeq`.
  */
 export async function findLiveWindow(
   db: Db,

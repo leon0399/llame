@@ -124,6 +124,12 @@ function baseline(
   };
 }
 
+/**
+ * Sequence of the user row the seeded previous Run answers. It sits below the
+ * active checkpoint's boundary, so that checkpoint starts a new epoch.
+ */
+const previousRunUserSeq = 7;
+
 function previousRun(overrides: Partial<Run> = {}): Run {
   return {
     id: '22222222-2222-4222-8222-222222222222',
@@ -238,7 +244,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       current: {
         id: 'message-id',
         chatId: 'chat-id',
-        seq: 1,
+        seq: compaction === undefined ? 1 : compaction.uptoSeq + 1,
         role: 'user',
         senderUserId: 'user-id',
         parts: [{ type: 'text', text: 'hello' }],
@@ -324,8 +330,12 @@ describe('ChatLoopService accept/worker context binding', () => {
       undefined,
     );
     const findPreviousRun = vi
-      .spyOn(RunsRepository.prototype, 'findMostRecentByChatMessageSequence')
-      .mockResolvedValue(priorRun);
+      .spyOn(RunsRepository.prototype, 'findMostRecentByMessageSequence')
+      .mockResolvedValue(
+        priorRun === undefined
+          ? undefined
+          : { run: priorRun, triggeringUserSeq: previousRunUserSeq },
+      );
     // The availability baseline reads the most recent *genuine completed* turn:
     // the repository query only returns runs that finished successfully and
     // carry the winning attempt link. Mirror that contract over the fixture.
@@ -338,7 +348,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         Promise.resolve(
           priorRun?.status === 'completed' &&
             priorRun.completedAttemptId !== null
-            ? priorRun
+            ? { run: priorRun, triggeringUserSeq: previousRunUserSeq }
             : undefined,
         ),
       );
@@ -509,10 +519,17 @@ describe('ChatLoopService accept/worker context binding', () => {
       aborts,
       dispatcher,
     );
+    // The window variant is never exercised by this suite: every seeded turn
+    // fits this model, so a rejection catches a future scenario silently
+    // relying on it. The threshold variant resolves null, the summarizer's own
+    // "no checkpoint" answer.
     const noopCompaction: CompactionCapability = {
-      maybeCompact: () => Promise.resolve(),
-      compactForTransition: () =>
-        Promise.reject(new Error('transition compaction is not exercised')),
+      summarizeCheckpoint: (request) =>
+        request.variant === 'window'
+          ? Promise.reject(
+              new Error('binding window summarization is not exercised'),
+            )
+          : Promise.resolve(null),
     };
     const noopTitles: TitleCapability = {
       maybeGenerateTitle: () => Promise.resolve(),
@@ -1178,7 +1195,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     ).toHaveLength(0);
   });
 
-  it('starts a degraded availability epoch in the worker after retained-window compaction', async () => {
+  it('starts a degraded availability epoch in the worker when the checkpoint boundary reaches the prior completed turn', async () => {
     const id = 'mcp__web__search';
     const {
       service,
@@ -1189,7 +1206,14 @@ describe('ChatLoopService accept/worker context binding', () => {
       previousRun: previousRun({
         modelId: model.id,
         status: 'completed',
+        completedAttemptId: 'attempt-id',
         turnToolAvailability: [{ id, state: 'available' }],
+        // The Run was created after the checkpoint, but its triggering user
+        // sequence remains below the checkpoint boundary: sequence order is
+        // the epoch rule.
+        createdAt: new Date('2026-08-11T08:00:04.000Z'),
+        startedAt: new Date('2026-08-11T08:00:05.000Z'),
+        finishedAt: new Date('2026-08-11T08:00:06.000Z'),
       }),
       activeCompaction: activeCompaction(),
       toolsAllowed: [id],

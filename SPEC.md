@@ -40,7 +40,7 @@ No first-party CLI or Android Node, standalone personal store, Node enrollment, 
 
 ### 2.1 Compaction and provenance lineage
 
-Context compaction stores an RLS-scoped summary with an `upto_seq` boundary and `parent_id` lineage. Source messages remain unchanged; model context becomes a typed historical checkpoint plus retained later messages. A switch to a smaller-window model may run one bounded transition compaction with the previous executable model; an unavailable capable source fails explicitly instead of truncating or crossing an ownership boundary. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
+Context compaction stores an RLS-scoped summary with an `upto_seq` boundary and `parent_id` lineage. Source messages remain unchanged; model context becomes a typed historical checkpoint plus retained later messages. A Run attempt evaluates compaction once, before its first model step. A prepared request that does not fit the Run's model compacts through the previous completed Run's model, its prompt receipt, and its effort with no tool declarations, and fails `context_incompatible` instead of truncating when that source is unavailable or the summary still does not fit. Otherwise the request compacts once the measured size — the previous completed reply's final-request size plus the estimate of the later rows, or the whole-request estimate — reaches the Run model's threshold, summarizing through the attempt's own model, pre-re-bake prompt, schema-only declarations, and effort. The checkpoint and its re-baked digest, skill-catalog, and workspace epoch state commit in one transaction before the attempt renders its prompt and receipt, and survive a failed attempt. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
 
 ### 2.2 Owner forks
 
@@ -82,10 +82,12 @@ A Chat is the persistent conversation container. A Run is one queued agentic tur
 
 Assistant usage sums provider-reported usage from every model request in the
 Run attempt; `complete` marks whether that aggregate covers the Run's spend,
-and failed or cancelled Runs keep their known usage. Compaction reads the final
-request separately as its pressure signal. Every newly written assistant and
-published compaction usage record stamps its resolved `billing` mode at write
-time. See [`run-usage-accounting`](openspec/specs/run-usage-accounting/spec.md).
+and failed or cancelled Runs keep their known usage. `usage.contextTokens` is
+recorded when every model step of the attempt reported a usage receipt and the
+final request reported a count; otherwise the next trigger estimates the
+request. Every newly written assistant and published compaction usage record
+stamps its resolved `billing` mode at write time. See
+[`run-usage-accounting`](openspec/specs/run-usage-accounting/spec.md).
 
 ### 9.3 Run state
 
