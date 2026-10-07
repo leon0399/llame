@@ -68,7 +68,7 @@ Each provider type SHALL have a default header map: `{ "X-Session-Id": "{session
 
 ### Requirement: Operator header values take precedence over the client's own
 
-An operator string value SHALL replace any header the client sends under the same name, compared under ASCII case-folding, including `User-Agent`, credentials, and the session and identity headers other capabilities require; those requirements describe the default. `null` and an empty render SHALL withdraw only the operator or default value, never a client-set header.
+An operator string value SHALL replace any header llame's client sets under the same name, compared under ASCII case-folding, including `User-Agent`, credentials, and the session and identity headers other capabilities require; those requirements describe the default. `null` and an empty render SHALL withdraw only the operator or default value, never a client-set header. A header the adapter composes after per-call headers is outside this precedence.
 
 #### Scenario: The Messages adapter merges a lowercase anthropic-beta
 
