@@ -9,10 +9,11 @@
  * must coexist with a client-only target request without mounting the
  * ordinary ChatSession first.
  *
- * GET /api/v1/chats/:id/messages, GET /api/v1/models, and GET /api/v1/me/runs
- * all hit a stubbed globalThis.fetch, routed by pathname + the targetSeq
- * search param — so a "no ordinary history fetched" assertion proves the
- * real query never sent that request, not that a mock was never called.
+ * GET /api/v1/chats/:id/messages, GET /api/v1/models,
+ * GET /api/v1/permission-modes, and GET /api/v1/me/runs all hit a stubbed
+ * globalThis.fetch, routed by pathname + the targetSeq search param — so a
+ * "no ordinary history fetched" assertion proves the real query never sent
+ * that request, not that a mock was never called.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -156,6 +157,11 @@ function stubChatNetwork() {
     const { pathname, searchParams } = new URL(request.url);
     if (pathname === "/api/v1/me/runs") return jsonResponse([]);
     if (pathname === "/api/v1/models") return jsonResponse(MODELS_RESPONSE);
+    if (pathname === "/api/v1/permission-modes") {
+      return jsonResponse({
+        modes: [{ value: "default" }, { value: "bypass" }],
+      });
+    }
     if (pathname === `/api/v1/chats/${CHAT_ID}/messages`) {
       const targetSeq = searchParams.has("targetSeq")
         ? Number(searchParams.get("targetSeq"))
@@ -490,8 +496,13 @@ describe("ChatPage target hydration", () => {
           parts: [{ type: "text", text: "newest" }],
           role: "assistant",
           // The pre-send snapshot's last completed turn used the non-default
-          // model; restoring from it reverts the selection the send used.
-          usage: { status: "completed", modelId: "system:openai:gpt-5.4" },
+          // model and bypass; restoring from it reverts the selections the
+          // send used.
+          usage: {
+            status: "completed",
+            modelId: "system:openai:gpt-5.4",
+            permissionMode: "bypass",
+          },
         }),
       ],
     };
@@ -558,6 +569,9 @@ describe("ChatPage target hydration", () => {
     expect(screen.getByRole("combobox").getAttribute("aria-label")).toBe(
       "Select model, GPT-5.4 mini",
     );
+    expect(
+      screen.getByRole("button", { name: "Permission mode, Default" }),
+    ).toBeTruthy();
 
     act(() => {
       resolveFresh(postSendPage);
@@ -571,6 +585,9 @@ describe("ChatPage target hydration", () => {
         "Select model, GPT-5.4 mini",
       ),
     );
+    expect(
+      screen.getByRole("button", { name: "Permission mode, Default" }),
+    ).toBeTruthy();
   });
 
   it("restores the target hash and input when a target send fails", async () => {
