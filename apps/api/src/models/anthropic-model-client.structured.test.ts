@@ -36,7 +36,7 @@ const titleSchema = jsonSchema<{ title: string }>({
 
 /**
  * The Chat identity every input carries (design D3). It is a fact the client
- * receives: nothing in this suite asserts that a client reads it.
+ * receives; the request-header tests below assert its lane-specific rendering.
  */
 const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
 
@@ -46,6 +46,12 @@ const titleInput: ModelObjectInput<{ title: string }> = {
   schemaName: 'chat_title',
   schemaDescription: 'A chat title',
   schema: titleSchema,
+};
+
+const TITLE_CHAT: ChatIdentity = { id: 'chat-test', lane: 'title' };
+const titleLaneInput: ModelObjectInput<{ title: string }> = {
+  ...titleInput,
+  chat: TITLE_CHAT,
 };
 
 /** The Messages response content shapes this suite scripts. */
@@ -162,6 +168,34 @@ describe('createAnthropicModelClient — structured output (3.8)', () => {
     // replaced, on the request the real adapter serialized.
     expect(firstRequest(harness).headers.get('user-agent')).toMatch(
       /^llame\/9\.9\.9-canary ai\//,
+    );
+  });
+
+  it('renders the title lane in a structured request header', async () => {
+    const harness = buildHarness({ respond: structuredRespond });
+    const client = buildClient(harness, {
+      requestHeaders: { 'X-Session-Id': ['', ''] },
+    });
+    if (!client.generateObject) {
+      throw new Error('the Messages client must expose generateObject');
+    }
+
+    await expect(client.generateObject(titleLaneInput)).resolves.toEqual({
+      title: 'Hi',
+    });
+
+    expect(firstRequest(harness).headers.get('x-session-id')).toBe(
+      'title:chat-test',
+    );
+  });
+
+  it('lets an operator User-Agent replace llame’s token on structured requests', async () => {
+    const { harness } = await generateTitle({
+      requestHeaders: { 'User-Agent': ['acme-gateway-client/1'] },
+    });
+
+    expect(firstRequest(harness).headers.get('user-agent')).toMatch(
+      /^acme-gateway-client\/1/,
     );
   });
 

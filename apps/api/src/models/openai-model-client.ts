@@ -17,6 +17,11 @@ import {
   type ModelStreamInput,
   type ModelStreamResult,
 } from './model-client';
+import {
+  overlayHeaders,
+  renderRequestHeaders,
+  type RequestHeaderTemplates,
+} from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
 import type { TokenPrice } from './model-catalog';
 import {
@@ -54,6 +59,16 @@ export const KEYLESS_PLACEHOLDER_API_KEY = 'keyless-no-credential-configured';
  */
 export function productUserAgentHeaders(config: { userAgent: string }) {
   return { 'user-agent': config.userAgent };
+}
+
+function requestHeadersFor(
+  config: Pick<OpenAIModelClientConfig, 'userAgent' | 'requestHeaders'>,
+  chat: ModelStreamInput['chat'],
+) {
+  return overlayHeaders(
+    productUserAgentHeaders(config),
+    renderRequestHeaders(config.requestHeaders, chat),
+  );
 }
 
 /**
@@ -420,6 +435,8 @@ export type OpenAIModelClientConfig = {
    * provider-level `User-Agent` with its own token on structured requests.
    */
   userAgent: string;
+  /** Startup-resolved operator header templates rendered for every request. */
+  requestHeaders: RequestHeaderTemplates;
   baseUrl?: string;
   /** Fixed-provider transport headers. */
   headers?: Record<string, string>;
@@ -507,10 +524,10 @@ function responsesProviderOptions(
 }
 
 /**
- * Attaches the request's per-call llame identity header (design D6) and its
- * provider options, composed from four layers under one precedence (design
- * D5): this wire's per-request-kind default (the displayable reasoning
- * summary, which the structured-generation path does not take — see
+ * Attaches the rendered operator request headers and this wire's provider
+ * options, composed from four layers under one precedence (design D5): this
+ * wire's per-request-kind default (the displayable reasoning summary, which
+ * the structured-generation path does not take — see
  * `composeStructuredProviderOptions`), the operator's object, the run's
  * effort, and the client's invariants — each layer replaces or removes what
  * the earlier ones set, never the other way around. The operator's reserved
@@ -527,7 +544,7 @@ function applyRequestOptions(
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
 ): void {
-  streamOptions.headers = productUserAgentHeaders(config);
+  streamOptions.headers = requestHeadersFor(config, input.chat);
   const { providerOptions } = responsesProviderOptions(
     composeProviderOptions({
       defaults: { reasoningSummary: 'auto' },
@@ -751,7 +768,7 @@ export function createOpenAIModelClient(
     ...(config.generateObject !== false && {
       generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
         generateToolBoundObject(openai(config.providerModelId), input, {
-          headers: productUserAgentHeaders(config),
+          headers: requestHeadersFor(config, input.chat),
           ...composeStructuredProviderOptions(config),
           ...(config.maxOutputTokens !== undefined && {
             maxOutputTokens: config.maxOutputTokens,

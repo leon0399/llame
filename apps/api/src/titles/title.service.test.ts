@@ -27,6 +27,7 @@ const provider: ProviderConfig = {
   type: 'openai-responses',
   key: null,
   baseUrl: null,
+  headers: {},
 };
 
 function makeService(client?: ModelClient) {

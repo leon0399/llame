@@ -88,6 +88,10 @@ handler documents. The catalogue is operator-declared: llame keeps no compiled
 model, route, or capability table and checks no model's route at boot, so a
 model the gateway rejects fails at request time (below), not at startup.
 
+Do not point an `openai-completions` entry at the Go endpoint as a substitute.
+That client requests `stream_options.include_usage`, which Go answers with a
+broken stream, so runs fail. Use `type: "opencode-go"` for this endpoint.
+
 ## Requests llame sends
 
 Every language-model request llame makes for a Chat carries the gateway's
@@ -102,9 +106,16 @@ owner-visible output. Because the gateway reads it, treat a Chat id as visible
 to the provider: nothing in llame relies on its secrecy.
 
 llame also sends `x-opencode-client: llame` and its own `User-Agent`
-(`llame/<version>`) on every provider request. It does not send
-`x-opencode-request`, `x-opencode-project`, `X-Session-Id`, or
-`x-session-affinity`, and it never claims another product's client identity.
+(`llame/<version>`) on every provider request. By default it also sends
+`X-Session-Id`, rendered from the same Chat lane identity. The Go gateway does
+not read that generic header; it forwards it unchanged to the upstream model,
+as OpenCode's own client does. An operator `headers` value can replace
+`X-Session-Id`, `x-opencode-session`, `x-opencode-client`, `User-Agent`, or a
+credential header; `null` or an empty rendered value withdraws only the
+operator/default value. That override is the operator's responsibility, and
+secret header values should use `{env:...}` or `{path:...}`. llame does not send
+`x-opencode-request`, `x-opencode-project`, or `x-session-affinity` by default,
+and it never claims another product's client identity.
 
 Caching is the gateway's, and llame requests none of it: llame sends the
 session identity and records whatever usage the gateway reports. It sends no
@@ -171,9 +182,11 @@ gateway on 2026-09-22, except where noted:
 - **A missing session header in a hand-made request.** Third-party clients
   have reported a request without a session header surfacing on some models as
   a generic 400 rather than a named session error. That report is unverified
-  here, and it cannot occur through llame: the Chat identity is required by
-  the model-client input contract, so llame cannot render a request without
-  it. It is recorded only for debugging a hand-made request.
+  here. In normal llame requests, Chat identity is required by the
+  model-client input contract, so a client always has a value to render; an
+  operator can replace or remove the default `X-Session-Id` through
+  `providers[].headers`. It is recorded only for debugging a hand-made
+  request.
 
 ## Model privacy terms differ
 

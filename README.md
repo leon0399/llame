@@ -94,7 +94,7 @@ calls the Responses API, with an optional `baseUrl` defaulting to OpenAI, and
 the adapter's own default, which the client passes explicitly when the entry
 sets no `baseUrl`) — a proxy, gateway, or third-party
 server that speaks Messages is that `baseUrl`, not a second type. Its shape is
-`{ id, type, key?, baseUrl? }`: `key` and `baseUrl` use the same
+`{ id, type, key?, baseUrl?, headers? }`: `key` and `baseUrl` use the same
 interpolation, an empty resolution means keyless, and the credential is sent
 as `x-api-key`. The client always passes an explicit base URL, so an ambient
 `ANTHROPIC_BASE_URL` never moves a request off the configured destination,
@@ -103,15 +103,31 @@ mode, because the adapter requires an API key to be present. The `type` alone
 selects the client: no `id`, `baseUrl`, or host is inspected.
 `opencode-go` calls the OpenCode Go subscription gateway's Chat Completions
 route at an endpoint fixed in llame's code, so the entry declares
-`{ id, type, key }` and nothing else: `key` interpolates like any other
-credential and must resolve nonblank, because the gateway authenticates every
-request, while `baseUrl` and `accountId` are rejected at boot, and no `id` or
-ambient variable moves or authenticates a request. See
-[docs/product/operator/providers/opencode-go.md](docs/product/operator/providers/opencode-go.md) for its route ceiling, accepted
-upstream failures, per-model privacy terms, and quota boundaries.
+`{ id, type, key, headers? }` and nothing else: `key` interpolates like any
+other credential and must resolve nonblank, because the gateway authenticates
+every request, while `baseUrl` and `accountId` are rejected at boot; no `id`
+or ambient variable moves or authenticates a request. See
+[docs/product/operator/providers/opencode-go.md](docs/product/operator/providers/opencode-go.md)
+for its route ceiling, accepted upstream failures, per-model privacy terms,
+and quota boundaries.
 **Breaking**: `type: "openai"` is deleted — re-declare every entry that used it
 as one of those two wires, or startup fails naming the entry. `openai-codex`
 is unchanged.
+
+Every provider entry may also set `headers` to a map of header names to
+strings or `null`. `{env:...}` and `{path:...}` resolve once at startup;
+`{session:id}` resolves per request to the Chat id on the main turn and
+compaction, or `title:<chatId>` for title generation. The
+`openai-responses`, `openai-completions`, `anthropic-messages`, and
+`opencode-go` types default to `X-Session-Id: {session:id}`; `openai-codex`
+has no default, so add it when needed. Set a default entry to `null` to remove
+it — for example, a strict proxy that rejects unknown headers can use
+`"X-Session-Id": null`. Operator values overlay llame's own headers, including
+`User-Agent`, credentials, and OpenCode Go's `x-opencode-*`; that override is
+the operator's responsibility. Use `{env:...}` or `{path:...}` for secrets.
+The `@ai-sdk/anthropic` adapter merges an operator `anthropic-beta` with its
+own beta values.
+
 `apps/web` is a thin client configured with `NEXT_PUBLIC_API_URL`. See
 [AGENTS.md](AGENTS.md) for development setup and commands.
 

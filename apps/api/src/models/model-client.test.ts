@@ -23,6 +23,7 @@ import {
   createOpenAIModelClient,
   KEYLESS_PLACEHOLDER_API_KEY,
 } from './openai-model-client';
+import type { RequestHeaderTemplates } from './request-headers';
 import { createAssistantPartCollector } from '../runs/assistant-transcript';
 
 // Test seam (anti-slop/no-module-mocking): these tests verify how
@@ -117,6 +118,7 @@ describe('ModelClient', () => {
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
@@ -173,6 +175,7 @@ describe('ModelClient', () => {
         modelId: 'system:local:gpt-local',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
@@ -217,6 +220,7 @@ describe('ModelClient', () => {
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
         baseUrl: 'https://openrouter.ai/api/v1',
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
@@ -254,6 +258,7 @@ describe('ModelClient', () => {
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
         pricing,
         compactionThresholdTokens: 64_000,
       },
@@ -282,6 +287,7 @@ describe('ModelClient', () => {
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
@@ -345,6 +351,7 @@ describe('ModelClient', () => {
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
@@ -411,6 +418,7 @@ describe('ModelClient', () => {
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
@@ -455,6 +463,7 @@ describe('ModelClient', () => {
           modelId: 'system:openai:gpt-test',
           contextWindowTokens: 128_000,
           userAgent: USER_AGENT,
+          requestHeaders: {},
         },
         { createOpenAI: createOpenAIMock, streamText: streamTextMock },
       );
@@ -524,6 +533,7 @@ describe('ModelClient', () => {
           modelId: 'system:openai:gpt-test',
           contextWindowTokens: 128_000,
           userAgent: USER_AGENT,
+          requestHeaders: {},
           ...overrides,
         },
         { createOpenAI: createOpenAIMock, streamText: streamTextMock },
@@ -631,6 +641,7 @@ describe('ModelClient', () => {
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
         // `serviceTier` is a Responses option the adapter parses with a
         // closed enum; `cheap` is not one of its values.
         providerOptions: { serviceTier: 'cheap' },
@@ -698,6 +709,7 @@ describe('ModelClient', () => {
             modelId: 'system:openai:gpt-test',
             contextWindowTokens: 128_000,
             userAgent: USER_AGENT,
+            requestHeaders: {},
             ...overrides,
           },
           { createOpenAI: createOpenAIMock, streamText: streamTextMock },
@@ -783,6 +795,16 @@ describe('ModelClient', () => {
         expect(generateCall?.providerOptions).toBeUndefined();
         expect(generateCall?.maxOutputTokens).toBeUndefined();
       });
+
+      it("lets an operator User-Agent replace llame's token on structured generation", async () => {
+        const generateCall = await generateTitle({
+          requestHeaders: { 'User-Agent': ['acme-gateway-client/1'] },
+        });
+
+        expect(generateCall?.headers?.['user-agent']).toMatch(
+          /^acme-gateway-client\/1/,
+        );
+      });
     });
   });
 });
@@ -817,7 +839,7 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
    */
   const PRODUCT_USER_AGENT = 'llame/9.9.9-canary';
 
-  function buildClient() {
+  function buildClient(requestHeaders: RequestHeaderTemplates = {}) {
     const fetchMock = vi
       .fn<typeof globalThis.fetch>()
       .mockImplementation(() => Promise.resolve(responsesStream()));
@@ -827,6 +849,7 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
       modelId: 'system:openai:gpt-test',
       contextWindowTokens: 128_000,
       userAgent: PRODUCT_USER_AGENT,
+      requestHeaders,
       fetch: fetchMock,
     });
     return { client, fetchMock };
@@ -878,6 +901,7 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
         modelId: 'system:openai:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: PRODUCT_USER_AGENT,
+        requestHeaders: { 'X-Session-Id': ['', ''] },
       },
       { createOpenAI: createOpenAIStub, streamText },
     );
@@ -887,7 +911,7 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
 
     await expect(
       client.generateObject({
-        chat: CHAT,
+        chat: { ...CHAT, lane: 'title' },
         messages,
         schema: z.object({ title: z.string() }),
       }),
@@ -897,6 +921,36 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
     // replacing the value: the header begins with llame's product token.
     expect(providerModel.doGenerateCalls[0]?.headers?.['user-agent']).toMatch(
       /^llame\/9\.9\.9-canary ai\//,
+    );
+    expect(providerModel.doGenerateCalls[0]?.headers?.['x-session-id']).toBe(
+      `title:${CHAT.id}`,
+    );
+  });
+  it('renders the configured session header on the serialized streaming request', async () => {
+    const { client, fetchMock } = buildClient({
+      'X-Session-Id': ['', ''],
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('done');
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(new Headers(init?.headers).get('x-session-id')).toBe(CHAT.id);
+  });
+
+  it("lets an operator User-Agent replace llame's token on the serialized request", async () => {
+    const { client, fetchMock } = buildClient({
+      'User-Agent': ['acme-gateway-client/1'],
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('done');
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(new Headers(init?.headers).get('user-agent')).toMatch(
+      /^acme-gateway-client\/1/,
     );
   });
 

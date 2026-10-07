@@ -69,6 +69,7 @@ describe('createModelClient wire dispatch', () => {
           type: 'openai-responses',
           key: 'sk-key',
           baseUrl: null,
+          headers: { 'X-Session-Id': ['', ''] },
         },
         model: { ...model, provider: 'third-party-responses' },
       },
@@ -80,6 +81,7 @@ describe('createModelClient wire dispatch', () => {
         credential: 'sk-key',
         baseUrl: undefined,
         providerModelId: 'model',
+        requestHeaders: { 'X-Session-Id': ['', ''] },
       }),
     );
     expect(createCompletionsClientMock).not.toHaveBeenCalled();
@@ -95,6 +97,7 @@ describe('createModelClient wire dispatch', () => {
           type: 'openai-completions',
           key: 'sk-key',
           baseUrl: 'https://api.openai.com/v1',
+          headers: {},
         },
         model,
       },
@@ -106,6 +109,7 @@ describe('createModelClient wire dispatch', () => {
         credential: 'sk-key',
         baseUrl: 'https://api.openai.com/v1',
         providerModelId: 'model',
+        requestHeaders: {},
       }),
     );
     expect(createResponsesClientMock).not.toHaveBeenCalled();
@@ -120,6 +124,7 @@ describe('createModelClient wire dispatch', () => {
           type: 'openai-responses',
           key: null,
           baseUrl: 'http://localhost:11434/v1',
+          headers: {},
         },
         model: { ...model, provider: 'ollama' },
       },
@@ -144,6 +149,7 @@ describe('createModelClient wire dispatch', () => {
           type: 'openai-completions',
           key: null,
           baseUrl: 'http://localhost:11434/v1',
+          headers: {},
         },
         model: { ...model, provider: 'local-ollama' },
       },
@@ -157,6 +163,7 @@ describe('createModelClient wire dispatch', () => {
           type: 'openai-completions',
           key: 'sk-or',
           baseUrl: 'https://openrouter.ai/api/v1',
+          headers: {},
         },
         model: { ...model, provider: 'openrouter' },
       },
@@ -190,6 +197,7 @@ describe('createModelClient wire dispatch', () => {
           type: 'openai-codex',
           key: 'access-token',
           accountId: 'account-id',
+          headers: {},
         },
         model: { ...model, provider: 'personal-codex' },
       },
@@ -201,6 +209,7 @@ describe('createModelClient wire dispatch', () => {
         credential: 'access-token',
         accountId: 'account-id',
         providerModelId: 'model',
+        requestHeaders: {},
       }),
     );
     expect(createResponsesClientMock).not.toHaveBeenCalled();
@@ -213,12 +222,14 @@ describe('createModelClient wire dispatch', () => {
       type: 'openai-responses',
       key: 'sk-key',
       baseUrl: null,
+      headers: {},
     };
     const completionsProvider: OpenAICompletionsProviderConfig = {
       id: 'openai-completions-unreadable',
       type: 'openai-completions',
       key: 'sk-key',
       baseUrl: 'https://api.example.test/v1',
+      headers: {},
     };
     for (const provider of [responsesProvider, completionsProvider]) {
       Object.defineProperty(provider, 'id', {
@@ -255,18 +266,21 @@ describe('createModelClient wire dispatch', () => {
         type: 'openai-responses',
         key: 'sk-key',
         baseUrl: null,
+        headers: {},
       },
       {
         id: 'completions-entry',
         type: 'openai-completions',
         key: 'sk-key',
         baseUrl: 'https://api.example.test/v1',
+        headers: {},
       },
       {
         id: 'codex-entry',
         type: 'openai-codex',
         key: 'access-token',
         accountId: 'account-id',
+        headers: {},
       },
     ] as const;
     for (const provider of providers) {
@@ -308,6 +322,7 @@ describe('createModelClient wire dispatch', () => {
           type: 'openai-completions',
           key: 'sk-key',
           baseUrl: 'https://api.example.test/v1',
+          headers: {},
         },
         model,
       },
@@ -349,6 +364,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
           type: 'anthropic-messages',
           key: 'sk-key',
           baseUrl: 'https://api.z.ai/api/anthropic',
+          headers: {},
         },
         model: { ...model, provider: 'third-party-anthropic' },
       },
@@ -360,6 +376,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
         credential: 'sk-key',
         baseUrl: 'https://api.z.ai/api/anthropic',
         providerModelId: 'model',
+        requestHeaders: {},
         reasoningDeclared: false,
       }),
     );
@@ -379,6 +396,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
             type: 'anthropic-messages',
             key: 'sk-key',
             baseUrl: null,
+            headers: {},
           },
           model: { ...model, provider: 'anthropic' },
         },
@@ -406,6 +424,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
           type: 'anthropic-messages',
           key: 'sk-key',
           baseUrl: null,
+          headers: {},
         },
         model: {
           ...model,
@@ -434,6 +453,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
           type: 'anthropic-messages',
           key: 'sk-hosted',
           baseUrl: null,
+          headers: {},
         },
         model: { ...model, provider: 'anthropic-hosted' },
       },
@@ -447,6 +467,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
           type: 'anthropic-messages',
           key: null,
           baseUrl: 'https://api.z.ai/api/anthropic',
+          headers: {},
         },
         model: { ...model, provider: 'anthropic-gateway' },
       },
@@ -480,6 +501,7 @@ describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)
           type: 'anthropic-messages',
           key: 'sk-key',
           baseUrl: null,
+          headers: {},
         },
         model: {
           ...model,
@@ -527,6 +549,7 @@ describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', ()
           id: 'my-go-subscription',
           type: 'opencode-go',
           key: 'go-key',
+          headers: {},
         },
         model: { ...model, provider: 'my-go-subscription' },
       },
@@ -537,6 +560,7 @@ describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', ()
       expect.objectContaining({
         credential: 'go-key',
         providerModelId: 'model',
+        requestHeaders: {},
       }),
     );
     // The entry declares a key and no destination, so no endpoint value
@@ -555,6 +579,7 @@ describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', ()
           id: 'go',
           type: 'opencode-go',
           key: 'go-key',
+          headers: {},
         },
         model: {
           ...model,

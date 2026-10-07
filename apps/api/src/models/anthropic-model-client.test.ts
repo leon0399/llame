@@ -32,7 +32,7 @@ const hello = messageEnvelope(textBlock(0, 'hello'));
 
 /**
  * The Chat identity every input carries (design D3). It is a fact the client
- * receives: nothing in this suite asserts that a client reads it.
+ * receives; the request-header tests below assert its lane-specific rendering.
  */
 const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
 
@@ -154,6 +154,45 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
     // llame's token leads, and the SDK's own tokens follow it.
     expect(firstRequest(harness).headers.get('user-agent')).toMatch(
       /^llame\/9\.9\.9-canary( |$)/,
+    );
+  });
+
+  it('renders configured request headers on a main-lane streaming request', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, {
+      requestHeaders: { 'X-Session-Id': ['', ''] },
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
+
+    expect(firstRequest(harness).headers.get('x-session-id')).toBe('chat-test');
+  });
+
+  it('does not send a session header when the resolved map is empty', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, { requestHeaders: {} });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
+
+    expect(firstRequest(harness).headers.get('x-session-id')).toBeNull();
+  });
+
+  it('lets an operator User-Agent replace llame’s token on streaming requests', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, {
+      requestHeaders: { 'User-Agent': ['acme-gateway-client/1'] },
+    });
+
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).resolves.toBe('hello');
+
+    expect(firstRequest(harness).headers.get('user-agent')).toMatch(
+      /^acme-gateway-client\/1/,
     );
   });
 

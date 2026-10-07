@@ -1,5 +1,6 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
 
+import type { ProviderConfig } from '../instance-config/llame-config';
 import { ModelsController, type ModelsReader } from './models.controller';
 import { ModelConfigurationError } from './models.service';
 import { toAvailableModelResponse } from './dto/models.dto';
@@ -72,6 +73,52 @@ describe('ModelsController', () => {
       ],
     });
     expect(JSON.stringify(response)).not.toContain('providerModelId');
+  });
+
+  it('does not expose provider header names or values in the GET models response', () => {
+    const headerName = 'X-Operator-Header';
+    const headerValue = 'operator-secret';
+    const provider = {
+      id: 'provider-with-headers',
+      type: 'openai-responses',
+      key: null,
+      baseUrl: null,
+      headers: { [headerName]: [headerValue] },
+    } satisfies ProviderConfig;
+    const internalModel = Object.assign(
+      {
+        id: 'system:provider-with-headers:model',
+        source: 'system' as const,
+        contextWindowTokens: 128_000,
+      },
+      {
+        provider: provider.id,
+        providerModelId: 'internal-model',
+        providerConfig: provider,
+      },
+    );
+
+    const { controller } = makeController({
+      getAvailableModels: vi.fn().mockReturnValue({
+        defaultModelId: internalModel.id,
+        models: [internalModel],
+      }),
+    });
+
+    const response = controller.listModels();
+
+    expect(response).toEqual({
+      defaultModelId: internalModel.id,
+      models: [
+        {
+          id: internalModel.id,
+          source: 'system',
+          contextWindowTokens: 128_000,
+        },
+      ],
+    });
+    expect(JSON.stringify(response)).not.toContain(headerName);
+    expect(JSON.stringify(response)).not.toContain(headerValue);
   });
 
   it("hands out copies of the catalog's nested data", () => {

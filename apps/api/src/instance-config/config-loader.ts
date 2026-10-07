@@ -34,6 +34,7 @@ import {
   type RawWebAdapterEntry,
   type WebAdapterConfig,
 } from './llame-config';
+import type { RequestHeaderTemplates } from '../models/request-headers';
 import { InstanceConfigError } from '@workspace/config-interpolation';
 import { getConfigValidator } from './schema';
 import {
@@ -1470,10 +1471,133 @@ function resolveWorkerProfiles(raw: RawInstanceConfig | undefined) {
  * Resolve `providers[]`: the schema (assertValidRaw, already run) guarantees
  * element shape (required `id`/`type`, closed properties) and typed
  * `raw.providers` accordingly — this resolver owns interpolation of
- * `key`/`baseUrl` and duplicate-id rejection. Every error names the entry's
- * `id` and field, never the resolved value (same secret discipline as the
- * scalar loader's `{env:}`/`{path:}` resolution).
+ * `key`/`baseUrl`/`headers` and duplicate-id rejection. Every error names the
+ * entry's `id` and field, never the resolved value (same secret discipline as
+ * the scalar loader's `{env:}`/`{path:}` resolution).
  */
+const DEFAULT_PROVIDER_HEADERS: Readonly<
+  Record<RawProviderEntry['type'], RequestHeaderTemplates>
+> = {
+  'openai-responses': { 'X-Session-Id': ['', ''] },
+  'openai-completions': { 'X-Session-Id': ['', ''] },
+  'anthropic-messages': { 'X-Session-Id': ['', ''] },
+  'openai-codex': {},
+  'opencode-go': { 'X-Session-Id': ['', ''] },
+};
+
+const PROVIDER_HEADER_TOKEN_PATTERN = /\{([^{}:]+):([^{}]*)\}/gu;
+const PROVIDER_SESSION_TOKEN_PATTERN = /(?<!\{)\{session:id\}/gu;
+
+function assertValidProviderHeaderName(name: string, configPath: string): void {
+  try {
+    new Headers([[name, '']]).get(name);
+  } catch {
+    throw new InstanceConfigError(`${configPath}: invalid header name`);
+  }
+}
+
+function assertKnownProviderHeaderTokens(
+  raw: string,
+  configPath: string,
+): void {
+  for (const match of raw.matchAll(PROVIDER_HEADER_TOKEN_PATTERN)) {
+    const index = match.index;
+    // `{{` is the interpolation escape for a literal `{`; do not inspect the
+    // second brace as the start of a template token.
+    if (index > 0 && raw[index - 1] === '{') continue;
+    const name = match[1];
+    const body = match[2];
+    if (
+      name === 'env' ||
+      name === 'path' ||
+      (name === 'session' && body === 'id')
+    ) {
+      continue;
+    }
+    throw new InstanceConfigError(
+      `${configPath}: unsupported interpolation token`,
+    );
+  }
+}
+
+function assertProviderHeaderNames(
+  rawHeaders: Record<string, string | null>,
+  headersPath: string,
+): void {
+  const namesByFold = new Map<string, string>();
+  for (const name of Object.keys(rawHeaders)) {
+    const headerPath = `${headersPath}.${name}`;
+    assertValidProviderHeaderName(name, headerPath);
+    const folded = asciiCaseFold(name);
+    const prior = namesByFold.get(folded);
+    if (prior !== undefined) {
+      throw new InstanceConfigError(
+        `${headersPath}.${prior} and ${headerPath}: header names collide under ASCII case-folding`,
+      );
+    }
+    namesByFold.set(folded, name);
+  }
+}
+
+function resolveProviderHeaderValue(
+  rawValue: string,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+): ReadonlyArray<string> {
+  assertKnownProviderHeaderTokens(rawValue, configPath);
+  const parts = rawValue.split(PROVIDER_SESSION_TOKEN_PATTERN);
+  for (let index = 0; index < parts.length; index += 1) {
+    const value = resolvePrivateMcpString(parts[index] ?? '', configPath, env);
+    if (/[\r\n\0]/u.test(value)) {
+      throw new InstanceConfigError(
+        `${configPath}: resolved value contains forbidden control characters`,
+      );
+    }
+    parts[index] = value;
+  }
+  return parts;
+}
+
+function resolveProviderHeaders(
+  providerId: string,
+  type: RawProviderEntry['type'],
+  rawHeaders: Record<string, string | null> | undefined,
+  env: NodeJS.ProcessEnv,
+): RequestHeaderTemplates {
+  const headers: Record<string, ReadonlyArray<string>> = {};
+  Object.setPrototypeOf(headers, null);
+  const namesByFold = new Map<string, string>();
+
+  for (const [name, value] of Object.entries(DEFAULT_PROVIDER_HEADERS[type])) {
+    headers[name] = value;
+    namesByFold.set(asciiCaseFold(name), name);
+  }
+
+  if (rawHeaders === undefined) return headers;
+  const headersPath = `providers[${providerId}].headers`;
+  assertProviderHeaderNames(rawHeaders, headersPath);
+  for (const [name, rawValue] of Object.entries(rawHeaders)) {
+    const configPath = `${headersPath}.${name}`;
+    const folded = asciiCaseFold(name);
+    const prior = namesByFold.get(folded);
+
+    if (rawValue === null) {
+      if (prior !== undefined) {
+        delete headers[prior];
+        namesByFold.delete(folded);
+      }
+      continue;
+    }
+
+    const parts = resolveProviderHeaderValue(rawValue, configPath, env);
+    if (prior !== undefined) delete headers[prior];
+    headers[name] = parts;
+    namesByFold.set(folded, name);
+  }
+
+  return headers;
+}
+
 function resolveProviders(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
@@ -1534,6 +1658,7 @@ function resolveOpenAIResponsesProvider(
       raw: entry.baseUrl,
       env,
     }),
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, env),
   };
 }
 
@@ -1562,6 +1687,7 @@ function resolveOpenAICompletionsProvider(
       entry.baseUrl,
       env,
     ),
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, env),
   };
 }
 
@@ -1595,6 +1721,7 @@ function resolveAnthropicMessagesProvider(
       raw: entry.baseUrl,
       env,
     }),
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, env),
   };
 }
 
@@ -1612,6 +1739,7 @@ function resolveCodexProvider(
       entry.accountId,
       env,
     ),
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, env),
   };
 }
 
@@ -1633,6 +1761,7 @@ function resolveOpenCodeGoProvider(
     ...(entry.billing !== undefined && { billing: entry.billing }),
     type: entry.type,
     key: requireNonBlankString(`providers[${entry.id}].key`, entry.key, env),
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, env),
   };
 }
 

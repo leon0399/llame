@@ -68,7 +68,13 @@ function instanceConfig(embeddingModelId: string | null): InstanceConfigReader {
     config: {
       ...BUILT_IN_DEFAULTS,
       providers: [
-        { id: 'provider-a', type: 'openai-responses', key: 'k', baseUrl: null },
+        {
+          id: 'provider-a',
+          type: 'openai-responses',
+          key: 'k',
+          baseUrl: null,
+          headers: {},
+        },
       ],
       embeddingModels: [MODEL],
       search: {
@@ -329,12 +335,14 @@ describe('resolveEmbeddingBackendConfig', () => {
           type: 'openai-completions',
           key: 'wrong-key',
           baseUrl: 'https://wrong.example',
+          headers: {},
         },
         {
           id: 'provider-a',
           type: 'openai-completions',
           key: 'right-key',
           baseUrl: 'https://right.example',
+          headers: {},
         },
       ]),
     ).toEqual({
@@ -362,6 +370,7 @@ describe('resolveEmbeddingBackendConfig', () => {
           type: 'openai-responses',
           key: null,
           baseUrl: null,
+          headers: {},
         },
       ]),
     ).toEqual({
@@ -381,6 +390,7 @@ describe('resolveEmbeddingBackendConfig', () => {
             type: 'openai-responses',
             key: 'k',
             baseUrl: null,
+            headers: {},
           },
         ],
       ),
@@ -395,6 +405,7 @@ describe('resolveEmbeddingBackendConfig', () => {
           type: 'openai-codex',
           key: 'token',
           accountId: 'account',
+          headers: {},
         },
       ]),
     ).toThrow(
@@ -409,6 +420,7 @@ describe('resolveEmbeddingBackendConfig', () => {
           type: 'anthropic-messages',
           key: 'sk-anthropic',
           baseUrl: null,
+          headers: {},
         },
       ]),
     ).toThrow(
@@ -808,6 +820,7 @@ describe('resolveEmbeddingBackendConfig key exactness', () => {
           type: 'openai-responses',
           key: null,
           baseUrl: null,
+          headers: {},
         },
       ],
     );
@@ -837,6 +850,7 @@ describe('resolveEmbeddingBackendConfig key exactness', () => {
           type: 'openai-completions',
           key: 'sk-1',
           baseUrl: 'https://example.test',
+          headers: {},
         },
       ],
     );

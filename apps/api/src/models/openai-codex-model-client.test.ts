@@ -51,6 +51,7 @@ describe('createOpenAICodexModelClient', () => {
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       });
 
       await expect(
@@ -67,6 +68,46 @@ describe('createOpenAICodexModelClient', () => {
       expect(serializedCall).toContain(String.raw`\"store\":false`);
       expect(serializedCall).not.toContain('item_reference');
       expect(serializedCall).not.toContain('previous_response_id');
+      const [, init] = fetchMock.mock.calls[0] ?? [];
+      expect(new Headers(init?.headers).get('x-session-id')).toBeNull();
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+  it('sends an operator session header through the wrapped Responses client', async () => {
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        new Response(
+          [
+            'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"item-1"}}\n\n',
+            'data: {"type":"response.output_text.delta","item_id":"item-1","delta":"done"}\n\n',
+            'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+            'data: [DONE]\n\n',
+          ].join(''),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+      );
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = createOpenAICodexModelClient({
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'gpt-test',
+        modelId: 'system:codex:gpt-test',
+        contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
+        requestHeaders: { 'X-Session-Id': ['', ''] },
+      });
+
+      await expect(
+        client.streamText({ chat: CHAT, messages }).text,
+      ).resolves.toBe('done');
+
+      const [, init] = fetchMock.mock.calls[0] ?? [];
+      expect(new Headers(init?.headers).get('x-session-id')).toBe(CHAT.id);
     } finally {
       globalThis.fetch = previousFetch;
     }
@@ -97,6 +138,7 @@ describe('createOpenAICodexModelClient', () => {
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: 'llame/9.9.9-canary',
+        requestHeaders: {},
       });
 
       await expect(
@@ -140,6 +182,7 @@ describe('createOpenAICodexModelClient', () => {
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       });
       const replayedMessages: Array<ModelMessage> = [
         { role: 'user', content: 'Find the answer.' },
@@ -216,6 +259,7 @@ describe('createOpenAICodexModelClient', () => {
         modelId: 'system:codex:gpt-5-codex',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       });
       const onReasoningDelta = vi.fn();
 
@@ -285,6 +329,7 @@ describe('createOpenAICodexModelClient', () => {
         modelId: 'system:codex:gpt-5-codex',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
         providerOptions: {
           // The operator's raw wire field, its summary, its store, and a
           // reserved continuation key all disagree with the client's cap and
@@ -352,6 +397,7 @@ describe('createOpenAICodexModelClient', () => {
           modelId: 'system:codex:gpt-test',
           contextWindowTokens: 128_000,
           userAgent: USER_AGENT,
+          requestHeaders: {},
         },
         { createOpenAI: createOpenAIMock, streamText: streamTextMock },
       );
@@ -436,6 +482,7 @@ describe('createOpenAICodexModelClient', () => {
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
@@ -485,6 +532,7 @@ describe('createOpenAICodexModelClient', () => {
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
@@ -535,6 +583,7 @@ describe('createOpenAICodexModelClient', () => {
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
@@ -576,6 +625,7 @@ describe('createOpenAICodexModelClient', () => {
         modelId: 'system:codex:gpt-test',
         contextWindowTokens: 128_000,
         userAgent: USER_AGENT,
+        requestHeaders: {},
       },
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
@@ -632,6 +682,7 @@ describe('createOpenAICodexModelClient', () => {
           modelId: 'system:codex:gpt-test',
           contextWindowTokens: 128_000,
           userAgent: USER_AGENT,
+          requestHeaders: {},
           ...config,
         },
         { createOpenAI: createOpenAIMock, streamText: streamTextMock },
@@ -755,6 +806,7 @@ describe('createOpenAICodexModelClient — stream-idle watchdog (design D4)', ()
       modelId: 'system:codex:gpt-test',
       contextWindowTokens: 128_000,
       userAgent: USER_AGENT,
+      requestHeaders: {},
     });
     const reported: Array<unknown> = [];
 

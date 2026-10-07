@@ -39,6 +39,11 @@ import {
   productUserAgentHeaders,
   trackAbortSettlement,
 } from './openai-model-client';
+import {
+  overlayHeaders,
+  renderRequestHeaders,
+  type RequestHeaderTemplates,
+} from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
 import { applyStreamIdleWatchdog } from './stream-idle-watchdog';
 
@@ -69,6 +74,8 @@ export type OpenAICompletionsModelClientConfig = {
    * provider-level `User-Agent` with its own token on structured requests.
    */
   userAgent: string;
+  /** Startup-resolved operator header templates rendered for every request. */
+  requestHeaders: RequestHeaderTemplates;
   /** Required: the compatible adapter has no default endpoint. */
   baseUrl: string;
   /**
@@ -175,11 +182,11 @@ function providerOptionsNamespace(providerName: string): string {
 
 /**
  * The per-call headers every request this client issues carries (design D6):
- * llame's product token, and the session header its Chat renderer produces
- * when one is configured. Per call rather than provider-level because both
- * are per-request values — the token is replaced by the SDK's own on
- * structured requests, and the session value changes with the Chat — while
- * the client's fixed transport headers ride the provider settings.
+ * llame's product token, the session header its Chat renderer produces when
+ * configured, and the startup-resolved operator map overlaid last. Per call
+ * rather than provider-level because values can change with the Chat and the
+ * SDK replaces the product token on structured requests; fixed transport
+ * headers ride the provider settings.
  */
 function perCallHeaders(
   config: OpenAICompletionsModelClientConfig,
@@ -190,7 +197,10 @@ function perCallHeaders(
     const { name, value } = config.sessionHeader(chat);
     headers[name] = value;
   }
-  return headers;
+  return overlayHeaders(
+    headers,
+    renderRequestHeaders(config.requestHeaders, chat),
+  );
 }
 
 /**

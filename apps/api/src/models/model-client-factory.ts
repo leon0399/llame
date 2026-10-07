@@ -97,6 +97,7 @@ function createResponsesClient(
     modelId: model.id,
     contextWindowTokens: model.contextWindowTokens,
     userAgent,
+    requestHeaders: provider.headers,
   };
   assignModelMetadata(config, model);
   return dependencies.createOpenAIModelClient(config);
@@ -114,6 +115,7 @@ function createCompletionsClient(
     providerModelId: model.providerModelId,
     modelId: model.id,
     contextWindowTokens: model.contextWindowTokens,
+    requestHeaders: provider.headers,
     userAgent,
   };
   assignModelMetadata(config, model);
@@ -138,6 +140,7 @@ function createMessagesClient(
     modelId: model.id,
     contextWindowTokens: model.contextWindowTokens,
     userAgent,
+    requestHeaders: provider.headers,
     // The client's adaptive-thinking default is gated on the entry's
     // `reasoning` declaration (D11): presence of the vocabulary is the
     // declaration, so this boolean is the whole signal the client needs.
@@ -161,6 +164,7 @@ function createCodexClient(
     providerModelId: model.providerModelId,
     modelId: model.id,
     contextWindowTokens: model.contextWindowTokens,
+    requestHeaders: provider.headers,
     userAgent,
   };
   assignModelMetadata(config, model);
@@ -180,6 +184,7 @@ function createOpenCodeGoClient(
     providerModelId: model.providerModelId,
     modelId: model.id,
     contextWindowTokens: model.contextWindowTokens,
+    requestHeaders: provider.headers,
     userAgent,
   };
   assignModelMetadata(config, model);

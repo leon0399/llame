@@ -1642,7 +1642,13 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     }`);
     const config = loadInstanceConfig();
     expect(config.providers).toEqual([
-      { id: 'openai', type: 'openai-responses', key: null, baseUrl: null },
+      {
+        id: 'openai',
+        type: 'openai-responses',
+        key: null,
+        baseUrl: null,
+        headers: { 'X-Session-Id': ['', ''] },
+      },
     ]);
     expect(config.models).toHaveLength(1);
     expect(config.models[0]).toMatchObject({
@@ -1664,6 +1670,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         type: 'openai-responses',
         key: 'sk-responses',
         baseUrl: null,
+        headers: { 'X-Session-Id': ['', ''] },
       },
     ]);
   });
@@ -1683,6 +1690,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         type: 'openai-completions',
         key: null,
         baseUrl: 'http://localhost:11434/v1',
+        headers: { 'X-Session-Id': ['', ''] },
       },
     ]);
   });
@@ -1699,6 +1707,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
           type: 'openai-completions',
           key: null,
           baseUrl: 'https://endpoint.invalid/v1',
+          headers: { 'X-Session-Id': ['', ''] },
         },
       ]);
       expect(fetchSpy).not.toHaveBeenCalled();
@@ -1722,12 +1731,14 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         type: 'openai-completions',
         key: null,
         baseUrl: 'https://api.openai.test/v1',
+        headers: { 'X-Session-Id': ['', ''] },
       },
       {
         id: 'ollama',
         type: 'openai-completions',
         key: null,
         baseUrl: 'http://localhost:11434/v1',
+        headers: { 'X-Session-Id': ['', ''] },
       },
     ]);
   });
@@ -1753,6 +1764,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
         type: 'openai-codex',
         key: 'access-token',
         accountId: 'account-id',
+        headers: {},
       },
     ]);
   });
@@ -1809,22 +1821,44 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     }
   });
 
-  it.each(['baseUrl', 'headers'] as const)(
-    'rejects the forbidden Codex %s configuration field',
-    (field) => {
-      writeConfig(`{
-        "providers": [{
-          "id": "personal-codex",
-          "type": "openai-codex",
-          "key": "access-token",
-          "accountId": "account-id",
-          "${field}": "https://untrusted.example.test"
-        }]
-      }`);
+  it('accepts headers on a Codex provider without adding a default', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "personal-codex",
+        "type": "openai-codex",
+        "key": "access-token",
+        "accountId": "account-id",
+        "headers": { "X-Session-Id": "{session:id}", "x-custom": "value" }
+      }]
+    }`);
 
-      expect(() => loadInstanceConfig()).toThrow(new RegExp(field, 'u'));
-    },
-  );
+    expect(loadInstanceConfig().providers).toEqual([
+      {
+        id: 'personal-codex',
+        type: 'openai-codex',
+        key: 'access-token',
+        accountId: 'account-id',
+        headers: {
+          'X-Session-Id': ['', ''],
+          'x-custom': ['value'],
+        },
+      },
+    ]);
+  });
+
+  it('rejects the forbidden Codex baseUrl configuration field', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "personal-codex",
+        "type": "openai-codex",
+        "key": "access-token",
+        "accountId": "account-id",
+        "baseUrl": "https://untrusted.example.test"
+      }]
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(/baseUrl/u);
+  });
 
   it('rejects a duplicate provider id', () => {
     writeConfig(`{
@@ -2519,6 +2553,7 @@ describe('loadInstanceConfig — embeddingModels[] / search.* (chat-search-embed
       type: 'openai-completions',
       key: null,
       baseUrl: 'http://localhost:11434/v1',
+      headers: { 'X-Session-Id': ['', ''] },
     });
   });
 });
@@ -2958,12 +2993,14 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
           type: 'anthropic-messages',
           key: 'sk-anthropic',
           baseUrl: null,
+          headers: { 'X-Session-Id': ['', ''] },
         },
         {
           id: 'gateway',
           type: 'anthropic-messages',
           key: null,
           baseUrl: 'https://api.z.ai/api/anthropic',
+          headers: { 'X-Session-Id': ['', ''] },
         },
       ]);
       expect(fetchSpy).not.toHaveBeenCalled();
@@ -2988,6 +3025,7 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
         type: 'anthropic-messages',
         key: 'sk-anthropic',
         baseUrl: null,
+        headers: { 'X-Session-Id': ['', ''] },
       },
     ]);
   });
@@ -3003,6 +3041,7 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
         type: 'anthropic-messages',
         key: null,
         baseUrl: null,
+        headers: { 'X-Session-Id': ['', ''] },
       },
     ]);
   });
@@ -3155,7 +3194,14 @@ describe('loadInstanceConfig — opencode-go providers (opencode-go-provider, ta
       // `baseUrl` or `accountId` would have to appear in this object.
       expect(
         loadInstanceConfig({ OPENCODE_GO_API_KEY: 'go-key' }).providers,
-      ).toEqual([{ id: 'opencode-go', type: 'opencode-go', key: 'go-key' }]);
+      ).toEqual([
+        {
+          id: 'opencode-go',
+          type: 'opencode-go',
+          key: 'go-key',
+          headers: { 'X-Session-Id': ['', ''] },
+        },
+      ]);
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
       fetchSpy.mockRestore();
@@ -3336,6 +3382,7 @@ describe('loadInstanceConfig — llame.config.jsonc.example opencode-go entries 
       id: 'opencode-go',
       type: 'opencode-go',
       key: 'go-key',
+      headers: { 'X-Session-Id': ['', ''] },
     });
 
     const goModels = config.models.filter((m) => m.provider === 'opencode-go');
@@ -3355,6 +3402,246 @@ describe('loadInstanceConfig — llame.config.jsonc.example opencode-go entries 
     // Only the model that reasons declares an effort vocabulary.
     expect(goModels[0].reasoning).toBeUndefined();
     expect(goModels[1].reasoning?.defaultEffort).toBe('medium');
+  });
+});
+
+describe('loadInstanceConfig — provider request headers (provider-request-headers)', () => {
+  it.each([
+    [
+      'openai-responses',
+      '"id": "responses", "type": "openai-responses"',
+      { 'X-Session-Id': ['', ''] },
+      {},
+    ],
+    [
+      'openai-completions',
+      '"id": "completions", "type": "openai-completions", "baseUrl": "https://example.test/v1"',
+      { 'X-Session-Id': ['', ''] },
+      {},
+    ],
+    [
+      'anthropic-messages',
+      '"id": "anthropic", "type": "anthropic-messages"',
+      { 'X-Session-Id': ['', ''] },
+      {},
+    ],
+    [
+      'openai-codex',
+      '"id": "codex", "type": "openai-codex", "key": "key", "accountId": "account"',
+      {},
+      {},
+    ],
+    [
+      'opencode-go',
+      '"id": "go", "type": "opencode-go", "key": "key"',
+      { 'X-Session-Id': ['', ''] },
+      {},
+    ],
+  ] as const)(
+    'resolves the %s default header map when headers is absent',
+    (_type, provider, expected, env) => {
+      writeConfig(`{ "providers": [{ ${provider} }] }`);
+      expect(loadInstanceConfig(env).providers[0]?.headers).toEqual(expected);
+    },
+  );
+
+  it('removes a default header when null uses a different casing', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "anthropic",
+        "type": "anthropic-messages",
+        "headers": { "x-session-id": null }
+      }]
+    }`);
+
+    expect(loadInstanceConfig().providers[0]?.headers).toEqual({});
+  });
+
+  it('replaces a default header with the operator value and casing', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "responses",
+        "type": "openai-responses",
+        "headers": { "x-session-id": "llame-{session:id}" }
+      }]
+    }`);
+
+    expect(loadInstanceConfig().providers[0]?.headers).toEqual({
+      'x-session-id': ['llame-', ''],
+    });
+  });
+
+  it('rejects case-fold-colliding header names without printing either value', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": {
+          "X-Tag": "first-header-secret",
+          "x-tag": "second-header-secret"
+        }
+      }]
+    }`);
+
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected a header name collision');
+    } catch (error) {
+      expect(errorMessage(error)).toContain('providers[p].headers.X-Tag');
+      expect(errorMessage(error)).toContain('providers[p].headers.x-tag');
+      expect(errorMessage(error)).not.toContain('first-header-secret');
+      expect(errorMessage(error)).not.toContain('second-header-secret');
+    }
+  });
+
+  it('rejects unknown header interpolation tokens by configuration path', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "X-Test": "{sesion:id}" }
+      }]
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'providers[p].headers.X-Test: unsupported interpolation token',
+    );
+  });
+
+  it('rejects an invalid header name by configuration path', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "bad name": "value" }
+      }]
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'providers[p].headers.bad name: invalid header name',
+    );
+  });
+
+  it('keeps a __proto__ header as an own property on a null-prototype map', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "__proto__": "literal" }
+      }]
+    }`);
+
+    const headers = loadInstanceConfig().providers[0]?.headers;
+    expect(headers).toBeDefined();
+    if (headers === undefined) return;
+    expect(Object.getPrototypeOf(headers)).toBeNull();
+    expect(Object.hasOwn(headers, '__proto__')).toBe(true);
+    expect(headers['__proto__']).toEqual(['literal']);
+  });
+
+  it('does not rescan an environment value for session tokens', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "X-Test": "{env:TAG}" }
+      }]
+    }`);
+
+    expect(
+      loadInstanceConfig({ TAG: '{session:id}' }).providers[0]?.headers,
+    ).toEqual({
+      'X-Session-Id': ['', ''],
+      'X-Test': ['{session:id}'],
+    });
+  });
+
+  it('keeps an escaped session token as one literal part', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "X-Test": "{{session:id}" }
+      }]
+    }`);
+
+    expect(loadInstanceConfig().providers[0]?.headers).toEqual({
+      'X-Session-Id': ['', ''],
+      'X-Test': ['{session:id}'],
+    });
+  });
+
+  it('resolves environment interpolation at startup and retains the session token', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "X-Test": "{env:DEPLOY}:{session:id}" }
+      }]
+    }`);
+
+    expect(
+      loadInstanceConfig({ DEPLOY: 'prod' }).providers[0]?.headers,
+    ).toEqual({
+      'X-Session-Id': ['', ''],
+      'X-Test': ['prod:', ''],
+    });
+  });
+
+  it('keeps an empty fallback value in the resolved map for the renderer to omit', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "X-Test": "{env:UNSET_TAG:-}" }
+      }]
+    }`);
+
+    const headers = loadInstanceConfig({}).providers[0]?.headers;
+    expect(headers).toEqual({
+      'X-Session-Id': ['', ''],
+      'X-Test': [''],
+    });
+    expect(Object.hasOwn(headers ?? {}, 'X-Test')).toBe(true);
+  });
+
+  it('rejects a control character in a resolved header without printing the value', () => {
+    const secret = 'header-secret\nwith-newline';
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "X-Test": "{env:HEADER_VALUE}" }
+      }]
+    }`);
+
+    try {
+      loadInstanceConfig({ HEADER_VALUE: secret });
+      expect.unreachable('expected a control character rejection');
+    } catch (error) {
+      expect(errorMessage(error)).toContain('providers[p].headers.X-Test');
+      expect(errorMessage(error)).not.toContain('header-secret');
+      expect(errorMessage(error)).not.toContain('with-newline');
+    }
+  });
+
+  it('reports a missing header path interpolation by configuration path, not value', () => {
+    const missingPath = path.join(tmpDir, 'missing-header-secret');
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "headers": { "X-Test": "{path:${missingPath.replaceAll('\\', String.raw`\\`)}}" }
+      }]
+    }`);
+
+    try {
+      loadInstanceConfig();
+      expect.unreachable('expected a missing header path interpolation');
+    } catch (error) {
+      expect(errorMessage(error)).toContain('providers[p].headers.X-Test');
+      expect(errorMessage(error)).not.toContain('header-secret');
+    }
   });
 });
 

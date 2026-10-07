@@ -141,6 +141,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
                   type: 'openai-responses',
                   key: 'k',
                   baseUrl: null,
+                  headers: {},
                 },
               ],
               embeddingModels: [MODEL],

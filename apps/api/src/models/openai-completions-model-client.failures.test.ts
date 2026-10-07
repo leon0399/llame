@@ -58,6 +58,7 @@ function buildClient(fetch: typeof globalThis.fetch): ModelClient {
     contextWindowTokens: 128_000,
     userAgent: 'llame/0.0.0-test',
     baseUrl: 'https://endpoint.example.test/v1',
+    requestHeaders: {},
     fetch,
   });
 }

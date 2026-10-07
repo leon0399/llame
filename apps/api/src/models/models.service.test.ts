@@ -56,6 +56,7 @@ const DEFAULT_PROVIDER: ProviderConfig = {
   type: 'openai-responses',
   key: null,
   baseUrl: null,
+  headers: {},
 };
 
 /** The product token llame's boot-read identity supplies to every client. */
@@ -206,6 +207,7 @@ describe('ModelsService', () => {
           type: 'openai-codex',
           key: 'access-token',
           accountId: 'account-id',
+          headers: {},
         },
       ],
       models: [
@@ -298,6 +300,7 @@ describe('ModelsService', () => {
           type: 'openai-completions',
           key: null,
           baseUrl: 'http://localhost:11434/v1',
+          headers: {},
         },
       ],
       models: [{ ...CATALOG[2], provider: 'ollama' }],
@@ -314,6 +317,7 @@ describe('ModelsService', () => {
       modelId: 'system:openai:gpt-5.4-mini',
       contextWindowTokens: 400_000,
       userAgent: USER_AGENT,
+      requestHeaders: {},
       pricing: {
         inputUsdPer1M: 0.75,
         cachedInputUsdPer1M: 0.075,

@@ -50,7 +50,11 @@
       "type": "openai-responses",
       "key": "{env:OPENAI_API_KEY:-}",
       "baseUrl": "{env:OPENAI_BASE_URL:-}",
+      // Optional per-provider request headers. The four non-Codex wires default
+      // to "X-Session-Id": "{session:id}"; use null to remove that default:
+      // "headers": { "X-Session-Id": null },
     },
+
     // Add another provider for a local or compatible endpoint; the baseUrl
     // must resolve non-blank:
     // {

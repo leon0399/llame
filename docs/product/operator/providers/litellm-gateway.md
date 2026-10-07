@@ -13,6 +13,14 @@ Token usage needs no configuration. Reasoning effort needs two things the
 gateway does not tell you: the values the model accepts, and whether LiteLLM
 forwards them.
 
+## Session affinity
+
+LiteLLM reads `X-Session-Id` for session affinity and spend grouping. llame
+sends it by default for an `openai-completions` provider, rendered as the
+Chat id for main turns and compaction and as `title:<chatId>` for title
+generation. If a strict proxy rejects the header, remove it on that provider
+with `"headers": { "X-Session-Id": null }`.
+
 ## Token usage
 
 llame asks for usage on every streaming Chat Completions request
