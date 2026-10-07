@@ -126,7 +126,7 @@ it — for example, a strict proxy that rejects unknown headers can use
 `User-Agent`, credentials, and OpenCode Go's `x-opencode-*`; that override is
 the operator's responsibility. Use `{env:...}` or `{path:...}` for secrets.
 The `@ai-sdk/anthropic` adapter merges an operator `anthropic-beta` with its
-own beta values.
+own beta values only when the key is spelled in lowercase.
 
 `apps/web` is a thin client configured with `NEXT_PUBLIC_API_URL`. See
 [AGENTS.md](AGENTS.md) for development setup and commands.
