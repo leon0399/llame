@@ -72,7 +72,7 @@ An operator string value SHALL replace any header the client sends under the sam
 
 - **WHEN** an `anthropic-messages` entry declares `"headers": { "anthropic-beta": "x" }`
 - **THEN** its requests carry `x` merged with the adapter's own betas
-- **AND** a differently cased `Anthropic-Beta` is replaced by the adapter's own value
+- **AND** on a streaming request, a differently cased `Anthropic-Beta` is replaced by the adapter's own value
 
 #### Scenario: An operator User-Agent replaces llame's
 
