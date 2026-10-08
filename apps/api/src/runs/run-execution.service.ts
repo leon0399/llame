@@ -2661,9 +2661,10 @@ export class RunExecutionService {
         runId: input.runId,
       }),
     );
-    return stored === undefined
+    const payload = stored?.data.payload;
+    return payload === undefined
       ? []
-      : derivePromptImportTriggers(stored.data.payload.imports, gates);
+      : derivePromptImportTriggers(payload.imports, gates);
   }
 
   /**
