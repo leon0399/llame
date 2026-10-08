@@ -10,18 +10,11 @@
 
 import { posix } from 'node:path';
 
-import {
-  parsePathScheme,
-  splitSelectorSuffix,
-  statHostPath,
-} from '@workspace/native-file-tools';
+import { parsePathScheme } from '@workspace/native-file-tools';
 
 import type { PromptImportsPayloadEntry } from '../chats/prompt-imports-item';
-import { isKnowledgeSpaceId } from '../knowledge/knowledge-filesystem-validation';
-import {
-  KNOWLEDGE_LOCATOR_SCHEME,
-  parseKnowledgeLocator,
-} from '../knowledge/knowledge-locator';
+import { spaceTarget } from '../instructions/instructions-producer';
+import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import type { PromptImportTrigger } from '../runs/in-run-context-items';
 
 /** Which worlds the Run may load instruction files in. */
@@ -31,68 +24,41 @@ export type PromptImportTriggerGates = {
 };
 
 /**
- * Host paths probe the whole literal first, as `read` does, then the path with
- * its selector split off. `resolved` keeps the selector of an import whose
- * literal path did not exist, so the literal probe decides which spelling names
- * the file.
+ * The stored `resolved` path never carries a selector — the item persists the
+ * literal path or the selector-free one — so a `:`-suffixed name is a literal
+ * file name and only needs normalizing.
  */
-async function hostTrigger(
-  resolved: string,
-): Promise<PromptImportTrigger | undefined> {
-  if (!resolved.startsWith('/')) return undefined;
-  const literal = await statHostPath(resolved);
-  const path =
-    literal.kind === 'missing' ? splitSelectorSuffix(resolved).path : resolved;
-  return { key: posix.resolve(path) };
-}
-
-/**
- * A `kb://` trigger names its Space and a Space-relative key, selector dropped.
- * Only the canonical lower-case Space id forms one, the form llame itself
- * writes, so one Space is one group in the producer.
- */
-function knowledgeTrigger(rest: string): PromptImportTrigger | undefined {
-  const parsed = parseKnowledgeLocator(rest);
-  if ('type' in parsed) return undefined;
-  const id = parsed.knowledgeSpaceId;
-  if (!isKnowledgeSpaceId(id) || id !== id.toLowerCase()) return undefined;
-  return { space: { id }, key: parsed.relativePath ?? '' };
-}
-
-async function triggerOf(
+function triggerOf(
   entry: PromptImportsPayloadEntry,
   gates: PromptImportTriggerGates,
-): Promise<PromptImportTrigger | undefined> {
+): PromptImportTrigger | undefined {
   const resolved = entry.resolved;
   if (resolved === undefined || entry.outcome === 'denied') return undefined;
   const scheme = parsePathScheme(resolved);
   if (scheme === undefined) {
-    return gates.host ? hostTrigger(resolved) : undefined;
+    return gates.host && resolved.startsWith('/')
+      ? { key: posix.resolve(resolved) }
+      : undefined;
   }
   return scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME && gates.knowledge
-    ? knowledgeTrigger(scheme.rest)
+    ? spaceTarget(scheme.rest)
     : undefined;
 }
 
 /**
- * The distinct triggers of a persisted item's entries in entry order. A host
- * trigger needs the host gate and a Knowledge trigger the Knowledge gate; no
- * Workspace binding is involved, because every `resolved` path is absolute or
- * canonical and is never projected again.
+ * The triggers of a persisted item's entries in entry order. A host trigger
+ * needs the host gate and a Knowledge trigger the Knowledge gate; no Workspace
+ * binding is involved, because every `resolved` path is absolute or canonical
+ * and is never projected again.
  */
-export async function derivePromptImportTriggers(
+export function derivePromptImportTriggers(
   entries: ReadonlyArray<PromptImportsPayloadEntry>,
   gates: PromptImportTriggerGates,
-): Promise<Array<PromptImportTrigger>> {
+): Array<PromptImportTrigger> {
   const triggers: Array<PromptImportTrigger> = [];
-  const seen = new Set<string>();
   for (const entry of entries) {
-    const trigger = await triggerOf(entry, gates);
-    if (trigger === undefined) continue;
-    const identity = `${trigger.space?.id ?? ''}\0${trigger.key}`;
-    if (seen.has(identity)) continue;
-    seen.add(identity);
-    triggers.push(trigger);
+    const trigger = triggerOf(entry, gates);
+    if (trigger !== undefined) triggers.push(trigger);
   }
   return triggers;
 }

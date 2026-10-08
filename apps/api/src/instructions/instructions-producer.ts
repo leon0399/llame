@@ -29,7 +29,9 @@
  * each prompt import's admitted local target together, as one bundle: an
  * import triggers like a native `read` of its path, with no binding required,
  * and names the file it read, so importing an instruction file does not by
- * itself load it.
+ * itself load it. That exclusion yields to any other trigger of the turn whose
+ * chain walks through the file's directory, so a bound root below it still
+ * loads it.
  */
 
 import { posix } from 'node:path';
@@ -55,6 +57,7 @@ import type {
   InRunContextProducer,
   InRunToolCall,
   InRunTurnContext,
+  PromptImportTrigger,
 } from '../runs/in-run-context-items';
 import {
   nativeEditTool,
@@ -74,6 +77,7 @@ import {
   touchedPath,
   walkFrom,
   type InstructionScope,
+  type TouchedPath,
 } from './instruction-files';
 import {
   collectInstructionCandidate,
@@ -89,33 +93,20 @@ const FILE_TOOL_IDS: ReadonlyArray<string> = [
   nativeWriteTool.id,
 ];
 
-/** Where one trigger's world is: a host path or a Space-relative path. */
-interface TriggerTarget {
-  /** The touched path in that world; `''` is a Space's own directory. */
-  readonly key: string;
-  /** The `kb://` trigger's Space; absent for a host path. */
-  readonly space?: SpaceTrigger;
-}
-
-/**
- * One `kb://` trigger's Space. Only the canonical lower-case id — the form
- * llame itself formats and shows — ever forms a trigger, so one Space is one
- * group, one set of item labels, one seen key, and one read spelling, and a
- * `read` rule is evaluated for every candidate under exactly the locator the
- * model wrote.
- */
-interface SpaceTrigger {
-  readonly id: string;
-}
-
 /** One pending trigger: the path it touches, and whether a read named it. */
-interface PendingTrigger extends TriggerTarget {
+interface PendingTrigger extends PromptImportTrigger {
   /**
    * A read disclosed the file it named, so that file is not loaded (D5). Only
    * a trigger that can name a file sets it: a directory trigger — an entry or
    * an accepted turn's bound root — discloses nothing, so it carries none.
    */
   readonly excludeCandidate?: boolean;
+  /**
+   * The exclusion holds only while no other trigger of the set walks through
+   * the file's directory: a prompt import disclosed its file to the model, but
+   * another trigger's chain still loads it.
+   */
+  readonly yieldsToWalk?: boolean;
 }
 
 /**
@@ -130,7 +121,7 @@ interface PendingTrigger extends TriggerTarget {
 function projectTarget(input: {
   readonly args: unknown;
   readonly root: string | undefined;
-}): TriggerTarget | undefined {
+}): PromptImportTrigger | undefined {
   if (!isRecord(input.args)) return undefined;
   const path = input.args['path'];
   if (!isString(path) || path.length === 0) return undefined;
@@ -153,7 +144,7 @@ function projectTarget(input: {
 }
 
 /** One host path, selector and representation suffix split off. */
-function hostTarget(selectorPath: string): TriggerTarget {
+function hostTarget(selectorPath: string): PromptImportTrigger {
   return { key: posix.resolve(splitSelectorSuffix(selectorPath).path) };
 }
 
@@ -163,9 +154,12 @@ function hostTarget(selectorPath: string): TriggerTarget {
  * names anything. A Space id that is not already canonical is not a trigger at
  * all — the model's own read of it still runs, it just loads no instructions —
  * so every other step of one Space resolves under the single spelling that can
- * reach this point.
+ * reach this point. Only the canonical lower-case id — the form llame itself
+ * formats and shows — forms a trigger, so one Space is one group, one set of
+ * item labels, one seen key, and one read spelling, and a `read` rule is
+ * evaluated for every candidate under exactly the locator the model wrote.
  */
-function spaceTarget(rest: string): TriggerTarget | undefined {
+export function spaceTarget(rest: string): PromptImportTrigger | undefined {
   const parsed = parseKnowledgeLocator(rest);
   if ('type' in parsed) return undefined;
   if (!isKnowledgeSpaceId(parsed.knowledgeSpaceId)) return undefined;
@@ -220,34 +214,49 @@ interface PendingDirectory {
  * compared by canonical identity, so a link the model read under another name
  * discloses the candidate it resolves to; other candidates in the directory
  * still load. An edit, a write, an entry, or a read of a directory or missing
- * path clears these exclusions and loads the directory's whole chain.
+ * path clears these exclusions and loads the directory's whole chain. A
+ * trigger that `yieldsToWalk` keeps its exclusion only while no other trigger
+ * of the set walks through its directory.
  */
 async function resolveDirectories(
   triggers: ReadonlyArray<PendingTrigger>,
   scope: InstructionScope,
 ): Promise<Map<string, ReadonlySet<string>>> {
-  const pending = new Map<string, PendingDirectory>();
+  const touches: Array<{
+    readonly trigger: PendingTrigger;
+    readonly touched: TouchedPath;
+  }> = [];
+  const walkedThrough = new Set<string>();
   for (const trigger of triggers) {
     const touched = await touchedPath(scope, trigger.key);
+    touches.push({ trigger, touched });
+    for (const directory of walkFrom(scope.root, touched.directory)) {
+      if (directory !== touched.directory) walkedThrough.add(directory);
+    }
+  }
+  const pending = new Map<string, PendingDirectory>();
+  for (const { trigger, touched } of touches) {
     const entry = pending.get(touched.directory) ?? {
       plainTouch: false,
       disclosedCanonicalPaths: new Set<string>(),
     };
     pending.set(touched.directory, entry);
-    if (trigger.excludeCandidate && touched.canonicalPath !== undefined) {
+    const excluded =
+      trigger.excludeCandidate &&
+      touched.canonicalPath !== undefined &&
+      !(trigger.yieldsToWalk && walkedThrough.has(touched.directory));
+    if (excluded) {
       entry.disclosedCanonicalPaths.add(touched.canonicalPath);
     } else {
       entry.plainTouch = true;
     }
   }
-  const resolved = new Map<string, ReadonlySet<string>>();
-  for (const [directory, entry] of pending) {
-    resolved.set(
+  return new Map(
+    Array.from(pending, ([directory, entry]): [string, ReadonlySet<string>] => [
       directory,
       entry.plainTouch ? new Set<string>() : entry.disclosedCanonicalPaths,
-    );
-  }
-  return resolved;
+    ]),
+  );
 }
 
 /**
@@ -448,7 +457,7 @@ function turnTriggers(context: InRunTurnContext): Array<PendingTrigger> {
   const triggers: Array<PendingTrigger> =
     context.workspaceRoot === undefined ? [] : [{ key: context.workspaceRoot }];
   for (const imported of context.promptImportTriggers ?? []) {
-    triggers.push({ ...imported, excludeCandidate: true });
+    triggers.push({ ...imported, excludeCandidate: true, yieldsToWalk: true });
   }
   return triggers;
 }
@@ -460,7 +469,6 @@ export function createInstructionsProducer(): InRunContextProducer {
       context: InRunTurnContext,
     ): Promise<AuthoredContextItemPart | undefined> {
       const triggers = turnTriggers(context);
-      if (triggers.length === 0) return undefined;
       return loadBundle({
         runId: context.runId,
         triggers,

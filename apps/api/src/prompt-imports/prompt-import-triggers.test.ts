@@ -1,8 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { derivePromptImportTriggers } from './prompt-import-triggers';
 
@@ -10,63 +6,33 @@ const SPACE_ID = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
 const BOTH = { host: true, knowledge: true };
 
 describe('derivePromptImportTriggers', () => {
-  let root: string;
-
-  beforeEach(() => {
-    root = mkdtempSync(path.join(tmpdir(), 'import-triggers-'));
-    writeFileSync(path.join(root, 'a.md'), 'a\n');
-    writeFileSync(path.join(root, 'b:1-2'), 'literal colon name\n');
-  });
-
-  afterEach(() => {
-    rmSync(root, { recursive: true, force: true });
-  });
-
-  it('triggers on imported and failed entries, never on denied ones', async () => {
-    const triggers = await derivePromptImportTriggers(
+  it('triggers on imported and failed entries, never on denied ones', () => {
+    const triggers = derivePromptImportTriggers(
       [
-        {
-          locator: 'a',
-          resolved: path.join(root, 'a.md'),
-          outcome: 'imported',
-        },
+        { locator: 'a', resolved: '/r/a.md', outcome: 'imported' },
         { locator: 'b', resolved: '/nowhere/b.md', outcome: 'failed' },
         { locator: 'c', resolved: '/nowhere/c.md', outcome: 'denied' },
       ],
       BOTH,
     );
 
-    expect(triggers).toEqual([
-      { key: path.join(root, 'a.md') },
-      { key: '/nowhere/b.md' },
-    ]);
+    expect(triggers).toEqual([{ key: '/r/a.md' }, { key: '/nowhere/b.md' }]);
   });
 
-  it('strips a selector only when the literal path does not exist', async () => {
-    const triggers = await derivePromptImportTriggers(
+  it('keeps a colon-named file literal and normalizes the path', () => {
+    const triggers = derivePromptImportTriggers(
       [
-        {
-          locator: 'a',
-          resolved: `${path.join(root, 'a.md')}:1-2`,
-          outcome: 'imported',
-        },
-        {
-          locator: 'b',
-          resolved: path.join(root, 'b:1-2'),
-          outcome: 'imported',
-        },
+        { locator: 'a', resolved: '/r/notes:2', outcome: 'imported' },
+        { locator: 'b', resolved: '/r/x/../b:1-2', outcome: 'imported' },
       ],
       BOTH,
     );
 
-    expect(triggers).toEqual([
-      { key: path.join(root, 'a.md') },
-      { key: path.join(root, 'b:1-2') },
-    ]);
+    expect(triggers).toEqual([{ key: '/r/notes:2' }, { key: '/r/b:1-2' }]);
   });
 
-  it('names no trigger for entries without a resolved path or another scheme', async () => {
-    const triggers = await derivePromptImportTriggers(
+  it('names no trigger for entries without a resolved path or another scheme', () => {
+    const triggers = derivePromptImportTriggers(
       [
         { locator: 'https://example.test/p', outcome: 'imported' },
         { locator: 'skill://pdf/SKILL.md', outcome: 'imported' },
@@ -82,8 +48,8 @@ describe('derivePromptImportTriggers', () => {
     expect(triggers).toEqual([]);
   });
 
-  it('resolves a kb:// entry to its Space and Space-relative key', async () => {
-    const triggers = await derivePromptImportTriggers(
+  it('resolves a kb:// entry to its Space and Space-relative key', () => {
+    const triggers = derivePromptImportTriggers(
       [
         {
           locator: 'k',
@@ -106,10 +72,9 @@ describe('derivePromptImportTriggers', () => {
     ]);
   });
 
-  it('drops a world whose gate is closed and repeated triggers', async () => {
+  it('drops a world whose gate is closed', () => {
     const entries = [
       { locator: 'a', resolved: '/nowhere/a.md', outcome: 'imported' },
-      { locator: 'a2', resolved: '/nowhere/a.md:3', outcome: 'failed' },
       {
         locator: 'k',
         resolved: `kb://${SPACE_ID}/a.md`,
@@ -118,16 +83,10 @@ describe('derivePromptImportTriggers', () => {
     ] as const;
 
     expect(
-      await derivePromptImportTriggers(entries, {
-        host: true,
-        knowledge: false,
-      }),
+      derivePromptImportTriggers(entries, { host: true, knowledge: false }),
     ).toEqual([{ key: '/nowhere/a.md' }]);
     expect(
-      await derivePromptImportTriggers(entries, {
-        host: false,
-        knowledge: true,
-      }),
+      derivePromptImportTriggers(entries, { host: false, knowledge: true }),
     ).toEqual([{ space: { id: SPACE_ID }, key: 'a.md' }]);
   });
 });

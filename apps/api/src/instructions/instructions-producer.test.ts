@@ -1912,6 +1912,34 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
     expect(blockPaths(part)).toEqual([join(root, 'AGENTS.md')]);
   });
 
+  it('loads the imported instruction file for a root below its directory', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await mkdir(join(root, 'apps/api'), { recursive: true });
+    const part = await turn({
+      workspaceRoot: join(root, 'apps/api'),
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'AGENTS.md') }],
+    });
+    if (part === undefined) throw new Error('the bound turn loaded nothing');
+
+    expect(blockPaths(part)).toEqual([join(root, 'AGENTS.md')]);
+  });
+
+  it('loads the imported instruction file for another import below its directory', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await write(join(root, 'apps/api/doc.md'), 'doc\n');
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [
+        { key: join(root, 'AGENTS.md') },
+        { key: join(root, 'apps/api/doc.md') },
+      ],
+    });
+    if (part === undefined) throw new Error('the unbound turn loaded nothing');
+
+    expect(withinRoot(blockPaths(part))).toEqual([join(root, 'AGENTS.md')]);
+  });
+
   it('loads the root chain and a nested import chain once each, in order', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');

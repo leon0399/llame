@@ -151,7 +151,10 @@ import {
   resolvePromptImports as resolvePromptImportTargets,
   type PromptImportRequest,
 } from '../prompt-imports/prompt-imports';
-import { derivePromptImportTriggers } from '../prompt-imports/prompt-import-triggers';
+import {
+  derivePromptImportTriggers,
+  type PromptImportTriggerGates,
+} from '../prompt-imports/prompt-import-triggers';
 import { nativeReadTool } from '../tools/native-files';
 import {
   type KnowledgeToolResolver,
@@ -2611,7 +2614,7 @@ export class RunExecutionService {
   private turnInstructionWorlds(
     input: ExecuteRunInput,
     toolContext: ToolContext | undefined,
-    gates: { readonly host: boolean; readonly knowledge: boolean },
+    gates: PromptImportTriggerGates,
     nextToolCallId: () => string,
   ): Pick<TurnInstructions, 'readPage' | 'knowledge' | 'admitsRead'> {
     if (toolContext === undefined) {
@@ -2634,16 +2637,7 @@ export class RunExecutionService {
       ).result;
     return {
       readPage: gates.host ? readPage : undefined,
-      knowledge: gates.knowledge
-        ? {
-            readPage,
-            probe: createKnowledgeInstructionProbe({
-              resolver: this.knowledgeResolver,
-              ownerUserId: input.userId,
-              signal: input.abortSignal,
-            }),
-          }
-        : undefined,
+      knowledge: this.knowledgeInstructionWorld(input, readPage),
       admitsRead: (path) =>
         previewToolPermission(nativeReadTool, { path }, toolContext),
     };
@@ -2656,7 +2650,7 @@ export class RunExecutionService {
    */
   private async promptImportInstructionTriggers(
     input: ExecuteRunInput,
-    gates: { readonly host: boolean; readonly knowledge: boolean },
+    gates: PromptImportTriggerGates,
   ): Promise<ReadonlyArray<PromptImportTrigger>> {
     if (this.inRunProducer?.prepareTurn === undefined) return [];
     if (!gates.host && !gates.knowledge) return [];
@@ -2670,6 +2664,26 @@ export class RunExecutionService {
     return stored === undefined
       ? []
       : derivePromptImportTriggers(stored.data.payload.imports, gates);
+  }
+
+  /**
+   * The Knowledge world one attempt may load Space candidates in: absent
+   * without `read` and a configured Knowledge root, else the audited page
+   * reader and the owner-scoped Space probe.
+   */
+  private knowledgeInstructionWorld(
+    input: ExecuteRunInput,
+    readPage: ReadPage,
+  ): InRunAttempt['knowledge'] {
+    if (!this.knowledgeInstructionsLoadable()) return undefined;
+    return {
+      readPage,
+      probe: createKnowledgeInstructionProbe({
+        resolver: this.knowledgeResolver,
+        ownerUserId: input.userId,
+        signal: input.abortSignal,
+      }),
+    };
   }
 
   /**
@@ -2690,24 +2704,22 @@ export class RunExecutionService {
     const producer = this.inRunProducer;
     const admitsRead = turn.admitsRead;
     // The root load needs a binding and the host world; prompt-import
-    // triggers need neither a binding nor the host world (design D4).
-    const workspaceRoot = turn.readPage === undefined ? undefined : turn.root;
+    // triggers need neither a binding nor the host world (design D4). The
+    // producer ignores a host trigger of a Run without the host reader.
     if (
       producer?.prepareTurn === undefined ||
       admitsRead === undefined ||
-      (workspaceRoot === undefined && turn.promptImportTriggers.length === 0)
+      (turn.root === undefined && turn.promptImportTriggers.length === 0)
     ) {
       return;
     }
     const part = await producer.prepareTurn({
       runId: input.runId,
-      ...(workspaceRoot !== undefined && { workspaceRoot }),
-      ...(turn.readPage !== undefined && { readPage: turn.readPage }),
+      workspaceRoot: turn.root,
+      readPage: turn.readPage,
       admitsRead,
-      ...(turn.knowledge !== undefined && { knowledge: turn.knowledge }),
-      ...(turn.promptImportTriggers.length > 0 && {
-        promptImportTriggers: turn.promptImportTriggers,
-      }),
+      knowledge: turn.knowledge,
+      promptImportTriggers: turn.promptImportTriggers,
       seenKeys: seenCanonicalPaths,
       abortSignal: input.abortSignal,
     });
@@ -3408,18 +3420,9 @@ export class RunExecutionService {
       // The accepted-turn load's keys count as disclosed: a file it staged
       // must not reload on the attempt's first in-Run trigger.
       seenKeys: turn.seenCanonicalPaths,
-      ...(this.hostInstructionsLoadable() && { readPage }),
+      readPage: this.hostInstructionsLoadable() ? readPage : undefined,
       admitsRead,
-      ...(this.knowledgeInstructionsLoadable() && {
-        knowledge: {
-          readPage,
-          probe: createKnowledgeInstructionProbe({
-            resolver: this.knowledgeResolver,
-            ownerUserId: input.userId,
-            signal: input.abortSignal,
-          }),
-        },
-      }),
+      knowledge: this.knowledgeInstructionWorld(input, readPage),
       abortSignal: input.abortSignal,
     });
   }

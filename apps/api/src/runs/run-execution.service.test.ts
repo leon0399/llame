@@ -10697,9 +10697,13 @@ describe('RunExecutionService instruction files', () => {
     ).mockResolvedValue({ ...item, data: { ...item.data, payload } });
   }
 
-  /** Runs one turn on the default (unbound) Chat and returns its repositories. */
-  async function runPlainTurn(outcomes: ImportOutcomes) {
+  /**
+   * Runs one turn and returns its repositories; the Chat is unbound unless
+   * `setup` binds it.
+   */
+  async function runPlainTurn(outcomes: ImportOutcomes, setup?: () => void) {
     const repositories = mockNormalExecutionRepositories();
+    setup?.();
     servePromptImports(outcomes);
     serveNativeReads();
     const append = vi.spyOn(RunEventsRepository.prototype, 'append');
@@ -10717,38 +10721,26 @@ describe('RunExecutionService instruction files', () => {
   }
 
   it.each([
-    ['an imported target', 'imported', ''],
-    ['a target whose read failed', 'failed', ''],
-    ['a target resolved with its selector attached', 'imported', ':1-2'],
+    ['an imported target', 'imported'],
+    ['a target whose read failed', 'failed'],
   ] as const)(
     'stages the nested chain of %s before the first request',
-    async (_label, outcome, selector) => {
+    async (_label, outcome) => {
       const { root, touch } = nestedInstructionsRoot();
       try {
-        const repositories = mockNormalExecutionRepositories();
-        bindChatTo(root);
-        serveNativeReads();
-        servePromptImports([
-          {
-            locator: 'apps/api/main.ts',
-            resolved: `${touch}${selector}`,
-            ...(outcome === 'imported'
-              ? { outcome, body: 'export const main = 1;' }
-              : { outcome }),
-          },
-        ]);
-        const execution = makeExecutionService(
-          createFakeModelClient(['answer']),
-          undefined,
-          'host-a',
-          executionOptions(),
+        const { repositories } = await runPlainTurn(
+          [
+            {
+              locator: 'apps/api/main.ts',
+              resolved: touch,
+              ...(outcome === 'imported'
+                ? { outcome, body: 'export const main = 1;' }
+                : { outcome }),
+            },
+          ],
+          () => bindChatTo(root),
         );
 
-        const result = await execution.service.executeRun(
-          executionInput(execution.client),
-        );
-
-        await expect(result.text).resolves.toBe('answer');
         // The root load alone could not stage `apps/api/AGENTS.md`.
         const text = stagedInstructionPart(repositories)?.data.text ?? '';
         expect(text).toContain('run the tests');
@@ -10763,29 +10755,18 @@ describe('RunExecutionService instruction files', () => {
     const { root, touch } = nestedInstructionsRoot();
     const other = instructionsRoot();
     try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChatTo(other);
-      serveNativeReads();
-      servePromptImports([
-        {
-          locator: 'apps/api/main.ts',
-          resolved: touch,
-          outcome: 'imported',
-          body: 'export const main = 1;',
-        },
-      ]);
-      const execution = makeExecutionService(
-        createFakeModelClient(['answer']),
-        undefined,
-        'host-a',
-        executionOptions(),
+      const { repositories } = await runPlainTurn(
+        [
+          {
+            locator: 'apps/api/main.ts',
+            resolved: touch,
+            outcome: 'imported',
+            body: 'export const main = 1;',
+          },
+        ],
+        () => bindChatTo(other),
       );
 
-      const result = await execution.service.executeRun(
-        executionInput(execution.client),
-      );
-
-      await expect(result.text).resolves.toBe('answer');
       // The resolved path is absolute, so the new binding does not re-project
       // it: both the new root's chain and the imported directory's load.
       const text = stagedInstructionPart(repositories)?.data.text ?? '';
@@ -10820,40 +10801,30 @@ describe('RunExecutionService instruction files', () => {
   it('stages no prompt-import chain on a detaching attempt', async () => {
     const { root, touch } = nestedInstructionsRoot();
     try {
-      const repositories = mockNormalExecutionRepositories();
-      bindChatTo(root);
-      vi.spyOn(
-        WorkspaceBindingRepository.prototype,
-        'detach',
-      ).mockResolvedValue('detached');
-      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
-        ...chat,
-        workspaceRoot: root,
-        workspaceExecutorId: 'gone-host',
-        workspaceGeneration: 2,
-      });
-      serveNativeReads();
-      servePromptImports([
-        {
-          locator: 'apps/api/main.ts',
-          resolved: touch,
-          outcome: 'imported',
-          body: 'export const main = 1;',
+      const { repositories, append } = await runPlainTurn(
+        [
+          {
+            locator: 'apps/api/main.ts',
+            resolved: touch,
+            outcome: 'imported',
+            body: 'export const main = 1;',
+          },
+        ],
+        () => {
+          bindChatTo(root);
+          vi.spyOn(
+            WorkspaceBindingRepository.prototype,
+            'detach',
+          ).mockResolvedValue('detached');
+          vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+            ...chat,
+            workspaceRoot: root,
+            workspaceExecutorId: 'gone-host',
+            workspaceGeneration: 2,
+          });
         },
-      ]);
-      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
-      const execution = makeExecutionService(
-        createFakeModelClient(['answer']),
-        undefined,
-        'host-a',
-        executionOptions(),
       );
 
-      const result = await execution.service.executeRun(
-        executionInput(execution.client),
-      );
-
-      await expect(result.text).resolves.toBe('answer');
       expect(stagedProducers(repositories)).not.toContain('instructions');
       expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
     } finally {
