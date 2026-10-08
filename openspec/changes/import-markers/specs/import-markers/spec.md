@@ -6,7 +6,7 @@ This capability defines the shared Markdown import-marker grammar and source-pre
 
 ### Requirement: Markdown text recognizes only the defined import marker shapes
 
-The system SHALL recognize import markers in ordinary Markdown source only as `@target`, the delimited bare markers `@"target"`, `@'target'`, and `` @`target` ``, `@[label](target)`, or `[label](target "import")` with exactly `import` as the title. Boundaries and tokens SHALL use source characters. Source ranges of fenced code, inline code, raw HTML, images, image references, links, link references, and link reference definitions SHALL be excluded; only the two explicit link shapes and an inline code span immediately preceded by a marker `@` are exceptions, and code contents SHALL never be scanned for markers. Escaped `\@` and `&#64;` SHALL not be markers.
+The system SHALL recognize import markers in Markdown source only as `@target`, `@"target"`, `@'target'`, `` @`target` ``, `@[label](target)`, or `[label](target "import")` with exactly `import` as the title. Boundaries and tokens SHALL use source characters. Source ranges of fenced code, inline code, raw HTML, images, image references, links, link references, and link reference definitions SHALL be excluded, except link and backtick markers. Escaped `\@` and `&#64;` SHALL not be markers.
 
 #### Scenario: An email address is not a marker
 
@@ -45,7 +45,7 @@ The system SHALL recognize import markers in ordinary Markdown source only as `@
 
 ### Requirement: Delimited bare markers carry the whole locator
 
-Delimited markers `@"…"`, `@'…'`, and `` @`…` `` SHALL carry non-empty, single-line content unchanged as the target, including paths, `kb://`, `skill://`, web locators, and selectors; selectors are not split and escapes are not processed. Their `@` SHALL use the bare boundary (line/block start, whitespace, or `(`, `[`, `{`, `<`, `"`, or `'`). After closing, only whitespace/end of input or block or trailing `.,;!?)]}>"'` followed by whitespace/end is allowed; otherwise no marker or bare re-scan.
+Delimited markers `@"…"`, `@'…'`, and `` @`…` `` SHALL carry non-empty, single-line content unchanged as the target, selectors included, with no escapes. Their `@` SHALL have the bare boundary. A backtick marker is an `@` ending a text run directly before an inline code span; code contents are never scanned. After the closing delimiter only whitespace, end, or trailing `.,;!?)]}>"'` then whitespace or end may follow; otherwise there is no marker.
 
 #### Scenario: A quoted marker preserves spaces in a path
 
