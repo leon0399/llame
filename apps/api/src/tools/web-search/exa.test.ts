@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { EXA_SEARCH_URL, createExaEngine } from './exa';
 import { type EngineRequest } from './chain';
-import { captureFetch } from './test-fetch';
+import { captureFetch } from '../../testing/web-search-fetch';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test -site:spam.test latest',
@@ -119,6 +119,23 @@ describe('Exa adapter', () => {
       query: 'site:example.test',
       numResults: 7,
       includeDomains: ['example.test'],
+      contents: { highlights: true },
+    });
+  });
+  it('keeps punctuation-wrapped operators in the Exa query', async () => {
+    const recorded = captureFixture({ results: [] });
+    await createExaEngine(
+      { key: 'secret' },
+      { fetch: recorded.fetch },
+    )(
+      request({
+        query: '"rust site:docs.rs" async',
+        recency: undefined,
+      }),
+    );
+    expect(await parseBody(recorded.seen().init)).toStrictEqual({
+      query: '"rust site:docs.rs" async',
+      numResults: 7,
       contents: { highlights: true },
     });
   });

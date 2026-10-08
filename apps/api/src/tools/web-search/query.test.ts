@@ -27,15 +27,15 @@ describe('splitSiteFilters', () => {
     expect(splitSiteFilters(query)).toStrictEqual(expected);
   });
 
-  it('trims punctuation around site hosts', () => {
+  it('keeps punctuation-wrapped site operators in the query', () => {
     expect(splitSiteFilters('"rust site:docs.rs" async')).toStrictEqual({
-      query: '"rust async',
-      include: ['docs.rs'],
+      query: '"rust site:docs.rs" async',
+      include: [],
       exclude: [],
     });
     expect(splitSiteFilters('(site:a.com OR site:b.com) x')).toStrictEqual({
-      query: '(site:a.com OR x',
-      include: ['b.com'],
+      query: '(site:a.com OR site:b.com) x',
+      include: [],
       exclude: [],
     });
   });

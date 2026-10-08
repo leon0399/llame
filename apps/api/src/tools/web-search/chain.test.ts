@@ -10,7 +10,7 @@ import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
 } from '../../instance-config/llame-config';
-import { captureFetch } from './test-fetch';
+import { captureFetch } from '../../testing/web-search-fetch';
 
 const request = (
   signal: AbortSignal = new AbortController().signal,

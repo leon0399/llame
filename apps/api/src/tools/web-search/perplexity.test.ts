@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { PERPLEXITY_SEARCH_URL, createPerplexityEngine } from './perplexity';
 import { type EngineRequest } from './chain';
-import { captureFetch } from './test-fetch';
+import { captureFetch } from '../../testing/web-search-fetch';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test -site:spam.test latest',
@@ -141,6 +141,22 @@ describe('Perplexity adapter', () => {
       query: 'site:example.test',
       max_results: 7,
       search_domain_filter: ['example.test'],
+    });
+  });
+  it('keeps punctuation-wrapped operators in the Perplexity query', async () => {
+    const recorded = captureFixture(success());
+    await createPerplexityEngine(
+      { key: 'secret' },
+      { fetch: recorded.fetch },
+    )(
+      request({
+        query: '(site:a.com OR site:b.com) x',
+        recency: undefined,
+      }),
+    );
+    expect(await parseBody(recorded.seen().init)).toStrictEqual({
+      query: '(site:a.com OR site:b.com) x',
+      max_results: 7,
     });
   });
 

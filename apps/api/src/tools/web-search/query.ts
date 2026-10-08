@@ -14,8 +14,8 @@ export function splitSiteFilters(query: string): SiteFilters {
     .filter((token) => {
       const match = /^(-?)site:(\S+)/iu.exec(token);
       if (match === null) return true;
-      const host = match[2].replaceAll(/^["'(),]+|["'(),]+$/gu, '');
-      if (host.length === 0) return true;
+      const host = match[2];
+      if (/^["'(),]|["'(),]$/u.test(host)) return true;
       (match[1] === '-' ? exclude : include).push(host);
       return false;
     });

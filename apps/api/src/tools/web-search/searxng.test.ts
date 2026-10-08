@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createSearxngEngine } from './searxng';
 import { type EngineRequest } from './chain';
-import { captureFetch } from './test-fetch';
+import { captureFetch } from '../../testing/web-search-fetch';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test latest adapters',
   recency: 'week',
-  limit: 3,
+  limit: 1,
   signal: new AbortController().signal,
   userAgent: 'llame/test',
   ...overrides,

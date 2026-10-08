@@ -1,4 +1,4 @@
-import { type VendorFetch } from './http';
+import { type VendorFetch } from '../tools/web-search/http';
 
 export type CapturedRequest = {
   readonly url: string;
