@@ -215,7 +215,7 @@ The owner transcript SHALL show, on the message that carries an instructions ite
 
 ### Requirement: Instruction bodies expand import markers
 
-Each loaded instruction body SHALL expand recognized markers as whole-file imports in its store. Host importers SHALL resolve relative targets from their directory and absolute or `~/` targets; Knowledge importers SHALL resolve only relative targets within their own Space, and a target escaping that Space SHALL remain literal. Import selectors SHALL NOT be interpreted. Schemed or cross-store targets, missing, and non-regular targets SHALL remain literal and SHALL load nothing.
+Each loaded instruction body SHALL expand markers as whole-file imports in its store. Host importers SHALL resolve relative targets from their directory and absolute targets; `~/` targets SHALL remain literal. Knowledge importers SHALL resolve only relative targets within their own Space; escaping targets SHALL remain literal. Import selectors SHALL NOT be interpreted. Schemed, cross-store, and admitted missing or admitted non-regular targets SHALL remain literal and SHALL load nothing.
 
 #### Scenario: An import's directory chain loads before its own imports
 
@@ -247,15 +247,31 @@ Each loaded instruction body SHALL expand recognized markers as whole-file impor
 - **THEN** the marker remains literal
 - **AND** no Knowledge target is loaded or audited
 
+#### Scenario: A home-relative instruction import stays literal
+
+- **WHEN** `/repo/AGENTS.md` contains `@~/prefs.md`
+- **THEN** the marker remains literal
+- **AND** no server-resolved home path reaches labels or metadata, no probe runs, and no audit event is recorded
+
 #### Scenario: Instruction imports load whole files
 
 - **WHEN** `/repo/AGENTS.md` contains `[doc](foo/doc.md:30-35 "import")` and only `/repo/foo/doc.md` exists
 - **THEN** the target `foo/doc.md:30-35` names no file and the marker remains literal
 - **AND** no read or audit event is recorded
 
+### Requirement: Instruction import targets are admitted before probing
+
+After resolving a host or `kb://` target, the `read` group SHALL silently pre-evaluate the target without recording, before any probe. A denied target SHALL use the normal audited `read` path without probing and SHALL be reported as denied/not imported whether or not it exists. Only an admitted target SHALL be probed; an admitted missing target SHALL remain literal with no audit. Bypass admits and probes.
+
+#### Scenario: A rejected import target hides existence
+
+- **WHEN** the silent `read` pre-evaluation rejects an import target, whether or not its host path or Knowledge resource exists
+- **THEN** the normal audited `read` path records the denial without probing the filesystem and reports the marker as denied/not imported
+- **AND** the marker remains literal and the owner sees the same denied outcome in either case
+
 ### Requirement: Instruction imports are bounded and cycle-safe
 
-Instruction imports SHALL process targets in first-occurrence order and recurse depth-first for at most five hops; hops count from the nearest chain file. A chain file loaded by an import's directory trigger SHALL restart at hop zero. A target already in the epoch seen set by canonical host path or logical `kb://` locator SHALL be skipped. Missing, non-regular, repeated, cyclic, and sixth-hop targets SHALL remain literal without loading or auditing; the seen set SHALL guarantee termination.
+Instruction imports SHALL process targets in first-occurrence order and recurse depth-first for at most five hops; hops count from the nearest chain file. Import-triggered chain files SHALL restart at hop zero. A target already in the epoch seen set by canonical host path or logical `kb://` locator SHALL be skipped. Admitted missing or admitted non-regular, repeated, cyclic, and sixth-hop targets SHALL remain literal without loading or auditing; the seen set SHALL guarantee termination.
 
 #### Scenario: A sixth import hop remains literal
 
@@ -275,8 +291,8 @@ Instruction imports SHALL process targets in first-occurrence order and recurse 
 - **THEN** each imported file is loaded at most once
 - **AND** the second marker remains literal with no second read or audit
 
-#### Scenario: A missing import remains literal without audit
+#### Scenario: A missing allowed import remains literal without audit
 
-- **WHEN** `/repo/AGENTS.md` contains `@missing.md` and no such file exists
+- **WHEN** `/repo/AGENTS.md` contains `@missing.md`, the silent `read` pre-evaluation admits the resolved target, and no such file exists
 - **THEN** the marker remains literal
 - **AND** no read and no audit event is recorded for the missing target

@@ -92,20 +92,14 @@ raw text, which cannot tell a code span from a marker reliably.
 After `collectCandidate` loads a body, it parses the body's markers and, in marker order,
 resolves each target in the importer's store:
 
-- host importer: `~/` against the native executor's home directory, absolute as written,
-  otherwise against the importer's directory with POSIX lexical resolution; any target
-  carrying a URL scheme, `kb://`, or `skill://` stays literal;
+- host importer: absolute as written, otherwise against the importer's directory with
+  POSIX lexical resolution; a `~/` target stays literal; any target carrying a URL scheme,
+  `kb://`, or `skill://` stays literal;
 - Knowledge importer: relative targets inside the importer's own Space, as a logical
   `kb://<space>/<path>` locator; absolute, `~/`, `..` escaping the Space, and schemed
   targets stay literal.
 
-Each resolved target is probed exactly as a chain candidate is (no decision, no audit).
-A missing target, a directory, a non-regular file, a target whose canonical key is already
-in the attempt's seen keys, or a target at hop 6 is skipped and its marker stays literal.
-Otherwise the target is admitted (D3), read with the existing paged reader, and pushed to the
-collector after its importer and after everything loaded through the importer's earlier
-markers, with `importedBy` set to the importer's selected path. The seen key is added before
-anything else happens, so cycles terminate.
+After resolution, an import target receives a silent `read`-group pre-evaluation without recording, before probing. A denied target then uses the normal audited `read` path, records denial without probing the filesystem, and reports it denied/not imported regardless of existence. Only an admitted target is probed; an admitted missing target, directory, non-regular file, target whose canonical key is already in the attempt's seen keys, or target at hop 6 stays literal without audit. Bypass pre-evaluation admits eligible targets, so bypass imports are probed. The existing chain-candidate probe remains unchanged.
 
 An import is then a host or Knowledge trigger for its own directory (D4): that chain is
 walked next, and only after it are the import's own markers expanded at hop + 1. The
@@ -207,10 +201,14 @@ first 64 distinct marker targets in first-occurrence order (later markers stay p
 are not probed):
 
 1. Local and Knowledge targets are resolved like a model `read` argument (Workspace
-   projection for relative paths; relative targets on an unbound Chat are prose) and probed
-   without a decision or audit, using `read`'s own literal-path-first selector split, so a
-   file literally named `x.md:10-12` is probed as itself. A missing target, or a host target
-   on a process with no native executor, is prose: no read, no event, no notice.
+   projection for relative paths; relative targets on an unbound Chat are prose). After
+   resolution, the `read` group silently pre-evaluates each target without recording an audit.
+   A denied target uses the normal audited `read` path without probing and is reported not
+   imported regardless of existence. Only admitted targets are probed with `read`'s own
+   literal-path-first selector split, so a file literally named `x.md:10-12` is probed as
+   itself. An admitted missing target, or a host target on a process with no native executor,
+   is prose: no read, no event, no notice. Bypass pre-evaluation admits eligible targets, so they
+   are probed.
 2. The target, selectors included, is read once through `nativeReadTool` with origin
    `prompt-import` and call id `prompt-import-<runId>-<attemptId>-<n>`, admitted by the
    `read` group under the Run's permission mode. Web targets go through the web admission of
@@ -267,9 +265,9 @@ payloads.
 - [The D4 cascade loads more instruction text per step than before, with no aggregate cap]
   → per-file caps hold; the seen set bounds the total to each file once per epoch;
   #1144 tracks an aggregate cap.
-- [`~/` depends on a home directory] → the collector expands it with the worker's home
-  directory before probing, because the native executor runs in-process with the worker and
-  `read` itself does not expand `~`; a Knowledge importer never accepts `~/`.
+- [`~/` targets could expose a worker home path] → instruction imports leave `~/` literal
+  because AGENTS.md says "Keep server-resolved host paths private"; no server-resolved home
+  path reaches labels or metadata. A Knowledge importer also leaves `~/` literal.
 - [An `@token` that happens to name an existing file in the Workspace imports it]
   → the owner sees the chip; the read is admitted like any model read; #1143 adds paste
   confirmation. A code span keeps a token literal.

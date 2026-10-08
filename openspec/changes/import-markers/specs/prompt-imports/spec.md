@@ -42,27 +42,33 @@ Each target SHALL resolve exactly as native `read`, including selectors: absolut
 - **THEN** the target remains prose
 - **AND** no prompt import is attempted
 
-### Requirement: Local and Knowledge targets are probed before admission
+### Requirement: Local and Knowledge targets are silently pre-evaluated before probing
 
-Before admission, each host-path or `kb://` target SHALL be probed with its selector removed according to native `read`'s literal-path-first split, without making a permission decision or recording an audit event. If no native executor is available for a host target, or the probe finds no target, the marker SHALL remain prose: no read, audit event, model disclosure, or owner disclosure SHALL result.
+After resolving, each host-path or `kb://` target SHALL be silently pre-evaluated by the `read` group before probing, without recording an audit event. A denied target SHALL use the normal audited `read` path without probing and be reported as denied/not imported whether or not it exists. Only an admitted target SHALL be probed; an admitted missing target, or a host target with no native executor, SHALL remain prose with no audit event. Bypass admits and probes.
 
-#### Scenario: A missing host target stays prose
+#### Scenario: A missing allowed host target stays prose
 
-- **WHEN** a prompt names `@missing.md:10-12` and the selector-free host target does not exist
-- **THEN** the marker remains prose and no read is issued
-- **AND** no permission decision, audit event, model notice, or owner notice is produced
+- **WHEN** a prompt names `@missing.md:10-12`, the resolved target is admitted by the silent `read` pre-evaluation, and the selector-free host target does not exist
+- **THEN** the marker remains prose and no audited read is issued
+- **AND** no audit event, model notice, or owner notice is produced
 
-#### Scenario: A missing Knowledge target stays prose
+#### Scenario: A missing allowed Knowledge target stays prose
 
-- **WHEN** a prompt names a `kb://` target whose selector-free resource cannot be found for the Run owner
+- **WHEN** a prompt names a `kb://` target whose resolved target is admitted by the silent `read` pre-evaluation but whose selector-free resource cannot be found for the Run owner
 - **THEN** the marker remains prose
-- **AND** no read or audit event is produced
+- **AND** no audited read or audit event is produced
 
 #### Scenario: An absolute host target without an executor stays prose
 
 - **WHEN** an unbound Chat imports `@/tmp/notes.md` on a process with no native executor
 - **THEN** the target cannot be probed and the marker remains prose
-- **AND** no read, permission decision, or audit event is recorded
+- **AND** no read or audit event is recorded
+
+#### Scenario: A rejected absolute path hides existence
+
+- **WHEN** the silent `read` pre-evaluation rejects an absolute host target, whether or not its path exists
+- **THEN** the normal audited `read` path reports it as denied without probing the filesystem
+- **AND** the owner chip and model-visible text report the same not-imported outcome in either case
 
 #### Scenario: Literal paths take precedence over selectors
 
@@ -82,9 +88,9 @@ Each target surviving a probe or needing none (`skill://`/web) SHALL be read onc
 
 #### Scenario: A denied target has no started event
 
-- **WHEN** the `read` group denies a prompt target that exists
-- **THEN** the target has requested and completed audit events with origin `prompt-import`
-- **AND** it has no started event and no imported content
+- **WHEN** the silent `read` pre-evaluation rejects a prompt target, whether or not it exists
+- **THEN** the normal audited `read` path records requested and completed audit events with origin `prompt-import`
+- **AND** it has no started event, no filesystem probe, and no imported content
 
 #### Scenario: The model cannot choose the prompt-import origin
 
@@ -103,6 +109,7 @@ Each target surviving a probe or needing none (`skill://`/web) SHALL be read onc
 - **WHEN** `read` is allowlisted, a target exists, and the Run's effective permission mode is `bypass`
 - **THEN** the prompt-import read is admitted without evaluating the `read` group
 - **AND** its decision is recorded as bypass
+- **AND** the target is probed after bypass admission
 
 ### Requirement: Imported results equal native read output
 

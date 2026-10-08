@@ -29,12 +29,12 @@ one change with separate implementation layers.
   imported content is injected beside it.
 - **Instruction-file imports** (`instruction-files`, closes #1029). A marker in a loaded
   instruction file names a file in the same store: a host instruction file imports host
-  files, resolved against the importing file's directory, with `~/` and absolute paths
-  allowed; a Knowledge instruction file imports files of its own Space. Web, `skill://`, and
-  cross-store targets stay literal. Each loaded import is a separate `<file>` block in the
-  same `instructions` item, placed directly after its importer, depth-first in marker order,
+  files, resolved against the importing file's directory, with absolute paths allowed;
+  `~/` targets stay literal; a Knowledge instruction file imports files of its own Space.
+  Web, `skill://`, and cross-store targets stay literal. Each loaded import is a separate
+  `<file>` block in the same `instructions` item, placed directly after its importer, depth-first in marker order,
   recording which file imported it. Imports recurse to 5 hops, skip cycles and files already
-  in the seen set, and leave missing targets literal. Each import gets the existing 32 KiB
+  in the seen set, and leave admitted missing targets literal. Each import gets the existing 32 KiB
   per-file cap and truncation line. An import inherits its importer's scope and precedence.
   Each import is a system-origin `read` with origin `instructions`, admitted by the `read`
   group on both its resolved path and, when different, its canonical path. A loaded import
@@ -57,8 +57,10 @@ one change with separate implementation layers.
   first model request, each distinct marker is read once through the native `read` tool
   with system origin `prompt-import`, admitted by the `read` group under the Run's
   permission mode, and the results persist as one `prompt-imports` item on the triggering
-  user message; retries and recovery reuse completed results. A host or Knowledge target
-  that does not exist is prose: nothing is read, audited, or reported. A denied or failed
+  user message; retries and recovery reuse completed results. The `read` group silently
+  pre-evaluates each host or Knowledge target before probing; a denied target is audited and
+  reported as not imported without probing, whether or not it exists, while only admitted
+  targets are probed and an admitted missing target remains prose with no audit. A denied or failed
   read is reported to the owner and named to the model as not imported. Imported files are
   data: their own markers are not followed. A host or Knowledge prompt import that was
   admitted triggers that directory's instruction chain on the same accepted turn, with or
@@ -80,7 +82,7 @@ Workspace allowed under `read` admission of both paths; import-loaded files are 
 triggers sharing one seen set; separate blocks, depth-first after the importer, inheriting
 its scope; 5 hops and per-file caps only, with an aggregate cap deferred to
 [#1144](https://github.com/leon0399/llame/issues/1144); prompt imports expanded once per
-accepted turn into a separate rail item, markers kept literal, missing local targets left as
+accepted turn into a separate rail item, markers kept literal, admitted missing host or Knowledge targets stay as
 prose, no recursion from prompt imports; `@skill://name` is a data read and `$skill` remains
 activation; a paste-time confirmation is [#1143](https://github.com/leon0399/llame/issues/1143).
 
@@ -88,9 +90,8 @@ The following follow from those decisions but were not asked separately, and are
 review: prompt imports reuse the explicit-activation bounds (8 targets, 128 KiB aggregate
 output, 30 seconds) as a separate budget, and at most 64 distinct markers per message are
 probed at all; the canonical-path admission applies to instruction imports only, recorded
-as a derived `canonical` decision on the import's first page read, while prompt and skill
 imports keep exact parity with a `read` of the same locator; `~/` in a host instruction
-import resolves to the worker's home directory, where the in-process native executor runs;
+import stays literal, so no server-resolved home path reaches labels or metadata;
 the `prompt-imports` item precedes the user text in the same message, as every attached
 rail item does; the delivery stack has seven implementation layers rather than the four
 first sketched, because #975 measured 4,600 authored lines against a 1,700-line estimate
@@ -104,7 +105,7 @@ and round-1 review found the turn-load and admission work larger than first esti
   boundary and token rules, distinct-target order, and the rule that marker text is never
   rewritten.
 - `prompt-imports`: recognition in the owner's prompt, locator resolution against the
-  bound Workspace, the probe-before-admission rule for local and Knowledge targets,
+  bound Workspace, silent read-group pre-evaluation before probing and admission,
   system-origin `prompt-import` reads and audit, bounds, the persisted item and its
   recovery, instruction-chain triggering, and owner disclosure.
 

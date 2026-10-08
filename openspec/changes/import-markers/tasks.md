@@ -63,15 +63,19 @@ Re-estimate authored size at each layer boundary and before publication; split a
 ## 2. `import-markers/instruction-imports`: imports in instruction files
 
 - [ ] 2.1 Extend the bundle collector to expand markers in each loaded body: same-store
-      resolution, `~/` expanded with the worker home directory, probing without decision or
-      audit, the skip rules, 5 hops counted from the nearest chain file, placement after the
-      importer, `importedBy` in the payload and in the API's exact payload validator, the seen
-      key added before anything else, and fail-closed skipping of any import whose canonical
-      path differs from its resolved path until `import-admission` lands (design D2, D3).
-      Verify with producer tests, including a symlinked import skipped as denied, for the `instruction-files` scenarios on
-      chains, cycles, the six-hop chain, a missing target with no audit event, a selector-
-      bearing target left literal, a host importer's web and `kb://` targets staying literal,
-      and a Knowledge importer staying in its Space.
+      resolution with `~/` left literal, silent `read`-group pre-evaluation before every
+      probe, denied targets sent through the audited `read` path without a filesystem probe
+      regardless of existence, admitted-only probing, the skip rules, 5 hops counted from
+      the nearest chain file, placement after the importer, `importedBy` in the payload and
+      in the API's exact payload validator, the seen key added before anything else, and
+      fail-closed skipping of any import whose canonical path differs from its resolved path
+      until `import-admission` lands (design D2, D3). Verify with producer tests, including
+      a symlinked import skipped as denied, a rejected existing and missing target reporting
+      identically as denied after silent pre-evaluation without a probe, an admitted missing
+      target staying literal with no audit, `@~/prefs.md` staying literal, the
+      `instruction-files` scenarios on chains, cycles, the six-hop chain, a selector-bearing
+      target left literal, a host importer's web and `kb://` targets staying literal, and a
+      Knowledge importer staying in its Space.
 - [ ] 2.2 Make a loaded import a trigger for its own directory, walked before the import's
       own markers, with chain files it loads restarting hop counting (design D2, D4). Verify
       the proposal's acceptance examples: `/repo/AGENTS.md` importing `@foo/doc.md` yields
@@ -150,18 +154,22 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [ ] 5.2 Add the prompt-import stage after the binding re-check and explicit activation,
       skipped on a detaching attempt through a new `detaching` flag on the Workspace
       preparation result: resolution against the bound Workspace, the 64-marker
-      probe cap, the literal-path-first probe, one `read` per distinct target with
-      selectors, the 8-target, 128 KiB, and 30 s bounds, and one persisted `prompt-imports`
-      item with its template, precedence statement, neutralization, not-imported lines, and
-      per-target `admitted` and resolved path (design D6, D7). Verify the `prompt-imports`
-      scenarios except those of _Admitted local imports trigger instruction loading_, the
-      unbound-Chat trigger scenarios, and the chip and isolation scenarios (layers 6 and 7),
-      including the `@README.md:30-35` and `:outline` examples against a scripted
-      web fixture, nine prose tokens listing nothing as omitted, a 65th marker neither probed
-      nor listed, an unprobed token dropped silently when the work bound fires, `ping @leo` and an e-mail
+      probe cap, silent `read`-group pre-evaluation before probing, the literal-path-first
+      probe for admitted targets, one `read` per distinct target with selectors, the
+      8-target, 128 KiB, and 30 s bounds, and one persisted `prompt-imports` item with its
+      template, precedence statement, neutralization, not-imported lines, and per-target
+      `admitted` and resolved path (design D6, D7). Verify the `prompt-imports` scenarios
+      except those of _Admitted local imports trigger instruction loading_, the unbound-Chat
+      trigger scenarios, and the chip and isolation scenarios (layers 6 and 7), including
+      the `@README.md:30-35` and `:outline` examples against a scripted web fixture, nine
+      prose tokens listing nothing as omitted, a 65th marker neither probed nor listed, an
+      unprobed token dropped silently when the work bound fires, `ping @leo` and an e-mail
       address recording no audit event, a host target with no native executor staying prose,
-      a denied read named as not imported, a detaching attempt importing nothing, and a
-      detaching retry replaying an earlier attempt's persisted item without new reads.
+      a rejected existing and missing absolute path reporting identically as denied after
+      silent pre-evaluation without a filesystem probe, an admitted missing path staying
+      prose with no audit, a denied read named as not imported, a detaching attempt importing
+      nothing, and a detaching retry replaying an earlier attempt's persisted item without
+      new reads.
 - [ ] 5.3 Route `prompt-import` web reads through the system-read derived-decision sink added
       in 3.1, so every derived web decision is recorded in its completion audit (design D6). Verify a
       redirected web import records each hop decision, in `default` and in `bypass`.
