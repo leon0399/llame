@@ -139,7 +139,9 @@ and round-1 review found the turn-load and admission work larger than first esti
   imported package files against the existing output and work bounds.
 - `tool-call-permissions`: the canonical-path evaluation of an instruction import becomes a
   named exception to submitted-argument matching, bypassed and recorded like the other
-  named evaluations.
+  named evaluations; the silent pre-evaluation of a prompt or instruction import target
+  records no decision of its own, since the audited `read` that follows records it, and
+  `bypass` admits it like every other evaluation.
 - `workspace-entry`: prompt imports wait for the per-attempt binding re-check, and a
   detaching attempt performs none.
 

@@ -7,63 +7,49 @@ After validating the call schema, the evaluator SHALL match originally submitted
 While a Workspace is entered, for native `read`, `edit`, and `write` calls with a relative string `path`, and `bash` calls with a relative string `cwd`, the value evaluated by permissions SHALL be the absolute path obtained by resolving the relative path from the canonical Workspace root, for `read` with its split-off read selector removed after that resolution; resolution SHALL be lexical like POSIX `path.posix.resolve`, preserving a trailing separator, and `..` SHALL be allowed to leave the root. The executor SHALL receive exactly the projected absolute string, including that trailing separator. Projection SHALL NOT perform realpath resolution; symlinks inside the projected path SHALL be followed by the OS as for any absolute path. For this requirement, "relative" means a value not starting with `/` and without a `scheme:` prefix recognized by the shared locator parser or the file-alias classifier (case-insensitive `scheme://` and `file:` forms); an unknown scheme SHALL remain `invalid_path` rather than being treated as a relative local path. A `file:` alias is always absolute and is classified before this Workspace projection. The submitted relative text SHALL NOT be matched. A `bash` call that omits `cwd` SHALL be evaluated as if the canonical Workspace root had been submitted as `cwd`; this is an explicit exception to the rule that inserted defaults are not matched. This exception SHALL apply only to omitted `bash.cwd` while a Workspace is entered. Absolute paths and valid file aliases SHALL remain unchanged by Workspace path projection. `kb://`, `skill://`, and web locators SHALL remain unchanged by Workspace path projection. The `bash.command` value SHALL continue to be matched only as submitted text. For tool calls issued in the same model step as an `enter_workspace` or `exit_workspace` call, projection SHALL use the Workspace root committed before that step began; a binding change SHALL take effect from the next model step. With no Workspace entered, relative native file paths SHALL remain invalid and an omitted `bash.cwd` SHALL retain its existing process-default behavior without being matched as a submitted field.
 
 The per-attempt Workspace binding re-check is a third named exception: it evaluates the `enter_workspace` group with the stored canonical Workspace root as the `path` field value rather than a model-submitted value. That synthetic evaluation SHALL obtain an allow and SHALL match no reject for the binding to remain valid.
-Instruction-import canonical-path evaluation is a fourth named exception: when an import's canonical path differs from its resolved path, the `read` group SHALL evaluate the canonical path. The resulting decision SHALL be recorded as a derived `canonical` decision beside the call decision in the completion payload when the call settles, and a rejection SHALL deny that call and the import.
-The silent pre-evaluation of a prompt or instruction import target before any probe SHALL record no decision of its own, because the audited `read` that follows records the call decision; in `bypass`, it SHALL admit without evaluating, like every other evaluation.
-
-#### Scenario: A canonical-path rejection denies an instruction import
-
-- **WHEN** an instruction import's canonical path differs from its resolved path, the resolved path is allowed, and the `read` group rejects the canonical path
-- **THEN** the rejection is recorded as a derived `canonical` decision on the import's first page read call
-- **AND** the call is denied with `requested` and `completed` events but no `started` event, and the import is denied
-
-#### Scenario: A rejected import target records one decision
-
-- **WHEN** the silent pre-evaluation rejects a prompt or instruction import target
-- **THEN** exactly one decision is recorded, the audited `read`'s decision
-- **AND** the silent pre-evaluation records no decision of its own
-  A `read` call whose `path` is an `http://` or `https://` locator SHALL be
-  decided over two texts: the locator as submitted with any split-off read
-  selector removed, and the locator the shared native projection returns, which
-  is the text the request will use — its read selector removed, its fragment cut,
-  its host, port, and encoding normalized. A reject clause
-  matching either text SHALL refuse the call, so a spelling cannot be arranged
-  to miss a reject; the allow SHALL be decided on the projected text, because
-  an allow names the resource the call will reach and the two texts address one
-  resource. The evaluator itself normalizes nothing: the projection is the read
-  tool's own parser, so the text matched and the text requested cannot drift.
-  A native `read`, `edit`, or `write` call whose `path` is a valid file alias,
-  in either the `file://` or the minimal `file:` form, SHALL be decided over
-  the submitted locator and the projection's percent-decoded absolute host path,
-  each with its `.` and `..` segments preserved and, for `read`, with any
-  split-off read selector removed; an `edit` or `write` alias keeps any
-  selector-shaped suffix in both texts, because a mutation takes its decoded
-  path literally. Every text
-  the evaluator matches for a `read` `path`, the submitted value included,
-  SHALL have its split-off read selector removed and nothing else changed. The
-  classifier SHALL run before Workspace projection, so a valid alias is matched
-  as an absolute host path whether or not a Workspace is entered. A reject
-  matching either text SHALL refuse the call, and an allow SHALL be decided on
-  the projected host path. An invalid file alias SHALL remain unchanged in
-  projection and SHALL be refused by permission admission or by native locator
-  validation; the permission evaluator SHALL not turn it into a filesystem path.
-  Each derived locator a web read issues, meaning a
-  redirect hop, an announced alternate, a suffix candidate, an `llms.txt`
-  candidate, or an adapter request, SHALL be evaluated against the `read` group as if the model had
-  submitted it — a hop is a different resource, so it earns its own allow
-  rather than inheriting one. A hop locator is the `Location` value resolved
-  against the redirecting request's URL by the WHATWG URL parser and serialized
-  as its `href`, so it is canonical in the same way (lowercase host,
-  internationalized host as punycode, default port dropped, empty path as `/`,
-  path and query percent-escapes normalized to a fixed point with unreserved
-  characters decoded, fragment dropped so the matched text is the
-  URL the next request uses). An adapter locator SHALL be the canonical target actually requested by the
-  adapter, never an operator secret or an unbounded raw template. A derived
-  locator is decided through the same evaluator and the same projection, with no
-  trusted context and no relaxation carried over from the admitted call or from
-  an earlier derived locator, except that no read selector is removed from it:
-  a derived locator is chosen by a server or an adapter, carries no selector of
-  the model's, and is matched exactly as it will be requested, so a hop ending
-  in `:5` is judged with that text.
+A `read` call whose `path` is an `http://` or `https://` locator SHALL be
+decided over two texts: the locator as submitted with any split-off read
+selector removed, and the locator the shared native projection returns, which
+is the text the request will use — its read selector removed, its fragment cut,
+its host, port, and encoding normalized. A reject clause
+matching either text SHALL refuse the call, so a spelling cannot be arranged
+to miss a reject; the allow SHALL be decided on the projected text, because
+an allow names the resource the call will reach and the two texts address one
+resource. The evaluator itself normalizes nothing: the projection is the read
+tool's own parser, so the text matched and the text requested cannot drift.
+A native `read`, `edit`, or `write` call whose `path` is a valid file alias,
+in either the `file://` or the minimal `file:` form, SHALL be decided over
+the submitted locator and the projection's percent-decoded absolute host path,
+each with its `.` and `..` segments preserved and, for `read`, with any
+split-off read selector removed; an `edit` or `write` alias keeps any
+selector-shaped suffix in both texts, because a mutation takes its decoded
+path literally. Every text
+the evaluator matches for a `read` `path`, the submitted value included,
+SHALL have its split-off read selector removed and nothing else changed. The
+classifier SHALL run before Workspace projection, so a valid alias is matched
+as an absolute host path whether or not a Workspace is entered. A reject
+matching either text SHALL refuse the call, and an allow SHALL be decided on
+the projected host path. An invalid file alias SHALL remain unchanged in
+projection and SHALL be refused by permission admission or by native locator
+validation; the permission evaluator SHALL not turn it into a filesystem path.
+Each derived locator a web read issues, meaning a
+redirect hop, an announced alternate, a suffix candidate, an `llms.txt`
+candidate, or an adapter request, SHALL be evaluated against the `read` group as if the model had
+submitted it — a hop is a different resource, so it earns its own allow
+rather than inheriting one. A hop locator is the `Location` value resolved
+against the redirecting request's URL by the WHATWG URL parser and serialized
+as its `href`, so it is canonical in the same way (lowercase host,
+internationalized host as punycode, default port dropped, empty path as `/`,
+path and query percent-escapes normalized to a fixed point with unreserved
+characters decoded, fragment dropped so the matched text is the
+URL the next request uses). An adapter locator SHALL be the canonical target actually requested by the
+adapter, never an operator secret or an unbounded raw template. A derived
+locator is decided through the same evaluator and the same projection, with no
+trusted context and no relaxation carried over from the admitted call or from
+an earlier derived locator, except that no read selector is removed from it:
+a derived locator is chosen by a server or an adapter, carries no selector of
+the model's, and is matched exactly as it will be requested, so a hop ending
+in `:5` is judged with that text.
 
 Each address a web request would connect to SHALL additionally be evaluated
 against the `read` group as an address locator: the requested locator with its
@@ -80,6 +66,10 @@ evaluator and projection as the locator it was derived from; a call evaluated
 without a compiled policy admits no address.
 
 Known incompatible code-owned fields SHALL fail configuration validation. If an exact MCP rule targets a field absent from or incompatible with its currently admitted input declaration, the call SHALL fail closed with a safe policy diagnostic, without changing tool visibility or silently dropping the clause. This applies to both allow and reject field clauses. No field semantics SHALL be inferred from arbitrary MCP names.
+
+Instruction-import canonical-path evaluation is a fourth named exception: when an import's canonical path differs from its resolved path, the `read` group SHALL evaluate the canonical path. The resulting decision SHALL be recorded as a derived `canonical` decision beside the call decision in the completion payload when the call settles, and a rejection SHALL deny that call and the import.
+
+The silent pre-evaluation of a prompt or instruction import target before any probe SHALL record no decision of its own, because the audited `read` that follows records the call decision; in `bypass`, it SHALL admit without evaluating, like every other evaluation.
 
 #### Scenario: Nested string triggers all-fields reject
 
@@ -233,6 +223,18 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 - **WHEN** an enabled rewrite turns an admitted x.com source into `https://x.pcstyle.dev/jack/status/20`
 - **THEN** policy decides the canonical target before its request
 - **AND** a reject for that target prevents the request while leaving generic source fallthrough available
+
+#### Scenario: A canonical-path rejection denies an instruction import
+
+- **WHEN** an instruction import's canonical path differs from its resolved path, the resolved path is allowed, and the `read` group rejects the canonical path
+- **THEN** the rejection is recorded as a derived `canonical` decision on the import's first page read call
+- **AND** the call is denied with `requested` and `completed` events but no `started` event, and the import is denied
+
+#### Scenario: A rejected import target records one decision
+
+- **WHEN** the silent pre-evaluation rejects a prompt or instruction import target
+- **THEN** exactly one decision is recorded, the audited `read`'s decision
+- **AND** the silent pre-evaluation records no decision of its own
 
 ### Requirement: A Run's effective permission mode selects whether the policy is evaluated
 
