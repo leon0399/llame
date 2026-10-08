@@ -36,7 +36,15 @@ const outputSchema = z.looseObject({
   shownRanges: z.array(lineRangeSchema).optional(),
   finalUrl: z.string().optional(),
   method: z.string().optional(),
-  adapter: z.object({ id: z.string() }).optional(),
+  // `route` and `origin` are optional so results stored before they existed
+  // still parse.
+  adapter: z
+    .object({
+      id: z.string(),
+      route: z.string().optional(),
+      origin: z.string().optional(),
+    })
+    .optional(),
   notes: z.array(z.string()).optional(),
 });
 
@@ -78,6 +86,19 @@ function truncation(output: ReadOutput): string | undefined {
     : "yes";
 }
 
+/** A rewrite adapter fetches another host, so its route and origin name
+ *  where the content actually came from. */
+function methodLabel(output: ReadOutput): string | undefined {
+  const { adapter, method } = output;
+  if (!adapter) return method;
+  const provenance = [
+    adapter.id,
+    adapter.route === "native" ? undefined : adapter.route,
+    adapter.origin && `via ${adapter.origin}`,
+  ].filter(Boolean);
+  return `${method ?? "adapter"} (${provenance.join(", ")})`;
+}
+
 /** Labelled rows for everything the source header and content do not show.
  *  Unknown fields keep their own key, so no envelope is ever dropped. */
 function metadataRows(output: ReadOutput): Array<[string, string]> {
@@ -91,12 +112,7 @@ function metadataRows(output: ReadOutput): Array<[string, string]> {
       "Representation",
       output.representation === "text" ? undefined : output.representation,
     ],
-    [
-      "Method",
-      output.adapter
-        ? `${output.method ?? "adapter"} (${output.adapter.id})`
-        : output.method,
-    ],
+    ["Method", methodLabel(output)],
     ["Truncated", truncation(output)],
     ...(output.notes ?? []).map((note): [string, string] => ["Note", note]),
     ...Object.entries(output)

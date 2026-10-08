@@ -271,6 +271,42 @@ export const WebAdapter: Story = {
 };
 
 /**
+ * A rewrite adapter fetches the page from an operator-configured host, so
+ * the method row names its route and origin next to the adapter.
+ *
+ * @summary for a web read served through a rewrite adapter
+ */
+export const RewriteAdapter: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "https://x.com/someone/status/1" },
+    output: {
+      status: "success" as const,
+      kind: "file" as const,
+      path: "https://x.com/someone/status/1",
+      representation: "text" as const,
+      content: "1: A post.\n",
+      requestedRange: { startLine: 1, endLine: 1 },
+      shownRange: { startLine: 1, endLine: 1 },
+      truncated: false,
+      finalUrl: "https://x.com/someone/status/1",
+      method: "adapter",
+      adapter: {
+        id: "x",
+        route: "rewrite",
+        origin: "https://x.pcstyle.dev",
+      },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    await expect(
+      canvas.getByText("adapter (x, rewrite, via https://x.pcstyle.dev)"),
+    ).toBeInTheDocument();
+  },
+};
+
+/**
  * Fetched URLs are untrusted. A non-http(s) `finalUrl` stays plain text and
  * never becomes an executable Markdown link.
  *
