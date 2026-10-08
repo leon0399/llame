@@ -597,12 +597,12 @@ type ToolCompletedEventPayload = {
   output: ToolResult;
   permission?: PermissionDecision;
   /**
-   * The decisions this call's derived locators (redirect hops, announced
-   * alternates, suffix and `llms.txt` candidates) received before their
-   * requests, each with the kind of locator it judged. Recorded here rather
-   * than on the request, because they are not known until the executor has
-   * run; owner-scoped like `permission`, and never part of the model-visible
-   * result.
+   * Decisions on locators other than the submitted one: a web read's derived
+   * locators (redirect hops, announced alternates, suffix and `llms.txt`
+   * candidates) and an instruction import's canonical path. Each carries the
+   * kind of locator it judged. Recorded with the completion because a web
+   * read's are not known until the executor has run; owner-scoped like
+   * `permission`, and never part of the model-visible result.
    */
   derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>;
   /** Mirrors the request's origin, so recovery needs no second lookup. */
