@@ -15,6 +15,7 @@ import {
 import { createArxivAdapter } from './arxiv/adapter';
 import { createBlueskyAdapter } from './bluesky/adapter';
 import { createCratesAdapter } from './crates/adapter';
+import { createDiscourseAdapter } from './discourse/adapter';
 import { createDoiAdapter } from './doi/adapter';
 import { createGithubAdapter } from './github/adapter';
 import { createHackernewsAdapter } from './hackernews/adapter';
@@ -331,6 +332,8 @@ export function createWebAdapters(
         return createHackernewsAdapter(config);
       case 'doi':
         return createDoiAdapter(config);
+      case 'discourse':
+        return createDiscourseAdapter(config);
       case 'rewrite':
         return createRewriteAdapter(config);
     }

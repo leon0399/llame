@@ -92,7 +92,7 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
-`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, or `doi` entry. What an adapter does to a result — its
+`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, or `discourse` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -393,6 +393,31 @@ DOI, percent-decoded. A read is one request to
 `https://api.openalex.org/works/doi:{doi}` with a fixed `select`, so with a
 domain allowlist add a clause for `^https://api\.openalex\.org/`. A DOI
 OpenAlex does not index answers 404 and falls through to the generic ladder.
+
+### Discourse adapter
+
+Add a `discourse` entry to render topics on the Discourse forums you list,
+which answer a non-browser client with a JavaScript shell. Discourse runs on any
+host, so the entry names them:
+
+```jsonc
+{
+  "id": "forums",
+  "use": "discourse",
+  "hosts": ["meta.discourse.org", "users.rust-lang.org"],
+}
+```
+
+`hosts` are exact canonical hostnames (lowercase, no port), checked at boot like
+a rewrite entry's; the entry sends no credential. It claims `https://{host}/t/{id}`,
+`/t/{id}/{post}`, `/t/{slug}/{id}`, and `/t/{slug}/{id}/{post}`, with or without
+a trailing slash; the post number does not choose what renders, since a topic
+always renders from its first post. `/last`, `/print`, `.json` URLs, and forums
+installed under a subfolder stay on the generic ladder. A read requests
+`https://{host}/t/{id}.json`, then the topic's remaining posts among its first
+200 from `/t/{id}/posts.json?post_ids[]=...`, 100 ids per request: one to three
+requests in all. A longer topic adds `posts truncated: the first 200 of N`. With
+a domain allowlist, admit each listed host.
 
 ## Derived locators and permission admission
 

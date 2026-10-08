@@ -961,6 +961,11 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     const crates = { id: 'crates', use: 'crates' as const };
     const hn = { id: 'hn', use: 'hackernews' as const };
     const doi = { id: 'doi', use: 'doi' as const };
+    const forums = {
+      id: 'forums',
+      use: 'discourse' as const,
+      hosts: ['meta.discourse.org'],
+    };
     writeConfig(
       JSON.stringify({
         tools: {
@@ -975,6 +980,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
             crates,
             hn,
             doi,
+            forums,
           ],
         },
       }),
@@ -991,7 +997,24 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       crates,
       hn,
       doi,
+      forums,
     ]);
+  });
+
+  it('rejects a Discourse host that is not canonical', () => {
+    writeConfig(
+      JSON.stringify({
+        tools: {
+          webAdapters: [
+            { id: 'forums', use: 'discourse', hosts: ['Meta.Discourse.org'] },
+          ],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools\.webAdapters\[forums\]\.hosts\[0\]/,
+    );
   });
 
   it('rejects a credential on the Bluesky adapter', () => {
