@@ -4,7 +4,7 @@ read_when:
   - you want the assistant to start a turn with a file, range, outline, Knowledge file, skill, or URL already read
   - you need to know why a marker in your prompt was or was not imported
   - you are reasoning about the prompt-imports context item, its bounds, or its audit
-spec: context-injection
+spec: prompt-imports
 configured_by:
   - ../operator/native-files.md
   - ../operator/knowledge.md

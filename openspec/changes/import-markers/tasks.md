@@ -249,7 +249,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 8. `import-markers/finalize`: spec sync and archive
 
-- [ ] 8.1 After every implementation layer is published, verified, and checked, create only the
+- [x] 8.1 After every implementation layer is published, verified, and checked, create only the
       finalize layer with `$gh-stack`, then run `$openspec-sync-specs`. Verify
       `pnpm exec openspec validate --specs --strict` and
       `pnpm exec openspec validate --all --strict`; this layer contains no application fix and

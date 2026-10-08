@@ -263,8 +263,9 @@ When more than one item is injected on the same turn, the authoring/request-prep
 4. `instructions`
 5. `skill-catalog`
 6. `skill-activation`
-7. `recency-digest`
-8. `temporal`
+7. `prompt-imports`
+8. `recency-digest`
+9. `temporal`
 
 When one producer contributes more than one item, those items SHALL be stored in emission order. A producer added later SHALL extend this authoring list in the rail specification.
 
@@ -308,6 +309,12 @@ When worker preparation adds attempt-owned items beside already persisted messag
 
 - **WHEN** an accepted turn re-establishes the Workspace snapshot and stages the root instruction chain
 - **THEN** the `workspace` item precedes the `instructions` item and both precede any `skill-catalog` item
+
+#### Scenario: Skill activation and prompt imports share a turn
+
+- **WHEN** an explicit skill activation and prompt imports accompany one user message
+- **THEN** every `skill-activation` item precedes the `prompt-imports` item and both precede the user text
+- **AND** replay preserves those stored positions
 
 ### Requirement: Residency determines whether a change re-renders the prompt or appends an item
 
@@ -723,7 +730,7 @@ The baseline SHALL enter the prompt only through the template projection. A temp
 
 ### Requirement: Explicit activations are rail items carrying current instructions
 
-Each explicit `$skill` selection SHALL produce one `skill-activation` item with form `notice` in the triggering user message before the first model request. A successful item SHALL state which mention selected the skill, the absolute skill directory and instructions file, the instruction to resolve package-relative references and scripts against that directory while keeping task-relative inputs and choosing `cwd` explicitly, a precedence statement, and the current `SKILL.md` instruction body with its frontmatter removed, taken from the raw read with its ordinary truncation indicator. A failed selection SHALL produce a bounded item naming the mention and one closed reason from `not_found`, `unavailable`, `permission_denied`, and `read_failed`, without operator diagnostics in model text. Selections beyond the count, output, or work budget SHALL be accounted for by one bounded omission item listing their names.
+Each explicit `$skill` selection SHALL produce one `skill-activation` item with form `notice` in the triggering user message before the first model request. A successful item SHALL state which mention selected the skill, the absolute skill directory and instructions file, the instruction to resolve package-relative references and scripts against that directory while keeping task-relative inputs and choosing `cwd` explicitly, a precedence statement, and the current `SKILL.md` instruction body with its frontmatter removed, taken from the raw read with its ordinary truncation indicator, followed by file blocks for package files imported by markers in that body in depth-first order. A failed selection SHALL produce a bounded item naming the mention and one closed reason from `not_found`, `unavailable`, `permission_denied`, and `read_failed`, without operator diagnostics in model text. Selections beyond the count, output, or work budget SHALL be accounted for by one bounded omission item listing their names.
 
 Activation items SHALL use the existing canonical envelope, provenance, owner visibility, separate executed-context recording, stored-text replay, and author-time ordering. A completed explicit activation SHALL NOT be reloaded on recovery. Partial recovery SHALL preserve completed mention results and fill only unfinished selections in original order. Operator-supplied reserved delimiters SHALL be neutralized before composing and persisting activation text.
 
@@ -744,6 +751,12 @@ Activation items SHALL use the existing canonical envelope, provenance, owner vi
 - **WHEN** operator metadata or instructions contain reserved context delimiters
 - **THEN** they are neutralized before prompt or context-item composition and cannot create another envelope
 - **AND** recovery replays the persisted final text unchanged
+
+#### Scenario: Activation carries package-local imported files
+
+- **WHEN** the user sends `$research` and its current instruction body contains `@references/checklist.md`
+- **THEN** the successful `skill-activation` item carries the instruction body followed by a file block for `skill://research/references/checklist.md`
+- **AND** nested package-local imports appear after their importer in depth-first order
 
 ### Requirement: Catalog notices announce added and removed skills on the next user turn
 
@@ -811,7 +824,7 @@ The enqueue-bound effective-context receipt SHALL retain its immutable prompt/to
 
 ### Requirement: Workspace binding changes are rail-resident context items
 
-Before resolving effective skill sources, explicit `$skill` activation, Workspace MCP clients or catalog, the `workspace` producer's items, or the accepted-turn `instructions` load, attempt preparation SHALL finish the Workspace binding re-check and any detach. A detaching attempt SHALL contribute no Workspace skill activation, `skill://` resolution, Workspace tools, or accepted-turn `instructions` item and SHALL still narrate the detach. Skill-catalog baseline content already frozen at acceptance in the accepted-turn transaction before worker preparation MAY still list Workspace skills for that attempt; the next accepted turn's skill-catalog notice SHALL remove them.
+Before resolving effective skill sources, explicit `$skill` activation, prompt imports, Workspace MCP clients or catalog, the `workspace` producer's items, or the accepted-turn `instructions` load, attempt preparation SHALL finish the Workspace binding re-check and any detach. A detaching attempt SHALL contribute no Workspace skill activation, `skill://` resolution, prompt imports, Workspace tools, or accepted-turn `instructions` item, SHALL stage no prompt-import instruction triggers, and SHALL still narrate the detach. When no `prompt-imports` item from an earlier attempt of the Run is persisted, prompt-import markers SHALL remain prose for that attempt. A `prompt-imports` item persisted by an earlier attempt of the Run SHALL remain on the user message and replay unchanged as stored text, without being re-read or removed; a non-detaching retry SHALL rebuild prompt-import triggers from its persisted resolved paths. Skill-catalog baseline content already frozen at acceptance in the accepted-turn transaction before worker preparation MAY still list Workspace skills for that attempt; the next accepted turn's skill-catalog notice SHALL remove them.
 
 At each accepted user turn, accepted-turn preparation SHALL compare the Chat's current Workspace
 root, or its absence, with the root last narrated to the Chat, or the absence of any narration. For
@@ -887,3 +900,15 @@ in its owner-scoped Run context-item record under the existing recording rules.
 - **THEN** the turn contributes no Workspace skill activation, `skill://` resolution, or MCP tools
 - **AND** its skill-catalog baseline content already frozen at acceptance MAY still list Workspace skills, while the next accepted turn's skill-catalog notice removes them
 - **AND** it always emits the separate detach `notice`, while the snapshot stating that no Workspace is entered is emitted only when `workspace_told` names a root
+
+#### Scenario: Detaching attempt without a persisted item leaves markers as prose
+
+- **WHEN** attempt preparation detaches a Workspace binding before prompt imports run, the user text contains an import marker, and no `prompt-imports` item from an earlier attempt of the Run is persisted
+- **THEN** no prompt import is produced for that attempt and no prompt-import instruction trigger is staged
+- **AND** the marker remains prose for that attempt
+
+#### Scenario: A persisted prompt-imports item replays on a detaching retry
+
+- **WHEN** an earlier attempt persisted a `prompt-imports` item and a retry detaches before prompt imports run
+- **THEN** the item remains on the user message and replays unchanged as stored text, without being re-read or removed
+- **AND** no new prompt imports occur and no prompt-import instruction triggers are staged

@@ -121,6 +121,10 @@ without a compiled policy admits no address.
 
 Known incompatible code-owned fields SHALL fail configuration validation. If an exact MCP rule targets a field absent from or incompatible with its currently admitted input declaration, the call SHALL fail closed with a safe policy diagnostic, without changing tool visibility or silently dropping the clause. This applies to both allow and reject field clauses. No field semantics SHALL be inferred from arbitrary MCP names.
 
+Instruction-import canonical-path evaluation is a fourth named exception: when an import's canonical path differs from its resolved path, the `read` group SHALL evaluate the canonical path. The resulting decision SHALL be recorded as a derived `canonical` decision beside the call decision in the completion payload when the call settles, and a rejection SHALL deny that call and the import.
+
+The silent pre-evaluation of a prompt or instruction import target before any probe SHALL record no decision of its own, because the audited `read` that follows records the call decision; in `bypass`, it SHALL admit without evaluating, like every other evaluation.
+
 #### Scenario: Nested string triggers all-fields reject
 
 - **WHEN** a reject clause searches all fields for `PRIVATE_MARKER` and the call contains `{"items":[{"text":"PRIVATE_MARKER"}]}`
@@ -273,6 +277,18 @@ Known incompatible code-owned fields SHALL fail configuration validation. If an 
 - **WHEN** an enabled rewrite turns an admitted x.com source into `https://x.pcstyle.dev/jack/status/20`
 - **THEN** policy decides the canonical target before its request
 - **AND** a reject for that target prevents the request while leaving generic source fallthrough available
+
+#### Scenario: A canonical-path rejection denies an instruction import
+
+- **WHEN** an instruction import's canonical path differs from its resolved path, the resolved path is allowed, and the `read` group rejects the canonical path
+- **THEN** the rejection is recorded as a derived `canonical` decision on the import's first page read call
+- **AND** the call is denied with `requested` and `completed` events but no `started` event, and the import is denied
+
+#### Scenario: A rejected import target records one decision
+
+- **WHEN** the silent pre-evaluation rejects a prompt or instruction import target
+- **THEN** exactly one decision is recorded, the audited `read`'s decision
+- **AND** the silent pre-evaluation records no decision of its own
 
 ### Requirement: Literals and regex have explicit bounded text semantics
 
@@ -763,6 +779,7 @@ Each execution attempt SHALL have an effective permission mode, resolved once wh
 In `default`, every requirement of this capability SHALL apply unchanged.
 
 In `bypass`, no permission group SHALL be evaluated for that attempt anywhere this capability evaluates one: the per-call admission of submitted and projected arguments, each derived locator of a web read, each resolved address of a web request, the submitted and canonical paths of `enter_workspace`, and the per-attempt Workspace binding re-check. Each of those evaluations SHALL instead be admitted as an allow. The group matching, reject veto, no-allow rejection, invalid-field rejection, inspection-bound rejection, omitted-policy rejection, and recommended reject list defined by this capability SHALL NOT refuse anything in that attempt, and no `permission_denied` result SHALL be produced by this capability.
+The bypass list also includes an instruction-import canonical-path evaluation when the canonical path differs from the resolved path; it SHALL be admitted as an allow without evaluating the `read` group.
 
 `bypass` SHALL relax no other gate. `tools.allowed` availability and catalog admission, owner and tenant authorization (including Knowledge Space ownership), native locator validation, Workspace path projection of executor arguments, the other Workspace re-check conditions, the native recovery fence, web-read time, size, and redirect bounds, Run step and call-timeout bounds, and MCP environment isolation SHALL apply exactly as in `default`.
 
@@ -807,9 +824,16 @@ In `bypass`, no permission group SHALL be evaluated for that attempt anywhere th
 - **WHEN** a Run accepted with `bypass` is claimed by a worker whose `tools.permissionModes` is `["default"]`, and Bash submits `git reset --hard HEAD` under the recommended policy
 - **THEN** the attempt's effective mode is `default` and the call is rejected by B6 with `permission_denied`
 
+#### Scenario: Bypass admits an instruction-import canonical path
+
+- **WHEN** a `bypass` attempt imports an instruction file whose canonical path differs from its resolved path and the `read` group would reject the canonical path
+- **THEN** the canonical-path evaluation is admitted without evaluating the `read` group
+- **AND** the import's first page read call carries a derived `canonical` decision and the import proceeds
+
 ### Requirement: Bypassed evaluations are recorded as bypass decisions
 
 Every evaluation that `bypass` admits SHALL still produce a trusted decision recorded wherever this capability records a decision of that kind: the call decision on `tool.requested` before any `tool.started` event or executor dispatch, each derived-locator decision of a web read, and the canonical-path decision of `enter_workspace`. A bypass decision SHALL carry the executing process's policy-instance ID, the decision `allow`, the static reason `permission_mode_bypass`, and no clause reference. Because an address record is kept only for a refused address, a `bypass` attempt SHALL produce no address record. Bypass decisions SHALL follow the existing privacy rules for decision metadata: owner-scoped, excluded from model replay, public shares, exports, and search, and carried through completion, abort settlement, and durable transcript reconstruction.
+The recorded decisions also include the derived `canonical` decision attached to the first page read call of an instruction import when its canonical path differs from its resolved path; it is recorded beside the call decision in the completion payload when the call settles.
 
 #### Scenario: A bypassed call records its reason
 
@@ -827,3 +851,9 @@ Every evaluation that `bypass` admits SHALL still produce a trusted decision rec
 - **WHEN** the owner reloads a chat containing a bypassed call
 - **THEN** the stored tool part retains its `permission_mode_bypass` decision
 - **AND** model replay, public shares, exports, and search receive no decision metadata
+
+#### Scenario: A bypassed instruction-import canonical path records its decision
+
+- **WHEN** a `bypass` attempt imports an instruction file whose canonical path differs from its resolved path
+- **THEN** the import's first page read call records a derived `canonical` decision with `allow`, reason `permission_mode_bypass`, the process's policy-instance ID, and no clause reference
+- **AND** the completion payload records it beside the call decision when the call settles
