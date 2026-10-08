@@ -441,4 +441,13 @@ describe('Telegram channel page', () => {
       ),
     ).toStrictEqual({ failure: 'parse' });
   });
+
+  it('maps a header without posts or the empty-page placeholder to parse', () => {
+    expect(
+      renderChannelPage(
+        page(['<div class="tgme_widget_message_changed">Post</div>']),
+        'https://t.me/s/durov',
+      ),
+    ).toStrictEqual({ failure: 'parse' });
+  });
 });

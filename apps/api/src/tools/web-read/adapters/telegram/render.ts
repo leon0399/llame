@@ -53,7 +53,16 @@ export function renderChannelPage(
   const { document } = parseHTML(html);
   const info = document.querySelector('.tgme_channel_info');
   if (info === null) return { failure: 'parse' };
-  const posts = [...document.querySelectorAll(MESSAGE)]
+  const messages = [...document.querySelectorAll(MESSAGE)];
+  // A header with no post and no "No posts found" placeholder is markup the
+  // renderer no longer recognizes, not an empty page.
+  if (
+    messages.length === 0 &&
+    document.querySelector('.tme_no_messages_found') === null
+  ) {
+    return { failure: 'parse' };
+  }
+  const posts = messages
     .filter((message) => !message.classList.contains('service_message'))
     .reverse();
   const entries = posts.map((message, index) =>
