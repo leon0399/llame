@@ -128,6 +128,112 @@ describe('loadInstanceConfig — webSearch', () => {
     });
   });
 
+  it('loads an Exa MCP engine with an interpolated key', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            { id: 'exa-mcp', type: 'exa-mcp', key: '{env:EXA_MCP_KEY}' },
+          ],
+          chain: ['exa-mcp'],
+        },
+      }),
+    );
+
+    expect(
+      loadInstanceConfig({ EXA_MCP_KEY: 'exa-secret' }).webSearch,
+    ).toStrictEqual({
+      engines: [
+        {
+          id: 'exa-mcp',
+          type: 'exa-mcp',
+          key: 'exa-secret',
+          timeoutSeconds: 60,
+        },
+      ],
+      chain: ['exa-mcp'],
+    });
+  });
+
+  it('loads an Exa MCP engine without a key as undefined', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'exa-mcp', type: 'exa-mcp' }],
+          chain: ['exa-mcp'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch).toStrictEqual({
+      engines: [
+        {
+          id: 'exa-mcp',
+          type: 'exa-mcp',
+          key: undefined,
+          timeoutSeconds: 60,
+        },
+      ],
+      chain: ['exa-mcp'],
+    });
+  });
+
+  it('treats a blank Exa MCP key resolution as undefined', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            { id: 'exa-mcp', type: 'exa-mcp', key: '{env:EXA_MCP_KEY}' },
+          ],
+          chain: ['exa-mcp'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig({ EXA_MCP_KEY: '' }).webSearch).toStrictEqual({
+      engines: [
+        {
+          id: 'exa-mcp',
+          type: 'exa-mcp',
+          key: undefined,
+          timeoutSeconds: 60,
+        },
+      ],
+      chain: ['exa-mcp'],
+    });
+  });
+
+  it('loads a keyless DuckDuckGo engine', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'duckduckgo', type: 'duckduckgo' }],
+          chain: ['duckduckgo'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch).toStrictEqual({
+      engines: [{ id: 'duckduckgo', type: 'duckduckgo', timeoutSeconds: 60 }],
+      chain: ['duckduckgo'],
+    });
+  });
+
+  it('rejects a key on a DuckDuckGo engine as an unknown key', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            { id: 'duckduckgo', type: 'duckduckgo', key: 'not-allowed' },
+          ],
+          chain: ['duckduckgo'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(/webSearch\/engines\/0\/key/u);
+  });
+
   it('loads a SearXNG engine with an absolute HTTP base URL', () => {
     writeConfig(
       JSON.stringify({

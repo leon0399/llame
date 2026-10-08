@@ -83,6 +83,54 @@
               "description": "Per-engine deadline in seconds. Defaults to 60."
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A configured Exa hosted MCP web-search engine.",
+          "required": ["id", "type"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+            },
+            "type": {
+              "const": "exa-mcp",
+              "description": "Exa's hosted MCP web-search endpoint."
+            },
+            "key": {
+              "$ref": "#/$defs/nullableString",
+              "description": "Optional Exa credential. It may use a whole or embedded {env:...}/{path:...} interpolation token; a blank resolution is keyless."
+            },
+            "timeoutSeconds": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Per-engine deadline in seconds. Defaults to 60."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A keyless DuckDuckGo HTML web-search engine.",
+          "required": ["id", "type"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+            },
+            "type": {
+              "const": "duckduckgo",
+              "description": "DuckDuckGo's HTML search endpoint."
+            },
+            "timeoutSeconds": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Per-engine deadline in seconds. Defaults to 60."
+            }
+          }
         }
       ]
     },
@@ -488,7 +536,7 @@
     "webSearch": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Optional operator-configured web-search engines and their ordered fallback chain. This layer accepts Brave, Exa, Perplexity, and SearXNG.",
+      "description": "Optional operator-configured web-search engines and their ordered fallback chain. This layer accepts Brave, Exa, Exa's hosted MCP, Perplexity, SearXNG, and DuckDuckGo.",
       "required": ["engines", "chain"],
       "properties": {
         "engines": {

@@ -10,7 +10,7 @@ behavior:
 # Web search
 
 This runbook covers enabling `web_search`, its configured engines/chain, deadlines, and how queries/results cross the instance boundary. The [web_search reference](../reference/tools/web-search.md) has the model-facing schema, output union, bounds, fall-through details, and failure classes.
-Supported operator engines are `brave`, `exa`, `perplexity`, and `searxng`; configure only these types.
+Supported operator engines are `brave`, `exa`, `exa-mcp`, `perplexity`, `searxng`, and `duckduckgo`; configure only these types.
 
 ## Enabling
 
@@ -92,6 +92,23 @@ Redirects are refused, so the key cannot follow a redirect to another host. Resp
 
 `key` is required; llame sends it as `x-api-key` to `https://api.exa.ai/search`. A `site:host` token becomes `includeDomains` and a `-site:host` token becomes `excludeDomains`, and those tokens are removed from the outbound query. Only an operator that stands alone as a whitespace-delimited token is translated; one wrapped in quotes or parentheses (`"rust site:docs.rs"`, `(site:a.com OR site:b.com)`) stays in the query text and reaches no filter. `recency` becomes `startPublishedDate` using the current date; `limit` becomes `numResults`.
 
+## Exa MCP
+
+```jsonc
+{
+  "id": "exa-mcp",
+  "type": "exa-mcp",
+  "timeoutSeconds": 60,
+}
+```
+
+`exa-mcp` calls Exa's hosted MCP at `https://mcp.exa.ai/mcp` from llame code; the
+MCP and its tools are never exposed to the model. An optional `key` (for example
+`{env:EXA_API_KEY}`) raises limits. Without one, Exa allows about 2 requests/second
+and 50/day per egress IP, and does not support `recency`.
+Do not use keyless access to avoid API billing. Exa API storage restrictions apply
+to these results too.
+
 ## Perplexity
 
 ```jsonc
@@ -124,6 +141,22 @@ search:
 ```
 
 A 403 normally means JSON is disabled and is reported as `upstream_error`, not `auth`. `recency: "week"` is sent as `time_range=month`; `day`, `month`, and `year` map directly. `limit` is applied after URL canonicalization, and `site:`/`-site:` remain in the query.
+
+## DuckDuckGo
+
+```jsonc
+{
+  "id": "duckduckgo",
+  "type": "duckduckgo",
+  "timeoutSeconds": 60,
+}
+```
+
+DuckDuckGo posts to its HTML endpoint, `https://html.duckduckgo.com/html/`; it
+needs no key and is not supported by the vendor for automated queries. Bot
+challenges on datacenter/shared IPs are reported as `challenge`.
+There is no license for automated queries or storage, so the operator owns that
+risk. SearXNG is the dependable keyless option.
 
 ## Query exfiltration
 

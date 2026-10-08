@@ -76,11 +76,11 @@ output.
 
 ## 3. `web-search/engines-keyless` — Exa MCP, DuckDuckGo (design D6, D7)
 
-- [ ] 3.1 Add the `exa-mcp` and `duckduckgo` schema branches and loader shapes; verify by loader tests that `exa-mcp` loads with and without a key and `duckduckgo` rejects any extra field
-- [ ] 3.2 Implement the `exa-mcp` engine with one `@ai-sdk/mcp` `http` client per engine per process, `redirect: 'error'`, a byte-bounded fetch, the optional key header, `query`/`numResults`/`objective` arguments, reconnection after a transport error, and block-by-block parsing of `web_search_exa` output that skips blocks without a `URL:` line; build the fixture's `tools/list` from the deployed schema; verify by tests against a local Streamable HTTP MCP fixture that results normalize, text beginning with Exa's no-results message is empty, `isError` results map by their status to `auth` or `rate_limited`, a transport 429 maps to `rate_limited`, a dropped session reconnects on the next call, and no tool from the endpoint reaches the model catalog
-- [ ] 3.3 Implement the `duckduckgo` engine: form POST, `df` recency, `linkedom` parsing, redirect-URL unwrapping, and `anomaly-modal` detection as `challenge`; verify by tests against recorded result and challenge pages
-- [ ] 3.4 Document both engines, the keyless Exa limits, and DuckDuckGo's unsupported status and terms in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 3.5 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
+- [x] 3.1 Add the `exa-mcp` and `duckduckgo` schema branches and loader shapes; verify by loader tests that `exa-mcp` loads with and without a key and `duckduckgo` rejects any extra field
+- [x] 3.2 Implement the `exa-mcp` engine with one `@ai-sdk/mcp` `http` client per engine per process, `redirect: 'error'`, a byte-bounded fetch, the optional key header, `query`/`numResults`/`objective` arguments, reconnection after a transport error, and block-by-block parsing of `web_search_exa` output that skips blocks without a `URL:` line; build the fixture's `tools/list` from the deployed schema; verify by tests against a local Streamable HTTP MCP fixture that results normalize, text beginning with Exa's no-results message is empty, `isError` results map by their status to `auth` or `rate_limited`, a transport 429 maps to `rate_limited`, a dropped session reconnects on the next call, and no tool from the endpoint reaches the model catalog
+- [x] 3.3 Implement the `duckduckgo` engine: form POST, `df` recency, `linkedom` parsing, redirect-URL unwrapping, and `anomaly-modal` detection as `challenge`; verify by tests against recorded result and challenge pages
+- [x] 3.4 Document both engines, the keyless Exa limits, and DuckDuckGo's unsupported status and terms in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 3.5 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
 - [ ] 3.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 3.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 

@@ -34,6 +34,15 @@ async function classifyJsonContentType(response: Response): Promise<void> {
   }
 }
 
+async function classifyHtmlContentType(response: Response): Promise<void> {
+  const contentType = response.headers.get('content-type');
+  const mediaType = contentType?.split(';', 1)[0].trim().toLowerCase();
+  if (mediaType !== 'text/html') {
+    await response.body?.cancel().catch(() => undefined);
+    throw new EngineFailure('upstream_error');
+  }
+}
+
 async function fetchResponse(
   url: string,
   init: RequestInit,
@@ -74,6 +83,24 @@ export async function fetchVendorJson<T>(
     const body = await response.text();
     // SAFETY: JSON.parse returns any; the supplied Zod schema validates it.
     return schema.parse(JSON.parse(body) as unknown);
+  } catch {
+    options.signal.throwIfAborted();
+    throw new EngineFailure('upstream_error');
+  }
+}
+
+/** Fetch one bounded vendor HTML response without exposing its body. */
+export async function fetchVendorHtml(
+  url: string,
+  init: RequestInit,
+  options: VendorFetchOptions,
+): Promise<string> {
+  const response = await fetchResponse(url, init, options);
+  await classifyStatus(response);
+  options.signal.throwIfAborted();
+  await classifyHtmlContentType(response);
+  try {
+    return await response.text();
   } catch {
     options.signal.throwIfAborted();
     throw new EngineFailure('upstream_error');

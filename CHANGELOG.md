@@ -7,6 +7,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Added Exa, Perplexity Search API, and self-hosted SearXNG engines to
   `web_search`, including their provider-specific filters and recency mappings.
+- Added keyless `exa-mcp` and `duckduckgo` engines, including their provider
+  limits and unsupported automation/storage terms.
 
 # 2026-10-07
 

@@ -2,6 +2,8 @@ import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
 } from '../../instance-config/llame-config';
+import { createDuckDuckGoEngine } from './duckduckgo';
+import { createExaMcpEngine } from './exa-mcp';
 import { createBraveEngine } from './brave';
 import { createExaEngine } from './exa';
 import { createPerplexityEngine } from './perplexity';
@@ -175,10 +177,14 @@ export function createEngine(
       return createBraveEngine(config, deps);
     case 'exa':
       return createExaEngine(config, deps);
+    case 'exa-mcp':
+      return createExaMcpEngine(config, deps);
     case 'perplexity':
       return createPerplexityEngine(config, deps);
     case 'searxng':
       return createSearxngEngine(config, deps);
+    case 'duckduckgo':
+      return createDuckDuckGoEngine(config, deps);
   }
 }
 
