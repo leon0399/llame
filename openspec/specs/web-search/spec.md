@@ -1,9 +1,11 @@
+# web-search Specification
+
 ## Purpose
 
 Lets the model search the web through one stable code-owned tool whose engines the operator
 configures, falls back between, fans out across, or delegates to a provider's hosted search.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: The web search tool has one stable model-facing contract
 

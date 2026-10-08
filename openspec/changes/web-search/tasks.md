@@ -118,5 +118,5 @@ output.
 Enter this layer with `$gh-stack` from the `hosted` top before `$openspec-sync-specs` writes. Its
 self-review and GitHub review are post-archive gates, not tasks here.
 
-- [ ] 7.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass
+- [x] 7.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass
 - [ ] 7.2 Confirm `openspec status --change web-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
