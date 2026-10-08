@@ -301,6 +301,7 @@ function resolveWebAdapterEntry(
   if (value.use === 'stackexchange') return { id, use: 'stackexchange' };
   if (value.use === 'crates') return { id, use: 'crates' };
   if (value.use === 'hackernews') return { id, use: 'hackernews' };
+  if (value.use === 'doi') return { id, use: 'doi' };
 
   if (value.use === 'github') {
     const token = resolveGithubToken(value.token, `${entryPath}.token`, env);

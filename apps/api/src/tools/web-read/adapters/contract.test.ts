@@ -177,6 +177,16 @@ describe('createWebAdapters', () => {
       adapter.match(new URL('https://news.ycombinator.com/item?id=1')),
     ).toBe(true);
   });
+
+  it('creates a native DOI adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'papers', use: 'doi' }]);
+    if (adapter === undefined) throw new Error('expected DOI adapter');
+
+    expect(adapter).toMatchObject({ id: 'papers', route: 'native' });
+    expect(adapter.match(new URL('https://doi.org/10.1038/nature14539'))).toBe(
+      true,
+    );
+  });
 });
 
 describe('dispatchWebAdapters', () => {

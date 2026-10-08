@@ -1932,7 +1932,7 @@ address resolution and pinning, 10-second header bound, 30-second call bound,
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
 credential, and the Bluesky, npm, Hugging Face, arXiv, Stack Exchange,
-crates.io, and Hacker News adapters SHALL send none; the GitHub token SHALL be
+crates.io, Hacker News, and DOI adapters SHALL send none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1956,8 +1956,8 @@ adapter outcome SHALL declare the media type of its document so the
 representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
-sources use; the Bluesky, npm, Hugging Face, Stack Exchange, crates.io, and
-Hacker News adapters label their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
+sources use; the Bluesky, npm, Hugging Face, Stack Exchange, crates.io,
+Hacker News, and DOI adapters label their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2547,6 +2547,29 @@ which the API omits together with their replies, are not rendered.
 - **WHEN** the model reads `https://news.ycombinator.com/item?id=8863`
 - **THEN** the adapter requests only `https://hn.algolia.com/api/v1/items/8863`
 - **AND** the text has one `Post` entry followed by one `Reply` entry per comment, each with `Source:` and `Date:` lines
+
+### Requirement: DOI native adapter reads work metadata
+
+A configured `doi` adapter SHALL claim only `https://doi.org` and
+`https://dx.doi.org` locators whose path, percent-decoded, is a DOI starting
+`10.{4-9 digits}/`; a path that does not decode SHALL be unclaimed. The
+adapter SHALL send one unauthenticated `GET` to
+`https://api.openalex.org/works/doi:{doi}` with each path segment
+percent-encoded and a fixed `select` of the rendered fields; a failed or
+unparsable response SHALL fall through.
+
+The render SHALL be `# {title}` (the DOI when the work has no title), then
+`Retracted: yes` for a retracted work, `Authors`, `Published` (date, venue,
+and type), `Cited by`, `Open access` with an open copy's URL, and `DOI` lines
+for the fields present, then `## Abstract` with the text rebuilt from
+OpenAlex's inverted index when one exists. The adapter SHALL NOT fetch the
+open-access URL.
+
+#### Scenario: A DOI renders metadata and abstract
+
+- **WHEN** the model reads `https://doi.org/10.1145/3442188.3445922`
+- **THEN** the adapter requests only the OpenAlex work for that DOI
+- **AND** the text has the title, `Authors`, `Published`, and `DOI` lines and an `## Abstract` section
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 
