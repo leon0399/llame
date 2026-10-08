@@ -259,11 +259,9 @@ function rebuildOmission(
   return createSkillActivationOmissionItem({
     runId,
     skills,
-    ...(remainingImports.length > 0 && { imports: remainingImports }),
-    ...(stillUnlisted > 0 && { unlisted: stillUnlisted }),
-    ...(stillImportsUnlisted > 0 && {
-      unlistedImports: stillImportsUnlisted,
-    }),
+    imports: remainingImports,
+    unlisted: stillUnlisted,
+    unlistedImports: stillImportsUnlisted,
   });
 }
 

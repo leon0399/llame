@@ -1,6 +1,6 @@
 import { posix } from 'node:path';
 
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isString } from '@workspace/runtime-safety';
 
 import {
   importTargets,
@@ -16,6 +16,9 @@ import {
   SKILL_MAX_PATH_BYTES,
   SKILL_MAX_PATH_COMPONENTS,
 } from './skill-locator';
+
+/** The activated package's own document: already loaded, never an import. */
+const ROOT_DOCUMENT = 'SKILL.md';
 
 /** Imports from an activated package, in depth-first order. */
 export type SkillImport = {
@@ -90,11 +93,11 @@ export async function expandSkillImports(
     ...input,
     imports: [],
     omitted: [],
-    seen: new Set(['SKILL.md']),
+    seen: new Set([ROOT_DOCUMENT]),
     readOrdinal: 0,
     exhausted: false,
   };
-  await expandBody(state, 'SKILL.md', input.body, 0);
+  await expandBody(state, ROOT_DOCUMENT, input.body, 0);
   return { imports: state.imports, omitted: state.omitted };
 }
 
@@ -143,7 +146,7 @@ async function expandBody(
     if (resolved === undefined || state.seen.has(resolved.relativePath))
       continue;
     state.seen.add(resolved.relativePath);
-    if (state.exhausted || Date.now() >= state.deadline) {
+    if (state.exhausted) {
       omitImport(state, resolved.locator);
       continue;
     }
@@ -244,9 +247,7 @@ async function readImport(
     file: {
       path: resolved.locator,
       body: output.content,
-      ...(output.truncationNotice !== undefined && {
-        truncationNotice: output.truncationNotice,
-      }),
+      truncationNotice: output.truncationNotice,
     },
   };
 }
@@ -271,8 +272,9 @@ function readImportOutput(
 ):
   | { readonly content: string; readonly truncationNotice?: string }
   | undefined {
-  if (result.status !== 'success' || !isRecord(result)) return undefined;
-  if (result['kind'] !== 'file') return undefined;
+  if (result.status !== 'success' || result['kind'] !== 'file') {
+    return undefined;
+  }
   const content: unknown = result['content'];
   const truncationNotice: unknown = result['truncationNotice'];
   if (!isString(content)) return undefined;

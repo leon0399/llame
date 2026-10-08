@@ -207,14 +207,17 @@ describe('activated package imports', () => {
   it('leaves non-package and selector targets literal without reading them', async () => {
     createPackage(
       'research',
-      '@../other/SKILL.md @/etc/x @~/x @https://x @a.md:1-2\n',
+      '@../other/SKILL.md @/etc/x @~/x @https://x @a.md:1-2 @refs/a.md:1-2\n',
     );
 
     const { outcome, audit } = await run('$research');
     expect(itemText(outcome.items[0])).toContain('@../other/SKILL.md');
-    expect(audit.filter((record) => record.phase === 'requested')).toHaveLength(
-      1,
-    );
+    // Unfiltered: a selector target rejected by the read tool's own parser
+    // would still leave a completed record, so this is not just the root read.
+    expect(audit.map((record) => record.phase)).toEqual([
+      'requested',
+      'completed',
+    ]);
   });
 
   it('silently skips a denied import while recording its audited read', async () => {

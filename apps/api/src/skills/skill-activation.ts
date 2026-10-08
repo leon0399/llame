@@ -276,7 +276,7 @@ function appendOmissionItem(
     createSkillActivationOmissionItem({
       runId,
       skills: unattempted,
-      ...(unattemptedImports.length > 0 && { imports: unattemptedImports }),
+      imports: unattemptedImports,
     }),
   );
 }
@@ -371,10 +371,8 @@ function createActivationFromRead(
     skillDirectory: read.skillDirectory,
     instructionsPath: read.resolvedPath,
     instructions,
-    ...(read.truncationNotice !== undefined && {
-      truncationNotice: read.truncationNotice,
-    }),
-    ...(imports.length > 0 && { imports }),
+    truncationNotice: read.truncationNotice,
+    imports,
   });
 }
 

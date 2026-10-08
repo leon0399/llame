@@ -125,8 +125,6 @@ function isOmissionPayload(value: UnknownRecord): boolean {
   const skills = value['skills'];
   const imports = value['imports'];
   const hasSkills = Array.isArray(skills) && skills.length > 0;
-  const hasNonEmptyImports =
-    hasImports && Array.isArray(imports) && imports.length > 0;
   const beyondValid =
     !hasBeyond ||
     (isNumber(value['beyond']) &&
@@ -151,7 +149,7 @@ function isOmissionPayload(value: UnknownRecord): boolean {
       (Array.isArray(imports) &&
         imports.length > 0 &&
         imports.every(isNonEmptyString))) &&
-    (hasSkills || hasNonEmptyImports || hasBeyond || hasImportsBeyond) &&
+    (hasSkills || hasImports || hasBeyond || hasImportsBeyond) &&
     beyondValid &&
     importsBeyondValid
   );
