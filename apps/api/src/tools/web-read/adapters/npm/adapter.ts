@@ -144,7 +144,9 @@ async function readPackage(
     notes,
   );
   if ('fatal' in tags) return primaryFailure(tags.fatal);
-  // A spent call deadline cannot be beaten by another request.
+  // A spent call deadline cannot be beaten by another request, so the README
+  // is skipped with the same note a timed-out request would leave.
+  if (tags.spent === true) notes.push('readme omitted: transport');
   const readmeUrl = `${origins.files}/${manifest.name}@${manifest.version}/README.md`;
   const readme =
     tags.spent === true

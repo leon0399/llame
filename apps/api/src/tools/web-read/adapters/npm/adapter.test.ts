@@ -225,7 +225,7 @@ describe('npm adapter read', () => {
     expect(requests).toHaveLength(2);
     expect(outcome).toMatchObject({
       kind: 'rendered',
-      notes: ['dist-tags omitted: transport'],
+      notes: ['dist-tags omitted: transport', 'readme omitted: transport'],
     });
   });
 
