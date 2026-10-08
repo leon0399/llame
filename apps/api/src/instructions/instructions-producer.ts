@@ -373,6 +373,7 @@ async function loadBundle(input: {
     const state: InstructionImportState = {
       collector,
       group,
+      disclosed: group.directories,
       abortSignal: input.abortSignal,
     };
     await loadGroup(state);

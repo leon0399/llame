@@ -50,6 +50,8 @@ export interface InstructionImportGroup {
 export interface InstructionImportState {
   readonly collector: InstructionImportCollector;
   readonly group: InstructionImportGroup;
+  /** Canonical files directly disclosed in each trigger directory. */
+  readonly disclosed: ReadonlyMap<string, ReadonlySet<string>>;
   readonly abortSignal: AbortSignal | undefined;
 }
 
@@ -61,6 +63,7 @@ interface ResolvedImport {
 const IMPORT_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
 const IMPORT_PAGE = ':raw:1-2000';
 const MAX_IMPORT_HOPS = 5;
+const EMPTY_DISCLOSED: ReadonlySet<string> = new Set<string>();
 
 function resolveImport(
   group: InstructionImportGroup,
@@ -160,30 +163,22 @@ async function loadResolvedImport(
   resolved: ResolvedImport,
   hop: number,
 ): Promise<void> {
-  const { collector } = state;
-  if (
-    collector.attempted.has(resolved.key) ||
-    collector.attempted.has(resolved.path)
-  ) {
-    return;
-  }
-  if (!state.group.admitsRead(resolved.path)) {
-    collector.attempted.add(resolved.key);
+  const { collector, group } = state;
+  if (collector.attempted.has(resolved.path)) return;
+  if (!group.admitsRead(resolved.path)) {
     collector.attempted.add(resolved.path);
-    await state.group.page(`${resolved.path}${IMPORT_PAGE}`);
+    await group.page(`${resolved.path}${IMPORT_PAGE}`);
     collector.denied.push(resolved.path);
     return;
   }
-  const probe = await state.group.scope.probe(resolved.key);
+  const probe = await group.scope.probe(resolved.key);
   if (probe.kind !== 'file') {
-    collector.attempted.add(resolved.key);
     collector.attempted.add(resolved.path);
     return;
   }
   const attemptedCanonical = collector.attempted.has(probe.canonicalPath);
   if (attemptedCanonical) return;
   if (probe.canonicalPath !== resolved.path) {
-    collector.attempted.add(resolved.key);
     collector.attempted.add(resolved.path);
     collector.attempted.add(probe.canonicalPath);
     collector.denied.push(resolved.path);
@@ -194,14 +189,18 @@ async function loadResolvedImport(
     canonicalPath: probe.canonicalPath,
     size: probe.size,
   };
+  const directory = candidateDirectory(group, resolved.path);
+  const disclosed =
+    directory === undefined
+      ? EMPTY_DISCLOSED
+      : (state.disclosed.get(directory) ?? EMPTY_DISCLOSED);
   await collectInstructionCandidate(
     state,
     candidate,
-    new Set<string>(),
+    disclosed,
     hop + 1,
     importer,
   );
-  collector.attempted.add(resolved.key);
   collector.attempted.add(resolved.path);
 }
 
@@ -223,8 +222,8 @@ async function expandImports(
 
 /**
  * Walk an imported file's directory as a native trigger. Chain candidates are
- * fresh roots for hop counting, and explicit imports inherit only the
- * directory's world and the bundle's seen set.
+ * fresh roots for hop counting, and explicit imports inherit the directory's
+ * world, disclosed set, and the bundle's seen set.
  */
 async function loadDirectoryChain(
   state: InstructionImportState,
@@ -233,10 +232,11 @@ async function loadDirectoryChain(
   const { group } = state;
   for (const chainDirectory of walkFrom(group.scope.root, directory)) {
     state.abortSignal?.throwIfAborted();
+    const disclosed = state.disclosed.get(chainDirectory) ?? EMPTY_DISCLOSED;
     const candidates = await selectCandidates(group.scope, chainDirectory);
     for (const candidate of candidates) {
       state.abortSignal?.throwIfAborted();
-      await collectInstructionCandidate(state, candidate, new Set<string>(), 0);
+      await collectInstructionCandidate(state, candidate, disclosed, 0);
     }
   }
 }

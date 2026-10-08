@@ -168,7 +168,10 @@ const SPACE = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
 const OTHER_SPACE = 'b6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
 
 /** One in-memory Space, every key it was asked about, and its page reads. */
-function spaceOf(files: Readonly<Record<string, string>>) {
+function spaceOf(
+  files: Readonly<Record<string, string>>,
+  knowledgeSpaceId = SPACE,
+) {
   const reads: Array<string> = [];
   const probes: Array<string> = [];
   const asked: Array<string> = [];
@@ -187,7 +190,7 @@ function spaceOf(files: Readonly<Record<string, string>>) {
   const knowledge: KnowledgeInstructionProbe = (spaceId) => {
     asked.push(spaceId);
     return Promise.resolve(
-      spaceId.toLowerCase() === SPACE
+      spaceId.toLowerCase() === knowledgeSpaceId.toLowerCase()
         ? {
             probe(relativePath) {
               probes.push(relativePath);
@@ -1065,6 +1068,36 @@ describe('instructions producer imports', () => {
     ]);
   });
 
+  it('does not restage a directly read file targeted by an import', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const chain = join(root, 'foo/AGENTS.md');
+    await write(rootFile, '@foo/AGENTS.md\n');
+    await write(chain, 'foo rules\n');
+
+    const { producer, staged, prepare } = attemptOf();
+    producer.observeToolCall?.(readCall(chain));
+    producer.observeToolCall?.(readCall(join(root, 'src/a.ts')));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([rootFile]);
+  });
+
+  it('keeps a directly read chain file excluded when an import loads its sibling', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const doc = join(root, 'foo/doc.md');
+    const chain = join(root, 'foo/AGENTS.md');
+    await write(rootFile, '@foo/doc.md\n');
+    await write(doc, 'doc\n');
+    await write(chain, 'foo rules\n');
+
+    const { producer, staged, prepare } = attemptOf();
+    producer.observeToolCall?.(readCall(chain));
+    producer.observeToolCall?.(readCall(join(root, 'src/a.ts')));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([rootFile, doc]);
+  });
+
   it('cuts a cycle without repeating either imported file', async () => {
     const rootFile = join(root, 'AGENTS.md');
     const first = join(root, 'a.md');
@@ -1215,6 +1248,43 @@ describe('instructions producer imports', () => {
       `kb://${SPACE}/notes/doc.md`,
     ]);
     expect(space.reads).not.toContain(`kb://${SPACE}/outside.md:raw:1-2000`);
+  });
+
+  it('loads identical relative imports independently in two Knowledge Spaces', async () => {
+    const first = spaceOf(
+      {
+        'AGENTS.md': '@notes/doc.md\n',
+        'notes/doc.md': 'first space doc\n',
+      },
+      SPACE,
+    );
+    const second = spaceOf(
+      {
+        'AGENTS.md': '@notes/doc.md\n',
+        'notes/doc.md': 'second space doc\n',
+      },
+      OTHER_SPACE,
+    );
+    const readPage: ReadPage = (selectorPath) =>
+      selectorPath.startsWith(`kb://${SPACE}/`)
+        ? first.readPage(selectorPath)
+        : second.readPage(selectorPath);
+    const knowledge: KnowledgeInstructionProbe = (spaceId) =>
+      spaceId === SPACE ? first.knowledge(spaceId) : second.knowledge(spaceId);
+    const { producer, staged, prepare } = attemptOf({
+      space: { readPage, knowledge },
+    });
+
+    producer.observeToolCall?.(spaceCall('entry.md', 'read', SPACE));
+    producer.observeToolCall?.(spaceCall('entry.md', 'read', OTHER_SPACE));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/AGENTS.md`,
+      `kb://${SPACE}/notes/doc.md`,
+      `kb://${OTHER_SPACE}/AGENTS.md`,
+      `kb://${OTHER_SPACE}/notes/doc.md`,
+    ]);
   });
 
   it('audits a denied import once without probing it', async () => {

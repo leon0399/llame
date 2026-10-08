@@ -59,40 +59,50 @@ function chipEntries(
   ];
 }
 
-type InstructionFileChipTreeNode = {
+type InstructionFileChipRenderEntry = {
   entry: InstructionFileChipEntry;
-  children: Array<InstructionFileChipTreeNode>;
+  depth: number;
 };
 
-/** Groups imported entries below the loaded file whose path they reference. */
-function nestChipEntries(
+/** Computes each file's indentation without changing the payload order. */
+function chipEntryDepths(
   entries: ReadonlyArray<InstructionFileChipEntry>,
-): Array<InstructionFileChipTreeNode> {
-  const nodes: Array<InstructionFileChipTreeNode> = entries.map((entry) => ({
-    entry,
-    children: [],
-  }));
-  const nodesByPath = new Map(
-    nodes.flatMap((node) =>
-      node.entry.canonicalPath === null
-        ? []
-        : [[node.entry.path, node] as const],
+): Array<InstructionFileChipRenderEntry> {
+  const entriesByPath = new Map(
+    entries.flatMap((entry) =>
+      entry.canonicalPath === null ? [] : [[entry.path, entry] as const],
     ),
   );
-  const roots: Array<InstructionFileChipTreeNode> = [];
+  const depths = new Map<InstructionFileChipEntry, number>();
 
-  for (const node of nodes) {
-    const importer = node.entry.importedBy
-      ? nodesByPath.get(node.entry.importedBy)
-      : undefined;
-    if (importer && importer !== node) {
-      importer.children.push(node);
-    } else {
-      roots.push(node);
+  const depthOf = (
+    entry: InstructionFileChipEntry,
+    ancestors: Set<InstructionFileChipEntry>,
+  ): number => {
+    const cached = depths.get(entry);
+    if (cached !== undefined) return cached;
+    if (ancestors.has(entry)) return 0;
+
+    const importer =
+      entry.importedBy === undefined
+        ? undefined
+        : entriesByPath.get(entry.importedBy);
+    if (importer === undefined || importer === entry) {
+      depths.set(entry, 0);
+      return 0;
     }
-  }
 
-  return roots;
+    ancestors.add(entry);
+    const depth = depthOf(importer, ancestors) + 1;
+    ancestors.delete(entry);
+    depths.set(entry, depth);
+    return depth;
+  };
+
+  return entries.map((entry) => ({
+    entry,
+    depth: depthOf(entry, new Set<InstructionFileChipEntry>()),
+  }));
 }
 
 /** One file entry: its selected path, marked when truncated or denied. A
@@ -130,24 +140,21 @@ function InstructionFileChip({ entry }: { entry: InstructionFileChipEntry }) {
   );
 }
 
-/** Renders an importer and its imported files as a nested layout group. */
-function InstructionFileChipTree({
-  node,
-}: {
-  node: InstructionFileChipTreeNode;
-}) {
-  if (node.children.length === 0) {
-    return <InstructionFileChip entry={node.entry} />;
-  }
+/** Import depth is bounded by the 5-hop limit, so a fixed class table covers it. */
+const DEPTH_INDENT = ["", "ps-4", "ps-8", "ps-12", "ps-16", "ps-20"];
 
+/** Renders one chip with indentation derived from its import ancestry. */
+function InstructionFileChipRow({
+  entry,
+  depth,
+}: {
+  entry: InstructionFileChipEntry;
+  depth: number;
+}) {
+  const indent = DEPTH_INDENT[Math.min(depth, DEPTH_INDENT.length - 1)];
   return (
-    <div className="flex flex-col items-start gap-1">
-      <InstructionFileChip entry={node.entry} />
-      <div className="flex flex-col items-start gap-1 pl-4">
-        {node.children.map((child) => (
-          <InstructionFileChipTree key={child.entry.key} node={child} />
-        ))}
-      </div>
+    <div className={`flex items-center gap-1 ${indent}`}>
+      <InstructionFileChip entry={entry} />
     </div>
   );
 }
@@ -165,7 +172,7 @@ function InstructionFileChipTree({
  * @summary owner chip for loaded, truncated, and denied instruction files
  */
 export function InstructionsPart(payload: InstructionsPayload) {
-  const roots = nestChipEntries(chipEntries(payload));
+  const entries = chipEntryDepths(chipEntries(payload));
 
   return (
     <div className="my-1 flex flex-wrap items-center gap-1">
@@ -173,8 +180,8 @@ export function InstructionsPart(payload: InstructionsPayload) {
         <BookOpenIcon />
         Instructions
       </Badge>
-      {roots.map((node) => (
-        <InstructionFileChipTree key={node.entry.key} node={node} />
+      {entries.map(({ entry, depth }) => (
+        <InstructionFileChipRow key={entry.key} entry={entry} depth={depth} />
       ))}
     </div>
   );

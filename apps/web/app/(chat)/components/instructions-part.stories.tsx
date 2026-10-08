@@ -87,10 +87,10 @@ export const LoadedTruncatedDenied: Story = {
 };
 
 /**
- * Imported files sit directly beneath the file that named them, while the
- * directory-chain file remains a top-level entry (design D9).
+ * Imported files keep their payload order while their import ancestry is
+ * expressed as indentation (design D9).
  *
- * @summary imported instruction file nested under its importer
+ * @summary imported instruction file indented under its importer
  */
 export const Imported: Story = {
   tags: ["ai-generated"],
@@ -102,15 +102,15 @@ export const Imported: Story = {
         truncated: false,
       },
       {
+        path: "/home/operator/repo/docs/AGENTS.md",
+        canonicalPath: "/home/operator/repo/docs/AGENTS.md",
+        truncated: false,
+      },
+      {
         path: "/home/operator/repo/docs/README.md",
         canonicalPath: "/home/operator/repo/docs/README.md",
         truncated: false,
         importedBy: "/home/operator/repo/AGENTS.md",
-      },
-      {
-        path: "/home/operator/repo/docs/AGENTS.md",
-        canonicalPath: "/home/operator/repo/docs/AGENTS.md",
-        truncated: false,
       },
     ],
     denied: [],
@@ -129,6 +129,19 @@ export const Imported: Story = {
     await expect(importer).toBeVisible();
     await expect(imported).toBeVisible();
     await expect(chain).toBeVisible();
-    await expect(importer.parentElement).toContainElement(imported);
+    const labels = canvas
+      .getAllByLabelText(/instruction file:/i)
+      .map((chip) => chip.getAttribute("aria-label"));
+    await expect(labels).toEqual([
+      "Loaded instruction file: /home/operator/repo/AGENTS.md",
+      "Loaded instruction file: /home/operator/repo/docs/AGENTS.md",
+      "Loaded instruction file: /home/operator/repo/docs/README.md",
+    ]);
+    await expect(importer.parentElement).toHaveStyle({
+      paddingInlineStart: "0rem",
+    });
+    await expect(imported.parentElement).toHaveStyle({
+      paddingInlineStart: "1rem",
+    });
   },
 };
