@@ -960,6 +960,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     const se = { id: 'se', use: 'stackexchange' as const };
     const crates = { id: 'crates', use: 'crates' as const };
     const hn = { id: 'hn', use: 'hackernews' as const };
+    const doi = { id: 'doi', use: 'doi' as const };
     writeConfig(
       JSON.stringify({
         tools: {
@@ -973,6 +974,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
             se,
             crates,
             hn,
+            doi,
           ],
         },
       }),
@@ -988,6 +990,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       se,
       crates,
       hn,
+      doi,
     ]);
   });
 

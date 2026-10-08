@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `doi` web adapter. With `{ "id": "doi", "use": "doi" }` in
+  `tools.webAdapters`, `read` renders `doi.org` links, which otherwise yield a
+  one-line citation or a publisher page that refuses bots, as the work's
+  authors, venue, date, citation count, open-access link, and abstract from
+  the keyless OpenAlex API.
 - Added a native `hackernews` web adapter. With
   `{ "id": "hackernews", "use": "hackernews" }` in `tools.webAdapters`, `read`
   renders `news.ycombinator.com/item?id=` links, which the generic converter

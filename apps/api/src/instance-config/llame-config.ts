@@ -518,6 +518,10 @@ export type RawWebAdapterEntry =
   | {
       id: string;
       use: 'hackernews';
+    }
+  | {
+      id: string;
+      use: 'doi';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -590,6 +594,11 @@ export type HackernewsWebAdapterConfig = {
   readonly use: 'hackernews';
 };
 
+export type DoiWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'doi';
+};
+
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
   | GithubWebAdapterConfig
@@ -599,7 +608,8 @@ export type WebAdapterConfig =
   | ArxivWebAdapterConfig
   | StackexchangeWebAdapterConfig
   | CratesWebAdapterConfig
-  | HackernewsWebAdapterConfig;
+  | HackernewsWebAdapterConfig
+  | DoiWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

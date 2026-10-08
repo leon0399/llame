@@ -92,7 +92,7 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
-`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, or `hackernews` entry. What an adapter does to a result — its
+`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, or `doi` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -375,6 +375,24 @@ clause for `^https://hn\.algolia\.com/`. A very large thread whose response
 exceeds the 5 MiB body bound falls through with `too_large`, and polls and
 poll options, whose option texts the API does not return, fall through with
 `parse`.
+
+### DOI adapter
+
+Add a `doi` entry to render DOI links as the work's metadata and abstract.
+Without it, `doi.org` answers the read's `Accept` header with a one-line
+formatted citation, or redirects to a publisher page that often refuses
+non-browser clients:
+
+```jsonc
+{ "id": "doi", "use": "doi" }
+```
+
+The entry takes no other field and sends no credential. It claims
+`https://doi.org/{doi}` and `https://dx.doi.org/{doi}` for any `10.`-prefixed
+DOI, percent-decoded. A read is one request to
+`https://api.openalex.org/works/doi:{doi}` with a fixed `select`, so with a
+domain allowlist add a clause for `^https://api\.openalex\.org/`. A DOI
+OpenAlex does not index answers 404 and falls through to the generic ladder.
 
 ## Derived locators and permission admission
 

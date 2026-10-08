@@ -944,6 +944,25 @@
                     "description": "Adapter implementation for news.ycombinator.com item URLs."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native DOI adapter. It reads a DOI's scholarly metadata and abstract from the keyless OpenAlex API; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["doi"],
+                    "description": "Adapter implementation for doi.org and dx.doi.org DOI URLs."
+                  }
+                }
               }
             ]
           }

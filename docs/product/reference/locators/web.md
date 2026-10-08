@@ -451,6 +451,28 @@ and a story adds `Points:`. Dead and deleted comments are omitted together
 with their replies, as the API omits them, and replies follow the API's order,
 not Hacker News's ranking.
 
+### DOI adapter
+
+A DOI renders the work's title, then `Retracted` (only when retracted),
+`Authors`, `Published` (date, venue, and type), `Cited by`, `Open access` (an
+open copy's URL when one is known), and `DOI` lines, then `## Abstract` when
+OpenAlex has one:
+
+```text
+# On the Dangers of Stochastic Parrots
+
+Authors: Emily M. Bender, Timnit Gebru, Angelina McMillan-Major, Shmargaret Shmitchell
+Published: 2021-03-01 in ACM Conference on Fairness, Accountability, and Transparency (FAccT) (conference-paper)
+Cited by: 6,776
+Open access: https://doi.org/10.1145/3442188.3445922
+DOI: https://doi.org/10.1145/3442188.3445922
+
+## Abstract
+...
+```
+
+The `Open access` URL is a separate read; the adapter does not fetch it.
+
 ## Bounds
 
 | Bound                         | Value                                                                                                         |
