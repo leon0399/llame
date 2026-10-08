@@ -13,29 +13,47 @@ import {
 
 export type ContextFileKind = "instruction" | "prompt";
 
+export type ContextFileState =
+  | "loaded"
+  | "imported"
+  | "truncated"
+  | "denied"
+  | "failed"
+  | "omitted";
+
+const STATE_LABEL: Record<ContextFileState, string> = {
+  loaded: "Loaded",
+  imported: "Imported",
+  truncated: "Truncated",
+  denied: "Denied",
+  failed: "Failed",
+  omitted: "Omitted",
+};
+
 type ContextFileChipProps = {
   kind: ContextFileKind;
   path: string;
   detail?: string;
-  state: string;
-  muted?: boolean;
+  state: ContextFileState;
 };
-
 /** One owner-visible path or locator with its resolution outcome. */
 export function ContextFileChip({
   kind,
   path,
   detail,
   state,
-  muted = false,
 }: ContextFileChipProps) {
-  const label = state.slice(0, 1).toUpperCase() + state.slice(1);
+  const label = STATE_LABEL[state];
+  const negative =
+    state === "denied" || state === "failed" || state === "omitted";
 
   return (
     <Tooltip>
       <TooltipTrigger
         render={
           <Badge
+            // Keep every state outlined so muted states stay visible on the
+            // bg-secondary user bubble.
             variant="outline"
             className="max-w-64"
             aria-label={`${label} ${kind} file: ${path}`}
@@ -43,7 +61,7 @@ export function ContextFileChip({
           />
         }
       >
-        {muted ? <BanIcon /> : <FileTextIcon />}
+        {negative ? <BanIcon /> : <FileTextIcon />}
         <span className="truncate">{path}</span>
         {state !== "imported" && state !== "loaded" && (
           <span className="shrink-0">{state}</span>

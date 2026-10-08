@@ -2,14 +2,13 @@
 
 import { AtSignIcon } from "lucide-react";
 
-import type {
-  PromptImportOutcome,
-  PromptImportsPayload,
-} from "@/lib/services/chat/history";
+import type { PromptImportsPayload } from "@/lib/services/chat/history";
 
-import { ContextChipGroup, ContextFileChip } from "./context-file-chip";
-
-type PromptImportState = PromptImportOutcome | "truncated" | "omitted";
+import {
+  ContextChipGroup,
+  ContextFileChip,
+  type ContextFileState,
+} from "./context-file-chip";
 
 /**
  * The owner-facing chip for a `prompt-imports` context item: each import marker
@@ -26,7 +25,7 @@ export function PromptImportsPart(payload: PromptImportsPayload) {
   return (
     <ContextChipGroup icon={<AtSignIcon />} label="Imports">
       {payload.imports.map((entry) => {
-        const state: PromptImportState =
+        const state: ContextFileState =
           entry.outcome === "imported" && entry.truncated
             ? "truncated"
             : entry.outcome;
@@ -34,7 +33,6 @@ export function PromptImportsPart(payload: PromptImportsPayload) {
           entry.resolved !== undefined && entry.resolved !== entry.locator
             ? `${entry.locator} → ${entry.resolved}`
             : undefined;
-        const muted = state !== "imported" && state !== "truncated";
 
         return (
           <ContextFileChip
@@ -43,7 +41,6 @@ export function PromptImportsPart(payload: PromptImportsPayload) {
             path={entry.locator}
             detail={detail}
             state={state}
-            muted={muted}
           />
         );
       })}
@@ -53,7 +50,6 @@ export function PromptImportsPart(payload: PromptImportsPayload) {
           kind="prompt"
           path={locator}
           state="omitted"
-          muted
         />
       ))}
     </ContextChipGroup>

@@ -4,16 +4,16 @@ import { BookOpenIcon } from "lucide-react";
 
 import type { InstructionsPayload } from "@/lib/services/chat/history";
 
-import { ContextChipGroup, ContextFileChip } from "./context-file-chip";
-
-/** How one file path figures in the bundle: loaded whole, loaded up to the
- *  per-file cap, or denied by the `read` permission group. */
-type InstructionFileState = "loaded" | "truncated" | "denied";
+import {
+  ContextChipGroup,
+  ContextFileChip,
+  type ContextFileState,
+} from "./context-file-chip";
 
 type InstructionFileChipEntry = {
   /** Unique within a bundle: a path is either loaded or denied, never both. */
   key: string;
-  state: InstructionFileState;
+  state: ContextFileState;
   path: string;
   canonicalPath: string | null;
   importedBy: string | undefined;
@@ -116,7 +116,6 @@ function InstructionFileChipRow({
         path={entry.path}
         detail={detail}
         state={entry.state}
-        muted={entry.state === "denied"}
       />
     </div>
   );
