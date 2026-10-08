@@ -131,30 +131,31 @@ assessment.
 9. [oh-my-openagent (OmO)](./oh-my-openagent.md) — One agent product adapted into OpenCode, Codex and a pi fork; Git-backed memory with a gated cheap-model advisor; durable child tasks with exactly-once completion; approval bypassed by default
 10. [OpenCode](./opencode.md) — TypeScript coding harness; provider, session, and permission boundaries
 11. [OpenCode V2](./opencode-v2.md) — Per-model protocol dispatch, hand-rolled wire protocols, and a construction/request header seam
-12. [Codex CLI](./codex-cli.md) — Native peer lifecycle protocol and observable compaction
-13. [goose](./goose.md) — ACP peer integration and tool approval boundaries
-14. [Rowboat](./rowboat.md) — Per-person local agent behind a thin shared Space server, agent-authored Markdown memory, ACP peer executors, and classifier-based auto-approval
-15. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
-16. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
-17. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
-18. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
-19. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
-20. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
-21. [AX](./ax.md) — Desired-state task sandboxes, snapshot-backed workspaces, and fail-open control-plane gaps
-22. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
-23. [OpenDots](./opendots.md) — Self-hosted single-owner agent workspace with AG-UI, durable Threads, per-Dot computers, and scheduled work
-24. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
-25. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
-26. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
-27. [Empryo (SoulForge)](./empryo.md) — Single-user BUSL-licensed coding agent; chat-surface daemon with pairing-code lockout, deny-first approval policy and capped pending approvals
-28. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
-29. [Buzz](./buzz.md) — ACP agent workspace with isolation and synchronization contracts
-30. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
-31. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
-32. [ELAI](./elai.md) — Archived architecture and measurement discipline
-33. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract, per-child input-token ceilings for delegation
-34. [pi-mono](./pi-mono.md) — Lane-as-branch session tree, composable provider session headers, and a fail-open hook registry
-35. [Kilo Code](./kilocode.md) — Provider-gated header tiers, hard permission rulesets, and a fail-closed headless subagent guard
-36. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
-37. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
-38. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate
+12. [Paperclip](./paperclip.md) — Company-of-agents control plane: heartbeat wakeups, atomic issue checkout with a liveness contract, ACP-default adapters with no silent fallback, budget hard stops that block on unpriced usage, ask-first approvals, and coalescing routines; tenant isolation by application checks only
+13. [Codex CLI](./codex-cli.md) — Native peer lifecycle protocol and observable compaction
+14. [goose](./goose.md) — ACP peer integration and tool approval boundaries
+15. [Rowboat](./rowboat.md) — Per-person local agent behind a thin shared Space server, agent-authored Markdown memory, ACP peer executors, and classifier-based auto-approval
+16. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
+17. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
+18. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
+19. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
+20. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
+21. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
+22. [AX](./ax.md) — Desired-state task sandboxes, snapshot-backed workspaces, and fail-open control-plane gaps
+23. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
+24. [OpenDots](./opendots.md) — Self-hosted single-owner agent workspace with AG-UI, durable Threads, per-Dot computers, and scheduled work
+25. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
+26. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
+27. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
+28. [Empryo (SoulForge)](./empryo.md) — Single-user BUSL-licensed coding agent; chat-surface daemon with pairing-code lockout, deny-first approval policy and capped pending approvals
+29. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
+30. [Buzz](./buzz.md) — ACP agent workspace with isolation and synchronization contracts
+31. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
+32. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
+33. [ELAI](./elai.md) — Archived architecture and measurement discipline
+34. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract, per-child input-token ceilings for delegation
+35. [pi-mono](./pi-mono.md) — Lane-as-branch session tree, composable provider session headers, and a fail-open hook registry
+36. [Kilo Code](./kilocode.md) — Provider-gated header tiers, hard permission rulesets, and a fail-closed headless subagent guard
+37. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
+38. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
+39. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate
