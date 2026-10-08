@@ -10679,6 +10679,272 @@ describe('RunExecutionService instruction files', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  type ImportOutcomes = Parameters<
+    typeof createPromptImportsItem
+  >[0]['outcomes'];
+
+  /** Serves the `prompt-imports` item an earlier pass persisted for this Run. */
+  function servePromptImports(outcomes: ImportOutcomes): void {
+    const item = createPromptImportsItem({ runId, outcomes, omitted: [] });
+    const payload = item.data.payload;
+    if (!isPromptImportsPayload(payload)) {
+      throw new Error('the stored item must carry a valid payload');
+    }
+    vi.spyOn(
+      PromptImportPartsRepository.prototype,
+      'findForRun',
+    ).mockResolvedValue({ ...item, data: { ...item.data, payload } });
+  }
+
+  /** Runs one turn on the default (unbound) Chat and returns its repositories. */
+  async function runPlainTurn(outcomes: ImportOutcomes) {
+    const repositories = mockNormalExecutionRepositories();
+    servePromptImports(outcomes);
+    serveNativeReads();
+    const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      'host-a',
+      executionOptions(),
+    );
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+    return { repositories, append };
+  }
+
+  it.each([
+    ['an imported target', 'imported', ''],
+    ['a target whose read failed', 'failed', ''],
+    ['a target resolved with its selector attached', 'imported', ':1-2'],
+  ] as const)(
+    'stages the nested chain of %s before the first request',
+    async (_label, outcome, selector) => {
+      const { root, touch } = nestedInstructionsRoot();
+      try {
+        const repositories = mockNormalExecutionRepositories();
+        bindChatTo(root);
+        serveNativeReads();
+        servePromptImports([
+          {
+            locator: 'apps/api/main.ts',
+            resolved: `${touch}${selector}`,
+            ...(outcome === 'imported'
+              ? { outcome, body: 'export const main = 1;' }
+              : { outcome }),
+          },
+        ]);
+        const execution = makeExecutionService(
+          createFakeModelClient(['answer']),
+          undefined,
+          'host-a',
+          executionOptions(),
+        );
+
+        const result = await execution.service.executeRun(
+          executionInput(execution.client),
+        );
+
+        await expect(result.text).resolves.toBe('answer');
+        // The root load alone could not stage `apps/api/AGENTS.md`.
+        const text = stagedInstructionPart(repositories)?.data.text ?? '';
+        expect(text).toContain('run the tests');
+        expect(text).toContain('api rules');
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('stages the same load on a retry after the binding switched', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    const other = instructionsRoot();
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(other);
+      serveNativeReads();
+      servePromptImports([
+        {
+          locator: 'apps/api/main.ts',
+          resolved: touch,
+          outcome: 'imported',
+          body: 'export const main = 1;',
+        },
+      ]);
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+
+      await expect(result.text).resolves.toBe('answer');
+      // The resolved path is absolute, so the new binding does not re-project
+      // it: both the new root's chain and the imported directory's load.
+      const text = stagedInstructionPart(repositories)?.data.text ?? '';
+      expect(text).toContain(path.join(other, 'AGENTS.md'));
+      expect(text).toContain('api rules');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('loads the directory chain of an absolute host import on an unbound Chat', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    try {
+      const { repositories } = await runPlainTurn([
+        {
+          locator: touch,
+          resolved: touch,
+          outcome: 'imported',
+          body: 'export const main = 1;',
+        },
+      ]);
+
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
+        'api rules',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stages no prompt-import chain on a detaching attempt', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'detach',
+      ).mockResolvedValue('detached');
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'gone-host',
+        workspaceGeneration: 2,
+      });
+      serveNativeReads();
+      servePromptImports([
+        {
+          locator: 'apps/api/main.ts',
+          resolved: touch,
+          outcome: 'imported',
+          body: 'export const main = 1;',
+        },
+      ]);
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(stagedProducers(repositories)).not.toContain('instructions');
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stages nothing for denied, web, and skill targets', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    try {
+      const { repositories, append } = await runPlainTurn([
+        { locator: touch, outcome: 'denied' },
+        {
+          locator: 'https://example.test/page',
+          outcome: 'imported',
+          body: 'web body',
+        },
+        {
+          locator: 'skill://pdf/SKILL.md',
+          outcome: 'imported',
+          body: 'skill body',
+        },
+      ]);
+
+      expect(stagedProducers(repositories)).not.toContain('instructions');
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not load an instruction file merely because a prompt imported it', async () => {
+    const root = instructionsRoot();
+    try {
+      const file = path.join(root, 'AGENTS.md');
+      const { repositories } = await runPlainTurn([
+        {
+          locator: file,
+          resolved: file,
+          outcome: 'imported',
+          body: 'run the tests',
+        },
+      ]);
+
+      expect(stagedProducers(repositories)).not.toContain('instructions');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('loads the Space chain of a kb:// prompt import with no native executor', async () => {
+    const spaceId = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+    const space = knowledgeRootWith(spaceId);
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      servePromptImports([
+        {
+          locator: `kb://${spaceId}/main.ts`,
+          resolved: `kb://${spaceId}/main.ts`,
+          outcome: 'imported',
+          body: 'export const main = 1;',
+        },
+      ]);
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        undefined,
+        {
+          allowed: ['enter_workspace', 'read'],
+          knowledgeRoot: space.knowledgeRoot,
+          knowledgeResolver: space.resolver,
+          inRunProducer: createInstructionsProducer(),
+        },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
+        'space rules',
+      );
+      expect(
+        JSON.stringify(eventsWithOrigin(append, 'instructions')),
+      ).toContain(`kb://${spaceId}/AGENTS.md`);
+    } finally {
+      space.remove();
+    }
+  });
 });
 
 describe('RunExecutionService prompt imports', () => {

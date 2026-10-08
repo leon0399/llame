@@ -151,6 +151,7 @@ import {
   resolvePromptImports as resolvePromptImportTargets,
   type PromptImportRequest,
 } from '../prompt-imports/prompt-imports';
+import { derivePromptImportTriggers } from '../prompt-imports/prompt-import-triggers';
 import { nativeReadTool } from '../tools/native-files';
 import {
   type KnowledgeToolResolver,
@@ -181,7 +182,9 @@ import {
   IN_RUN_CONTEXT_PRODUCER,
   createInRunContextItems,
   type InRunAttemptProducer,
+  type InRunAttempt,
   type InRunContextProducer,
+  type PromptImportTrigger,
 } from './in-run-context-items';
 import type { ReadPage } from '../instructions/instruction-files';
 import { instructionsSeenPaths } from '../chats/instructions-item';
@@ -329,10 +332,20 @@ type WorkspaceStagedContext = {
 type TurnInstructions = {
   /** The bound root the accepted-turn trigger loads; undefined without one. */
   readonly root: string | undefined;
-  /** The turn's audited page reader; undefined when the `read` gate bars it. */
+  /**
+   * The turn's audited HOST page reader; undefined when the `read` gate or the
+   * native executor bars host instruction files.
+   */
   readonly readPage: ReadPage | undefined;
+  /** The Knowledge world; undefined without `read` and a Knowledge root. */
+  readonly knowledge: InRunAttempt['knowledge'];
   /** Preview the read permission without recording an audit event. */
   readonly admitsRead: ((path: string) => boolean) | undefined;
+  /**
+   * The admitted local targets of the Run's persisted prompt imports, each
+   * loading like a native `read` of its path; none on a detaching attempt.
+   */
+  readonly promptImportTriggers: ReadonlyArray<PromptImportTrigger>;
   /** Allocates the attempt-scoped tool-call id of one audited read. */
   readonly nextToolCallId: () => string;
   part: AuthoredContextItemPart | undefined;
@@ -2533,8 +2546,9 @@ export class RunExecutionService {
   /**
    * The accepted-turn instructions load (D5): the live binding's root chain,
    * staged before the first request when any file of it is not already in
-   * effective context. Computed outside every database transaction, because
-   * probing and reading candidates is filesystem and tool work.
+   * effective context, together with the chains the Run's prompt imports
+   * trigger. Computed outside every database transaction, because probing and
+   * reading candidates is filesystem and tool work.
    */
   private async loadTurnInstructions(
     input: ExecuteRunInput,
@@ -2546,14 +2560,19 @@ export class RunExecutionService {
     seenInstructionPaths: ReadonlySet<string>,
     stagedParts: Array<MessagePart>,
   ): Promise<TurnInstructions> {
-    const toolContext = this.hostInstructionsLoadable()
-      ? this.buildSystemReadContext(
-          input,
-          nativeDeliverySequence,
-          workspaceRoot,
-          effectivePermissionMode,
-        )
-      : undefined;
+    const gates = {
+      host: this.hostInstructionsLoadable(),
+      knowledge: this.knowledgeInstructionsLoadable(),
+    };
+    const toolContext =
+      gates.host || gates.knowledge
+        ? this.buildSystemReadContext(
+            input,
+            nativeDeliverySequence,
+            workspaceRoot,
+            effectivePermissionMode,
+          )
+        : undefined;
     // One allocator per attempt, shared by the accepted-turn load and the
     // attempt's in-Run steps, so two reads never collide in the event log.
     let ordinal = 0;
@@ -2563,25 +2582,10 @@ export class RunExecutionService {
     };
     const turn: TurnInstructions = {
       root: preparation.root,
-      readPage:
-        toolContext === undefined
-          ? undefined
-          : async (selectorPath, canonicalPath) =>
-              (
-                await this.readTurnInstructionPage(
-                  input,
-                  toolContext,
-                  selectorPath,
-                  nextToolCallId(),
-                  ORIGIN_INSTRUCTIONS,
-                  canonicalPath,
-                )
-              ).result,
-      admitsRead:
-        toolContext === undefined
-          ? undefined
-          : (path) =>
-              previewToolPermission(nativeReadTool, { path }, toolContext),
+      ...this.turnInstructionWorlds(input, toolContext, gates, nextToolCallId),
+      promptImportTriggers: preparation.detaching
+        ? []
+        : await this.promptImportInstructionTriggers(input, gates),
       nextToolCallId,
       part: undefined,
       seenCanonicalPaths: seenInstructionPaths,
@@ -2596,6 +2600,76 @@ export class RunExecutionService {
       seenInstructionPaths,
     );
     return turn;
+  }
+
+  /**
+   * The worlds the accepted-turn load may read in, one audited reader for
+   * both: the host world only with a native executor, the Knowledge world
+   * only with a configured Knowledge root, so a trigger whose world this Run
+   * may not load is ignored before anything is probed.
+   */
+  private turnInstructionWorlds(
+    input: ExecuteRunInput,
+    toolContext: ToolContext | undefined,
+    gates: { readonly host: boolean; readonly knowledge: boolean },
+    nextToolCallId: () => string,
+  ): Pick<TurnInstructions, 'readPage' | 'knowledge' | 'admitsRead'> {
+    if (toolContext === undefined) {
+      return {
+        readPage: undefined,
+        knowledge: undefined,
+        admitsRead: undefined,
+      };
+    }
+    const readPage: ReadPage = async (selectorPath, canonicalPath) =>
+      (
+        await this.readTurnInstructionPage(
+          input,
+          toolContext,
+          selectorPath,
+          nextToolCallId(),
+          ORIGIN_INSTRUCTIONS,
+          canonicalPath,
+        )
+      ).result;
+    return {
+      readPage: gates.host ? readPage : undefined,
+      knowledge: gates.knowledge
+        ? {
+            readPage,
+            probe: createKnowledgeInstructionProbe({
+              resolver: this.knowledgeResolver,
+              ownerUserId: input.userId,
+              signal: input.abortSignal,
+            }),
+          }
+        : undefined,
+      admitsRead: (path) =>
+        previewToolPermission(nativeReadTool, { path }, toolContext),
+    };
+  }
+
+  /**
+   * The triggers of the Run's persisted prompt-imports item, recomputed on
+   * every attempt: a retry after a binding switch stages the same load,
+   * because a resolved path is absolute and never projected again.
+   */
+  private async promptImportInstructionTriggers(
+    input: ExecuteRunInput,
+    gates: { readonly host: boolean; readonly knowledge: boolean },
+  ): Promise<ReadonlyArray<PromptImportTrigger>> {
+    if (this.inRunProducer?.prepareTurn === undefined) return [];
+    if (!gates.host && !gates.knowledge) return [];
+    const stored = await this.tenantDb.runAs(input.userId, (tx) =>
+      new PromptImportPartsRepository(tx).findForRun({
+        id: input.userMessage.id,
+        chatId: input.chatId,
+        runId: input.runId,
+      }),
+    );
+    return stored === undefined
+      ? []
+      : derivePromptImportTriggers(stored.data.payload.imports, gates);
   }
 
   /**
@@ -2614,23 +2688,26 @@ export class RunExecutionService {
     seenCanonicalPaths: ReadonlySet<string>,
   ): Promise<void> {
     const producer = this.inRunProducer;
-    const readPage = turn.readPage;
     const admitsRead = turn.admitsRead;
-    const root = turn.root;
+    // The root load needs a binding and the host world; prompt-import
+    // triggers need neither a binding nor the host world (design D4).
+    const workspaceRoot = turn.readPage === undefined ? undefined : turn.root;
     if (
-      producer === undefined ||
-      producer.prepareTurn === undefined ||
-      readPage === undefined ||
+      producer?.prepareTurn === undefined ||
       admitsRead === undefined ||
-      root === undefined
+      (workspaceRoot === undefined && turn.promptImportTriggers.length === 0)
     ) {
       return;
     }
     const part = await producer.prepareTurn({
       runId: input.runId,
-      workspaceRoot: root,
-      readPage,
+      ...(workspaceRoot !== undefined && { workspaceRoot }),
+      ...(turn.readPage !== undefined && { readPage: turn.readPage }),
       admitsRead,
+      ...(turn.knowledge !== undefined && { knowledge: turn.knowledge }),
+      ...(turn.promptImportTriggers.length > 0 && {
+        promptImportTriggers: turn.promptImportTriggers,
+      }),
       seenKeys: seenCanonicalPaths,
       abortSignal: input.abortSignal,
     });

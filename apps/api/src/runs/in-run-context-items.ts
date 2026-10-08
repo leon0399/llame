@@ -179,18 +179,39 @@ export function createInRunContextItems(): InRunContextItems {
 /** In-Run context producers registered with the Run executor. */
 export const IN_RUN_CONTEXT_PRODUCER = Symbol('IN_RUN_CONTEXT_PRODUCER');
 
+/**
+ * One accepted-turn trigger a prompt import marks: the selector-free local
+ * path it named, in the world it names. It behaves like a native `read` of
+ * that path — the producer adds the candidate exclusion itself.
+ */
+export interface PromptImportTrigger {
+  /** An absolute host path, or a Space-relative path (`''` is the Space's own directory). */
+  readonly key: string;
+  /** The canonical lower-case Space id of a `kb://` trigger; absent for a host path. */
+  readonly space?: { readonly id: string };
+}
+
 /** One accepted turn offered to a producer for the request it is building. */
 export interface InRunTurnContext {
   readonly runId: string;
-  /** The bound Workspace root the turn starts from. */
-  readonly workspaceRoot: string;
+  /** The bound Workspace root the turn starts from; absent for an unbound Chat. */
+  readonly workspaceRoot?: string;
   /**
-   * Reads one page under the Run's own permission decision and audit trail.
-   * Never a model-visible tool call.
+   * Reads one host page under the Run's own permission decision and audit
+   * trail. Never a model-visible tool call. Absent when the producer may not
+   * load host instruction files.
    */
-  readonly readPage: ReadPage;
+  readonly readPage?: ReadPage;
   /** Preview the read permission without recording an audit event. */
   readonly admitsRead: (path: string) => boolean;
+  /** The Knowledge capability, with the same shape and meaning as an in-Run attempt's. */
+  readonly knowledge?: InRunAttempt['knowledge'];
+  /**
+   * The admitted local targets of the turn's prompt imports, derived from the
+   * persisted item. Each loads like a native `read` of its path, in addition
+   * to the root load.
+   */
+  readonly promptImportTriggers?: ReadonlyArray<PromptImportTrigger>;
   /** Keys already disclosed to the attempt's effective context. */
   readonly seenKeys: ReadonlySet<string>;
   /** The Run's own abort signal; a producer must stop loading once it fires. */

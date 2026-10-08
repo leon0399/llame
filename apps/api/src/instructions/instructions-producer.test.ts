@@ -1805,3 +1805,128 @@ describe('instructions producer accepted turn', () => {
     expect(part).toBeUndefined();
   });
 });
+
+describe('instructions producer accepted-turn prompt-import triggers', () => {
+  function turn(input: {
+    readonly workspaceRoot?: string;
+    readonly hostPage?: ReadPage;
+    readonly space?: {
+      readonly readPage: ReadPage;
+      readonly knowledge: KnowledgeInstructionProbe;
+    };
+    readonly triggers: ReadonlyArray<{
+      readonly key: string;
+      readonly space?: { readonly id: string };
+    }>;
+  }) {
+    const { workspaceRoot, hostPage, space } = input;
+    return createInstructionsProducer().prepareTurn?.({
+      runId: RUN_ID,
+      admitsRead: () => true,
+      seenKeys: new Set(),
+      promptImportTriggers: input.triggers,
+      ...(workspaceRoot !== undefined && { workspaceRoot }),
+      ...(hostPage !== undefined && { readPage: hostPage }),
+      ...(space !== undefined && {
+        knowledge: { readPage: space.readPage, probe: space.knowledge },
+      }),
+    });
+  }
+
+  it('loads a host import directory chain on an unbound turn', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+    await write(join(root, 'apps/api/doc.md'), 'doc\n');
+    await write(join(root, 'apps/web/AGENTS.md'), 'web rules\n');
+
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'apps/api/doc.md') }],
+    });
+    if (part === undefined) throw new Error('the unbound turn loaded nothing');
+
+    expect(withinRoot(blockPaths(part))).toEqual([
+      join(root, 'AGENTS.md'),
+      join(root, 'apps/api/AGENTS.md'),
+    ]);
+  });
+
+  it('loads a Space chain on an unbound turn with only a Knowledge world', async () => {
+    await write(join(root, 'AGENTS.md'), 'host rules\n');
+    const space = spaceOf({
+      'CLAUDE.md': 'space rules\n',
+      'notes/AGENTS.md': 'note rules\n',
+      'notes/doc.md': 'doc\n',
+    });
+
+    const part = await turn({
+      space,
+      triggers: [
+        { key: 'notes/doc.md', space: { id: SPACE } },
+        { key: join(root, 'AGENTS.md') },
+      ],
+    });
+    if (part === undefined) throw new Error('the unbound turn loaded nothing');
+
+    expect(blockPaths(part)).toEqual([
+      `kb://${SPACE}/CLAUDE.md`,
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+  });
+
+  it('ignores a host trigger without a page reader and a Space trigger without Knowledge', async () => {
+    await write(join(root, 'AGENTS.md'), 'host rules\n');
+    const hostTrigger = { key: join(root, 'doc.md') };
+    const spaceTrigger = { key: 'doc.md', space: { id: SPACE } };
+
+    expect(
+      await turn({ triggers: [hostTrigger, spaceTrigger] }),
+    ).toBeUndefined();
+    expect(
+      await turn({
+        hostPage: pageReader().readPage,
+        triggers: [spaceTrigger],
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not load an instruction file its own import names', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'AGENTS.md') }],
+    });
+
+    expect(part).toBeUndefined();
+  });
+
+  it('still loads the imported instruction file from the same turn root load', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    const part = await turn({
+      workspaceRoot: root,
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'AGENTS.md') }],
+    });
+    if (part === undefined) throw new Error('the bound turn loaded nothing');
+
+    expect(blockPaths(part)).toEqual([join(root, 'AGENTS.md')]);
+  });
+
+  it('loads the root chain and a nested import chain once each, in order', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+    await write(join(root, 'apps/api/doc.md'), 'doc\n');
+
+    const part = await turn({
+      workspaceRoot: root,
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'apps/api/doc.md') }],
+    });
+    if (part === undefined) throw new Error('the bound turn loaded nothing');
+
+    expect(withinRoot(blockPaths(part))).toEqual([
+      join(root, 'AGENTS.md'),
+      join(root, 'apps/api/AGENTS.md'),
+    ]);
+  });
+});

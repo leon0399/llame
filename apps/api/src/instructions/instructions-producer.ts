@@ -24,6 +24,12 @@
  * the binding. The projection — never the filesystem — happens at observation
  * time, so the Workspace root in effect for the call is the one it is resolved
  * against; the directory probe and the reads happen at the next step.
+ *
+ * The accepted turn resolves the bound Workspace root (when there is one) and
+ * each prompt import's admitted local target together, as one bundle: an
+ * import triggers like a native `read` of its path, with no binding required,
+ * and names the file it read, so importing an instruction file does not by
+ * itself load it.
  */
 
 import { posix } from 'node:path';
@@ -432,17 +438,35 @@ function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
   };
 }
 
+/**
+ * The accepted turn's triggers: the bound root's directory load, when bound,
+ * then each prompt import's local target as a native `read` of that path —
+ * which names the file it read, so importing an instruction file neither
+ * loads nor marks it by itself.
+ */
+function turnTriggers(context: InRunTurnContext): Array<PendingTrigger> {
+  const triggers: Array<PendingTrigger> =
+    context.workspaceRoot === undefined ? [] : [{ key: context.workspaceRoot }];
+  for (const imported of context.promptImportTriggers ?? []) {
+    triggers.push({ ...imported, excludeCandidate: true });
+  }
+  return triggers;
+}
+
 /** The `instructions` producer: stateless between attempts (see the module doc). */
 export function createInstructionsProducer(): InRunContextProducer {
   return {
     async prepareTurn(
       context: InRunTurnContext,
     ): Promise<AuthoredContextItemPart | undefined> {
+      const triggers = turnTriggers(context);
+      if (triggers.length === 0) return undefined;
       return loadBundle({
         runId: context.runId,
-        triggers: [{ key: context.workspaceRoot }],
+        triggers,
         // An accepted turn may carry the host and Knowledge capabilities
-        // together; both use the same silent read admission function.
+        // together; a world without its capability loads nothing, so a
+        // trigger of that world is ignored before any filesystem is probed.
         worlds: context,
         // The caller derives the turn's seen set from the returned item, so
         // this set is a scratch guard for the walk: the turn's seen keys plus
