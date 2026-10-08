@@ -19,37 +19,28 @@ type Item = {
   readonly text: string | null;
   readonly points: number | null;
   readonly created_at: string;
-  readonly parent_id: number | null;
   readonly children: ReadonlyArray<Item>;
 };
 
+/** The API omits dead and deleted comments with their replies, and sends a
+ *  text-only job's `url` as an empty string. */
 const ITEM: z.ZodType<Item> = z.lazy(() =>
   z.object({
     id: z.number().int(),
     type: z.string(),
-    author: z.string().nullable(),
-    title: z
-      .string()
-      .nullish()
-      .transform((value) => value ?? null),
+    author: z.string().nullable().default(null),
+    title: z.string().nullable().default(null),
     url: z
       .string()
-      .nullish()
-      .transform((value) => value ?? null),
-    text: z
-      .string()
-      .nullish()
-      .transform((value) => value ?? null),
-    points: z
-      .number()
-      .nullish()
-      .transform((value) => value ?? null),
+      .nullable()
+      .default(null)
+      .transform((url) => url || null),
+    text: z.string().nullable().default(null),
+    points: z.number().nullable().default(null),
     created_at: z.string(),
-    parent_id: z.number().int().nullable(),
     children: z.array(ITEM),
   }),
 );
-
 type Entry = {
   readonly label: 'Post' | 'Reply';
   readonly item: Item;
@@ -88,7 +79,15 @@ export function createHackernewsAdapter(
       );
       if ('type' in fetched) return primaryFailure(fetched);
       const item = parseJsonBody(fetched.body, ITEM);
-      if (item === undefined) return { kind: 'failed', failure: 'parse' };
+      // A poll's options arrive as bare ids and an option's text as null, so
+      // either would render less than the page does.
+      if (
+        item === undefined ||
+        item.type === 'poll' ||
+        item.type === 'pollopt'
+      ) {
+        return { kind: 'failed', failure: 'parse' };
+      }
       return {
         kind: 'rendered',
         content: renderThread(item),
@@ -127,10 +126,7 @@ function entryLines(entry: Entry, position: string): string {
   }
   if (item.title !== null) lines.push(`**${item.title}**`, '');
   if (item.url !== null) lines.push(`Link: ${item.url}`, '');
-  const text =
-    item.author === null
-      ? '[deleted]'
-      : convertToMarkdown(item.text ?? '').trim();
+  const text = convertToMarkdown(item.text ?? '').trim();
   if (text) lines.push(text, '');
   if (item.points !== null) lines.push(`Points: ${item.points}`);
   lines.push(`Source: ${ITEM_URL}${item.id}`, `Date: ${item.created_at}`);

@@ -372,7 +372,9 @@ front pages, user pages, and every other path stay on the generic ladder. A
 read is one request to `https://hn.algolia.com/api/v1/items/{id}`, which
 returns the item with its whole reply tree, so with a domain allowlist add a
 clause for `^https://hn\.algolia\.com/`. A very large thread whose response
-exceeds the 5 MiB body bound falls through with `too_large`.
+exceeds the 5 MiB body bound falls through with `too_large`, and polls and
+poll options, whose option texts the API does not return, fall through with
+`parse`.
 
 ## Derived locators and permission admission
 

@@ -2530,8 +2530,8 @@ A configured `hackernews` adapter SHALL claim only
 `https://news.ycombinator.com/item` locators whose `id` query parameter is a
 positive decimal item id, ignoring other query parameters; every other path
 SHALL be unclaimed. The adapter SHALL send one unauthenticated `GET` to
-`https://hn.algolia.com/api/v1/items/{id}`; a failed or unparsable response
-SHALL fall through.
+`https://hn.algolia.com/api/v1/items/{id}`; a failed or unparsable response,
+and a poll or poll option, SHALL fall through.
 
 The render SHALL use x.md's thread layout: the requested item as
 `## Post · 1/{n} — @{author}`, then every reply depth-first in the response's
@@ -2539,8 +2539,8 @@ order as `## Reply · {i}/{n} — @{author}`, with a `Replying to @{author}` lin
 when the reply answers an item other than the requested one, the item's title
 in bold and a `Link:` line when present, its text converted to Markdown,
 `Points:` when present, and `Source:` and `Date:` lines; entries SHALL be
-separated by a `---` line between blank lines. A deleted item SHALL render as
-`[deleted]` in place so its replies keep their position.
+separated by a `---` line between blank lines. Dead and deleted comments,
+which the API omits together with their replies, are not rendered.
 
 #### Scenario: A story renders with its reply tree
 

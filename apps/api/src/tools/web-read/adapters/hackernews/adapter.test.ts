@@ -31,8 +31,6 @@ function item(
     text: author === null ? null : `<p>Comment ${id}</p>`,
     points: null,
     created_at: '2026-01-01T00:00:00.000Z',
-    parent_id: 0,
-    story_id: 1,
     children,
     ...extra,
   };
@@ -70,7 +68,7 @@ describe('Hacker News adapter read', () => {
     const story = item(
       1,
       'pg',
-      [item(2, 'alice', [item(3, 'bob'), item(4, null)]), item(5, 'carol')],
+      [item(2, 'alice', [item(3, 'bob')]), item(4, 'carol')],
       {
         type: 'story',
         title: 'Show HN: A thing',
@@ -91,7 +89,7 @@ describe('Hacker News adapter read', () => {
       mediaType: 'text/markdown',
       notes: [],
       content: [
-        '## Post · 1/5 — @pg',
+        '## Post · 1/4 — @pg',
         '',
         '**Show HN: A thing**',
         '',
@@ -103,7 +101,7 @@ describe('Hacker News adapter read', () => {
         '',
         '---',
         '',
-        '## Reply · 2/5 — @alice',
+        '## Reply · 2/4 — @alice',
         '',
         'Comment 2',
         '',
@@ -112,7 +110,7 @@ describe('Hacker News adapter read', () => {
         '',
         '---',
         '',
-        '## Reply · 3/5 — @bob',
+        '## Reply · 3/4 — @bob',
         '',
         'Replying to @alice',
         '',
@@ -123,25 +121,36 @@ describe('Hacker News adapter read', () => {
         '',
         '---',
         '',
-        '## Reply · 4/5 — [deleted]',
+        '## Reply · 4/4 — @carol',
         '',
-        'Replying to @alice',
-        '',
-        '[deleted]',
+        'Comment 4',
         '',
         'Source: https://news.ycombinator.com/item?id=4',
         'Date: 2026-01-01T00:00:00.000Z',
-        '',
-        '---',
-        '',
-        '## Reply · 5/5 — @carol',
-        '',
-        'Comment 5',
-        '',
-        'Source: https://news.ycombinator.com/item?id=5',
-        'Date: 2026-01-01T00:00:00.000Z',
       ].join('\n'),
     });
+  });
+
+  it('omits an empty job link and falls through for polls', async () => {
+    const job = item(1, 'acme', [], {
+      type: 'job',
+      title: 'Acme is hiring',
+      url: '',
+      text: '<p>Apply</p>',
+    });
+
+    const { outcome } = await read('https://news.ycombinator.com/item?id=1', [
+      [ITEM_URL, response(job)],
+    ]);
+
+    expect(outcome.kind === 'rendered' && outcome.content).not.toContain(
+      'Link:',
+    );
+    await expect(
+      read('https://news.ycombinator.com/item?id=1', [
+        [ITEM_URL, response(item(1, 'pg', [], { type: 'poll' }))],
+      ]),
+    ).resolves.toMatchObject({ outcome: { kind: 'failed', failure: 'parse' } });
   });
 
   it('falls through for a missing item or a malformed payload', async () => {
