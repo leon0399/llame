@@ -59,7 +59,7 @@ read, created, or modified.
 Each scheme's directory or catalog listing is documented on its own page: an
 absolute path and `file://` in [host-path](host-path.md), a Space directory in
 [kb](kb.md), a package directory and the catalog in [skill](skill.md), and a web
-adapter directory in [web](web.md).
+adapter directory in [web adapters](../web-adapters.md#github-adapter).
 
 ## Errors
 

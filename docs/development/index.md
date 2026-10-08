@@ -14,3 +14,11 @@ Contributor documentation. Not served to the assistant.
   pnpm, and the pnpm workspace contracts.
 - [Mutation gate redesign](mutation-gate-redesign.md): design record for the
   changed-lines mutation gate.
+
+## Harness comparison
+
+How llame's tools compare with other agent harnesses, one page per tool.
+
+- [`read` for web URLs](harness-comparison/read.md): llame against omp,
+  Claude Code, OpenCode, OpenClaw, and Gemini CLI, with a per-site adapter
+  table.

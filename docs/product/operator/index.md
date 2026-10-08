@@ -19,8 +19,10 @@ below state additional ordering where a change needs it.
 
 - [Native files](native-files.md): host executor identity, `read`, `edit`,
   `write`, `bash`, Workspace entry, and permission modes.
-- [Web reads](web-read.md): `http(s)://` reads, web adapters, address pinning,
-  and the web threat model.
+- [Web reads](web-read.md): `http(s)://` reads, address pinning, and the web
+  threat model.
+- [Web adapters](web-adapters.md): each `tools.webAdapters` entry, the URLs it
+  claims, its requests, and what an allowlist must admit.
 - [Web search](web-search.md): Brave engine configuration, fallback chains,
   deadlines, permissions, and result-storage terms.
 - [Tool-call permissions](tool-call-permissions.md): `tools.permissions`

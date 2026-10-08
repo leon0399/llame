@@ -7,6 +7,7 @@ spec: native-file-tools
 configured_by:
   - ../../operator/native-files.md
   - ../../operator/web-read.md
+  - ../../operator/web-adapters.md
   - ../../operator/knowledge.md
   - ../../operator/skills.md
 ---
@@ -108,8 +109,8 @@ instead ([selectors](../selectors.md#media-types-and-errors)).
 
 - [Native files](../../operator/native-files.md) enables the host executor and
   the `read` entry.
-- [Web reads](../../operator/web-read.md) configures `http(s)://` adapters and
-  restrictions.
+- [Web reads](../../operator/web-read.md) configures `http(s)://` restrictions,
+  and [web adapters](../../operator/web-adapters.md) configures adapters.
 - [Personal Knowledge](../../operator/knowledge.md) configures the Knowledge root
   behind `kb://`.
 - [Skills](../../operator/skills.md) installs the packages `skill://` reads.
