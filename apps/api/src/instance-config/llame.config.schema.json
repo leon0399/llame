@@ -868,6 +868,25 @@
                     "description": "Adapter implementation for huggingface.co model, dataset, and Space repository URLs."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native arXiv adapter. It reads a paper's HTML full text from arxiv.org, with math as LaTeX, falling back to the abstract page; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["arxiv"],
+                    "description": "Adapter implementation for arxiv.org abs, pdf, and html paper URLs."
+                  }
+                }
               }
             ]
           }

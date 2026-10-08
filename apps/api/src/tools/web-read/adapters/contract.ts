@@ -12,6 +12,7 @@ import {
   type WebDirectory,
   type WebRender,
 } from '../pipeline';
+import { createArxivAdapter } from './arxiv/adapter';
 import { createBlueskyAdapter } from './bluesky/adapter';
 import { createGithubAdapter } from './github/adapter';
 import { createHuggingfaceAdapter } from './huggingface/adapter';
@@ -316,6 +317,8 @@ export function createWebAdapters(
         return createNpmAdapter(config);
       case 'huggingface':
         return createHuggingfaceAdapter(config);
+      case 'arxiv':
+        return createArxivAdapter(config);
       case 'rewrite':
         return createRewriteAdapter(config);
     }

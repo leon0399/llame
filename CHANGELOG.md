@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `arxiv` web adapter. With `{ "id": "arxiv", "use": "arxiv" }`
+  in `tools.webAdapters`, `read` turns arXiv `abs`, `pdf`, and `html` links
+  into the paper's full text from its HTML rendering, with math as LaTeX, and
+  falls back to the abstract page when a version has no HTML. A `/pdf/` link
+  was previously refused by type.
 - Added a native `huggingface` web adapter. With
   `{ "id": "huggingface", "use": "huggingface" }` in `tools.webAdapters`, `read`
   renders Hugging Face model, dataset, and Space pages as Hub metadata

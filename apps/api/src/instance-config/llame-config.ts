@@ -502,6 +502,10 @@ export type RawWebAdapterEntry =
   | {
       id: string;
       use: 'huggingface';
+    }
+  | {
+      id: string;
+      use: 'arxiv';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -554,12 +558,18 @@ export type HuggingfaceWebAdapterConfig = {
   readonly use: 'huggingface';
 };
 
+export type ArxivWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'arxiv';
+};
+
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
   | GithubWebAdapterConfig
   | BlueskyWebAdapterConfig
   | NpmWebAdapterConfig
-  | HuggingfaceWebAdapterConfig;
+  | HuggingfaceWebAdapterConfig
+  | ArxivWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {
