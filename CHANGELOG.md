@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `huggingface` web adapter. With
+  `{ "id": "huggingface", "use": "huggingface" }` in `tools.webAdapters`, `read`
+  renders Hugging Face model, dataset, and Space pages as Hub metadata
+  (kind, license, gating, parameters, downloads, likes, tags, revision) plus the
+  model card without its front matter.
 - Added a native `npm` web adapter. With `{ "id": "npm", "use": "npm" }` in
   `tools.webAdapters`, `read` renders `npmjs.com/package/...` pages, which the
   site answers with a bot challenge, from the registry's version manifest,

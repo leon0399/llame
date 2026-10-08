@@ -498,6 +498,10 @@ export type RawWebAdapterEntry =
   | {
       id: string;
       use: 'npm';
+    }
+  | {
+      id: string;
+      use: 'huggingface';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -545,11 +549,17 @@ export type NpmWebAdapterConfig = {
   readonly use: 'npm';
 };
 
+export type HuggingfaceWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'huggingface';
+};
+
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
   | GithubWebAdapterConfig
   | BlueskyWebAdapterConfig
-  | NpmWebAdapterConfig;
+  | NpmWebAdapterConfig
+  | HuggingfaceWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

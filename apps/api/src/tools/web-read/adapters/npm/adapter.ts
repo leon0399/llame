@@ -1,14 +1,11 @@
 import { z } from 'zod';
 
 import type { NpmWebAdapterConfig } from '../../../../instance-config/llame-config';
-import type {
-  WebFetchFailure,
-  WebRequestInit,
-  WebResponse,
-} from '../../http-client';
+import type { WebRequestInit } from '../../http-client';
 import {
-  isFatalAdapterFailure,
+  loadSection,
   omissionNote,
+  parseJsonBody,
   primaryFailure,
   type WebAdapter,
   type WebAdapterIo,
@@ -133,7 +130,7 @@ async function readPackage(
     JSON_INIT,
   );
   if ('type' in fetched) return primaryFailure(fetched);
-  const manifest = parseJson(fetched.body, VERSION_DOCUMENT);
+  const manifest = parseJsonBody(fetched.body, VERSION_DOCUMENT);
   if (manifest === undefined) return { kind: 'failed', failure: 'parse' };
 
   const notes: Array<string> = [];
@@ -171,34 +168,9 @@ function parseDistTags(
   notes: Array<string>,
 ): Readonly<Record<string, string>> | undefined {
   if (body === undefined) return undefined;
-  const tags = parseJson(body, DIST_TAGS);
+  const tags = parseJsonBody(body, DIST_TAGS);
   if (tags === undefined) notes.push('dist-tags omitted: parse');
   return tags;
-}
-
-/**
- * A secondary section's body, or none with an omission note. A call deadline
- * keeps what already arrived and is returned as `spent`, so later sections
- * are skipped with the same note; any other call-ending failure is returned
- * so the read ends, as GitHub's secondary sections do.
- */
-async function loadSection(
-  section: string,
-  request: Promise<WebResponse | WebFetchFailure>,
-  notes: Array<string>,
-): Promise<
-  | { readonly body?: string; readonly spent?: WebFetchFailure }
-  | { readonly fatal: WebFetchFailure }
-> {
-  const fetched = await request;
-  if (!('type' in fetched)) return { body: fetched.body };
-  if (fetched.type === 'call_timeout') {
-    notes.push(omissionNote(section, fetched));
-    return { spent: fetched };
-  }
-  if (isFatalAdapterFailure(fetched)) return { fatal: fetched };
-  notes.push(omissionNote(section, fetched));
-  return {};
 }
 
 function renderPackage(
@@ -256,12 +228,4 @@ function repositoryUrl(url: string | undefined): string | undefined {
     ?.replace(/^git\+/u, '')
     .replace(/^(?:git:\/\/|ssh:\/\/git@)/u, 'https://')
     .replace(/\.git$/u, '');
-}
-
-function parseJson<T>(body: string, schema: z.ZodType<T>): T | undefined {
-  try {
-    return schema.safeParse(JSON.parse(body)).data;
-  } catch {
-    return undefined;
-  }
 }

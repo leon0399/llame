@@ -950,14 +950,15 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     );
   });
 
-  it('preserves rewrite, GitHub, Bluesky, and npm adapters in declared order', () => {
+  it('preserves rewrite, GitHub, Bluesky, npm, and Hugging Face adapters in declared order', () => {
     const rewrite = rewriteEntry();
     const github = { id: 'github', use: 'github' as const };
     const bluesky = { id: 'bluesky', use: 'bluesky' as const };
     const npm = { id: 'npm', use: 'npm' as const };
+    const hf = { id: 'hf', use: 'huggingface' as const };
     writeConfig(
       JSON.stringify({
-        tools: { webAdapters: [rewrite, github, bluesky, npm] },
+        tools: { webAdapters: [rewrite, github, bluesky, npm, hf] },
       }),
     );
 
@@ -966,6 +967,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       github,
       bluesky,
       npm,
+      hf,
     ]);
   });
 

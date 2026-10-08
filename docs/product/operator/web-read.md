@@ -92,7 +92,7 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
-`github`, `bluesky`, or `npm` entry. What an adapter does to a result — its
+`github`, `bluesky`, `npm`, or `huggingface` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -263,6 +263,27 @@ without the second, every read carries `readme omitted: permission`.
 A manifest field of an unexpected shape, such as a maintainer without a name,
 is left out rather than failing the read; a legacy `engines` array renders as a
 list. A call deadline reached on the dist-tags request skips the README.
+
+### Hugging Face adapter
+
+Add a `huggingface` entry to render Hub repository pages as model-card
+Markdown with their metadata:
+
+```jsonc
+{ "id": "huggingface", "use": "huggingface" }
+```
+
+The entry takes no other field and sends no credential, so gated and private
+repositories render metadata only. It claims
+`https://huggingface.co/{owner}/{name}`, `/datasets/{owner}/{name}`, and
+`/spaces/{owner}/{name}`; file, tree, and discussion pages, single-segment
+legacy model ids, and Hub pages such as `/docs/...`, `/blog/...`, and
+`/papers/...` stay on the generic ladder. A read costs two requests to
+`https://huggingface.co`: `/api/{models|datasets|spaces}/{owner}/{name}` with
+explicit `expand[]` fields, then the card at
+`/[datasets/|spaces/]{owner}/{name}/raw/{revision}/README.md`. A README that
+does not arrive, including a gated one, leaves `readme omitted: <failure>`.
+With a domain allowlist, a clause for `^https://huggingface\.co/` covers both.
 
 ## Derived locators and permission admission
 

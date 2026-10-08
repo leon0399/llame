@@ -130,6 +130,16 @@ describe('createWebAdapters', () => {
       true,
     );
   });
+
+  it('creates a native Hugging Face adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'hub', use: 'huggingface' }]);
+    if (adapter === undefined) throw new Error('expected Hugging Face adapter');
+
+    expect(adapter).toMatchObject({ id: 'hub', route: 'native' });
+    expect(adapter.match(new URL('https://huggingface.co/org/model'))).toBe(
+      true,
+    );
+  });
 });
 
 describe('dispatchWebAdapters', () => {

@@ -166,7 +166,8 @@ carry the type they were served (`text/markdown` supports an outline,
 `text/plain` does not), `alternate`, `md-suffix`, `readability`, and
 `llms-txt` are `text/markdown`, and `raw` has no media type. A rendered
 adapter outcome carries an internal media-type label: GitHub issue, pull
-request, repository, and commit renders and every Bluesky and npm render are
+request, repository, and commit renders and every Bluesky, npm, and Hugging
+Face render are
 `text/markdown`; a GitHub blob
 uses the file extension table; a directory outcome has no outline type; and a
 rewrite adapter forwards the inner render's label. An unsupported web or
@@ -326,6 +327,34 @@ URL: https://www.npmjs.com/package/react/v/19.3.0
 `Deprecated`, `Dependencies`, `Peer dependencies`, and `Maintainers` lines appear
 when the manifest has them. A package page without `/v/` reads the `latest`
 dist-tag. A failed dist-tags or README request leaves the rest with a note.
+
+### Hugging Face adapter
+
+A model, dataset, or Space page renders its Hub metadata as lines, then the
+model card with its YAML front matter removed:
+
+```text
+# meta-llama/Llama-3.1-8B
+
+Kind: Model · text-generation · transformers
+License: llama3.1
+Gated: manual
+Parameters: 8,030,261,248
+Downloads (last 30 days): 636,761
+Likes: 2,613
+Tags: transformers, safetensors, llama, ...
+Created: 2024-07-14T22:20:15.000Z
+Updated: 2024-10-16T22:00:37.000Z
+Revision: d04e592bb4f6aa9cfee91e2e20afa771667e1d4b
+URL: https://huggingface.co/meta-llama/Llama-3.1-8B
+
+## README
+...
+```
+
+Lines appear only when the Hub reports the field; `SDK` is a Space's. The card
+is read at the reported revision, and a gated repository's card is not
+readable without a token, so it renders with `readme omitted: status`.
 
 ## Bounds
 

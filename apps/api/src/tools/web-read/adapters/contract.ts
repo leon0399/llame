@@ -1,3 +1,5 @@
+import type { z } from 'zod';
+
 import { type WebAdapterConfig } from '../../../instance-config/llame-config';
 import { REJECTED_ADDRESS_MESSAGE } from '../../permissions/messages';
 import type {
@@ -12,6 +14,7 @@ import {
 } from '../pipeline';
 import { createBlueskyAdapter } from './bluesky/adapter';
 import { createGithubAdapter } from './github/adapter';
+import { createHuggingfaceAdapter } from './huggingface/adapter';
 import { createNpmAdapter } from './npm/adapter';
 import { createRewriteAdapter } from './rewrite';
 
@@ -155,6 +158,43 @@ export function primaryFailure(failure: WebFetchFailure): WebAdapterOutcome {
     : outcome;
 }
 
+/**
+ * A secondary section's body, or none with an omission note. A call deadline
+ * keeps what already arrived and is returned as `spent`, so later sections
+ * are skipped with the same note; any other call-ending failure is returned
+ * so the read ends, as GitHub's secondary sections do.
+ */
+export async function loadSection(
+  section: string,
+  request: Promise<WebResponse | WebFetchFailure>,
+  notes: Array<string>,
+): Promise<
+  | { readonly body?: string; readonly spent?: WebFetchFailure }
+  | { readonly fatal: WebFetchFailure }
+> {
+  const fetched = await request;
+  if (!('type' in fetched)) return { body: fetched.body };
+  if (fetched.type === 'call_timeout') {
+    notes.push(omissionNote(section, fetched));
+    return { spent: fetched };
+  }
+  if (isFatalAdapterFailure(fetched)) return { fatal: fetched };
+  notes.push(omissionNote(section, fetched));
+  return {};
+}
+
+/** A JSON body validated by `schema`, or `undefined` when either fails. */
+export function parseJsonBody<T>(
+  body: string,
+  schema: z.ZodType<T>,
+): T | undefined {
+  try {
+    return schema.safeParse(JSON.parse(body)).data;
+  } catch {
+    return undefined;
+  }
+}
+
 /** An adapter's own report that a response it received could not be parsed. */
 const ADAPTER_PARSE_FAILURE = 'parse';
 
@@ -274,6 +314,8 @@ export function createWebAdapters(
         return createBlueskyAdapter(config);
       case 'npm':
         return createNpmAdapter(config);
+      case 'huggingface':
+        return createHuggingfaceAdapter(config);
       case 'rewrite':
         return createRewriteAdapter(config);
     }

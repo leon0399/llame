@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { parseJsonBody } from '../contract';
+
 /**
  * The self-label an account sets to ask clients not to show it to logged-out
  * viewers. The public AppView still serves such accounts, so the adapter
@@ -223,7 +225,7 @@ const FOLLOW_PAGE = z.object({
 
 /** Renders `app.bsky.feed.getPostThread` in x.md's thread layout. */
 export function renderThread(body: string): BlueskyRender {
-  const thread = parseJson(body, z.object({ thread: THREAD_NODE }));
+  const thread = parseJsonBody(body, z.object({ thread: THREAD_NODE }));
   if (thread === undefined) return { failure: 'parse' };
   const focal = thread.thread;
   if (focal === undefined || isHidden(focal.post.author)) {
@@ -253,7 +255,7 @@ export function parseProfile(
 ):
   | { readonly profile: BlueskyProfile }
   | { readonly failure: 'parse' | 'empty' } {
-  const profile = parseJson(body, PROFILE);
+  const profile = parseJsonBody(body, PROFILE);
   if (profile === undefined) return { failure: 'parse' };
   return isHidden(profile) ? { failure: 'empty' } : { profile };
 }
@@ -262,7 +264,7 @@ export function parseProfile(
 export function parseAuthorFeed(
   body: string,
 ): ReadonlyArray<BlueskyPost> | undefined {
-  return parseJson(body, AUTHOR_FEED)?.feed.flatMap((post) =>
+  return parseJsonBody(body, AUTHOR_FEED)?.feed.flatMap((post) =>
     post === undefined || isHidden(post.author) ? [] : [post],
   );
 }
@@ -296,7 +298,7 @@ export function renderFollowList(
   body: string,
   list: 'followers' | 'follows',
 ): BlueskyRender {
-  const page = parseJson(body, FOLLOW_PAGE);
+  const page = parseJsonBody(body, FOLLOW_PAGE);
   const accounts = page?.[list];
   if (page === undefined || accounts === undefined) {
     return { failure: 'parse' };
@@ -467,12 +469,4 @@ function oneLine(text: string): string {
 
 function blockquote(line: string): string {
   return line === '' ? '>' : `> ${line}`;
-}
-
-function parseJson<T>(body: string, schema: z.ZodType<T>): T | undefined {
-  try {
-    return schema.safeParse(JSON.parse(body)).data;
-  } catch {
-    return undefined;
-  }
 }
