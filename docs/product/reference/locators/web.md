@@ -454,9 +454,11 @@ not Hacker News's ranking.
 ### DOI adapter
 
 A DOI renders the work's title, then `Retracted` (only when retracted),
-`Authors`, `Published` (date, venue, and type), `Cited by`, `Open access` (an
-open copy's URL when one is known), and `DOI` lines, then `## Abstract` when
-OpenAlex has one:
+`Authors` (a list of exactly 100 names ends with
+`(first 100 listed; there may be more)`, since OpenAlex documents the list as
+capped at the first 100 authors), `Published` (date, venue, and type),
+`Cited by`, `Open access` (an open copy's URL when one is known), and `DOI`
+lines, then `## Abstract` when OpenAlex has one:
 
 ```text
 # On the Dangers of Stochastic Parrots

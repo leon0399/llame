@@ -133,6 +133,32 @@ describe('DOI adapter read', () => {
     });
   });
 
+  it.each([
+    [99, ''],
+    [100, ' (first 100 listed; there may be more)'],
+    [101, ''],
+  ])('lists %i authors with the note %j', async (count, note) => {
+    const names = Array.from({ length: count }, (_, i) => `Author ${i + 1}`);
+    const url = `${API_ORIGIN}/works/doi:10.1103/many?${SELECT}`;
+
+    const { outcome } = await read('https://doi.org/10.1103/many', [
+      [
+        url,
+        response({
+          display_name: 'A collaboration paper',
+          authorships: names.map((display_name) => ({
+            author: { display_name },
+          })),
+        }),
+      ],
+    ]);
+
+    const content = outcome.kind === 'rendered' ? outcome.content : '';
+    expect(
+      content.split('\n').find((line) => line.startsWith('Authors: ')),
+    ).toBe(`Authors: ${names.join(', ')}${note}`);
+  });
+
   it('falls through for a DOI OpenAlex does not know', async () => {
     const notFound: WebFetchFailure = {
       type: 'http_status',
