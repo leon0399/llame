@@ -527,6 +527,10 @@ export type RawWebAdapterEntry =
       id: string;
       use: 'discourse';
       hosts: Array<string>;
+    }
+  | {
+      id: string;
+      use: 'devto' | 'substack';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -612,6 +616,16 @@ export type DiscourseWebAdapterConfig = {
   readonly hosts: ReadonlyArray<string>;
 };
 
+export type DevtoWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'devto';
+};
+
+export type SubstackWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'substack';
+};
+
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
   | GithubWebAdapterConfig
@@ -623,7 +637,9 @@ export type WebAdapterConfig =
   | CratesWebAdapterConfig
   | HackernewsWebAdapterConfig
   | DoiWebAdapterConfig
-  | DiscourseWebAdapterConfig;
+  | DiscourseWebAdapterConfig
+  | DevtoWebAdapterConfig
+  | SubstackWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

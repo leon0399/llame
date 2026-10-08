@@ -1936,7 +1936,8 @@ redirect: a 3xx answer SHALL fail it as `http_status`.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
 credential, and the Bluesky, npm, Hugging Face, arXiv, Stack Exchange,
-crates.io, Hacker News, DOI, and Discourse adapters SHALL send none; the GitHub token SHALL be
+crates.io, Hacker News, DOI, Discourse, dev.to, and Substack adapters SHALL
+send none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1961,7 +1962,8 @@ representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
 sources use; the Bluesky, npm, Hugging Face, Stack Exchange, crates.io,
-Hacker News, DOI, and Discourse adapters label their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
+Hacker News, DOI, Discourse, dev.to, and Substack adapters label their renders
+`text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2601,6 +2603,33 @@ links resolved against the forum, and `Source:` and `Date:` lines.
 - **WHEN** `hosts` lists `meta.discourse.org` and the model reads `https://meta.discourse.org/t/discourse-retort/35903/300`
 - **THEN** the adapter requests `https://meta.discourse.org/t/35903.json` and the remaining posts among the first 200
 - **AND** the text starts with the first post and notes `posts truncated: the first 200 of {total}`
+
+### Requirement: dev.to and Substack native adapters read articles
+
+A configured `devto` adapter SHALL claim only `https://dev.to/{username}/{slug}`
+locators, with or without a trailing `/`, whose username has at least two
+characters and is not a dev.to site page (`admin`, `api`, `dashboard`, `feed`,
+`new`, `notifications`, `page`, `readinglist`, `search`, `settings`, `tag`,
+`top`, `users`), and SHALL send one unauthenticated `GET` to
+`https://dev.to/api/articles/{username}/{slug}`. A configured `substack` adapter
+SHALL claim only `https://{publication}.substack.com/p/{slug}` locators, with or
+without a trailing `/`, where `{publication}` is one host label other than
+`www`, and SHALL send one unauthenticated `GET` to
+`https://{publication}.substack.com/api/v1/posts/{slug}`. Every other locator
+SHALL be unclaimed; a failed or unparsable response, and an article with no
+body, SHALL fall through.
+
+Each SHALL render `# {title}`, the description or subtitle when present,
+`Author`, `Published`, and `Tags` lines for the fields present, a `URL` line,
+and the body: dev.to's Markdown as written, Substack's HTML converted to
+Markdown with root-relative links resolved. A Substack post whose audience is
+not everyone SHALL add the note `body truncated: paid post`.
+
+#### Scenario: A dev.to article renders its own Markdown
+
+- **WHEN** the model reads `https://dev.to/lydiahallie/javascript-visualized-promises-async-await-5gke`
+- **THEN** the adapter requests only the dev.to API article
+- **AND** the text has the title, `Author`, `Published`, `Tags`, and `URL` lines, then the author's Markdown
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 
