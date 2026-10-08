@@ -830,6 +830,25 @@
                     "description": "Adapter implementation for bsky.app post, profile, followers, and follows URLs."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native npm adapter. It reads a package version's manifest and dist-tags from registry.npmjs.org and its README.md from cdn.jsdelivr.net; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["npm"],
+                    "description": "Adapter implementation for npmjs.com package and package-version URLs."
+                  }
+                }
               }
             ]
           }

@@ -1931,7 +1931,7 @@ address resolution and pinning, 10-second header bound, 30-second call bound,
 5 MiB per-response body bound, and redirect rules as the generic web path.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
-credential, and the Bluesky adapter SHALL send none; the GitHub token SHALL be
+credential, and the Bluesky and npm adapters SHALL send none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1955,7 +1955,7 @@ adapter outcome SHALL declare the media type of its document so the
 representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
-sources use; the Bluesky adapter labels its renders `text/markdown`; a rewrite
+sources use; the Bluesky and npm adapters label their renders `text/markdown`; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2356,6 +2356,42 @@ account is omitted.
 
 - **WHEN** the requested profile carries the `!no-unauthenticated` label
 - **THEN** the adapter issues no feed request and falls through with `empty`
+
+### Requirement: npm native adapter reads package pages
+
+A configured `npm` adapter SHALL claim only `https://www.npmjs.com` and
+`https://npmjs.com` locators whose path is `/package/{name}` or
+`/package/{name}/v/{version}`, where `{name}` is an optionally scoped npm
+package name of at most 214 characters; query and fragment SHALL not change the
+claim, and every other path SHALL be unclaimed. The adapter SHALL send only
+unauthenticated `GET` requests: the version manifest from
+`https://registry.npmjs.org/{name}/{version}`, or `/{name}/latest` without a
+version, with `Accept: application/json`; then
+`https://registry.npmjs.org/-/package/{name}/dist-tags`; then
+`https://cdn.jsdelivr.net/npm/{name}@{resolved version}/README.md`. It SHALL NOT request
+the full registry document.
+
+The render SHALL be `# {name}@{version}`, the description, then
+`Deprecated`, `License`, `Homepage`, `Repository`, `Dist-tags`, `Engines`,
+`Dependencies`, `Peer dependencies`, `Maintainers`, and `Tarball`
+lines for the fields present, a `URL` line with the version's npmjs.com page,
+and `## README` with the README text when it arrived. A manifest without a
+string `name` and `version` SHALL fall through as `parse`; an optional field of
+an unexpected shape SHALL be omitted rather than fail the read. A failed
+manifest request SHALL fall through; a failed dist-tags or README request SHALL keep
+the rest and add a `dist-tags omitted: {category}` or
+`readme omitted: {category}` note.
+
+#### Scenario: A package page renders manifest and README
+
+- **WHEN** the model reads `https://www.npmjs.com/package/react`
+- **THEN** the adapter requests `react/latest`, the dist-tags, and the resolved version's `README.md`
+- **AND** the text starts with `# react@{version}` and ends with a `## README` section holding the README text
+
+#### Scenario: A missing README keeps the manifest
+
+- **WHEN** jsDelivr answers 404 for the version's `README.md`
+- **THEN** the manifest lines render and the note `readme omitted: status` is attached
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 

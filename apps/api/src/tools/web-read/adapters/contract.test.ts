@@ -120,6 +120,16 @@ describe('createWebAdapters', () => {
       true,
     );
   });
+
+  it('creates a native npm adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'pkgs', use: 'npm' }]);
+    if (adapter === undefined) throw new Error('expected npm adapter');
+
+    expect(adapter).toMatchObject({ id: 'pkgs', route: 'native' });
+    expect(adapter.match(new URL('https://www.npmjs.com/package/react'))).toBe(
+      true,
+    );
+  });
 });
 
 describe('dispatchWebAdapters', () => {

@@ -12,6 +12,7 @@ import {
 } from '../pipeline';
 import { createBlueskyAdapter } from './bluesky/adapter';
 import { createGithubAdapter } from './github/adapter';
+import { createNpmAdapter } from './npm/adapter';
 import { createRewriteAdapter } from './rewrite';
 
 export type WebAdapterRoute = 'native' | 'rewrite';
@@ -271,6 +272,8 @@ export function createWebAdapters(
         return createGithubAdapter(config);
       case 'bluesky':
         return createBlueskyAdapter(config);
+      case 'npm':
+        return createNpmAdapter(config);
       case 'rewrite':
         return createRewriteAdapter(config);
     }
