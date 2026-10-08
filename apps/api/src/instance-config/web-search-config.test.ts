@@ -34,6 +34,36 @@ function searxng(id = 'searxng', baseUrl = 'https://search.example.test') {
 function aggregate(id = 'aggregate', engines = ['brave', 'duckduckgo']) {
   return { id, type: 'aggregate', engines };
 }
+function hostedModel(
+  providerType:
+    | 'openai-responses'
+    | 'openai-completions'
+    | 'openai-codex'
+    | 'anthropic-messages',
+) {
+  const provider = {
+    id: 'hosted-provider',
+    type: providerType,
+    ...(providerType === 'openai-completions' && {
+      baseUrl: 'https://provider.example.test/v1',
+    }),
+    ...(providerType === 'openai-codex' && {
+      key: 'codex-key',
+      accountId: 'codex-account',
+    }),
+  };
+  return {
+    providers: [provider],
+    models: [
+      {
+        id: 'hosted-model',
+        provider: 'hosted-provider',
+        providerModelId: 'hosted-model',
+        contextWindowTokens: 1000,
+      },
+    ],
+  };
+}
 
 const SEARXNG_BASE_URL_ERROR =
   'webSearch.engines[searxng].baseUrl: must be an absolute http or https URL without userinfo, query, or fragment';
@@ -538,6 +568,95 @@ describe('loadInstanceConfig — webSearch', () => {
 
     expect(() => loadInstanceConfig()).toThrow(
       /webSearch\.engines\[aggregate\]\.engines.*nested/u,
+    );
+  });
+  it.each([
+    ['openai-responses', 'openai-responses'],
+    ['openai-codex', 'openai-codex'],
+    ['anthropic-messages', 'anthropic-messages'],
+  ] as const)(
+    'loads model-hosted engines on the %s wire',
+    (providerType, wire) => {
+      writeConfig(
+        JSON.stringify({
+          ...hostedModel(providerType),
+          webSearch: {
+            engines: [
+              { id: 'hosted', type: 'model-hosted', model: 'hosted-model' },
+            ],
+            chain: ['hosted'],
+          },
+        }),
+      );
+
+      expect(loadInstanceConfig().webSearch).toStrictEqual({
+        engines: [
+          {
+            id: 'hosted',
+            type: 'model-hosted',
+            model: 'hosted-model',
+            wire,
+            timeoutSeconds: 60,
+          },
+        ],
+        chain: ['hosted'],
+      });
+    },
+  );
+
+  it('rejects model-hosted engines on an unsupported wire', () => {
+    writeConfig(
+      JSON.stringify({
+        ...hostedModel('openai-completions'),
+        webSearch: {
+          engines: [
+            { id: 'hosted', type: 'model-hosted', model: 'hosted-model' },
+          ],
+          chain: ['hosted'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'webSearch.engines[hosted].model: unsupported provider type "openai-completions"',
+    );
+  });
+
+  it('rejects a model-hosted engine with an unknown model', () => {
+    writeConfig(
+      JSON.stringify({
+        ...hostedModel('openai-responses'),
+        webSearch: {
+          engines: [
+            { id: 'hosted', type: 'model-hosted', model: 'missing-model' },
+          ],
+          chain: ['hosted'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'webSearch.engines[hosted].model: unknown model id "missing-model"',
+    );
+  });
+
+  it('rejects a model-hosted child inside an aggregate', () => {
+    writeConfig(
+      JSON.stringify({
+        ...hostedModel('openai-responses'),
+        webSearch: {
+          engines: [
+            brave(),
+            { id: 'hosted', type: 'model-hosted', model: 'hosted-model' },
+            aggregate('aggregate', ['brave', 'hosted']),
+          ],
+          chain: ['aggregate'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\.engines\[aggregate\]\.engines.*hosted/u,
     );
   });
 

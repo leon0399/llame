@@ -24,9 +24,16 @@ export type WebSearchArguments = z.output<typeof webSearchInputSchema>;
 export const WEB_SEARCH_NOT_CONFIGURED_MESSAGE =
   'Web search is not configured.';
 
-const engineLookups = new WeakMap<WebSearchConfig, EngineLookup>();
+type EngineLookupCache = {
+  readonly modelClients: ToolContext['modelClients'];
+  readonly lookup: EngineLookup;
+};
+const engineLookups = new WeakMap<WebSearchConfig, EngineLookupCache>();
 
-function buildEngineLookup(config: WebSearchConfig): EngineLookup {
+function buildEngineLookup(
+  config: WebSearchConfig,
+  modelClients: ToolContext['modelClients'],
+): EngineLookup {
   const engines = new Map<string, Engine>();
   const entries = new Map(
     config.engines
@@ -42,7 +49,10 @@ function buildEngineLookup(config: WebSearchConfig): EngineLookup {
     if (engineConfig.type === 'aggregate') continue;
     engines.set(
       engineConfig.id,
-      createEngine(engineConfig, { fetch: globalThis.fetch }),
+      createEngine(engineConfig, {
+        fetch: globalThis.fetch,
+        modelClients,
+      }),
     );
   }
   for (const engineConfig of config.engines) {
@@ -60,12 +70,15 @@ function buildEngineLookup(config: WebSearchConfig): EngineLookup {
   return (id) => engines.get(id)!;
 }
 
-function engineLookupFor(config: WebSearchConfig): EngineLookup {
-  let lookup = engineLookups.get(config);
-  if (lookup === undefined) {
-    lookup = buildEngineLookup(config);
-    engineLookups.set(config, lookup);
-  }
+function engineLookupFor(
+  config: WebSearchConfig,
+  modelClients: ToolContext['modelClients'],
+): EngineLookup {
+  const cached = engineLookups.get(config);
+  if (cached !== undefined && cached.modelClients === modelClients)
+    return cached.lookup;
+  const lookup = buildEngineLookup(config, modelClients);
+  engineLookups.set(config, { modelClients, lookup });
   return lookup;
 }
 
@@ -92,11 +105,12 @@ export const webSearchTool: Tool<WebSearchArguments> = {
       signal,
       recency: input.recency,
       userAgent: context.productUserAgent,
+      chatId: context.chatId,
     };
     const result = await executeSearchChain(
       config,
       request,
-      engineLookupFor(config),
+      engineLookupFor(config, context.modelClients),
     );
     return 'status' in result ? result : normalizeOutput(result, input.limit);
   },

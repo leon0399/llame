@@ -16,12 +16,23 @@ export type RequestHeaders = Record<string, string>;
 
 /**
  * The Chat identity as a session value (opencode-go-provider D4/D5): the Chat's
- * own id on the conversation's lane, under a `title:` prefix for title
+ * own id on the main lane, or a lane prefix for title and hosted-search
  * generation. A prefix, not a suffix, because the Go gateway picks its first
  * upstream from a hash of the value's last four characters.
  */
 export function renderSessionId(chat: ChatIdentity): string {
-  return chat.lane === 'title' ? `title:${chat.id}` : chat.id;
+  switch (chat.lane) {
+    case 'main':
+      return chat.id;
+    case 'title':
+      return `title:${chat.id}`;
+    case 'search':
+      return `search:${chat.id}`;
+    default: {
+      const unsupported: never = chat.lane;
+      throw new Error(`Unhandled Chat lane: ${String(unsupported)}`);
+    }
+  }
 }
 
 /**

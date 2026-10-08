@@ -437,12 +437,13 @@ export function loadInstanceConfig(
   const models = resolveModels(raw, env, providersById, promptLoader);
   promptLoader.validateProjectDefault();
   const modelIds = new Set(models.map((m) => m.id));
-  const embeddingModels = resolveEmbeddingModels(raw, env, providersById);
-  const embeddingModelIds = new Set(embeddingModels.map((m) => m.id));
-  const search = resolveSearchConfig(raw, env, embeddingModelIds);
   const mcpServers = resolveMcpServers(raw, env);
-  const tools = resolveToolsConfig(raw, env);
-  const webSearch = resolveWebSearch(raw, env, tools.allowed);
+  const { embeddingModels, search, webSearch, tools } = resolveSearchSettings(
+    raw,
+    env,
+    providersById,
+    models,
+  );
 
   return {
     defaults: resolveDefaults(raw, env, modelIds),
@@ -460,6 +461,26 @@ export function loadInstanceConfig(
     search,
     ...(webSearch !== undefined && { webSearch }),
   };
+}
+
+function resolveSearchSettings(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+  providersById: ReadonlyMap<string, ProviderConfig>,
+  models: ReadonlyArray<SystemModelCatalogEntry>,
+) {
+  const tools = resolveToolsConfig(raw, env);
+  const embeddingModels = resolveEmbeddingModels(raw, env, providersById);
+  const embeddingModelIds = new Set(embeddingModels.map((m) => m.id));
+  const search = resolveSearchConfig(raw, env, embeddingModelIds);
+  const webSearch = resolveWebSearch(
+    raw,
+    env,
+    tools.allowed,
+    models,
+    providersById,
+  );
+  return { embeddingModels, search, webSearch, tools };
 }
 
 function resolveKnowledge(
@@ -492,6 +513,8 @@ function resolveWebSearch(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
   allowed: ReadonlyArray<string>,
+  models: ReadonlyArray<SystemModelCatalogEntry>,
+  providersById: ReadonlyMap<string, ProviderConfig>,
 ): WebSearchConfig | undefined {
   const section = raw?.webSearch;
   if (section === undefined) {
@@ -502,14 +525,41 @@ function resolveWebSearch(
     }
     return undefined;
   }
-  const engines = resolveWebSearchEngines(section.engines, env);
+  const modelsById = new Map(models.map((model) => [model.id, model]));
+  const engines = resolveWebSearchEngines(
+    section.engines,
+    env,
+    modelsById,
+    providersById,
+  );
   assertWebSearchChain(section.chain, engines);
   return { engines, chain: section.chain };
+}
+
+function resolveWebSearchTimeout(
+  entry: Exclude<RawWebSearchEngineEntry, { type: 'aggregate' }>,
+  entryPath: string,
+  env: NodeJS.ProcessEnv,
+): number {
+  const timeoutPath = `${entryPath}.timeoutSeconds`;
+  return requireResolvedNumber(
+    resolveNumeric({
+      configPath: timeoutPath,
+      present: entry.timeoutSeconds !== undefined,
+      raw: entry.timeoutSeconds,
+      builtInDefault: 60,
+      nullable: false,
+      env,
+    }),
+    timeoutPath,
+  );
 }
 
 function resolveWebSearchEngines(
   entries: RawWebSearchConfig['engines'],
   env: NodeJS.ProcessEnv,
+  modelsById: ReadonlyMap<string, SystemModelCatalogEntry>,
+  providersById: ReadonlyMap<string, ProviderConfig>,
 ): ReadonlyArray<WebSearchEngineConfig> {
   const seenEngineIds = new Set<string>();
   const engines = entries.map((entry) => {
@@ -523,19 +573,15 @@ function resolveWebSearchEngines(
     const entryPath = `webSearch.engines[${entry.id}]`;
     if (entry.type === 'aggregate')
       return { id: entry.id, type: entry.type, engines: entry.engines };
-    const timeoutPath = `${entryPath}.timeoutSeconds`;
-    const timeoutSeconds = requireResolvedNumber(
-      resolveNumeric({
-        configPath: timeoutPath,
-        present: entry.timeoutSeconds !== undefined,
-        raw: entry.timeoutSeconds,
-        builtInDefault: 60,
-        nullable: false,
-        env,
-      }),
-      timeoutPath,
+    const timeoutSeconds = resolveWebSearchTimeout(entry, entryPath, env);
+    return resolveWebSearchEngine(
+      entry,
+      entryPath,
+      timeoutSeconds,
+      env,
+      modelsById,
+      providersById,
     );
-    return resolveWebSearchEngine(entry, entryPath, timeoutSeconds, env);
   });
   assertAggregateChildren(engines);
   return engines;
@@ -557,7 +603,7 @@ function assertAggregateChildren(
           `${childrenPath}: unknown engine id "${childId}"`,
         );
       }
-      if (child.type === 'aggregate') {
+      if (child.type === 'aggregate' || child.type === 'model-hosted') {
         throw new InstanceConfigError(
           `${childrenPath}: child "${childId}" must be a result engine`,
         );
@@ -566,13 +612,69 @@ function assertAggregateChildren(
   }
 }
 
+function resolveModelHostedEngine(
+  entry: Extract<RawWebSearchEngineEntry, { type: 'model-hosted' }>,
+  entryPath: string,
+  timeoutSeconds: number,
+  modelsById: ReadonlyMap<string, SystemModelCatalogEntry>,
+  providersById: ReadonlyMap<string, ProviderConfig>,
+): WebSearchEngineConfig {
+  const modelPath = `${entryPath}.model`;
+  const model = modelsById.get(entry.model);
+  if (model === undefined) {
+    throw new InstanceConfigError(
+      `${modelPath}: unknown model id "${entry.model}"`,
+    );
+  }
+  const wire = providersById.get(model.provider)?.type;
+  if (
+    wire !== 'openai-responses' &&
+    wire !== 'openai-codex' &&
+    wire !== 'anthropic-messages'
+  ) {
+    throw new InstanceConfigError(
+      `${modelPath}: unsupported provider type "${wire ?? 'unknown'}"`,
+    );
+  }
+  return {
+    id: entry.id,
+    type: entry.type,
+    model: entry.model,
+    wire,
+    timeoutSeconds,
+  };
+}
+
 function resolveWebSearchEngine(
   entry: Exclude<RawWebSearchEngineEntry, { type: 'aggregate' }>,
   entryPath: string,
   timeoutSeconds: number,
   env: NodeJS.ProcessEnv,
+  modelsById: ReadonlyMap<string, SystemModelCatalogEntry>,
+  providersById: ReadonlyMap<string, ProviderConfig>,
 ): WebSearchEngineConfig {
   const base = { id: entry.id, timeoutSeconds };
+  if (entry.type === 'model-hosted') {
+    return resolveModelHostedEngine(
+      entry,
+      entryPath,
+      timeoutSeconds,
+      modelsById,
+      providersById,
+    );
+  }
+  return resolveWebSearchResultEngine(entry, entryPath, base, env);
+}
+
+function resolveWebSearchResultEngine(
+  entry: Exclude<
+    RawWebSearchEngineEntry,
+    { type: 'aggregate' | 'model-hosted' }
+  >,
+  entryPath: string,
+  base: { id: string; timeoutSeconds: number },
+  env: NodeJS.ProcessEnv,
+): WebSearchEngineConfig {
   if (entry.type === 'searxng') {
     return {
       ...base,

@@ -939,6 +939,22 @@ describe("createOpenAIModelClient — llame's product identity (design D6)", () 
     expect(new Headers(init?.headers).get('x-session-id')).toBe(CHAT.id);
   });
 
+  it('renders the search lane in the configured session header', async () => {
+    const { client, fetchMock } = buildClient({
+      'X-Session-Id': ['', ''],
+    });
+
+    await expect(
+      client.streamText({
+        chat: { id: 'c1', lane: 'search' },
+        messages,
+      }).text,
+    ).resolves.toBe('done');
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(new Headers(init?.headers).get('x-session-id')).toBe('search:c1');
+  });
+
   it("lets an operator User-Agent replace llame's token on the serialized request", async () => {
     const { client, fetchMock } = buildClient({
       'User-Agent': ['acme-gateway-client/1'],

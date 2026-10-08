@@ -448,6 +448,14 @@
   //       "type": "searxng",
   //       "baseUrl": "{env:SEARXNG_BASE_URL:-http://localhost:8888}",
   //     },
+  //     // A model-hosted engine delegates search to a configured model's provider
+  //     // hosted-search capability (supported provider types only).
+  //     {
+  //       "id": "hosted",
+  //       "type": "model-hosted",
+  //       "model": "system:openai:gpt-5.4-mini",
+  //       // "timeoutSeconds": 90,
+  //     },
   //     // Aggregate runs all listed result engines concurrently and merges ranks.
   //     {
   //       "id": "all",

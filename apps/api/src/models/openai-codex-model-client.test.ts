@@ -21,17 +21,19 @@ const messages = [
  * receives: nothing in this suite asserts that a client reads it.
  */
 const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
+const SEARCH_CHAT: ChatIdentity = { id: 'c1', lane: 'search' };
 
 /** The product token llame's boot-read identity supplies to every client. */
 const USER_AGENT = 'llame/0.0.0-test';
 
 describe('createOpenAICodexModelClient', () => {
   it.each([
-    [{}, null],
-    [{ 'X-Session-Id': ['', ''] }, CHAT.id],
+    [{}, CHAT, null],
+    [{ 'X-Session-Id': ['', ''] }, CHAT, CHAT.id],
+    [{ 'X-Session-Id': ['', ''] }, SEARCH_CHAT, 'search:c1'],
   ] as const)(
     'sends the default or configured session header through the wrapped Responses client',
-    async (requestHeaders, expectedSessionId) => {
+    async (requestHeaders, chat, expectedSessionId) => {
       const fetchMock = vi
         .fn<typeof globalThis.fetch>()
         .mockResolvedValue(
@@ -59,9 +61,9 @@ describe('createOpenAICodexModelClient', () => {
           requestHeaders,
         });
 
-        await expect(
-          client.streamText({ chat: CHAT, messages }).text,
-        ).resolves.toBe('done');
+        await expect(client.streamText({ chat, messages }).text).resolves.toBe(
+          'done',
+        );
 
         expect(fetchMock).toHaveBeenCalledWith(
           'https://chatgpt.com/backend-api/codex/responses',

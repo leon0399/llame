@@ -82,7 +82,7 @@ output.
 - [x] 3.4 Document both engines, the keyless Exa limits, and DuckDuckGo's unsupported status and terms in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 3.5 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
 - [x] 3.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 3.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 3.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 4. `web-search/aggregate` — concurrent fan-out (design D5)
 
@@ -104,9 +104,9 @@ output.
 
 ## 6. `web-search/hosted` — model-hosted engines (design D8)
 
-- [ ] 6.1 Add the `search` Chat lane rendered as `search:<chatId>`, turning `renderSessionId` into an exhaustive switch so a future lane fails typecheck; verify by header tests the `provider-request-headers` and `provider-api-selection` "A hosted web search carries the search lane" scenarios on each of the three wires
-- [ ] 6.2 Add the `model-hosted` schema branch and the wire check on its referenced model; verify by loader tests for the unsupported-wire and inside-aggregate scenarios
-- [ ] 6.3 Add a bounded hosted-search request to the Responses, Codex, and Messages clients built from the referenced model entry on the `search` lane, with no reasoning effort (never the Run's), the packaged hosted-search instructions, only the query and recency phrase as input, `openai.tools.webSearch` or `anthropic.tools.webSearch_20250305({ maxUses: 5 })`, `site:` domain mapping, and cited URLs as citations (OpenAI `url_citation`, Anthropic `web_search_result_location`); verify by client tests with recorded provider streams that the request contains no chat history or system prompt, uncited retrieved results are not citations, and empty or uncited text yields `ungrounded`
+- [x] 6.1 Add the `search` Chat lane rendered as `search:<chatId>`, turning `renderSessionId` into an exhaustive switch so a future lane fails typecheck; verify by header tests the `provider-request-headers` and `provider-api-selection` "A hosted web search carries the search lane" scenarios on each of the three wires
+- [x] 6.2 Add the `model-hosted` schema branch and the wire check on its referenced model; verify by loader tests for the unsupported-wire and inside-aggregate scenarios
+- [x] 6.3 Add a bounded hosted-search request to the Responses, Codex, and Messages clients built from the referenced model entry on the `search` lane, with no reasoning effort (never the Run's), the packaged hosted-search instructions, only the query and recency phrase as input, `openai.tools.webSearch` or `anthropic.tools.webSearch_20250305({ maxUses: 5 })`, `site:` domain mapping, and cited URLs as citations (OpenAI `url_citation`, Anthropic `web_search_result_location`); verify by client tests with recorded provider streams that the request contains no chat history or system prompt, uncited retrieved results are not citations, and empty or uncited text yields `ungrounded`
 - [ ] 6.4 Implement the `model-hosted` engine on that request; verify by an integration test with the scripted model client that a Run on one model receives an `answer` from a hosted engine on another, and that the assistant message usage, measured context size, and completeness are unchanged by the sub-request
 - [ ] 6.5 Document the three wires, per-search prices, the Codex shared-subscription risk, citation display obligations, and the unrecorded cost in the runbook; update `SPEC.md`; add the dated `CHANGELOG.md` entry; this layer's PR carries `Closes #1102`; verify `pnpm lint:markdown` and `pnpm format:check`
 - [ ] 6.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites

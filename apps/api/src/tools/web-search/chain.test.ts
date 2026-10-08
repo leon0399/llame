@@ -13,6 +13,12 @@ import {
 } from '../../instance-config/llame-config';
 import { type VendorFetch } from './http';
 import { requestUrl, captureFetch } from '../../testing/web-search-fetch';
+import { type ModelClient } from '../../models/model-client';
+import {
+  answerStream,
+  scriptedModelClient,
+  urlSourcePart,
+} from '../../testing/hosted-search-client';
 
 const request = (
   signal: AbortSignal = new AbortController().signal,
@@ -22,6 +28,7 @@ const request = (
   signal,
   recency: undefined,
   userAgent: undefined,
+  chatId: undefined,
 });
 const config = (
   ids: ReadonlyArray<string>,
@@ -141,6 +148,31 @@ it('createEngine wires exa-mcp', async () => {
     )(request()),
   ).rejects.toMatchObject({ failureClass: 'upstream_error' });
   expect(urls[0]).toBe('https://mcp.exa.ai/mcp');
+});
+it('createEngine wires model-hosted', async () => {
+  const createClient = (modelId: string): ModelClient => {
+    expect(modelId).toBe('search-model');
+    return scriptedModelClient(() =>
+      Promise.resolve(
+        answerStream('grounded', [urlSourcePart('https://example.test/a')]),
+      ),
+    );
+  };
+  const output = await createEngine(
+    {
+      id: 'hosted',
+      type: 'model-hosted',
+      model: 'search-model',
+      wire: 'openai-responses',
+      timeoutSeconds: 60,
+    },
+    { fetch: globalThis.fetch, modelClients: { createClient } },
+  )(request());
+  expect(output).toStrictEqual({
+    kind: 'answer',
+    answer: 'grounded',
+    citations: [{ url: 'https://example.test/a' }],
+  });
 });
 
 it('appends engine notes after chain notes', async () => {
