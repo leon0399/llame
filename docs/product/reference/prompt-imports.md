@@ -20,8 +20,9 @@ Your text is stored and shown exactly as typed; the import is added beside it.
 
 ## Markers
 
-Four shapes are recognized in prompt text, outside fenced code and inline
-code:
+These shapes are recognized in prompt text. Markers inside fenced code or inline
+code stay literal; the backtick form below is an `@` before a code span, not a
+marker inside one.
 
 | Shape                       | Example                               |
 | --------------------------- | ------------------------------------- |
