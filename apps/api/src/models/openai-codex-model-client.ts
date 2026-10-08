@@ -69,17 +69,24 @@ function httpStatus(error: unknown): number | undefined {
     .find((status): status is number => status !== undefined);
 }
 
-function sanitizeCodexError(error: unknown): Error {
-  const statusCode = httpStatus(error);
+function codexStatusMessage(statusCode: number | undefined): string {
   if (statusCode === 401 || statusCode === 403) {
-    return new Error(
-      'Codex subscription authentication failed. Re-login and restart llame.',
-    );
+    return 'Codex subscription authentication failed. Re-login and restart llame.';
   }
   if (statusCode === 429) {
-    return new Error('Codex subscription limit reached. Retry manually later.');
+    return 'Codex subscription limit reached. Retry manually later.';
   }
-  return new Error('Codex subscription request failed.');
+  return 'Codex subscription request failed.';
+}
+
+function sanitizeCodexError(error: unknown): Error {
+  const statusCode = httpStatus(error);
+  const bounded = new Error(codexStatusMessage(statusCode));
+  // The numeric status is not sensitive, and callers that classify a failure
+  // (a hosted web search engine) read it from the bounded error.
+  return statusCode === undefined
+    ? bounded
+    : Object.assign(bounded, { statusCode });
 }
 
 export function createOpenAICodexModelClient(

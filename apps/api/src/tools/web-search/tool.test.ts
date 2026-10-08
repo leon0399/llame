@@ -1,4 +1,14 @@
 import { vi } from 'vitest';
+import { type WebSearchConfig } from '../../instance-config/llame-config';
+import {
+  type ModelClient,
+  type ModelStreamInput,
+} from '../../models/model-client';
+import {
+  answerStream,
+  scriptedModelClient,
+  urlSourcePart,
+} from '../../testing/hosted-search-client';
 import { type ToolContext } from '../types';
 import {
   createMcpTestFixture,
@@ -39,6 +49,78 @@ describe('web search tool declaration', () => {
       message: 'Web search is not configured.',
     });
   });
+});
+it('passes the chat id and each call’s model clients to hosted search', async () => {
+  const calls: Array<ModelStreamInput> = [];
+  const client = scriptedModelClient(
+    () =>
+      Promise.resolve(
+        answerStream('grounded', [urlSourcePart('https://example.test/a')]),
+      ),
+    calls,
+  );
+  const firstCreate = vi.fn<(modelId: string) => ModelClient>(() => client);
+  const secondCreate = vi.fn<(modelId: string) => ModelClient>(() => client);
+  const firstModelClients = { createClient: firstCreate };
+  const secondModelClients = { createClient: secondCreate };
+  const config: WebSearchConfig = {
+    engines: [
+      {
+        id: 'hosted',
+        type: 'model-hosted',
+        model: 'search-model',
+        wire: 'openai-responses',
+        timeoutSeconds: 60,
+      },
+    ],
+    chain: ['hosted'],
+  };
+  const baseContext: Omit<ToolContext, 'chatId' | 'modelClients'> = {
+    userId: 'user',
+    tenantDb: {
+      runAs: () => Promise.reject(new Error('unused')),
+    },
+    webSearch: config,
+  };
+  const input = { query: 'latest', limit: 1 };
+  const expected = {
+    status: 'success',
+    kind: 'answer',
+    engine: 'hosted',
+    query: 'latest',
+    answer: 'grounded',
+    citations: [{ url: 'https://example.test/a' }],
+  };
+  await expect(
+    webSearchTool.execute(
+      { ...baseContext, chatId: 'chat-one', modelClients: firstModelClients },
+      input,
+    ),
+  ).resolves.toStrictEqual(expected);
+  await expect(
+    webSearchTool.execute(
+      { ...baseContext, chatId: 'chat-two', modelClients: firstModelClients },
+      input,
+    ),
+  ).resolves.toStrictEqual(expected);
+  expect(firstCreate).toHaveBeenCalledTimes(2);
+  expect(secondCreate).not.toHaveBeenCalled();
+  expect(calls.map((call) => call.chat)).toStrictEqual([
+    { id: 'chat-one', lane: 'search' },
+    { id: 'chat-two', lane: 'search' },
+  ]);
+
+  await expect(
+    webSearchTool.execute(
+      {
+        ...baseContext,
+        chatId: 'chat-three',
+        modelClients: secondModelClients,
+      },
+      input,
+    ),
+  ).resolves.toStrictEqual(expected);
+  expect(secondCreate).toHaveBeenCalledTimes(1);
 });
 
 it('forwards recency and the product user agent to the configured engine', async () => {

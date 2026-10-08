@@ -19,6 +19,7 @@ import { type PermissionMode } from './permissions/permission-mode';
 import { type WorkspaceRootCell } from './workspace-path';
 import { type AttemptToolAdditions } from './attempt-tool-additions';
 import { type DerivedDecision } from './web-read/admission';
+import { type ModelClientFactory } from '../models/models.service';
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
  * external sources (D2: "accepted as the source ships it"). Distinct from
@@ -111,6 +112,12 @@ export interface ToolContext {
   readonly webAdapters?: ReadonlyArray<WebAdapterConfig>;
   /** Ordered, boot-validated web search engines enabled by instance configuration. */
   readonly webSearch?: WebSearchConfig;
+  /**
+   * Trusted model-client factory for model-hosted web search engines, never
+   * model supplied. A host double that only validates selections leaves
+   * `createClient` unset, and those engines then fail closed.
+   */
+  readonly modelClients?: Partial<ModelClientFactory>;
   /**
    * Trusted effective per-attempt permission mode. Absent means default policy
    * evaluation.

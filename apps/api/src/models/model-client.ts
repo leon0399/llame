@@ -26,7 +26,7 @@ export type ModelStreamResult = StreamTextResult<
  * turn (and every request that reuses its prefix, including compaction) or
  * the unrelated title prompt over the same Chat.
  */
-export type ChatLane = 'main' | 'title';
+export type ChatLane = 'main' | 'title' | 'search';
 
 /**
  * The Chat a language-model request is made for, supplied by the call site as

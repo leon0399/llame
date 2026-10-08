@@ -8,8 +8,10 @@ import { createBraveEngine } from './brave';
 import { createExaEngine } from './exa';
 import { createPerplexityEngine } from './perplexity';
 import { createSearxngEngine } from './searxng';
+import { createModelHostedEngine } from './model-hosted';
 import { canonicalUrl } from './output';
 import { type VendorFetch } from './http';
+import { type ToolContext } from '../types';
 
 export const WEB_SEARCH_FAILURE_CLASSES = [
   'auth',
@@ -67,6 +69,12 @@ export type EngineRequest = {
   readonly limit: number;
   readonly signal: AbortSignal;
   readonly userAgent: string | undefined;
+  readonly chatId: string;
+  /**
+   * Trusted model-client factory for model-hosted engines; absent leaves them
+   * failing closed.
+   */
+  readonly modelClients?: ToolContext['modelClients'];
 };
 export type Engine = (request: EngineRequest) => Promise<EngineOutcome>;
 export type EngineLookup = (id: string) => Engine;
@@ -176,7 +184,9 @@ export async function runOne(
 /** Build an engine adapter from one resolved entry. */
 export function createEngine(
   config: Exclude<WebSearchEngineConfig, { type: 'aggregate' }>,
-  deps: { readonly fetch: VendorFetch },
+  deps: {
+    readonly fetch: VendorFetch;
+  },
 ): Engine {
   switch (config.type) {
     case 'brave':
@@ -191,6 +201,8 @@ export function createEngine(
       return createSearxngEngine(config, deps);
     case 'duckduckgo':
       return createDuckDuckGoEngine(deps);
+    case 'model-hosted':
+      return createModelHostedEngine(config);
   }
 }
 

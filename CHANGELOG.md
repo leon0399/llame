@@ -15,6 +15,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - The web chat renders `web_search` results and citations as links.
 
+- Added `model-hosted` `web_search` engines for OpenAI Responses, Codex, and
+  Anthropic Messages, with bounded cited sub-requests and a `search:<chatId>`
+  session lane. Hosted-search spend is provider-billed and excluded from
+  llame usage; Codex uses the operator's ChatGPT subscription.
+
 # 2026-10-07
 
 - Added a per-provider `headers` map of string or `null` values. The

@@ -16,6 +16,7 @@ const request = (
   limit,
   signal,
   userAgent: undefined,
+  chatId: 'chat',
 });
 
 const result = (

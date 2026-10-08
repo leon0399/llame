@@ -330,23 +330,26 @@ function sanitizeAnthropicError(error: unknown): Error {
         : 'Anthropic request failed.',
     );
   }
-  if (statusCode === 401) {
-    return new Error(
-      'Anthropic authentication failed: the configured credential was rejected.',
-    );
+  // The numeric status is not sensitive, and callers that classify a failure
+  // (a hosted web search engine) read it from the bounded error.
+  return Object.assign(new Error(anthropicStatusMessage(statusCode)), {
+    statusCode,
+  });
+}
+
+function anthropicStatusMessage(statusCode: number): string {
+  switch (statusCode) {
+    case 401:
+      return 'Anthropic authentication failed: the configured credential was rejected.';
+    case 404:
+      return 'Anthropic request failed: unknown model or endpoint.';
+    case 429:
+      return 'Anthropic rate limit reached. Retry manually later.';
+    case 400:
+      return 'Anthropic request rejected: invalid model or request option.';
+    default:
+      return 'Anthropic request failed.';
   }
-  if (statusCode === 404) {
-    return new Error('Anthropic request failed: unknown model or endpoint.');
-  }
-  if (statusCode === 429) {
-    return new Error('Anthropic rate limit reached. Retry manually later.');
-  }
-  if (statusCode === 400) {
-    return new Error(
-      'Anthropic request rejected: invalid model or request option.',
-    );
-  }
-  return new Error('Anthropic request failed.');
 }
 
 /**

@@ -204,6 +204,13 @@ export type RawWebSearchEngineEntry =
     }
   | {
       id: string;
+      type: 'model-hosted';
+      /** A `models[].id`, resolved against the model catalog at startup. */
+      model: string;
+      timeoutSeconds?: unknown;
+    }
+  | {
+      id: string;
       type: 'aggregate';
       engines: Array<string>;
     };
@@ -236,6 +243,13 @@ export type WebSearchEngineConfig =
           key: string | undefined;
         }
       | { type: 'duckduckgo' }
+      | {
+          type: 'model-hosted';
+          /** A `models[].id` on an `openai-responses`, `openai-codex`, or `anthropic-messages` provider. */
+          model: string;
+          /** That model's provider type, resolved at startup. */
+          wire: 'openai-responses' | 'openai-codex' | 'anthropic-messages';
+        }
     ))
   | {
       id: string;

@@ -200,6 +200,7 @@ import {
 } from '../personalization/personalization.service';
 import {
   ModelsService,
+  type ModelClientFactory,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import {
@@ -633,6 +634,13 @@ export type ChatSearchIndexer = Pick<SearchIndexService, 'reindexChat'>;
  */
 type InstanceConfigWithIdentity = InstanceConfigReader &
   Partial<ProductIdentityReader>;
+/**
+ * The injected model capability: selection validation, plus the client factory
+ * when the value is the real service. A test double that only validates
+ * selections leaves `createClient` unset, and a model-hosted web search engine
+ * fails closed rather than building a client.
+ */
+type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 
 @Injectable()
 export class RunExecutionService {
@@ -663,7 +671,7 @@ export class RunExecutionService {
     private readonly permissionPolicy: CompiledPolicy,
     // --- Worker-owned prompt/catalog resolution dependencies ---
     @Inject(ModelsService)
-    private readonly models: ModelSelectionValidator,
+    private readonly models: RunModelCapability,
     private readonly systemPrompts: SystemPromptsService,
     @Inject(PersonalizationService)
     private readonly personalization: PromptUserResolver,
@@ -1121,6 +1129,7 @@ export class RunExecutionService {
       permissionPolicy: this.permissionPolicy,
       webAdapters: this.instanceConfig.config.tools.webAdapters,
       webSearch: this.instanceConfig.config.webSearch,
+      modelClients: this.models,
       permissionMode: effectivePermissionMode,
     };
     const { maxStepsPerRun, callTimeoutSeconds } =
@@ -2335,6 +2344,7 @@ export class RunExecutionService {
       permissionPolicy: this.permissionPolicy,
       webAdapters: this.instanceConfig.config.tools.webAdapters,
       webSearch: this.instanceConfig.config.webSearch,
+      modelClients: this.models,
       permissionMode: effectivePermissionMode,
     };
   }

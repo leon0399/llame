@@ -61,11 +61,10 @@ function buildEngineLookup(config: WebSearchConfig): EngineLookup {
 }
 
 function engineLookupFor(config: WebSearchConfig): EngineLookup {
-  let lookup = engineLookups.get(config);
-  if (lookup === undefined) {
-    lookup = buildEngineLookup(config);
-    engineLookups.set(config, lookup);
-  }
+  const cached = engineLookups.get(config);
+  if (cached !== undefined) return cached;
+  const lookup = buildEngineLookup(config);
+  engineLookups.set(config, lookup);
   return lookup;
 }
 
@@ -92,6 +91,8 @@ export const webSearchTool: Tool<WebSearchArguments> = {
       signal,
       recency: input.recency,
       userAgent: context.productUserAgent,
+      chatId: context.chatId,
+      modelClients: context.modelClients,
     };
     const result = await executeSearchChain(
       config,

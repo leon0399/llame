@@ -10,7 +10,7 @@ behavior:
 # Web search
 
 This runbook covers enabling `web_search`, its configured engines/chain, deadlines, and how queries/results cross the instance boundary. The [web_search reference](../reference/tools/web-search.md) has the model-facing schema, output union, bounds, fall-through details, and failure classes.
-Supported operator engines are `brave`, `exa`, `exa-mcp`, `perplexity`, `searxng`, `duckduckgo`, and `aggregate`; configure only these types.
+Supported operator engines are `brave`, `exa`, `exa-mcp`, `perplexity`, `searxng`, `duckduckgo`, `aggregate`, and `model-hosted`; configure only these types.
 
 ## Enabling
 
@@ -78,6 +78,43 @@ best-ranked member's spelling. It is empty only when no child has results and
 at least one child was empty; notes name failed and empty children. Cost
 multiplies by child count, while latency is the slowest child within those
 deadlines.
+
+## Model-hosted
+
+A `model-hosted` entry delegates a search to a configured model:
+
+```jsonc
+{
+  "id": "claude-search",
+  "type": "model-hosted",
+  "model": "<models[].id>",
+}
+```
+
+The referenced model's provider MUST be `openai-responses`, `openai-codex`, or
+`anthropic-messages`; a `model-hosted` entry cannot be an `aggregate` child.
+Each call is a separate bounded sub-request carrying only packaged search
+instructions, the query, and a recency phrase (when set)—never chat history or
+other Run context. A configured `{session:id}` header (by default
+`X-Session-Id`, except on Codex, which has no default) renders as
+`search:<chatId>`.
+
+OpenAI Responses and Codex use the provider's hosted web search and force it
+(Responses with a required tool choice, Codex by naming the hosted tool);
+Anthropic uses `web_search_20250305` with `maxUses: 5` without forcing it. Each
+call makes at most one search step and one answer step. `site:host` terms
+become allowed domains. The answer's citations are only URLs that its text
+cites; empty or uncited answers are `ungrounded`, so the chain advances. No
+reasoning effort is sent: set it through the referenced model's
+`providerOptions` if needed. The Codex backend's support for hosted search
+sources is undocumented and was not verified against a live subscription; if
+it drops them, every Codex answer is `ungrounded`.
+
+OpenAI and Anthropic cost about $10 per 1,000 searches plus tokens; this spend
+is not recorded in llame usage. Codex uses the operator's ChatGPT subscription
+for every owner's search, and OpenAI's docs exclude generic OAuth clients
+outside Codex—an operator risk. OpenAI and Anthropic require visible,
+clickable citations; the web chat renders them as links.
 
 ## Brave
 

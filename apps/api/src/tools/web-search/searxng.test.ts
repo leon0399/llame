@@ -9,6 +9,7 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   limit: 1,
   signal: new AbortController().signal,
   userAgent: 'llame/test',
+  chatId: 'chat',
   ...overrides,
 });
 type FixtureResult = {

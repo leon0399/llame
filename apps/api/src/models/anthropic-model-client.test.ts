@@ -170,6 +170,22 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
     expect(firstRequest(harness).headers.get('x-session-id')).toBe('chat-test');
   });
 
+  it('renders the search lane in the configured session header', async () => {
+    const harness = buildHarness({ streamEvents: hello });
+    const client = buildClient(harness, {
+      requestHeaders: { 'X-Session-Id': ['', ''] },
+    });
+
+    await expect(
+      client.streamText({
+        chat: { id: 'c1', lane: 'search' },
+        messages,
+      }).text,
+    ).resolves.toBe('hello');
+
+    expect(firstRequest(harness).headers.get('x-session-id')).toBe('search:c1');
+  });
+
   it('does not send a session header when the resolved map is empty', async () => {
     const harness = buildHarness({ streamEvents: hello });
     const client = buildClient(harness, { requestHeaders: {} });

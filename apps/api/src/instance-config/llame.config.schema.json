@@ -135,6 +135,33 @@
         {
           "type": "object",
           "additionalProperties": false,
+          "description": "A model-hosted provider web-search engine.",
+          "required": ["id", "type", "model"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+            },
+            "type": {
+              "const": "model-hosted",
+              "description": "A provider-hosted web-search engine."
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A models[].id whose provider supports hosted web search."
+            },
+            "timeoutSeconds": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Per-engine deadline in seconds. Defaults to 60."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
           "description": "A concurrent aggregate of configured result-engine ids.",
           "required": ["id", "type", "engines"],
           "properties": {
