@@ -123,7 +123,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       the focused integration files touched above, `pnpm format:check`, `pnpm lint:markdown`,
       `git diff --check`, and `pnpm exec openspec validate import-markers --strict`; record
       the commands in the PR body.
-- [ ] 3.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 3.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 3.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `skill-imports`.

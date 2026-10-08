@@ -118,6 +118,23 @@ function disclosedForImport(
     : (state.disclosed.get(directory) ?? EMPTY_DISCLOSED);
 }
 
+function createLoadedInstructionFile(
+  candidate: InstructionCandidate,
+  read: Pick<LoadedInstructionFile, 'content' | 'truncated' | 'omittedBytes'>,
+  knowledge: boolean,
+  importedBy?: string,
+): LoadedInstructionFile {
+  const file = {
+    path: candidate.path,
+    canonicalPath: candidate.canonicalPath,
+    content: read.content,
+    truncated: read.truncated,
+    omittedBytes: read.omittedBytes,
+    knowledge,
+  };
+  return importedBy === undefined ? file : { ...file, importedBy };
+}
+
 /** Reads one candidate into the collector, unless it is disclosed or seen. */
 export async function collectInstructionCandidate(
   state: InstructionImportState,
@@ -142,18 +159,13 @@ export async function collectInstructionCandidate(
   if (read.kind === 'failed') return;
   if (read.content.length === 0) return;
   collector.keys.add(candidate.canonicalPath);
-  const file = {
-    path: candidate.path,
-    canonicalPath: candidate.canonicalPath,
-    content: read.content,
-    truncated: read.truncated,
-    omittedBytes: read.omittedBytes,
-    knowledge: group.knowledge,
-  };
   collector.files.push(
-    origin.importedBy === undefined
-      ? file
-      : { ...file, importedBy: origin.importedBy },
+    createLoadedInstructionFile(
+      candidate,
+      read,
+      group.knowledge,
+      origin.importedBy,
+    ),
   );
   if (origin.importedBy !== undefined) {
     const directory = candidateDirectory(group, candidate.path);

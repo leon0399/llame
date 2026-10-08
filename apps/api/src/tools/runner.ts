@@ -181,12 +181,18 @@ function projectWorkspaceArguments(
   return { args, changed: false };
 }
 
-function applyCanonicalReadPermission(
+function evaluateCanonicalReadPermission(
   context: ToolContext,
+  tool: Tool,
+  workspace: WorkspaceProjection,
+  projectFieldValue: (field: string, value: string) => string,
   options: Parameters<typeof evaluatePermission>[1],
-  evaluatedPath: string | undefined,
   decision: PermissionDecision | undefined,
 ): PermissionDecision | undefined {
+  const evaluatedPath =
+    tool.id === 'read' && isString(workspace.args.path)
+      ? projectFieldValue('path', workspace.args.path)
+      : undefined;
   const canonicalPath = context.canonicalReadPath;
   if (
     canonicalPath === undefined ||
@@ -236,19 +242,14 @@ function evaluateToolPermission(
 ): PermissionDecision | undefined {
   const root = context.workspaceRoot?.current();
   const workspace = projectWorkspaceArguments(tool, args, root);
-  const projectFieldValue = nativeFileProjection(tool.id, root);
   const options = {
     toolId: tool.id,
     args: workspace.args,
     isFlexibleWhitespaceField: (field: string) =>
       isBashCommandField(tool.id, field),
     validFields: mcpDeclaredStringFields(tool),
-    projectFieldValue,
+    projectFieldValue: nativeFileProjection(tool.id, root),
   };
-  const evaluatedPath =
-    tool.id === 'read' && isString(workspace.args.path)
-      ? projectFieldValue('path', workspace.args.path)
-      : undefined;
   const decision = admitPermission(context, (policy) => {
     if (workspace.changed) return evaluatePermission(policy, options);
     const submitted = evaluatePermission(policy, {
@@ -265,10 +266,12 @@ function evaluateToolPermission(
     }
     return evaluatePermission(policy, options);
   });
-  return applyCanonicalReadPermission(
+  return evaluateCanonicalReadPermission(
     context,
+    tool,
+    workspace,
+    options.projectFieldValue,
     options,
-    evaluatedPath,
     decision,
   );
 }
