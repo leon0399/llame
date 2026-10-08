@@ -50,6 +50,125 @@ function addMarker(
   if (target.length > 0) markers.push({ offset, target });
 }
 
+function skipLinkWhitespace(
+  source: string,
+  offset: number,
+  end: number,
+): number {
+  while (offset < end && /\s/u.test(source.at(offset) ?? '')) {
+    offset += 1;
+  }
+  return offset;
+}
+
+function findAngleDestinationEnd(
+  source: string,
+  offset: number,
+  end: number,
+): number | undefined {
+  while (offset < end) {
+    const character = source.at(offset);
+    if (character === '\\') {
+      offset += 2;
+      continue;
+    }
+    if (character === '>') return offset;
+    offset += 1;
+  }
+  return undefined;
+}
+
+function findBareDestinationEnd(
+  source: string,
+  offset: number,
+  end: number,
+): number | undefined {
+  let parentheses = 0;
+  while (offset < end) {
+    const character = source.at(offset);
+    if (character === '\\') {
+      offset += 2;
+      continue;
+    }
+    if (/\s/u.test(character ?? '')) {
+      return parentheses === 0 ? offset : undefined;
+    }
+    if (character === '(') {
+      parentheses += 1;
+      offset += 1;
+      continue;
+    }
+    if (character !== ')') {
+      offset += 1;
+      continue;
+    }
+    if (parentheses === 0) return offset;
+    parentheses -= 1;
+    offset += 1;
+  }
+  return undefined;
+}
+
+function findLinkTitleEnd(
+  source: string,
+  offset: number,
+  end: number,
+  delimiter: string,
+): number | undefined {
+  while (offset < end) {
+    const character = source.at(offset);
+    if (character === '\\') {
+      offset += 2;
+      continue;
+    }
+    if (character === delimiter) return offset;
+    offset += 1;
+  }
+  return undefined;
+}
+
+function parseRawLink(
+  source: string,
+  range: SourceRange,
+  labelEnd: number,
+): { destination: string; title: string | undefined } | undefined {
+  const labelClose = source.indexOf('](', labelEnd);
+  if (labelClose < 0 || labelClose + 2 > range.end) return undefined;
+
+  let offset = skipLinkWhitespace(source, labelClose + 2, range.end);
+  let destinationStart = offset;
+  let destinationEnd: number | undefined;
+  if (source.at(offset) === '<') {
+    destinationStart += 1;
+    destinationEnd = findAngleDestinationEnd(source, offset + 1, range.end);
+    if (destinationEnd === undefined) return undefined;
+    offset = destinationEnd + 1;
+  } else {
+    destinationEnd = findBareDestinationEnd(source, offset, range.end);
+    if (destinationEnd === undefined) return undefined;
+    offset = destinationEnd;
+  }
+  const destination = source.slice(destinationStart, destinationEnd);
+  offset = skipLinkWhitespace(source, offset, range.end);
+  let title: string | undefined;
+  const delimiter = source.at(offset);
+  if (delimiter === '"' || delimiter === "'" || delimiter === '(') {
+    const titleStart = offset + 1;
+    const titleDelimiter = delimiter === '(' ? ')' : delimiter;
+    const titleEnd = findLinkTitleEnd(
+      source,
+      titleStart,
+      range.end,
+      titleDelimiter,
+    );
+    if (titleEnd === undefined) return undefined;
+    title = source.slice(titleStart, titleEnd);
+    offset = skipLinkWhitespace(source, titleEnd + 1, range.end);
+  }
+  if (source.at(offset) !== ')' || offset + 1 !== range.end) return undefined;
+  return { destination, title };
+}
+
 function collectNodeMarkers(
   node: Nodes,
   range: SourceRange | undefined,
@@ -57,20 +176,23 @@ function collectNodeMarkers(
   markers: Array<Marker>,
 ): void {
   if (range === undefined || node.type !== 'link') return;
-  const destinationStart =
-    node.children.length === 0
-      ? range.start + 1
-      : node.children.at(-1)?.position?.end.offset;
+  const labelEnd =
+    node.children.at(-1)?.position?.end.offset ?? range.start + 1;
+  const rawLink = parseRawLink(source, range, labelEnd);
   if (
-    destinationStart === undefined ||
-    !source.slice(destinationStart, range.end).includes(node.url)
+    rawLink === undefined ||
+    rawLink.destination !== node.url ||
+    (node.title === null
+      ? rawLink.title !== undefined
+      : rawLink.title !== node.title)
   )
     return;
-  if (node.title === 'import') {
+  if (rawLink.title !== undefined && rawLink.title !== 'import') return;
+  if (node.title !== null) {
     addMarker(markers, range.start, node.url);
     return;
   }
-  if (node.title !== null || source[range.start] !== '[') return;
+  if (source[range.start] !== '[') return;
 
   const atOffset = range.start - 1;
   if (

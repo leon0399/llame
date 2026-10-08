@@ -121,6 +121,16 @@ describe('importTargets', () => {
     expect(importTargets('[docs](README.md "import")')).toEqual(['README.md']);
   });
 
+  it('requires exact source text for destinations and titles', () => {
+    expect(importTargets('[a](&#105;mport "import")')).toEqual([]);
+    expect(importTargets('[a](a.md "&#105;mport")')).toEqual([]);
+  });
+
+  it('recognizes single-quoted and parenthesized import titles', () => {
+    expect(importTargets("[x](a.md 'import')")).toEqual(['a.md']);
+    expect(importTargets('[x](a.md (import))')).toEqual(['a.md']);
+  });
+
   it('does not recognize an import link with an entity-encoded destination', () => {
     expect(importTargets('[a](a.md&#58;raw "import")')).toEqual([]);
     expect(importTargets('[a](&#47;etc&#47;passwd "import")')).toEqual([]);
