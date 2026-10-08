@@ -599,7 +599,8 @@ type ToolCompletedEventPayload = {
   /**
    * Decisions on locators other than the submitted one: a web read's derived
    * locators (redirect hops, announced alternates, suffix and `llms.txt`
-   * candidates) and an instruction import's canonical path. Each carries the
+   * candidates), `enter_workspace`'s canonical root, and an instruction
+   * import's canonical path. Each carries the
    * kind of locator it judged. Recorded with the completion because a web
    * read's are not known until the executor has run; owner-scoped like
    * `permission`, and never part of the model-visible result.
