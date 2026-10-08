@@ -1929,6 +1929,10 @@ adapter's rendered document.
 Every request an adapter derives SHALL pass the same `read`-group admission,
 address resolution and pinning, 10-second header bound, 30-second call bound,
 5 MiB per-response body bound, and redirect rules as the generic web path.
+An adapter request is a `GET` unless the adapter supplies a body, for a GraphQL
+or similar API; such a request SHALL be a `POST` of that body with its
+`Content-Type`, admitted like any adapter request, and SHALL follow no
+redirect: a 3xx answer SHALL fail it as `http_status`.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
 credential, and the Bluesky, npm, Hugging Face, arXiv, Stack Exchange,

@@ -454,7 +454,9 @@ shares, exports, and search.
 
 Each adapter target is a derived locator admitted independently by the `read`
 group before I/O as kind `adapter`; its redirect hops are admitted under the
-same rules.
+same rules. An adapter request is a `GET`, except that an adapter calling a
+GraphQL or similar API may `POST` a body to its admitted target; a `POST`
+follows no redirect, so a 3xx answer fails it as a status.
 
 ### Address locators and connection pinning
 

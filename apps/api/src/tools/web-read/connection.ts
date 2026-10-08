@@ -215,16 +215,19 @@ async function dispatchRequest({
   init,
 }: ConnectionDispatchContext): Promise<ConnectionDispatchOutcome> {
   const authorization = init?.authorization?.value;
+  const body = init?.body;
   try {
     const response = await fetch(url, {
-      method: 'GET',
+      method: body === undefined ? 'GET' : 'POST',
       redirect: 'manual',
       credentials: 'omit',
       headers: {
         accept: init?.accept ?? ACCEPT,
         'user-agent': options.userAgent,
         ...(authorization !== undefined && { authorization }),
+        ...(body !== undefined && { 'content-type': body.contentType }),
       },
+      ...(body !== undefined && { body: body.text }),
       signal: deadline.signal,
       dispatcher: agent,
     });
