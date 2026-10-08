@@ -1931,7 +1931,7 @@ address resolution and pinning, 10-second header bound, 30-second call bound,
 5 MiB per-response body bound, and redirect rules as the generic web path.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
-credential, and the Bluesky and npm adapters SHALL send none; the GitHub token SHALL be
+credential, and the Bluesky, npm, and Hugging Face adapters SHALL send none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1955,7 +1955,8 @@ adapter outcome SHALL declare the media type of its document so the
 representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
-sources use; the Bluesky and npm adapters label their renders `text/markdown`; a rewrite
+sources use; the Bluesky, npm, and Hugging Face adapters label their renders
+`text/markdown`; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2392,6 +2393,32 @@ the rest and add a `dist-tags omitted: {category}` or
 
 - **WHEN** jsDelivr answers 404 for the version's `README.md`
 - **THEN** the manifest lines render and the note `readme omitted: status` is attached
+
+### Requirement: Hugging Face native adapter reads Hub repository pages
+
+A configured `huggingface` adapter SHALL claim only `https://huggingface.co`
+locators whose path is `/{owner}/{name}`, `/datasets/{owner}/{name}`, or
+`/spaces/{owner}/{name}`; a model path whose owner segment is a Hub page such
+as `docs`, `blog`, or `papers`, or whose name segment is an owner listing such
+as `models` or `datasets`, SHALL be unclaimed, as SHALL every other path.
+The adapter SHALL send only unauthenticated `GET` requests to
+`https://huggingface.co`: `/api/{models|datasets|spaces}/{owner}/{name}` with
+the `expand[]` fields its kind supports and `Accept: application/json`, then
+`/[datasets/|spaces/]{owner}/{name}/raw/{revision}/README.md` at the reported
+revision.
+
+The render SHALL be `# {owner}/{name}` followed by `Kind`, `License`, `Gated`,
+`SDK`, `Parameters`, `Downloads (last 30 days)`, `Likes`, `Tags`, `Created`,
+`Updated`, and `Revision` lines for the fields reported, a `URL` line, and
+`## README` with the card's text after its YAML front matter. A failed or
+unparsable metadata request SHALL fall through; a README that does not arrive
+SHALL keep the metadata and add a `readme omitted: {category}` note.
+
+#### Scenario: A gated model renders its metadata
+
+- **WHEN** the model reads `https://huggingface.co/meta-llama/Llama-3.1-8B`
+- **THEN** the text has `Gated: manual` and the metadata lines
+- **AND** the README answers 401, so the note `readme omitted: status` is attached
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 

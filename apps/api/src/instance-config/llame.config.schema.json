@@ -849,6 +849,25 @@
                     "description": "Adapter implementation for npmjs.com package and package-version URLs."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native Hugging Face adapter. It reads Hub model, dataset, and Space metadata and README.md from huggingface.co; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["huggingface"],
+                    "description": "Adapter implementation for huggingface.co model, dataset, and Space repository URLs."
+                  }
+                }
               }
             ]
           }
