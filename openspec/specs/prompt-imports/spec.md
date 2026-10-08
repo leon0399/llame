@@ -177,7 +177,8 @@ Prompt imports SHALL consider at most 64 markers in first-occurrence order. Prob
 #### Scenario: Output and work bounds stop further reads
 
 - **WHEN** the serialized item would exceed 128 KiB, 30 seconds of work elapse, or the Run deadline arrives
-- **THEN** further targets are not read or probed
+- **THEN** further targets are not read, and once the work or deadline bound fires they are not probed either
+- **AND** after the output bound, later host or Knowledge targets are still probed, so a prose token is never listed as omitted
 - **AND** targets skipped by the output bound, or targets that survived probing or needed no probe when the work bound fires, are listed once as omitted
 - **AND** unprobed host or Knowledge targets skipped by the work bound are dropped silently and may remain prose
 
