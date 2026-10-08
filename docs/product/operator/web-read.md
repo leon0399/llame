@@ -10,14 +10,9 @@ behavior:
 
 # Web reads
 
-This runbook covers the operator side of `http://` and `https://` reads:
-enabling them and the permission boundary around them. Each adapter entry is in
-[web adapters](web-adapters.md). The model-visible contract — the locator form
-and normalization, the adapter ladder and its `method` values, the bounds, and
-the errors — is in [web locators](../reference/locators/web.md), and the
-documents adapters render are in the [web adapter
-reference](../reference/web-adapters.md); the shared trailing-selector grammar is
-in [selectors](../reference/selectors.md).
+Enabling `http(s)://` reads and the permission boundary around them. Adapters:
+[web adapters](web-adapters.md). Model-visible behavior: [web
+locators](../reference/locators/web.md).
 
 Deferred by design: response snapshots and any cache (#915), and PDF or image
 bodies (#916). See [what is not
@@ -91,13 +86,7 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 ## Adapter configuration
 
-`tools.webAdapters` absent means `[]` (no adapter); when present, the array is
-the exact ordered list, with no built-in entries, and the entries that claim a
-URL are tried in that order until one renders. Every entry, the URLs it claims,
-the requests it makes,
-and what a domain allowlist must admit for it are in [web
-adapters](web-adapters.md); the documents each renders are in the [web adapter
-reference](../reference/web-adapters.md).
+`tools.webAdapters` is configured in [web adapters](web-adapters.md).
 
 ## Derived locators and permission admission
 
