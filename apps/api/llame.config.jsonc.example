@@ -409,6 +409,21 @@
   //   }
   // },
 
+  // Optional Brave-backed web search. Leave this block commented unless the
+  // credential is configured. If enabled, also add "web_search" to
+  // tools.allowed below and add a tools.permissions.web_search group (for
+  // example, { "allow": true }); this example does not enable the tool.
+  // "webSearch": {
+  //   "engines": [
+  //     {
+  //       "id": "brave",
+  //       "type": "brave",
+  //       "key": "{env:BRAVE_API_KEY}",
+  //     },
+  //   ],
+  //   "chain": ["brave"],
+  // },
+
   // Run limits — every one is OPT-IN. Interpolated numbers must be
   // whole-value quoted tokens.
   "runs": {

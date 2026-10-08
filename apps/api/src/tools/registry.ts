@@ -6,8 +6,9 @@ import {
 import { bashTool, isHostCapabilityTool } from './bash';
 import { enterWorkspaceTool, exitWorkspaceTool } from './workspace';
 import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
-import { conversationReadTool } from './conversation-read';
 import { searchConversationsTool } from './search-conversations';
+import { conversationReadTool } from './conversation-read';
+import { webSearchTool } from './web-search/tool';
 import {
   isToolId,
   matchesAllowedToolId,
@@ -27,6 +28,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
   searchConversationsTool,
   conversationReadTool,
   knowledgeSearchTool,
+  webSearchTool,
 ];
 
 type ToolRegistrationCandidate = Omit<Tool, 'classification'> & {

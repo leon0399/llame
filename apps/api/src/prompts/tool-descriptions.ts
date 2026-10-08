@@ -12,6 +12,7 @@ export const TOOL_PROMPT_IDS = [
   'search_conversations',
   'conversation_read',
   'knowledge_search',
+  'web_search',
 ] as const;
 
 export type ToolPromptId = (typeof TOOL_PROMPT_IDS)[number];

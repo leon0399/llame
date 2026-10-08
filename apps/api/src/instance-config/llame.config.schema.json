@@ -29,6 +29,29 @@
       "type": ["string", "null"],
       "description": "A plain string, or null to explicitly unset (overriding any legacy environment fallback). May embed {env:...}/{path:...} tokens anywhere in the string."
     },
+    "webSearchEngine": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A configured web-search engine. This layer accepts only the Brave Search API.",
+      "required": ["id", "type", "key"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+        },
+        "type": { "const": "brave" },
+        "key": {
+          "$ref": "#/$defs/nullableString",
+          "description": "Required Brave credential. It may use a whole or embedded {env:...}/{path:...} interpolation token and must resolve to a nonblank string."
+        },
+        "timeoutSeconds": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Per-engine deadline in seconds. Defaults to 60."
+        }
+      }
+    },
     "permissionClause": {
       "type": "object",
       "additionalProperties": false,
@@ -425,6 +448,25 @@
               "description": "Must reference an entry in `embeddingModels[]` when set (boot failure otherwise). Unset (default) means the chat corpus has no intended model and produces no embedding work."
             }
           }
+        }
+      }
+    },
+    "webSearch": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional operator-configured web-search engines and their ordered fallback chain. This layer accepts only Brave.",
+      "required": ["engines", "chain"],
+      "properties": {
+        "engines": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/webSearchEngine" }
+        },
+        "chain": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
         }
       }
     },

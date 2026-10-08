@@ -1,5 +1,6 @@
 import { searchConversationsTool } from './search-conversations';
 import { conversationReadTool } from './conversation-read';
+import { webSearchTool } from './web-search/tool';
 import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
 import {
   buildRegistry,
@@ -15,9 +16,11 @@ describe('tool registry', () => {
       searchConversationsTool,
     );
     expect(TOOL_REGISTRY.get('conversation_read')).toBe(conversationReadTool);
+    expect(TOOL_REGISTRY.get('web_search')).toBe(webSearchTool);
     expect(TOOL_REGISTRY.get('knowledge_search')).toBe(knowledgeSearchTool);
     expect(searchConversationsTool.classification).toBe('read_only');
     expect(conversationReadTool.classification).toBe('read_only');
+    expect(webSearchTool.classification).toBe('read_only');
     expect(knowledgeSearchTool.classification).toBe('read_only');
   });
 

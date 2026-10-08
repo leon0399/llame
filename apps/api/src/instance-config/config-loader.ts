@@ -18,6 +18,8 @@ import {
   type LlameConfig,
   type KnowledgeConfig,
   type SkillsConfig,
+  type WebSearchConfig,
+  type WebSearchEngineConfig,
   type McpRemoteServerConfig,
   type McpServerConfig,
   type McpStdioServerConfig,
@@ -32,6 +34,7 @@ import {
   type RawMcpServerEntry,
   type RawModelEntry,
   type RawWebAdapterEntry,
+  type RawWebSearchConfig,
   type WebAdapterConfig,
 } from './llame-config';
 import type { RequestHeaderTemplates } from '../models/request-headers';
@@ -437,13 +440,15 @@ export function loadInstanceConfig(
   const embeddingModelIds = new Set(embeddingModels.map((m) => m.id));
   const search = resolveSearchConfig(raw, env, embeddingModelIds);
   const mcpServers = resolveMcpServers(raw, env);
+  const tools = resolveToolsConfig(raw, env);
+  const webSearch = resolveWebSearch(raw, env, tools.allowed);
 
   return {
     defaults: resolveDefaults(raw, env, modelIds),
     runs: resolveRunsConfig(raw, env),
     http: resolveHttpConfig(raw, env),
     db: resolveDbConfig(raw, env),
-    tools: resolveToolsConfig(raw, env),
+    tools,
     mcpServers,
     knowledge: resolveKnowledge(raw, env),
     skills: resolveSkillsConfig(raw, configPath),
@@ -452,6 +457,7 @@ export function loadInstanceConfig(
     models,
     embeddingModels,
     search,
+    ...(webSearch !== undefined && { webSearch }),
   };
 }
 
@@ -478,6 +484,75 @@ function resolveKnowledge(
     );
   }
   return { root: resolved };
+}
+
+/** Resolve the optional Brave-backed web-search configuration. */
+function resolveWebSearch(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+  allowed: ReadonlyArray<string>,
+): WebSearchConfig | undefined {
+  const section = raw?.webSearch;
+  if (section === undefined) {
+    if (allowed.includes('web_search')) {
+      throw new InstanceConfigError(
+        'webSearch.chain: required when tools.allowed contains web_search',
+      );
+    }
+    return undefined;
+  }
+  const engines = resolveWebSearchEngines(section.engines, env);
+  assertWebSearchChain(section.chain, engines);
+  return { engines, chain: section.chain };
+}
+
+function resolveWebSearchEngines(
+  entries: RawWebSearchConfig['engines'],
+  env: NodeJS.ProcessEnv,
+): ReadonlyArray<WebSearchEngineConfig> {
+  const seenEngineIds = new Set<string>();
+  return entries.map((entry) => {
+    if (seenEngineIds.has(entry.id)) {
+      throw new InstanceConfigError(
+        `webSearch.engines: duplicate engine id "${entry.id}"`,
+      );
+    }
+    seenEngineIds.add(entry.id);
+
+    const entryPath = `webSearch.engines[${entry.id}]`;
+    const timeoutPath = `${entryPath}.timeoutSeconds`;
+    const timeoutSeconds = requireResolvedNumber(
+      resolveNumeric({
+        configPath: timeoutPath,
+        present: entry.timeoutSeconds !== undefined,
+        raw: entry.timeoutSeconds,
+        builtInDefault: 60,
+        nullable: false,
+        env,
+      }),
+      timeoutPath,
+    );
+    return {
+      id: entry.id,
+      type: entry.type,
+      key: requireNonBlankString(`${entryPath}.key`, entry.key, env),
+      timeoutSeconds,
+    };
+  });
+}
+
+function assertWebSearchChain(
+  chain: ReadonlyArray<string>,
+  engines: ReadonlyArray<WebSearchEngineConfig>,
+): void {
+  const engineIds = new Set(engines.map((entry) => entry.id));
+  for (const id of chain) {
+    if (!engineIds.has(id)) {
+      throw new InstanceConfigError(
+        `webSearch.chain: unknown engine id "${id}"`,
+      );
+    }
+  }
 }
 
 /**

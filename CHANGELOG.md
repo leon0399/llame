@@ -1,5 +1,10 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-08
+
+- Added the `web_search` tool and top-level `webSearch` configuration with a
+  Brave engine and operator-configured chain.
+
 # 2026-10-07
 
 - Added a per-provider `headers` map of string or `null` values. The

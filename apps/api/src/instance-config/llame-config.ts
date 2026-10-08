@@ -174,6 +174,37 @@ export type KnowledgeConfig = {
   root?: string;
 };
 
+/** The still-uninterpolated `webSearch` engine entry once schema-validated. */
+export type RawWebSearchEngineEntry = {
+  id: string;
+  type: 'brave';
+  /** Schema-required credential; interpolation may still resolve blank. */
+  key: string | null;
+  timeoutSeconds?: unknown;
+};
+
+/** The still-uninterpolated operator `webSearch` section. */
+export type RawWebSearchConfig = {
+  engines: Array<RawWebSearchEngineEntry>;
+  chain: Array<string>;
+};
+
+/** A resolved `webSearch` engine. Later layers add more `type` members. */
+export type WebSearchEngineConfig = {
+  id: string;
+  type: 'brave';
+  /** Interpolated vendor credential; never surfaced in output or errors. */
+  key: string;
+  /** Per-attempt deadline in seconds (default 60). */
+  timeoutSeconds: number;
+};
+
+/** Resolved operator `webSearch` section: engines and the ordered chain of their ids. */
+export type WebSearchConfig = {
+  engines: ReadonlyArray<WebSearchEngineConfig>;
+  chain: ReadonlyArray<string>;
+};
+
 /**
  * Unresolved operator-owned skill source settings (system-provided-skills D1).
  * `directories` stays `unknown` until its own resolver narrows the leaf:
@@ -417,6 +448,7 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   models?: Array<RawModelEntry>;
   embeddingModels?: Array<RawEmbeddingModelEntry>;
   search?: RawSearchConfig;
+  webSearch?: RawWebSearchConfig;
 }
 
 export type RewriteWebAdapterConfig = {
@@ -520,6 +552,8 @@ export type LlameConfig = {
   mcpServers: Readonly<Record<string, McpServerConfig>>;
   /** Optional process-local root for trusted Knowledge Space directories. */
   knowledge: KnowledgeConfig;
+  /** Operator web search engines and chain; absent when not configured. */
+  webSearch?: WebSearchConfig;
   /**
    * Operator-managed skill source directories (system-provided-skills D1):
    * ordered collection directories whose immediate child directories are skill
