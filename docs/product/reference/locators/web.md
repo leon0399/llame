@@ -526,7 +526,7 @@ package version.
 An article renders `# {title}` and a `URL` line with its canonical address
 (the target of a redirect title), then its body converted to Markdown. Citation
 markers, reference lists, navigation boxes, maintenance notices, the infobox,
-hidden text, and images are removed; a formula renders as its TeX source in
+hidden text, and images are removed (a figure keeps its caption); a formula renders as its TeX source in
 code, code renders as fenced blocks, and article links become absolute
 `https://{lang}.wikipedia.org/wiki/...` links.
 

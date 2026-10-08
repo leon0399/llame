@@ -15,7 +15,8 @@ const ARTICLE_PATH = /^\/wiki\/(.+)$/u;
 const NAMESPACE = /^[^:]+:(?![_ ])/u;
 /** What a reader of the article text does not need: citation markers and
  *  lists, navigation boxes, maintenance notices, the infobox table, hidden
- *  text, and media, down to the inline icons links carry. */
+ *  text, and images, down to the inline icons links carry. A figure's caption
+ *  stays, since it often states facts the prose does not. */
 const NOISE = [
   'style',
   'sup.reference',
@@ -33,7 +34,6 @@ const NOISE = [
   '.mw-empty-elt',
   '[style*="display:none"]',
   '[style*="display: none"]',
-  'figure',
   'img',
 ].join(',');
 

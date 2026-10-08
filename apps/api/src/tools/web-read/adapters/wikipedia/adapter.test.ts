@@ -68,7 +68,7 @@ describe('Wikipedia adapter read', () => {
           '<p><b>Rust</b> is a <a href="./Programming_language" title="Programming language">language</a>.<sup class="mw-ref reference" typeof="mw:Extension/ref"><a href="./Rust#cite_note-1"><span class="mw-reflink-text">[1]</span></a></sup><a href="./File:Logo.svg" class="mw-file-description"><img src="//upload.example/logo.svg"></a></p>',
           String.raw`<section><h2 id="Syntax">Syntax</h2><p>Area: <span class="mwe-math-element"><span style="display: none;"><math><annotation encoding="application/x-tex">{\displaystyle a^{2}}</annotation></math></span><img class="mwe-math-fallback-image-inline" alt="a^2"></span>.<span style="display: none">hidden</span></p>`,
           '<pre id="mwA1">fn main() { let a = [1, 2]; }</pre></section>',
-          '<figure><img src="//upload.example/x.png"></figure>',
+          '<figure><img src="//upload.example/x.png"><figcaption>58% of adults under 30 have used it.</figcaption></figure>',
           '<div class="navbox">Rust navigation</div>',
           '<div class="mw-references-wrap"><ol><li>Ref one</li></ol></div>',
           '<div class="reflist">Ref list</div><div class="refbegin"><ul><li>Book</li></ul></div>',
@@ -94,6 +94,8 @@ describe('Wikipedia adapter read', () => {
         '```',
         'fn main() { let a = [1, 2]; }',
         '```',
+        '',
+        '58% of adults under 30 have used it.',
       ].join('\n'),
     });
   });
