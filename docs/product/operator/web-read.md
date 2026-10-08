@@ -92,7 +92,7 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
-`github`, `bluesky`, `npm`, or `huggingface` entry. What an adapter does to a result — its
+`github`, `bluesky`, `npm`, `huggingface`, or `arxiv` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -284,6 +284,26 @@ explicit `expand[]` fields, then the card at
 `/[datasets/|spaces/]{owner}/{name}/raw/{revision}/README.md`. A README that
 does not arrive, including a gated one, leaves `readme omitted: <failure>`.
 With a domain allowlist, a clause for `^https://huggingface\.co/` covers both.
+
+### arXiv adapter
+
+Add an `arxiv` entry to read arXiv papers as text, including `/pdf/` links
+that the generic ladder refuses by type:
+
+```jsonc
+{ "id": "arxiv", "use": "arxiv" }
+```
+
+The entry takes no other field and sends no credential. It claims
+`https://arxiv.org/abs/{id}`, `/pdf/{id}` (with or without `.pdf`), and
+`/html/{id}`, also on `www.arxiv.org`, for new-style (`2412.09871`) and
+old-style (`hep-th/9901001`) ids with an optional version; listings, author
+pages, and `export.arxiv.org` stay on the generic ladder. A read requests the
+paper's HTML rendering at `https://arxiv.org/html/{id}` and converts it like
+the generic Readability path, after replacing MathML with its LaTeX source.
+When arXiv has no HTML for that version, it reads `https://arxiv.org/abs/{id}`
+instead and adds `full text omitted: <failure>`. With a domain allowlist, a
+clause for `^https://arxiv\.org/` covers both requests.
 
 ## Derived locators and permission admission
 

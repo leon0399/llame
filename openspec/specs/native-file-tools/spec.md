@@ -1931,7 +1931,8 @@ address resolution and pinning, 10-second header bound, 30-second call bound,
 5 MiB per-response body bound, and redirect rules as the generic web path.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
-credential, and the Bluesky, npm, and Hugging Face adapters SHALL send none; the GitHub token SHALL be
+credential, and the Bluesky, npm, Hugging Face, and arXiv adapters SHALL send
+none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1956,7 +1957,7 @@ representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
 sources use; the Bluesky, npm, and Hugging Face adapters label their renders
-`text/markdown`; a rewrite
+`text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2419,6 +2420,34 @@ SHALL keep the metadata and add a `readme omitted: {category}` note.
 - **WHEN** the model reads `https://huggingface.co/meta-llama/Llama-3.1-8B`
 - **THEN** the text has `Gated: manual` and the metadata lines
 - **AND** the README answers 401, so the note `readme omitted: status` is attached
+
+### Requirement: arXiv native adapter reads papers as full text
+
+A configured `arxiv` adapter SHALL claim only `https://arxiv.org` and
+`https://www.arxiv.org` locators whose path is `/abs/{id}`, `/pdf/{id}`,
+`/pdf/{id}.pdf`, or `/html/{id}`, where `{id}` is a new-style
+(`\d{4}.\d{4,5}`) or old-style (`archive[.XX]/\d{7}`) arXiv identifier with
+an optional `v{n}` version; every other path SHALL be unclaimed. The adapter
+SHALL send only unauthenticated `GET` requests: first
+`https://arxiv.org/html/{id}`, converted like the generic Readability render
+after each MathML element is replaced by its `alttext` LaTeX source, inline as
+a code span and each display-equation table as a code block of its rows with
+their equation numbers. When that request fails without ending the call, the
+adapter SHALL request `https://arxiv.org/abs/{id}` and render it the same way
+with a `full text omitted: {category}` note; when that also fails, the adapter
+SHALL fall through. A render the quality gate rejects SHALL fall through as
+`parse`.
+
+#### Scenario: A PDF link reads as full text
+
+- **WHEN** the model reads `https://arxiv.org/pdf/1706.03762`
+- **THEN** the adapter requests `https://arxiv.org/html/1706.03762`
+- **AND** the text carries the paper with its math as LaTeX and no MathML markup
+
+#### Scenario: A version without HTML reads its abstract page
+
+- **WHEN** `https://arxiv.org/html/{id}` answers 404
+- **THEN** the abstract page renders with the note `full text omitted: status`
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 

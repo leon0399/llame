@@ -297,6 +297,7 @@ function resolveWebAdapterEntry(
   if (value.use === 'bluesky') return { id, use: 'bluesky' };
   if (value.use === 'npm') return { id, use: 'npm' };
   if (value.use === 'huggingface') return { id, use: 'huggingface' };
+  if (value.use === 'arxiv') return { id, use: 'arxiv' };
 
   if (value.use === 'github') {
     const token = resolveGithubToken(value.token, `${entryPath}.token`, env);

@@ -526,8 +526,8 @@
     "allowed": ["search_conversations"],
     // Optional ordered web adapters; absent means none, and a present array is
     // the exact enabled list. This example includes native GitHub, Bluesky,
-    // npm, and Hugging Face adapters and sends x.com status paths to the
-    // operator-declared origin below.
+    // npm, Hugging Face, and arXiv adapters and sends x.com status paths to
+    // the operator-declared origin below.
     // "webAdapters": [
     //   {
     //     "id": "github",
@@ -537,6 +537,7 @@
     //   { "id": "bluesky", "use": "bluesky" },
     //   { "id": "npm", "use": "npm" },
     //   { "id": "huggingface", "use": "huggingface" },
+    //   { "id": "arxiv", "use": "arxiv" },
     //   {
     //     "id": "x",
     //     "use": "rewrite",

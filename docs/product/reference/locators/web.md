@@ -356,6 +356,27 @@ Lines appear only when the Hub reports the field; `SDK` is a Space's. The card
 is read at the reported revision, and a gated repository's card is not
 readable without a token, so it renders with `readme omitted: status`.
 
+### arXiv adapter
+
+An `abs`, `pdf`, or `html` paper URL renders the paper's full text from its
+arXiv HTML rendering, converted like a Readability render, so a PDF link is
+readable. Inline math becomes a code span holding its LaTeX source, and a
+display equation becomes a code block with one line per equation row and its
+number:
+
+````text
+We compute the dot products of the query with all keys, divide each by
+`\sqrt{d_{k}}`, ...
+
+```
+\mathrm{Attention}(Q,K,V)=\mathrm{softmax}(\frac{QK^{T}}{\sqrt{d_{k}}})V    (1)
+```
+````
+
+A version without an HTML rendering reads the abstract page instead, with the
+note `full text omitted: status`. The render's media type is the converter's
+`text/markdown`.
+
 ## Bounds
 
 | Bound                         | Value                                                                                                         |

@@ -140,6 +140,16 @@ describe('createWebAdapters', () => {
       true,
     );
   });
+
+  it('creates a native arXiv adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'papers', use: 'arxiv' }]);
+    if (adapter === undefined) throw new Error('expected arXiv adapter');
+
+    expect(adapter).toMatchObject({ id: 'papers', route: 'native' });
+    expect(adapter.match(new URL('https://arxiv.org/abs/1706.03762'))).toBe(
+      true,
+    );
+  });
 });
 
 describe('dispatchWebAdapters', () => {
