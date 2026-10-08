@@ -511,10 +511,12 @@ URL: https://dev.to/lydiahallie/javascript-visualized-promises-async-await-5gke
 ### OSV adapter
 
 An advisory renders `# {id}: {summary}`, then `Withdrawn`, `Aliases`,
-`Severity` (the source's rating, then each CVSS vector), `CWE`, `Published`,
+`Severity` (the source's rating, then each distinct score, including
+per-package scores), `CWE`, `Published`,
 `Modified`, `Related`, and `URL` lines for the fields present. `## Affected`
 lists each package with its ecosystem and the range events OSV records
-(`introduced`, `fixed`, `last_affected`), and repository ranges by commit;
+(`introduced`, `fixed`, `last_affected`), or its listed versions when it has
+no ranges, and repository ranges by commit;
 `## Details` carries the advisory text and `## References` its links. A
 repository range names its repo as `GIT {repo}`, so a commit is not read as a
 package version.

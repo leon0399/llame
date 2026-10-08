@@ -2670,7 +2670,8 @@ id}`, and `https://www.cve.org/CVERecord?id={CVE id}` locators, with or without
 `https://api.osv.dev/v1/vulns/{id}`; a failed or unparsable response SHALL fall
 through. The render SHALL be `# {id}: {summary}`, the `Withdrawn`, `Aliases`,
 `Severity`, `CWE`, `Published`, `Modified`, `Related`, and `URL` lines present,
-then `## Affected` with each package's range events, `## Details`, and
+then `## Affected` with each package's range events, or its listed versions
+when it has none, `## Details`, and
 `## References`. A repository range SHALL name its repo, so a commit is not
 rendered as a package version.
 

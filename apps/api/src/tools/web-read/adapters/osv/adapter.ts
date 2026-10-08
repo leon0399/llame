@@ -44,6 +44,10 @@ const VULN = z.object({
           .object({ ecosystem: z.string(), name: z.string() })
           .optional(),
         ranges: z.array(RANGE).default([]),
+        /** Listed versions; an entry may name versions instead of ranges. */
+        versions: z.array(z.string()).default([]),
+        /** Set per package when the record has no top-level `severity`. */
+        severity: z.array(z.object({ score: z.string() })).default([]),
       }),
     )
     .default([]),
@@ -127,10 +131,7 @@ function renderVuln(vuln: Vuln): string {
   const details = vuln.details?.trim();
   return [
     ...lines,
-    ...section(
-      `Affected (${vuln.affected.length})`,
-      vuln.affected.flatMap(affectedLines),
-    ),
+    ...section('Affected', vuln.affected.flatMap(affectedLines)),
     ...section('Details', details ? [details] : []),
     ...section(
       'References',
@@ -146,14 +147,17 @@ function section(
   return rows.length === 0 ? [] : ['', `## ${heading}`, '', ...rows];
 }
 
-/** The source database's own rating, then each score OSV carries. */
+/** The source database's own rating, then each distinct score OSV carries,
+ *  for the record or per package. */
 function severityOf(vuln: Vuln): string {
-  return [
+  const scores = [
     vuln.database_specific?.severity,
     ...vuln.severity.map(({ score }) => score),
-  ]
-    .filter(Boolean)
-    .join('; ');
+    ...vuln.affected.flatMap(({ severity }) =>
+      severity.map(({ score }) => score),
+    ),
+  ].filter(Boolean);
+  return [...new Set(scores)].join('; ');
 }
 
 /** One row per range. A repository range names its repo, so a commit is not
@@ -162,7 +166,11 @@ function affectedLines(entry: Vuln['affected'][number]): Array<string> {
   const name = entry.package
     ? `${entry.package.ecosystem} ${entry.package.name}`
     : undefined;
-  if (entry.ranges.length === 0) return name ? [`- ${name}`] : [];
+  if (entry.ranges.length === 0) {
+    const versions = entry.versions.join(', ');
+    if (name === undefined) return [];
+    return [versions ? `- ${name}: versions ${versions}` : `- ${name}`];
+  }
   return entry.ranges.map((range) => {
     const subject =
       range.type === 'GIT'
