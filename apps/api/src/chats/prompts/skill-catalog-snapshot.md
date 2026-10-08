@@ -1,6 +1,7 @@
 The skill catalog was refreshed. Earlier skill catalog updates in this conversation are superseded.{{#if hasEntries}}
 
 Current skills:{{#each entries}}
+
 - `{{name}}`: {{description}}{{/each}}{{#if hasOmitted}}
 
 {{remainder}} but not listed; `skill://` lists the whole catalog.{{/if}}

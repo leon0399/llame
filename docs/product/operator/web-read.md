@@ -92,7 +92,7 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
-`github`, or `bluesky` entry. What an adapter does to a result — its
+`github`, `bluesky`, or `npm` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -230,6 +230,33 @@ to show them to logged-out viewers, are withheld: their posts, profiles,
 and follow lists fall through with `empty`, their replies and list entries
 are omitted, and posts quoting them show the quote as unavailable. A label
 another labeler applied is ignored, as bsky.app ignores it.
+
+### npm adapter
+
+Add an `npm` entry to render npm package pages, which `www.npmjs.com` answers
+with a bot challenge instead of content:
+
+```jsonc
+{ "id": "npm", "use": "npm" }
+```
+
+The entry takes no other field and sends no credential. It claims
+`https://www.npmjs.com/package/{name}` and `/package/{name}/v/{version}` (also
+on `npmjs.com`), scoped names included; search, user pages, and the registry's
+own JSON URLs stay on the generic ladder. A read costs three requests: the
+version manifest from `https://registry.npmjs.org/{name}/{version}` (`latest`
+when the URL names none), the dist-tags from
+`https://registry.npmjs.org/-/package/{name}/dist-tags`, and the version's
+`README.md` from `https://unpkg.com/{name}@{version}/README.md`. The manifest
+is primary; a missing dist-tags list or README keeps the rest with a
+`dist-tags omitted:` or `readme omitted:` note, and a README with another file
+name is reported as `readme omitted: status`. The full registry document is
+never requested: for large packages it exceeds the 5 MiB body bound.
+
+With a domain allowlist, add `read` clauses for `^https://registry\.npmjs\.org/`
+and `^https://unpkg\.com/` (JSONC: `^https://registry\\.npmjs\\.org/` and
+`^https://unpkg\\.com/`); without the second, every read carries
+`readme omitted: permission`.
 
 ## Derived locators and permission admission
 

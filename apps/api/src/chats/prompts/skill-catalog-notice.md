@@ -1,9 +1,11 @@
 The available skills changed since the last turn:{{#if hasAdded}}
 
 Added skills:{{#each added}}
+
 - `{{name}}`: {{description}}{{/each}}{{/if}}{{#if hasRemoved}}
 
 Removed skills:{{#each removed}}
+
 - `{{this}}`{{/each}}{{/if}}
 
 Read `skill://<name>` before applying an added skill. Do not apply a removed skill's instructions from earlier in this conversation.{{#if hasAdded}}

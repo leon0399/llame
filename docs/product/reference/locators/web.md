@@ -166,7 +166,7 @@ carry the type they were served (`text/markdown` supports an outline,
 `text/plain` does not), `alternate`, `md-suffix`, `readability`, and
 `llms-txt` are `text/markdown`, and `raw` has no media type. A rendered
 adapter outcome carries an internal media-type label: GitHub issue, pull
-request, repository, and commit renders and every Bluesky render are
+request, repository, and commit renders and every Bluesky and npm render are
 `text/markdown`; a GitHub blob
 uses the file extension table; a directory outcome has no outline type; and a
 rewrite adapter forwards the inner render's label. An unsupported web or
@@ -300,6 +300,33 @@ for the first 100 and say when more were not loaded. Accounts that label
 themselves `!no-unauthenticated` are withheld: a requested post, profile, or list falls
 through with `empty`, their replies and list entries are omitted, and a quote
 of one of their posts renders as unavailable.
+
+### npm adapter
+
+A package or package-version page renders the version manifest as metadata
+lines, then the README:
+
+```text
+# react@19.3.0
+
+React is a JavaScript library for building user interfaces.
+
+License: MIT
+Repository: https://github.com/react/react
+Dist-tags: latest 19.3.0, next 19.3.0-canary-…
+Engines: node >=0.10.0
+Dependencies: (2) a@^1.0.0, b@~2.1.0
+Tarball: https://registry.npmjs.org/react/-/react-19.3.0.tgz
+Integrity: sha512-…
+URL: https://www.npmjs.com/package/react/v/19.3.0
+
+## README
+...
+```
+
+`Deprecated`, `Homepage`, `Peer dependencies`, and `Maintainers` lines appear
+when the manifest has them. A package page without `/v/` reads the `latest`
+dist-tag. A failed dist-tags or README request leaves the rest with a note.
 
 ## Bounds
 

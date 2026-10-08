@@ -3,16 +3,27 @@ Create a concise operational handoff for a future model continuing this conversa
 Preserve the user's objective, hard constraints and preferences, decisions and their rationale, established facts, completed work, current unresolved state, already-established next steps, and exact critical references such as file paths, commands, identifiers, errors, and URLs. Fold any earlier checkpoint into this one without losing still-relevant information. Drop greetings, filler, and obsolete chatter.
 
 Use exactly these Markdown section headings, in this order:
+
 ## Latest Request
+
 ## Objective
+
 ## Constraints and Preferences
+
 ## Decisions and Rationale
+
 ## Established Facts
+
 ## Errors and Corrections
+
 ## Completed
+
 ## Active
+
 ## Blocked
+
 ## Open Questions and Next Steps
+
 ## Critical References
 
 Under "Latest Request", quote verbatim the owner's last unresolved ask within the summarized prefix. The newer triggering user message follows that prefix and is not visible to you; it is replayed verbatim after the checkpoint, so do not quote it in "Latest Request". When the summarized prefix already contains a checkpoint, fold it by moving "Active" items to "Completed" and replacing an answered question rather than repeating it.
