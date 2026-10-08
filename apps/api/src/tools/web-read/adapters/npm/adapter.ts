@@ -36,33 +36,48 @@ const PACKAGE_PATH = new RegExp(
 );
 const MAX_NAME_LENGTH = 214;
 
+/** Skips a value of an unexpected shape, so one legacy or malformed field
+ *  never costs the whole manifest. */
+const SKIPPED = z.unknown().transform(() => undefined);
 const PERSON = z
   .string()
-  .or(z.object({ name: z.string() }).transform(({ name }) => name));
-const DEPENDENCIES = z.record(z.string(), z.string()).optional();
+  .or(z.object({ name: z.string() }).transform(({ name }) => name))
+  .or(SKIPPED);
+const DEPENDENCIES = z.record(z.string(), z.string()).or(SKIPPED).optional();
+const TEXT = z.string().or(SKIPPED).optional();
 
 /** `GET /{name}/{version}`: one published version's manifest. */
 const VERSION_DOCUMENT = z.object({
   name: z.string(),
   version: z.string(),
-  description: z.string().optional(),
+  description: TEXT,
   license: z
     .string()
     .or(z.object({ type: z.string() }).transform(({ type }) => type))
+    .or(SKIPPED)
     .optional(),
-  homepage: z.string().optional(),
+  homepage: TEXT,
   repository: z
     .string()
     .or(z.object({ url: z.string() }).transform(({ url }) => url))
+    .or(SKIPPED)
     .optional(),
-  deprecated: z.string().optional(),
-  engines: z.record(z.string(), z.string()).optional(),
+  deprecated: TEXT,
+  // Published before npm normalized it, `engines` may be an array.
+  engines: z
+    .record(z.string(), z.string())
+    .transform((engines) => entries(engines, ' '))
+    .or(z.array(z.string()).transform((engines) => engines.join(', ')))
+    .or(SKIPPED)
+    .optional(),
   dependencies: DEPENDENCIES,
   peerDependencies: DEPENDENCIES,
-  maintainers: z.array(PERSON).optional(),
-  dist: z
-    .object({ tarball: z.string(), integrity: z.string().optional() })
+  maintainers: z
+    .array(PERSON)
+    .transform((people) => people.filter((person) => person !== undefined))
+    .or(SKIPPED)
     .optional(),
+  dist: z.object({ tarball: z.string() }).or(SKIPPED).optional(),
 });
 type VersionDocument = z.infer<typeof VERSION_DOCUMENT>;
 
@@ -129,12 +144,12 @@ async function readPackage(
     notes,
   );
   if ('fatal' in tags) return primaryFailure(tags.fatal);
+  // A spent call deadline cannot be beaten by another request.
   const readmeUrl = `${origins.files}/${manifest.name}@${manifest.version}/README.md`;
-  const readme = await loadSection(
-    'readme',
-    io.fetch(readmeUrl, README_INIT),
-    notes,
-  );
+  const readme =
+    tags.spent === true
+      ? {}
+      : await loadSection('readme', io.fetch(readmeUrl, README_INIT), notes);
   if ('fatal' in readme) return primaryFailure(readme.fatal);
 
   return {
@@ -160,20 +175,25 @@ function parseDistTags(
 }
 
 /**
- * A secondary section's body, or `undefined` with an omission note. A call
- * deadline keeps what already arrived; any other call-ending failure is
- * returned so the read ends, as GitHub's secondary sections do.
+ * A secondary section's body, or none with an omission note. A call deadline
+ * keeps what already arrived and marks the call spent; any other call-ending
+ * failure is returned so the read ends, as GitHub's secondary sections do.
  */
 async function loadSection(
   section: string,
   request: Promise<WebResponse | WebFetchFailure>,
   notes: Array<string>,
-): Promise<{ readonly body?: string } | { readonly fatal: WebFetchFailure }> {
+): Promise<
+  | { readonly body?: string; readonly spent?: true }
+  | { readonly fatal: WebFetchFailure }
+> {
   const fetched = await request;
   if (!('type' in fetched)) return { body: fetched.body };
-  if (isFatalAdapterFailure(fetched) && fetched.type !== 'call_timeout') {
-    return { fatal: fetched };
+  if (fetched.type === 'call_timeout') {
+    notes.push(omissionNote(section, fetched));
+    return { spent: true };
   }
+  if (isFatalAdapterFailure(fetched)) return { fatal: fetched };
   notes.push(omissionNote(section, fetched));
   return {};
 }
@@ -193,12 +213,11 @@ function renderPackage(
     ['Homepage', manifest.homepage],
     ['Repository', repositoryUrl(manifest.repository)],
     ['Dist-tags', distTags && entries(distTags, ' ')],
-    ['Engines', manifest.engines && entries(manifest.engines, ' ')],
+    ['Engines', manifest.engines],
     ['Dependencies', dependencyList(manifest.dependencies)],
     ['Peer dependencies', dependencyList(manifest.peerDependencies)],
     ['Maintainers', manifest.maintainers?.join(', ')],
     ['Tarball', manifest.dist?.tarball],
-    ['Integrity', manifest.dist?.integrity],
   ];
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);

@@ -19,7 +19,7 @@ const MANIFEST_URL = `${API_ORIGIN}/@scope/pkg/latest`;
 const TAGS_URL = `${API_ORIGIN}/-/package/@scope/pkg/dist-tags`;
 const README_URL = `${FILES_ORIGIN}/@scope/pkg@1.2.3/README.md`;
 
-const manifest = {
+const manifest: JsonObject = {
   name: '@scope/pkg',
   version: '1.2.3',
   description: 'A package',
@@ -30,12 +30,16 @@ const manifest = {
   engines: { node: '>=22' },
   dependencies: { a: '^1.0.0', b: '~2.1.0' },
   peerDependencies: { react: '>=18' },
-  maintainers: [{ name: 'alice', email: 'a@example.com' }, 'bob'],
+  maintainers: [
+    { name: 'alice', email: 'a@example.com' },
+    'bob',
+    { email: 'nameless@example.com' },
+  ],
   dist: {
     tarball: 'https://registry.npmjs.org/@scope/pkg/-/pkg-1.2.3.tgz',
     integrity: 'sha512-abc',
   },
-} satisfies JsonObject;
+};
 
 const readme = {
   finalUrl: README_URL,
@@ -113,7 +117,6 @@ describe('npm adapter read', () => {
         'Peer dependencies: (1) react@>=18',
         'Maintainers: alice, bob',
         'Tarball: https://registry.npmjs.org/@scope/pkg/-/pkg-1.2.3.tgz',
-        'Integrity: sha512-abc',
         'URL: https://www.npmjs.com/package/@scope/pkg/v/1.2.3',
         '',
         '## README',
@@ -177,6 +180,52 @@ describe('npm adapter read', () => {
     expect(outcome).toMatchObject({
       kind: 'rendered',
       notes: ['readme omitted: transport'],
+    });
+  });
+
+  it('renders legacy field shapes and skips unparsable optional fields', async () => {
+    const { outcome } = await read('https://www.npmjs.com/package/@scope/pkg', [
+      [
+        MANIFEST_URL,
+        response({
+          name: '@scope/pkg',
+          version: '1.2.3',
+          engines: ['node', 'rhino'],
+          license: 7,
+          dependencies: ['not', 'a', 'map'],
+        }),
+      ],
+      [TAGS_URL, response({ latest: '1.2.3' })],
+      [README_URL, { ...readme, body: '' }],
+    ]);
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      content: [
+        '# @scope/pkg@1.2.3',
+        '',
+        'Dist-tags: latest 1.2.3',
+        'Engines: node, rhino',
+        'URL: https://www.npmjs.com/package/@scope/pkg/v/1.2.3',
+      ].join('\n'),
+    });
+  });
+
+  it('skips the README once the call deadline is spent', async () => {
+    const deadline: WebFetchFailure = { type: 'call_timeout', message: 'late' };
+
+    const { outcome, requests } = await read(
+      'https://www.npmjs.com/package/@scope/pkg',
+      [
+        [MANIFEST_URL, response({ name: '@scope/pkg', version: '1.2.3' })],
+        [TAGS_URL, deadline],
+      ],
+    );
+
+    expect(requests).toHaveLength(2);
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['dist-tags omitted: transport'],
     });
   });
 

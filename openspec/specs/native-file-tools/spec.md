@@ -2373,10 +2373,12 @@ the full registry document.
 
 The render SHALL be `# {name}@{version}`, the description, then
 `Deprecated`, `License`, `Homepage`, `Repository`, `Dist-tags`, `Engines`,
-`Dependencies`, `Peer dependencies`, `Maintainers`, `Tarball`, and `Integrity`
+`Dependencies`, `Peer dependencies`, `Maintainers`, and `Tarball`
 lines for the fields present, a `URL` line with the version's npmjs.com page,
-and `## README` with the README text when it arrived. A failed or unparsable
-manifest SHALL fall through; a failed dist-tags or README request SHALL keep
+and `## README` with the README text when it arrived. A manifest without a
+string `name` and `version` SHALL fall through as `parse`; an optional field of
+an unexpected shape SHALL be omitted rather than fail the read. A failed
+manifest request SHALL fall through; a failed dist-tags or README request SHALL keep
 the rest and add a `dist-tags omitted: {category}` or
 `readme omitted: {category}` note.
 

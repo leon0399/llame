@@ -255,8 +255,14 @@ never requested: for large packages it exceeds the 5 MiB body bound.
 
 With a domain allowlist, add `read` clauses for `^https://registry\.npmjs\.org/`
 and `^https://cdn\.jsdelivr\.net/npm/` (JSONC:
-`^https://registry\\.npmjs\\.org/` and `^https://cdn\\.jsdelivr\\.net/npm/`); without the second, every read carries
-`readme omitted: permission`.
+`^https://registry\\.npmjs\\.org/` and `^https://cdn\\.jsdelivr\\.net/npm/`).
+Without the first, the manifest request is refused, the adapter falls through
+with `permission`, and the generic ladder gets npmjs.com's bot challenge;
+without the second, every read carries `readme omitted: permission`.
+
+A manifest field of an unexpected shape, such as a maintainer without a name,
+is left out rather than failing the read; a legacy `engines` array renders as a
+list. A call deadline reached on the dist-tags request skips the README.
 
 ## Derived locators and permission admission
 
