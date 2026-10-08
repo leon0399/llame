@@ -21,6 +21,18 @@ async function classifyStatus(response: Response): Promise<void> {
   throw new EngineFailure('upstream_error');
 }
 
+async function classifyJsonContentType(response: Response): Promise<void> {
+  const contentType = response.headers.get('content-type');
+  const mediaType = contentType?.split(';', 1)[0].trim().toLowerCase();
+  if (
+    mediaType !== 'application/json' &&
+    !(mediaType?.includes('/') && mediaType.endsWith('+json'))
+  ) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new EngineFailure('upstream_error');
+  }
+}
+
 async function fetchResponse(
   url: string,
   init: RequestInit,
@@ -56,6 +68,7 @@ export async function fetchVendorJson<T>(
   const response = await fetchResponse(url, init, options);
   await classifyStatus(response);
   options.signal.throwIfAborted();
+  await classifyJsonContentType(response);
   try {
     const body = await response.text();
     return parse(body);

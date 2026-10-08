@@ -57,10 +57,10 @@ type EmptyOutcome = {
 export type EngineOutcome = ResultOutcome | AnswerOutcome | EmptyOutcome;
 export type EngineRequest = {
   readonly query: string;
-  readonly recency?: 'day' | 'week' | 'month' | 'year';
+  readonly recency: 'day' | 'week' | 'month' | 'year' | undefined;
   readonly limit: number;
   readonly signal: AbortSignal;
-  readonly userAgent?: string;
+  readonly userAgent: string | undefined;
 };
 export type Engine = (request: EngineRequest) => Promise<EngineOutcome>;
 export type EngineLookup = (id: string) => Engine;
@@ -82,8 +82,15 @@ type RunOne = EngineOutcome | FailureClass;
 type Notes = Array<string>;
 type LastEmpty = {
   readonly engine: string;
+  readonly noteIndex: number;
   readonly notes?: ReadonlyArray<string>;
 };
+type OutcomeDecision =
+  | { readonly kind: 'continue'; readonly lastEmpty?: LastEmpty }
+  | {
+      readonly kind: 'success';
+      readonly success: ResultOutcome | AnswerOutcome;
+    };
 
 function throwAbort(signal: AbortSignal): never {
   if (signal.reason instanceof Error) throw signal.reason;
@@ -175,6 +182,46 @@ function emptyResult(
   const result = { kind: 'results' as const, engine, query, results: [] };
   return finalNotes.length === 0 ? result : { ...result, notes: finalNotes };
 }
+function withoutNote(notes: Notes, noteIndex: number): Notes {
+  return [...notes.slice(0, noteIndex), ...notes.slice(noteIndex + 1)];
+}
+function classifyOutcome(
+  id: string,
+  outcome: RunOne,
+  notes: Notes,
+): OutcomeDecision {
+  if (isFailureClass(outcome)) {
+    notes.push(`${id}: ${outcome}`);
+    return { kind: 'continue' };
+  }
+  if (outcome.kind === 'empty') {
+    notes.push(`${id}: empty`);
+    return {
+      kind: 'continue',
+      lastEmpty: {
+        engine: id,
+        noteIndex: notes.length - 1,
+        notes: outcome.notes,
+      },
+    };
+  }
+  const success = canonicalizeOutcome(outcome);
+  if (success.kind === 'results' && success.results.length === 0) {
+    notes.push(`${id}: empty`);
+    return {
+      kind: 'continue',
+      lastEmpty: { engine: id, noteIndex: notes.length - 1 },
+    };
+  }
+  if (
+    success.kind === 'answer' &&
+    (success.answer.trim() === '' || success.citations.length === 0)
+  ) {
+    notes.push(`${id}: ungrounded`);
+    return { kind: 'continue' };
+  }
+  return { kind: 'success', success };
+}
 
 function totalFailure(notes: ReadonlyArray<string>): SearchChainError {
   return {
@@ -195,32 +242,24 @@ export async function executeSearchChain(
   for (const id of config.chain) {
     if (request.signal.aborted) throwAbort(request.signal);
     const entry = config.engines.find((candidate) => candidate.id === id)!;
-    const outcome = await runOne(lookup(id), entry, request);
-    if (isFailureClass(outcome)) {
-      notes.push(`${id}: ${outcome}`);
-      continue;
-    }
-    if (outcome.kind === 'empty') {
-      lastEmpty = { engine: id, notes: outcome.notes };
-      continue;
-    }
-    const success = canonicalizeOutcome(outcome);
-    if (success.kind === 'results' && success.results.length === 0) {
-      lastEmpty = { engine: id };
-      continue;
-    }
-    if (
-      success.kind === 'answer' &&
-      (success.answer.trim() === '' || success.citations.length === 0)
-    ) {
-      notes.push(`${id}: ungrounded`);
-      continue;
-    }
-    return withChainNotes(
-      { ...success, engine: id, query: request.query },
+    const decision = classifyOutcome(
+      id,
+      await runOne(lookup(id), entry, request),
       notes,
     );
+    if (decision.kind === 'success')
+      return withChainNotes(
+        { ...decision.success, engine: id, query: request.query },
+        notes,
+      );
+    if (decision.lastEmpty !== undefined) lastEmpty = decision.lastEmpty;
   }
   if (lastEmpty === undefined) return totalFailure(notes);
-  return emptyResult(request.query, lastEmpty.engine, notes, lastEmpty.notes);
+  const finalNotes = withoutNote(notes, lastEmpty.noteIndex);
+  return emptyResult(
+    request.query,
+    lastEmpty.engine,
+    finalNotes,
+    lastEmpty.notes,
+  );
 }

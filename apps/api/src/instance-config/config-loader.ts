@@ -520,16 +520,17 @@ function resolveWebSearchEngines(
     seenEngineIds.add(entry.id);
 
     const entryPath = `webSearch.engines[${entry.id}]`;
+    const timeoutPath = `${entryPath}.timeoutSeconds`;
     const timeoutSeconds = requireResolvedNumber(
       resolveNumeric({
-        configPath: `${entryPath}.timeoutSeconds`,
+        configPath: timeoutPath,
         present: entry.timeoutSeconds !== undefined,
         raw: entry.timeoutSeconds,
         builtInDefault: 60,
         nullable: false,
         env,
       }),
-      `${entryPath}.timeoutSeconds`,
+      timeoutPath,
     );
     return {
       id: entry.id,

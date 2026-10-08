@@ -38,25 +38,22 @@ type AnswerOutput = Extract<WebSearchSuccess, { kind: 'answer' }>;
 
 /** Canonicalize a result locator without applying read's selector grammar. */
 export function canonicalUrl(raw: string): string | undefined {
-  try {
-    const url = new URL(stripFragment(raw));
-    if (
-      (url.protocol !== 'http:' && url.protocol !== 'https:') ||
-      url.username !== '' ||
-      url.password !== ''
-    )
-      return undefined;
-    let href = canonicalHref(url);
-    if (url.search === '') {
-      const slash = href.lastIndexOf('/');
-      const segment = href.slice(slash + 1);
-      if (segment.includes(':'))
-        href = `${href.slice(0, slash + 1)}${segment.replaceAll(':', '%3A')}`;
-    }
-    return href.length <= WEB_SEARCH_URL_MAX_CODE_UNITS ? href : undefined;
-  } catch {
+  const locator = stripFragment(raw);
+  if (!URL.canParse(locator)) return undefined;
+  const url = new URL(locator);
+  if (
+    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    url.username !== '' ||
+    url.password !== ''
+  )
     return undefined;
+  let href = canonicalHref(url);
+  if (url.search === '') {
+    const slash = href.lastIndexOf('/');
+    const segment = href.slice(slash + 1);
+    href = `${href.slice(0, slash + 1)}${segment.replaceAll(':', '%3A')}`;
   }
+  return href.length <= WEB_SEARCH_URL_MAX_CODE_UNITS ? href : undefined;
 }
 function isoPublished(value: string | undefined): string | undefined {
   if (
@@ -156,8 +153,8 @@ function cutAnswer(
   budgetNote: string,
 ): WebSearchSuccess {
   let low = 0,
-    high = output.answer.length,
-    fitting = '';
+    high = output.answer.length;
+  let fitting: string | undefined;
   while (low <= high) {
     const middle = Math.floor((low + high) / 2),
       candidate = capText(output.answer, middle);
@@ -170,7 +167,12 @@ function cutAnswer(
       low = middle + 1;
     } else high = middle - 1;
   }
-  return withNotes({ ...output, answer: fitting }, notes, budgetNote, true);
+  return withNotes(
+    { ...output, answer: fitting ?? '' },
+    notes,
+    budgetNote,
+    true,
+  );
 }
 
 function fitBudget(
@@ -186,16 +188,13 @@ function fitBudget(
   let output = withNotes(initial, notes, '', false),
     budgetNote = '',
     dropped = 0;
-  while (
-    JSON.stringify(output).length > WEB_SEARCH_OUTPUT_MAX_CODE_UNITS &&
-    (output.kind === 'results'
-      ? output.results.length > 0
-      : output.citations.length > 1)
-  ) {
+  while (JSON.stringify(output).length > WEB_SEARCH_OUTPUT_MAX_CODE_UNITS) {
     if (output.kind === 'results') {
+      if (output.results.length === 0) break;
       output = Object.assign(output, { results: output.results.slice(0, -1) });
       budgetNote = `${++dropped} results dropped to fit the output limit`;
     } else {
+      if (output.citations.length <= 1) break;
       output = Object.assign(output, {
         citations: output.citations.slice(0, -1),
       });

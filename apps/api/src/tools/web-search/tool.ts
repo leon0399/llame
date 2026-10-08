@@ -50,10 +50,8 @@ export const webSearchTool: Tool<WebSearchArguments> = {
       query: input.query,
       limit: input.limit,
       signal,
-      ...(input.recency !== undefined && { recency: input.recency }),
-      ...(context.productUserAgent !== undefined && {
-        userAgent: context.productUserAgent,
-      }),
+      recency: input.recency,
+      userAgent: context.productUserAgent,
     };
     const result = await executeSearchChain(
       config,

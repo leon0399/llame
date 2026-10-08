@@ -34,7 +34,7 @@ function textContent(value: string): string {
   const document = parseHTML(
     `<!doctype html><html><body>${value}</body></html>`,
   ).document;
-  return document.body.textContent ?? '';
+  return String(document.body.textContent);
 }
 
 function readResults(payload: BravePayload): ReadonlyArray<RawResult> {

@@ -29,6 +29,55 @@ function brave(id = 'brave', key = 'brave-secret') {
 }
 
 describe('loadInstanceConfig — webSearch', () => {
+  it('omits webSearch when it is unconfigured', () => {
+    writeConfig('{}');
+
+    const config = loadInstanceConfig();
+    expect(Object.hasOwn(config, 'webSearch')).toBe(false);
+  });
+
+  it('rejects an empty resolved timeout and names its config path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ ...brave(), timeoutSeconds: '{env:WEB_SEARCH_TIMEOUT}' }],
+          chain: ['brave'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig({ WEB_SEARCH_TIMEOUT: '' })).toThrow(
+      'webSearch.engines[brave].timeoutSeconds: resolved to an empty value, which is not a valid number',
+    );
+  });
+
+  it('rejects an empty resolved key and names its config path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ ...brave(), key: '{env:WEB_SEARCH_KEY}' }],
+          chain: ['brave'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig({ WEB_SEARCH_KEY: '' })).toThrow(
+      'webSearch.engines[brave].key: must resolve to a nonblank string',
+    );
+  });
+
+  it('rejects an empty webSearch chain and names its config path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: { engines: [brave()], chain: [] },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/chain.*must NOT have fewer than 1 items/u,
+    );
+  });
+
   it('loads a minimal Brave engine and defaults its timeout to 60 seconds', () => {
     writeConfig(
       JSON.stringify({

@@ -14,11 +14,12 @@ type AnswerSource = Extract<SearchChainSuccess, { kind: 'answer' }>;
 const resultsSource = (
   results: ReadonlyArray<RawResult>,
   notes?: ReadonlyArray<string>,
+  query = 'query',
 ): ResultSource => {
   const source: ResultSource = {
     kind: 'results',
     engine: 'brave',
-    query: 'query',
+    query,
     results,
   };
   return notes === undefined ? source : { ...source, notes };
@@ -56,6 +57,30 @@ it('drops unsafe URLs and canonicalizes fragments and hosts', () => {
     kind: 'results',
     results: [{ title: 'Title 0', url: 'https://example.com/a' }],
   });
+  expect(output).not.toHaveProperty('notes');
+});
+it('keeps HTTP URLs and drops either kind of URL userinfo', () => {
+  expect(canonicalizeSearchUrl('http://Example.com/a')).toBe(
+    'http://example.com/a',
+  );
+  expect(canonicalizeSearchUrl('https://user@example.com/a')).toBeUndefined();
+  expect(
+    canonicalizeSearchUrl('https://:password@example.com/a'),
+  ).toBeUndefined();
+});
+it('does not encode a colon when a URL has a query', () => {
+  expect(
+    canonicalizeSearchUrl(
+      'https://en.wikipedia.org/wiki/Category:Search_engines?source=web',
+    ),
+  ).toBe('https://en.wikipedia.org/wiki/Category:Search_engines?source=web');
+});
+it('drops URLs longer than the locator bound but keeps the exact bound', () => {
+  const prefix = 'https://example.test/';
+  const exact = `${prefix}${'x'.repeat(2048 - prefix.length)}`;
+  expect(exact).toHaveLength(2048);
+  expect(canonicalizeSearchUrl(exact)).toBe(exact);
+  expect(canonicalizeSearchUrl(`${exact}x`)).toBeUndefined();
 });
 
 it('encodes a literal colon in a query-free last path segment', () => {
@@ -94,6 +119,89 @@ it('cuts snippets at the UTF-16 bound and keeps valid dates only', () => {
     throw new Error('expected results output');
   expect(output.results[0]).not.toHaveProperty('published');
 });
+it('accepts only fully matched ISO date forms', () => {
+  const valid = [
+    '2026-01-01',
+    '2026-01-01T00:00Z',
+    '2026-01-01T00:00:00Z',
+    '2026-01-01T00:00:00.12Z',
+    '2026-01-01T00:00:00',
+    '2026-01-01T00:00:00+01:00',
+    '2026-01-01T00:00:00+0100',
+  ];
+  const invalid = ['foo 2026-01-01', '2026-01-01 00:00:00'];
+  const output = normalizeSearchOutput(
+    resultsSource(
+      [...valid, ...invalid].map((published, index) => ({
+        ...result(`https://example.test/${index}`, index),
+        published,
+      })),
+    ),
+    20,
+  );
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.results.map((item) => item.published)).toEqual([
+    ...valid,
+    undefined,
+    undefined,
+  ]);
+});
+it('keeps exactly ten notes without summarizing them', () => {
+  const notes = Array.from({ length: 10 }, (_, index) => `engine-${index}`);
+  const output = normalizeSearchOutput(
+    resultsSource([result('https://example.test/a')], notes),
+    10,
+  );
+  expect(output.notes).toEqual(notes);
+});
+it('limits results and titles before applying the serialized budget', () => {
+  const output = normalizeSearchOutput(
+    resultsSource(
+      Array.from({ length: 5 }, (_, index) => ({
+        ...result(`https://example.test/${index}`, index),
+        title: 't'.repeat(250),
+      })),
+    ),
+    3,
+  );
+  expect(output).toMatchObject({
+    kind: 'results',
+    results: Array.from({ length: 3 }, () => ({
+      title: 't'.repeat(200),
+    })),
+  });
+});
+it('caps citations at twenty entries', () => {
+  const output = normalizeSearchOutput(
+    answerSource(
+      'answer',
+      Array.from({ length: 25 }, (_, index) => ({
+        url: `https://example.test/${index}`,
+      })),
+    ),
+    10,
+  );
+  if (output.kind !== 'answer') throw new Error('expected answer output');
+  expect(output.citations).toHaveLength(20);
+});
+it('keeps and caps citation titles', () => {
+  const output = normalizeSearchOutput(
+    answerSource('answer', [
+      {
+        url: 'https://example.test/a',
+        title: 't'.repeat(250),
+      },
+    ]),
+    10,
+  );
+  if (output.kind !== 'answer') throw new Error('expected answer output');
+  expect(output.citations).toEqual([
+    {
+      url: 'https://example.test/a',
+      title: 't'.repeat(200),
+    },
+  ]);
+});
 
 it('cuts a long answer and records the truncation', () => {
   const output = normalizeSearchOutput(
@@ -114,6 +222,16 @@ it('cuts a long answer and records the truncation', () => {
     ],
   });
   expect(JSON.stringify(output)).toContain('answer truncated');
+  expect(JSON.stringify(output)).not.toContain('answer cut to fit');
+});
+it('does not note answers that are already within the answer cap', () => {
+  for (const answer of ['short', 'a'.repeat(8000)]) {
+    const output = normalizeSearchOutput(
+      answerSource(answer, [{ url: 'https://example.test/a' }]),
+      10,
+    );
+    expect(output).not.toHaveProperty('notes');
+  }
 });
 
 it('drops trailing results to stay within the serialized budget', () => {
@@ -130,6 +248,12 @@ it('drops trailing results to stay within the serialized budget', () => {
   expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
   expect(output).toMatchObject({ kind: 'results' });
   expect(JSON.stringify(output)).toContain('results dropped to fit');
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.results.length).toBeGreaterThan(1);
+  expect(output.notes?.some((note) => /^\d+ results dropped/u.test(note))).toBe(
+    true,
+  );
+  expect(output.notes).not.toContain('answer cut to fit the output limit');
 });
 
 it('keeps the first citation while dropping oversized answer citations', () => {
@@ -146,8 +270,12 @@ it('keeps the first citation while dropping oversized answer citations', () => {
   expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
   if (output.status !== 'success' || output.kind !== 'answer')
     throw new Error('expected answer output');
+  expect(output.citations.length).toBeGreaterThan(1);
   expect(output.citations[0]?.url).toContain('/u');
-  expect(JSON.stringify(output)).toContain('citations dropped to fit');
+  expect(output.notes).toContain(
+    '18 citations dropped to fit the output limit',
+  );
+  expect(output.notes).not.toContain('answer cut to fit the output limit');
 });
 
 it('notes when an answer is cut further to fit with one citation', () => {
@@ -162,6 +290,56 @@ it('notes when an answer is cut further to fit with one citation', () => {
   );
   expect(JSON.stringify(output).length).toBeLessThanOrEqual(15_000);
   expect(JSON.stringify(output)).toContain('answer cut to fit');
+});
+it('finds the largest answer that exactly fits the serialized budget', () => {
+  const output = normalizeSearchOutput(
+    answerSource(
+      'a'.repeat(8000),
+      [{ url: 'https://example.test/a' }],
+      'q'.repeat(100),
+      Array.from({ length: 10 }, () => '\u0000'.repeat(200)),
+    ),
+    10,
+  );
+  if (output.kind !== 'answer') throw new Error('expected answer output');
+  expect(output.answer).toBe('a'.repeat(5088));
+  expect(JSON.stringify(output).length).toBe(15_000);
+  expect(output.notes).toContain('answer cut to fit the output limit');
+});
+it('does not add an answer-cut note at the exact output limit', () => {
+  const output = normalizeSearchOutput(
+    answerSource(
+      'a'.repeat(1836),
+      [{ url: 'https://example.test/a' }],
+      'q'.repeat(1000),
+      Array.from({ length: 10 }, () => '\u0000'.repeat(200)),
+    ),
+    10,
+  );
+  if (output.kind !== 'answer') throw new Error('expected answer output');
+  expect(output.answer).toHaveLength(1836);
+  expect(JSON.stringify(output).length).toBe(15_000);
+  expect(output.notes).not.toContain('answer cut to fit the output limit');
+});
+it('keeps one result at the exact serialized output limit', () => {
+  const output = normalizeSearchOutput(
+    resultsSource(
+      [
+        {
+          title: 't'.repeat(200),
+          url: `https://example.test/${'u'.repeat(1327)}`,
+          snippet: 's'.repeat(300),
+        },
+      ],
+      Array.from({ length: 10 }, () => '\u0000'.repeat(200)),
+      'q'.repeat(1000),
+    ),
+    20,
+  );
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.results).toHaveLength(1);
+  expect(JSON.stringify(output).length).toBe(15_000);
+  expect(output.notes).not.toContain('results dropped to fit the output limit');
 });
 
 it('summarizes notes beyond the tenth entry', () => {

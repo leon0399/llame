@@ -132,6 +132,9 @@ it('skips malformed individual results', async () => {
     kind: 'results',
     results: [{ title: 'valid', url: 'https://example.test/' }],
   });
+  const output = await engine(request());
+  if (output.kind !== 'results') throw new Error('expected results output');
+  expect(output.results[0]).not.toHaveProperty('published');
 });
 
 it('classifies auth without exposing an echoed key', async () => {
