@@ -8,6 +8,7 @@
  */
 
 import {
+  MAX_OMISSION_IMPORT_LOCATOR_LENGTH,
   MAX_OMISSION_IMPORT_NAMES,
   MAX_OMISSION_NAMES,
   SKILL_ACTIVATION_FAILURE_REASONS,
@@ -288,6 +289,27 @@ describe('the selections left unattempted', () => {
     expect(bodyOf(item)).not.toContain(
       `\`skill://research/import-${MAX_OMISSION_IMPORT_NAMES}.md\``,
     );
+  });
+
+  it('truncates an over-long imported locator with an ellipsis', () => {
+    const exact = `skill://research/${'a'.repeat(MAX_OMISSION_IMPORT_LOCATOR_LENGTH - 'skill://research/'.length)}`;
+    const long = `${exact}b`;
+    const item = createSkillActivationOmissionItem({
+      runId: RUN_ID,
+      skills: [],
+      imports: [exact, long],
+    });
+
+    const truncated = `${long.slice(0, MAX_OMISSION_IMPORT_LOCATOR_LENGTH - 1)}…`;
+    expect(exact).toHaveLength(MAX_OMISSION_IMPORT_LOCATOR_LENGTH);
+    expect(truncated).toHaveLength(MAX_OMISSION_IMPORT_LOCATOR_LENGTH);
+    expect(item.data.payload).toEqual({
+      kind: 'omission',
+      skills: [],
+      imports: [exact, truncated],
+    });
+    expect(bodyOf(item)).toContain(`\`${truncated}\``);
+    expect(bodyOf(item)).not.toContain(long);
   });
 
   it('says skill, singular, for a single remainder', () => {

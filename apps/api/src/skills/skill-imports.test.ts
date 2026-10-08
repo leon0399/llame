@@ -14,6 +14,7 @@ import {
   SKILL_MAX_PATH_COMPONENTS,
 } from './skill-locator';
 import { type PermissionDecision } from '../tools/permissions/types';
+import { MAX_OMISSION_IMPORT_NAMES } from '../chats/skill-activation-item';
 import { type ToolContext, type ToolResult } from '../tools/types';
 
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
@@ -275,13 +276,15 @@ describe('activated package imports', () => {
   });
 
   it('bounds output with the exact omitted import list and loaded prefix', async () => {
+    const total = 40;
+    const names = Array.from({ length: total }, (_, index) => `part-${index}`);
     const directory = createPackage(
       'research',
-      Array.from({ length: 10 }, (_, index) => `@part-${index}.md`).join(' '),
+      names.map((name) => `@${name}.md`).join(' '),
     );
     const large = 'x\n'.repeat(5000);
-    for (let index = 0; index < 10; index += 1) {
-      writeFileSync(path.join(directory, `part-${index}.md`), large);
+    for (const name of names) {
+      writeFileSync(path.join(directory, `${name}.md`), large);
     }
 
     const { outcome, audit } = await run('$research');
@@ -291,24 +294,23 @@ describe('activated package imports', () => {
     const omission = outcome.items.find(
       (item) => item.data.payload['kind'] === 'omission',
     );
-    expect(activation?.data.payload).toMatchObject({
-      imports: [
-        'skill://research/part-0.md',
-        'skill://research/part-1.md',
-        'skill://research/part-2.md',
-        'skill://research/part-3.md',
-      ],
-    });
-    expect(omission?.data.payload).toMatchObject({
+    const loadedImports = activation?.data.payload['imports'];
+    const loadedCount = Array.isArray(loadedImports) ? loadedImports.length : 0;
+    const locators = names.map((name) => `skill://research/${name}.md`);
+    const loaded = locators.slice(0, loadedCount);
+    // The omission reserve is a few KB, so nearly the whole 128 KiB budget
+    // goes to content: well over the handful a 105 KB reserve would allow.
+    expect(loaded.length).toBeGreaterThanOrEqual(10);
+    expect(loaded.length).toBeLessThan(total - MAX_OMISSION_IMPORT_NAMES);
+    expect(loadedImports).toEqual(loaded);
+    // Only the first omitted locator's read ran: it overflowed the budget, and
+    // every later one was named without being read.
+    const unloaded = locators.slice(loadedCount);
+    expect(omission?.data.payload).toEqual({
+      kind: 'omission',
       skills: [],
-      imports: [
-        'skill://research/part-4.md',
-        'skill://research/part-5.md',
-        'skill://research/part-6.md',
-        'skill://research/part-7.md',
-        'skill://research/part-8.md',
-        'skill://research/part-9.md',
-      ],
+      imports: unloaded.slice(0, MAX_OMISSION_IMPORT_NAMES),
+      importsBeyond: unloaded.length - MAX_OMISSION_IMPORT_NAMES,
     });
     expect(
       audit
@@ -316,13 +318,48 @@ describe('activated package imports', () => {
         .map((record) => record.input?.path),
     ).toEqual([
       'skill://research:raw',
-      'skill://research/part-0.md:raw',
-      'skill://research/part-1.md:raw',
-      'skill://research/part-2.md:raw',
-      'skill://research/part-3.md:raw',
-      'skill://research/part-4.md:raw',
+      ...names
+        .slice(0, loaded.length + 1)
+        .map((name) => `skill://research/${name}.md:raw`),
     ]);
   });
+
+  it('stops expanding once the Run is aborted', async () => {
+    const directory = createPackage('research', '@a.md @b.md @c.md\n');
+    for (const name of ['a', 'b', 'c']) {
+      writeFileSync(path.join(directory, `${name}.md`), `${name}\n`);
+    }
+    const h = harness();
+    const controller = new AbortController();
+    const expansion = await expandSkillImports({
+      skill: 'research',
+      runId: RUN_ID,
+      mentionOrdinal: 0,
+      body: '@a.md @b.md @c.md',
+      selection: new Set(['research']),
+      toolContext: { ...h.context, abortSignal: controller.signal },
+      readTool: nativeReadTool,
+      callTimeoutSeconds: 5,
+      deadline: Date.now() + 5000,
+      activity: {
+        admitted: h.activity.admitted,
+        completed: (toolCallId, result) => {
+          h.activity.completed(toolCallId, result);
+          controller.abort();
+        },
+      },
+      canAccept: () => true,
+    });
+
+    expect(expansion.imports.map((file) => file.path)).toEqual([
+      'skill://research/a.md',
+    ]);
+    expect(h.audit.map((record) => record.toolCallId)).toEqual([
+      `skill-activation-${RUN_ID}-0-0`,
+      `skill-activation-${RUN_ID}-0-0`,
+    ]);
+  });
+
   it('names every import when the work deadline is already exhausted', async () => {
     const h = harness();
     const expansion = await expandSkillImports({

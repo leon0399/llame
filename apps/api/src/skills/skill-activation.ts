@@ -25,6 +25,7 @@ import {
   createSkillActivationFailureItem,
   createSkillActivationItem,
   createSkillActivationOmissionItem,
+  MAX_OMISSION_IMPORT_LOCATOR_LENGTH,
   MAX_OMISSION_IMPORT_NAMES,
   MAX_OMISSION_NAMES,
   type SkillActivationFailureReason,
@@ -37,7 +38,6 @@ import {
   type SkillActivationActivity,
   type SkillImport,
 } from './skill-imports';
-import { SKILL_MAX_PATH_BYTES } from './skill-locator';
 import { skillInstructionBody } from './skill-package';
 
 /**
@@ -46,10 +46,6 @@ import { skillInstructionBody } from './skill-package';
  * pre-request loading would dominate the turn's cost.
  */
 export const MAX_SKILL_ACTIVATIONS = 8;
-
-/** Longest encoded locator admitted by the skill locator grammar. */
-const MAX_SKILL_IMPORT_PATH_LENGTH =
-  'skill://'.length + 64 + 1 + SKILL_MAX_PATH_BYTES * 3;
 
 /** Aggregate serialized activation output, envelopes included. */
 export const MAX_SKILL_ACTIVATION_BYTES = 128 * 1024;
@@ -144,11 +140,14 @@ function instructionCeiling(input: ActivationRequest): number {
       ...reserved,
       ...(input.mentions.length > reserved.length ? ['x'] : []),
     ],
-    // Imports are discovered only after an activation succeeds. Their
-    // encoded locator can use three output characters per path byte, so the
-    // smaller import-list bound keeps this reserve inside 128 KiB.
+    // Imports are discovered only after an activation succeeds. The notice
+    // lists at most MAX_OMISSION_IMPORT_NAMES locators of at most
+    // MAX_OMISSION_IMPORT_LOCATOR_LENGTH characters each, however long the
+    // real locators are, so this reserve is a few KB. The extra entry and the
+    // over-long locators make the producer exercise both its remainder
+    // sentence and its truncation ellipsis.
     imports: Array.from({ length: MAX_OMISSION_IMPORT_NAMES + 1 }, () =>
-      'x'.repeat(MAX_SKILL_IMPORT_PATH_LENGTH),
+      'x'.repeat(MAX_OMISSION_IMPORT_LOCATOR_LENGTH + 1),
     ),
   });
   return MAX_SKILL_ACTIVATION_BYTES - measureNativeModelOutput(worstCase);

@@ -135,6 +135,10 @@ async function expandBody(
 ): Promise<void> {
   if (hop >= MAX_IMPORT_HOPS) return;
   for (const target of importTargets(body)) {
+    // A cancelled Run stops expanding: no further read is dispatched, so no
+    // admission or completion event is recorded after the abort. The Run's
+    // own cancellation handles the rest; nothing here is reported as omitted.
+    if (state.toolContext.abortSignal?.aborted === true) return;
     const resolved = resolveImport(state.skill, importer, target);
     if (resolved === undefined || state.seen.has(resolved.relativePath))
       continue;
@@ -213,6 +217,10 @@ async function readImport(
     omitImport(state, resolved.locator);
     return undefined;
   }
+  // Positional within ONE attempt, not stable across attempts: the event log
+  // is append-only and system-origin rows are not reconciled by call id, so a
+  // retried attempt that expands a different set of imports simply appends its
+  // own ids rather than matching or replacing an earlier attempt's.
   const toolCallId = `skill-activation-${state.runId}-${state.mentionOrdinal}-${state.readOrdinal++}`;
   const readInput = { path: `${resolved.locator}:raw` };
   const result = await readSkillActivationFile({

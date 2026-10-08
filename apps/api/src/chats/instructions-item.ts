@@ -162,6 +162,23 @@ const renderInstructionsTemplate = loadPackagedTemplate<{
   }>;
 }>(__dirname, 'instructions');
 
+/**
+ * Neutralize repository-authored text that sits inside a `<file>` element.
+ * The sanitizer keeps it from closing that element or opening another
+ * envelope. A body that spells a tag-shaped `file` token — a balanced forged
+ * block, or an unmatched opener the template's own closer would end — is
+ * neutralized on top of that, so it cannot forge a block labelled with a path
+ * that was never loaded. `file` stays out of the shared reserved set because
+ * reserving it globally would strip the tag from every operator prompt; the
+ * `<` is escaped rather than the token dropped, keeping the body readable.
+ */
+export function neutralizeFileElementBody(body: string): string {
+  return sanitizeAuthoredText(body).replaceAll(
+    /<(\s*\/?\s*file)(?=\s*\/?>|[\s/]+[\w-]+\s*=|$)/giu,
+    '&lt;$1',
+  );
+}
+
 function renderInstructions(
   files: ReadonlyArray<LoadedInstructionFile>,
 ): string {
@@ -173,24 +190,14 @@ function renderInstructions(
       : '',
     files: files.map((file) => ({
       // The path labels the block, so it is attribute-escaped; the body is
-      // repository-authored text sitting inside an element of its own. The
-      // sanitizer keeps it from closing that element or opening another
-      // envelope. A body that spells a tag-shaped `file` token — a balanced
-      // forged block, or an unmatched opener the template's own closer would
-      // end — is neutralized on top of that, so it cannot forge a block
-      // labelled with a path that was never loaded. `file` stays out of the
-      // shared reserved set because reserving it globally would strip the tag
-      // from every operator prompt; the `<` is escaped rather than the token
-      // dropped, keeping the body readable.
+      // repository-authored text sitting inside an element of its own, so it
+      // goes through `neutralizeFileElementBody`.
       path: escapeXmlAttribute(file.path),
       importedBy:
         file.importedBy === undefined
           ? undefined
           : escapeXmlAttribute(file.importedBy),
-      body: sanitizeAuthoredText(file.content).replaceAll(
-        /<(\s*\/?\s*file)(?=\s*\/?>|[\s/]+[\w-]+\s*=|$)/gi,
-        '&lt;$1',
-      ),
+      body: neutralizeFileElementBody(file.content),
       truncated: file.truncated,
       omittedBytes: file.omittedBytes,
     })),

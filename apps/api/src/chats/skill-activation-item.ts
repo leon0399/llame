@@ -32,6 +32,7 @@ import {
   isExactRecord,
   isNonEmptyString,
 } from './context-item-shared';
+import { neutralizeFileElementBody } from './instructions-item';
 
 /** Closed reasons a selection can fail. Never carries operator diagnostics. */
 export const SKILL_ACTIVATION_FAILURE_REASONS = [
@@ -264,11 +265,19 @@ export function createSkillActivationFailureItem(input: {
 export const MAX_OMISSION_NAMES = 32;
 
 /**
- * Imported locators have a larger bounded spelling than skill names. Keeping
- * their list below the skill-name bound leaves room for the encoded worst-case
- * locator while the whole omission item remains under the activation cap.
+ * How many imported locators one notice lists before it reports the rest as a
+ * count. Together with `MAX_OMISSION_IMPORT_LOCATOR_LENGTH` this bounds the
+ * import list, so the activation budget reserves a few KB for it rather than
+ * the encoded worst case of every locator.
  */
-export const MAX_OMISSION_IMPORT_NAMES = 16;
+export const MAX_OMISSION_IMPORT_NAMES = 8;
+
+/**
+ * The longest a listed locator may be, in characters. A longer one is cut and
+ * ends in an ellipsis; the model needs a recognizable name, not the full
+ * encoded spelling.
+ */
+export const MAX_OMISSION_IMPORT_LOCATOR_LENGTH = 256;
 
 /**
  * The omission body. The noun, the bounded name list, and the remainder
@@ -322,10 +331,19 @@ type BuiltOmission = {
   readonly template: ActivationOmissionTemplateValues;
 };
 
+function truncateLocator(locator: string): string {
+  const characters = Array.from(locator);
+  return characters.length <= MAX_OMISSION_IMPORT_LOCATOR_LENGTH
+    ? locator
+    : `${characters.slice(0, MAX_OMISSION_IMPORT_LOCATOR_LENGTH - 1).join('')}…`;
+}
+
 function buildOmission(input: SkillActivationOmissionInput): BuiltOmission {
   const imports = input.imports ?? [];
   const listedNames = input.skills.slice(0, MAX_OMISSION_NAMES);
-  const listedImports = imports.slice(0, MAX_OMISSION_IMPORT_NAMES);
+  const listedImports = imports
+    .slice(0, MAX_OMISSION_IMPORT_NAMES)
+    .map(truncateLocator);
   const unlistedSkills =
     input.skills.length - listedNames.length + (input.unlisted ?? 0);
   const unlistedImports =
@@ -399,18 +417,6 @@ const renderActivationTemplate = loadPackagedTemplate<{
   }>;
 }>(__dirname, 'skill-activation');
 
-/**
- * Imported content sits inside a `<file>` element, so use the same
- * authored-text neutralization as instruction-file bodies and also neutralize
- * file-shaped tags that could forge or close that element.
- */
-function neutralizeImportBody(body: string): string {
-  return sanitizeAuthoredText(body).replaceAll(
-    /<(\s*\/?\s*file)(?=\s*\/?>|[\s/]+[\w-]+\s*=|$)/giu,
-    '&lt;$1',
-  );
-}
-
 function renderActivation(
   payload: SkillActivationPayload,
   instructions: string,
@@ -432,7 +438,7 @@ function renderActivation(
       path: escapeXmlAttribute(file.path),
       hasTruncation: file.truncationNotice !== undefined,
       truncationNotice: file.truncationNotice,
-      body: neutralizeImportBody(file.body),
+      body: neutralizeFileElementBody(file.body),
     })),
   });
 }

@@ -72,8 +72,10 @@ Skill imports use the activation read path and never load instruction files.
 ## Bounds
 
 Imported files share the activation's aggregate `128 KiB` output and `30 s`
-work bounds. No import read starts after either bound is exhausted; omitted
-imports are named in the activation's bounded omission notice.
+work bounds. No import read starts after either bound is exhausted, or after
+the Run is cancelled; omitted imports are named in the activation's bounded
+omission notice, which lists at most 8 locators (each cut to 256 characters
+with a trailing ellipsis) and counts the rest.
 
 ## Listing
 
