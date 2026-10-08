@@ -18,7 +18,7 @@ import {
   ToolOutput,
 } from "@workspace/ui/components/ai-elements/tool";
 import { ModelSwitchBoundary } from "@workspace/ui/components/custom/model-switch-boundary";
-
+import { WebSearchTool } from "@workspace/ui/components/custom/web-search";
 import { getToolName, isToolUIPart, type ChatStatus, type UIMessage } from "ai";
 
 import { CompactionBoundary } from "./compaction-boundary";
@@ -125,6 +125,23 @@ function MessagePartView({
     return <MessageResponse>{part.text}</MessageResponse>;
   }
   if (isToolUIPart(part)) {
+    const toolName = getToolName(part);
+    if (toolName === "web_search") {
+      const toolState =
+        part.state === "output-error" &&
+        part.resultProviderMetadata?.llame?.cancelled === true
+          ? "cancelled"
+          : (part.state ?? "input-streaming");
+      return (
+        <WebSearchTool
+          input={part.input}
+          output={part.output}
+          errorText={part.errorText}
+          state={toolState}
+          Markdown={renderers.MessageResponse}
+        />
+      );
+    }
     return <ToolPartView part={part} />;
   }
   if (part.type === "data-cap-notice") {

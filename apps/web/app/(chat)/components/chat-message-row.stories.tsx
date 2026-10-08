@@ -44,6 +44,78 @@ const STREAMING_MESSAGE = summaryRunMessage("streaming");
 // part, because those bytes are what the provider signed or encrypted.
 const persistedPartsAtLoad = JSON.stringify(PERSISTED_MESSAGE.parts);
 
+const WEB_SEARCH_OUTPUT = {
+  status: "success",
+  kind: "results",
+  engine: "brave",
+  query: "quiet mechanical keyboards",
+  results: [
+    {
+      title: "Quiet mechanical keyboards",
+      url: "https://example.com/keyboards",
+      published: "2026-10-01",
+      snippet: "A guide to quieter switches and stabilizers.",
+    },
+    {
+      title: "Switch sound comparison",
+      url: "https://example.net/switches",
+      published: "2026-09-28",
+      snippet: "Measured sound profiles for common keyboard switches.",
+    },
+    {
+      title: "Desk setup acoustics",
+      url: "https://example.org/acoustics",
+      published: "2026-09-20",
+      snippet: "Practical ways to reduce noise in a home office.",
+    },
+  ],
+} as const;
+
+const LIVE_WEB_SEARCH_MESSAGE: UIMessage = {
+  id: "assistant-web-search-live",
+  role: "assistant",
+  parts: [
+    {
+      type: "dynamic-tool",
+      toolCallId: "web-search-live",
+      toolName: "web_search",
+      state: "output-available",
+      input: { query: WEB_SEARCH_OUTPUT.query },
+      output: WEB_SEARCH_OUTPUT,
+    },
+  ],
+};
+
+const HISTORICAL_WEB_SEARCH_MESSAGE: UIMessage = {
+  id: "assistant-web-search-history",
+  role: "assistant",
+  parts: [
+    {
+      type: "tool-web_search",
+      toolCallId: "web-search-history",
+      state: "output-available",
+      input: { query: WEB_SEARCH_OUTPUT.query },
+      output: WEB_SEARCH_OUTPUT,
+    },
+  ],
+};
+
+const CANCELLED_WEB_SEARCH_ERROR = "The web search was cancelled.";
+const CANCELLED_WEB_SEARCH_MESSAGE: UIMessage = {
+  id: "assistant-web-search-cancelled",
+  role: "assistant",
+  parts: [
+    {
+      type: "tool-web_search",
+      toolCallId: "web-search-cancelled",
+      state: "output-error",
+      input: { query: "cancelled search" },
+      errorText: CANCELLED_WEB_SEARCH_ERROR,
+      resultProviderMetadata: { llame: { cancelled: true } },
+    },
+  ],
+};
+
 const meta = {
   component: ChatMessageRow,
   tags: ["autodocs"],
@@ -83,6 +155,36 @@ function renderedTitlesIn(trigger: HTMLElement): Array<string | null> {
     panel.querySelectorAll('[data-streamdown="strong"]'),
     (el) => el.textContent,
   );
+}
+
+async function expectWebSearchLinks({ canvas }: PlayContext): Promise<void> {
+  const headers = await waitFor(
+    () => {
+      const found = canvas.getAllByRole("button", { name: /web_search/i });
+      expect(found).toHaveLength(2);
+      return found;
+    },
+    { timeout: 15_000 },
+  );
+
+  for (const header of headers) {
+    if (header.getAttribute("aria-expanded") === "false") {
+      await userEvent.click(header);
+    }
+  }
+
+  const links = await waitFor(() => {
+    const found = canvas.getAllByRole("link");
+    expect(found).toHaveLength(WEB_SEARCH_OUTPUT.results.length * 2);
+    return found;
+  });
+  expect(links.map((link) => link.getAttribute("href"))).toEqual([
+    ...WEB_SEARCH_OUTPUT.results.map((result) => result.url),
+    ...WEB_SEARCH_OUTPUT.results.map((result) => result.url),
+  ]);
+  for (const result of WEB_SEARCH_OUTPUT.results) {
+    expect(canvas.getAllByRole("link", { name: result.title })).toHaveLength(2);
+  }
 }
 
 /** The panel boundaries every conversation state must show: one Thinking
@@ -172,6 +274,53 @@ export const LiveStreaming: Story = {
   args: { message: STREAMING_MESSAGE },
   play: async (context) => {
     await expectGroupedSummaryRun(context);
+  },
+};
+
+/**
+ * Live dynamic-tool parts and stored tool-web_search parts use the same
+ * dedicated renderer, so reloading a completed search preserves its links.
+ *
+ * @summary live and historical web-search parts render the same links
+ */
+export const LiveAndHistoricalWebSearch: Story = {
+  tags: ["ai-generated"],
+  args: { message: LIVE_WEB_SEARCH_MESSAGE },
+  render: (args) => (
+    <div>
+      <ChatMessageRow
+        {...args}
+        renderKey="web-search-live"
+        message={LIVE_WEB_SEARCH_MESSAGE}
+      />
+      <ChatMessageRow
+        {...args}
+        renderKey="web-search-history"
+        message={HISTORICAL_WEB_SEARCH_MESSAGE}
+      />
+    </div>
+  ),
+  play: async (context) => {
+    await expectWebSearchLinks(context);
+  },
+};
+
+/**
+ * A cancelled search keeps the neutral cancelled status and does not expose
+ * the transport's cancellation text as a tool error.
+ *
+ * @summary cancelled web search omits error text
+ */
+export const CancelledWebSearch: Story = {
+  tags: ["ai-generated"],
+  args: { message: CANCELLED_WEB_SEARCH_MESSAGE },
+  play: async ({ canvas }) => {
+    await waitFor(() => expect(canvas.getByText("Cancelled")).toBeVisible(), {
+      timeout: 15_000,
+    });
+    expect(
+      canvas.queryByText(CANCELLED_WEB_SEARCH_ERROR),
+    ).not.toBeInTheDocument();
   },
 };
 

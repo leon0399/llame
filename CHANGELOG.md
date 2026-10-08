@@ -13,6 +13,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Added aggregate web-search engines that fan out across configured result
   engines and merge their results with rank fusion.
 
+- The web chat renders `web_search` results and citations as links.
+
 # 2026-10-07
 
 - Added a per-provider `headers` map of string or `null` values. The
