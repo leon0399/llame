@@ -10685,7 +10685,10 @@ describe('RunExecutionService instruction files', () => {
   >[0]['outcomes'];
 
   /** Serves the `prompt-imports` item an earlier pass persisted for this Run. */
-  function servePromptImports(outcomes: ImportOutcomes): void {
+  function servePromptImports(
+    outcomes: ImportOutcomes,
+    options: { readonly payload?: 'missing' } = {},
+  ): void {
     const item = createPromptImportsItem({ runId, outcomes, omitted: [] });
     const payload = item.data.payload;
     if (!isPromptImportsPayload(payload)) {
@@ -10694,17 +10697,27 @@ describe('RunExecutionService instruction files', () => {
     vi.spyOn(
       PromptImportPartsRepository.prototype,
       'findForRun',
-    ).mockResolvedValue({ ...item, data: { ...item.data, payload } });
+    ).mockResolvedValue({
+      ...item,
+      data: {
+        ...item.data,
+        payload: options.payload === 'missing' ? undefined : payload,
+      },
+    });
   }
 
   /**
    * Runs one turn and returns its repositories; the Chat is unbound unless
    * `setup` binds it.
    */
-  async function runPlainTurn(outcomes: ImportOutcomes, setup?: () => void) {
+  async function runPlainTurn(
+    outcomes: ImportOutcomes,
+    setup?: () => void,
+    options: { readonly payload?: 'missing' } = {},
+  ) {
     const repositories = mockNormalExecutionRepositories();
     setup?.();
-    servePromptImports(outcomes);
+    servePromptImports(outcomes, options);
     serveNativeReads();
     const append = vi.spyOn(RunEventsRepository.prototype, 'append');
     const execution = makeExecutionService(
@@ -10750,6 +10763,29 @@ describe('RunExecutionService instruction files', () => {
       }
     },
   );
+
+  it('stages no prompt-import chain when the stored item has no payload', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    try {
+      const { repositories, append } = await runPlainTurn(
+        [
+          {
+            locator: touch,
+            resolved: touch,
+            outcome: 'imported',
+            body: 'export const main = 1;',
+          },
+        ],
+        undefined,
+        { payload: 'missing' },
+      );
+
+      expect(stagedProducers(repositories)).not.toContain('instructions');
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it('stages the same load on a retry after the binding switched', async () => {
     const { root, touch } = nestedInstructionsRoot();
