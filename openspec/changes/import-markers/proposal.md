@@ -24,7 +24,9 @@ one change with separate implementation layers.
   text outside fenced code and inline code: `@target`, `@[label](target)`, and
   `[label](target "import")`. A bare `@target` starts at the start of a line or block, after
   whitespace, or after one of `(`, `[`, `{`, `<`, `"`, and `'`, and runs to the next
-  whitespace, with trailing sentence punctuation removed. A marker is never removed or
+  whitespace, with trailing sentence punctuation removed. A delimited bare marker, `@"target"`,
+  `@'target'`, or `` @`target` ``, carries a whole locator with spaces and selectors, such as
+  `` @`file name.md:30-35` `` (#1159). A marker is never removed or
   rewritten: the text that carries it is stored, rendered, and replayed exactly as written, and the
   imported content is injected beside it.
 - **Instruction-file imports** (`instruction-files`, closes #1029). A marker in a loaded
@@ -47,7 +49,7 @@ one change with separate implementation layers.
   that locator gets, within the activation's existing output and work bounds.
   Package-escaping and non-package targets stay literal. Skill imports do not trigger
   instruction chains, as `skill://` reads do not today.
-- **Prompt imports** (new `prompt-imports`, closes #1142). The same three shapes in an
+- **Prompt imports** (new `prompt-imports`, closes #1142). The same marker shapes in an
   owner's prompt accept every native `read` locator with its selectors: absolute host
   paths, `file:` aliases, Workspace-relative paths when a Workspace is bound, `kb://`,
   `skill://`, and `http(s)://`. `@FILE:30-35` imports what `read` returns for that range,
@@ -76,7 +78,7 @@ and text without markers behaves exactly as before.
 
 Decided in design review on 2026-10-08 (recorded on
 [#1029](https://github.com/leon0399/llame/issues/1029#issuecomment-6059418697) and #1142):
-three shapes rather than one; relative instruction imports resolve against the importing
+three shapes, plus their delimited bare forms, rather than one; relative instruction imports resolve against the importing
 file; same-store targets only for instruction files; symlinks and targets outside the
 Workspace allowed under `read` admission of both paths; import-loaded files are chain
 triggers sharing one seen set; separate blocks, depth-first after the importer, inheriting
@@ -102,7 +104,7 @@ and round-1 review found the turn-load and admission work larger than first esti
 
 ### New Capabilities
 
-- `import-markers`: the three marker shapes, where they are recognized, the bare-marker
+- `import-markers`: the marker shapes, including delimited bare markers, where they are recognized, the bare-marker
   boundary and token rules, distinct-target order, and the rule that marker text is never
   rewritten.
 - `prompt-imports`: recognition in the owner's prompt, locator resolution against the

@@ -59,6 +59,8 @@ Re-estimate authored size at each layer boundary and before publication; split a
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 1.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `instruction-imports`.
+- [ ] 1.5 Implement delimited markers (R1–R4) in the parser with unit tests for every new
+      scenario plus pathological unterminated quotes at 64 KiB in linear time.
 
 ## 2. `import-markers/instruction-imports`: imports in instruction files
 
@@ -241,6 +243,10 @@ Re-estimate authored size at each layer boundary and before publication; split a
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 7.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `finalize`.
+- [ ] 7.6 Document the delimited forms in docs/product/reference/prompt-imports.md,
+      docs/product/reference/instruction-files.md, docs/product/reference/locators/skill.md,
+      docs/product/operator/skills.md, docs/product/reference/tools/read.md, SPEC.md, and
+      the CHANGELOG entries. That layer closes #1159.
 
 ## 8. `import-markers/finalize`: spec sync and archive
 

@@ -87,6 +87,13 @@ Promote `mdast-util-from-markdown@2.0.2` to an `apps/api` runtime dependency. It
 vetted in the workspace, has no native code, and gives CommonMark-exact link destinations,
 titles, angle-bracket destinations with spaces, and code-span boundaries.
 
+Delimited bare markers (#1159) reuse the same tree. `@"…"` and `@'…'` are matched in the bare
+scan up to the matching quote before the next line ending. `` @`…` `` is an `@` ending a text
+run whose next node is an `inlineCode` node, compared by source offsets; its target is the code
+span's value, so code contents themselves are still never scanned. The delimited content is the
+whole locator, selector included, with no escapes. OMP accepts `@"…"` and `@'…'`; Claude Code
+has neither form.
+
 Rejected: extending the `$skill` scanner. It already needs about 200 lines for code-span and
 fence detection; adding CommonMark link destinations, titles, and escapes by hand is how
 Codex and OpenCode accumulated mid-word and edge-case parsing bugs. Rejected: a regex over
