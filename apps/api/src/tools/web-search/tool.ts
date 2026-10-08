@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { loadPackagedToolDescription } from '../../prompts/tool-descriptions';
 import { type Tool, type ToolContext, type ToolResult } from '../types';
 import { type WebSearchConfig } from '../../instance-config/llame-config';
+import { createAggregateEngine } from './aggregate';
 import {
   createEngine,
   executeSearchChain,
@@ -24,11 +25,26 @@ const engineLookups = new WeakMap<WebSearchConfig, EngineLookup>();
 
 function buildEngineLookup(config: WebSearchConfig): EngineLookup {
   const engines = new Map<string, Engine>();
-  for (const engineConfig of config.engines)
+  const entries = new Map(config.engines.map((entry) => [entry.id, entry]));
+  for (const engineConfig of config.engines) {
+    if (engineConfig.type === 'aggregate') continue;
     engines.set(
       engineConfig.id,
       createEngine(engineConfig, { fetch: globalThis.fetch }),
     );
+  }
+  for (const engineConfig of config.engines) {
+    if (engineConfig.type !== 'aggregate') continue;
+    const children = engineConfig.engines.map((id) => {
+      const childConfig = entries.get(id)!;
+      return {
+        id,
+        timeoutSeconds: childConfig.timeoutSeconds,
+        engine: engines.get(id)!,
+      };
+    });
+    engines.set(engineConfig.id, createAggregateEngine(children));
+  }
   return (id) => engines.get(id)!;
 }
 

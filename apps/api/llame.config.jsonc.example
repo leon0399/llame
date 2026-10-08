@@ -448,6 +448,12 @@
   //       "type": "searxng",
   //       "baseUrl": "{env:SEARXNG_BASE_URL:-http://localhost:8888}",
   //     },
+  //     // Aggregate runs all listed result engines concurrently and merges ranks.
+  //     {
+  //       "id": "all",
+  //       "type": "aggregate",
+  //       "engines": ["brave", "exa-mcp"],
+  //     },
   //   ],
   //   "chain": ["brave", "exa", "perplexity", "searxng"],
   // },

@@ -86,10 +86,10 @@ output.
 
 ## 4. `web-search/aggregate` — concurrent fan-out (design D5)
 
-- [ ] 4.1 Add the `aggregate` schema branch with distinct `engines` of result-engine types; verify by loader tests for the nested-aggregate and duplicate-child scenarios
-- [ ] 4.2 Implement the `aggregate` engine: concurrent children under their own deadlines and the call signal, waiting for every child, canonical grouping, RRF with k = 60, tie-breaking, longest snippet, and the results/empty/failure outcome rules; verify by unit tests with fake children for every scenario of "Aggregate engines fan out and merge by rank fusion"
-- [ ] 4.3 Document the aggregate, its cost multiplication, and its latency bound in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 4.4 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
+- [x] 4.1 Add the `aggregate` schema branch with distinct `engines` of result-engine types; verify by loader tests for the nested-aggregate and duplicate-child scenarios
+- [x] 4.2 Implement the `aggregate` engine: concurrent children under their own deadlines and the call signal, waiting for every child, canonical grouping, RRF with k = 60, tie-breaking, longest snippet, and the results/empty/failure outcome rules; verify by unit tests with fake children for every scenario of "Aggregate engines fan out and merge by rank fusion"
+- [x] 4.3 Document the aggregate, its cost multiplication, and its latency bound in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 4.4 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
 - [ ] 4.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 4.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 

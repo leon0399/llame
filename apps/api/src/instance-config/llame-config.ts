@@ -201,6 +201,12 @@ export type RawWebSearchEngineEntry =
       id: string;
       type: 'duckduckgo';
       timeoutSeconds?: unknown;
+    }
+  | {
+      id: string;
+      type: 'aggregate';
+      engines: Array<string>;
+      timeoutSeconds?: unknown;
     };
 
 /** The still-uninterpolated operator `webSearch` section. */
@@ -231,6 +237,11 @@ export type WebSearchEngineConfig = {
       key: string | undefined;
     }
   | { type: 'duckduckgo' }
+  | {
+      type: 'aggregate';
+      /** Two or more distinct result-engine ids run concurrently and merged. */
+      engines: ReadonlyArray<string>;
+    }
 );
 
 /** Resolved operator `webSearch` section: engines and the ordered chain of their ids. */

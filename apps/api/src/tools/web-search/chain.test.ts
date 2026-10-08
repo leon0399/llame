@@ -47,7 +47,7 @@ const empty = (): Promise<EngineOutcome> => Promise.resolve({ kind: 'empty' });
 
 type FactoryCase = {
   readonly name: string;
-  readonly config: WebSearchEngineConfig;
+  readonly config: Exclude<WebSearchEngineConfig, { type: 'aggregate' }>;
   readonly body: string;
   readonly expectedUrl: string;
   readonly headers?: HeadersInit;

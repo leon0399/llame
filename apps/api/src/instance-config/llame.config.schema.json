@@ -131,6 +131,35 @@
               "description": "Per-engine deadline in seconds. Defaults to 60."
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A concurrent aggregate of configured result-engine ids.",
+          "required": ["id", "type", "engines"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+            },
+            "type": {
+              "const": "aggregate",
+              "description": "Concurrent aggregate of result-engine children."
+            },
+            "engines": {
+              "type": "array",
+              "minItems": 2,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Two or more distinct ids of configured result engines."
+            },
+            "timeoutSeconds": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Per-engine deadline in seconds. Defaults to 60."
+            }
+          }
         }
       ]
     },
@@ -536,7 +565,7 @@
     "webSearch": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Optional operator-configured web-search engines and their ordered fallback chain. This layer accepts Brave, Exa, Exa's hosted MCP, Perplexity, SearXNG, and DuckDuckGo.",
+      "description": "Optional operator-configured web-search engines and their ordered fallback chain. This layer accepts Brave, Exa, Exa's hosted MCP, Perplexity, SearXNG, DuckDuckGo, and aggregate engines.",
       "required": ["engines", "chain"],
       "properties": {
         "engines": {

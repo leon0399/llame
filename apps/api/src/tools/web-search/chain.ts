@@ -169,7 +169,7 @@ async function runOne(
 
 /** Build an engine adapter from one resolved entry. */
 export function createEngine(
-  config: WebSearchEngineConfig,
+  config: Exclude<WebSearchEngineConfig, { type: 'aggregate' }>,
   deps: { readonly fetch: VendorFetch },
 ): Engine {
   switch (config.type) {

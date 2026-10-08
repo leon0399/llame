@@ -10,7 +10,7 @@ behavior:
 # Web search
 
 This runbook covers enabling `web_search`, its configured engines/chain, deadlines, and how queries/results cross the instance boundary. The [web_search reference](../reference/tools/web-search.md) has the model-facing schema, output union, bounds, fall-through details, and failure classes.
-Supported operator engines are `brave`, `exa`, `exa-mcp`, `perplexity`, `searxng`, and `duckduckgo`; configure only these types.
+Supported operator engines are `brave`, `exa`, `exa-mcp`, `perplexity`, `searxng`, `duckduckgo`, and `aggregate`; configure only these types.
 
 ## Enabling
 
@@ -56,6 +56,29 @@ Add optional top-level `webSearch`; `engines` contains operator-owned entries an
 
 Engine ids are unique strings of 1-64 characters; every chain id must exist, the chain is non-empty and has no repeats. There is no built-in engine/chain; omit `webSearch` to leave search unconfigured.
 Each engine's positive-integer `timeoutSeconds` defaults to 60 seconds. The whole call (all chain steps) uses existing `tools.callTimeoutSeconds`, default 120 seconds; do not add another web-search call timeout. Engine timeouts are `timeout` and advance; other failures and empty results also advance. The first non-empty result/grounded answer ends the call. If all attempts fail, the fixed error names engine ids/classes, never an upstream response or credential.
+
+## Aggregate
+
+An aggregate fans out across two or more distinct configured result-engine ids:
+
+```jsonc
+{
+  "id": "broad",
+  "type": "aggregate",
+  "engines": ["brave", "exa"],
+  "timeoutSeconds": 60,
+}
+```
+
+Children cannot be another aggregate or `model-hosted`. All children start
+concurrently, and the aggregate waits for every child up to
+`tools.callTimeoutSeconds`; each child is bounded by its own `timeoutSeconds`.
+Results use Reciprocal Rank Fusion (`k=60`), grouped by canonical URL while
+ignoring a leading `www.` and trailing `/`. The emitted URL is the
+best-ranked member's spelling. It is empty only when no child has results and
+at least one child was empty; notes name failed and empty children. Cost
+multiplies by child count, while latency is the slowest child within those
+deadlines.
 
 ## Brave
 

@@ -511,7 +511,7 @@ function resolveWebSearchEngines(
   env: NodeJS.ProcessEnv,
 ): ReadonlyArray<WebSearchEngineConfig> {
   const seenEngineIds = new Set<string>();
-  return entries.map((entry) => {
+  const engines = entries.map((entry) => {
     if (seenEngineIds.has(entry.id)) {
       throw new InstanceConfigError(
         `webSearch.engines: duplicate engine id "${entry.id}"`,
@@ -534,6 +534,33 @@ function resolveWebSearchEngines(
     );
     return resolveWebSearchEngine(entry, entryPath, timeoutSeconds, env);
   });
+  assertAggregateChildren(engines);
+  return engines;
+}
+
+function assertAggregateChildren(
+  engines: ReadonlyArray<WebSearchEngineConfig>,
+): void {
+  const enginesById = new Map(engines.map((engine) => [engine.id, engine]));
+  for (const engine of engines) {
+    if (engine.type !== 'aggregate') {
+      continue;
+    }
+    const childrenPath = `webSearch.engines[${engine.id}].engines`;
+    for (const childId of engine.engines) {
+      const child = enginesById.get(childId);
+      if (child === undefined) {
+        throw new InstanceConfigError(
+          `${childrenPath}: unknown engine id "${childId}"`,
+        );
+      }
+      if (child.type === 'aggregate') {
+        throw new InstanceConfigError(
+          `${childrenPath}: child "${childId}" must be a result engine`,
+        );
+      }
+    }
+  }
 }
 
 function resolveWebSearchEngine(
@@ -566,6 +593,9 @@ function resolveWebSearchEngine(
   }
   if (entry.type === 'duckduckgo') {
     return { ...base, type: entry.type };
+  }
+  if (entry.type === 'aggregate') {
+    return { ...base, type: entry.type, engines: entry.engines };
   }
   return {
     ...base,
