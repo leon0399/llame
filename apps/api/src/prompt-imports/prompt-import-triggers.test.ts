@@ -47,6 +47,21 @@ describe('derivePromptImportTriggers', () => {
 
     expect(triggers).toEqual([]);
   });
+  it('requires an absolute host path and rejects non-kb schemes', () => {
+    expect(
+      derivePromptImportTriggers(
+        [
+          { locator: 'relative', resolved: 'README.md', outcome: 'imported' },
+          {
+            locator: 'web',
+            resolved: `https://${SPACE_ID}/notes.md`,
+            outcome: 'imported',
+          },
+        ],
+        BOTH,
+      ),
+    ).toEqual([]);
+  });
 
   it('does not trigger on an uppercase Space id in a persisted kb:// entry', () => {
     const triggers = derivePromptImportTriggers(

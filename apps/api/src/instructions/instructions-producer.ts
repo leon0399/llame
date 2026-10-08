@@ -239,15 +239,12 @@ function sharesDirectory(
   touches: ReadonlyArray<TriggerTouch>,
   index: number,
 ): boolean {
-  const own = touches[index]?.touched;
+  const own = touches[index].touched;
   return touches.some(
-    ({ trigger, touched }, otherIndex) =>
-      otherIndex !== index &&
-      touched.directory === own?.directory &&
-      !(
-        trigger.excludeCandidate === true &&
-        touched.canonicalPath === own.canonicalPath
-      ),
+    ({ touched }) =>
+      touched !== own &&
+      touched.directory === own.directory &&
+      touched.canonicalPath !== own.canonicalPath,
   );
 }
 
@@ -278,13 +275,15 @@ async function resolveDirectories(
     const yields =
       trigger.yieldsToWalk === true &&
       (walked || sharesDirectory(touches, index));
-    if (
+    const disclosed =
       trigger.excludeCandidate &&
       touched.canonicalPath !== undefined &&
-      !yields
-    ) {
+      !yields;
+    if (disclosed) {
       entry.disclosedCanonicalPaths.add(touched.canonicalPath);
-    } else if (!yields || walked) {
+    }
+    const plainTouch = !disclosed && (!yields || walked);
+    if (plainTouch) {
       // A prompt import yielding only to a same-directory trigger drops its own
       // exclusion and keeps exclusions native reads set in that directory.
       entry.plainTouch = true;

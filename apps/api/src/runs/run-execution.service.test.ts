@@ -9532,6 +9532,63 @@ describe('RunExecutionService instruction files', () => {
     }
   });
 
+  it('admits each instruction page using its concrete path', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    const imported = path.join(root, 'apps/api/imported.md');
+    writeFileSync(imported, 'imported rules\n');
+    writeFileSync(path.join(root, 'AGENTS.md'), '@apps/api/imported.md\n');
+    const permissionPolicy = compileToolPermissionMap(
+      {
+        enter_workspace: { allow: true },
+        read: {
+          allow: [
+            { field: 'path', literal: path.join(root, 'AGENTS.md') },
+            { field: 'path', literal: imported },
+            { field: 'path', literal: path.join(root, 'apps/api/AGENTS.md') },
+            { field: 'path', literal: touch },
+          ],
+        },
+      },
+      'instruction-path-policy',
+    );
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const { client } = readThenAnswerClient(touch);
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        'host-a',
+        executionOptions(permissionPolicy),
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.recordContextItems).toHaveBeenCalled(),
+      );
+      expect(
+        instructionItems(repositories)
+          .map((item) => item.text)
+          .join('\n'),
+      ).toContain('imported rules');
+
+      const requests = eventsWithOrigin(append, 'instructions').filter(
+        (record) => record.type === 'tool.requested',
+      );
+      expect(requests).toHaveLength(3);
+      for (const request of requests) {
+        expect(request.payload).toMatchObject({
+          permission: { decision: 'allow' },
+        });
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('records canonical decisions on accepted-turn import reads', async () => {
     const root = instructionsRoot();
     const imported = path.join(root, 'imported.md');
@@ -9796,13 +9853,15 @@ describe('RunExecutionService instruction files', () => {
     try {
       const repositories = mockNormalExecutionRepositories();
       const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const findPromptImports = vi
+        .spyOn(PromptImportPartsRepository.prototype, 'findForRun')
+        .mockResolvedValue(undefined);
       const { client } = readThenAnswerClient(touch);
-      const execution = makeExecutionService(
-        client,
-        undefined,
-        undefined,
-        executionOptions(),
-      );
+      const execution = makeExecutionService(client, undefined, undefined, {
+        allowed: ['read'],
+        permissionPolicy: compileTestPermissionPolicy(['read']),
+        inRunProducer: createInstructionsProducer(),
+      });
 
       const result = await execution.service.executeRun(executionInput(client));
       await expect(result.text).resolves.toBe('answer');
@@ -9815,8 +9874,61 @@ describe('RunExecutionService instruction files', () => {
       expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
       expect(instructionItems(repositories)).toEqual([]);
       expect(storedInstructionPart(repositories)).toBeUndefined();
+      expect(findPromptImports).toHaveBeenCalledTimes(1);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('does not prepare a bound turn when the read gate is closed', async () => {
+    const root = instructionsRoot();
+    const producer = createInstructionsProducer();
+    const prepareTurn = vi.spyOn(producer, 'prepareTurn');
+    try {
+      mockNormalExecutionRepositories();
+      bindChatTo(root);
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        {
+          allowed: ['enter_workspace'],
+          permissionPolicy: compileTestPermissionPolicy(['enter_workspace']),
+          inRunProducer: producer,
+        },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      expect(prepareTurn).not.toHaveBeenCalled();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('does not prepare an unbound turn with no instruction triggers', async () => {
+    const producer = createInstructionsProducer();
+    const prepareTurn = vi.spyOn(producer, 'prepareTurn');
+    try {
+      mockNormalExecutionRepositories();
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        {
+          allowed: ['read'],
+          permissionPolicy: compileTestPermissionPolicy(['read']),
+          inRunProducer: producer,
+        },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      expect(prepareTurn).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
     }
   });
 

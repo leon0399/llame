@@ -948,6 +948,17 @@ describe('instructions producer triggers', () => {
       join(root, 'apps/web/AGENTS.md'),
     ]);
   });
+  it('lets a non-reading touch reopen a candidate excluded by a read', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    await write(candidate, 'root rules\n');
+    const { producer, staged, prepare } = attemptOf();
+
+    producer.observeToolCall?.(readCall(candidate));
+    producer.observeToolCall?.(readCall(join(root, 'new.ts'), 'write'));
+    await prepare();
+
+    expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([candidate]);
+  });
 
   it('marks nothing for exit_workspace, or for another tool reporting a binding', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
@@ -972,6 +983,34 @@ describe('instructions producer triggers', () => {
       // as one.
       expect(staged).toEqual([]);
     }
+  });
+  it('keeps a candidate excluded when two native reads disclose different files', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    const other = join(root, 'other.md');
+    await write(candidate, 'root rules\n');
+    await write(other, 'other content\n');
+    const { producer, staged, prepare } = attemptOf();
+
+    producer.observeToolCall?.(readCall(candidate));
+    producer.observeToolCall?.(readCall(other));
+    await prepare();
+
+    expect(staged).toEqual([]);
+  });
+
+  it('keeps a natively read candidate excluded when another read walks through its directory', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    const nested = join(root, 'sub/x.md');
+    await write(candidate, 'root rules\n');
+    await mkdir(join(root, 'sub'), { recursive: true });
+    await write(nested, 'nested content\n');
+    const { producer, staged, prepare } = attemptOf();
+
+    producer.observeToolCall?.(readCall(candidate));
+    producer.observeToolCall?.(readCall(nested));
+    await prepare();
+
+    expect(staged).toEqual([]);
   });
 
   it('stays silent for a symlink whose target an earlier trigger loaded', async () => {
@@ -1928,6 +1967,47 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
     if (part === undefined) throw new Error('the imports loaded nothing');
 
     expect(blockPaths(part)).toEqual([candidate]);
+  });
+  it('keeps a nested prompt-import candidate excluded from an unrelated root touch', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    const nested = join(root, 'apps/api');
+    await write(join(nested, 'AGENTS.md'), 'api rules\n');
+
+    const part = await turn({
+      workspaceRoot: root,
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(nested, 'AGENTS.md') }],
+    });
+    if (part === undefined) throw new Error('the root touch loaded nothing');
+
+    expect(withinRoot(blockPaths(part))).toEqual([join(root, 'AGENTS.md')]);
+  });
+
+  it('keeps the sole prompt-import read excluded from its candidate directory', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    await write(candidate, 'root rules\n');
+
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: candidate }],
+    });
+
+    expect(part).toBeUndefined();
+  });
+  it('keeps same-canonical prompt imports from disclosing their candidate', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    await write(candidate, 'root rules\n');
+    const first = join(root, 'first.md');
+    const second = join(root, 'second.md');
+    await symlink(candidate, first);
+    await symlink(candidate, second);
+
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: first }, { key: second }],
+    });
+
+    expect(part).toBeUndefined();
   });
 
   it('still loads the imported instruction file from the same turn root load', async () => {
