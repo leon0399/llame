@@ -2,7 +2,7 @@
 
 ### Requirement: Explicit activation work is bounded before model preparation
 
-The system SHALL enforce the explicit-selection count, aggregate output, and aggregate work bounds before each activation read. Imported package files SHALL count against the same aggregate output and work bounds, and imports omitted because a bound is exhausted SHALL be named in the bounded notice. Discovery SHALL check cancellation between entries and file operations. It SHALL preserve completed activation results and account for unattempted selections and imports in one bounded notice. Limits SHALL NOT silently claim omitted skills were loaded or perform their filesystem scans.
+The system SHALL enforce the explicit-selection count, aggregate output, and aggregate work bounds before each activation read. Imported package files SHALL count against the same aggregate output and work bounds, and imports omitted because a bound is exhausted SHALL be named in the bounded notice, listing at most eight targets with each locator shortened to at most 256 characters and counting the rest. Discovery SHALL check cancellation between entries and file operations. It SHALL preserve completed activation results and account for unattempted selections and imports in one bounded notice. Limits SHALL NOT silently claim omitted skills were loaded or perform their filesystem scans.
 
 #### Scenario: User names many distinct skills
 
@@ -19,7 +19,7 @@ The system SHALL enforce the explicit-selection count, aggregate output, and agg
 
 - **WHEN** an activated instruction imports package files until the aggregate output or work bound is exhausted
 - **THEN** completed imported files remain in the activation item and no further import read starts
-- **AND** one bounded notice names each imported target omitted by the exhausted bound
+- **AND** one bounded notice names omitted imported targets, listing at most eight with each locator shortened to at most 256 characters and counting the rest, as it already lists skill names up to a bound and counts the rest
 
 ## ADDED Requirements
 
