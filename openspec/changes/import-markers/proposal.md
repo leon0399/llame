@@ -22,10 +22,10 @@ one change with separate implementation layers.
 
 - **Import marker grammar** (new `import-markers`). Three shapes are recognized in Markdown
   text outside fenced code and inline code: `@target`, `@[label](target)`, and
-  `[label](target "import")`. A bare `@target` starts at the beginning of a text run or after
-  whitespace or an opening bracket, parenthesis, or quote, and runs to the next whitespace,
-  with trailing sentence punctuation removed. A marker is never removed or rewritten: the
-  text that carries it is stored, rendered, and replayed exactly as written, and the
+  `[label](target "import")`. A bare `@target` starts at the start of a line or block, after
+  whitespace, or after one of `(`, `[`, `{`, `<`, `"`, and `'`, and runs to the next
+  whitespace, with trailing sentence punctuation removed. A marker is never removed or
+  rewritten: the text that carries it is stored, rendered, and replayed exactly as written, and the
   imported content is injected beside it.
 - **Instruction-file imports** (`instruction-files`, closes #1029). A marker in a loaded
   instruction file names a file in the same store: a host instruction file imports host

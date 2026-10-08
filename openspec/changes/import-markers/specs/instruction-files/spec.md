@@ -4,6 +4,95 @@ Loads instruction files and their same-store imports through existing triggers a
 
 ## MODIFIED Requirements
 
+### Requirement: A host-path trigger loads the chain from the filesystem root down to the touched directory
+
+An entry trigger and a native `read`, `edit`, or `write` whose `path` is a local host filesystem path SHALL each name one directory `D` on the native executor host. A loaded instruction import and an admitted host-path prompt import SHALL each name one directory `D` on the native executor host, where `D` is the parent directory of the import's resolved path. The load SHALL consider every directory from the filesystem root down to `D` inclusive, in that order, and SHALL include ancestors above any Workspace root or repository boundary. `D` SHALL be the canonical Workspace root for an entry trigger; for a file-tool trigger it SHALL be the projected absolute path itself when that path is an existing directory, and otherwise the parent directory of the projected absolute path, whether or not that path exists. The walk SHALL NOT descend into siblings or children of `D`. A trigger whose `path` is a `kb://` locator SHALL NOT walk the host filesystem; it SHALL follow the Knowledge-locator requirement instead.
+
+#### Scenario: Entry loads the root and its ancestors
+
+- **WHEN** `enter_workspace("/home/u/repo/apps/api")` succeeds and `/home/u/repo/AGENTS.md` and `/home/u/repo/apps/api/AGENTS.md` exist
+- **THEN** one bundle carries `/home/u/repo/AGENTS.md` then `/home/u/repo/apps/api/AGENTS.md`
+
+#### Scenario: File touch outside the Workspace still walks its ancestors
+
+- **WHEN** a Chat bound to `/home/u/repo` reads `/home/u/other/src/x.ts` and `/home/u/other/AGENTS.md` exists
+- **THEN** the bundle carries `/home/u/other/AGENTS.md`
+- **AND** the Workspace root's own files are not reloaded by that trigger
+
+#### Scenario: Write into a directory that does not exist yet
+
+- **WHEN** `write("/home/u/repo/apps/web/src/new.tsx")` targets a directory whose parent chain contains `/home/u/repo/apps/web/AGENTS.md`
+- **THEN** that file is loaded from the next model step, whether or not the write succeeded, unless the call was denied
+
+#### Scenario: Reading a directory loads that directory's own chain
+
+- **WHEN** the model reads the existing directory `apps/api` on a Chat bound to `/home/u/repo`
+- **THEN** `D` is `/home/u/repo/apps/api`, so `/home/u/repo/apps/api/AGENTS.md` is a candidate
+
+#### Scenario: An import trigger walks from its resolved directory
+
+- **WHEN** a loaded instruction import or an admitted host-path prompt import resolves to `/home/u/repo/apps/api/doc.md` and `/home/u/repo/AGENTS.md` and `/home/u/repo/apps/api/AGENTS.md` exist
+- **THEN** the import names `/home/u/repo/apps/api` as `D` and loads the same chain from the filesystem root down to `D`
+
+### Requirement: A Knowledge locator loads the chain within its Space
+
+A `read`, `edit`, or `write` whose `path` is a `kb://<spaceId>/<relative path>` locator SHALL load the same candidate chains, with the same selection rules, from the root of that Space down to the touched directory inclusive, and SHALL NOT consider any directory above that Space root: not the operator's `knowledge.root` directory, which holds every owner's Spaces, not a host ancestor of it, and not another Space. The touched directory SHALL be the locator's own directory when it names an existing directory in that Space, and otherwise the parent directory of the locator's path within that Space. A candidate that the Knowledge resolver refuses as a symbolic link SHALL NOT be selected and its chain SHALL continue.
+
+Space resolution and every candidate probe SHALL run under the Run owner's identity through the owner-scoped Knowledge resolver. A locator naming another owner's Space, a Space that does not exist, and a Space that is unavailable SHALL each load nothing, probe nothing, and record no audit event.
+
+Every selected candidate SHALL be labelled and keyed by its logical locator `kb://<spaceId>/<relative path>`, percent-encoded exactly as the Knowledge locator formatter produces it, and that logical locator SHALL be the item's `path` and its seen key; no host path SHALL appear in the item's text, payload, metadata, audit events, or owner chip. Each selected candidate SHALL be read through the native `read` tool with its `kb://` locator and bounded `:raw:<from>-<to>` pages, under system origin `instructions`, evaluated by the `read` permission group exactly as a host candidate is.
+
+Loading SHALL occur only for a locator whose Space identifier is already the canonical lower-case form the Knowledge locator formatter produces; a locator whose Space identifier contains an upper-case letter SHALL load nothing, probe nothing, and record no event, and the model's own read of that locator SHALL proceed normally under the spelling it wrote. Grouping, labels, seen keys, and every candidate page read SHALL use that one canonical spelling, so the `read` group evaluates the injection under exactly the locator the model's own read of that candidate uses.
+
+A bundle carrying at least one Knowledge candidate SHALL include the closed Knowledge untrusted-content notice `knowledge-tools` defines exactly once, and a bundle carrying only host-path candidates SHALL NOT include it.
+
+A model `kb://` trigger SHALL NOT produce an accepted-turn load, and a Workspace entry SHALL NOT produce an accepted-turn load for a Space, because a Space has no Workspace binding; an admitted `kb://` prompt import SHALL load its Space chain on its accepted turn. A `kb://` import naming an entry the Knowledge resolver refuses as a symbolic link SHALL load nothing and its marker SHALL remain literal. Candidates loaded for one step from host-path triggers and from `kb://` triggers SHALL resolve into at most one item, with the host files first, then the Knowledge files, each group from its broadest directory and a base file before its local file.
+
+#### Scenario: A read in a Space loads that Space's chain from its root
+
+- **WHEN** the model reads `kb://<space>/notes/lore/x.md` and `<space>/CLAUDE.md` and `<space>/notes/lore/AGENTS.md` exist
+- **THEN** one bundle carries `kb://<space>/CLAUDE.md` then `kb://<space>/notes/lore/AGENTS.md`
+- **AND** neither file is named by any host path
+
+#### Scenario: A file above the Space root is never loaded
+
+- **WHEN** a Space is resolved under the operator's `knowledge.root` and a candidate chain name also exists above that Space's own root
+- **THEN** the bundle carries no file from outside the Space root
+
+#### Scenario: Another owner's Space loads nothing
+
+- **WHEN** the model reads `kb://<other-owner-space>/notes/x.md` from a Run owned by a different owner
+- **THEN** no instructions item is produced, no candidate in that Space is probed, and no event with origin `instructions` is recorded
+
+#### Scenario: A search hit does not trigger
+
+- **WHEN** a `knowledge_search` result names a file that holds a candidate chain name
+- **THEN** no instructions item is produced for that result
+
+#### Scenario: The bundle names logical locators only
+
+- **WHEN** a step loads candidates from a Space
+- **THEN** the item text and the `files` payload carry `kb://<spaceId>/<relative path>` values
+- **AND** no host path appears in the text, the payload, the metadata, or the audit events
+
+#### Scenario: An upper-case Space identifier is not a trigger
+
+- **WHEN** the model calls `read("kb://<Space>/notes/x.md")`, where `<Space>` spells a Space's identifier with upper-case letters, and that Space holds `CLAUDE.md`
+- **THEN** no instructions item is produced, no candidate in that Space is probed, and no event with origin `instructions` is recorded
+- **AND** the model's own read of that locator still runs and returns the named file
+
+#### Scenario: A Space bundle carries the Knowledge notice once
+
+- **WHEN** one step loads candidates from a Space, with or without host-path candidates
+- **THEN** the item includes the closed Knowledge untrusted-content notice exactly once
+- **AND** a bundle of host-path candidates only carries no such notice
+
+#### Scenario: An admitted Knowledge prompt import is the accepted-turn exception
+
+- **WHEN** an unbound Chat admits a `kb://<space>/notes/lore/x.md` prompt import and `<space>/CLAUDE.md` and `<space>/notes/lore/AGENTS.md` exist
+- **THEN** the Space chain loads on that accepted turn
+- **AND** a model `kb://` trigger or a Workspace entry does not produce an accepted-turn load for that Space
+
 ### Requirement: Entry, native file tools, and accepted turns are the only triggers
 
 A successful `enter_workspace` that establishes or switches the binding SHALL trigger a load for the canonical root, effective from the next model step of the same Run; a same-root re-entry SHALL NOT. Each native `read`, `edit`, or `write` whose `path` resolves to a local host filesystem path SHALL trigger a load for that path's directory, effective from the next model step, regardless of the call's own outcome and regardless of any read selector or representation suffix on the path; a denied call SHALL NOT trigger a load. Each native `read`, `edit`, or `write` whose `path` is a `kb://` locator SHALL trigger a load for the touched directory within that Space, effective from the next model step, under the Knowledge-locator requirement. `bash`, `knowledge_search`, `skill://`, `http://`, `https://`, and any other locator SHALL NOT trigger a load. A model-origin read or a prompt import whose target is itself a candidate file in its directory SHALL neither load that file nor mark it seen; other candidates in the chain are unaffected. An instruction import that is loaded SHALL trigger its own host or Knowledge directory chain in the same bundle, depth-first from its importer and sharing the epoch seen set. At each accepted user turn on a Chat with a live Workspace binding, after the attempt's binding re-check and not on a detaching attempt, accepted-turn preparation SHALL stage a load for the canonical root before the first model request when any file of that chain is not in effective context. At that accepted turn, each admitted host-path or `kb://` prompt import recorded in the persisted `prompt-imports` item SHALL trigger a load for that path's directory regardless of Workspace binding and of its read outcome after admission. Prompt-import triggers SHALL be gated exactly like in-Run triggers: a host-path trigger needs `read` allowlisted and a native executor, and a `kb://` trigger needs `read` allowlisted and a Knowledge root; denied, missing, web, and `skill://` prompt imports SHALL NOT trigger a load. The persisted item SHALL record, for each attempted target, whether it was admitted and its resolved absolute host path or canonical `kb://` locator, so accepted-turn preparation rebuilds these triggers from the item. Effective context for that decision SHALL be the history the model will read: when a checkpoint is published before that first model request, the decision is made against the rebuilt effective history the checkpoint leaves, and a file that checkpoint absorbed counts as not seen. A Chat without a binding SHALL receive no accepted-turn load. That no-binding rule applies to the root load only; prompt-import triggers are an explicit exception and do not require a Workspace binding. All triggers pending at one model step, or at one accepted turn, SHALL be resolved together into at most one item, and a step whose every candidate is already seen SHALL produce no item.
@@ -271,7 +360,7 @@ After resolving a host or `kb://` target, the `read` group SHALL silently pre-ev
 
 ### Requirement: Instruction imports are bounded and cycle-safe
 
-Instruction imports SHALL process targets in first-occurrence order and recurse depth-first for at most five hops; hops count from the nearest chain file. Import-triggered chain files SHALL restart at hop zero. A target already in the epoch seen set by canonical host path or logical `kb://` locator SHALL be skipped. Admitted missing or admitted non-regular, repeated, cyclic, and sixth-hop targets SHALL remain literal without loading or auditing; the seen set SHALL guarantee termination.
+Instruction imports SHALL process targets in first-occurrence order, depth-first, for at most five hops from the nearest chain file. Imported chain files SHALL restart at hop zero. Targets in the epoch seen set by canonical host or logical `kb://` key, or in an expansion's in-progress set, SHALL be skipped. Missing, non-regular, repeated, cyclic, and sixth-hop targets stay literal and unaudited; denied or failed imports SHALL NOT be marked seen and SHALL be evaluated again by a later trigger.
 
 #### Scenario: A sixth import hop remains literal
 
@@ -281,7 +370,7 @@ Instruction imports SHALL process targets in first-occurrence order and recurse 
 
 #### Scenario: An imported chain restarts hops across directories
 
-- **WHEN** `/repo/AGENTS.md` imports `foo/doc.md`; that loads chain file `/repo/foo/AGENTS.md`, which imports `bar/1.md`, and each `bar/N.md` imports `bar/N+1.md` through `bar/6.md`
+- **WHEN** `/repo/AGENTS.md` imports `foo/doc.md`; that loads chain file `/repo/foo/AGENTS.md`, which imports `bar/1.md`; `bar/1.md` imports `2.md`, `2.md` imports `3.md`, `3.md` imports `4.md`, `4.md` imports `5.md`, and `5.md` imports `6.md`
 - **THEN** `bar/1.md` through `bar/5.md` load, five hops from the chain file
 - **AND** the marker for `bar/6.md` stays literal
 

@@ -44,14 +44,14 @@ Re-estimate authored size at each layer boundary and before publication; split a
 ## 1. `import-markers/parser`: the marker grammar
 
 - [ ] 1.1 Promote `mdast-util-from-markdown@2.0.2` to an `apps/api` runtime dependency and add
-      a marker module that returns each marker's shape, target, and source offsets for a
-      Markdown string, implementing the `import-markers` requirements (design D1). Verify with
+      a marker module that returns the distinct marker targets of a Markdown string in
+      first-occurrence order, implementing the `import-markers` requirements (design D1). Verify with
       unit tests covering every scenario of the `import-markers` spec, plus a CRLF source,
       an angle-bracket destination containing spaces, `@pkg/__init__.py`,
       `@apps/api/__tests__/x.test.ts`, an escaped `\@`, an entity `&#64;`, `**leo**@example.com`, `see <@a.md> now`,
       `![x](@a.md)`, `[@a.md][r]`, `[r]: @a.md "import"`, a link whose title is `Import`, nested
-      emphasis around a bare marker, an unclosed fence, and a 1 MiB input parsed under the
-      unit-test timeout.
+      emphasis around a bare marker, an unclosed fence, and pathological inputs (repeated
+      `(@`, long punctuation runs, many unbalanced brackets) at 64 KiB complete in linear time.
 - [ ] 1.2 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, `pnpm format:check`,
       `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR body.
@@ -67,8 +67,9 @@ Re-estimate authored size at each layer boundary and before publication; split a
       probe, denied targets sent through the audited `read` path without a filesystem probe
       regardless of existence, admitted-only probing, the skip rules, 5 hops counted from
       the nearest chain file, placement after the importer, `importedBy` in the payload and
-      in the API's exact payload validator, the seen key added before anything else, and
-      fail-closed skipping of any import whose canonical path differs from its resolved path
+      in the API's exact payload validator, an in-progress key added before descending and
+      an epoch seen key added only when the import loads, and fail-closed skipping of any import
+      whose canonical path differs from its resolved path
       until `import-admission` lands (design D2, D3). Verify with producer tests, including
       a symlinked import skipped as denied, a rejected existing and missing target reporting
       identically as denied after silent pre-evaluation without a probe, an admitted missing
@@ -81,8 +82,10 @@ Re-estimate authored size at each layer boundary and before publication; split a
       the proposal's acceptance examples: `/repo/AGENTS.md` importing `@foo/doc.md` yields
       `/repo/AGENTS.md`, `/repo/foo/doc.md`, `/repo/foo/AGENTS.md` (a chain file, no
       `imported-by`), `foo/doc.md`'s `@AGENTS.md` stays literal, a direct `@foo/AGENTS.md`
-      loads once as an import, a cross-directory import chain restarts its hop count, and a
-      later epoch after compaction reloads imports.
+      loads once as an import, an ordinary import crossing a directory keeps consuming hops
+      (a sixth import across directories stays literal), and only a chain file loaded through
+      an import's directory trigger restarts at hop zero; a later epoch after compaction
+      reloads imports.
 - [ ] 2.3 Render the `imported-by` block attribute and the inherited-scope clause in
       `apps/api/src/prompts/instructions.md`; render imports under their importer in the
       instructions chip and accept `importedBy` in the web history validator. Verify the
