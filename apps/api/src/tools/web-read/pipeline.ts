@@ -584,7 +584,8 @@ function parseWebDocument(html: string, baseHref: string): ParsedWebDocument {
   return { document, bodyHtml: document.body.innerHTML };
 }
 
-function convertToMarkdown(html: string): string {
+/** Converts an HTML fragment to Markdown the way the Readability render does. */
+export function convertToMarkdown(html: string): string {
   const service = new TurndownService({
     headingStyle: 'atx',
     codeBlockStyle: 'fenced',

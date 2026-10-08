@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `stackexchange` web adapter. With
+  `{ "id": "stackexchange", "use": "stackexchange" }` in `tools.webAdapters`,
+  `read` renders Stack Overflow and other Stack Exchange question and answer
+  links, which the sites answer with a bot challenge, as the question and up to
+  100 answers (accepted first) through the keyless Stack Exchange API.
 - Added a native `arxiv` web adapter. With `{ "id": "arxiv", "use": "arxiv" }`
   in `tools.webAdapters`, `read` turns arXiv `abs`, `pdf`, and `html` links
   into the paper's full text from its HTML rendering, with math as LaTeX, and

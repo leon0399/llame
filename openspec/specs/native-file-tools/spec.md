@@ -1931,8 +1931,8 @@ address resolution and pinning, 10-second header bound, 30-second call bound,
 5 MiB per-response body bound, and redirect rules as the generic web path.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
-credential, and the Bluesky, npm, Hugging Face, and arXiv adapters SHALL send
-none; the GitHub token SHALL be
+credential, and the Bluesky, npm, Hugging Face, arXiv, and Stack Exchange
+adapters SHALL send none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1956,8 +1956,8 @@ adapter outcome SHALL declare the media type of its document so the
 representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
-sources use; the Bluesky, npm, and Hugging Face adapters label their renders
-`text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
+sources use; the Bluesky, npm, Hugging Face, and Stack Exchange adapters label
+their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2448,6 +2448,35 @@ SHALL fall through. A render the quality gate rejects SHALL fall through as
 
 - **WHEN** `https://arxiv.org/html/{id}` answers 404
 - **THEN** the abstract page renders with the note `full text omitted: status`
+
+### Requirement: Stack Exchange native adapter reads question threads
+
+A configured `stackexchange` adapter SHALL claim only HTTPS locators on
+`stackoverflow.com`, `superuser.com`, `serverfault.com`, `askubuntu.com`,
+`mathoverflow.net`, or a single-label `{site}.stackexchange.com` host (each
+optionally prefixed `www.`) whose path is `/questions/{id}`,
+`/questions/{id}/{slug}`, `/q/{id}`, `/q/{id}/{user}`, `/a/{id}`, or
+`/a/{id}/{user}`; every other path SHALL be unclaimed. The adapter SHALL send
+only unauthenticated `GET` requests to `https://api.stackexchange.com/2.3/`
+with the host's `site` parameter: for an `/a/` link `answers/{id}` to find its
+question, then `questions/{id}` with `filter=withbody`, then
+`questions/{id}/answers` with `filter=withbody&sort=votes&order=desc&pagesize=100`.
+
+The render SHALL be `# {title}` with HTML entities decoded, `Score`/`Answers`
+/`Views`, `Tags`, `Asked`, `Closed` when closed, `License`, and `URL` lines,
+`## Question` with the body converted to Markdown, then each answer separated
+by a `---` line as `## Answer · {i}/{n} — [accepted · ]score {score} — {author}`,
+its body, and `Source:` and `Date:` lines, the accepted answer first. A failed
+or unparsable question request SHALL fall through, and a response with no
+question SHALL fall through as `empty`; a failed answers request SHALL keep
+the question with an `answers omitted: {category}` note, and more than 100
+answers SHALL add `answers truncated: the first 100 by score`.
+
+#### Scenario: A Stack Overflow link renders the thread
+
+- **WHEN** the model reads `https://stackoverflow.com/questions/11227809`
+- **THEN** the adapter requests the question and its answers from `api.stackexchange.com`
+- **AND** the accepted answer is `## Answer · 1/{n}` and every answer has `Source:` and `Date:` lines
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 

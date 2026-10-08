@@ -92,7 +92,7 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
-`github`, `bluesky`, `npm`, `huggingface`, or `arxiv` entry. What an adapter does to a result — its
+`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, or `stackexchange` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -308,6 +308,27 @@ one request, or two on that fallback. With a domain allowlist, a clause for
 their own: with only `^https://arxiv\.org/abs/`, the HTML request is refused,
 so every read degrades to the abstract with `full text omitted: permission`;
 with neither path admitted, the read falls through with `permission`.
+
+### Stack Exchange adapter
+
+Add a `stackexchange` entry to read Stack Overflow and other Stack Exchange
+questions, which the sites answer with a bot challenge:
+
+```jsonc
+{ "id": "stackexchange", "use": "stackexchange" }
+```
+
+The entry takes no other field and sends no credential. It claims
+`/questions/{id}[/{slug}]`, `/q/{id}[/{user}]`, and `/a/{id}[/{user}]` on
+`stackoverflow.com`, `superuser.com`, `serverfault.com`, `askubuntu.com`,
+`mathoverflow.net`, and single-label `{site}.stackexchange.com` hosts; tag,
+user, and listing pages and meta sites stay on the generic ladder. A read
+requests the question and then up to 100 answers by score from
+`https://api.stackexchange.com/2.3/` (an `/a/` link first looks up its
+question), so it costs two or three requests. Keyless use shares a quota of
+300 requests per day per IP address; once it is spent, reads fall through
+with `status` or `rate_limit` until it resets. With a domain allowlist, add a
+clause for `^https://api\.stackexchange\.com/`.
 
 ## Derived locators and permission admission
 
