@@ -48,7 +48,8 @@ Re-estimate authored size at each layer boundary and before publication; split a
       Markdown string, implementing the `import-markers` requirements (design D1). Verify with
       unit tests covering every scenario of the `import-markers` spec, plus a CRLF source,
       an angle-bracket destination containing spaces, `@pkg/__init__.py`,
-      `@apps/api/__tests__/x.test.ts`, an escaped `\@`, an entity `&#64;`, `**leo**@example.com`, a link whose title is `Import`, nested
+      `@apps/api/__tests__/x.test.ts`, an escaped `\@`, an entity `&#64;`, `**leo**@example.com`, `see <@a.md> now`,
+      `![x](@a.md)`, `[@a.md][r]`, `[r]: @a.md "import"`, a link whose title is `Import`, nested
       emphasis around a bare marker, an unclosed fence, and a 1 MiB input parsed under the
       unit-test timeout.
 - [ ] 1.2 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, `pnpm format:check`,
@@ -64,8 +65,10 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [ ] 2.1 Extend the bundle collector to expand markers in each loaded body: same-store
       resolution, `~/` expanded with the worker home directory, probing without decision or
       audit, the skip rules, 5 hops counted from the nearest chain file, placement after the
-      importer, `importedBy` in the payload, and the seen key added before anything else
-      (design D2). Verify with producer tests for the `instruction-files` scenarios on
+      importer, `importedBy` in the payload and in the API's exact payload validator, the seen
+      key added before anything else, and fail-closed skipping of any import whose canonical
+      path differs from its resolved path until `import-admission` lands (design D2, D3).
+      Verify with producer tests, including a symlinked import skipped as denied, for the `instruction-files` scenarios on
       chains, cycles, the six-hop chain, a missing target with no audit event, a selector-
       bearing target left literal, a host importer's web and `kb://` targets staying literal,
       and a Knowledge importer staying in its Space.
@@ -97,13 +100,17 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 - [ ] 3.1 Add an `admitCanonical` capability to the in-Run attempt and accepted-turn contexts
       that evaluates the `read` group against an import's canonical path and records the
-      result as a derived `canonical` decision on the import's first page call (design D3).
+      result as a derived `canonical` decision on the import's first page call, replacing the
+      fail-closed skip from 2.1; add a per-call derived-decision sink and a `derivedDecisions`
+      field to the system read completion so accepted-turn pages record it too (design D3).
       Verify that a canonical reject denies an import whose resolved path is allowed
       (requested and completed, no started, chip marks it denied), that `bypass` admits and
       records both decisions, that an import whose canonical path equals its resolved path
       gets no extra decision, and that chain candidates keep their single evaluation.
-- [ ] 3.2 Update `docs/product/reference/instruction-files.md` and
-      `docs/product/operator/native-files.md` for the canonical rule and add a dated
+- [ ] 3.2 Update `docs/product/reference/instruction-files.md`,
+      `docs/product/operator/native-files.md`, `docs/product/reference/permission-modes.md`
+      (bypass admits and records the new evaluation), and the bypass section of
+      `docs/product/operator/tool-call-permissions.md` for the canonical rule and add a dated
       `CHANGELOG.md` entry. Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`,
       the focused integration files touched above, `pnpm format:check`, `pnpm lint:markdown`,
       `git diff --check`, and `pnpm exec openspec validate import-markers --strict`; record
@@ -141,27 +148,35 @@ Re-estimate authored size at each layer boundary and before publication; split a
       after reconstruction from the event log, or after recovery, and the producer-order
       scenario of `context-injection`.
 - [ ] 5.2 Add the prompt-import stage after the binding re-check and explicit activation,
-      skipped on a detaching attempt: resolution against the bound Workspace, the 64-marker
+      skipped on a detaching attempt through a new `detaching` flag on the Workspace
+      preparation result: resolution against the bound Workspace, the 64-marker
       probe cap, the literal-path-first probe, one `read` per distinct target with
       selectors, the 8-target, 128 KiB, and 30 s bounds, and one persisted `prompt-imports`
       item with its template, precedence statement, neutralization, not-imported lines, and
       per-target `admitted` and resolved path (design D6, D7). Verify the `prompt-imports`
-      scenarios, including the `@README.md:30-35` and `:outline` examples against a scripted
-      web fixture, nine prose tokens listing nothing as omitted, `ping @leo` and an e-mail
+      scenarios except those of _Admitted local imports trigger instruction loading_, the
+      unbound-Chat trigger scenarios, and the chip and isolation scenarios (layers 6 and 7),
+      including the `@README.md:30-35` and `:outline` examples against a scripted
+      web fixture, nine prose tokens listing nothing as omitted, a 65th marker neither probed
+      nor listed, an unprobed token dropped silently when the work bound fires, `ping @leo` and an e-mail
       address recording no audit event, a host target with no native executor staying prose,
-      a denied read named as not imported, and a detaching attempt importing nothing.
-- [ ] 5.3 Add a derived-decision sink to the system read path so every derived web decision
-      of a `prompt-import` read is recorded in its completion audit (design D6). Verify a
+      a denied read named as not imported, a detaching attempt importing nothing, and a
+      detaching retry replaying an earlier attempt's persisted item without new reads.
+- [ ] 5.3 Route `prompt-import` web reads through the system-read derived-decision sink added
+      in 3.1, so every derived web decision is recorded in its completion audit (design D6). Verify a
       redirected web import records each hop decision, in `default` and in `bypass`.
 - [ ] 5.4 Persist and recover through a repository mirroring the activation parts
       repository, so a retry or worker resumption reuses completed results and gives
       unfinished targets a fresh admission and read (design D6). Verify with an integration
       test that fails an attempt after persistence and observes no second read on retry, and
       one that resumes a started but unfinished read.
-- [ ] 5.5 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused
-      integration files touched above, `pnpm format:check`, `pnpm lint:markdown`,
-      `git diff --check`, and `pnpm exec openspec validate import-markers --strict`; add a
-      dated `CHANGELOG.md` entry; record the commands in the PR body.
+- [ ] 5.5 Add `docs/product/reference/prompt-imports.md`, link it from
+      `docs/product/reference/index.md` and `docs/product/reference/tools/read.md`, update the
+      `SPEC.md` context-rail lines, and add a dated `CHANGELOG.md` entry. Run
+      `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused integration
+      files touched above, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`, and
+      `pnpm exec openspec validate import-markers --strict`; record the commands in the PR
+      body.
 - [ ] 5.6 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 5.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
@@ -178,11 +193,13 @@ Re-estimate authored size at each layer boundary and before publication; split a
 - [ ] 6.2 Derive prompt-import triggers from the persisted item's admitted targets and their
       resolved paths and pass them to the accepted-turn load (design D4). Verify that a
       prompt import under `apps/api` stages `apps/api/AGENTS.md` before the first model
-      request, that an admitted import whose read failed still triggers, that a retry
-      stages the same load after the binding changed, that denied, missing, web, and
+      request, that an admitted import whose read failed still triggers, that a non-detaching
+      retry stages the same load after the binding switched, that a detaching retry stages
+      none, that denied, missing, web, and
       `skill://` targets stage none, and that a prompt import of an instruction file does
       not by itself load it.
-- [ ] 6.3 Update `docs/product/reference/instruction-files.md` for prompt-import triggers and
+- [ ] 6.3 Update `docs/product/reference/instruction-files.md` and
+      `docs/product/reference/prompt-imports.md` for prompt-import triggers and
       add a dated `CHANGELOG.md` entry. Run `pnpm --filter api lint`, `typecheck`, and
       `test:coverage`, the focused integration files touched above, `pnpm format:check`,
       `pnpm lint:markdown`, `git diff --check`, and
@@ -202,9 +219,8 @@ Re-estimate authored size at each layer boundary and before publication; split a
       API; public shares, transcript exports, and search projections expose neither text nor
       metadata; a `kb://` target naming another owner's Space imports nothing and records no
       audit event.
-- [ ] 7.3 Add `docs/product/reference/prompt-imports.md`, link it from
-      `docs/product/reference/index.md` and `docs/product/reference/tools/read.md`, update the
-      `SPEC.md` context-rail lines, and add a dated `CHANGELOG.md` entry. Run
+- [ ] 7.3 Extend `docs/product/reference/prompt-imports.md` with the owner chip and its
+      visibility, and add a dated `CHANGELOG.md` entry. Run
       `pnpm --filter web lint` and `typecheck`, the Storybook tests, the integration files
       touched above, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR

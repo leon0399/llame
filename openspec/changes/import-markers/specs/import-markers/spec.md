@@ -6,7 +6,7 @@ This capability defines the shared Markdown import-marker grammar and source-pre
 
 ### Requirement: Markdown text recognizes only the three import marker shapes
 
-The system SHALL recognize import markers in ordinary Markdown source only in these shapes: `@target`, `@[label](target)`, and `[label](target "import")`, where the link title is exactly `import`. Bare-marker boundaries and tokens SHALL be measured on source characters, not parsed text. A backslash-escaped `\@`, entity `&#64;`, and marker-shaped text inside fenced code, inline code, raw HTML, or other link syntax SHALL not be markers; the two explicit link shapes remain the only link markers.
+The system SHALL recognize import markers in ordinary Markdown source only as `@target`, `@[label](target)`, or `[label](target "import")` with exactly `import` as the title. Boundaries and tokens SHALL use source characters. Source ranges of fenced code, inline code, raw HTML, images, image references, links, link references, and link reference definitions SHALL be excluded; only the two explicit link shapes are exceptions. Escaped `\@` and `&#64;` SHALL not be markers.
 
 #### Scenario: An email address is not a marker
 
@@ -28,9 +28,24 @@ The system SHALL recognize import markers in ordinary Markdown source only in th
 - **WHEN** raw HTML contains `@README.md`
 - **THEN** no import marker is recognized
 
+#### Scenario: An image destination does not create a marker
+
+- **WHEN** the text contains `![x](@a.md)`
+- **THEN** no import marker is recognized
+
+#### Scenario: A link reference does not create a marker
+
+- **WHEN** the text contains `[@a.md][r]`
+- **THEN** no import marker is recognized
+
+#### Scenario: A link reference definition does not create a marker
+
+- **WHEN** the text contains `[r]: @a.md "import"`
+- **THEN** no import marker is recognized
+
 ### Requirement: Bare markers obey boundary, token, and selector rules
 
-A bare `@target` SHALL start only when the source character before `@` is the start of a line or block, whitespace, or one of `(`, `[`, `{`, `<`, `"`, and `'`; the boundary SHALL be tested on source characters, not parsed text. Its target SHALL run to the next whitespace in source, after which trailing `.,;!?)]}"'` and one trailing bare `:` SHALL be removed; selector suffixes such as `:30-35`, `:outline`, and `:raw` SHALL remain part of the target.
+A bare `@target` SHALL start only when the source character before `@` is the start of a line or block, whitespace, or one of `(`, `[`, `{`, `<`, `"`, and `'`; the boundary SHALL be tested on source characters, not parsed text. Its target SHALL run to the next whitespace in source, after which trailing `.,;!?)]}>"'` and one trailing bare `:` SHALL be removed; selector suffixes such as `:30-35`, `:outline`, and `:raw` SHALL remain part of the target.
 
 #### Scenario: Sentence punctuation is excluded from a bare target
 
@@ -45,6 +60,11 @@ A bare `@target` SHALL start only when the source character before `@` is the st
 #### Scenario: An opening parenthesis provides a marker boundary
 
 - **WHEN** the text contains `(@a.md)`
+- **THEN** the marker target is `a.md`
+
+#### Scenario: A closing angle bracket is excluded from a bare target
+
+- **WHEN** the text says `see <@a.md> now`
 - **THEN** the marker target is `a.md`
 
 #### Scenario: Formatting does not create a marker boundary
@@ -75,7 +95,7 @@ A bare `@target` SHALL start only when the source character before `@` is the st
 
 ### Requirement: Link markers require the import title and a valid at-sign boundary
 
-The system SHALL recognize `@[label](target)` only when its `@` is at a bare-marker boundary, and SHALL recognize `[label](target "import")` only when the title is exactly `import`. A plain link without that title, and other marker-shaped text inside link syntax, SHALL not be import markers.
+The system SHALL recognize `@[label](target)` only when its `@` is at a bare-marker boundary, and SHALL recognize `[label](target "import")` only when the title is exactly `import`. A plain link without that title, an image, image reference, link reference, link reference definition, or other marker-shaped text inside link syntax SHALL not be import markers.
 
 #### Scenario: A plain Markdown link is not an import marker
 

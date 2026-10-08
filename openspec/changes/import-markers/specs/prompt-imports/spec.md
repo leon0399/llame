@@ -157,7 +157,7 @@ Before the Run's first model request, the triggering message SHALL persist one `
 
 ### Requirement: Prompt-import work has bounded targets, output, and time
 
-Prompt imports SHALL probe distinct markers in first-occurrence order before the count bound and consider at most 64 markers per message. Only probe survivors or no-probe `skill://`/web targets count toward 8 targets. Markers beyond 64 SHALL not be probed and SHALL remain prose. Aggregate output SHALL be capped at 128 KiB and work at 30 seconds or the remaining Run deadline. Targets beyond the 8-target, output, or work bound SHALL be listed once as omitted and not read; probes count toward work.
+Prompt imports SHALL consider at most 64 markers in first-occurrence order. Probed survivors and no-probe `skill://`/web targets count toward 8 targets. Output SHALL be capped at 128 KiB; work at 30 seconds or remaining Run deadline. Targets beyond the 8-target or output bound SHALL be listed as omitted. When work ends, only probed survivors or no-probe targets SHALL be listed as omitted; unprobed host or Knowledge targets SHALL be dropped silently. Probes count toward work.
 
 #### Scenario: Targets beyond the count bound are omitted
 
@@ -169,7 +169,20 @@ Prompt imports SHALL probe distinct markers in first-occurrence order before the
 
 - **WHEN** the serialized item would exceed 128 KiB, 30 seconds of work elapse, or the Run deadline arrives
 - **THEN** further targets are not read or probed
-- **AND** each target skipped by the bound is listed once as omitted
+- **AND** targets skipped by the output bound, or targets that survived probing or needed no probe when the work bound fires, are listed once as omitted
+- **AND** unprobed host or Knowledge targets skipped by the work bound are dropped silently and may remain prose
+
+#### Scenario: Markers beyond the count bound stay prose
+
+- **WHEN** a prompt contains 65 distinct markers in first-occurrence order
+- **THEN** only the first 64 markers are considered for probing
+- **AND** the 65th marker is neither probed nor listed as omitted and remains prose
+
+#### Scenario: An unprobed work-bound target is not omitted
+
+- **WHEN** the work bound fires before `@leo` is probed
+- **THEN** `@leo` is neither probed nor read
+- **AND** it is not listed as omitted and may remain prose
 
 #### Scenario: Unresolved prose markers are not omitted
 
@@ -233,7 +246,7 @@ An admitted host-path or `kb://` prompt import SHALL trigger its target director
 
 ### Requirement: Prompt imports respect attempt gates and detachment
 
-Prompt imports SHALL run after the attempt's Workspace binding re-check and any detach, and after explicit skill activation. A detaching attempt SHALL perform no prompt imports. A host-path trigger SHALL require `read` to be allowlisted and a native executor; a `kb://` trigger SHALL require `read` to be allowlisted and a Knowledge root. These triggers SHALL not require a Workspace binding.
+Prompt imports SHALL run after the attempt's Workspace binding re-check and any detach, and after explicit skill activation. A detaching attempt SHALL perform no new prompt imports and SHALL stage no prompt-import instruction triggers. A host-path trigger SHALL require `read` to be allowlisted and a native executor; a `kb://` trigger SHALL require `read` to be allowlisted and a Knowledge root. These triggers SHALL not require a Workspace binding.
 
 #### Scenario: An unbound Chat imports an absolute host file
 
@@ -247,11 +260,17 @@ Prompt imports SHALL run after the attempt's Workspace binding re-check and any 
 - **THEN** that Space's instruction chain loads on that accepted turn
 - **AND** no native executor is required for the Knowledge trigger
 
-#### Scenario: A detaching attempt skips prompt imports
+#### Scenario: A detaching attempt without a persisted item skips prompt imports
 
-- **WHEN** the Workspace binding re-check detaches the binding before prompt-import processing
+- **WHEN** the Workspace binding re-check detaches the binding before prompt-import processing and no `prompt-imports` item from an earlier attempt is persisted
 - **THEN** the attempt performs no prompt imports and marker text remains prose for that attempt
-- **AND** no `$skill` activation occurs
+- **AND** no prompt-import instruction trigger is staged
+
+#### Scenario: A persisted item replays when retry detaches
+
+- **WHEN** a prior attempt persisted a `prompt-imports` item and a retry detaches the Workspace before prompt-import processing
+- **THEN** the persisted item replays unchanged as stored text on the user message
+- **AND** the retry performs no new prompt-import reads, removes no persisted item, and stages no prompt-import instruction trigger
 
 ### Requirement: Skill prompt targets are data reads
 

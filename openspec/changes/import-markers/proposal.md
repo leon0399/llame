@@ -158,7 +158,8 @@ and round-1 review found the turn-load and admission work larger than first esti
   chip validation tests.
 - Docs: `docs/product/reference/instruction-files.md`, `docs/product/reference/tools/read.md`,
   a new `docs/product/reference/prompt-imports.md`, `docs/product/reference/index.md`,
-  `docs/product/operator/skills.md`, `docs/product/reference/locators/skill.md`, `SPEC.md`'s
+  `docs/product/operator/skills.md`, `docs/product/reference/locators/skill.md`,
+  `docs/product/reference/permission-modes.md`, `docs/product/operator/tool-call-permissions.md`, `SPEC.md`'s
   context-rail lines, `CHANGELOG.md`.
 - No schema change, no migration, no OpenAPI change: tool-event origins live in JSONB
   payloads, and context-item payloads are already open `data-context` parts.

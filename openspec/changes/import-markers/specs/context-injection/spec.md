@@ -95,7 +95,7 @@ Activation items SHALL use the existing canonical envelope, provenance, owner vi
 
 ### Requirement: Workspace binding changes are rail-resident context items
 
-Before resolving effective skill sources, explicit `$skill` activation, prompt imports, Workspace MCP clients or catalog, the `workspace` producer's items, or the accepted-turn `instructions` load, attempt preparation SHALL finish the Workspace binding re-check and any detach. A detaching attempt SHALL contribute no Workspace skill activation, `skill://` resolution, prompt imports, Workspace tools, or accepted-turn `instructions` item and SHALL still narrate the detach. Prompt-import markers SHALL remain prose for that attempt. Skill-catalog baseline content already frozen at acceptance in the accepted-turn transaction before worker preparation MAY still list Workspace skills for that attempt; the next accepted turn's skill-catalog notice SHALL remove them.
+Before resolving effective skill sources, explicit `$skill` activation, prompt imports, Workspace MCP clients or catalog, the `workspace` producer's items, or the accepted-turn `instructions` load, attempt preparation SHALL finish the Workspace binding re-check and any detach. A detaching attempt SHALL contribute no Workspace skill activation, `skill://` resolution, prompt imports, Workspace tools, or accepted-turn `instructions` item, SHALL stage no prompt-import instruction triggers, and SHALL still narrate the detach. When no `prompt-imports` item from an earlier attempt of the Run is persisted, prompt-import markers SHALL remain prose for that attempt. A `prompt-imports` item persisted by an earlier attempt of the Run SHALL remain on the user message and replay unchanged as stored text, without being re-read or removed; a non-detaching retry SHALL rebuild prompt-import triggers from its persisted resolved paths. Skill-catalog baseline content already frozen at acceptance in the accepted-turn transaction before worker preparation MAY still list Workspace skills for that attempt; the next accepted turn's skill-catalog notice SHALL remove them.
 
 At each accepted user turn, accepted-turn preparation SHALL compare the Chat's current Workspace
 root, or its absence, with the root last narrated to the Chat, or the absence of any narration. For
@@ -172,8 +172,14 @@ in its owner-scoped Run context-item record under the existing recording rules.
 - **AND** its skill-catalog baseline content already frozen at acceptance MAY still list Workspace skills, while the next accepted turn's skill-catalog notice removes them
 - **AND** it always emits the separate detach `notice`, while the snapshot stating that no Workspace is entered is emitted only when `workspace_told` names a root
 
-#### Scenario: Detaching attempt leaves prompt imports as prose
+#### Scenario: Detaching attempt without a persisted item leaves markers as prose
 
-- **WHEN** attempt preparation detaches a Workspace binding before prompt imports run and the user text contains an import marker
-- **THEN** no prompt import is produced for that attempt
-- **AND** the marker remains prose while the detach is narrated
+- **WHEN** attempt preparation detaches a Workspace binding before prompt imports run, the user text contains an import marker, and no `prompt-imports` item from an earlier attempt of the Run is persisted
+- **THEN** no prompt import is produced for that attempt and no prompt-import instruction trigger is staged
+- **AND** the marker remains prose for that attempt
+
+#### Scenario: A persisted prompt-imports item replays on a detaching retry
+
+- **WHEN** an earlier attempt persisted a `prompt-imports` item and a retry detaches before prompt imports run
+- **THEN** the item remains on the user message and replays unchanged as stored text, without being re-read or removed
+- **AND** no new prompt imports occur and no prompt-import instruction triggers are staged

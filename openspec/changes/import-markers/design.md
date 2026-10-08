@@ -66,7 +66,8 @@ The marker module parses text into a CommonMark tree once and uses it for two th
 link markers and excluded ranges. `[label](target "import")` is a `link` whose `title` is
 exactly `import`; `@[label](target)` is a `link` whose source is immediately preceded by an
 `@` that sits at a marker boundary in the source. The source ranges of `code`, `inlineCode`,
-`html`, and every `link` are excluded from the bare scan.
+`html`, `link`, `image`, `imageReference`, `linkReference`, and `definition` nodes are
+excluded from the bare scan, so `![x](@a.md)`, `[@a.md][r]`, and `[r]: @a.md` are not markers.
 
 Bare `@target` markers are scanned over the raw source outside the excluded ranges, with
 the boundary and token rules from the `import-markers` spec applied to source characters.
@@ -138,7 +139,17 @@ still runs. `bypass` admits both and records both, as for every other named eval
 `tool-call-permissions` names this as an exception to submitted-argument matching.
 
 The collector holds only a page reader today, so the attempt and turn contexts gain an
-`admitCanonical` capability that attaches the derived decision to the next page call.
+`admitCanonical` capability that attaches the derived decision to the next page call. The
+decision follows the ordinary derived-decision rule: it is recorded beside the call decision
+in the completion payload when the call settles. In-Run pages already settle through the
+model-call path that carries derived decisions (`run-execution.service.ts:1218-1282`); the
+accepted-turn page reader and `recordSystemReadCompletion` (`:2537-2553`) carry none today,
+so the `import-admission` layer adds a per-call derived-decision sink to the system read
+path, which the `prompt-imports` layer then reuses for web hops.
+
+Until that layer lands, `instruction-imports` fails closed: an import whose probed canonical
+path differs from its resolved path is skipped as denied, so no layer ever injects a
+symlinked target without the canonical evaluation.
 
 Prompt imports and skill imports skip this evaluation and keep exact parity with a `read`
 of the same locator. For skill imports this also keeps `agent-skills`' rule that skill
@@ -186,7 +197,12 @@ item's existing bounded notice. Skill imports never trigger instruction chains.
 `activateMentionedSkills` (`:881`), which already runs after the attempt's Workspace
 binding re-check, with the same inputs: the stored user text from `partsToText`, the system
 read context, the Workspace root cell, the effective permission mode, and the native
-delivery sequence. A detaching attempt skips the step, as it skips activation. For the
+delivery sequence. A detaching attempt skips the step. `prepareWorkspace` returns no
+detaching signal today (`:2121-2173`), and the persisted detach reason outlives the attempt,
+so `WorkspacePreparation` gains a `detaching` flag set only on the detach branch. A
+`prompt-imports` item persisted by an earlier attempt still replays as stored text on a
+detaching retry, but that attempt stages none of its instruction triggers, consistent with
+the detaching attempt staging no accepted-turn `instructions` item. For the
 first 64 distinct marker targets in first-occurrence order (later markers stay prose and
 are not probed):
 
@@ -222,8 +238,10 @@ so the item sits before the owner's text, after `skill-activation` in producer o
 At most 64 distinct markers are probed. Of the targets that survive the probe, or have no
 probe (`skill://`, web), at most 8 are read; the item's serialized output is capped at
 128 KiB; total work, probes included, is capped at 30 s and by the Run deadline. Targets
-beyond the 8-target, output, or work bound are listed once as omitted, not read; prose
-tokens that fail the probe are never listed. Each individual result keeps `read`'s own
+beyond the 8-target, output, or work bound are listed once as omitted, not read, but only
+when they survived the probe or need none; a host or Knowledge target still unprobed when
+the work bound fires is dropped silently, because it may be prose, and prose tokens that
+fail the probe are never listed. Each individual result keeps `read`'s own
 truncation.
 
 Rejected: no bounds, as in every reference harness. A pasted log with hundreds of `@`
@@ -268,7 +286,10 @@ payloads.
 
 No data migration. Rollback is a revert: existing `instructions` items without `importedBy`
 and user messages without `prompt-imports` items render as before, and stored items with the
-new fields still replay from their stored text.
+new fields still replay from their stored text. One consequence is visible: the API's exact
+payload validator (`instructions-item.ts:86-94`) rejects a bundle whose files carry
+`importedBy`, so after a revert every file in such a bundle drops out of the seen set and
+reloads on its next trigger within the same epoch, a one-time duplicate injection.
 
 ## Open Questions
 
