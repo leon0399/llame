@@ -133,7 +133,8 @@ Re-estimate authored size at each layer boundary and before publication; split a
       directory as `skill://<name>/<relative path>:raw` reads with origin `skill-activation`
       and proactive-read admission, 5 hops, and the literal rules; render imported files after the body
       in the same activation item and count them against the activation output and work bounds, naming
-      overflow in the existing bounded notice (design D5). Verify the `agent-skills` and
+      overflow in the existing bounded notice, which lists at most eight omitted import locators,
+      each shortened to at most 256 characters, and counts the rest (design D5). Verify the `agent-skills` and
       `context-injection` activation scenarios, that a skill import triggers no instruction
       load, and that recovery replays a completed activation with its imports unchanged.
 - [ ] 4.2 Update `docs/product/operator/skills.md` and `docs/product/reference/locators/skill.md`

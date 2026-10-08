@@ -193,7 +193,9 @@ Imported bodies render as `<file path="skill://…">` blocks after the instructi
 the same activation item, depth-first, 5 hops, cycles and repeats within one activation
 skipped. They count against the activation's 128 KiB output and 30 s work bounds but not
 its selection count; an import that would exceed a bound is omitted and named in the
-item's existing bounded notice. Skill imports never trigger instruction chains.
+item's existing bounded notice, which lists at most eight omitted import locators, each
+shortened to at most 256 characters, and counts the rest; skill names keep their own
+existing bound. Skill imports never trigger instruction chains.
 
 ### D6: Prompt imports run after the binding re-check and explicit activation
 

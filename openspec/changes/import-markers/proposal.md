@@ -136,7 +136,9 @@ and round-1 review found the turn-load and admission work larger than first esti
   _Workspace binding changes are rail-resident context items_ orders prompt imports after
   the binding re-check and skips them on a detaching attempt.
 - `agent-skills`: _Explicit activation work is bounded before model preparation_ counts
-  imported package files against the existing output and work bounds.
+  imported package files against the existing output and work bounds; the activation
+  omission notice lists at most eight omitted import locators, each shortened to at most
+  256 characters, and counts the rest, while skill names keep their own existing bound.
 - `tool-call-permissions`: the canonical-path evaluation of an instruction import becomes a
   named exception to submitted-argument matching, bypassed and recorded like the other
   named evaluations; the silent pre-evaluation of a prompt or instruction import target

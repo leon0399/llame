@@ -19,7 +19,7 @@ The system SHALL enforce the explicit-selection count, aggregate output, and agg
 
 - **WHEN** an activated instruction imports package files until the aggregate output or work bound is exhausted
 - **THEN** completed imported files remain in the activation item and no further import read starts
-- **AND** one bounded notice names omitted imported targets, listing at most eight with each locator shortened to at most 256 characters and counting the rest, as it already lists skill names up to a bound and counts the rest
+- **AND** one bounded notice names omitted imported targets, listing at most eight with each locator shortened to at most 256 characters; import locators beyond eight are counted, not listed
 
 ## ADDED Requirements
 

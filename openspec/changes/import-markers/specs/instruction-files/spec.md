@@ -6,7 +6,7 @@ Loads instruction files and their same-store imports through existing triggers a
 
 ### Requirement: A host-path trigger loads the chain from the filesystem root down to the touched directory
 
-An entry trigger and a native `read`, `edit`, or `write` whose `path` is a local host filesystem path SHALL each name one directory `D` on the native executor host. A loaded instruction import and an admitted host-path prompt import SHALL each name one directory `D` on the native executor host, where `D` is the parent directory of the import's resolved path. The load SHALL consider every directory from the filesystem root down to `D` inclusive, in that order, and SHALL include ancestors above any Workspace root or repository boundary. `D` SHALL be the canonical Workspace root for an entry trigger; for a file-tool trigger it SHALL be the projected absolute path itself when that path is an existing directory, and otherwise the parent directory of the projected absolute path, whether or not that path exists. The walk SHALL NOT descend into siblings or children of `D`. A trigger whose `path` is a `kb://` locator SHALL NOT walk the host filesystem; it SHALL follow the Knowledge-locator requirement instead.
+An entry trigger and a native `read`, `edit`, or `write` whose `path` is a local host filesystem path SHALL each name one directory `D` on the native executor host. A loaded instruction import and an admitted host-path prompt import SHALL each name one directory `D` on the native executor host, chosen exactly as for a native read of the import's resolved path: the path itself when it is an existing directory, and otherwise its parent directory. The load SHALL consider every directory from the filesystem root down to `D` inclusive, in that order, and SHALL include ancestors above any Workspace root or repository boundary. `D` SHALL be the canonical Workspace root for an entry trigger; for a file-tool trigger it SHALL be the projected absolute path itself when that path is an existing directory, and otherwise the parent directory of the projected absolute path, whether or not that path exists. The walk SHALL NOT descend into siblings or children of `D`. A trigger whose `path` is a `kb://` locator SHALL NOT walk the host filesystem; it SHALL follow the Knowledge-locator requirement instead.
 
 #### Scenario: Entry loads the root and its ancestors
 
@@ -33,6 +33,11 @@ An entry trigger and a native `read`, `edit`, or `write` whose `path` is a local
 
 - **WHEN** a loaded instruction import or an admitted host-path prompt import resolves to `/home/u/repo/apps/api/doc.md` and `/home/u/repo/AGENTS.md` and `/home/u/repo/apps/api/AGENTS.md` exist
 - **THEN** the import names `/home/u/repo/apps/api` as `D` and loads the same chain from the filesystem root down to `D`
+
+#### Scenario: A prompt import of a directory loads that directory's own chain
+
+- **WHEN** an admitted host-path prompt import resolves to the existing directory `/home/u/repo/apps/api` and `/home/u/repo/apps/api/AGENTS.md` exists
+- **THEN** the import names `/home/u/repo/apps/api` itself as `D` and loads that directory's own chain from the filesystem root down to `D`
 
 ### Requirement: A Knowledge locator loads the chain within its Space
 
