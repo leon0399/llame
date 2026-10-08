@@ -32,6 +32,7 @@ import { type PermissionDecision } from '../tools/permissions/types';
 import { runTool } from '../tools/runner';
 import { type Tool, type ToolContext, type ToolResult } from '../tools/types';
 import { type SkillMention } from './skill-mention';
+import { expandSkillImports, type SkillImport } from './skill-imports';
 import { skillInstructionBody } from './skill-package';
 
 /**
@@ -40,6 +41,9 @@ import { skillInstructionBody } from './skill-package';
  * pre-request loading would dominate the turn's cost.
  */
 export const MAX_SKILL_ACTIVATIONS = 8;
+
+/** Longest model-visible locator: scheme, 64-char name, slash, and path. */
+const MAX_SKILL_IMPORT_PATH_LENGTH = 'skill://'.length + 64 + 1 + 1024;
 
 /** Aggregate serialized activation output, envelopes included. */
 export const MAX_SKILL_ACTIVATION_BYTES = 128 * 1024;
@@ -118,14 +122,14 @@ export async function activateSkills(
   const selection = new Set(admitted.map((mention) => mention.name));
 
   const items: Array<AuthoredContextItemPart> = [];
+  const unattemptedImports: Array<string> = [];
   await attemptWithinBudget(
     input,
     { admitted, selection, ceiling: instructionCeiling(input) },
     items,
-    unattempted,
+    { skills: unattempted, imports: unattemptedImports },
   );
-  appendOmissionItem(input.runId, unattempted, items);
-
+  appendOmissionItem(input.runId, unattempted, unattemptedImports, items);
   return { items, selection };
 }
 
@@ -155,9 +159,35 @@ function instructionCeiling(input: ActivationRequest): number {
       ...reserved,
       ...(input.mentions.length > reserved.length ? ['x'] : []),
     ],
+    // Imports are discovered only after an activation succeeds, so reserve
+    // their locator bound up front to keep a later omission notice in bounds.
+    imports: Array.from({ length: MAX_OMISSION_NAMES + 1 }, () =>
+      'x'.repeat(MAX_SKILL_IMPORT_PATH_LENGTH),
+    ),
   });
   return MAX_SKILL_ACTIVATION_BYTES - measureNativeModelOutput(worstCase);
 }
+
+type ActivationAttempt = {
+  readonly item: AuthoredContextItemPart;
+  readonly omittedImports: ReadonlyArray<string>;
+};
+type ActivationBudget = {
+  readonly selection: ReadonlySet<string>;
+  readonly ordinal: number;
+  readonly deadline: number;
+  readonly bytes: number;
+  readonly ceiling: number;
+};
+type ActivationRead = ActivationBudget & {
+  readonly mention: SkillMention;
+  readonly remainingMs: number;
+};
+type ActivationExpansion = {
+  readonly mention: SkillMention;
+  readonly read: SkillReadOutput;
+  readonly instructions: string;
+};
 
 /** What one selection resolved to, from this turn's budget's point of view. */
 type MentionAttempt =
@@ -165,6 +195,7 @@ type MentionAttempt =
       readonly kind: 'item';
       readonly item: AuthoredContextItemPart;
       readonly bytes: number;
+      readonly omittedImports: ReadonlyArray<string>;
     }
   | { readonly kind: 'unattempted' };
 
@@ -185,7 +216,7 @@ async function attemptWithinBudget(
     readonly ceiling: number;
   },
   items: Array<AuthoredContextItemPart>,
-  unattempted: Array<string>,
+  omitted: { readonly skills: Array<string>; readonly imports: Array<string> },
 ): Promise<void> {
   let bytes = 0;
   const deadline = Date.now() + SKILL_ACTIVATION_BUDGET_MS;
@@ -206,41 +237,44 @@ async function attemptWithinBudget(
       mention,
     );
     if (attempt.kind !== 'item') {
-      unattempted.push(mention.name);
+      omitted.skills.push(mention.name);
       continue;
     }
     bytes += attempt.bytes;
+    omitted.imports.push(...attempt.omittedImports);
     items.push(attempt.item);
   }
 }
 
 async function attemptMention(
   input: ActivationRequest,
-  budget: {
-    readonly selection: ReadonlySet<string>;
-    readonly ordinal: number;
-    readonly deadline: number;
-    readonly bytes: number;
-    readonly ceiling: number;
-  },
+  budget: ActivationBudget,
   mention: SkillMention,
 ): Promise<MentionAttempt> {
   const remainingMs = budget.deadline - Date.now();
   if (remainingMs <= 0) return { kind: 'unattempted' };
-  const item = await attemptActivation(input, {
+  const activation = await attemptActivation(input, {
     mention,
     selection: budget.selection,
     remainingMs,
+    deadline: budget.deadline,
     ordinal: budget.ordinal,
+    bytes: budget.bytes,
+    ceiling: budget.ceiling,
   });
-  const bytes = measureNativeModelOutput(item);
+  const bytes = measureNativeModelOutput(activation.item);
   return budget.bytes + bytes > budget.ceiling
     ? { kind: 'unattempted' }
-    : { kind: 'item', item, bytes };
+    : {
+        kind: 'item',
+        item: activation.item,
+        bytes,
+        omittedImports: activation.omittedImports,
+      };
 }
 
 /**
- * The single bounded item naming every unattempted selection.
+ * The single bounded item naming every unattempted selection and import.
  *
  * Always emitted when anything went unattempted: the instruction ceiling
  * already reserved this notice's worst case, so the item reporting the
@@ -249,10 +283,17 @@ async function attemptMention(
 function appendOmissionItem(
   runId: string,
   unattempted: ReadonlyArray<string>,
+  unattemptedImports: ReadonlyArray<string>,
   items: Array<AuthoredContextItemPart>,
 ): void {
-  if (unattempted.length === 0) return;
-  items.push(createSkillActivationOmissionItem({ runId, skills: unattempted }));
+  if (unattempted.length === 0 && unattemptedImports.length === 0) return;
+  items.push(
+    createSkillActivationOmissionItem({
+      runId,
+      skills: unattempted,
+      ...(unattemptedImports.length > 0 && { imports: unattemptedImports }),
+    }),
+  );
 }
 
 /**
@@ -265,26 +306,78 @@ function appendOmissionItem(
  */
 async function attemptActivation(
   input: ActivationRequest,
-  one: {
-    readonly mention: SkillMention;
-    readonly selection: ReadonlySet<string>;
-    readonly remainingMs: number;
-    readonly ordinal: number;
-  },
-): Promise<AuthoredContextItemPart> {
-  const { mention, selection, remainingMs, ordinal } = one;
-  // The durable identity of this activation is `(Run, mention ordinal)`, so a
-  // recovery of the same Run addresses the same read.
-  const toolCallId = `skill-activation-${input.runId}-${ordinal}`;
+  one: ActivationRead,
+): Promise<ActivationAttempt> {
+  const { mention } = one;
+  const result = await readActivation(input, one);
+  const read = readSkillReadOutput(result);
+  if (read === undefined) {
+    return {
+      item: failureItem(input.runId, mention.name, failureReason(result)),
+      omittedImports: [],
+    };
+  }
+  const instructions = skillInstructionBody(read.content);
+  return expandActivationImports(input, one, {
+    mention,
+    read,
+    instructions,
+  });
+}
+
+async function expandActivationImports(
+  input: ActivationRequest,
+  one: ActivationRead,
+  activation: ActivationExpansion,
+): Promise<ActivationAttempt> {
+  const createItem = (imports: ReadonlyArray<SkillImport>) =>
+    createActivationFromRead(
+      { runId: input.runId, skill: activation.mention.name },
+      activation.read,
+      activation.instructions,
+      imports,
+    );
+  const expansion = await expandSkillImports({
+    skill: activation.mention.name,
+    runId: input.runId,
+    mentionOrdinal: one.ordinal,
+    body: activation.instructions,
+    selection: one.selection,
+    toolContext: input.toolContext,
+    readTool: input.readTool,
+    callTimeoutSeconds: input.callTimeoutSeconds,
+    deadline: one.deadline,
+    activity: input.activity,
+    canAccept: (imports) =>
+      one.bytes + measureNativeModelOutput(createItem(imports)) <= one.ceiling,
+  });
+  return {
+    item: createItem(expansion.imports),
+    omittedImports: expansion.omitted,
+  };
+}
+
+async function readActivation(
+  input: ActivationRequest,
+  activation: ActivationRead,
+): Promise<ToolResult> {
+  const toolCallId = `skill-activation-${input.runId}-${activation.ordinal}`;
   const result = await runTool(
     input.readTool,
-    { path: `skill://${mention.name}:raw` },
-    { ...readContext(input.toolContext, selection, remainingMs), toolCallId },
+    { path: `skill://${activation.mention.name}:raw` },
+    {
+      ...readContext(
+        input.toolContext,
+        activation.selection,
+        activation.remainingMs,
+      ),
+      toolCallId,
+    },
     input.callTimeoutSeconds,
     (decision) => input.activity.admitted(toolCallId, decision),
   );
   await input.activity.completed(toolCallId, result);
-  return activationItem(input.runId, mention.name, result);
+  return result;
 }
 
 /**
@@ -315,30 +408,22 @@ function readContext(
   };
 }
 
-/** One read result as exactly one item: the instructions, or a closed failure. */
-function activationItem(
-  runId: string,
-  skill: string,
-  result: ToolResult,
+function createActivationFromRead(
+  identity: { readonly runId: string; readonly skill: string },
+  read: SkillReadOutput,
+  instructions: string,
+  imports: ReadonlyArray<SkillImport>,
 ): AuthoredContextItemPart {
-  if (result.status !== 'success') {
-    return failureItem(runId, skill, failureReason(result));
-  }
-  const read = readSkillReadOutput(result);
-  if (read === undefined) return failureItem(runId, skill, 'read_failed');
   return createSkillActivationItem({
-    runId,
-    skill,
+    runId: identity.runId,
+    skill: identity.skill,
     skillDirectory: read.skillDirectory,
     instructionsPath: read.resolvedPath,
-    // A body the runner truncated must SAY so: silently presenting a partial
-    // instruction body as the whole skill would have the model follow half a
-    // procedure. Truncation inside the frontmatter is the same problem, since
-    // the block may then be unterminated and its removal incomplete.
-    instructions: skillInstructionBody(read.content),
+    instructions,
     ...(read.truncationNotice !== undefined && {
       truncationNotice: read.truncationNotice,
     }),
+    ...(imports.length > 0 && { imports }),
   });
 }
 
@@ -372,17 +457,17 @@ function failureReason(result: ToolResult): SkillActivationFailureReason {
 
 /**
  * The envelope fields a successful skill read publishes. Absent or malformed
- * envelope data is a read failure, not a partial activation: an instruction body
- * without the paths it must be resolved against is not usable.
+ * envelope data is a read failure, not a partial activation: an instruction
+ * body without the paths it must be resolved against is not usable.
  */
-function readSkillReadOutput(result: ToolResult):
-  | {
-      readonly skillDirectory: string;
-      readonly resolvedPath: string;
-      readonly content: string;
-      readonly truncationNotice?: string;
-    }
-  | undefined {
+type SkillReadOutput = {
+  readonly skillDirectory: string;
+  readonly resolvedPath: string;
+  readonly content: string;
+  readonly truncationNotice?: string;
+};
+
+function readSkillReadOutput(result: ToolResult): SkillReadOutput | undefined {
   if (!isRecord(result)) return undefined;
   const skillDirectory: unknown = result['skillDirectory'];
   const resolvedPath: unknown = result['resolvedPath'];

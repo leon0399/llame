@@ -128,6 +128,15 @@ configured source; the real package directory is published beside it as
 unavailable entry naming the unresolved link, and a child link resolving to
 something other than a directory is an unavailable entry naming the target kind.
 
+## Skill imports
+
+When a package is activated, markers in the frontmatter-free `SKILL.md` body
+outside code — `@path`, `@[label](path)`, and `[label](path "import")` — can
+load package-local files. The activation carries them as `skill://<name>/<path>`
+file blocks after the instructions; skill imports never load instruction files.
+See the [skill locator reference](../reference/locators/skill.md#behavior) for
+resolution, literal-target, ordering, and bound rules.
+
 ## Invocation controls
 
 A package is either proactively invocable (eligible for model-driven
