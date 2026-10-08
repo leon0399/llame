@@ -441,67 +441,24 @@ export function loadInstanceConfig(
   const search = resolveSearchConfig(raw, env, embeddingModelIds);
   const mcpServers = resolveMcpServers(raw, env);
   const tools = resolveToolsConfig(raw, env);
-  const webSearch = resolveWebSearch(raw, env);
-  assertWebSearchConfiguration(tools.allowed, webSearch);
+  const webSearch = resolveWebSearch(raw, env, tools.allowed);
 
-  return assembleLoadedConfig({
-    configPath,
-    raw,
-    env,
-    modelIds,
+  return {
+    defaults: resolveDefaults(raw, env, modelIds),
+    runs: resolveRunsConfig(raw, env),
+    http: resolveHttpConfig(raw, env),
+    db: resolveDbConfig(raw, env),
     tools,
-    webSearch,
     mcpServers,
+    knowledge: resolveKnowledge(raw, env),
+    skills: resolveSkillsConfig(raw, configPath),
+    workers: resolveWorkerProfiles(raw),
     providers,
     models,
     embeddingModels,
     search,
-  });
-}
-
-type LoadedConfigParts = {
-  configPath: string;
-  raw: RawInstanceConfig | undefined;
-  env: NodeJS.ProcessEnv;
-  modelIds: ReadonlySet<string>;
-  tools: LlameConfig['tools'];
-  webSearch: WebSearchConfig | undefined;
-  mcpServers: LlameConfig['mcpServers'];
-  providers: LlameConfig['providers'];
-  models: LlameConfig['models'];
-  embeddingModels: LlameConfig['embeddingModels'];
-  search: LlameConfig['search'];
-};
-
-function assertWebSearchConfiguration(
-  allowed: ReadonlyArray<string>,
-  webSearch: WebSearchConfig | undefined,
-): void {
-  if (allowed.includes('web_search') && webSearch === undefined) {
-    throw new InstanceConfigError(
-      'webSearch.chain: required when tools.allowed contains web_search',
-    );
-  }
-}
-
-function assembleLoadedConfig(parts: LoadedConfigParts): LlameConfig {
-  const config: LlameConfig = {
-    defaults: resolveDefaults(parts.raw, parts.env, parts.modelIds),
-    runs: resolveRunsConfig(parts.raw, parts.env),
-    http: resolveHttpConfig(parts.raw, parts.env),
-    db: resolveDbConfig(parts.raw, parts.env),
-    tools: parts.tools,
-    mcpServers: parts.mcpServers,
-    knowledge: resolveKnowledge(parts.raw, parts.env),
-    skills: resolveSkillsConfig(parts.raw, parts.configPath),
-    workers: resolveWorkerProfiles(parts.raw),
-    providers: parts.providers,
-    models: parts.models,
-    embeddingModels: parts.embeddingModels,
-    search: parts.search,
+    ...(webSearch !== undefined && { webSearch }),
   };
-  if (parts.webSearch !== undefined) config.webSearch = parts.webSearch;
-  return config;
 }
 
 function resolveKnowledge(
@@ -533,10 +490,17 @@ function resolveKnowledge(
 function resolveWebSearch(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
+  allowed: ReadonlyArray<string>,
 ): WebSearchConfig | undefined {
   const section = raw?.webSearch;
-  if (section === undefined) return undefined;
-
+  if (section === undefined) {
+    if (allowed.includes('web_search')) {
+      throw new InstanceConfigError(
+        'webSearch.chain: required when tools.allowed contains web_search',
+      );
+    }
+    return undefined;
+  }
   const engines = resolveWebSearchEngines(section.engines, env);
   assertWebSearchChain(section.chain, engines);
   return { engines, chain: section.chain };
@@ -581,19 +545,12 @@ function assertWebSearchChain(
   engines: ReadonlyArray<WebSearchEngineConfig>,
 ): void {
   const engineIds = new Set(engines.map((entry) => entry.id));
-  const seenChainIds = new Set<string>();
   for (const id of chain) {
     if (!engineIds.has(id)) {
       throw new InstanceConfigError(
         `webSearch.chain: unknown engine id "${id}"`,
       );
     }
-    if (seenChainIds.has(id)) {
-      throw new InstanceConfigError(
-        `webSearch.chain: duplicate engine id "${id}"`,
-      );
-    }
-    seenChainIds.add(id);
   }
 }
 

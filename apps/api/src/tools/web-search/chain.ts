@@ -2,8 +2,9 @@ import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
 } from '../../instance-config/llame-config';
-import { type VendorFetch } from './http';
 import { createBraveEngine } from './brave';
+import { canonicalUrl } from './output';
+import { type VendorFetch } from './http';
 
 export const WEB_SEARCH_FAILURE_CLASSES = [
   'auth',
@@ -62,7 +63,7 @@ export type EngineRequest = {
   readonly userAgent?: string;
 };
 export type Engine = (request: EngineRequest) => Promise<EngineOutcome>;
-export type EngineLookup = (id: string) => Engine | undefined;
+export type EngineLookup = (id: string) => Engine;
 type ChainBase = {
   readonly engine: string;
   readonly query: string;
@@ -79,89 +80,56 @@ export type SearchChainError = {
 export type SearchChainResult = SearchChainSuccess | SearchChainError;
 type RunOne = EngineOutcome | FailureClass;
 type Notes = Array<string>;
-type Failures = Array<readonly [string, FailureClass]>;
+type LastEmpty = {
+  readonly engine: string;
+  readonly notes?: ReadonlyArray<string>;
+};
 
 function throwAbort(signal: AbortSignal): never {
   if (signal.reason instanceof Error) throw signal.reason;
   throw new DOMException('The web search was aborted.', 'AbortError');
 }
+
 function isFailureClass(value: RunOne): value is FailureClass {
   return WEB_SEARCH_FAILURE_CLASSES.some(
     (failureClass) => failureClass === value,
   );
 }
-function isEmptyNotes(
-  value: SearchChainSuccess | FailureClass | ReadonlyArray<string> | undefined,
-): value is ReadonlyArray<string> {
-  return Array.isArray(value);
-}
-function recordFailure(
-  notes: Notes,
-  failures: Failures,
-  id: string,
-  failureClass: FailureClass,
-): void {
-  failures.push([id, failureClass]);
-  notes.push(`${id}: ${failureClass}`);
-}
-function findEngine(lookup: EngineLookup, id: string): Engine | undefined {
-  try {
-    return lookup(id);
-  } catch {
-    return undefined;
-  }
-}
+
 function withChainNotes(
   result: SearchChainSuccess,
   notes: ReadonlyArray<string>,
 ): SearchChainSuccess {
   return notes.length === 0 ? result : { ...result, notes };
 }
-async function runConfiguredEngine(
-  id: string,
-  config: WebSearchConfig,
-  request: EngineRequest,
-  lookup: EngineLookup,
-): Promise<RunOne> {
-  const entry = config.engines.find((candidate) => candidate.id === id),
-    engine = findEngine(lookup, id);
-  return entry === undefined || engine === undefined
-    ? 'upstream_error'
-    : runOne(engine, entry, request);
+
+function canonicalizeResults(
+  results: ReadonlyArray<RawResult>,
+): Array<RawResult> {
+  return results.flatMap((result) => {
+    const url = canonicalUrl(result.url);
+    return url === undefined ? [] : [{ ...result, url }];
+  });
 }
-function handleOutcome(
-  id: string,
-  query: string,
-  outcome: RunOne,
-  notes: Notes,
-): SearchChainSuccess | FailureClass | ReadonlyArray<string> | undefined {
-  if (isFailureClass(outcome)) return outcome;
-  if (outcome.kind === 'results') {
-    if (outcome.results.length === 0) {
-      notes.push(`${id}: empty`);
-      return undefined;
-    }
-    return withChainNotes(
-      { kind: 'results', engine: id, query, results: outcome.results },
-      notes,
-    );
-  }
-  if (outcome.kind === 'empty') {
-    notes.push(`${id}: empty`);
-    return outcome.notes ?? [];
-  }
-  if (outcome.answer.trim() === '' || outcome.citations.length === 0)
-    return 'ungrounded';
-  return withChainNotes(
-    {
-      kind: 'answer',
-      engine: id,
-      query,
-      answer: outcome.answer,
-      citations: outcome.citations,
-    },
-    notes,
-  );
+
+function canonicalizeCitations(
+  citations: ReadonlyArray<RawCitation>,
+): Array<RawCitation> {
+  const seen = new Set<string>();
+  return citations.flatMap((citation) => {
+    const url = canonicalUrl(citation.url);
+    if (url === undefined || seen.has(url)) return [];
+    seen.add(url);
+    return [{ ...citation, url }];
+  });
+}
+
+function canonicalizeOutcome(
+  outcome: ResultOutcome | AnswerOutcome,
+): ResultOutcome | AnswerOutcome {
+  return outcome.kind === 'results'
+    ? { ...outcome, results: canonicalizeResults(outcome.results) }
+    : { ...outcome, citations: canonicalizeCitations(outcome.citations) };
 }
 
 async function runOne(
@@ -195,25 +163,24 @@ export function createEngine(
       return createBraveEngine(config, deps);
   }
 }
+
 function emptyResult(
   query: string,
   engine: string,
   notes: Notes,
   engineNotes?: ReadonlyArray<string>,
 ): SearchChainSuccess {
-  const finalNotes = notes.filter((note) => note !== `${engine}: empty`);
-  if (engineNotes !== undefined) finalNotes.push(...engineNotes);
+  const finalNotes =
+    engineNotes === undefined ? notes : [...notes, ...engineNotes];
   const result = { kind: 'results' as const, engine, query, results: [] };
   return finalNotes.length === 0 ? result : { ...result, notes: finalNotes };
 }
-function totalFailure(failures: Failures): SearchChainError {
-  const detail = failures
-    .map(([id, failureClass]) => `${id}: ${failureClass}`)
-    .join('; ');
+
+function totalFailure(notes: ReadonlyArray<string>): SearchChainError {
   return {
     status: 'error',
     type: 'web_search_failed',
-    message: `All web search engines failed: ${detail}`,
+    message: `All web search engines failed: ${notes.join('; ')}`,
   };
 }
 
@@ -223,29 +190,37 @@ export async function executeSearchChain(
   request: EngineRequest,
   lookup: EngineLookup,
 ): Promise<SearchChainResult> {
-  const notes: Notes = [],
-    failures: Failures = [];
-  let lastEmpty: string | undefined,
-    lastEmptyNotes: ReadonlyArray<string> | undefined;
+  const notes: Notes = [];
+  let lastEmpty: LastEmpty | undefined;
   for (const id of config.chain) {
     if (request.signal.aborted) throwAbort(request.signal);
-    const handled = handleOutcome(
-      id,
-      request.query,
-      await runConfiguredEngine(id, config, request, lookup),
+    const entry = config.engines.find((candidate) => candidate.id === id)!;
+    const outcome = await runOne(lookup(id), entry, request);
+    if (isFailureClass(outcome)) {
+      notes.push(`${id}: ${outcome}`);
+      continue;
+    }
+    if (outcome.kind === 'empty') {
+      lastEmpty = { engine: id, notes: outcome.notes };
+      continue;
+    }
+    const success = canonicalizeOutcome(outcome);
+    if (success.kind === 'results' && success.results.length === 0) {
+      lastEmpty = { engine: id };
+      continue;
+    }
+    if (
+      success.kind === 'answer' &&
+      (success.answer.trim() === '' || success.citations.length === 0)
+    ) {
+      notes.push(`${id}: ungrounded`);
+      continue;
+    }
+    return withChainNotes(
+      { ...success, engine: id, query: request.query },
       notes,
     );
-    if (handled === undefined || isEmptyNotes(handled)) {
-      [lastEmpty, lastEmptyNotes] = [id, handled];
-      continue;
-    }
-    if (isFailureClass(handled)) {
-      recordFailure(notes, failures, id, handled);
-      continue;
-    }
-    return handled;
   }
-  return lastEmpty === undefined
-    ? totalFailure(failures)
-    : emptyResult(request.query, lastEmpty, notes, lastEmptyNotes);
+  if (lastEmpty === undefined) return totalFailure(notes);
+  return emptyResult(request.query, lastEmpty.engine, notes, lastEmpty.notes);
 }

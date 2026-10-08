@@ -1,3 +1,4 @@
+import { parseHTML } from 'linkedom';
 import { z } from 'zod';
 import { type WebSearchEngineConfig } from '../../instance-config/llame-config';
 import { type Engine, type EngineRequest, type RawResult } from './chain';
@@ -19,44 +20,41 @@ const BraveResultSchema = z.object({
   page_age: z.string().optional(),
 });
 const BravePayloadSchema = z.object({
-  web: z.object({ results: z.array(BraveResultSchema) }).optional(),
+  web: z.object({ results: z.array(z.unknown()).optional() }).optional(),
 });
 
-function decodeBasicEntities(value: string): string {
-  return value.replaceAll(
-    /&(#(?:x[\da-f]{1,6}|\d{1,7})|amp|lt|gt|quot|apos|#39);/giu,
-    (entity, name: string) => {
-      const key = name.toLowerCase();
-      if (key === 'amp') return '&';
-      if (key === 'lt') return '<';
-      if (key === 'gt') return '>';
-      if (key === 'quot') return '"';
-      if (key === 'apos' || key === '#39') return "'";
-      const code = key.startsWith('#x')
-        ? Number.parseInt(key.slice(2), 16)
-        : Number.parseInt(key.slice(1), 10);
-      return Number.isFinite(code) && code >= 0 && code <= 1_114_111
-        ? String.fromCodePoint(code)
-        : entity;
-    },
-  );
+type BravePayload = z.infer<typeof BravePayloadSchema>;
+
+function parseBravePayload(body: string): BravePayload {
+  // SAFETY: JSON.parse returns any; Zod validates the complete Brave payload.
+  return BravePayloadSchema.parse(JSON.parse(body) as unknown);
 }
 
-export function stripHtmlTags(value: string): string {
-  return decodeBasicEntities(value.replaceAll(/<[^>]*>/gu, ''));
+function textContent(value: string): string {
+  const document = parseHTML(
+    `<!doctype html><html><body>${value}</body></html>`,
+  ).document;
+  return document.body.textContent ?? '';
 }
 
-function readResults(payload: unknown): ReadonlyArray<RawResult> {
-  const parsed = BravePayloadSchema.safeParse(payload);
-  if (!parsed.success || parsed.data.web === undefined) return [];
-  return parsed.data.web.results.map((value) => ({
-    title: stripHtmlTags(value.title),
-    url: value.url,
-    ...(value.description !== undefined && {
-      snippet: stripHtmlTags(value.description),
-    }),
-    ...(value.page_age !== undefined && { published: value.page_age }),
-  }));
+function readResults(payload: BravePayload): ReadonlyArray<RawResult> {
+  const values = payload.web?.results;
+  if (values === undefined) return [];
+  return values.flatMap((value) => {
+    const result = BraveResultSchema.safeParse(value);
+    if (!result.success) return [];
+    const { data } = result;
+    return [
+      {
+        title: textContent(data.title),
+        url: data.url,
+        ...(data.description !== undefined && {
+          snippet: textContent(data.description),
+        }),
+        ...(data.page_age !== undefined && { published: data.page_age }),
+      },
+    ];
+  });
 }
 
 /** Create a Brave Search API adapter for one resolved operator engine. */
@@ -84,6 +82,7 @@ export function createBraveEngine(
         fetch: deps.fetch,
         userAgent: request.userAgent,
       },
+      parseBravePayload,
     );
     const results = readResults(payload);
     return results.length === 0

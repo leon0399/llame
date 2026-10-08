@@ -6,13 +6,6 @@ import { InstanceConfigError } from '@workspace/config-interpolation';
 
 import { loadInstanceConfig as loadInstanceConfigFromPath } from './config-loader';
 
-function errorMessage(error: unknown): string {
-  if (!(error instanceof Error)) {
-    throw new Error(`expected an Error instance, got ${String(error)}`);
-  }
-  return error.message;
-}
-
 let tmpDir: string;
 
 beforeEach(() => {
@@ -115,6 +108,7 @@ describe('loadInstanceConfig — webSearch', () => {
       }),
     );
 
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     expect(() => loadInstanceConfig()).toThrow(/webSearch\.chain.*missing/u);
   });
 
@@ -147,14 +141,9 @@ describe('loadInstanceConfig — webSearch', () => {
       }),
     );
 
-    let message = '';
-    try {
-      loadInstanceConfig({ BRAVE_API_KEY: sentinel });
-    } catch (error) {
-      message = errorMessage(error);
-    }
-    expect(message).toContain('webSearch.chain');
-    expect(message).not.toContain(sentinel);
+    const load = () => loadInstanceConfig({ BRAVE_API_KEY: sentinel });
+    expect(load).toThrow(/webSearch\.chain/u);
+    expect(load).not.toThrow(sentinel);
   });
 
   it('accepts an explicit positive timeoutSeconds', () => {
@@ -168,21 +157,5 @@ describe('loadInstanceConfig — webSearch', () => {
     );
 
     expect(loadInstanceConfig().webSearch?.engines[0]?.timeoutSeconds).toBe(15);
-  });
-
-  it('reports loader failures as instance configuration errors', () => {
-    writeConfig(
-      JSON.stringify({
-        webSearch: { engines: [brave()], chain: ['missing'] },
-      }),
-    );
-
-    try {
-      loadInstanceConfig();
-    } catch (error) {
-      expect(error).toBeInstanceOf(InstanceConfigError);
-      return;
-    }
-    throw new Error('expected an InstanceConfigError');
   });
 });

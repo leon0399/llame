@@ -7,13 +7,8 @@ import type {
   LanguageModelV3StreamResult,
   LanguageModelV3Usage,
 } from '@ai-sdk/provider';
-import {
-  createServer,
-  type IncomingMessage,
-  type Server,
-  type ServerResponse,
-} from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { once } from 'node:events';
+import { createServer, type Server, type ServerResponse } from 'node:http';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import {
@@ -71,6 +66,18 @@ const BRAVE_ORIGIN = new URL(BRAVE_SEARCH_URL).origin;
 const FIXTURE_QUERY = 'fixture query';
 const FIXTURE_RESULT_URL = 'https://Example.test/results/page#fragment';
 const FIXTURE_DESCRIPTION = `<b>${'x'.repeat(400)}</b>`;
+const FIXTURE_SUCCESS_BODY = JSON.stringify({
+  web: {
+    results: [
+      {
+        title: 'Fixture result',
+        url: FIXTURE_RESULT_URL,
+        description: FIXTURE_DESCRIPTION,
+        page_age: '2026-10-08T00:00:00.000Z',
+      },
+    ],
+  },
+});
 const USAGE = {
   inputTokens: {
     total: 1,
@@ -88,7 +95,6 @@ const STOP_FINISH = {
   unified: 'stop',
   raw: undefined,
 } satisfies LanguageModelV3FinishReason;
-type ToolInput = { query?: string; limit?: number; path?: string };
 function textResponse(text: string): LanguageModelV3StreamResult {
   const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
@@ -102,7 +108,7 @@ function textResponse(text: string): LanguageModelV3StreamResult {
 function toolResponse(
   id: string,
   name: string,
-  input: ToolInput,
+  input: Record<string, string | number | undefined>,
 ): LanguageModelV3StreamResult {
   const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
@@ -115,22 +121,6 @@ function toolResponse(
     { type: 'finish', finishReason: TOOL_FINISH, usage: USAGE },
   ];
   return { stream: simulateReadableStream({ chunks }) };
-}
-const toolInputSchema = z.object({
-  query: z.string().optional(),
-  limit: z.number().optional(),
-  path: z.string().optional(),
-});
-type ParsedToolInput = z.infer<typeof toolInputSchema> | string;
-function parseToolInput(value: string): ParsedToolInput {
-  try {
-    // SAFETY: JSON.parse is an input boundary; zod narrows the decoded value.
-    const decoded: unknown = JSON.parse(value);
-    const parsed = toolInputSchema.safeParse(decoded);
-    return parsed.success ? parsed.data : value;
-  } catch {
-    return value;
-  }
 }
 type StreamOptions = Parameters<typeof streamText>[0];
 function createClient(
@@ -187,7 +177,7 @@ function createClient(
           input.onUnavailableToolCall?.({
             toolCallId: toolCall.toolCallId,
             toolName: toolCall.toolName,
-            input: parseToolInput(toolCall.input),
+            input: toolCall.input,
             reason: NoSuchToolError.isInstance(error)
               ? 'not_available'
               : 'invalid_input',
@@ -209,38 +199,12 @@ function modelFor(
 }
 type FixtureMode = 'success' | 'hold' | 'auth' | 'redirect';
 type Deferred = { promise: Promise<void>; resolve: () => void };
-type FixtureState = {
-  mode: FixtureMode;
-  target: string | undefined;
-  requests: Array<string>;
-  started: Deferred;
-  aborted: Deferred;
-};
-type Fixture = {
-  origin: string;
-  requests: Array<string>;
-  configure: (mode: FixtureMode, target?: string) => void;
-  started: () => Promise<void>;
-  aborted: () => Promise<void>;
-  close: () => Promise<void>;
-};
 function deferred(): Deferred {
   let resolve = () => {};
   const promise = new Promise<void>((done) => {
     resolve = () => done();
   });
   return { promise, resolve };
-}
-function resetFixture(
-  state: FixtureState,
-  mode: FixtureMode,
-  target?: string,
-): void {
-  state.mode = mode;
-  state.target = target;
-  state.requests.length = 0;
-  state.started = deferred();
-  state.aborted = deferred();
 }
 function send(
   response: ServerResponse,
@@ -251,64 +215,24 @@ function send(
   response.writeHead(status, headers);
   response.end(body);
 }
-function handleFixture(
-  state: FixtureState,
-  request: IncomingMessage,
+function sendFixtureResponse(
+  mode: Exclude<FixtureMode, 'hold'>,
+  target: string | undefined,
   response: ServerResponse,
 ): void {
-  state.requests.push(request.url ?? '');
-  state.started.resolve();
-  request.on('error', () => undefined);
-  response.on('error', () => undefined);
-  if (state.mode === 'hold') {
-    request.on('aborted', state.aborted.resolve);
-    response.on('close', () => {
-      if (!response.writableEnded) state.aborted.resolve();
-    });
-    response.writeHead(200, { 'content-type': 'application/json' });
-    return;
-  }
-  if (state.mode === 'auth')
+  if (mode === 'auth')
     send(
       response,
       401,
       JSON.stringify({ error: `invalid key ${SENTINEL_KEY}` }),
       { 'content-type': 'application/json' },
     );
-  else if (state.mode === 'redirect')
-    send(response, 302, 'redirect', { location: state.target ?? '/sink' });
+  else if (mode === 'redirect')
+    send(response, 302, 'redirect', { location: target ?? '/sink' });
   else
-    send(
-      response,
-      200,
-      JSON.stringify({
-        web: {
-          results: [
-            {
-              title: 'Fixture result',
-              url: FIXTURE_RESULT_URL,
-              description: FIXTURE_DESCRIPTION,
-              page_age: '2026-10-08T00:00:00.000Z',
-            },
-          ],
-        },
-      }),
-      { 'content-type': 'application/json' },
-    );
-}
-function isAddressInfo(
-  address: AddressInfo | string | null,
-): address is AddressInfo {
-  return address !== null && typeof address !== 'string';
-}
-async function listen(server: Server): Promise<number> {
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const address = server.address();
-  if (!isAddressInfo(address)) throw new Error('Fixture server did not start.');
-  return address.port;
+    send(response, 200, FIXTURE_SUCCESS_BODY, {
+      'content-type': 'application/json',
+    });
 }
 async function closeServer(server: Server): Promise<void> {
   server.closeAllConnections();
@@ -316,29 +240,48 @@ async function closeServer(server: Server): Promise<void> {
     server.close((error) => (error ? reject(error) : resolve())),
   );
 }
-async function startFixture(): Promise<Fixture> {
-  const state: FixtureState = {
-    mode: 'success',
-    target: undefined,
-    requests: [],
-    started: deferred(),
-    aborted: deferred(),
-  };
-  const server = createServer((request, response) =>
-    handleFixture(state, request, response),
-  );
+async function startFixture() {
+  let mode: FixtureMode = 'success';
+  let target: string | undefined;
+  const requests: Array<string> = [];
+  let started = deferred();
+  let aborted = deferred();
+  const server = createServer((request, response) => {
+    requests.push(request.url ?? '');
+    started.resolve();
+    request.on('error', () => undefined);
+    response.on('error', () => undefined);
+    if (mode === 'hold') {
+      request.on('aborted', aborted.resolve);
+      response.on('close', () => {
+        if (!response.writableEnded) aborted.resolve();
+      });
+      response.writeHead(200, { 'content-type': 'application/json' });
+      return;
+    }
+    sendFixtureResponse(mode, target, response);
+  });
   server.on('clientError', (_error, socket) => socket.destroy());
-  const port = await listen(server);
+  const listening = once(server, 'listening');
+  server.listen(0, '127.0.0.1');
+  await listening;
+  const address = z.object({ port: z.number() }).parse(server.address());
   return {
-    origin: `http://127.0.0.1:${port}`,
-    requests: state.requests,
-    configure: (mode, target) => resetFixture(state, mode, target),
-    started: () => state.started.promise,
-    aborted: () => state.aborted.promise,
+    origin: `http://127.0.0.1:${address.port}`,
+    requests,
+    configure: (nextMode: FixtureMode, nextTarget?: string) => {
+      mode = nextMode;
+      target = nextTarget;
+      requests.length = 0;
+      started = deferred();
+      aborted = deferred();
+    },
+    started: () => started.promise,
+    aborted: () => aborted.promise,
     close: () => closeServer(server),
   };
 }
-function stubFetch(fixture: Fixture): () => void {
+function stubFetch(fixture: { origin: string }): () => void {
   const realFetch = globalThis.fetch;
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
     const requested = isString(input)
@@ -464,7 +407,7 @@ function service(options: ServiceOptions): RunExecutionService {
 let sql!: Sql;
 let tenantDb!: TenantDbService;
 let userId!: string;
-let fixture!: Fixture;
+let fixture!: Awaited<ReturnType<typeof startFixture>>;
 let restoreFetch!: () => void;
 const activeChats = new Set<string>();
 async function seedRun(label: string) {
@@ -492,14 +435,9 @@ async function seedRun(label: string) {
   activeChats.add(chatId);
   return { chatId, ...seeded };
 }
-type Seeded = {
-  chatId: string;
-  userMessage: { id: string; seq: number; parts: Array<unknown> };
-  run: { id: string };
-};
 type ExecuteOptions = { signal?: AbortSignal; calls?: Array<ModelStreamInput> };
 async function execute(
-  seeded: Seeded,
+  seeded: Awaited<ReturnType<typeof seedRun>>,
   runner: RunExecutionService,
   model: MockLanguageModelV3,
   options?: ExecuteOptions,
@@ -539,9 +477,9 @@ async function eventsFor(runId: string): Promise<Array<RunEvent>> {
     new RunEventsRepository(tx).listByRunId(runId, userId),
   );
 }
-const partSchema = z.record(z.string(), z.unknown());
+const recordSchema = z.record(z.string(), z.unknown());
 type Part = UnknownRecord;
-const partsSchema = z.array(partSchema);
+const partsSchema = z.array(recordSchema);
 async function assistantParts(chatId: string): Promise<Array<Part>> {
   const messages = await tenantDb.runAs(userId, (tx) =>
     new MessagesRepository(tx).findByChatId(chatId, userId),
@@ -554,16 +492,14 @@ async function assistantParts(chatId: string): Promise<Array<Part>> {
 function partOf(parts: ReadonlyArray<Part>, type: string): Part | undefined {
   return parts.find((part) => part['type'] === type);
 }
-const eventPayloadSchema = z.record(z.string(), z.unknown());
 function callEvents(
   events: ReadonlyArray<RunEvent>,
   id: string,
 ): Array<RunEvent> {
-  return events.filter(
-    (event) =>
-      eventPayloadSchema.safeParse(event.payload).success &&
-      eventPayloadSchema.parse(event.payload)['toolCallId'] === id,
-  );
+  return events.filter((event) => {
+    const parsed = recordSchema.safeParse(event.payload);
+    return parsed.success && parsed.data['toolCallId'] === id;
+  });
 }
 function lastEvent(events: ReadonlyArray<RunEvent>): RunEvent {
   const event = events.at(-1);
@@ -571,7 +507,7 @@ function lastEvent(events: ReadonlyArray<RunEvent>): RunEvent {
   return event;
 }
 function payload(event: RunEvent): UnknownRecord {
-  return eventPayloadSchema.parse(event.payload);
+  return recordSchema.parse(event.payload);
 }
 const errorSchema = z.object({
   status: z.literal('error'),

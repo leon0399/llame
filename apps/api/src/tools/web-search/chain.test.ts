@@ -30,17 +30,19 @@ const hit: EngineOutcome = {
 const result = (): Promise<EngineOutcome> => Promise.resolve(hit);
 const empty = (): Promise<EngineOutcome> => Promise.resolve({ kind: 'empty' });
 
-const fallthroughCases: ReadonlyArray<readonly [string, Engine, string]> = [
+const fallthroughCases: ReadonlyArray<
+  readonly [string, Engine, ReadonlyArray<string>]
+> = [
   [
     'failure',
     () => Promise.reject<EngineOutcome>(new EngineFailure('upstream_error')),
-    'brave: upstream_error',
+    ['brave: upstream_error'],
   ],
-  ['empty', empty, 'brave: empty'],
+  ['empty', empty, []],
 ];
 it.each(fallthroughCases)(
-  'falls through a %s and records it',
-  async (_kind, first, note) => {
+  'falls through a %s and records its failures',
+  async (_kind, first, notes) => {
     const output = await executeSearchChain(
       config(['brave', 'backup']),
       request(),
@@ -49,10 +51,48 @@ it.each(fallthroughCases)(
     expect(output).toMatchObject({
       kind: 'results',
       engine: 'backup',
-      notes: [note],
+      ...(notes.length > 0 && { notes }),
     });
   },
 );
+
+it('falls through an answer with no canonical citations', async () => {
+  const output = await executeSearchChain(
+    config(['answer', 'backup']),
+    request(),
+    lookup({
+      answer: () =>
+        Promise.resolve({
+          kind: 'answer',
+          answer: 'answer',
+          citations: [{ url: 'javascript:alert(1)' }],
+        }),
+      backup: result,
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'results',
+    engine: 'backup',
+    notes: ['answer: ungrounded'],
+  });
+});
+
+it('falls through results with no canonical URLs', async () => {
+  const output = await executeSearchChain(
+    config(['invalid', 'backup']),
+    request(),
+    lookup({
+      invalid: () =>
+        Promise.resolve({
+          kind: 'results',
+          results: [{ title: 'Invalid', url: 'javascript:alert(1)' }],
+        }),
+      backup: result,
+    }),
+  );
+  expect(output).toMatchObject({ kind: 'results', engine: 'backup' });
+  expect(output).not.toHaveProperty('notes');
+});
 
 it('returns the last empty engine after failures and emptiness', async () => {
   const output = await executeSearchChain(
@@ -87,23 +127,33 @@ it('names every failed engine in a total failure', async () => {
   });
 });
 
-it('classifies an engine deadline and starts the next engine', async () => {
-  const started: Array<string> = [];
+it('aborts an engine at its deadline and starts the next engine', async () => {
+  let signalAborted = false;
+  let backupStarted = false;
   const output = await executeSearchChain(
-    config(['slow', 'backup']),
+    config(['slow', 'backup'], 0.05),
     request(),
     lookup({
-      slow: () => {
-        started.push('slow');
-        return Promise.reject(new EngineFailure('timeout'));
-      },
+      slow: ({ signal }: EngineRequest) =>
+        new Promise<EngineOutcome>((resolve) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              expect(signal.aborted).toBe(true);
+              signalAborted = true;
+              resolve({ kind: 'empty' });
+            },
+            { once: true },
+          );
+        }),
       backup: () => {
-        started.push('backup');
+        backupStarted = true;
         return result();
       },
     }),
   );
-  expect(started).toEqual(['slow', 'backup']);
+  expect(signalAborted).toBe(true);
+  expect(backupStarted).toBe(true);
   expect(output).toMatchObject({ engine: 'backup', notes: ['slow: timeout'] });
 });
 

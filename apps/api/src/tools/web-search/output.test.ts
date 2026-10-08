@@ -14,19 +14,30 @@ type AnswerSource = Extract<SearchChainSuccess, { kind: 'answer' }>;
 const resultsSource = (
   results: ReadonlyArray<RawResult>,
   notes?: ReadonlyArray<string>,
-): ResultSource =>
-  notes === undefined
-    ? { kind: 'results', engine: 'brave', query: 'query', results }
-    : { kind: 'results', engine: 'brave', query: 'query', results, notes };
+): ResultSource => {
+  const source: ResultSource = {
+    kind: 'results',
+    engine: 'brave',
+    query: 'query',
+    results,
+  };
+  return notes === undefined ? source : { ...source, notes };
+};
 const answerSource = (
   answer: string,
   citations: ReadonlyArray<RawCitation>,
   query = 'query',
   notes?: ReadonlyArray<string>,
-): AnswerSource =>
-  notes === undefined
-    ? { kind: 'answer', engine: 'hosted', query, answer, citations }
-    : { kind: 'answer', engine: 'hosted', query, answer, citations, notes };
+): AnswerSource => {
+  const source: AnswerSource = {
+    kind: 'answer',
+    engine: 'hosted',
+    query,
+    answer,
+    citations,
+  };
+  return notes === undefined ? source : { ...source, notes };
+};
 const result = (url: string, index = 0): RawResult => ({
   title: `Title ${index}`,
   url,

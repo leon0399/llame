@@ -1,6 +1,10 @@
-import { cutStringAtCodePointBoundary } from '@workspace/runtime-safety';
+import { cutStringAtCodePointBoundary as capText } from '@workspace/runtime-safety';
 import { canonicalHref, stripFragment } from '../web-read/locator';
-import { type SearchChainError, type SearchChainSuccess } from './chain';
+import {
+  type RawCitation,
+  type RawResult,
+  type SearchChainSuccess,
+} from './chain';
 
 export const WEB_SEARCH_URL_MAX_CODE_UNITS = 2048;
 export const WEB_SEARCH_OUTPUT_MAX_CODE_UNITS = 15_000;
@@ -11,16 +15,6 @@ export const WEB_SEARCH_NOTE_MAX_CODE_UNITS = 200;
 export const WEB_SEARCH_NOTES_MAX = 10;
 export const WEB_SEARCH_CITATIONS_MAX = 20;
 
-export type WebSearchResult = {
-  readonly title: string;
-  readonly url: string;
-  readonly snippet?: string;
-  readonly published?: string;
-};
-export type WebSearchCitation = {
-  readonly url: string;
-  readonly title?: string;
-};
 type WebSearchBase = {
   readonly status: 'success';
   readonly engine: string;
@@ -30,21 +24,17 @@ type WebSearchBase = {
 export type WebSearchSuccess =
   | (WebSearchBase & {
       readonly kind: 'results';
-      readonly results: ReadonlyArray<WebSearchResult>;
+      readonly results: ReadonlyArray<RawResult>;
     })
   | (WebSearchBase & {
       readonly kind: 'answer';
       readonly answer: string;
-      readonly citations: ReadonlyArray<WebSearchCitation>;
+      readonly citations: ReadonlyArray<RawCitation>;
     });
-export type WebSearchOutput = WebSearchSuccess | SearchChainError;
 
 type ResultSource = Extract<SearchChainSuccess, { kind: 'results' }>;
 type AnswerSource = Extract<SearchChainSuccess, { kind: 'answer' }>;
 type AnswerOutput = Extract<WebSearchSuccess, { kind: 'answer' }>;
-function capText(text: string, max: number): string {
-  return cutStringAtCodePointBoundary(text, max);
-}
 
 /** Canonicalize a result locator without applying read's selector grammar. */
 export function canonicalUrl(raw: string): string | undefined {
@@ -80,28 +70,16 @@ function isoPublished(value: string | undefined): string | undefined {
   return value;
 }
 
-const structuredNote =
-  /^(?:answer (?:truncated|cut)|\d+ (?:results|citations) dropped)/u;
 function capNotes(notes: ReadonlyArray<string>): Array<string> {
   const bounded = notes.map((note) =>
     capText(note, WEB_SEARCH_NOTE_MAX_CODE_UNITS),
   );
   if (bounded.length <= WEB_SEARCH_NOTES_MAX) return bounded;
-  const fixed = bounded.filter((note) => structuredNote.test(note));
-  const engines = bounded.filter((note) => !structuredNote.test(note));
-  const slots = Math.max(0, WEB_SEARCH_NOTES_MAX - fixed.length - 1);
-  return [
-    ...fixed,
-    ...engines.slice(0, slots),
-    `${engines.length - slots} more engines`,
-  ];
+  return [...bounded.slice(0, 9), `${bounded.length - 9} more engines`];
 }
 
-function capResults(
-  source: ResultSource,
-  limit: number,
-): Array<WebSearchResult> {
-  const results: Array<WebSearchResult> = [];
+function capResults(source: ResultSource, limit: number): Array<RawResult> {
+  const results: Array<RawResult> = [];
   for (const item of source.results) {
     const url = canonicalUrl(item.url);
     if (url === undefined) continue;
@@ -119,8 +97,8 @@ function capResults(
   return results;
 }
 
-function capCitations(source: AnswerSource): Array<WebSearchCitation> {
-  const citations: Array<WebSearchCitation> = [],
+function capCitations(source: AnswerSource): Array<RawCitation> {
+  const citations: Array<RawCitation> = [],
     seen = new Set<string>();
   for (const item of source.citations) {
     const url = canonicalUrl(item.url);
@@ -137,7 +115,10 @@ function capCitations(source: AnswerSource): Array<WebSearchCitation> {
   return citations;
 }
 
-function capFields(source: SearchChainSuccess, limit: number): WebSearchOutput {
+function capFields(
+  source: SearchChainSuccess,
+  limit: number,
+): WebSearchSuccess {
   if (source.kind === 'results')
     return {
       status: 'success',
@@ -146,22 +127,14 @@ function capFields(source: SearchChainSuccess, limit: number): WebSearchOutput {
       query: source.query,
       results: capResults(source, limit),
     };
-  const answer = capText(source.answer, WEB_SEARCH_ANSWER_MAX_CODE_UNITS),
-    citations = capCitations(source);
-  return citations.length === 0
-    ? {
-        status: 'error',
-        type: 'web_search_failed',
-        message: `All web search engines failed: ${source.engine}: ungrounded`,
-      }
-    : {
-        status: 'success',
-        kind: 'answer',
-        engine: source.engine,
-        query: source.query,
-        answer,
-        citations,
-      };
+  return {
+    status: 'success',
+    kind: 'answer',
+    engine: source.engine,
+    query: source.query,
+    answer: capText(source.answer, WEB_SEARCH_ANSWER_MAX_CODE_UNITS),
+    citations: capCitations(source),
+  };
 }
 
 function withNotes(
@@ -240,7 +213,6 @@ function fitBudget(
 export function normalizeOutput(
   source: SearchChainSuccess,
   limit: number,
-): WebSearchOutput {
-  const fields = capFields(source, limit);
-  return fields.status === 'error' ? fields : fitBudget(source, fields);
+): WebSearchSuccess {
+  return fitBudget(source, capFields(source, limit));
 }

@@ -19,16 +19,14 @@ export type WebSearchArguments = z.output<typeof webSearchInputSchema>;
 export const WEB_SEARCH_NOT_CONFIGURED_MESSAGE =
   'Web search is not configured.';
 
-function buildEngineLookup(
-  config: WebSearchConfig,
-): (id: string) => Engine | undefined {
+function buildEngineLookup(config: WebSearchConfig): (id: string) => Engine {
   const engines = new Map<string, Engine>();
   for (const engineConfig of config.engines)
     engines.set(
       engineConfig.id,
       createEngine(engineConfig, { fetch: globalThis.fetch }),
     );
-  return (id) => engines.get(id);
+  return (id) => engines.get(id)!;
 }
 
 export const webSearchTool: Tool<WebSearchArguments> = {
@@ -47,15 +45,7 @@ export const webSearchTool: Tool<WebSearchArguments> = {
         type: 'web_search_failed',
         message: WEB_SEARCH_NOT_CONFIGURED_MESSAGE,
       };
-    const signals = [context.abortSignal, context.timeoutSignal].filter(
-      (signal): signal is AbortSignal => signal !== undefined,
-    );
-    const signal =
-      signals.length === 0
-        ? new AbortController().signal
-        : signals.length === 1
-          ? signals[0]
-          : AbortSignal.any(signals);
+    const signal = context.abortSignal ?? new AbortController().signal;
     const request: EngineRequest = {
       query: input.query,
       limit: input.limit,

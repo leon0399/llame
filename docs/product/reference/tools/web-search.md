@@ -44,7 +44,7 @@ A successful call returns exactly one of these closed shapes:
   "kind": "results",
   "engine": "brave",
   "query": "deployment decision",
-  "notes": ["an earlier engine was empty"],
+  "notes": ["<id>: empty"],
   "results": [
     {
       "title": "Example result",
@@ -61,7 +61,6 @@ A successful call returns exactly one of these closed shapes:
   "kind": "answer",
   "engine": "brave",
   "query": "what changed",
-  "notes": [],
   "answer": "A concise answer grounded in the cited sources.",
   "citations": [
     { "url": "https://example.com/change", "title": "Change notes" }
@@ -73,7 +72,7 @@ A successful call returns exactly one of these closed shapes:
 
 ## Behavior
 
-The configured chain runs in order: the first engine returning at least one result or a grounded answer ends the call. Failures and empty results advance; `notes` identify earlier engines that failed (with their class) or were empty. If the chain ends empty, success has `results: []` and the last empty engine id; if every engine fails, the tool returns `web_search_failed`. Engine and whole-call deadlines are operator-configured.
+The configured chain runs in order: the first engine returning at least one result or a grounded answer ends the call. Failures and empty results advance; `notes` identify every other attempted engine by id and outcome (`<id>: empty` or `<id>: <class>`), not only engines earlier in the chain. If the chain ends empty, success has `results: []` and the last empty engine id; if every engine fails, the tool returns `web_search_failed`. Engine and whole-call deadlines are operator-configured.
 
 ## Untrusted data
 
@@ -92,11 +91,11 @@ When every attempted engine fails, the fixed shape is:
 {
   "status": "error",
   "type": "web_search_failed",
-  "message": "web_search failed: brave=upstream_error"
+  "message": "All web search engines failed: brave: upstream_error"
 }
 ```
 
-The message names each attempted engine id and one class: `auth` (credentials/authorization rejected), `rate_limited` (engine/transport rate limit), `challenge` (recognized bot-challenge page), `timeout` (engine deadline elapsed before it answered), `ungrounded` (hosted answer empty or cited no URL), or `upstream_error` (other transport, protocol, status, or parse failure).
+The message names each attempted engine id and one class, with entries joined by a semicolon plus one space: `auth` (credentials/authorization rejected), `rate_limited` (engine/transport rate limit), `challenge` (recognized bot-challenge page), `timeout` (engine deadline elapsed before it answered), `ungrounded` (hosted answer empty or cited no URL), or `upstream_error` (other transport, protocol, status, or parse failure).
 Engine messages are fixed and non-disclosing: upstream status text/bodies, request headers, configured keys/URLs never appear in output, errors, events, or logs. Schema, permission, cancellation, and whole-call-timeout outcomes use the runtime's corresponding tool outcomes, not this engine-failure shape.
 
 ## Configured by

@@ -1,5 +1,5 @@
 import { BRAVE_SEARCH_URL, createBraveEngine } from './brave';
-import { EngineFailure, type EngineRequest } from './chain';
+import { type EngineRequest } from './chain';
 import { type VendorFetch } from './http';
 
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
@@ -10,17 +10,18 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   userAgent: 'llame/test',
   ...overrides,
 });
-type BraveFixturePayload = {
-  readonly web: { readonly results: ReadonlyArray<Record<string, string>> };
+const requestUrl = (input: RequestInfo | URL): string => {
+  if (input instanceof URL) return input.href;
+  if (input instanceof Request) return input.url;
+  return input;
 };
-const requestUrl = (input: RequestInfo | URL): string =>
-  input instanceof URL
-    ? input.href
-    : input instanceof Request
-      ? input.url
-      : input;
+type BraveFixtureBody = {
+  readonly web?: {
+    readonly results?: string | ReadonlyArray<Readonly<Record<string, string>>>;
+  };
+};
 const response = (
-  body: BraveFixturePayload,
+  body: BraveFixtureBody,
   status = 200,
   headers: HeadersInit = { 'content-type': 'application/json' },
 ): Response => new Response(JSON.stringify(body), { status, headers });
@@ -98,6 +99,41 @@ it('returns empty when Brave has no results', async () => {
   await expect(engine(request())).resolves.toEqual({ kind: 'empty' });
 });
 
+it('classifies a malformed successful payload as an upstream error', async () => {
+  const engine = createBraveEngine(
+    { key: 'secret' },
+    {
+      fetch: () => Promise.resolve(response({ web: { results: 'malformed' } })),
+    },
+  );
+  await expect(engine(request())).rejects.toMatchObject({
+    failureClass: 'upstream_error',
+  });
+});
+
+it('skips malformed individual results', async () => {
+  const engine = createBraveEngine(
+    { key: 'secret' },
+    {
+      fetch: () =>
+        Promise.resolve(
+          response({
+            web: {
+              results: [
+                { title: 'valid', url: 'https://example.test/' },
+                { title: 'malformed' },
+              ],
+            },
+          }),
+        ),
+    },
+  );
+  await expect(engine(request())).resolves.toEqual({
+    kind: 'results',
+    results: [{ title: 'valid', url: 'https://example.test/' }],
+  });
+});
+
 it('classifies auth without exposing an echoed key', async () => {
   const key = 'secret-key';
   const engine = createBraveEngine(
@@ -107,17 +143,10 @@ it('classifies auth without exposing an echoed key', async () => {
         Promise.resolve(new Response(`failure body ${key}`, { status: 401 })),
     },
   );
-  let failure: unknown;
-  try {
-    await engine(request());
-  } catch (error) {
-    failure = error;
-  }
-  expect(failure).toBeInstanceOf(EngineFailure);
-  if (!(failure instanceof EngineFailure))
-    throw new Error('expected EngineFailure');
-  expect(failure.failureClass).toBe('auth');
-  expect(failure.message).not.toContain(key);
+  await expect(engine(request())).rejects.toMatchObject({
+    failureClass: 'auth',
+  });
+  await expect(engine(request())).rejects.not.toThrow(key);
 });
 
 it('classifies rate limits and refuses redirects', async () => {
