@@ -24,6 +24,12 @@ export type GithubRequestContext = {
   halted?: WebFetchFailure;
 };
 
+/** What a GitHub family reader receives from the adapter. */
+export type GithubReadOptions = Pick<
+  GithubRequestContext,
+  'io' | 'init' | 'apiOrigin'
+>;
+
 export async function requestJson(
   url: string,
   context: GithubRequestContext,

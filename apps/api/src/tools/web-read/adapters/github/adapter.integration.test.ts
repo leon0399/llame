@@ -66,6 +66,10 @@ const PULL_FILES = '/repos/o/r/pulls/12/files?per_page=100&page=1';
 const CHECK_RUNS =
   '/repos/o/r/commits/abc123/check-runs?filter=latest&per_page=100&page=1';
 const RESET = '123';
+const JOB_SOURCE = 'https://github.com/o/r/actions/runs/7/job/9';
+const JOB_API = '/repos/o/r/actions/jobs/9';
+const JOB_LOGS = '/repos/o/r/actions/jobs/9/logs';
+const SIGNED_LOG = '/signed/job-logs.txt?sig=abc';
 
 const ADMIT_ALL_POLICY = compileToolPermissionMap(
   { read: { allow: true } },
@@ -83,6 +87,19 @@ const SOURCE_ONLY_POLICY = compileToolPermissionMap(
     },
   },
   'github-adapter-source-only',
+);
+const API_ONLY_POLICY = compileToolPermissionMap(
+  {
+    read: {
+      allow: [
+        {
+          field: 'path',
+          regex: String.raw`^(?:https://github\.com/|http://api\.github\.test:)`,
+        },
+      ],
+    },
+  },
+  'github-adapter-api-only',
 );
 
 function pullPayload() {
@@ -253,6 +270,46 @@ function pullRoute(options: PullRouteOptions = {}): FixtureRoute {
   };
 }
 
+function jobPayload() {
+  return {
+    run_id: 7,
+    head_sha: 'abc123',
+    html_url: JOB_SOURCE,
+    status: 'completed',
+    conclusion: 'failure',
+    name: 'build',
+    steps: [
+      {
+        number: 1,
+        name: 'Run tests',
+        status: 'completed',
+        conclusion: 'failure',
+      },
+    ],
+  } satisfies JsonObject;
+}
+
+/** The logs endpoint answers a redirect to signed storage on another origin. */
+function jobRoute(): FixtureRoute {
+  return (address, path, response, redirectOrigin) => {
+    if (address === 'redirect') {
+      if (path === SIGNED_LOG) {
+        response.writeHead(200, { 'content-type': 'text/plain' });
+        response.end(
+          '\uFEFF2026-01-01T00:00:00.0000000Z first\n2026-01-01T00:00:01.0000000Z ##[error]boom\n',
+        );
+      } else {
+        sendNotFound(response);
+      }
+      return;
+    }
+    if (path === JOB_API) sendJson(response, 200, jobPayload());
+    else if (path === JOB_LOGS) {
+      sendRedirect(response, `${redirectOrigin}${SIGNED_LOG}`);
+    } else sendNotFound(response);
+  };
+}
+
 function testContext(policy: CompiledPolicy): ToolContext {
   return {
     userId: 'owner',
@@ -408,6 +465,63 @@ describe('GitHub adapter over a real shared web session', () => {
       });
       expect(JSON.stringify(result)).not.toContain('primary rate limit body');
       expect(fixture.requests).toHaveLength(1);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('reads a job log from the signed storage origin without sending it the token', async () => {
+    const token = 'integration-secret-token';
+    const fixture = await startGithubFixture(jobRoute());
+    try {
+      const result = await dispatchGithub(
+        fixture,
+        JOB_SOURCE,
+        token,
+        ADMIT_ALL_POLICY,
+      );
+      expect(result.kind).toBe('rendered');
+      if (result.kind !== 'rendered') throw new Error('Job did not render.');
+      expect(result.render.content).toContain(
+        '## Log (2 lines)\n\n```text\nfirst\n##[error]boom\n```',
+      );
+      expect(JSON.stringify(result)).not.toContain(token);
+      expect(
+        fixture.requests.map(({ address, path }) => ({ address, path })),
+      ).toEqual([
+        { address: 'api', path: JOB_API },
+        { address: 'api', path: JOB_LOGS },
+        { address: 'redirect', path: SIGNED_LOG },
+      ]);
+      expect(
+        fixture.requests.map(({ authorization }) => authorization),
+      ).toEqual([`Bearer ${token}`, `Bearer ${token}`, undefined]);
+      expectProductHeaders(fixture.requests);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  it('keeps the job when operator policy refuses the log redirect target', async () => {
+    const fixture = await startGithubFixture(jobRoute());
+    try {
+      const result = await dispatchGithub(
+        fixture,
+        JOB_SOURCE,
+        'integration-secret-token',
+        API_ONLY_POLICY,
+      );
+      expect(result.kind).toBe('rendered');
+      if (result.kind !== 'rendered') throw new Error('Job did not render.');
+      expect(result.render.notes).toStrictEqual(['log omitted: permission']);
+      expect(result.render.content).toContain('## Steps (1)');
+      expect(result.render.content).not.toContain('## Log');
+      expect(
+        fixture.requests.map(({ address, path }) => ({ address, path })),
+      ).toEqual([
+        { address: 'api', path: JOB_API },
+        { address: 'api', path: JOB_LOGS },
+      ]);
     } finally {
       await fixture.close();
     }

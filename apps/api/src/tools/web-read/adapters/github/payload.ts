@@ -30,12 +30,12 @@ export type GithubCheckPage = {
 
 type User = string;
 
-const USER: z.ZodType<User> = z
+export const USER: z.ZodType<User> = z
   .object({ login: z.string() })
   .nullable()
   .optional()
   .transform((user) => user?.login ?? 'ghost');
-const TEXT = z
+export const TEXT = z
   .string()
   .nullish()
   .transform((value) => value ?? '');
@@ -43,7 +43,7 @@ const BODY = z
   .string()
   .nullish()
   .transform((value) => value ?? null);
-const NULLABLE = z
+export const NULLABLE = z
   .string()
   .nullish()
   .transform((value) => value ?? null);

@@ -158,9 +158,30 @@ the first character; the repository is 1-100 characters from
 1-10 decimal digits with no leading zero. The adapter does not claim
 `/pull/{number}.diff`, `/pull/{number}.patch`, `/pull/{number}/files`,
 `/pull/{number}/commits`, or `/pull/{number}/checks`; `/issues` and `/pulls`
-list URLs; Actions, Projects, Discussions, search results, or gists;
+list URLs; Actions run pages, Projects, or search results;
 `raw.githubusercontent.com`; Enterprise hosts; or any write URL. Those
 locators stay on the generic ladder without an adapter request or note.
+
+The same entry claims releases, gists, Actions jobs, and discussions:
+
+- `https://github.com/{owner}/{repo}/releases`, `/releases/latest`, and
+  `/releases/tag/{tag}`: one request each; the list renders the newest 30.
+- `https://gist.github.com/{id}` and `/{owner}/{id}`: one request to
+  `/gists/{id}`; a binary file is omitted, a truncated file renders the part
+  that arrived with a `truncated` note, and one that arrived empty is omitted
+  as `too_large`.
+- `https://github.com/{owner}/{repo}/actions/runs/{run}/job/{job}`: the job's
+  status and steps from one request. With a `token`, a second request fetches
+  the log, which redirects to Azure blob storage; the token is not sent there.
+  Admit `^https://productionresultssa[0-9]+\.blob\.core\.windows\.net/` for
+  the log under a domain allowlist, or the job renders with
+  `log omitted: permission`. Without a token it renders with
+  `log omitted: token required`. The last 400 log lines render; a log over
+  the 5 MiB body bound renders none, with `log omitted: too_large`.
+- `https://github.com/{owner}/{repo}/discussions/{number}`, only with a
+  `token`: one GraphQL `POST` to `https://api.github.com/graphql`. A
+  fine-grained token needs Discussions read access, and Actions read access
+  for job logs.
 
 The same entry claims canonical repository-code shapes:
 `https://github.com/{owner}/{repo}`, `/tree/{ref}[/{path}]`,
