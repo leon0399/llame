@@ -25,7 +25,7 @@ const JOB_WIRE = z.object({
   workflow_name: NULLABLE,
   head_branch: NULLABLE,
   head_sha: z.string(),
-  html_url: z.string(),
+  html_url: NULLABLE,
   status: z.string(),
   conclusion: NULLABLE,
   started_at: NULLABLE,

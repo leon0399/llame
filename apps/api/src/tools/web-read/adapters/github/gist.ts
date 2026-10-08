@@ -49,14 +49,20 @@ export async function readGithubGist(
   return finishRendered(renderGist(gist, files), context);
 }
 
-/** A base64 file is binary and stays out; a file GitHub cut at 1 MB is shown
- *  as far as it arrived, and the gist's own 300-file cut is noted. */
+/** A base64 file is binary and stays out. GitHub's inline-content budget is
+ *  shared by the whole response, so a truncated file either carries a prefix
+ *  or, once the budget is spent, nothing; an empty one stays out too. The
+ *  gist's own 300-file cut is noted. */
 function shownFiles(gist: Gist, notes: Array<string>): ReadonlyArray<GistFile> {
   const files = Object.values(gist.files);
   const shown: Array<GistFile> = [];
   for (const file of files) {
     if (file.encoding === 'base64') {
       notes.push(`${file.filename} omitted: binary`);
+      continue;
+    }
+    if (file.truncated === true && file.content === '') {
+      notes.push(`${file.filename} omitted: too_large`);
       continue;
     }
     if (file.truncated === true) {

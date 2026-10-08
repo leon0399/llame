@@ -218,12 +218,13 @@ describe('GitHub gist adapter', () => {
     expect(contentOf(multiline.outcome)).toContain('Description: one two\n');
   });
 
-  it('leaves out binary files and notes every cut', async () => {
+  it('leaves out binary and budget-spent files and notes every cut', async () => {
     const { outcome } = await readGist(SOURCE, [
       response(
         gist(
           [
             file('part.txt', 'first part', { truncated: true }),
+            file('spent.log', '', { truncated: true }),
             file('logo.png', 'iVBORw0KGgo=', { encoding: 'base64' }),
             file('ok.txt', 'whole'),
           ],
@@ -236,11 +237,13 @@ describe('GitHub gist adapter', () => {
       kind: 'rendered',
       notes: [
         'part.txt truncated: the first part only',
+        'spent.log omitted: too_large',
         'logo.png omitted: binary',
-        'files truncated: the first 3 only',
+        'files truncated: the first 4 only',
       ],
     });
     const content = outcome.kind === 'rendered' ? outcome.content : '';
+    expect(content).not.toContain('spent.log');
     expect(content).toContain('## part.txt\n\n```\nfirst part\n```');
     expect(content).toContain('## ok.txt');
     expect(content).not.toContain('logo.png');

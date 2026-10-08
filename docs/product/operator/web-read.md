@@ -174,7 +174,8 @@ The same entry claims releases, gists, Actions jobs, and discussions:
   Admit `^https://productionresultssa[0-9]+\.blob\.core\.windows\.net/` for
   the log under a domain allowlist, or the job renders with
   `log omitted: permission`. Without a token it renders with
-  `log omitted: token required`. The last 400 log lines render.
+  `log omitted: token required`. The last 400 log lines render; a log over
+  the 5 MiB body bound renders none, with `log omitted: too_large`.
 - `https://github.com/{owner}/{repo}/discussions/{number}`, only with a
   `token`: one GraphQL `POST` to `https://api.github.com/graphql`. A
   fine-grained token needs Discussions read access, and Actions read access
