@@ -147,7 +147,7 @@ canonical host paths and logical `kb://` locators are skipped by the epoch seen 
 and remain literal. A sixth hop remains literal. Each file, including imports, has
 its own 32 KiB cap; there is no aggregate cap.
 
-The owner chip nests imported files under their importers and marks denied imports.
+The owner chip lists files in injection order, indents each imported file under its importer, and marks denied imports.
 
 ## Disclosure
 
