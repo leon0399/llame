@@ -525,14 +525,19 @@
     // "enter_workspace" and "exit_workspace" to this allowlist.
     "allowed": ["search_conversations"],
     // Ordered web adapters; absent means none, and a present array is the
-    // exact enabled list. Every adapter is enabled here. The GitHub entry is
-    // keyless (60 requests/hour per egress IP); add
-    // "token": "{env:GITHUB_READ_TOKEN}" for private repositories, job logs,
-    // and discussions; an unset variable fails boot. The x rewrite sends x.com
+    // exact enabled list. Every adapter is enabled here. Without a token the
+    // GitHub adapter is limited to 60 requests/hour per egress IP and cannot
+    // read private repositories, job logs, or discussions; an uncommented
+    // token whose variable is unset fails boot. The Discourse hosts are public
+    // forums verified to serve topic JSON keylessly. The x rewrite sends x.com
     // status URLs to the third-party origin x.pcstyle.dev; remove it to keep
     // those reads on x.com. See docs/product/operator/web-adapters.md.
     "webAdapters": [
-      { "id": "github", "use": "github" },
+      {
+        "id": "github",
+        "use": "github",
+        // "token": "{env:GITHUB_READ_TOKEN}",
+      },
       { "id": "bluesky", "use": "bluesky" },
       { "id": "npm", "use": "npm" },
       { "id": "huggingface", "use": "huggingface" },
@@ -544,7 +549,54 @@
       {
         "id": "forums",
         "use": "discourse",
-        "hosts": ["meta.discourse.org", "users.rust-lang.org"],
+        "hosts": [
+          "meta.discourse.org",
+          "community.openai.com",
+          "forum.cursor.com",
+          "community.vercel.com",
+          "community.n8n.io",
+          "forum.langchain.com",
+          "discuss.huggingface.co",
+          "discuss.pytorch.org",
+          "discuss.ray.io",
+          "discuss.streamlit.io",
+          "forums.developer.nvidia.com",
+          "users.rust-lang.org",
+          "internals.rust-lang.org",
+          "discuss.python.org",
+          "forums.swift.org",
+          "discuss.kotlinlang.org",
+          "discourse.julialang.org",
+          "discuss.ocaml.org",
+          "discourse.haskell.org",
+          "forum.golangbridge.org",
+          "discourse.llvm.org",
+          "forum.djangoproject.com",
+          "discuss.gradle.org",
+          "forum.godotengine.org",
+          "forum.babylonjs.com",
+          "forum.sublimetext.com",
+          "forum.obsidian.md",
+          "discourse.nixos.org",
+          "discussion.fedoraproject.org",
+          "discourse.ubuntu.com",
+          "discourse.gnome.org",
+          "discuss.kde.org",
+          "forum.manjaro.org",
+          "discuss.linuxcontainers.org",
+          "discourse.mozilla.org",
+          "community.fly.io",
+          "community.grafana.com",
+          "discuss.elastic.co",
+          "discuss.circleci.com",
+          "discuss.dgraph.io",
+          "community.letsencrypt.org",
+          "community.home-assistant.io",
+          "community.bitwarden.com",
+          "discuss.privacyguides.net",
+          "forum.syncthing.net",
+          "forum.restic.net",
+        ],
       },
       { "id": "devto", "use": "devto" },
       { "id": "substack", "use": "substack" },
