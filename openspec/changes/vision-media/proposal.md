@@ -19,9 +19,12 @@ handed most often ([#935](https://github.com/leon0399/llame/issues/935)).
 - **Model input declaration.** `models[].input` (`["text"]` or `["text", "image"]`, default text-only)
   is published by `GET /api/v1/models`.
 - **Image window and placeholders.**
-  - The newest images in history, up to 20 and 24 MiB of base64, replay as provider image parts.
+  - The newest images in the request, up to 20 and 24 MiB of base64, are sent as provider image
+    parts. The window applies to history and is re-applied at every step of a Run.
   - Older images, and every image sent to a model without `image` input, replay as
     `[image media://<id> <name> <w>×<h>]`. The model can re-read any of them with `read`.
+  - Admission and compaction estimates charge each image `ceil(width × height / 750)` tokens on its
+    model variant instead of counting its base64.
 - **Native `read` of images.** Host paths, `file:`, `kb://`, `skill://`, `http(s)://`, and the new
   `media://` scheme can return PNG, JPEG, GIF, and WebP images:
   - The result is a typed image envelope, and the image reaches the model as tool-result content.
@@ -74,7 +77,11 @@ Not asked directly, and following from those decisions:
 - `skill://` images are readable like any other read locator. A `media://` read takes no selector, and
   any selector on an image is `invalid_selector` (D4, D7).
 - The image window also stops at 24 MiB of base64 so 20 large images stay under Anthropic's 32 MB
-  request limit (D6).
+  request limit, and it is re-applied to every step's messages, because live tool results never cross
+  the history conversion boundary (D6).
+- Request-size estimates use Anthropic's `width × height / 750` image formula for every wire, because
+  the current characters/4 estimate would count one screenshot's base64 as hundreds of thousands of
+  tokens (D6).
 - On `openai-completions` and `opencode-go`, tool-result images travel in a synthetic user message after
   the tool messages, because that adapter serializes tool content as text (D6).
 - Web image bodies keep the existing 5 MiB body bound rather than the 20 MiB upload bound (D7).
@@ -99,7 +106,8 @@ until the library ships a delete action.
 ### Modified Capabilities
 
 - `native-file-tools`:
-  - ADDED requirements: image reads (result, leading-byte detection, ingest) and `media://` locators
+  - ADDED requirements: image reads (result, leading-byte detection, ingest, ingest refusals) and
+    `media://` locators
     (owner resolution, routing before local path resolution, read-only with no selector).
   - "Read selectors and context are deterministic" refuses selectors on images.
   - "Read representations are selected by media type and member" places image detection outside the
@@ -127,7 +135,9 @@ until the library ships a delete action.
 - `workspace-entry`: "Relative filesystem paths share one Workspace projection rule" names `media://`
   among unchanged locators.
 - `instance-config`: "Model catalog configuration" adds `input`.
-- `available-models`: ADDED "Available model entries publish their input modalities".
+- `available-models`: "Available model entries use opaque ids and rich display metadata" adds `input`
+  to the required fields with its `["text"]` default; ADDED "Available model entries publish their input
+  modalities".
 - `context-injection`:
   - "Stored parts cross a minimal SDK conversion boundary" maps file parts and image results.
   - "Every item declares metadata and persists its final model-facing text" lets a message with a
@@ -174,7 +184,8 @@ Deliberately unchanged:
 - `packages/native-file-tools`: magic-byte check before UTF-8 decoding.
 - `apps/web`: composer, chat rows, the read tool card, and lightbox wiring.
 - `packages/ui`: thumbnail and lightbox components and their stories.
-- Dependencies: `sharp` (API) and `yet-another-react-lightbox` (UI).
+- Dependencies: `sharp` (API), `@types/multer` (API dev; multer itself already ships with
+  `@nestjs/platform-express`), and `yet-another-react-lightbox` (UI).
 - Tests that pin old behavior:
   - text-only DTO tests and the "Message must contain a text part" test;
   - the web `image/png` refusal test;
@@ -210,5 +221,7 @@ Deliberately unchanged:
   image in the chat, and the toggle shows the model variant.
 - Another owner's media id is `404` on every route, `not_found` through `read`, and rejected in a
   message, enforced by RLS with a negative isolation test.
-- An SVG, an HTML file renamed `.png`, a 41-megapixel image, and a 21 MiB file are refused at upload and
-  at read.
+- An SVG, an HTML file renamed `.png`, a 41-megapixel image, and a 21 MiB file are refused at upload. At
+  read, the first two return text and the last two fail with `image_too_large`.
+- A Run that reads more images than the image window sends the oldest as placeholders on its next
+  step, and one maximum-size screenshot is admitted on a 200k-token model without compaction.

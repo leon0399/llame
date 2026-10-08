@@ -45,8 +45,9 @@ irreducible pairs still exceed a limit, the oldest complete pairs SHALL be
 dropped atomically until the projection fits, with one bounded omission count
 and marker. An unmatched call or result SHALL never be emitted.
 
-An image in a tool result SHALL be stored in the tool part as a media reference, its `media://`
-locator and descriptor, and never as image bytes or base64. On replay, the result's text SHALL follow
+An image in a tool result SHALL be stored in the tool part as the native image result that produced
+it, which names the image by its `media://` locator in `media`, and never as the `media-store` media
+descriptor, image bytes, or base64. On replay, the result's text SHALL follow
 the projection above, and the image SHALL become provider image content, built at request time from
 the stored model variant, only when the image window defined by `media-attachments` admits that
 reference for the request's model. Otherwise the replayed result SHALL carry the image placeholder
@@ -202,9 +203,11 @@ that produced them.
 
 #### Scenario: An image result is stored as a media reference
 
-- **WHEN** a tool result carries an image
-- **THEN** the stored tool part carries the image's `media://` locator and descriptor
-- **AND** it contains no image bytes and no base64 data
+- **WHEN** a `read` of `/work/shot.png` returns an image result
+- **THEN** the stored tool part carries that native image result, with `kind: "image"`, its
+  `media://` locator in `media`, `mediaType`, `width`, `height`, and `path`
+- **AND** it carries no `provenance`, `byteSize`, or `model` descriptor field, no image bytes, and no
+  base64 data
 
 #### Scenario: An image result inside the image window replays as image content
 
