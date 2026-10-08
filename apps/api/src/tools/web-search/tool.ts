@@ -24,16 +24,9 @@ export type WebSearchArguments = z.output<typeof webSearchInputSchema>;
 export const WEB_SEARCH_NOT_CONFIGURED_MESSAGE =
   'Web search is not configured.';
 
-type EngineLookupCache = {
-  readonly modelClients: ToolContext['modelClients'];
-  readonly lookup: EngineLookup;
-};
-const engineLookups = new WeakMap<WebSearchConfig, EngineLookupCache>();
+const engineLookups = new WeakMap<WebSearchConfig, EngineLookup>();
 
-function buildEngineLookup(
-  config: WebSearchConfig,
-  modelClients: ToolContext['modelClients'],
-): EngineLookup {
+function buildEngineLookup(config: WebSearchConfig): EngineLookup {
   const engines = new Map<string, Engine>();
   const entries = new Map(
     config.engines
@@ -49,10 +42,7 @@ function buildEngineLookup(
     if (engineConfig.type === 'aggregate') continue;
     engines.set(
       engineConfig.id,
-      createEngine(engineConfig, {
-        fetch: globalThis.fetch,
-        modelClients,
-      }),
+      createEngine(engineConfig, { fetch: globalThis.fetch }),
     );
   }
   for (const engineConfig of config.engines) {
@@ -70,15 +60,11 @@ function buildEngineLookup(
   return (id) => engines.get(id)!;
 }
 
-function engineLookupFor(
-  config: WebSearchConfig,
-  modelClients: ToolContext['modelClients'],
-): EngineLookup {
+function engineLookupFor(config: WebSearchConfig): EngineLookup {
   const cached = engineLookups.get(config);
-  if (cached !== undefined && cached.modelClients === modelClients)
-    return cached.lookup;
-  const lookup = buildEngineLookup(config, modelClients);
-  engineLookups.set(config, { modelClients, lookup });
+  if (cached !== undefined) return cached;
+  const lookup = buildEngineLookup(config);
+  engineLookups.set(config, lookup);
   return lookup;
 }
 
@@ -106,11 +92,12 @@ export const webSearchTool: Tool<WebSearchArguments> = {
       recency: input.recency,
       userAgent: context.productUserAgent,
       chatId: context.chatId,
+      modelClients: context.modelClients,
     };
     const result = await executeSearchChain(
       config,
       request,
-      engineLookupFor(config, context.modelClients),
+      engineLookupFor(config),
     );
     return 'status' in result ? result : normalizeOutput(result, input.limit);
   },

@@ -95,7 +95,9 @@ The referenced model's provider MUST be `openai-responses`, `openai-codex`, or
 `anthropic-messages`; a `model-hosted` entry cannot be an `aggregate` child.
 Each call is a separate bounded sub-request carrying only packaged search
 instructions, the query, and a recency phrase (when set)—never chat history or
-other Run context. Its `X-Session-Id` is `search:<chatId>`.
+other Run context. A configured `{session:id}` header (by default
+`X-Session-Id`, except on Codex, which has no default) renders as
+`search:<chatId>`.
 
 OpenAI Responses and Codex use the provider's hosted web search; Anthropic uses
 `web_search_20250305` with `maxUses: 5`. `site:host` terms become allowed

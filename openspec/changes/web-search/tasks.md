@@ -110,7 +110,7 @@ output.
 - [x] 6.4 Implement the `model-hosted` engine on that request; verify by an integration test with the scripted model client that a Run on one model receives an `answer` from a hosted engine on another, and that the assistant message usage, measured context size, and completeness are unchanged by the sub-request
 - [x] 6.5 Document the three wires, per-search prices, the Codex shared-subscription risk, citation display obligations, and the unrecorded cost in the runbook; update `SPEC.md`; add the dated `CHANGELOG.md` entry; this layer's PR carries `Closes #1102`; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 6.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites
-- [ ] 6.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 6.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 6.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 7. `web-search/finalize` — spec sync and archive

@@ -18,7 +18,17 @@ import {
   type HostedStreamScript,
   type SourcePart,
 } from '../../testing/hosted-search-client';
-import { EngineFailure, executeSearchChain, type EngineRequest } from './chain';
+import {
+  EngineFailure,
+  executeSearchChain,
+  type Engine,
+  type EngineRequest,
+} from './chain';
+import {
+  buildClient,
+  buildHarness,
+} from '../../testing/anthropic-model-client-fixtures';
+import { createOpenAICodexModelClient } from '../../models/openai-codex-model-client';
 import {
   HOSTED_SEARCH_INSTRUCTIONS,
   createModelHostedEngine,
@@ -80,9 +90,9 @@ function hostedEngine(wire: Wire, script: HostedStreamScript) {
   const createClient = vi.fn<(modelId: string) => ModelClient>(() =>
     scriptedModelClient(script, inputs),
   );
-  const engine = createModelHostedEngine(hostedConfig(wire), {
-    modelClients: { createClient },
-  });
+  const hosted = createModelHostedEngine(hostedConfig(wire));
+  const engine: Engine = (hostedRequest) =>
+    hosted({ ...hostedRequest, modelClients: { createClient } });
   return { engine, inputs, createClient };
 }
 
@@ -145,14 +155,6 @@ describe('the hosted request', () => {
     expect(input.messages).toStrictEqual([{ role: 'user', content: QUERY }]);
     expect(input.abortSignal).toBe(signal);
     expect(Object.keys(input.tools ?? {})).toEqual(['web_search']);
-  });
-
-  it('falls back to a fixed chat id for a request that carries none', async () => {
-    const { engine, inputs } = hostedEngine('openai-responses', GROUNDED);
-
-    await engine(request({ chatId: undefined }));
-
-    expect(inputs[0].chat).toStrictEqual({ id: 'web-search', lane: 'search' });
   });
 
   it.each([
@@ -426,30 +428,99 @@ describe('provider failures', () => {
     const createClient = vi.fn<(modelId: string) => ModelClient>(() => {
       throw new Error('Model search-model is not available.');
     });
-    const engine = createModelHostedEngine(hostedConfig('openai-responses'), {
-      modelClients: { createClient },
-    });
+    const engine = createModelHostedEngine(hostedConfig('openai-responses'));
 
-    await expect(engine(request())).rejects.toMatchObject({
-      failureClass: 'upstream_error',
-    });
+    await expect(
+      engine(request({ modelClients: { createClient } })),
+    ).rejects.toMatchObject({ failureClass: 'upstream_error' });
     expect(createClient).toHaveBeenCalledOnce();
   });
 
   it.each([
-    ['no model clients', {}],
-    ['model clients without a factory', { modelClients: {} }],
-  ])('fails closed with %s', async (_name, deps) => {
-    const engine = createModelHostedEngine(
-      hostedConfig('openai-responses'),
-      deps,
-    );
+    ['no model clients', undefined],
+    ['model clients without a factory', {}],
+  ])('fails closed with %s', async (_name, modelClients) => {
+    const engine = createModelHostedEngine(hostedConfig('openai-responses'));
 
-    await expect(engine(request())).rejects.toMatchObject({
+    await expect(engine(request({ modelClients }))).rejects.toMatchObject({
       name: 'EngineFailure',
       failureClass: 'upstream_error',
     });
   });
+});
+
+describe('provider failures through the real clients', () => {
+  const secret = 'secret-token';
+  const FAILURES = [
+    [401, 'auth'],
+    [403, 'auth'],
+    [429, 'rate_limited'],
+    [503, 'upstream_error'],
+  ] as const;
+
+  async function failureOf(wire: Wire, client: ModelClient): Promise<Error> {
+    const engine = createModelHostedEngine(hostedConfig(wire));
+    try {
+      await engine(request({ modelClients: { createClient: () => client } }));
+    } catch (error) {
+      if (error instanceof Error) return error;
+      throw error;
+    }
+    throw new Error('the hosted engine unexpectedly succeeded');
+  }
+
+  it.each(FAILURES)(
+    'classifies an Anthropic Messages HTTP %s as %s',
+    async (status, failureClass) => {
+      const harness = buildHarness({
+        respond: () => new Response(`echoed ${secret}`, { status }),
+      });
+
+      const failure = await failureOf(
+        'anthropic-messages',
+        buildClient(harness, { credential: secret }),
+      );
+
+      expect(failure).toMatchObject({ failureClass });
+      expect(JSON.stringify(failure)).not.toContain(secret);
+      expect(harness.requests).toHaveLength(1);
+    },
+  );
+
+  it.each(FAILURES)(
+    'classifies a Codex HTTP %s as %s',
+    async (status, failureClass) => {
+      const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
+        Promise.resolve(
+          new Response(`echoed ${secret}`, {
+            status,
+            headers: { 'retry-after-ms': '1' },
+          }),
+        ),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      try {
+        const failure = await failureOf(
+          'openai-codex',
+          createOpenAICodexModelClient({
+            credential: secret,
+            accountId: 'account-id',
+            providerModelId: 'gpt-test',
+            modelId: 'system:codex:gpt-test',
+            contextWindowTokens: 128_000,
+            userAgent: 'llame/test',
+            requestHeaders: {},
+          }),
+        );
+
+        expect(failure).toMatchObject({ failureClass });
+        expect(JSON.stringify(failure)).not.toContain(secret);
+        expect(fetchMock).toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 });
 
 describe('cancellation and deadlines', () => {

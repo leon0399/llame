@@ -28,7 +28,7 @@ const request = (
   signal,
   recency: undefined,
   userAgent: undefined,
-  chatId: undefined,
+  chatId: 'chat',
 });
 const config = (
   ids: ReadonlyArray<string>,
@@ -166,8 +166,8 @@ it('createEngine wires model-hosted', async () => {
       wire: 'openai-responses',
       timeoutSeconds: 60,
     },
-    { fetch: globalThis.fetch, modelClients: { createClient } },
-  )(request());
+    { fetch: globalThis.fetch },
+  )({ ...request(), modelClients: { createClient } });
   expect(output).toStrictEqual({
     kind: 'answer',
     answer: 'grounded',

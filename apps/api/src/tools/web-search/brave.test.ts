@@ -8,7 +8,7 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   limit: 7,
   signal: new AbortController().signal,
   userAgent: 'llame/test',
-  chatId: undefined,
+  chatId: 'chat',
   ...overrides,
 });
 const requestUrl = (input: RequestInfo | URL): string => {

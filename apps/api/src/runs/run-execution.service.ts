@@ -200,6 +200,7 @@ import {
 } from '../personalization/personalization.service';
 import {
   ModelsService,
+  type ModelClientFactory,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import {
@@ -639,8 +640,7 @@ type InstanceConfigWithIdentity = InstanceConfigReader &
  * selections leaves `createClient` unset, and a model-hosted web search engine
  * fails closed rather than building a client.
  */
-type RunModelCapability = ModelSelectionValidator &
-  Partial<Pick<ModelsService, 'createClient'>>;
+type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 
 @Injectable()
 export class RunExecutionService {

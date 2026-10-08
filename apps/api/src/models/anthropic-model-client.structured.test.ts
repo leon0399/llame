@@ -382,9 +382,14 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     await expect(
       client.streamText({ chat: CHAT, messages, onError }).text,
     ).rejects.toThrow(NoOutputGeneratedError);
+    // The numeric status is the one non-sensitive fact kept for callers that
+    // classify the failure.
     expect(errors).toEqual([
-      new Error(
-        'Anthropic authentication failed: the configured credential was rejected.',
+      Object.assign(
+        new Error(
+          'Anthropic authentication failed: the configured credential was rejected.',
+        ),
+        { statusCode: 401 },
       ),
     ]);
     expect(delivered(errors)).not.toContain(secret);
@@ -403,7 +408,10 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
       client.streamText({ chat: CHAT, messages, onError }).text,
     ).rejects.toThrow(NoOutputGeneratedError);
     expect(errors).toEqual([
-      new Error('Anthropic request failed: unknown model or endpoint.'),
+      Object.assign(
+        new Error('Anthropic request failed: unknown model or endpoint.'),
+        { statusCode: 404 },
+      ),
     ]);
   });
 
@@ -416,7 +424,10 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
       client.streamText({ chat: CHAT, messages, onError }).text,
     ).rejects.toThrow(NoOutputGeneratedError);
     expect(errors).toEqual([
-      new Error('Anthropic rate limit reached. Retry manually later.'),
+      Object.assign(
+        new Error('Anthropic rate limit reached. Retry manually later.'),
+        { statusCode: 429 },
+      ),
     ]);
     // maxRetries 0: the rate limit is not re-attempted, no other provider or
     // type is contacted, and the upstream body never reaches diagnostics.
@@ -435,7 +446,11 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     await expect(
       client.streamText({ chat: CHAT, messages, onError }).text,
     ).rejects.toThrow(NoOutputGeneratedError);
-    expect(errors).toEqual([new Error('Anthropic request failed.')]);
+    expect(errors).toEqual([
+      Object.assign(new Error('Anthropic request failed.'), {
+        statusCode: 503,
+      }),
+    ]);
     expect(delivered(errors)).not.toContain(secret);
   });
 
@@ -459,6 +474,7 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     expect(errors).toEqual([
       new Error('Anthropic request failed: the endpoint could not be reached.'),
     ]);
+    expect(errors[0]).not.toHaveProperty('statusCode');
     expect(delivered(errors)).not.toContain(MESSAGES_CANARIES.endpoint);
     expect(delivered(errors)).not.toContain('ENOTFOUND');
     // The SDK's status-less transport error also carries the values of the

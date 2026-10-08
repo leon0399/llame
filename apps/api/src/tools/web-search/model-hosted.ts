@@ -9,7 +9,6 @@ import {
   type ModelStreamResult,
 } from '../../models/model-client';
 import { loadPackagedTemplate } from '../../prompts/template-engine';
-import { type ToolContext } from '../types';
 import {
   EngineFailure,
   throwAbort,
@@ -23,7 +22,6 @@ type HostedConfig = Extract<
   WebSearchEngineConfig,
   { readonly type: 'model-hosted' }
 >;
-type HostedModelClients = NonNullable<ToolContext['modelClients']>;
 type ModelSource = Awaited<ModelStreamResult['sources']>[number];
 type UrlSource = Extract<ModelSource, { readonly sourceType: 'url' }>;
 type HostedAnswer = {
@@ -43,16 +41,8 @@ export const HOSTED_SEARCH_INSTRUCTIONS = loadPackagedTemplate<
   'hosted-search-instructions',
 )({});
 
-/** Chat id for a request that carries none (a bare engine, not a tool call). */
-const FALLBACK_CHAT_ID = 'web-search';
 /** Anthropic bills and bounds server-side searches per request. */
 const ANTHROPIC_MAX_SEARCHES = 5;
-const RECENCY_PHRASE: Record<NonNullable<EngineRequest['recency']>, string> = {
-  day: 'Only use sources published within the last day.',
-  week: 'Only use sources published within the last week.',
-  month: 'Only use sources published within the last month.',
-  year: 'Only use sources published within the last year.',
-};
 
 /** What differs between the hosted-search wires. */
 type WireProfile = {
@@ -107,7 +97,7 @@ function hostedMessages(request: EngineRequest): Array<ModelMessage> {
   const recency =
     request.recency === undefined
       ? ''
-      : `\n\n${RECENCY_PHRASE[request.recency]}`;
+      : `\n\nOnly use sources published within the last ${request.recency}.`;
   return [{ role: 'user', content: `${request.query}${recency}` }];
 }
 
@@ -130,10 +120,9 @@ function providerFailure(error: unknown): EngineFailure {
  */
 async function requestHostedAnswer(
   config: HostedConfig,
-  deps: { readonly modelClients?: HostedModelClients },
   request: EngineRequest,
 ): Promise<HostedAnswer> {
-  const { modelClients } = deps;
+  const { modelClients } = request;
   if (modelClients?.createClient === undefined)
     throw new EngineFailure('upstream_error');
   const wire = WIRES[config.wire];
@@ -143,7 +132,7 @@ async function requestHostedAnswer(
   const failures: Array<unknown> = [];
   try {
     const result = modelClients.createClient(config.model).streamText({
-      chat: { id: request.chatId ?? FALLBACK_CHAT_ID, lane: 'search' },
+      chat: { id: request.chatId, lane: 'search' },
       system: HOSTED_SEARCH_INSTRUCTIONS,
       messages: hostedMessages(request),
       tools: wire.tools(splitSiteFilters(request.query).include),
@@ -167,12 +156,9 @@ async function requestHostedAnswer(
  * Create a model-hosted search engine: one grounded sub-request to the
  * referenced model, answered with its final text and the URLs that text cites.
  */
-export function createModelHostedEngine(
-  config: HostedConfig,
-  deps: { readonly modelClients?: HostedModelClients },
-): Engine {
+export function createModelHostedEngine(config: HostedConfig): Engine {
   return async (request) => {
-    const { text, sources } = await requestHostedAnswer(config, deps, request);
+    const { text, sources } = await requestHostedAnswer(config, request);
     const { isCitation } = WIRES[config.wire];
     const citations = sources.flatMap((source): Array<RawCitation> => {
       if (source.sourceType !== 'url' || !isCitation(source)) return [];

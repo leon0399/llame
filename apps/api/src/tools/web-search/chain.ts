@@ -69,7 +69,12 @@ export type EngineRequest = {
   readonly limit: number;
   readonly signal: AbortSignal;
   readonly userAgent: string | undefined;
-  readonly chatId: string | undefined;
+  readonly chatId: string;
+  /**
+   * Trusted model-client factory for model-hosted engines; absent leaves them
+   * failing closed.
+   */
+  readonly modelClients?: ToolContext['modelClients'];
 };
 export type Engine = (request: EngineRequest) => Promise<EngineOutcome>;
 export type EngineLookup = (id: string) => Engine;
@@ -181,7 +186,6 @@ export function createEngine(
   config: Exclude<WebSearchEngineConfig, { type: 'aggregate' }>,
   deps: {
     readonly fetch: VendorFetch;
-    readonly modelClients?: ToolContext['modelClients'];
   },
 ): Engine {
   switch (config.type) {
@@ -198,7 +202,7 @@ export function createEngine(
     case 'duckduckgo':
       return createDuckDuckGoEngine(deps);
     case 'model-hosted':
-      return createModelHostedEngine(config, deps);
+      return createModelHostedEngine(config);
   }
 }
 

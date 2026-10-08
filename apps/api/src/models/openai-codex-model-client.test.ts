@@ -468,8 +468,11 @@ describe('createOpenAICodexModelClient', () => {
     await options?.onError?.({ error: upstreamError });
 
     expect(onError).toHaveBeenCalledWith({
-      error: new Error(
-        'Codex subscription authentication failed. Re-login and restart llame.',
+      error: Object.assign(
+        new Error(
+          'Codex subscription authentication failed. Re-login and restart llame.',
+        ),
+        { statusCode: 401 },
       ),
     });
     expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
@@ -518,8 +521,9 @@ describe('createOpenAICodexModelClient', () => {
     });
 
     expect(onError).toHaveBeenCalledWith({
-      error: new Error(
-        'Codex subscription limit reached. Retry manually later.',
+      error: Object.assign(
+        new Error('Codex subscription limit reached. Retry manually later.'),
+        { statusCode: 429 },
       ),
     });
     expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
@@ -566,6 +570,9 @@ describe('createOpenAICodexModelClient', () => {
     await expect(
       client.streamText({ chat: CHAT, messages }).text,
     ).rejects.not.toThrow(secret);
+    await expect(
+      client.streamText({ chat: CHAT, messages }).text,
+    ).rejects.not.toHaveProperty('statusCode');
   });
 
   it('classifies a retry-exhausted quota error without exposing its details', async () => {
@@ -617,8 +624,9 @@ describe('createOpenAICodexModelClient', () => {
     });
 
     expect(onError).toHaveBeenCalledWith({
-      error: new Error(
-        'Codex subscription limit reached. Retry manually later.',
+      error: Object.assign(
+        new Error('Codex subscription limit reached. Retry manually later.'),
+        { statusCode: 429 },
       ),
     });
     expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);

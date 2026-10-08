@@ -50,7 +50,7 @@ describe('web search tool declaration', () => {
     });
   });
 });
-it('passes the chat id to hosted search and rebuilds client lookups', async () => {
+it('passes the chat id and each call’s model clients to hosted search', async () => {
   const calls: Array<ModelStreamInput> = [];
   const client = scriptedModelClient(
     () =>
