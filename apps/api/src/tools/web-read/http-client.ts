@@ -39,6 +39,11 @@ export type WebRequestInit = {
   readonly accept?: string;
   /** Authorization is sent only to this origin and is dropped after a cross-origin hop. */
   readonly authorization?: { readonly origin: string; readonly value: string };
+  /** Makes the request a `POST` of this body, for an adapter's GraphQL or
+   *  similar API. A `POST` follows no redirect: a 3xx answer fails it as an
+   *  `http_status`, since re-sending a body to a server-chosen target is not
+   *  something a read should do. */
+  readonly body?: { readonly contentType: string; readonly text: string };
 };
 
 export type WebFetchFailure = {
@@ -500,7 +505,10 @@ export function createWebFetchSession(
 }
 
 function withoutAuthorization(init: WebRequestInit): WebRequestInit {
-  return init.accept === undefined ? {} : { accept: init.accept };
+  return {
+    ...(init.accept !== undefined && { accept: init.accept }),
+    ...(init.body !== undefined && { body: init.body }),
+  };
 }
 
 function hasMatchingOrigin(
@@ -543,7 +551,8 @@ function redactAuthorization(
 /** Fetches one locator and the hops it answers with. A redirect status is
  *  followed only when the hop it names parses, the call still has redirect
  *  budget, and the `read` group admits that locator; a refused hop ends the
- *  call without its target's body ever being read. */
+ *  call without its target's body ever being read. A `POST` follows no
+ *  redirect: its 3xx is read as a status failure. */
 async function fetchLocator(
   url: string,
   context: FetchLocatorContext,
@@ -562,8 +571,9 @@ async function fetchLocator(
       return redactAuthorization(outcome.failure, init);
     if (outcome.kind === 'address_refused')
       return addressRefusal(url, outcome.locator);
-    const response = outcome.response;
-    if (!REDIRECT_STATUSES.includes(response.status))
+    const { response } = outcome;
+    const redirects = init?.body === undefined && isRedirect(response);
+    if (!redirects)
       return readDocumentResponse(
         response,
         locator,
@@ -581,4 +591,8 @@ async function fetchLocator(
       requestInit = requestInit && { accept: requestInit.accept };
     locator = hop.next;
   }
+}
+
+function isRedirect(response: UndiciResponse): boolean {
+  return REDIRECT_STATUSES.includes(response.status);
 }

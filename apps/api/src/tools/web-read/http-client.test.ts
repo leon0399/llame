@@ -369,6 +369,42 @@ describe('web fetch client', () => {
     expect(headers.get('authorization')).toBe('Bearer secret');
   });
 
+  it('posts an adapter body and keeps it when a foreign authorization is dropped', async () => {
+    const seen: Array<RequestInit | undefined> = [];
+    const deps: TestDeps = {
+      fetch: (_input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(init);
+        return Promise.resolve(textResponse('{"data":{}}', 'application/json'));
+      },
+    };
+    const body = { contentType: 'application/json', text: '{"query":"{x}"}' };
+
+    await fetchOne(deps, {}, URL_, { accept: 'application/json', body });
+    await fetchOne(deps, {}, URL_, {
+      body,
+      authorization: { origin: 'https://api.other.test', value: 'Bearer t' },
+    });
+
+    for (const init of seen) {
+      const headers = new Headers(init?.headers);
+      expect(init?.method).toBe('POST');
+      expect(init?.body).toBe('{"query":"{x}"}');
+      expect(headers.get('content-type')).toBe('application/json');
+      expect(headers.get('authorization')).toBeNull();
+    }
+  });
+
+  it('fails a POST on a redirect instead of re-sending its body', async () => {
+    const deps = serving(redirectResponse(307, 'https://docs.example.test/b'));
+
+    const result = await fetchOne(deps, {}, URL_, {
+      body: { contentType: 'application/json', text: '{}' },
+    });
+
+    expect(deps.fetch).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ type: 'http_status' });
+  });
+
   it('returns a JSON body as text with its declared type', async () => {
     const deps = serving(textResponse('{"ok":true}', 'application/json'));
 
