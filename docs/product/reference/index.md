@@ -10,6 +10,8 @@ read_when:
   bounds, and errors.
 - [Locators](locators/index.md): one page per scheme a `path` argument can
   name, with the tools that accept it and the authority it reaches.
+- [Web adapters](web-adapters.md): the URLs each configured web adapter
+  claims and the document it renders.
 - [Selectors](selectors.md): line ranges, `:raw`, `:outline`, Markdown
   ancestors, and the result bound every read shares.
 - [Instruction files](instruction-files.md): which project instruction files a
