@@ -718,7 +718,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       expect(JSON.stringify(owned.history)).toContain(
         'PRIVATE_IMPORT_LOCATOR.md',
       );
-      expect(owned.stored?.data.payload.omitted).toEqual([
+      expect(owned.stored?.data.payload?.omitted).toEqual([
         'PRIVATE_IMPORT_OMITTED.md',
       ]);
 
