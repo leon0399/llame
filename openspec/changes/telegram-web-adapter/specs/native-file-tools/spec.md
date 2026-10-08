@@ -201,7 +201,7 @@ post's `https://t.me` URL, and `Date:`. A reply's parent SHALL NOT be fetched.
 
 #### Scenario: Media notes name type and detail
 
-- **WHEN** the post carries an album of two photos, a video, a round video, a voice message, a sticker, a location, a poll, an audio file, a document, and a visible unsupported-media block
+- **WHEN** the post carries an album of two photos, a video, a round video, a voice message, a sticker, a location, a poll, an audio file, a document, and a visible unsupported-media block whose label is not "Service message"
 - **THEN** the entry has two `> [photo]` notes, `> [video {duration}]`, `> [video message {duration}]`, `> [voice {duration}]`, `> [sticker]`, `> [location]`, `> [poll: {question}]`, `> [audio: {title} — {performer}]`, `> [document: {file name}]`, and `> [unsupported media]`
 
 #### Scenario: Hidden fallback blocks render nothing

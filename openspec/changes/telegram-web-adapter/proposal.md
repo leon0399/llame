@@ -100,7 +100,8 @@ None. Web adapters belong to `native-file-tools`.
   - Every other adapter requirement is unchanged.
 - `instance-config`: "Web adapter configuration is a closed operator
   replacement" adds `telegram` to the accepted `use` values and defines its
-  fieldless shape. Its scenarios are unchanged.
+  fieldless shape, and "First-slice setting surface" adds `telegram` to its
+  list of `tools.webAdapters` entries. Their scenarios are unchanged.
 
 ## Impact
 

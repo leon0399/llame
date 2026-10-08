@@ -51,7 +51,9 @@ supported in your browser"), which can be a direct child of the bubble, and a
 `.message_media_not_supported_wrap` inside each video player, both hidden by
 `widget-frame.css`. A visible unsupported block is a direct child of
 `.tgme_widget_message_bubble` with the `message_media_not_supported_wrap`
-class and without `media_not_supported_cont`.
+class and without `media_not_supported_cont`. When its label is "Service
+message", the post is a service message (D4: `empty`), checked before any
+media note.
 
 Service messages have two markers. On `/s/` the message element carries the
 `service_message` class, sometimes with text ("Channel created"). The widget
