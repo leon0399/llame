@@ -906,6 +906,25 @@
                     "description": "Adapter implementation for Stack Overflow and other Stack Exchange question and answer URLs."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native crates.io adapter. It reads a crate version's metadata, dependencies, and README from the crates.io API; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["crates"],
+                    "description": "Adapter implementation for crates.io crate and crate-version URLs."
+                  }
+                }
               }
             ]
           }

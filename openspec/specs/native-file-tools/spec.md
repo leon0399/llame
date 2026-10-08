@@ -1931,8 +1931,8 @@ address resolution and pinning, 10-second header bound, 30-second call bound,
 5 MiB per-response body bound, and redirect rules as the generic web path.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
-credential, and the Bluesky, npm, Hugging Face, arXiv, and Stack Exchange
-adapters SHALL send none; the GitHub token SHALL be
+credential, and the Bluesky, npm, Hugging Face, arXiv, Stack Exchange, and
+crates.io adapters SHALL send none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1956,8 +1956,8 @@ adapter outcome SHALL declare the media type of its document so the
 representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
-sources use; the Bluesky, npm, Hugging Face, and Stack Exchange adapters label
-their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
+sources use; the Bluesky, npm, Hugging Face, Stack Exchange, and crates.io
+adapters label their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2482,6 +2482,47 @@ answers SHALL add `answers truncated: the first 100 by score`.
 - **WHEN** the model reads `https://stackoverflow.com/questions/11227809`
 - **THEN** the adapter requests the question and its answers from `api.stackexchange.com`
 - **AND** the accepted answer is `## Answer · 1/{n}` and every answer has `Source:` and `Date:` lines
+
+### Requirement: crates.io native adapter reads crate pages
+
+A configured `crates` adapter SHALL claim only `https://crates.io` and
+`https://www.crates.io` locators whose path is `/crates/{name}` or
+`/crates/{name}/{version}`; every other path SHALL be unclaimed. The adapter
+SHALL send only unauthenticated `GET` requests:
+`https://crates.io/api/v1/crates/{name}?include=default_version,keywords,categories,downloads`,
+then, under the canonical name the API returned,
+`/api/v1/crates/{name}/{version}` only when the URL names a version other
+than the default, then the version's `/dependencies` and `/readme`. The crate
+and version requests are primary: a failure or an unparsable payload SHALL
+fall through, and a crate page whose crate reports no default version SHALL
+fall through as `empty`. A failed dependency list or README SHALL keep the
+rest with a `dependencies omitted: {category}` or `readme omitted: {category}`
+note, and a spent call deadline on the dependency list SHALL skip the README
+with the same category in its `readme omitted:` note.
+
+The render SHALL be `# {name} {version}`, the description, metadata lines for
+the fields present (`Yanked`, `License`, `Default version` when another
+version was named, `Rust version`, `Edition`, `Downloads`, `Repository`,
+`Homepage`, `Documentation`, `Keywords`, `Categories`, `Features`,
+`Dependencies`, `Build dependencies`, `Dev dependencies`, `Published`), a
+`URL` line, and `## README` with the README converted to Markdown, its empty
+anchors (such as GitHub-style heading links) removed.
+
+#### Scenario: A crate page renders its default version
+
+- **WHEN** the model reads `https://crates.io/crates/serde`
+- **THEN** the adapter requests the crate with its default version, then that version's dependencies and README
+- **AND** the text starts with `# serde {version}` and lists dependencies by kind
+
+#### Scenario: A link on the www host is read like crates.io
+
+- **WHEN** the model reads `https://www.crates.io/crates/serde`
+- **THEN** the adapter claims it and requests the same `https://crates.io/api/v1/crates/serde` endpoints as for `https://crates.io/crates/serde`
+
+#### Scenario: README heading anchors do not render as empty links
+
+- **WHEN** the README HTML opens a heading with `<a href="#usage" id="user-content-usage"></a>`
+- **THEN** the heading renders as `## Usage`, with no `[](#usage)` link
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 

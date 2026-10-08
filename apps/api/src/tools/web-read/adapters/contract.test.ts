@@ -159,6 +159,14 @@ describe('createWebAdapters', () => {
     expect(adapter).toMatchObject({ id: 'qa', route: 'native' });
     expect(adapter.match(new URL('https://stackoverflow.com/q/42'))).toBe(true);
   });
+
+  it('creates a native crates.io adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'rust', use: 'crates' }]);
+    if (adapter === undefined) throw new Error('expected crates.io adapter');
+
+    expect(adapter).toMatchObject({ id: 'rust', route: 'native' });
+    expect(adapter.match(new URL('https://crates.io/crates/serde'))).toBe(true);
+  });
 });
 
 describe('dispatchWebAdapters', () => {

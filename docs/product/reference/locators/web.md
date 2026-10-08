@@ -407,6 +407,39 @@ An `/a/` link, or a `/q/` link that names an answer, renders the whole thread.
 `answers truncated: the first 100 by score` when there are more, and a failed
 answers request keeps the question with an `answers omitted:` note.
 
+### crates.io adapter
+
+A crate page renders its default version and a version page the named one:
+the description, then `Yanked`, `License`, `Default version` (when another
+version was named), `Rust version`, `Edition`, `Downloads`, `Repository`,
+`Homepage`, `Documentation`, `Keywords`, `Categories`, `Features`,
+`Dependencies`, `Build dependencies`, `Dev dependencies`, `Published`, and
+`URL` lines for the fields present, then the README converted to Markdown
+with its empty anchors, such as heading links, removed:
+
+```text
+# serde 1.0.229
+
+A generic serialization/deserialization framework
+
+License: MIT OR Apache-2.0
+Rust version: 1.56
+Edition: 2021
+Downloads: 1,496,216,235 (345,806,252 in the last 90 days)
+Repository: https://github.com/serde-rs/serde
+Homepage: https://serde.rs
+Documentation: https://docs.rs/serde
+Keywords: serialization, no_std, serde
+Categories: no-std, encoding, no-std::no-alloc
+Features: alloc, default, derive, rc, std, unstable
+Dependencies: (2) serde_core =1.0.229, serde_derive ^1 (optional)
+Published: 2026-07-18T23:05:13.266456Z by dtolnay
+URL: https://crates.io/crates/serde/1.0.229
+
+## README
+...
+```
+
 ## Bounds
 
 | Bound                         | Value                                                                                                         |
