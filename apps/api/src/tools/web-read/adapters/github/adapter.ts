@@ -12,6 +12,7 @@ import {
   recordSecondaryFailure,
   repoPath,
   requestJson,
+  type GithubReadOptions,
   type GithubRequestContext,
 } from './request';
 import {
@@ -31,8 +32,16 @@ import {
   type GithubIssueDocument,
   type GithubPullDocument,
 } from './document';
-import { parseGithubUrl, type GithubThreadTarget } from './url';
+import {
+  parseGithubUrl,
+  type GithubTarget,
+  type GithubThreadTarget,
+} from './url';
 import { readGithubCode } from './code';
+import { readGithubDiscussion } from './discussion';
+import { readGithubGist } from './gist';
+import { readGithubJob } from './job';
+import { readGithubRelease } from './release';
 
 export const GITHUB_API_ORIGIN = 'https://api.github.com';
 const PAGE_SIZE = 100;
@@ -69,14 +78,50 @@ export function createGithubAdapter(
   return {
     id: config.id,
     route: 'native',
-    match: (source) => parseGithubUrl(source) !== undefined,
-    read: (source, io) => {
-      const target = parseGithubUrl(source)!;
-      return 'number' in target
-        ? readGithubThread(target, io, apiOrigin, init)
-        : readGithubCode(target, { source, io, apiOrigin, init });
+    // Discussions are served only by GraphQL, which answers no anonymous call.
+    match: (source) => {
+      const target = parseGithubUrl(source);
+      return (
+        target !== undefined &&
+        (target.kind !== 'discussion' || config.token !== undefined)
+      );
     },
+    read: (source, io) =>
+      readGithubTarget(parseGithubUrl(source)!, source, {
+        io,
+        init,
+        apiOrigin,
+      }),
   };
+}
+
+function readGithubTarget(
+  target: GithubTarget,
+  source: URL,
+  options: GithubReadOptions,
+): Promise<WebAdapterOutcome> {
+  switch (target.kind) {
+    case 'issue':
+    case 'pull':
+      return readGithubThread(
+        target,
+        options.io,
+        options.apiOrigin,
+        options.init,
+      );
+    case 'discussion':
+      return readGithubDiscussion(target, options);
+    case 'gist':
+      return readGithubGist(target, options);
+    case 'release':
+    case 'latest-release':
+    case 'release-list':
+      return readGithubRelease(target, options);
+    case 'job':
+      return readGithubJob(target, options);
+    default:
+      return readGithubCode(target, { source, ...options });
+  }
 }
 async function readGithubThread(
   target: GithubThreadTarget,

@@ -142,7 +142,7 @@ function renderPullRequest(document: GithubPullDocument): string {
   return lines.join('\n').trim();
 }
 
-function formatLabels(labels: ReadonlyArray<string>): string {
+export function formatLabels(labels: ReadonlyArray<string>): string {
   return labels.length === 0 ? 'none' : labels.join(', ');
 }
 
@@ -154,7 +154,7 @@ function normalizeText(value: string): string {
     .trim();
 }
 
-function formatItemBody(body: string, fallback: string): string {
+export function formatItemBody(body: string, fallback: string): string {
   return normalizeText(body) || fallback;
 }
 

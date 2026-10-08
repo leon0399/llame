@@ -25,11 +25,49 @@ export type GithubCommitTarget = {
   readonly sha: string;
 };
 
+export type GithubDiscussionTarget = {
+  readonly kind: 'discussion';
+  readonly owner: string;
+  readonly repo: string;
+  readonly number: number;
+};
+
+export type GithubReleaseTarget = {
+  readonly kind: 'release';
+  readonly owner: string;
+  readonly repo: string;
+  /** The decoded tag name, which may contain `/`. */
+  readonly tag: string;
+};
+
+export type GithubReleaseListTarget = {
+  readonly kind: 'latest-release' | 'release-list';
+  readonly owner: string;
+  readonly repo: string;
+};
+
+export type GithubJobTarget = {
+  readonly kind: 'job';
+  readonly owner: string;
+  readonly repo: string;
+  readonly job: string;
+};
+
+export type GithubGistTarget = {
+  readonly kind: 'gist';
+  readonly id: string;
+};
+
 export type GithubTarget =
   | GithubThreadTarget
+  | GithubDiscussionTarget
   | GithubRepositoryTarget
   | GithubPathTarget
-  | GithubCommitTarget;
+  | GithubCommitTarget
+  | GithubReleaseTarget
+  | GithubReleaseListTarget
+  | GithubJobTarget
+  | GithubGistTarget;
 
 const OWNER_PATTERN = '[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})';
 const REPO_PATTERN = '[A-Za-z0-9._-]{1,100}';
@@ -40,6 +78,22 @@ const THREAD_PATH = new RegExp(
 const ROOT_PATH = new RegExp(`^/(${OWNER_PATTERN})/(${REPO_PATTERN})$`, 'u');
 const CODE_PATH = new RegExp(
   `^/(${OWNER_PATTERN})/(${REPO_PATTERN})/(tree|blob|commit)(?:/(.*))?$`,
+  'u',
+);
+const DISCUSSION_PATH = new RegExp(
+  `^/(${OWNER_PATTERN})/(${REPO_PATTERN})/discussions/([1-9][0-9]{0,9})$`,
+  'u',
+);
+const RELEASE_PATH = new RegExp(
+  `^/(${OWNER_PATTERN})/(${REPO_PATTERN})/releases(?:/(latest)|/tag/(.+))?$`,
+  'u',
+);
+const JOB_PATH = new RegExp(
+  `^/(${OWNER_PATTERN})/(${REPO_PATTERN})/actions/runs/[1-9][0-9]{0,14}/job/([1-9][0-9]{0,14})$`,
+  'u',
+);
+const GIST_PATH = new RegExp(
+  `^/(?:${OWNER_PATTERN}/)?([0-9a-f]{20,40}|[1-9][0-9]{0,9})$`,
   'u',
 );
 const COMMIT_SHA = /^[0-9a-fA-F]{7,40}$/u;
@@ -79,27 +133,46 @@ const RESERVED_ROOT_NAMES = {
 export function parseGithubUrl(source: URL): GithubTarget | undefined {
   if (
     source.protocol !== 'https:' ||
-    source.hostname !== 'github.com' ||
     source.port !== '' ||
     source.username !== '' ||
     source.password !== ''
   ) {
     return undefined;
   }
+  if (source.hostname === 'gist.github.com') {
+    return parseGistPath(source.pathname);
+  }
+  if (source.hostname !== 'github.com') return undefined;
+  const target = parseRepositoryPath(source.pathname);
+  // The list endpoint answers its first page, so a later page is not a read
+  // it can serve.
+  return target?.kind === 'release-list' && source.searchParams.has('page')
+    ? undefined
+    : target;
+}
 
-  const thread = parseThreadPath(source.pathname);
+function parseRepositoryPath(pathname: string): GithubTarget | undefined {
+  const thread = parseThreadPath(pathname);
   if (thread !== undefined) return thread;
 
-  const root = ROOT_PATH.exec(source.pathname);
+  const root = ROOT_PATH.exec(pathname);
   if (root !== null) {
-    if (RESERVED_ROOT_NAMES[root[1].toLowerCase()] === true) {
-      return undefined;
-    }
+    if (isReservedOwner(root[1])) return undefined;
     return { kind: 'repository', owner: root[1], repo: root[2] };
   }
 
-  const code = CODE_PATH.exec(source.pathname);
-  return code === null ? undefined : parseCodePath(code);
+  const code = CODE_PATH.exec(pathname);
+  if (code !== null) return parseCodePath(code);
+
+  return (
+    parseDiscussionPath(pathname) ??
+    parseReleasePath(pathname) ??
+    parseJobPath(pathname)
+  );
+}
+
+function isReservedOwner(owner: string): boolean {
+  return RESERVED_ROOT_NAMES[owner.toLowerCase()] === true;
 }
 
 function parseThreadPath(pathname: string): GithubThreadTarget | undefined {
@@ -112,6 +185,45 @@ function parseThreadPath(pathname: string): GithubThreadTarget | undefined {
     repo: match[2],
     number: Number(match[4]),
   };
+}
+
+function parseDiscussionPath(
+  pathname: string,
+): GithubDiscussionTarget | undefined {
+  const match = DISCUSSION_PATH.exec(pathname);
+  if (match === null || isReservedOwner(match[1])) return undefined;
+  return {
+    kind: 'discussion',
+    owner: match[1],
+    repo: match[2],
+    number: Number(match[3]),
+  };
+}
+
+function parseReleasePath(
+  pathname: string,
+): GithubReleaseTarget | GithubReleaseListTarget | undefined {
+  const match = RELEASE_PATH.exec(pathname);
+  if (match === null || isReservedOwner(match[1])) return undefined;
+  const [, owner, repo, latest, tag] = match;
+  if (latest !== undefined) return { kind: 'latest-release', owner, repo };
+  if (tag === undefined) return { kind: 'release-list', owner, repo };
+  const segments = decodeSegments(tag, false);
+  return segments === undefined
+    ? undefined
+    : { kind: 'release', owner, repo, tag: segments.join('/') };
+}
+
+function parseJobPath(pathname: string): GithubJobTarget | undefined {
+  const match = JOB_PATH.exec(pathname);
+  if (match === null || isReservedOwner(match[1])) return undefined;
+  const [, owner, repo, job] = match;
+  return { kind: 'job', owner, repo, job };
+}
+
+function parseGistPath(pathname: string): GithubGistTarget | undefined {
+  const match = GIST_PATH.exec(pathname);
+  return match === null ? undefined : { kind: 'gist', id: match[1] };
 }
 
 function parseCodePath(match: RegExpExecArray): GithubTarget | undefined {

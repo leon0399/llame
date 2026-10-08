@@ -2036,9 +2036,10 @@ match `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`; repo segments SHALL match
 `^[A-Za-z0-9._-]{1,100}$` and SHALL not be `.` or `..`; numbers SHALL match
 `^[1-9][0-9]{0,9}$`. `/pull/{number}.diff`, `/pull/{number}.patch`,
 `/pull/{number}/files`, `/pull/{number}/commits`, `/pull/{number}/checks`,
-the `/issues` and `/pulls` lists, Actions, Projects, Discussions, search,
-gists, `raw.githubusercontent.com`, Enterprise hosts, and every write URL
-SHALL be unclaimed. The adapter SHALL use only `GET` requests to
+the `/issues` and `/pulls` lists, Projects, search, run pages,
+`raw.githubusercontent.com`, Enterprise hosts, and every write URL, and every
+shape the release, gist, job, and discussion requirement does not name, SHALL be
+unclaimed. Its REST requests SHALL be `GET` requests to
 `https://api.github.com` with `Accept: application/vnd.github+json`.
 
 An issue SHALL request `/repos/{owner}/{repo}/issues/{number}` and every
@@ -2176,7 +2177,7 @@ limits are not permission errors and SHALL not be retried.
 
 #### Scenario: Unsupported GitHub shapes are unclaimed
 
-- **WHEN** the source is `/pull/12.diff`, `/pull/12/files`, an `/issues` or `/pulls` list, an Actions log, a Project, a Discussion, a search result, a gist, an Enterprise host, or a write URL
+- **WHEN** the source is `/pull/12.diff`, `/pull/12/files`, an `/issues` or `/pulls` list, an Actions run page, a Project, a search result, an Enterprise host, or a write URL
 - **THEN** the adapter does not claim it and issues no request and no note
 - **AND** the generic ladder handles the source exactly as before
 
@@ -2309,6 +2310,32 @@ to split SHALL be a `status` failure.
 - **WHEN** a commit's file pages reach 3,000 files
 - **THEN** all loaded files are rendered with counts and the view is paged with `:N-M`
 - **AND** the note `files omitted: too_large` marks the list as possibly incomplete
+
+### Requirement: GitHub native adapter reads releases, gists, Actions jobs, and discussions
+
+A configured `github` adapter SHALL also claim `github.com/{owner}/{repo}/releases`
+(without a `page` query parameter), `/releases/latest`, and
+`/releases/tag/{tag}`; `gist.github.com/{id}` and `gist.github.com/{owner}/{id}`;
+`github.com/{owner}/{repo}/actions/runs/{run}/job/{job}`; and
+`github.com/{owner}/{repo}/discussions/{number}` only when the entry has a
+`token`. A release SHALL request `/repos/{owner}/{repo}/releases/tags/{tag}`,
+`/releases/latest`, or `/releases?per_page=30`, and render its tag, name,
+author, dates, flags, assets, and Markdown body; a gist SHALL request
+`/gists/{id}` and render each text file in a code fence, noting truncated and
+binary files instead of fetching them. A job SHALL request
+`/repos/{owner}/{repo}/actions/jobs/{job}` and render its status, conclusion,
+and steps; with a token it SHALL also request `/actions/jobs/{job}/logs`,
+following its redirect without the token, and render the last 400 log lines
+with timestamps and ANSI escapes removed, and without one it SHALL add
+`log omitted: token required`. A discussion SHALL be one `POST` of a GraphQL
+query to `https://api.github.com/graphql` rendering its category, author,
+answer, and first 100 comments with their first 100 replies.
+
+#### Scenario: A job without a token renders its steps
+
+- **WHEN** no token is configured and the model reads a public `/actions/runs/{run}/job/{job}` URL
+- **THEN** the adapter requests only the job and renders its steps with their conclusions
+- **AND** the note `log omitted: token required` is attached
 
 ### Requirement: Bluesky native adapter reads public posts and accounts
 

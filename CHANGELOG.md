@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- The native `github` web adapter now also reads releases (`/releases`,
+  `/releases/latest`, `/releases/tag/{tag}`), gists (every file in a code
+  fence), Actions job links (steps, plus the last 400 log lines when a token is
+  configured), and, with a token, Discussions through one GraphQL request. The
+  configuration is unchanged; job logs under a `read` allowlist need
+  `^https://productionresultssa[0-9]+\.blob\.core\.windows\.net/` admitted.
 - Added native `devto` and `substack` web adapters. With
   `{ "id": "devto", "use": "devto" }` or `{ "id": "substack", "use": "substack" }`
   in `tools.webAdapters`, `read` renders dev.to articles as the author's

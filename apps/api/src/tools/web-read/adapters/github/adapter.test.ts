@@ -707,4 +707,42 @@ describe('GitHub thread adapter', () => {
       adapter.match(new URL('https://github.com/acme/project/pull/12.diff')),
     ).toBe(false);
   });
+
+  it('claims gists, releases, and job links with or without a token', () => {
+    const keyless = [
+      'https://gist.github.com/octocat/aa5a315d61ae9438b18d',
+      'https://gist.github.com/aa5a315d61ae9438b18d',
+      'https://github.com/o/r/releases',
+      'https://github.com/o/r/releases/latest',
+      'https://github.com/o/r/releases/tag/v1.0.0',
+      'https://github.com/o/r/actions/runs/1/job/2',
+    ];
+    const anonymous = createGithubAdapter(config());
+    const authorized = createGithubAdapter(config('secret-value'));
+
+    for (const source of keyless) {
+      expect(anonymous.match(new URL(source))).toBe(true);
+      expect(authorized.match(new URL(source))).toBe(true);
+    }
+    expect(
+      anonymous.match(new URL('https://github.com/o/r/actions/runs/1')),
+    ).toBe(false);
+    expect(anonymous.match(new URL('https://gist.github.com/octocat'))).toBe(
+      false,
+    );
+  });
+
+  it('claims a discussion only when a token can authorize its GraphQL call', () => {
+    const discussion = new URL('https://github.com/o/r/discussions/3');
+
+    expect(createGithubAdapter(config()).match(discussion)).toBe(false);
+    expect(createGithubAdapter(config('secret-value')).match(discussion)).toBe(
+      true,
+    );
+    expect(
+      createGithubAdapter(config('secret-value')).match(
+        new URL('https://github.com/o/r/discussions'),
+      ),
+    ).toBe(false);
+  });
 });
