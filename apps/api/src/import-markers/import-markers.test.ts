@@ -31,6 +31,15 @@ describe('importTargets', () => {
     expect(importTargets('[@a.md][r]\n\n[r]: a.md')).toEqual([]);
   });
 
+  it('does not recognize markers in nested unresolved references', () => {
+    expect(importTargets('[a [@x.md][c] d]')).toEqual([]);
+  });
+
+  it('does not recognize markers after stray opening brackets', () => {
+    expect(importTargets('[draft\n\n[@a.md][r]')).toEqual([]);
+    expect(importTargets('x = a[\n\nsee [@b.md][c]')).toEqual([]);
+  });
+
   it('does not recognize a link reference definition', () => {
     expect(importTargets('[r]: @a.md "import"')).toEqual([]);
   });
@@ -45,6 +54,10 @@ describe('importTargets', () => {
 
   it('recognizes a marker after an opening parenthesis', () => {
     expect(importTargets('(@a.md)')).toEqual(['a.md']);
+  });
+
+  it('takes a bare target through nested at-signs', () => {
+    expect(importTargets('(@a(@b.md))')).toEqual(['a(@b.md']);
   });
 
   it('strips a closing angle bracket from a bare target', () => {
@@ -111,12 +124,6 @@ describe('importTargets', () => {
     ]);
   });
 
-  it('keeps marker-bearing source text unchanged', () => {
-    const source = 'see @a.md and [docs](b.md "import")';
-    expect(importTargets(source)).toEqual(['a.md', 'b.md']);
-    expect(source).toBe('see @a.md and [docs](b.md "import")');
-  });
-
   it('deduplicates targets in first-occurrence order', () => {
     expect(
       importTargets('@a.md\n@[B](b.md)\n[again](a.md "import")\n@c.md\n@b.md'),
@@ -130,10 +137,23 @@ describe('importTargets', () => {
     ]);
   });
 
-  it('parses a one-mebibyte input without losing its marker', () => {
-    const marker = '@README.md ';
-    const source = marker + 'x'.repeat(1024 * 1024 - marker.length);
-    expect(source).toHaveLength(1024 * 1024);
-    expect(importTargets(source)).toEqual(['README.md']);
+  it('handles pathological inputs without quadratic rescans', () => {
+    const nestedAtSigns = '(@'.repeat(32_768);
+    const longTarget = '@' + '.'.repeat(65_536) + 'x';
+    const unmatchedBrackets = '['.repeat(65_536);
+
+    const nestedAtStartedAt = performance.now();
+    const nestedAtTargets = importTargets(nestedAtSigns);
+    expect(performance.now() - nestedAtStartedAt).toBeLessThan(500);
+    expect(nestedAtTargets).toEqual([nestedAtSigns.slice(2)]);
+
+    const longTargetStartedAt = performance.now();
+    const longTargetTargets = importTargets(longTarget);
+    expect(performance.now() - longTargetStartedAt).toBeLessThan(500);
+    expect(longTargetTargets).toEqual([longTarget.slice(1)]);
+
+    const unmatchedBracketsStartedAt = performance.now();
+    expect(importTargets(unmatchedBrackets)).toEqual([]);
+    expect(performance.now() - unmatchedBracketsStartedAt).toBeLessThan(500);
   });
 });
