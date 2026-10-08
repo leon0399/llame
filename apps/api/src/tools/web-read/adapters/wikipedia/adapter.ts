@@ -19,7 +19,11 @@ const NAMESPACE = /^[^:]+:(?![_ ])/u;
 const NOISE = [
   'style',
   'sup.reference',
+  '.mw-ref',
   '.mw-references-wrap',
+  '.mw-references',
+  '.reflist',
+  '.refbegin',
   '.navbox',
   '.hatnote',
   '.metadata',
@@ -105,6 +109,11 @@ function renderArticle(html: string, origin: string): string | undefined {
     pre.replaceChildren(code);
   }
   for (const link of document.querySelectorAll('a')) {
+    // A link whose only child was an image would render as `[](...)`.
+    if (!link.textContent?.trim()) {
+      link.remove();
+      continue;
+    }
     link.removeAttribute('title');
     const href = link.getAttribute('href');
     if (href?.startsWith('./')) {
