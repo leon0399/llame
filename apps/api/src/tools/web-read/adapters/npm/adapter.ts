@@ -145,13 +145,13 @@ async function readPackage(
   );
   if ('fatal' in tags) return primaryFailure(tags.fatal);
   // A spent call deadline cannot be beaten by another request, so the README
-  // is skipped with the same note a timed-out request would leave.
-  if (tags.spent === true) notes.push('readme omitted: transport');
+  // is skipped with the note its own timed-out request would leave.
   const readmeUrl = `${origins.files}/${manifest.name}@${manifest.version}/README.md`;
+  if (tags.spent !== undefined) notes.push(omissionNote('readme', tags.spent));
   const readme =
-    tags.spent === true
-      ? {}
-      : await loadSection('readme', io.fetch(readmeUrl, README_INIT), notes);
+    tags.spent === undefined
+      ? await loadSection('readme', io.fetch(readmeUrl, README_INIT), notes)
+      : {};
   if ('fatal' in readme) return primaryFailure(readme.fatal);
 
   return {
@@ -178,22 +178,23 @@ function parseDistTags(
 
 /**
  * A secondary section's body, or none with an omission note. A call deadline
- * keeps what already arrived and marks the call spent; any other call-ending
- * failure is returned so the read ends, as GitHub's secondary sections do.
+ * keeps what already arrived and is returned as `spent`, so later sections
+ * are skipped with the same note; any other call-ending failure is returned
+ * so the read ends, as GitHub's secondary sections do.
  */
 async function loadSection(
   section: string,
   request: Promise<WebResponse | WebFetchFailure>,
   notes: Array<string>,
 ): Promise<
-  | { readonly body?: string; readonly spent?: true }
+  | { readonly body?: string; readonly spent?: WebFetchFailure }
   | { readonly fatal: WebFetchFailure }
 > {
   const fetched = await request;
   if (!('type' in fetched)) return { body: fetched.body };
   if (fetched.type === 'call_timeout') {
     notes.push(omissionNote(section, fetched));
-    return { spent: true };
+    return { spent: fetched };
   }
   if (isFatalAdapterFailure(fetched)) return { fatal: fetched };
   notes.push(omissionNote(section, fetched));
