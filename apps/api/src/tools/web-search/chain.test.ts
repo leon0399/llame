@@ -1,11 +1,16 @@
 import {
+  createEngine,
   EngineFailure,
   executeSearchChain,
   type Engine,
   type EngineOutcome,
   type EngineRequest,
 } from './chain';
-import { type WebSearchConfig } from '../../instance-config/llame-config';
+import {
+  type WebSearchConfig,
+  type WebSearchEngineConfig,
+} from '../../instance-config/llame-config';
+import { captureFetch } from '../../testing/web-search-fetch';
 
 const request = (
   signal: AbortSignal = new AbortController().signal,
@@ -38,6 +43,80 @@ it('uses the stable EngineFailure name', () => {
 });
 const result = (): Promise<EngineOutcome> => Promise.resolve(hit);
 const empty = (): Promise<EngineOutcome> => Promise.resolve({ kind: 'empty' });
+type FactoryCase = readonly [string, WebSearchEngineConfig, string, string];
+const factoryCases: ReadonlyArray<FactoryCase> = [
+  [
+    'brave',
+    { id: 'brave', type: 'brave', key: 'key', timeoutSeconds: 60 },
+    JSON.stringify({
+      web: { results: [{ title: 'Result', url: 'https://example.test/a' }] },
+    }),
+    'https://api.search.brave.com/res/v1/web/search',
+  ],
+  [
+    'exa',
+    { id: 'exa', type: 'exa', key: 'key', timeoutSeconds: 60 },
+    JSON.stringify({
+      results: [{ title: 'Result', url: 'https://example.test/a' }],
+    }),
+    'https://api.exa.ai/search',
+  ],
+  [
+    'perplexity',
+    { id: 'perplexity', type: 'perplexity', key: 'key', timeoutSeconds: 60 },
+    JSON.stringify({
+      results: [
+        {
+          title: 'Result',
+          url: 'https://example.test/a',
+          snippet: 'Snippet',
+        },
+      ],
+    }),
+    'https://api.perplexity.ai/search',
+  ],
+  [
+    'searxng',
+    {
+      id: 'searxng',
+      type: 'searxng',
+      baseUrl: 'http://localhost:8888/prefix',
+      timeoutSeconds: 60,
+    },
+    JSON.stringify({
+      results: [{ title: 'Result', url: 'https://example.test/a' }],
+    }),
+    'http://localhost:8888/prefix/search',
+  ],
+];
+it.each(factoryCases)(
+  'createEngine wires %s',
+  async (_name, configEntry, body, expectedUrl) => {
+    const captured = captureFetch(body);
+    const output = await createEngine(configEntry, { fetch: captured.fetch })(
+      request(),
+    );
+    const actual = new URL(captured.seen().url);
+    expect(actual.origin + actual.pathname).toBe(expectedUrl);
+    expect(output.kind).toBe('results');
+  },
+);
+
+it('appends engine notes after chain notes', async () => {
+  const output = await executeSearchChain(
+    config(['empty', 'answer']),
+    request(),
+    lookup({
+      empty,
+      answer: () => Promise.resolve({ ...hit, notes: ['engine note'] }),
+    }),
+  );
+  expect(output).toMatchObject({
+    kind: 'results',
+    engine: 'answer',
+    notes: ['empty: empty', 'engine note'],
+  });
+});
 
 const fallthroughCases: ReadonlyArray<
   readonly [string, Engine, ReadonlyArray<string>]
@@ -126,6 +205,28 @@ it('removes the canonicalized empty note when a later engine fails', async () =>
     query: 'llame',
     results: [],
     notes: ['backup: auth'],
+  });
+});
+it('removes only the answering empty engine note at any chain position', async () => {
+  const output = await executeSearchChain(
+    config(['first', 'invalid', 'last']),
+    request(),
+    lookup({
+      first: () => Promise.reject(new EngineFailure('upstream_error')),
+      invalid: () =>
+        Promise.resolve({
+          kind: 'results',
+          results: [{ title: 'Invalid', url: 'not a url' }],
+        }),
+      last: () => Promise.reject(new EngineFailure('upstream_error')),
+    }),
+  );
+  expect(output).toEqual({
+    kind: 'results',
+    engine: 'invalid',
+    query: 'llame',
+    results: [],
+    notes: ['first: upstream_error', 'last: upstream_error'],
   });
 });
 

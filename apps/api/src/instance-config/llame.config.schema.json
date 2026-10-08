@@ -30,27 +30,61 @@
       "description": "A plain string, or null to explicitly unset (overriding any legacy environment fallback). May embed {env:...}/{path:...} tokens anywhere in the string."
     },
     "webSearchEngine": {
-      "type": "object",
-      "additionalProperties": false,
-      "description": "A configured web-search engine. This layer accepts only the Brave Search API.",
-      "required": ["id", "type", "key"],
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A configured API-backed web-search engine.",
+          "required": ["id", "type", "key"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+            },
+            "type": {
+              "enum": ["brave", "exa", "perplexity"],
+              "description": "API-backed web-search engine implementation."
+            },
+            "key": {
+              "$ref": "#/$defs/nullableString",
+              "description": "Required vendor credential. It may use a whole or embedded {env:...}/{path:...} interpolation token and must resolve to a nonblank string."
+            },
+            "timeoutSeconds": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Per-engine deadline in seconds. Defaults to 60."
+            }
+          }
         },
-        "type": { "const": "brave" },
-        "key": {
-          "$ref": "#/$defs/nullableString",
-          "description": "Required Brave credential. It may use a whole or embedded {env:...}/{path:...} interpolation token and must resolve to a nonblank string."
-        },
-        "timeoutSeconds": {
-          "$ref": "#/$defs/numberOrToken",
-          "description": "Per-engine deadline in seconds. Defaults to 60."
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A configured SearXNG web-search engine.",
+          "required": ["id", "type", "baseUrl"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Operator-chosen engine identifier, unique within `webSearch.engines`."
+            },
+            "type": {
+              "const": "searxng",
+              "description": "Operator-controlled SearXNG instance."
+            },
+            "baseUrl": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Required SearXNG base URL. It may contain {env:...}/{path:...} interpolation and must resolve to an absolute http or https URL."
+            },
+            "timeoutSeconds": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Per-engine deadline in seconds. Defaults to 60."
+            }
+          }
         }
-      }
+      ]
     },
     "permissionClause": {
       "type": "object",
@@ -454,7 +488,7 @@
     "webSearch": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Optional operator-configured web-search engines and their ordered fallback chain. This layer accepts only Brave.",
+      "description": "Optional operator-configured web-search engines and their ordered fallback chain. This layer accepts Brave, Exa, Perplexity, and SearXNG.",
       "required": ["engines", "chain"],
       "properties": {
         "engines": {

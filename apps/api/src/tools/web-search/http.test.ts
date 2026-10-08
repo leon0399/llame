@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import { EngineFailure, type FailureClass } from './chain';
 import {
   fetchVendorJson,
@@ -11,8 +12,7 @@ const options = (fetch: VendorFetch): VendorFetchOptions => ({
   signal: new AbortController().signal,
   fetch,
 });
-// SAFETY: JSON.parse's unknown result is intentionally passed to the parser seam.
-const parse = vi.fn((body: string) => JSON.parse(body) as unknown);
+const schema = z.unknown();
 
 async function expectFailure(
   fetch: VendorFetch,
@@ -23,7 +23,7 @@ async function expectFailure(
       'https://vendor.example/search',
       { method: 'GET' },
       options(fetch),
-      parse,
+      schema,
     ),
   ).rejects.toMatchObject({ failureClass });
 }
@@ -39,10 +39,11 @@ describe('web search vendor HTTP', () => {
         'https://vendor.example/search',
         { method: 'GET' },
         options(() => Promise.resolve(response)),
-        () => ({}),
+        schema,
       ),
     ).rejects.toMatchObject({ failureClass: 'upstream_error' });
   });
+
   it('classifies status 300 as an upstream error', async () => {
     await expect(
       fetchVendorJson(
@@ -56,7 +57,7 @@ describe('web search vendor HTTP', () => {
             }),
           ),
         ),
-        () => ({}),
+        schema,
       ),
     ).rejects.toMatchObject({ failureClass: 'upstream_error' });
   });
@@ -75,7 +76,6 @@ describe('web search vendor HTTP', () => {
     ' application/problem+json ; charset=utf-8',
     'application/problem+json; charset=utf-8',
   ])('accepts JSON content type %s', async (contentType) => {
-    parse.mockClear();
     await expect(
       fetchVendorJson(
         'https://vendor.example/search',
@@ -87,16 +87,14 @@ describe('web search vendor HTTP', () => {
             }),
           ),
         ),
-        parse,
+        schema,
       ),
     ).resolves.toEqual({ ok: true });
-    expect(parse).toHaveBeenCalledOnce();
   });
 
   it.each(['text/plain', '+json', undefined])(
     'rejects a non-JSON content type before reading (%s)',
     async (contentType) => {
-      parse.mockClear();
       const response = new Response(
         new ReadableStream<Uint8Array>({
           pull(controller) {
@@ -109,12 +107,10 @@ describe('web search vendor HTTP', () => {
           : { headers: { 'content-type': contentType } },
       );
       await expectFailure(() => Promise.resolve(response), 'upstream_error');
-      expect(parse).not.toHaveBeenCalled();
     },
   );
 
   it('classifies a body over the vendor byte bound as upstream error', async () => {
-    const parseBody = vi.fn(() => ({}));
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new Uint8Array(VENDOR_RESPONSE_MAX_BYTES + 1));
@@ -132,14 +128,12 @@ describe('web search vendor HTTP', () => {
             }),
           ),
         ),
-        parseBody,
+        schema,
       ),
     ).rejects.toMatchObject({ failureClass: 'upstream_error' });
-    expect(parseBody).not.toHaveBeenCalled();
   });
 
   it('rejects an oversized content-length claim before reading', async () => {
-    const parseBody = vi.fn(() => ({}));
     await expect(
       fetchVendorJson(
         'https://vendor.example/search',
@@ -154,12 +148,11 @@ describe('web search vendor HTTP', () => {
             }),
           ),
         ),
-        parseBody,
+        schema,
       ),
     ).rejects.toEqual(
       expect.objectContaining({ failureClass: 'upstream_error' }),
     );
-    expect(parseBody).not.toHaveBeenCalled();
   });
 
   it('keeps vendor failures non-disclosing', async () => {
@@ -169,14 +162,13 @@ describe('web search vendor HTTP', () => {
         'https://vendor.example/search',
         { method: 'GET' },
         options(() => Promise.resolve(new Response(key, { status: 401 }))),
-        parse,
+        schema,
       ),
     ).rejects.toEqual(expect.objectContaining({ failureClass: 'auth' }));
     await expectFailure(
       () => Promise.resolve(new Response('body', { status: 503 })),
       'upstream_error',
     );
-    expect(parse).not.toHaveBeenCalledWith(key);
     expect(new EngineFailure('auth').message).not.toContain(key);
   });
 });

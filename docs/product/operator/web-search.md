@@ -1,16 +1,16 @@
 ---
-summary: "Configure Brave-backed web_search, its fallback chain, permissions, and data handling"
+summary: "Configure web_search engines, its fallback chain, permissions, and data handling"
 read_when:
   - you are enabling, restricting, or troubleshooting web_search
-  - you are configuring a Brave API key or deciding how search results may be stored
+  - you are configuring a search-engine key or endpoint, or deciding how search results may be stored
 behavior:
   - ../reference/tools/web-search.md
 ---
 
 # Web search
 
-This runbook covers enabling `web_search`, its Brave engine/chain, deadlines, and how queries/results cross the instance boundary. The [web_search reference](../reference/tools/web-search.md) has the model-facing schema, output union, bounds, fall-through details, and failure classes.
-This layer supports only the `brave` engine; other types are documented when they ship, so do not configure undocumented types.
+This runbook covers enabling `web_search`, its configured engines/chain, deadlines, and how queries/results cross the instance boundary. The [web_search reference](../reference/tools/web-search.md) has the model-facing schema, output union, bounds, fall-through details, and failure classes.
+Supported operator engines are `brave`, `exa`, `perplexity`, and `searxng`; configure only these types.
 
 ## Enabling
 
@@ -79,6 +79,52 @@ https://api.search.brave.com/res/v1/web/search
 The query goes there; `limit` maps to `count`, and `recency` maps to `freshness`: `day`→`pd`, `week`→`pw`, `month`→`pm`, `year`→`py`.
 Redirects are refused, so the key cannot follow a redirect to another host. Responses are normalized or discarded; keys never appear in output, errors, Run events, or logs.
 
+## Exa
+
+```jsonc
+{
+  "id": "exa",
+  "type": "exa",
+  "key": "{env:EXA_API_KEY}",
+  "timeoutSeconds": 60,
+}
+```
+
+`key` is required; llame sends it as `x-api-key` to `https://api.exa.ai/search`. A `site:host` token becomes `includeDomains` and a `-site:host` token becomes `excludeDomains`, and those tokens are removed from the outbound query. Only an operator that stands alone as a whitespace-delimited token is translated; one wrapped in quotes or parentheses (`"rust site:docs.rs"`, `(site:a.com OR site:b.com)`) stays in the query text and reaches no filter. `recency` becomes `startPublishedDate` using the current date; `limit` becomes `numResults`.
+
+## Perplexity
+
+```jsonc
+{
+  "id": "perplexity",
+  "type": "perplexity",
+  "key": "{env:PERPLEXITY_API_KEY}",
+  "timeoutSeconds": 60,
+}
+```
+
+The Search API uses `https://api.perplexity.ai/search`; `key` is required and is sent as `Authorization: Bearer <key>`. `recency` maps to `search_recency_filter`, and `limit` to `max_results`. `search_domain_filter` is one mode with at most 20 hosts: `site:` terms form an allowlist; without them, `-site:` terms form a denylist. For mixed operators, only `site:` terms are filtered and each `-site:` remains in the query; overflow remains in the query with a note. As for Exa, only standalone operator tokens are translated; wrapped ones stay in the query text.
+
+## SearXNG
+
+```jsonc
+{
+  "id": "searxng",
+  "type": "searxng",
+  "baseUrl": "https://search.example.test",
+  "timeoutSeconds": 60,
+}
+```
+
+SearXNG is self-hosted, has no key, and requires an absolute `http:` or `https:` `baseUrl`. It calls `<baseUrl>/search?format=json`; `settings.yml` must enable JSON:
+
+```yaml
+search:
+  formats: [html, json]
+```
+
+A 403 normally means JSON is disabled and is reported as `upstream_error`, not `auth`. `recency: "week"` is sent as `time_range=month`; `day`, `month`, and `year` map directly. `limit` is applied after URL canonicalization, and `site:`/`-site:` remain in the query.
+
 ## Query exfiltration
 
 Every query leaves the instance for the configured provider and may contain model-copied conversation, file, or tool text. `read` path permissions do not restrict this, and `read_only` does not make it private.
@@ -86,9 +132,7 @@ The only query-exfiltration control is a `query` reject clause in `tools.permiss
 
 ## Storage and provider terms
 
-A completed call stores normalized results/answer in the chat's `web_search` tool part as conversation context, not raw Brave payload or request metadata. The part replays as untrusted tool output and is omitted from public chat shares like other protected parts.
-Brave Search API terms prohibit storing/caching results beyond transient operational use. Because llame stores normalized results in the chat part, decide whether that storage fits the instance's terms; normalization is not automatically exempt. Disable or avoid the engine if the operator cannot accept this posture.
-
-## Future engine types
-
-Other engine types enter this runbook only when shipped; until then use the Brave shape and do not add undocumented `webSearch.engines` types.
+A completed call stores normalized results/answer in the chat's `web_search` tool part as conversation context, not raw vendor payload or request metadata. The part replays as untrusted tool output and is omitted from public chat shares like other protected parts.
+Provider terms constrain this storage. Brave Search API terms prohibit storing/caching results beyond transient operational use. Exa's terms prohibit copying/archiving results except a temporary cache; normalized chat storage may exceed that allowance.
+Perplexity grants display rights without an archive grant, so retaining normalized results is not automatically permitted. SearXNG is self-hosted, but the upstream engines' terms still apply.
+Disable or avoid an engine if the operator cannot accept its terms for llame's chat-part storage.

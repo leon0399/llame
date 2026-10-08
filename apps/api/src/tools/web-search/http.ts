@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { createMcpBoundedFetch } from '../../mcp/mcp-bounded-fetch';
 import { EngineFailure } from './chain';
 
@@ -63,7 +64,7 @@ export async function fetchVendorJson<T>(
   url: string,
   init: RequestInit,
   options: VendorFetchOptions,
-  parse: (body: string) => T,
+  schema: z.ZodType<T>,
 ): Promise<T> {
   const response = await fetchResponse(url, init, options);
   await classifyStatus(response);
@@ -71,7 +72,8 @@ export async function fetchVendorJson<T>(
   await classifyJsonContentType(response);
   try {
     const body = await response.text();
-    return parse(body);
+    // SAFETY: JSON.parse returns any; the supplied Zod schema validates it.
+    return schema.parse(JSON.parse(body) as unknown);
   } catch {
     options.signal.throwIfAborted();
     throw new EngineFailure('upstream_error');

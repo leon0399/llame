@@ -175,13 +175,21 @@ export type KnowledgeConfig = {
 };
 
 /** The still-uninterpolated `webSearch` engine entry once schema-validated. */
-export type RawWebSearchEngineEntry = {
-  id: string;
-  type: 'brave';
-  /** Schema-required credential; interpolation may still resolve blank. */
-  key: string | null;
-  timeoutSeconds?: unknown;
-};
+export type RawWebSearchEngineEntry =
+  | {
+      id: string;
+      type: 'brave' | 'exa' | 'perplexity';
+      /** Schema-required credential; interpolation may still resolve blank. */
+      key: string | null;
+      timeoutSeconds?: unknown;
+    }
+  | {
+      id: string;
+      type: 'searxng';
+      /** Required operator-controlled SearXNG base URL before interpolation. */
+      baseUrl: string;
+      timeoutSeconds?: unknown;
+    };
 
 /** The still-uninterpolated operator `webSearch` section. */
 export type RawWebSearchConfig = {
@@ -192,12 +200,20 @@ export type RawWebSearchConfig = {
 /** A resolved `webSearch` engine. Later layers add more `type` members. */
 export type WebSearchEngineConfig = {
   id: string;
-  type: 'brave';
-  /** Interpolated vendor credential; never surfaced in output or errors. */
-  key: string;
   /** Per-attempt deadline in seconds (default 60). */
   timeoutSeconds: number;
-};
+} & (
+  | {
+      type: 'brave' | 'exa' | 'perplexity';
+      /** Interpolated vendor credential; never surfaced in output or errors. */
+      key: string;
+    }
+  | {
+      type: 'searxng';
+      /** Absolute http(s) base URL of the operator's SearXNG instance. */
+      baseUrl: string;
+    }
+);
 
 /** Resolved operator `webSearch` section: engines and the ordered chain of their ids. */
 export type WebSearchConfig = {

@@ -486,7 +486,7 @@ function resolveKnowledge(
   return { root: resolved };
 }
 
-/** Resolve the optional Brave-backed web-search configuration. */
+/** Resolve the configured web-search engines. */
 function resolveWebSearch(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
@@ -532,13 +532,55 @@ function resolveWebSearchEngines(
       }),
       timeoutPath,
     );
-    return {
-      id: entry.id,
-      type: entry.type,
-      key: requireNonBlankString(`${entryPath}.key`, entry.key, env),
-      timeoutSeconds,
-    };
+    return resolveWebSearchEngine(entry, entryPath, timeoutSeconds, env);
   });
+}
+
+function resolveWebSearchEngine(
+  entry: RawWebSearchConfig['engines'][number],
+  entryPath: string,
+  timeoutSeconds: number,
+  env: NodeJS.ProcessEnv,
+): WebSearchEngineConfig {
+  const base = { id: entry.id, timeoutSeconds };
+  if (entry.type === 'searxng') {
+    return {
+      ...base,
+      type: entry.type,
+      baseUrl: resolveSearxngBaseUrl(
+        `${entryPath}.baseUrl`,
+        entry.baseUrl,
+        env,
+      ),
+    };
+  }
+  return {
+    ...base,
+    type: entry.type,
+    key: requireNonBlankString(`${entryPath}.key`, entry.key, env),
+  };
+}
+
+function resolveSearxngBaseUrl(
+  configPath: string,
+  raw: string,
+  env: NodeJS.ProcessEnv,
+): string {
+  const resolved = requireNonBlankString(configPath, raw, env);
+  const parsedUrl = URL.parse(resolved);
+  if (
+    parsedUrl === null ||
+    (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') ||
+    parsedUrl.username !== '' ||
+    parsedUrl.password !== '' ||
+    parsedUrl.search !== '' ||
+    parsedUrl.hash !== ''
+  ) {
+    throw new InstanceConfigError(
+      `${configPath}: must be an absolute http or https URL without userinfo, query, or fragment`,
+    );
+  }
+  return resolved;
 }
 
 function assertWebSearchChain(

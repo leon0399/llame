@@ -1,6 +1,5 @@
 import { parseHTML } from 'linkedom';
 import { z } from 'zod';
-import { type WebSearchEngineConfig } from '../../instance-config/llame-config';
 import { type Engine, type EngineRequest, type RawResult } from './chain';
 import { fetchVendorJson, type VendorFetch } from './http';
 
@@ -22,13 +21,7 @@ const BraveResultSchema = z.object({
 const BravePayloadSchema = z.object({
   web: z.object({ results: z.array(z.unknown()).optional() }).optional(),
 });
-
 type BravePayload = z.infer<typeof BravePayloadSchema>;
-
-function parseBravePayload(body: string): BravePayload {
-  // SAFETY: JSON.parse returns any; Zod validates the complete Brave payload.
-  return BravePayloadSchema.parse(JSON.parse(body) as unknown);
-}
 
 function textContent(value: string): string {
   const document = parseHTML(
@@ -59,7 +52,7 @@ function readResults(payload: BravePayload): ReadonlyArray<RawResult> {
 
 /** Create a Brave Search API adapter for one resolved operator engine. */
 export function createBraveEngine(
-  config: Pick<WebSearchEngineConfig, 'key'>,
+  config: { readonly key: string },
   deps: { readonly fetch: VendorFetch },
 ): Engine {
   return async (request: EngineRequest) => {
@@ -82,7 +75,7 @@ export function createBraveEngine(
         fetch: deps.fetch,
         userAgent: request.userAgent,
       },
-      parseBravePayload,
+      BravePayloadSchema,
     );
     const results = readResults(payload);
     return results.length === 0

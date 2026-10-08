@@ -5,6 +5,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Added the `web_search` tool and top-level `webSearch` configuration with a
   Brave engine and operator-configured chain.
 
+- Added Exa, Perplexity Search API, and self-hosted SearXNG engines to
+  `web_search`, including their provider-specific filters and recency mappings.
+
 # 2026-10-07
 
 - Added a per-provider `headers` map of string or `null` values. The

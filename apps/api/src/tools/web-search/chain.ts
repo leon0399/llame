@@ -3,6 +3,9 @@ import {
   type WebSearchEngineConfig,
 } from '../../instance-config/llame-config';
 import { createBraveEngine } from './brave';
+import { createExaEngine } from './exa';
+import { createPerplexityEngine } from './perplexity';
+import { createSearxngEngine } from './searxng';
 import { canonicalUrl } from './output';
 import { type VendorFetch } from './http';
 
@@ -44,6 +47,7 @@ export type RawCitation = { readonly url: string; readonly title?: string };
 type ResultOutcome = {
   readonly kind: 'results';
   readonly results: ReadonlyArray<RawResult>;
+  readonly notes?: ReadonlyArray<string>;
 };
 type AnswerOutcome = {
   readonly kind: 'answer';
@@ -107,7 +111,8 @@ function withChainNotes(
   result: SearchChainSuccess,
   notes: ReadonlyArray<string>,
 ): SearchChainSuccess {
-  return notes.length === 0 ? result : { ...result, notes };
+  const finalNotes = [...notes, ...(result.notes ?? [])];
+  return finalNotes.length === 0 ? result : { ...result, notes: finalNotes };
 }
 
 function canonicalizeResults(
@@ -160,7 +165,7 @@ async function runOne(
   }
 }
 
-/** Build an engine adapter from one resolved entry; core supports Brave only. */
+/** Build an engine adapter from one resolved entry. */
 export function createEngine(
   config: WebSearchEngineConfig,
   deps: { readonly fetch: VendorFetch },
@@ -168,6 +173,12 @@ export function createEngine(
   switch (config.type) {
     case 'brave':
       return createBraveEngine(config, deps);
+    case 'exa':
+      return createExaEngine(config, deps);
+    case 'perplexity':
+      return createPerplexityEngine(config, deps);
+    case 'searxng':
+      return createSearxngEngine(config, deps);
   }
 }
 
@@ -194,23 +205,20 @@ function classifyOutcome(
     notes.push(`${id}: ${outcome}`);
     return { kind: 'continue' };
   }
-  if (outcome.kind === 'empty') {
+  const success =
+    outcome.kind === 'empty' ? outcome : canonicalizeOutcome(outcome);
+  if (
+    success.kind === 'empty' ||
+    (success.kind === 'results' && success.results.length === 0)
+  ) {
     notes.push(`${id}: empty`);
     return {
       kind: 'continue',
       lastEmpty: {
         engine: id,
         noteIndex: notes.length - 1,
-        notes: outcome.notes,
+        notes: success.notes,
       },
-    };
-  }
-  const success = canonicalizeOutcome(outcome);
-  if (success.kind === 'results' && success.results.length === 0) {
-    notes.push(`${id}: empty`);
-    return {
-      kind: 'continue',
-      lastEmpty: { engine: id, noteIndex: notes.length - 1 },
     };
   }
   if (

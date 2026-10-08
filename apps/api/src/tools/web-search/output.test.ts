@@ -67,6 +67,8 @@ it('keeps HTTP URLs and drops either kind of URL userinfo', () => {
   expect(
     canonicalizeSearchUrl('https://:password@example.com/a'),
   ).toBeUndefined();
+  expect(canonicalizeSearchUrl('not a url')).toBeUndefined();
+  expect(canonicalizeSearchUrl('')).toBeUndefined();
 });
 it('does not encode a colon when a URL has a query', () => {
   expect(
