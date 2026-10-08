@@ -486,7 +486,7 @@ function resolveKnowledge(
   return { root: resolved };
 }
 
-/** Resolve the optional Brave-backed web-search configuration. */
+/** Resolve the configured web-search engines. */
 function resolveWebSearch(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
@@ -532,13 +532,56 @@ function resolveWebSearchEngines(
       }),
       timeoutPath,
     );
+    return resolveWebSearchEngine(entry, entryPath, timeoutSeconds, env);
+  });
+}
+
+function resolveWebSearchEngine(
+  entry: RawWebSearchConfig['engines'][number],
+  entryPath: string,
+  timeoutSeconds: number,
+  env: NodeJS.ProcessEnv,
+): WebSearchEngineConfig {
+  if (entry.type === 'searxng') {
     return {
       id: entry.id,
       type: entry.type,
-      key: requireNonBlankString(`${entryPath}.key`, entry.key, env),
+      baseUrl: resolveSearxngBaseUrl(
+        `${entryPath}.baseUrl`,
+        entry.baseUrl,
+        env,
+      ),
       timeoutSeconds,
     };
-  });
+  }
+  return {
+    id: entry.id,
+    type: entry.type,
+    key: requireNonBlankString(`${entryPath}.key`, entry.key, env),
+    timeoutSeconds,
+  };
+}
+
+function resolveSearxngBaseUrl(
+  configPath: string,
+  raw: string,
+  env: NodeJS.ProcessEnv,
+): string {
+  const resolved = requireNonBlankString(configPath, raw, env);
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(resolved);
+  } catch {
+    throw new InstanceConfigError(
+      `${configPath}: must be an absolute http or https URL`,
+    );
+  }
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    throw new InstanceConfigError(
+      `${configPath}: must be an absolute http or https URL`,
+    );
+  }
+  return resolved;
 }
 
 function assertWebSearchChain(

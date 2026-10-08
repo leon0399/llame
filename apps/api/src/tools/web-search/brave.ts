@@ -1,6 +1,5 @@
 import { parseHTML } from 'linkedom';
 import { z } from 'zod';
-import { type WebSearchEngineConfig } from '../../instance-config/llame-config';
 import { type Engine, type EngineRequest, type RawResult } from './chain';
 import { fetchVendorJson, type VendorFetch } from './http';
 
@@ -59,7 +58,7 @@ function readResults(payload: BravePayload): ReadonlyArray<RawResult> {
 
 /** Create a Brave Search API adapter for one resolved operator engine. */
 export function createBraveEngine(
-  config: Pick<WebSearchEngineConfig, 'key'>,
+  config: { readonly key: string },
   deps: { readonly fetch: VendorFetch },
 ): Engine {
   return async (request: EngineRequest) => {

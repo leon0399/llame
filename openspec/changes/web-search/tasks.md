@@ -65,12 +65,12 @@ output.
 
 ## 2. `web-search/engines-api` — Exa, Perplexity, SearXNG (design D6)
 
-- [ ] 2.1 Add the `exa`, `perplexity`, and `searxng` schema branches and loader shapes, including `searxng`'s absolute `baseUrl`; verify by loader tests for the missing-key and relative-URL scenarios
-- [ ] 2.2 Implement the `exa` engine with `includeDomains`/`excludeDomains` from `site:`/`-site:` and `startPublishedDate` from `recency`; verify by fixture tests for mapping, normalization, and status classes
-- [ ] 2.3 Implement the `perplexity` engine on the Search API with `search_recency_filter`, `max_results`, and the single-mode, 20-domain `search_domain_filter` rule; verify by fixture tests for mapping (including mixed `site:`/`-site:`), normalization, and status classes
-- [ ] 2.4 Implement the `searxng` engine against its `baseUrl` with `time_range` (noting `week` sent as `month`); verify by fixture tests, including that an `http:` base URL is used as configured, redirects are refused, and a 403 is `upstream_error`
-- [ ] 2.5 Document the three engines, their credentials, their storage terms, and SearXNG's required `search.formats: [html, json]` in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 2.6 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
+- [x] 2.1 Add the `exa`, `perplexity`, and `searxng` schema branches and loader shapes, including `searxng`'s absolute `baseUrl`; verify by loader tests for the missing-key and relative-URL scenarios
+- [x] 2.2 Implement the `exa` engine with `includeDomains`/`excludeDomains` from `site:`/`-site:` and `startPublishedDate` from `recency`; verify by fixture tests for mapping, normalization, and status classes
+- [x] 2.3 Implement the `perplexity` engine on the Search API with `search_recency_filter`, `max_results`, and the single-mode, 20-domain `search_domain_filter` rule; verify by fixture tests for mapping (including mixed `site:`/`-site:`), normalization, and status classes
+- [x] 2.4 Implement the `searxng` engine against its `baseUrl` with `time_range` (noting `week` sent as `month`); verify by fixture tests, including that an `http:` base URL is used as configured, redirects are refused, and a 403 is `upstream_error`
+- [x] 2.5 Document the three engines, their credentials, their storage terms, and SearXNG's required `search.formats: [html, json]` in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 2.6 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
 - [ ] 2.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 

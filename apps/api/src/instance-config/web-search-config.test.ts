@@ -28,6 +28,10 @@ function brave(id = 'brave', key = 'brave-secret') {
   return { id, type: 'brave', key };
 }
 
+function searxng(id = 'searxng', baseUrl = 'https://search.example.test') {
+  return { id, type: 'searxng', baseUrl };
+}
+
 describe('loadInstanceConfig — webSearch', () => {
   it('omits webSearch when it is unconfigured', () => {
     writeConfig('{}');
@@ -98,6 +102,83 @@ describe('loadInstanceConfig — webSearch', () => {
     });
   });
 
+  it('loads an Exa engine and defaults its timeout to 60 seconds', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'exa', type: 'exa', key: 'exa-secret' }],
+          chain: ['exa'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch).toEqual({
+      engines: [
+        {
+          id: 'exa',
+          type: 'exa',
+          key: 'exa-secret',
+          timeoutSeconds: 60,
+        },
+      ],
+      chain: ['exa'],
+    });
+  });
+
+  it('loads a SearXNG engine with an absolute HTTP base URL', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [searxng('searxng', 'http://localhost:8888')],
+          chain: ['searxng'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch).toEqual({
+      engines: [
+        {
+          id: 'searxng',
+          type: 'searxng',
+          baseUrl: 'http://localhost:8888',
+          timeoutSeconds: 60,
+        },
+      ],
+      chain: ['searxng'],
+    });
+  });
+
+  it('resolves an interpolated SearXNG base URL', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [searxng('searxng', '{env:SEARXNG_BASE_URL}')],
+          chain: ['searxng'],
+        },
+      }),
+    );
+
+    expect(
+      loadInstanceConfig({ SEARXNG_BASE_URL: 'http://localhost:8888' })
+        .webSearch?.engines[0],
+    ).toMatchObject({ type: 'searxng', baseUrl: 'http://localhost:8888' });
+  });
+
+  it('rejects a relative SearXNG base URL and names its config path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [searxng('searxng', 'search.local/')],
+          chain: ['searxng'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'webSearch.engines[searxng].baseUrl: must be an absolute http or https URL',
+    );
+  });
+
   it('rejects an engine id longer than 64 characters and names its path', () => {
     const id = 'x'.repeat(65);
     writeConfig(
@@ -148,6 +229,47 @@ describe('loadInstanceConfig — webSearch', () => {
     );
 
     expect(() => loadInstanceConfig()).toThrow(/webSearch.*engines.*key/u);
+  });
+
+  it('rejects a missing Perplexity key and names the key path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'perplexity', type: 'perplexity' }],
+          chain: ['perplexity'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(/webSearch.*engines.*key/u);
+  });
+
+  it('rejects a key on a SearXNG engine as an unknown key', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ ...searxng(), key: 'not-allowed' }],
+          chain: ['searxng'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(/webSearch\/engines\/0\/key/u);
+  });
+
+  it('rejects a baseUrl on a Brave engine as an unknown key', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ ...brave(), baseUrl: 'https://search.example.test' }],
+          chain: ['brave'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/engines\/0\/baseUrl/u,
+    );
   });
 
   it('rejects an unknown chain id', () => {
