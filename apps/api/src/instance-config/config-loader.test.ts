@@ -963,6 +963,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     const doi = { id: 'doi', use: 'doi' as const };
     const devto = { id: 'devto', use: 'devto' as const };
     const substack = { id: 'substack', use: 'substack' as const };
+    const osv = { id: 'advisories', use: 'osv' as const };
     const forums = {
       id: 'forums',
       use: 'discourse' as const,
@@ -985,6 +986,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
             forums,
             devto,
             substack,
+            osv,
           ],
         },
       }),
@@ -1004,6 +1006,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       forums,
       devto,
       substack,
+      osv,
     ]);
   });
 

@@ -530,7 +530,7 @@ export type RawWebAdapterEntry =
     }
   | {
       id: string;
-      use: 'devto' | 'substack';
+      use: 'devto' | 'substack' | 'osv';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -626,6 +626,11 @@ export type SubstackWebAdapterConfig = {
   readonly use: 'substack';
 };
 
+export type OsvWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'osv';
+};
+
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
   | GithubWebAdapterConfig
@@ -639,7 +644,8 @@ export type WebAdapterConfig =
   | DoiWebAdapterConfig
   | DiscourseWebAdapterConfig
   | DevtoWebAdapterConfig
-  | SubstackWebAdapterConfig;
+  | SubstackWebAdapterConfig
+  | OsvWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

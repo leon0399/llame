@@ -1936,8 +1936,8 @@ redirect: a 3xx answer SHALL fail it as `http_status`.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
 credential, and the Bluesky, npm, Hugging Face, arXiv, Stack Exchange,
-crates.io, Hacker News, DOI, Discourse, dev.to, and Substack adapters SHALL
-send none; the GitHub token SHALL be
+crates.io, Hacker News, DOI, Discourse, dev.to, Substack, and OSV adapters
+SHALL send none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1962,8 +1962,8 @@ representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
 sources use; the Bluesky, npm, Hugging Face, Stack Exchange, crates.io,
-Hacker News, DOI, Discourse, dev.to, and Substack adapters label their renders
-`text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
+Hacker News, DOI, Discourse, dev.to, Substack, and OSV adapters label their
+renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2660,6 +2660,26 @@ not everyone SHALL add the note `body truncated: subscribers only`.
 - **WHEN** the model reads `https://dev.to/lydiahallie/javascript-visualized-promises-async-await-5gke`
 - **THEN** the adapter requests only the dev.to API article
 - **AND** the text has the title, `Author`, `Published`, `Tags`, and `URL` lines, then the author's Markdown
+
+### Requirement: OSV native adapter reads vulnerability advisories
+
+A configured `osv` adapter SHALL claim only `https://osv.dev/vulnerability/{id}`,
+`https://nvd.nist.gov/vuln/detail/{CVE id}`, `https://github.com/advisories/{GHSA
+id}`, and `https://www.cve.org/CVERecord?id={CVE id}` locators, with or without
+`www.`, and SHALL send one unauthenticated `GET` to
+`https://api.osv.dev/v1/vulns/{id}`; a failed or unparsable response SHALL fall
+through. The render SHALL be `# {id}: {summary}`, the `Withdrawn`, `Aliases`,
+`Severity`, `CWE`, `Published`, `Modified`, `Related`, and `URL` lines present,
+then `## Affected` with each package's range events, or its listed versions
+when it has none, `## Details`, and
+`## References`. A repository range SHALL name its repo, so a commit is not
+rendered as a package version.
+
+#### Scenario: A GitHub advisory renders from OSV.dev
+
+- **WHEN** the model reads `https://github.com/advisories/GHSA-jfh8-c2jp-5v3q`
+- **THEN** the adapter requests only `https://api.osv.dev/v1/vulns/GHSA-jfh8-c2jp-5v3q`
+- **AND** the text lists the CVE alias, severity, and the affected Maven ranges with their fixed versions
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 
