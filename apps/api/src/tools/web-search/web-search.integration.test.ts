@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { NoSuchToolError, stepCountIs, streamText } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import type {
+  LanguageModelV3,
   LanguageModelV3FinishReason,
   LanguageModelV3StreamPart,
   LanguageModelV3StreamResult,
@@ -33,13 +34,23 @@ import { isTextPart } from '../../chats/context-builder';
 import type { CompactionCapability } from '../../compaction/compaction.service';
 import {
   BUILT_IN_DEFAULTS,
+  type LlameConfig,
   type WebSearchConfig,
 } from '../../instance-config/llame-config';
 import type { InstanceConfigReader } from '../../instance-config/instance-config.service';
 import { MemoryService } from '../../memory/memory.service';
 import type { ModelClient, ModelStreamInput } from '../../models/model-client';
-import type { ModelSelectionValidator } from '../../models/models.service';
-import type { SystemModelCatalogEntry } from '../../models/model-catalog';
+import { createModelClient } from '../../models/model-client-factory';
+import {
+  ModelsService,
+  type ModelSelectionValidator,
+} from '../../models/models.service';
+import type {
+  SystemModelCatalogEntry,
+  TokenPrice,
+} from '../../models/model-catalog';
+import type { OpenAIModelClientConfig } from '../../models/openai-model-client';
+import { applyRequestUsageCallback } from '../../models/request-usage';
 import { noopEmbedDispatch } from '../../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../../search/chat-search-query-embedder.stub';
 import { SearchIndexService } from '../../search/search-index.service';
@@ -52,6 +63,12 @@ import {
 } from '../../runs/runs-repository';
 import { SystemPromptsService } from '../../system-prompts/system-prompts.service';
 import { noopSkillCatalog } from '../../skills/skill-catalog.stub';
+import {
+  answerStream,
+  scriptedModelClient,
+  urlSourcePart,
+  type HostedStreamScript,
+} from '../../testing/hosted-search-client';
 import { waitFor } from '../../testing/support';
 import { compileToolPermissionMap } from '../permissions/compile-permissions';
 import type { CompiledPolicy } from '../permissions/types';
@@ -59,11 +76,13 @@ import { TOOL_REGISTRY } from '../registry';
 import type { KnowledgeToolResolver } from '../types';
 import type { KnowledgeToolCandidateResolverPort } from '../../knowledge/knowledge-tool-candidate-resolver';
 import { BRAVE_SEARCH_URL } from './brave';
+import { HOSTED_SEARCH_INSTRUCTIONS } from './model-hosted';
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 const SENTINEL_KEY = 'brave-canary';
 const BRAVE_ORIGIN = new URL(BRAVE_SEARCH_URL).origin;
 const FIXTURE_QUERY = 'fixture query';
+const USER_TURN = 'search the fixture';
 const FIXTURE_RESULT_URL = 'https://Example.test/results/page#fragment';
 const FIXTURE_DESCRIPTION = `<b>${'x'.repeat(400)}</b>`;
 const FIXTURE_SUCCESS_BODY = JSON.stringify({
@@ -95,13 +114,43 @@ const STOP_FINISH = {
   unified: 'stop',
   raw: undefined,
 } satisfies LanguageModelV3FinishReason;
-function textResponse(text: string): LanguageModelV3StreamResult {
+type TokenCounts = {
+  input: number;
+  cached: number;
+  output: number;
+  reasoning: number;
+};
+function providerUsage(counts: TokenCounts): LanguageModelV3Usage {
+  return {
+    inputTokens: {
+      total: counts.input,
+      noCache: counts.input - counts.cached,
+      cacheRead: counts.cached,
+      cacheWrite: 0,
+    },
+    outputTokens: {
+      total: counts.output,
+      text: counts.output - counts.reasoning,
+      reasoning: counts.reasoning,
+    },
+  };
+}
+/** The price the scripted Run model carries, so its turn has an estimated cost. */
+const TEST_PRICE: TokenPrice = {
+  inputUsdPer1M: 2,
+  cachedInputUsdPer1M: 0.5,
+  outputUsdPer1M: 8,
+};
+function textResponse(
+  text: string,
+  usage: LanguageModelV3Usage = USAGE,
+): LanguageModelV3StreamResult {
   const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'answer' },
     { type: 'text-delta', id: 'answer', delta: text },
     { type: 'text-end', id: 'answer' },
-    { type: 'finish', finishReason: STOP_FINISH, usage: USAGE },
+    { type: 'finish', finishReason: STOP_FINISH, usage },
   ];
   return { stream: simulateReadableStream({ chunks }) };
 }
@@ -109,6 +158,7 @@ function toolResponse(
   id: string,
   name: string,
   input: Record<string, string | number | undefined>,
+  usage: LanguageModelV3Usage = USAGE,
 ): LanguageModelV3StreamResult {
   const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
@@ -118,7 +168,7 @@ function toolResponse(
       toolName: name,
       input: JSON.stringify(input),
     },
-    { type: 'finish', finishReason: TOOL_FINISH, usage: USAGE },
+    { type: 'finish', finishReason: TOOL_FINISH, usage },
   ];
   return { stream: simulateReadableStream({ chunks }) };
 }
@@ -131,9 +181,10 @@ function createClient(
     model: 'mock',
     provider: 'mock',
     contextWindowTokens: 100_000,
+    pricing: TEST_PRICE,
     streamText(input) {
       calls?.push(input);
-      const options: StreamOptions = {
+      const options: StreamOptions & { model: LanguageModelV3 } = {
         model,
         system: input.system,
         messages: input.messages,
@@ -185,6 +236,7 @@ function createClient(
           return Promise.resolve(null);
         };
       }
+      applyRequestUsageCallback(options, input);
       return streamText(options);
     },
   };
@@ -353,16 +405,112 @@ const ALLOW_SEARCH_AND_READ = compileToolPermissionMap(
   },
   'web-search-test-policy',
 );
+const HOSTED_QUERY = 'latest fixture release';
+const HOSTED_ANSWER = 'Fixture 2.0 shipped on 2026-10-01.';
+const HOSTED_CITATION_TITLE = 'Fixture 2.0 release notes';
+// The provider cites a mixed-case, fragmented URL; the tool part stores its canonical form.
+const HOSTED_CITATION_URL = 'https://Example.test/releases/2.0#notes';
+const HOSTED_CITATION_HREF = 'https://example.test/releases/2.0';
+// The Run's two requests, as the run-usage-accounting two-request scenarios report them.
+const RUN_TOOL_REQUEST_USAGE = providerUsage({
+  input: 1000,
+  cached: 0,
+  output: 200,
+  reasoning: 150,
+});
+const RUN_ANSWER_REQUEST_USAGE = providerUsage({
+  input: 1400,
+  cached: 1000,
+  output: 100,
+  reasoning: 60,
+});
+// Far above the Run's own, so any of it reaching the message is unmistakable.
+const HOSTED_REQUEST_USAGE = providerUsage({
+  input: 50_000,
+  cached: 0,
+  output: 9000,
+  reasoning: 0,
+});
+const HOSTED_MODEL: SystemModelCatalogEntry = {
+  ...testModelEntry,
+  id: 'hosted-search-model',
+  provider: 'hosted-provider',
+  providerModelId: 'gpt-hosted-search',
+};
+/** Two models on two providers: the Run's, and the one hosting the search. */
+const HOSTED_INSTANCE: Pick<LlameConfig, 'defaults' | 'providers' | 'models'> =
+  {
+    defaults: { modelId: testModelEntry.id, titleGenerationModelId: null },
+    providers: [
+      {
+        id: testModelEntry.provider,
+        type: 'openai-completions',
+        key: null,
+        baseUrl: 'https://run-model.example.test/v1',
+        headers: {},
+      },
+      {
+        id: HOSTED_MODEL.provider,
+        type: 'openai-responses',
+        key: null,
+        baseUrl: null,
+        headers: {},
+      },
+    ],
+    models: [testModelEntry, HOSTED_MODEL],
+  };
+const HOSTED_SEARCH_CONFIG: WebSearchConfig = {
+  engines: [
+    {
+      id: 'hosted',
+      type: 'model-hosted',
+      model: HOSTED_MODEL.id,
+      wire: 'openai-responses',
+      timeoutSeconds: 60,
+    },
+  ],
+  chain: ['hosted'],
+};
+/** What the hosted model's side of one scenario recorded. */
+type HostedSide = {
+  /** The Responses-wire client configs the model factory built, in order. */
+  readonly built: Array<OpenAIModelClientConfig>;
+  /** Every request that reached the hosted model's client, in order. */
+  readonly requests: Array<ModelStreamInput>;
+};
+const hostedProviderScript: HostedStreamScript = () =>
+  Promise.resolve(
+    answerStream(
+      HOSTED_ANSWER,
+      [urlSourcePart(HOSTED_CITATION_URL, { title: HOSTED_CITATION_TITLE })],
+      undefined,
+      HOSTED_REQUEST_USAGE,
+    ),
+  );
+/** The production client factory with only the Responses wire's constructor scripted. */
+function hostedModelFactory(hosted: HostedSide): typeof createModelClient {
+  return (input) =>
+    createModelClient(input, {
+      createOpenAIModelClient: (config) => {
+        hosted.built.push(config);
+        return scriptedModelClient(hostedProviderScript, hosted.requests);
+      },
+    });
+}
 type ServiceOptions = {
   allowed: ReadonlyArray<string>;
   permissionPolicy: CompiledPolicy;
   timeout?: number;
+  /** Runs on `HOSTED_INSTANCE`, whose only search engine is hosted by its second model. */
+  hosted?: HostedSide;
 };
 function service(options: ServiceOptions): RunExecutionService {
   const config: InstanceConfigReader = {
     config: {
       ...BUILT_IN_DEFAULTS,
-      webSearch: SEARCH_CONFIG,
+      ...(options.hosted !== undefined && HOSTED_INSTANCE),
+      webSearch:
+        options.hosted === undefined ? SEARCH_CONFIG : HOSTED_SEARCH_CONFIG,
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
         allowed: options.allowed,
@@ -373,10 +521,18 @@ function service(options: ServiceOptions): RunExecutionService {
       },
     },
   };
-  const models: ModelSelectionValidator = {
-    validateModelSelection: () => testModelEntry,
-    resolveEffortSelection: () => undefined,
-  };
+  // The hosted scenario runs the real `ModelsService`, so the engine builds the
+  // referenced model's client as a Run's worker would.
+  const models: ModelSelectionValidator =
+    options.hosted === undefined
+      ? {
+          validateModelSelection: () => testModelEntry,
+          resolveEffortSelection: () => undefined,
+        }
+      : new ModelsService(
+          { config: config.config, productUserAgent: 'llame/web-search-test' },
+          hostedModelFactory(options.hosted),
+        );
   const compaction: CompactionCapability = {
     summarizeCheckpoint: () => Promise.resolve(null),
   };
@@ -410,7 +566,7 @@ let userId!: string;
 let fixture!: Awaited<ReturnType<typeof startFixture>>;
 let restoreFetch!: () => void;
 const activeChats = new Set<string>();
-async function seedRun(label: string) {
+async function seedRun(label: string, effort?: string) {
   const chatId = crypto.randomUUID();
   const seeded = await tenantDb.runAs(userId, async (tx) => {
     await new ChatsRepository(tx).createIfAbsent({
@@ -422,13 +578,14 @@ async function seedRun(label: string) {
       chatId,
       role: 'user',
       senderUserId: userId,
-      parts: [{ type: 'text', text: 'search the fixture' }],
+      parts: [{ type: 'text', text: USER_TURN }],
     });
     const run = await new RunsRepository(tx).create({
       chatId,
       messageId: userMessage.id,
       userId,
       modelId: `test:web-search-${label}-${crypto.randomUUID()}`,
+      effort,
     });
     return { userMessage, run };
   });
@@ -480,14 +637,17 @@ async function eventsFor(runId: string): Promise<Array<RunEvent>> {
 const recordSchema = z.record(z.string(), z.unknown());
 type Part = UnknownRecord;
 const partsSchema = z.array(recordSchema);
-async function assistantParts(chatId: string): Promise<Array<Part>> {
+async function assistantMessage(chatId: string) {
   const messages = await tenantDb.runAs(userId, (tx) =>
     new MessagesRepository(tx).findByChatId(chatId, userId),
   );
   const assistant = messages.find((message) => message.role === 'assistant');
   if (assistant === undefined)
     throw new Error('Assistant message was not persisted.');
-  return partsSchema.parse(assistant.parts);
+  return assistant;
+}
+async function assistantParts(chatId: string): Promise<Array<Part>> {
+  return partsSchema.parse((await assistantMessage(chatId)).parts);
 }
 function partOf(parts: ReadonlyArray<Part>, type: string): Part | undefined {
   return parts.find((part) => part['type'] === type);
@@ -818,5 +978,102 @@ describeIfDb('web search through the real tool loop', () => {
     expect(
       partOf(await assistantParts(seeded.chatId), 'tool-read'),
     ).toMatchObject({ state: 'output-error', outcome: 'permission_denied' });
+  });
+  it('answers from a hosted engine on another model and leaves the Run usage untouched', async () => {
+    fixture.configure('success');
+    const seeded = await seedRun('hosted', 'high');
+    const calls: Array<ModelStreamInput> = [];
+    const hosted: HostedSide = { built: [], requests: [] };
+    const model = modelFor((turn) =>
+      turn === 1
+        ? toolResponse(
+            'hosted-search-call',
+            'web_search',
+            { query: HOSTED_QUERY },
+            RUN_TOOL_REQUEST_USAGE,
+          )
+        : textResponse('Fixture 2.0 is the latest.', RUN_ANSWER_REQUEST_USAGE),
+    );
+    await execute(
+      seeded,
+      service({
+        allowed: ['web_search'],
+        permissionPolicy: ALLOW_SEARCH,
+        hosted,
+      }),
+      model,
+      { calls },
+    );
+    await waitStatus(seeded.run.id, 'completed');
+
+    // No vendor engine is contacted: the tool part stores the hosted engine's
+    // grounded answer, and the Run's model reads it on its next request.
+    expect(fixture.requests).toHaveLength(0);
+    const part = partOf(await assistantParts(seeded.chatId), 'tool-web_search');
+    expect(part).toMatchObject({
+      toolCallId: 'hosted-search-call',
+      state: 'output-available',
+      input: { query: HOSTED_QUERY },
+      outcome: 'success',
+    });
+    expect(part?.['output']).toStrictEqual({
+      status: 'success',
+      kind: 'answer',
+      engine: 'hosted',
+      query: HOSTED_QUERY,
+      answer: HOSTED_ANSWER,
+      citations: [{ url: HOSTED_CITATION_HREF, title: HOSTED_CITATION_TITLE }],
+    });
+    expect(model.doStreamCalls).toHaveLength(2);
+    const answerPrompt = JSON.stringify(model.doStreamCalls[1].prompt);
+    expect(answerPrompt).toContain(HOSTED_ANSWER);
+    expect(answerPrompt).toContain(HOSTED_CITATION_HREF);
+
+    // The sub-request is built from the second model's own provider entry and
+    // sent on the search lane with no effort, no usage callback, no history,
+    // and no Run prompt; the Run's own client never sees it.
+    expect(hosted.built).toMatchObject([
+      {
+        modelId: HOSTED_MODEL.id,
+        providerModelId: HOSTED_MODEL.providerModelId,
+      },
+    ]);
+    expect(hosted.requests).toHaveLength(1);
+    const [request] = hosted.requests;
+    expect(request.chat).toStrictEqual({ id: seeded.chatId, lane: 'search' });
+    expect(request).not.toHaveProperty('effort');
+    expect(request).not.toHaveProperty('onRequestUsage');
+    expect(request.system).toBe(HOSTED_SEARCH_INSTRUCTIONS);
+    expect(request.messages).toStrictEqual([
+      { role: 'user', content: HOSTED_QUERY },
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      chat: { id: seeded.chatId, lane: 'main' },
+      effort: 'high',
+    });
+    // The Run's own request carries the user's turn and its system prompt;
+    // the sub-request above carries neither.
+    expect(JSON.stringify(calls[0].messages)).toContain(USER_TURN);
+    expect(calls[0].system).toContain(testModelEntry.systemPromptTemplate);
+
+    // Usage, measured context size, cost, and completeness are the Run's own
+    // two requests alone: the 50,000-token sub-request is not in them.
+    expect((await assistantMessage(seeded.chatId)).usage).toMatchObject({
+      runId: seeded.run.id,
+      modelId: testModelEntry.id,
+      effort: 'high',
+      status: 'completed',
+      finishReason: 'stop',
+      complete: true,
+      inputTokens: 2400,
+      cachedInputTokens: 1000,
+      cacheWriteTokens: 0,
+      outputTokens: 300,
+      reasoningTokens: 210,
+      totalTokens: 2700,
+      contextTokens: 1500,
+      costUsd: 0.0057,
+    });
   });
 });
