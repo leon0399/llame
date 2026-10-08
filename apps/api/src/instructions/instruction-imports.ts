@@ -30,7 +30,7 @@ import {
 export interface InstructionImportCollector {
   /** The attempt's seen keys, plus every canonical path loaded so far. */
   readonly keys: Set<string>;
-  /** Candidates and import targets already attempted in this bundle. */
+  /** The selected candidate paths and import locators already attempted. */
   readonly attempted: Set<string>;
   readonly files: Array<LoadedInstructionFile>;
   readonly denied: Array<string>;
@@ -128,8 +128,7 @@ export async function collectInstructionCandidate(
   const { collector, group } = state;
   if (collector.keys.has(candidate.canonicalPath)) return;
   if (disclosed.has(candidate.canonicalPath)) return;
-  if (collector.attempted.has(candidate.canonicalPath)) return;
-  collector.attempted.add(candidate.canonicalPath);
+  if (collector.attempted.has(candidate.path)) return;
   collector.attempted.add(candidate.path);
   const read = await readInstructionFile(candidate, group.page);
   if (read.kind === 'denied') {
@@ -167,9 +166,10 @@ async function loadResolvedImport(
 ): Promise<void> {
   const { collector, group } = state;
   if (collector.attempted.has(resolved.path)) return;
-  if (!group.admitsRead(resolved.path)) {
+  const readPath = `${resolved.path}${IMPORT_PAGE}`;
+  if (!group.admitsRead(readPath)) {
     collector.attempted.add(resolved.path);
-    await group.page(`${resolved.path}${IMPORT_PAGE}`);
+    await group.page(readPath);
     collector.denied.push(resolved.path);
     return;
   }
@@ -178,11 +178,11 @@ async function loadResolvedImport(
     collector.attempted.add(resolved.path);
     return;
   }
-  const attemptedCanonical = collector.attempted.has(probe.canonicalPath);
-  if (attemptedCanonical) return;
-  if (probe.canonicalPath !== resolved.path) {
+  if (
+    probe.canonicalPath !== resolved.path &&
+    !collector.keys.has(probe.canonicalPath)
+  ) {
     collector.attempted.add(resolved.path);
-    collector.attempted.add(probe.canonicalPath);
     collector.denied.push(resolved.path);
     return;
   }

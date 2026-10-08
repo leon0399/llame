@@ -18,6 +18,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { splitSelectorSuffix } from '@workspace/native-file-tools';
+
 import type { AuthoredContextItemPart } from '../chats/context-item';
 import {
   isInstructionsPayload,
@@ -1227,7 +1229,7 @@ describe('instructions producer imports', () => {
 
     expect(blockPaths(lastStaged(staged))).toEqual([rootFile]);
     expect(reads).toEqual([`${rootFile}:raw:1-2000`]);
-    expect(admitted).toEqual([join(root, 'missing.md')]);
+    expect(admitted).toEqual([`${join(root, 'missing.md')}:raw:1-2000`]);
     for (const target of literalTargets) {
       expect(admitted).not.toContain(target);
     }
@@ -1300,7 +1302,7 @@ describe('instructions producer imports', () => {
     });
     const { producer, staged, prepare } = attemptOf({
       space,
-      admitsRead: (path) => path !== target,
+      admitsRead: (path) => path !== `${target}:raw:1-2000`,
     });
     producer.observeToolCall?.(spaceCall('entry.md'));
     await prepare();
@@ -1374,7 +1376,7 @@ describe('instructions producer imports', () => {
     };
     const { producer, staged, prepare } = attemptOf({
       readPage,
-      admitsRead: (path) => path !== target,
+      admitsRead: (path) => path !== `${target}:raw:1-2000`,
     });
     producer.observeToolCall?.(readCall(join(root, 'x.ts')));
     await prepare();
@@ -1412,7 +1414,7 @@ describe('instructions producer imports', () => {
         readPage,
         admitsRead: (path) => {
           admitted.push(path);
-          return path !== target;
+          return path !== `${target}:raw:1-2000`;
         },
       });
       producer.observeToolCall?.(readCall(join(root, 'x.ts')));
@@ -1435,8 +1437,8 @@ describe('instructions producer imports', () => {
       `${target}:raw:1-2000`,
     ]);
     expect(missing.reads).toEqual(existing.reads);
-    expect(existing.admitted).toEqual([target]);
-    expect(missing.admitted).toEqual([target]);
+    expect(existing.admitted).toEqual([`${target}:raw:1-2000`]);
+    expect(missing.admitted).toEqual([`${target}:raw:1-2000`]);
   });
 
   it('evaluates a denied import again from a later trigger', async () => {
@@ -1465,7 +1467,7 @@ describe('instructions producer imports', () => {
     };
     const attempt = attemptOf({
       readPage,
-      admitsRead: (path) => path !== target,
+      admitsRead: (path) => path !== `${target}:raw:1-2000`,
     });
     attempt.producer.observeToolCall?.(readCall(join(root, 'x.ts')));
     await attempt.prepare();
@@ -1547,6 +1549,82 @@ describe('instructions producer imports', () => {
       `${denied}:raw:1-2000`,
     ]);
     expect(deniedPaths(lastStaged(staged))).toEqual([denied]);
+  });
+
+  it('keeps a symlinked import from suppressing its canonical chain file', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const chain = join(root, 'foo/AGENTS.md');
+    const link = join(root, 'link');
+    await write(rootFile, '@link/AGENTS.md\n');
+    await write(chain, 'foo rules\n');
+    await symlink(join(root, 'foo'), link);
+
+    const part = await createInstructionsProducer().prepareTurn?.({
+      runId: RUN_ID,
+      workspaceRoot: join(root, 'foo'),
+      readPage: pageReader().readPage,
+      admitsRead: () => true,
+      seenKeys: new Set(),
+    });
+    if (part === undefined) throw new Error('the bound turn loaded nothing');
+
+    expect(blockPaths(part)).toEqual([rootFile, chain]);
+    expect(deniedPaths(part)).toEqual([join(root, 'link/AGENTS.md')]);
+  });
+
+  it('loads a symlink target once when its import precedes the target import', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const target = join(root, 'foo/target.md');
+    const link = join(root, 'foo/link.md');
+    await write(rootFile, '@foo/link.md @foo/target.md\n');
+    await write(target, 'target\n');
+    await symlink(target, link);
+
+    const { producer, staged, prepare } = attemptOf();
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    const part = lastStaged(staged);
+    expect(blockPaths(part)).toEqual([rootFile, target]);
+    expect(
+      loadedFiles(part).filter((file) => file.path === target),
+    ).toHaveLength(1);
+    expect(deniedPaths(part)).toEqual([link]);
+  });
+
+  it('audits an import with the selector used by its first page read', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const target = join(root, ':1-2');
+    await write(rootFile, '@:1-2/\n');
+    await write(target, 'target\n');
+
+    const reads: Array<string> = [];
+    const admitted: Array<string> = [];
+    const readPage: ReadPage = async (selectorPath) => {
+      reads.push(selectorPath);
+      const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+      return {
+        status: 'success',
+        kind: 'file',
+        content: await readFile(path, 'utf8'),
+        truncated: false,
+      };
+    };
+    const { producer, staged, prepare } = attemptOf({
+      readPage,
+      admitsRead: (path) => {
+        admitted.push(path);
+        return splitSelectorSuffix(path).path !== target;
+      },
+    });
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    const part = lastStaged(staged);
+    expect(blockPaths(part)).toEqual([rootFile]);
+    expect(deniedPaths(part)).toEqual([target]);
+    expect(admitted).toEqual([`${target}:raw:1-2000`]);
+    expect(reads).toEqual([`${rootFile}:raw:1-2000`, `${target}:raw:1-2000`]);
   });
 
   it('denies a symlinked import before reading its canonical target', async () => {

@@ -137,11 +137,7 @@ export const Imported: Story = {
       "Loaded instruction file: /home/operator/repo/docs/AGENTS.md",
       "Loaded instruction file: /home/operator/repo/docs/README.md",
     ]);
-    await expect(importer.parentElement).toHaveStyle({
-      paddingInlineStart: "0rem",
-    });
-    await expect(imported.parentElement).toHaveStyle({
-      paddingInlineStart: "1rem",
-    });
+    await expect(imported.parentElement).toHaveClass("ps-4");
+    await expect(importer.parentElement?.className).not.toMatch(/\bps-/u);
   },
 };
