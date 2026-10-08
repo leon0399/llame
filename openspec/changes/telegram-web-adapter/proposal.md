@@ -26,14 +26,22 @@ adapter contract it depends on, #708, has shipped.
   - a header with the channel's title, handle, description, and subscriber
     count;
   - Telegram's page of up to 20 posts, newest first;
-  - `Older:` and `Newer:` lines carrying the cursor URLs Telegram links.
-- The adapter cannot read three kinds of locator, and they fall through to the
-  generic ladder with a bounded failure note: private `/c/…` links and `?q=`
-  search with `address`; a missing post or unknown channel with `empty`; a
-  name whose preview redirects away (a user, bot, or group) with `status`.
-- Media renders as a note naming its type, plus a video's duration and a
-  document's file name. A reply renders its quoted snippet and parent link;
-  the parent is never fetched.
+  - `Older:` and `Newer:` lines carrying the cursor URLs Telegram links,
+    omitted when Telegram's link holds no valid post id. Cursor URLs carry a
+    query, so a cursor page takes no line selector; only the head page does.
+- The adapter cannot read four kinds of locator, and they fall through to the
+  generic ladder with a bounded failure note:
+  - private `/c/…` links, `?q=` search, and malformed cursors with `address`,
+    before any request;
+  - a missing post, a post under an unknown name, or a service message with
+    `empty`;
+  - a channel locator whose preview redirects away (a user, bot, group, or
+    unknown name) with `status`;
+  - a response missing the expected markup with `parse`.
+- Media renders as a note naming its type, plus a duration, poll question,
+  audio title, or document file name where the markup carries one. Hidden
+  fallback blocks that Telegram's own stylesheet hides render nothing. A reply
+  renders its quoted snippet and parent link; the parent is never fetched.
 - Not breaking: absent configuration enables no adapter, as before.
 
 ## Assumptions, confirmed with Leo

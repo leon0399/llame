@@ -121,13 +121,12 @@ note and no fall-through.
 
 ### Requirement: Telegram native adapter claims public post and channel locators
 
-A configured `telegram` adapter SHALL claim only `https` locators on `t.me`,
-`telegram.me`, or `telegram.dog` whose path is `/{name}`, `/s/{name}`,
-`/{name}/{id}`, `/s/{name}/{id}`, or starts with `/c/`, where `{name}` is a
-letter then 3-31 letters, digits, or underscores, and `{id}` is 1-10 digits
-without a leading zero. It SHALL issue at most one unauthenticated `GET` per
-read, always to `https://t.me`, and SHALL decline before any request what no
-public surface serves.
+A configured `telegram` adapter SHALL claim only `https` locators without a
+port on `t.me`, `telegram.me`, or `telegram.dog` whose path is `/{name}`,
+`/s/{name}`, `/{name}/{id}`, `/s/{name}/{id}`, or starts with `/c/`, where
+`{name}` matches `[A-Za-z][A-Za-z0-9_]{3,31}` and `{id}` matches
+`[1-9][0-9]{0,9}`. It SHALL issue at most one unauthenticated `GET` per read,
+always to `https://t.me`. A query SHALL NOT change a post read.
 
 #### Scenario: A post is read through the Post Widget
 
@@ -137,30 +136,35 @@ public surface serves.
 
 #### Scenario: A channel is read through the web preview with Telegram's cursor
 
-- **WHEN** the model reads `https://t.me/durov`, `https://t.me/s/durov`, or `https://t.me/s/durov?before=390`
+- **WHEN** the model reads `https://t.me/durov`, `https://t.me/s/durov?utm_source=x`, or `https://t.me/s/durov?before=390`
 - **THEN** the adapter requests only `https://t.me/s/durov`, or `https://t.me/s/durov?before=390` for the cursor locator
-- **AND** a single `before` or `after` key holding a valid `{id}` is forwarded and every other key except `q` is dropped
+- **AND** exactly one `before` or `after` key holding a valid `{id}` is forwarded and every other key except `q` is dropped from the request
 
 #### Scenario: Private links, search, and malformed cursors are declined before I/O
 
-- **WHEN** the model reads `https://t.me/c/1234567/5`, `https://t.me/s/durov?q=privacy`, `https://t.me/s/durov?before=1&after=2`, or `https://t.me/s/durov?before=x`
+- **WHEN** the model reads `https://t.me/c/1234567/5`, `https://t.me/s/durov?q=privacy`, `https://t.me/s/durov?before=1&after=2`, `https://t.me/s/durov?before=1&before=2`, `https://t.me/s/durov?before=0`, or `https://t.me/s/durov?before=390:1-40`
 - **THEN** the adapter issues no request
 - **AND** it falls through with `address`
 
-#### Scenario: A missing post or unknown channel falls through as empty
+#### Scenario: A missing post falls through as empty
 
-- **WHEN** the Post Widget answers with its error element, such as "Post not found"
+- **WHEN** the Post Widget answers with its error element, such as "Post not found" or an unknown name, or with a service message
 - **THEN** the adapter falls through with `empty` and returns no response body
 
 #### Scenario: A name without a public channel preview falls through as status
 
-- **WHEN** the model reads `https://t.me/BotFather` and the preview request is redirected to a URL whose path is not `/s/BotFather`
+- **WHEN** the model reads `https://t.me/BotFather`, a public group, or an unknown name, and the preview request is redirected to a URL whose path is not `/s/{name}`
 - **THEN** the adapter falls through with `status`
 - **AND** the generic ladder may render the source
 
+#### Scenario: A response without the expected markup falls through as parse
+
+- **WHEN** the Post Widget answers 200 with neither a message nor an error element, or the preview answers 200 at `/s/{name}` without the channel header
+- **THEN** the adapter falls through with `parse`
+
 #### Scenario: Other shapes are unclaimed
 
-- **WHEN** the model reads `http://t.me/durov/400`, `https://t.me/durov/400/`, `https://t.me/joinchat/AbCdEf`, or `https://t.me/durov/0400`
+- **WHEN** the model reads `http://t.me/durov/400`, `https://t.me:8443/durov`, `https://t.me/durov/400/`, `https://t.me/joinchat/AbCdEf`, or `https://t.me/durov/0400`
 - **THEN** the adapter does not claim it and issues no request
 
 ### Requirement: Telegram native adapter renders a post as a thread entry
@@ -168,15 +172,21 @@ public surface serves.
 Each post SHALL render as one x.md entry headed `## Post · {i}/{n} — {author}`,
 with lines only for data the markup carries: `Forwarded from:` and the reply
 snippet with its parent link, the text as Markdown, one blockquoted note per
-media item naming its type with no media URL, the full link-preview card, then
-`Signed:`, `Views:`, `Reactions:`, `Edited`, `Source:` with the post's
-`https://t.me` URL, and `Date:`. A reply's parent SHALL NOT be fetched.
+visible media item naming its type with no media URL, the full link-preview
+card, then `Signed:`, `Views:`, `Reactions:`, `Edited`, `Source:` with the
+post's `https://t.me` URL, and `Date:`. A reply's parent SHALL NOT be fetched.
 
 #### Scenario: A channel post renders with its metadata
 
 - **WHEN** the model reads a channel post that has views, reactions, and a photo
 - **THEN** the text is one `## Post · 1/1 — {title} (@{name})` entry with a `> [photo]` note and no `telesco.pe` URL
 - **AND** it ends with `Views:`, `Reactions:`, `Source: https://t.me/{name}/{id}`, and `Date:` in ISO 8601
+
+#### Scenario: Emoji and reactions render as text
+
+- **WHEN** the post text wraps emoji in Telegram's emoji elements and the post has standard, custom-emoji, and paid reactions
+- **THEN** each emoji in the text renders bare, without Markdown emphasis
+- **AND** the `Reactions:` line renders the standard emoji, `custom`, and `⭐`, each followed by its count
 
 #### Scenario: A forwarded reply renders its origin and snippet
 
@@ -186,13 +196,18 @@ media item naming its type with no media URL, the full link-preview card, then
 
 #### Scenario: A public-group post names its sender
 
-- **WHEN** the model reads a message in a public group
-- **THEN** the entry heading names the sender's display name and the entry carries the sender's `t.me` link
+- **WHEN** the model reads a message in a public group whose sender has a `t.me` link
+- **THEN** the entry heading is `## Post · 1/1 — {display name} ({sender t.me URL})`
 
-#### Scenario: Media notes name type, duration, and file name
+#### Scenario: Media notes name type and detail
 
-- **WHEN** the post carries an album of two photos, a video, a document, and a kind the web preview cannot show
-- **THEN** the entry has two `> [photo]` notes, `> [video {duration}]`, `> [document: {file name}]`, and `> [unsupported media]`
+- **WHEN** the post carries an album of two photos, a video, a round video, a voice message, a sticker, a location, a poll, an audio file, a document, and a visible unsupported-media block
+- **THEN** the entry has two `> [photo]` notes, `> [video {duration}]`, `> [video message {duration}]`, `> [voice {duration}]`, `> [sticker]`, `> [location]`, `> [poll: {question}]`, `> [audio: {title} — {performer}]`, `> [document: {file name}]`, and `> [unsupported media]`
+
+#### Scenario: Hidden fallback blocks render nothing
+
+- **WHEN** a supported post carries Telegram's hidden "Please open Telegram to view this post" block and a video player's hidden unsupported-media block
+- **THEN** the entry has no `[unsupported media]` note
 
 #### Scenario: A link preview card renders in full
 
@@ -202,11 +217,11 @@ media item naming its type with no media URL, the full link-preview card, then
 ### Requirement: Telegram native adapter renders a channel page newest first
 
 A channel locator SHALL render `# {title} (@{name})`, the description,
-`Subscribers:`, and `URL:`, then the fetched page's posts newest first as
-thread entries separated by `---`, then `Older:` and `Newer:` lines holding
-the absolute `https://t.me/s/...` URLs of Telegram's previous and next page
-links, each present only when Telegram links that page. A read SHALL fetch one
-page and SHALL NOT filter its posts.
+`Subscribers:`, and `URL:` with the fetched page URL, then that page's posts
+newest first as thread entries separated by `---`, skipping service messages,
+then `Older:` and `Newer:` lines with the absolute `https://t.me/s/...` URLs
+of Telegram's previous and next page links, each only when its cursor value is
+a valid `{id}`. A read SHALL fetch one page.
 
 #### Scenario: The newest page lists recent posts first with an older cursor
 
@@ -219,7 +234,7 @@ page and SHALL NOT filter its posts.
 - **WHEN** the model reads the `Older:` URL from a previous result
 - **THEN** the adapter requests that page only and renders it with both `Older:` and `Newer:` lines when Telegram links both
 
-#### Scenario: A page without posts renders the header
+#### Scenario: An empty page renders the header without dead cursors
 
-- **WHEN** the preview serves the channel header and no posts
-- **THEN** the text is the header with no entries and no cursor that Telegram does not link
+- **WHEN** the preview serves the channel header, no posts, and a page link whose cursor value is empty, such as `/s/durov?before=`
+- **THEN** the text is the header with no entries and no cursor line

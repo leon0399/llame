@@ -37,8 +37,24 @@ Inspected at `master` `fc06bdba`. See proposal.md for motivation.
 Posts carry `<time datetime>` (ISO 8601 with offset), views, reactions,
 `tgme_widget_message_forwarded_from`, `tgme_widget_message_reply` (author,
 snippet, parent link), `tgme_widget_message_link_preview`, and media elements
-(photo, video with a duration, document with a title, and
-`message_media_not_supported` for kinds the web preview cannot show).
+(photo, video with a duration, voice, round video, sticker, poll, location,
+document with a title, audio as a document whose extra line names title and
+performer). Every post also carries hidden fallback blocks: a
+`.media_not_supported_cont` ("Please open Telegram to view this post") and a
+`.message_media_not_supported_wrap` inside each video player, both hidden by
+`widget-frame.css`. Only a `.message_media_not_supported_wrap` that is a
+direct child of `.tgme_widget_message_bubble` is visible; a service message
+uses that position with the label "Service message". Reactions are
+`.tgme_reaction` spans holding either a standard emoji (`<i class="emoji"><b>😢</b></i>`),
+an empty `<tg-emoji emoji-id>` with no Unicode fallback, or a paid
+`.tgme_reaction_paid` star icon, followed by the count. Every emoji in post
+text is wrapped as `<i class="emoji"><b>…</b></i>`, which the shared
+converter would render as `_**🧠**_`.
+
+An empty page (`?after=` at the newest post, `?before=1`) carries the header,
+no posts, and cursor links with empty values (`/s/durov?before=`). Short
+pages omit links inconsistently (`?after=530` linked no previous page;
+`?after=540` did).
 
 ### Prior art
 
@@ -83,18 +99,20 @@ target `https://t.me`, which keeps the native route to one first-party origin.
 
 - **Name:** `[A-Za-z][A-Za-z0-9_]{3,31}`, case preserved. This covers
   standard 5-32 character usernames and 4-character collectible names.
-- **Post id:** 1-10 digits, no leading zero.
+- **Post id:** `[1-9][0-9]{0,9}`.
 - **Claimed paths:** `/{name}`, `/s/{name}`, `/{name}/{id}`, and
-  `/s/{name}/{id}`, all on `https` only.
-- **Unclaimed:** a trailing slash, another port, `http`, and any other path.
+  `/s/{name}/{id}`, all on `https` with no port.
+- **Unclaimed:** a trailing slash, a port, `http`, and any other path.
 - **`/c/` paths:** a path whose first segment is `c` is claimed so that it can
   fail as `address` before any request. These are private-channel links; no
   public surface serves them.
 - **Query on a channel locator:**
-  - `q` fails as `address`;
-  - one `before` or `after` holding a valid id is forwarded;
-  - both cursors together, or a malformed one, fail as `address`;
-  - other keys are dropped.
+  - `q` fails as `address`, a product choice: `read` addresses resources, and
+    search is a query result;
+  - exactly one `before` or `after` key holding a valid `{id}` is forwarded;
+  - both cursors, a repeated cursor key, or an invalid cursor value fail as
+    `address`;
+  - other keys are dropped from the request.
 - **Query on a post locator:** ignored, so `?single`, `?comment=`, `?embed=1`
   and tracking keys read the plain post.
 
@@ -105,12 +123,19 @@ be a list Telegram can grow without notice.
 ### D3: Channel page order and cursors
 
 The page's posts are reversed to newest first, numbered `i/n` from the top.
-The cursors are not computed by the adapter. It renders `Older:` from the
-page's `<link rel="prev">` and `Newer:` from `<link rel="next">`, made
-absolute on `https://t.me`. When Telegram omits a link, the line is omitted.
-The model pages by reading those URLs. This needs no selector grammar (#938)
-and no new query-key family (#932); line selectors keep addressing rendered
-lines, as they do on a Bluesky profile. Rejected:
+Service messages are skipped. The cursors are not computed by the adapter. It
+renders `Older:` from the page's `<link rel="prev">` and `Newer:` from
+`<link rel="next">`, made absolute on `https://t.me`. A link that is missing,
+or whose cursor value is not a valid `{id}` (an empty page links
+`?before=`), renders no line, so every rendered cursor is one the adapter
+claims. The model pages by reading those URLs. This needs no selector grammar
+(#938) and no new query-key family (#932).
+
+A cursor URL carries a query, and the shared locator grammar never opens a
+selector after a query (`locator.ts:51-56`), so `…?before=390:1-40` reaches the
+adapter as a malformed cursor and falls through with `address`. Cursor pages
+therefore take no selector; they are bounded by Telegram's 20-post page. Only
+the head page (`t.me/durov:1-40`) takes a line selector. Rejected:
 
 - Chronological order: `:1-40` would show the oldest posts first.
 - Two requests for 40 posts: this doubles rate-limit exposure and can render
@@ -120,13 +145,13 @@ lines, as they do on a Bluesky profile. Rejected:
 
 ### D4: Declines map to existing failure categories
 
-| Case                                                        | Category                          |
-| ----------------------------------------------------------- | --------------------------------- |
-| `/c/…` locator, `?q=`, conflicting or malformed cursor      | `address`, before any request     |
-| widget error element ("Post not found", unknown channel)    | `empty`                           |
-| preview `finalUrl` path is not `/s/{name}`                  | `status`                          |
-| 200 response without the expected message or channel markup | `parse`                           |
-| transport, status, rate limit, size                         | existing `primaryFailure` mapping |
+| Case                                                                                  | Category                          |
+| ------------------------------------------------------------------------------------- | --------------------------------- |
+| `/c/…` locator, `?q=`, conflicting or malformed cursor                                | `address`, before any request     |
+| widget error element ("Post not found", unknown name), or a widget service message    | `empty`                           |
+| preview `finalUrl` path is not `/s/{name}` (user, bot, group, unknown name)           | `status`                          |
+| widget 200 without a message or error element; preview 200 without the channel header | `parse`                           |
+| transport, status, rate limit, size                                                   | existing `primaryFailure` mapping |
 
 Every decline falls through with the bounded note and no response body,
 following the Bluesky `!no-unauthenticated` precedent. Rejected: a new
@@ -154,21 +179,32 @@ Each post is an x.md thread entry:
 
 Signed: Alice
 Views: 35.6K
-Reactions: 👍 1.2K, 🔥 300
+Reactions: 👍 1.2K, custom 194K, ⭐ 16.8K
 Edited
 Source: https://t.me/durov/400
 Date: 2026-10-08T15:40:10+00:00
 ```
 
-- **Author:** the channel title and `@name` for channel posts. A group message
-  shows the sender's display name and, when present, the sender's `t.me` link.
+- **Author:** `{title} (@{name})` for channel posts. A group message shows
+  the sender's display name followed by the sender's `t.me` link in
+  parentheses when the markup carries one, e.g.
+  `— Alexander (https://t.me/a5201852b512af86)`.
 - **Lines:** each line appears only when the markup carries its data.
-- **Body:** the text element is converted with `convertToMarkdown`. Spoiler
-  wrappers are unwrapped, and custom emoji keep their Unicode fallback.
+- **Body:** before conversion with `convertToMarkdown`, every
+  `<i class="emoji">` and `<tg-emoji>` is replaced by its text and spoiler
+  wrappers are unwrapped, so an emoji renders bare rather than as `_**🧠**_`.
+- **Reactions:** a standard emoji renders as itself, an empty custom emoji as
+  `custom`, and a paid reaction as `⭐`, each followed by its count.
 - **Separator:** entries on a channel page are separated by `---`, as in the
   other thread adapters.
-- **Media:** one note per item, so an album renders one note per photo.
-  Unsupported kinds render `[unsupported media]`. No media URL is emitted.
+- **Media:** one note per item, so an album renders one note per photo:
+  `[photo]`, `[video {duration}]`, `[video message {duration}]` for a round
+  video, `[voice {duration}]`, `[sticker]`, `[location]`,
+  `[poll: {question}]`, `[audio: {title} — {performer}]`, and
+  `[document: {file name}]`. A visible `.message_media_not_supported_wrap`
+  (a direct child of the bubble, not a service message) and any other media
+  element render `[unsupported media]`; hidden fallback blocks render
+  nothing. No media URL is emitted.
 
 ### D6: Channel header
 
@@ -182,8 +218,9 @@ URL: https://t.me/s/durov
 ```
 
 The header renders the title, handle, description (converted like a post body),
-and the subscriber counter as Telegram displays it. The photo, video, and link
-counters are omitted. A page with no posts renders the header and no entries.
+the subscriber counter as Telegram displays it, and `URL:` with the fetched
+page's URL, cursor included. The photo, video, and link counters are omitted.
+A page with no posts renders the header and no entries.
 
 ### D7: Structure
 
@@ -201,8 +238,9 @@ differ (JSON versus DOM).
 ## Risks / Trade-offs
 
 - [Telegram changes the preview or widget markup] → Parsing failures surface
-  as `parse` and fall through, so no wrong content is returned. Recorded HTML
-  fixtures pin the parser, and a live smoke check runs at implementation time.
+  as `parse` and fall through, so no wrong content is returned. Reduced HTML
+  fixtures, cut to the elements the parser reads, pin the parser; a live smoke
+  check runs at implementation time.
 - [Telegram throttles keyless reads] → One request per read and no fan-out. A
   `429` maps to `rate_limit` through the shared client.
 - [A group post exposes a private individual's name in a transcript] → This
@@ -226,3 +264,14 @@ restores generic-ladder behavior. No data or API changes.
 - Whether `?after=` survives proposal review. It is marked provisional; if it
   is dropped, the `Newer:` line goes with it. Neither outcome changes the
   remaining tasks.
+
+## Revision history
+
+- **r2 (2026-10-08):** Review round 1. Cursor lines only for valid `{id}`
+  values; cursor pages take no selector; hidden fallback blocks and service
+  messages excluded from media notes; emoji unwrapped before conversion;
+  reactions for custom and paid kinds; notes for voice, round video, sticker,
+  location, poll, and audio; explicit query, port, and `{id}` rules; unknown
+  names map to `status` on the preview; `parse` defined per surface; group
+  sender link placement; header `URL:` value.
+- **r1 (2026-10-08):** Initial draft.
