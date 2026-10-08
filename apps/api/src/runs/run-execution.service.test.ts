@@ -10726,12 +10726,13 @@ describe('RunExecutionService prompt imports', () => {
     allowed: ReadonlyArray<string>,
     permissionPolicy: CompiledPolicy = compileTestPermissionPolicy(),
     nativeExecutorId: string | undefined = 'host-a',
+    permissionModes?: ExecutionServiceOptions['permissionModes'],
   ) {
     return makeExecutionService(
       createFakeModelClient(['answer']),
       undefined,
       nativeExecutorId,
-      { allowed, permissionPolicy },
+      { allowed, permissionPolicy, permissionModes },
     );
   }
 
@@ -10972,23 +10973,28 @@ describe('RunExecutionService prompt imports', () => {
     }
   });
 
+  /** The item a prior attempt of this Run persisted for `README.md`. */
+  function storedImportItem(root: string) {
+    return createPromptImportsItem({
+      runId,
+      outcomes: [
+        {
+          locator: 'README.md',
+          resolved: `${root}/README.md`,
+          outcome: 'imported',
+          body: 'stored body',
+        },
+      ],
+      omitted: [],
+    });
+  }
+
   it('does not read again when a prior attempt already persisted the item', async () => {
     const root = repoRoot();
     try {
       const { find, append, events } = serveRepositories();
       bindChat(root);
-      const stored = createPromptImportsItem({
-        runId,
-        outcomes: [
-          {
-            locator: 'README.md',
-            resolved: `${root}/README.md`,
-            outcome: 'imported',
-            body: 'stored body',
-          },
-        ],
-        omitted: [],
-      });
+      const stored = storedImportItem(root);
       const payload = stored.data.payload;
       if (!isPromptImportsPayload(payload)) {
         throw new Error('the stored item must carry a valid payload');
@@ -11039,45 +11045,252 @@ describe('RunExecutionService prompt imports', () => {
     }
   });
 
-  it('records the derived decisions of a web import on its completion', async () => {
-    const { append, events } = serveRepositories();
-    const read = vi
-      .spyOn(nativeReadTool, 'execute')
-      .mockImplementation((context) => {
+  const bypassDecision: PermissionDecision = {
+    policyId: 'test-policy',
+    decision: 'allow' as const,
+    reason: 'permission_mode_bypass' as const,
+    reference: null,
+  };
+
+  /** A stubbed web `read` that reports one derived hop decision. */
+  function stubWebRead(
+    page: string,
+    options: {
+      readonly hop?: PermissionDecision;
+      readonly representation?: 'raw' | 'outline';
+      readonly content: string;
+    },
+  ) {
+    return vi.spyOn(nativeReadTool, 'execute').mockImplementation((context) => {
+      if (options.hop !== undefined) {
         context.onDerivedDecision?.({
           kind: 'hop',
           url: 'https://example.test/final',
-          decision: allowDecision('read'),
+          decision: options.hop,
         });
-        return Promise.resolve({
-          status: 'success' as const,
-          kind: 'file' as const,
-          path: 'https://example.test/page',
-          representation: 'raw' as const,
-          content: 'web body',
-          requestedRange: null,
-          shownRange: { startLine: 1, endLine: 1 },
-          truncated: false,
-        });
+      }
+      return Promise.resolve({
+        status: 'success' as const,
+        kind: 'file' as const,
+        path: page,
+        representation: options.representation ?? ('raw' as const),
+        content: options.content,
+        requestedRange: null,
+        shownRange: { startLine: 1, endLine: 1 },
+        truncated: false,
       });
+    });
+  }
+
+  it.each([
+    ['default', allowDecision('read'), 'matched_allow'],
+    ['bypass', bypassDecision, 'permission_mode_bypass'],
+  ] as const)(
+    'records the derived decisions of a web import on its completion in %s mode',
+    async (mode, hop, reason) => {
+      const { repositories, append, events } = serveRepositories();
+      repositories.markStarted.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+        permissionMode: mode,
+      });
+      const read = stubWebRead('https://example.test/page', {
+        hop,
+        content: 'web body',
+      });
+      const execution = serviceFor(['read'], undefined, undefined, [
+        'default',
+        'bypass',
+      ]);
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'see @https://example.test/page'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(read).toHaveBeenCalledOnce();
+      const completion = importEvents(events).find(
+        ({ type }) => type === 'tool.completed',
+      );
+      expect(completion?.payload).toMatchObject({
+        origin: 'prompt-import',
+        status: 'success',
+        derivedDecisions: [{ kind: 'hop', decision: 'allow', reason }],
+      });
+      expect(append.mock.calls[0]?.[0].item.data.payload).toMatchObject({
+        imports: [
+          { locator: 'https://example.test/page', outcome: 'imported' },
+        ],
+      });
+    },
+  );
+
+  it('imports the outline of a web page for an :outline marker', async () => {
+    const { append } = serveRepositories();
+    const locator = 'https://github.com/leon0399/llame/issues/1029:outline';
+    const read = stubWebRead(locator, {
+      representation: 'outline',
+      content: '# Import markers\n## Targets\n## Bounds',
+    });
     const execution = serviceFor(['read'], undefined, undefined);
 
     const result = await execution.service.executeRun(
-      promptInput(execution.client, 'see @https://example.test/page'),
+      promptInput(execution.client, `see @${locator}`),
     );
     await expect(result.text).resolves.toBe('answer');
 
     expect(read).toHaveBeenCalledOnce();
-    const completion = importEvents(events).find(
-      ({ type }) => type === 'tool.completed',
-    );
-    expect(completion?.payload).toMatchObject({
-      origin: 'prompt-import',
-      status: 'success',
-      derivedDecisions: [{ kind: 'hop', decision: 'allow' }],
+    expect(read.mock.calls[0]?.[1]).toEqual({ path: locator });
+    const item = append.mock.calls[0]?.[0].item;
+    expect(item?.data.payload).toMatchObject({
+      imports: [{ locator, outcome: 'imported' }],
     });
-    expect(append.mock.calls[0]?.[0].item.data.payload).toMatchObject({
-      imports: [{ locator: 'https://example.test/page', outcome: 'imported' }],
+    expect(item?.data.text).toContain(`<file path="${locator}">`);
+    expect(item?.data.text).toContain('# Import markers');
+    expect(item?.data.text).toContain('## Bounds');
+  });
+
+  it('records the bypass decision on a prompt import', async () => {
+    const root = repoRoot();
+    try {
+      const { repositories, events } = serveRepositories();
+      repositories.markStarted.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+        permissionMode: 'bypass',
+      });
+      bindChat(root);
+      const execution = serviceFor(
+        ['enter_workspace', 'read'],
+        undefined,
+        undefined,
+        ['default', 'bypass'],
+      );
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(requestFor(events, `${root}/README.md`)).toMatchObject({
+        permission: { decision: 'allow', reason: 'permission_mode_bypass' },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reads again with a fresh admission when an earlier attempt persisted no item', async () => {
+    const root = repoRoot();
+    try {
+      const { repositories, find, append, events } = serveRepositories();
+      bindChat(root);
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const attemptIds = [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ];
+      // The first attempt read the target, but its item never reached the
+      // message, so `find` still reports nothing for the retry.
+      for (const attemptId of attemptIds) {
+        repositories.markStarted.mockResolvedValue({
+          ...run,
+          activeAttemptId: attemptId,
+        });
+        const execution = serviceFor(['enter_workspace', 'read']);
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, 'check @README.md'),
+        );
+        await expect(result.text).resolves.toBe('answer');
+      }
+
+      expect(find).toHaveBeenCalledTimes(2);
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(append).toHaveBeenCalledTimes(2);
+      const requests = importEvents(events).filter(
+        ({ type }) => type === 'tool.requested',
+      );
+      expect(requests.map(({ payload }) => callIdOf(payload))).toEqual(
+        attemptIds.map((attemptId) => `prompt-import-${runId}-${attemptId}-0`),
+      );
+      for (const request of requests) {
+        expect(request.payload).toMatchObject({
+          permission: { decision: 'allow' },
+        });
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('runs each import read under the Run abort and the work budget', async () => {
+    const { append } = serveRepositories();
+    const signals: Array<AbortSignal | undefined> = [];
+    vi.spyOn(nativeReadTool, 'execute').mockImplementation((context) => {
+      signals.push(context.abortSignal);
+      return Promise.resolve({
+        status: 'success' as const,
+        kind: 'file' as const,
+        path: 'https://example.test/page',
+        representation: 'raw' as const,
+        content: 'web body',
+        requestedRange: null,
+        shownRange: { startLine: 1, endLine: 1 },
+        truncated: false,
+      });
     });
+    const execution = serviceFor(['read'], undefined, undefined);
+    const controller = new AbortController();
+
+    const result = await execution.service.executeRun({
+      ...promptInput(execution.client, 'see @https://example.test/page'),
+      abortSignal: controller.signal,
+    });
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(append).toHaveBeenCalledOnce();
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(false);
+    controller.abort();
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it('replays a stored item on a detaching retry without reading again', async () => {
+    const root = repoRoot();
+    try {
+      const { find, append, events } = serveRepositories();
+      bindChat(root, 'gone-host');
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'detach',
+      ).mockResolvedValue('detached');
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        {
+          ...userMessage,
+          parts: [
+            storedImportItem(root),
+            { type: 'text', text: 'check @README.md' },
+          ],
+        },
+      ]);
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const execution = serviceFor(['enter_workspace', 'read']);
+      const stream = vi.spyOn(execution.client, 'streamText');
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(find).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+      expect(append).not.toHaveBeenCalled();
+      expect(importEvents(events)).toEqual([]);
+      expect(JSON.stringify(stream.mock.calls[0]?.[0].messages)).toContain(
+        'stored body',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

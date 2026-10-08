@@ -146,6 +146,7 @@ import { ActivationPartsRepository } from '../chats/activation-parts.repository'
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import { createPromptImportsItem } from '../chats/prompt-imports-item';
 import {
+  PROMPT_IMPORT_WORK_MS,
   resolvePromptImports as resolvePromptImportTargets,
   type PromptImportRequest,
 } from '../prompt-imports/prompt-imports';
@@ -158,6 +159,7 @@ import {
 } from '../tools/types';
 import {
   formatKnowledgeLocator,
+  KNOWLEDGE_LOCATOR_SCHEME,
   parseKnowledgeLocator,
   resolveKnowledgeLocator,
 } from '../knowledge/knowledge-locator';
@@ -2394,6 +2396,12 @@ export class RunExecutionService {
    */
   private promptImportRequest(step: PromptImportStep): PromptImportRequest {
     const { input } = step;
+    // One signal bounds the whole pass: the Run's abort, or the work budget
+    // measured from now. In-flight reads run under it.
+    const signal = AbortSignal.any([
+      ...(input.abortSignal ? [input.abortSignal] : []),
+      AbortSignal.timeout(PROMPT_IMPORT_WORK_MS),
+    ]);
     const context: ToolContext = {
       ...this.buildSystemReadContext(
         input,
@@ -2402,10 +2410,11 @@ export class RunExecutionService {
         step.effectivePermissionMode,
       ),
       skillSelection: step.skillSelection,
+      abortSignal: signal,
     };
     return {
       text: partsToText(input.userMessage.parts),
-      runId: input.runId,
+      signal,
       workspaceRoot: step.workspaceRoot.current(),
       hostAvailable: this.hostInstructionsLoadable(),
       knowledgeAvailable: this.knowledgeInstructionsLoadable(),
@@ -2416,8 +2425,16 @@ export class RunExecutionService {
         return kind === 'file' || kind === 'directory';
       },
       probeKnowledge: (locator) => this.probePromptKnowledge(context, locator),
-      readImport: (path, ordinal) =>
-        this.readPromptImport(step, context, path, ordinal),
+      readImport: async (path, ordinal) => {
+        const { result, admission } = await this.readTurnInstructionPage(
+          input,
+          context,
+          path,
+          ['prompt-import', input.runId, step.attemptId, ordinal].join('-'),
+          ORIGIN_PROMPT_IMPORT,
+        );
+        return { result, text: serializeNativeModelOutput(result), admission };
+      },
       nowMs: () => Date.now(),
     };
   }
@@ -2432,61 +2449,11 @@ export class RunExecutionService {
     context: ToolContext,
     locator: string,
   ): Promise<string | undefined> {
-    const rest = locator.slice('kb://'.length);
+    const rest = locator.slice(`${KNOWLEDGE_LOCATOR_SCHEME}://`.length);
     const parsed = parseKnowledgeLocator(rest);
     if ('type' in parsed) return undefined;
     const target = await resolveKnowledgeLocator(context, locator, rest);
     return 'status' in target ? undefined : formatKnowledgeLocator(parsed);
-  }
-
-  /**
-   * One audited prompt-import read: requested, started (allowed calls only),
-   * and completed under the `prompt-import` origin, with the derived web
-   * decisions the read collected recorded beside the completion. `text` is the
-   * output the model would receive for the same result.
-   */
-  private async readPromptImport(
-    step: PromptImportStep,
-    context: ToolContext,
-    path: string,
-    ordinal: number,
-  ): Promise<{ result: ToolResult; text: string }> {
-    const { input } = step;
-    const toolCallId = [
-      'prompt-import',
-      input.runId,
-      step.attemptId,
-      ordinal,
-    ].join('-');
-    const toolInput = { path };
-    const derivedDecisions: Array<DerivedDecisionRecord> = [];
-    const result = await runTool(
-      nativeReadTool,
-      toolInput,
-      {
-        ...context,
-        toolCallId,
-        onDerivedDecision: (decision) =>
-          appendDerivedDecision(derivedDecisions, decision),
-      },
-      this.instanceConfig.config.tools.callTimeoutSeconds,
-      (decision) =>
-        this.recordSystemReadAdmission(
-          input,
-          toolCallId,
-          toolInput,
-          ORIGIN_PROMPT_IMPORT,
-          decision,
-        ),
-    );
-    await this.recordSystemReadCompletion(
-      input,
-      toolCallId,
-      ORIGIN_PROMPT_IMPORT,
-      result,
-      derivedDecisions,
-    );
-    return { result, text: serializeNativeModelOutput(result) };
   }
 
   /**
@@ -2586,14 +2553,17 @@ export class RunExecutionService {
       readPage:
         toolContext === undefined
           ? undefined
-          : (selectorPath, canonicalPath) =>
-              this.readTurnInstructionPage(
-                input,
-                toolContext,
-                selectorPath,
-                nextToolCallId(),
-                canonicalPath,
-              ),
+          : async (selectorPath, canonicalPath) =>
+              (
+                await this.readTurnInstructionPage(
+                  input,
+                  toolContext,
+                  selectorPath,
+                  nextToolCallId(),
+                  ORIGIN_INSTRUCTIONS,
+                  canonicalPath,
+                )
+              ).result,
       admitsRead:
         toolContext === undefined
           ? undefined
@@ -2667,20 +2637,27 @@ export class RunExecutionService {
   }
 
   /**
-   * One audited page of the accepted-turn load. Preparation has no attempt
-   * tool closure to join, so this records the same requested/started/completed
-   * triple a model read does directly, carrying the `instructions` origin; an
-   * attempt aborted here publishes neither the item nor an open call.
+   * One audited system-origin page read: the accepted-turn instructions load
+   * and the prompt imports. Preparation has no attempt tool closure to join,
+   * so this records the same requested/started/completed triple a model read
+   * does directly, carrying `origin`; an attempt aborted here publishes neither
+   * the item nor an open call. `admission` is the decision the read group
+   * reached, absent when the call was refused before any decision.
    */
   private async readTurnInstructionPage(
     input: ExecuteRunInput,
     toolContext: ToolContext,
     selectorPath: string,
     toolCallId: string,
+    origin: ToolActivityOrigin,
     canonicalPath?: string,
-  ): Promise<ToolResult> {
+  ): Promise<{
+    result: ToolResult;
+    admission: PermissionDecision | undefined;
+  }> {
     const toolInput = { path: selectorPath };
     const derivedDecisions: Array<DerivedDecisionRecord> = [];
+    let admission: PermissionDecision | undefined;
     const result = await runTool(
       nativeReadTool,
       toolInput,
@@ -2692,23 +2669,25 @@ export class RunExecutionService {
           appendDerivedDecision(derivedDecisions, decision),
       },
       this.instanceConfig.config.tools.callTimeoutSeconds,
-      (decision) =>
-        this.recordSystemReadAdmission(
+      (decision) => {
+        admission = decision;
+        return this.recordSystemReadAdmission(
           input,
           toolCallId,
           toolInput,
-          ORIGIN_INSTRUCTIONS,
+          origin,
           decision,
-        ),
+        );
+      },
     );
     await this.recordSystemReadCompletion(
       input,
       toolCallId,
-      ORIGIN_INSTRUCTIONS,
+      origin,
       result,
       derivedDecisions,
     );
-    return result;
+    return { result, admission };
   }
 
   /**

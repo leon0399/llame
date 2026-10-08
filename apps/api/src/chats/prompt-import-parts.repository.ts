@@ -8,8 +8,6 @@
  * no-op, so recovery replays the stored text instead of re-reading targets.
  */
 
-import { and, eq } from 'drizzle-orm';
-
 import { messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
@@ -22,6 +20,11 @@ import {
   isPromptImportsPayload,
   type PromptImportsPayload,
 } from './prompt-imports-item';
+import {
+  lockParts,
+  messageOwner,
+  railInsertionIndex,
+} from './activation-parts.repository';
 
 /** The producer whose item this repository places. */
 const PROMPT_IMPORTS_PRODUCER = 'prompt-imports';
@@ -79,7 +82,7 @@ export class PromptImportPartsRepository {
     runId: string;
     item: AuthoredContextItemPart;
   }): Promise<{ readonly applied: boolean }> {
-    const parts = await this.lockParts(input);
+    const parts = await lockParts(this.db, input);
     if (parts === undefined) return { applied: false };
     const stored = parts.some(
       (part) =>
@@ -89,7 +92,7 @@ export class PromptImportPartsRepository {
     );
     if (stored) return { applied: false };
 
-    const index = railInsertionIndex(parts);
+    const index = railInsertionIndex(parts, PROMPT_IMPORTS_RANK);
     const [updated] = await this.db
       .update(messages)
       .set({
@@ -99,29 +102,6 @@ export class PromptImportPartsRepository {
       .returning({ id: messages.id });
     return { applied: updated !== undefined };
   }
-
-  /** The message's stored parts, with the row locked for this read and write. */
-  private async lockParts(input: {
-    id: string;
-    chatId: string;
-  }): Promise<ReadonlyArray<unknown> | undefined> {
-    const [row] = await this.db
-      .select({ parts: messages.parts })
-      .from(messages)
-      .where(messageOwner(input))
-      .for('update');
-    if (row === undefined) return undefined;
-    return Array.isArray(row.parts) ? row.parts : [];
-  }
-}
-
-/** The owner-scoped predicate every read and write here shares. */
-function messageOwner(input: { id: string; chatId: string }) {
-  return and(
-    eq(messages.id, input.id),
-    eq(messages.chatId, input.chatId),
-    eq(messages.role, 'user'),
-  );
 }
 
 /** `isContextItemPart` validates the envelope only; the payload is ours to check. */
@@ -135,20 +115,4 @@ function isRunPromptImportsPart(
     part.data.runId === runId &&
     isPromptImportsPayload(part.data.payload)
   );
-}
-
-/**
- * The first position whose part is user text, an unrecognized producer (kept
- * "after ours" so a newer revision's items keep the position it chose), or a
- * producer ranked after `prompt-imports`.
- */
-function railInsertionIndex(parts: ReadonlyArray<unknown>): number {
-  for (const [index, part] of parts.entries()) {
-    if (!isContextItemPart(part)) return index;
-    const rank = CONTEXT_ITEM_PRODUCERS.findIndex(
-      (known) => known === part.data.producer,
-    );
-    if (rank === -1 || rank > PROMPT_IMPORTS_RANK) return index;
-  }
-  return parts.length;
 }

@@ -32,7 +32,9 @@ code:
 A bare `@path` starts at the beginning of a line, after whitespace, or after one
 of `(`, `[`, `{`, `<`, `"`, `'`, and runs to the next whitespace without its
 trailing sentence punctuation. An email address such as `leo@example.com` is
-never a marker. A marker whose target names nothing resolvable is ordinary prose:
+never a marker. A marker whose path the `read` rules do not admit is reported as
+not imported and audited, even if nothing exists there. An admitted marker whose
+target does not exist stays prose and records nothing: with a readable path,
 `ping @leo` imports nothing and records nothing. The same marker twice is one
 import, and the markers are taken in first-occurrence order.
 
@@ -83,7 +85,8 @@ Imports use the same authority as a model `read`, not more:
    target is admitted without evaluating the group, and the decision is recorded
    as bypass. If `read` is not available at all, nothing is imported.
 
-`skill://` and web targets need no probe and go straight to the read. A web
+`skill://` and web targets need no probe and go straight to the read; one the
+`read` rules reject is reported as not imported. A web
 import records every derived decision (redirect, alternate, adapter request,
 network address) like any web read. The permission rules themselves are in
 [tool-call permissions](../operator/tool-call-permissions.md#matching) and
@@ -122,7 +125,9 @@ nothing; activation stays the `$review` form.
 A target past the count or output bound, or one that survived probing when the
 time bound fires, is listed once as omitted and not read. A host or Knowledge
 target the time bound reaches before it is probed is dropped silently and stays
-prose. Prose tokens that fail the probe are never listed as omitted.
+prose. Prose tokens that fail the probe are never listed as omitted. The time
+bound also cuts off a read in flight, and a Run abort stops the pass with no
+further read: a target cut off that way is omitted, never reported as failed.
 
 ## Retries and detaching
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { PermissionDecision } from '../tools/permissions/types';
 import { type ToolResult } from '../tools/types';
 import {
   MAX_PROMPT_IMPORT_BYTES,
@@ -20,6 +21,12 @@ type HarnessOptions = {
   readonly result?: (path: string) => ToolResult;
   readonly probeCostMs?: number;
   readonly readCostMs?: number;
+  /** The admission decision a read reports. */
+  readonly admission?: (path: string) => PermissionDecision | undefined;
+  /** Runs as a read starts; may abort the Run mid-read. */
+  readonly onRead?: (path: string, controller: AbortController) => void;
+  /** Runs as a host probe starts; may abort the Run mid-probe. */
+  readonly onProbe?: (controller: AbortController) => void;
 };
 
 const OK: ToolResult = { status: 'success', truncated: false };
@@ -33,10 +40,11 @@ function createHarness(options: HarnessOptions = {}) {
     reads: new Array<{ path: string; ordinal: number }>(),
   };
   const existing = new Set(options.existing ?? []);
+  const controller = new AbortController();
   const run = (text: string) =>
     resolvePromptImports({
       text,
-      runId: 'run-1',
+      signal: controller.signal,
       workspaceRoot: '/repo',
       hostAvailable: true,
       knowledgeAvailable: true,
@@ -48,6 +56,7 @@ function createHarness(options: HarnessOptions = {}) {
       probeHost: (path) => {
         calls.hostProbes.push(path);
         now += options.probeCostMs ?? 0;
+        options.onProbe?.(controller);
         return Promise.resolve(existing.has(path));
       },
       probeKnowledge: (locator) => {
@@ -58,14 +67,16 @@ function createHarness(options: HarnessOptions = {}) {
       readImport: (path, ordinal) => {
         calls.reads.push({ path, ordinal });
         now += options.readCostMs ?? 0;
+        options.onRead?.(path, controller);
         return Promise.resolve({
           result: options.result?.(path) ?? OK,
           text: options.body?.(path) ?? `body of ${path}`,
+          admission: options.admission?.(path),
         });
       },
       nowMs: () => now,
     });
-  return { calls, run };
+  return { calls, controller, run };
 }
 
 function tokens(count: number, make: (index: number) => string): string {
@@ -555,5 +566,130 @@ describe('resolvePromptImports bounds', () => {
 
     expect(calls.reads).toHaveLength(2);
     expect(result.omitted).toEqual([]);
+  });
+});
+
+const REJECT: PermissionDecision = {
+  policyId: 'policy',
+  decision: 'reject',
+  reason: 'no_allow',
+  reference: null,
+};
+
+const ALLOW: PermissionDecision = {
+  policyId: 'policy',
+  decision: 'allow',
+  reason: 'matched_allow',
+  reference: null,
+};
+
+const REFUSED: ToolResult = {
+  status: 'error',
+  type: 'permission_denied',
+  message: 'refused',
+};
+
+describe('resolvePromptImports direct-target admission', () => {
+  it('records a direct target the read group rejected as denied', async () => {
+    const { run } = createHarness({
+      result: (path) => (path.startsWith('skill://') ? REFUSED : OK),
+      admission: (path) => (path.startsWith('skill://') ? REJECT : ALLOW),
+    });
+
+    const result = await run('@skill://hidden/SKILL.md @https://x.test/ok');
+
+    expect(
+      result.outcomes.map(({ locator, outcome }) => [locator, outcome]),
+    ).toEqual([
+      ['skill://hidden/SKILL.md', 'denied'],
+      ['https://x.test/ok', 'imported'],
+    ]);
+  });
+
+  it('records an admitted direct read that failed as failed', async () => {
+    const { run } = createHarness({
+      result: () => ({ status: 'error', type: 'not_found', message: 'gone' }),
+      admission: () => ALLOW,
+    });
+
+    const result = await run('@https://x.test/gone');
+
+    expect(result.outcomes).toEqual([
+      { locator: 'https://x.test/gone', outcome: 'failed' },
+    ]);
+  });
+
+  it('records a direct read refused before any decision as failed', async () => {
+    const { run } = createHarness({ result: () => REFUSED });
+
+    const result = await run('@https://x.test/early');
+
+    expect(result.outcomes).toEqual([
+      { locator: 'https://x.test/early', outcome: 'failed' },
+    ]);
+  });
+});
+
+describe('resolvePromptImports abort', () => {
+  const CANCELLED: ToolResult = {
+    status: 'error',
+    type: 'cancelled',
+    message: 'cancelled',
+  };
+
+  it('omits a read cut off by the abort and issues no further reads', async () => {
+    const { calls, run } = createHarness({
+      onRead: (_path, controller) => controller.abort(),
+      result: () => CANCELLED,
+    });
+
+    const result = await run('@https://x.test/0 @https://x.test/1');
+
+    expect(calls.reads).toEqual([{ path: 'https://x.test/0', ordinal: 0 }]);
+    expect(result).toEqual({
+      outcomes: [],
+      omitted: ['https://x.test/0', 'https://x.test/1'],
+    });
+  });
+
+  it('issues no read after the Run was aborted before the pass', async () => {
+    const { calls, controller, run } = createHarness({
+      existing: ['/repo/a.md'],
+    });
+    controller.abort();
+
+    const result = await run('@a.md @https://x.test/0 @leo');
+
+    expect(calls.reads).toEqual([]);
+    expect(calls.hostProbes).toEqual([]);
+    expect(calls.admits).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: ['https://x.test/0'] });
+  });
+
+  it('omits a probe survivor when the abort lands during its probe', async () => {
+    const { calls, run } = createHarness({
+      existing: ['/repo/a.md'],
+      onProbe: (controller) => controller.abort(),
+    });
+
+    const result = await run('@a.md @b.md');
+
+    expect(calls.hostProbes).toEqual(['/repo/a.md']);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: ['a.md'] });
+  });
+
+  it('keeps a read that succeeded as the abort landed', async () => {
+    const { calls, run } = createHarness({
+      onRead: (_path, controller) => controller.abort(),
+    });
+
+    const result = await run('@https://x.test/0 @https://x.test/1');
+
+    expect(calls.reads).toHaveLength(1);
+    expect(result.outcomes.map((outcome) => outcome.locator)).toEqual([
+      'https://x.test/0',
+    ]);
+    expect(result.omitted).toEqual(['https://x.test/1']);
   });
 });

@@ -33,10 +33,14 @@ type PromptImportOutcomeKind = (typeof PROMPT_IMPORT_OUTCOMES)[number];
 export type PromptImportOutcome = {
   readonly locator: string;
   readonly resolved?: string;
-  readonly outcome: PromptImportOutcomeKind;
-  readonly body?: string;
-  readonly truncated?: boolean;
-};
+} & (
+  | {
+      readonly outcome: 'imported';
+      readonly body: string;
+      readonly truncated?: boolean;
+    }
+  | { readonly outcome: 'denied' | 'failed' }
+);
 
 export interface PromptImportsPayloadEntry extends UnknownRecord {
   readonly locator: string;
@@ -114,7 +118,8 @@ function toPayloadEntry(
     locator: outcome.locator,
     ...(outcome.resolved !== undefined && { resolved: outcome.resolved }),
     outcome: outcome.outcome,
-    ...(outcome.truncated !== undefined && { truncated: outcome.truncated }),
+    ...(outcome.outcome === 'imported' &&
+      outcome.truncated !== undefined && { truncated: outcome.truncated }),
   };
 }
 
@@ -151,9 +156,6 @@ function renderPromptImports(
   for (const outcome of outcomes) {
     const locator = sanitizeAuthoredText(outcome.locator);
     if (outcome.outcome === 'imported') {
-      if (outcome.body === undefined) {
-        throw new TypeError('Imported prompt outcome is missing its body');
-      }
       imports.push({
         locator: escapeXmlAttribute(outcome.locator),
         body: neutralizeImportBody(outcome.body),

@@ -12,7 +12,9 @@ import {
 
 import type { PromptImportOutcome } from '../chats/prompt-imports-item';
 import { importTargets } from '../import-markers/import-markers';
+import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
+import type { PermissionDecision } from '../tools/permissions/types';
 import { type ToolResult } from '../tools/types';
 import { resolveWorkspacePath } from '../tools/workspace-path';
 
@@ -25,11 +27,15 @@ export const MAX_PROMPT_IMPORT_BYTES = 128 * 1024;
 /** Work budget, probes included. */
 export const PROMPT_IMPORT_WORK_MS = 30_000;
 
-const KNOWLEDGE_SCHEME = 'kb';
+const KNOWLEDGE_PREFIX = `${KNOWLEDGE_LOCATOR_SCHEME}://`;
 
 export type PromptImportRequest = {
   readonly text: string;
-  readonly runId: string;
+  /**
+   * Closes on Run abort or when the work budget runs out. In-flight reads run
+   * under it, and once it is aborted no further read is issued.
+   */
+  readonly signal: AbortSignal;
   readonly workspaceRoot: string | undefined;
   readonly hostAvailable: boolean;
   readonly knowledgeAvailable: boolean;
@@ -42,12 +48,18 @@ export type PromptImportRequest = {
   ) => Promise<string | undefined>;
   /**
    * One audited read. `ordinal` is the target's position among the distinct
-   * markers, so a target keeps its call identity across retries.
+   * markers, so a target keeps its call identity across retries. `admission`
+   * is the decision the read group reached, absent when the call never got
+   * that far.
    */
   readonly readImport: (
     path: string,
     ordinal: number,
-  ) => Promise<{ result: ToolResult; text: string }>;
+  ) => Promise<{
+    result: ToolResult;
+    text: string;
+    admission: PermissionDecision | undefined;
+  }>;
   readonly nowMs: () => number;
 };
 
@@ -138,7 +150,7 @@ function planScheme(
   if (scheme === 'http' || scheme === 'https' || scheme === 'skill') {
     return { kind: 'direct', readPath: target };
   }
-  if (scheme === KNOWLEDGE_SCHEME && request.knowledgeAvailable) {
+  if (scheme === KNOWLEDGE_LOCATOR_SCHEME && request.knowledgeAvailable) {
     return { kind: 'knowledge', readPath: target };
   }
   return undefined;
@@ -182,7 +194,7 @@ async function probePlan(
   plan: Exclude<ImportPlan, { kind: 'direct' }>,
 ): Promise<string | undefined> {
   if (plan.kind === 'knowledge') {
-    const colon = plan.readPath.indexOf(':', 'kb://'.length);
+    const colon = plan.readPath.indexOf(':', KNOWLEDGE_PREFIX.length);
     return request.probeKnowledge(
       colon < 0 ? plan.readPath : plan.readPath.slice(0, colon),
     );
@@ -200,6 +212,31 @@ type ReadAttempt = {
   readonly resolved?: string;
 };
 
+function outcomeBase(attempt: ReadAttempt) {
+  return {
+    locator: attempt.target,
+    ...(attempt.resolved !== undefined && { resolved: attempt.resolved }),
+  };
+}
+
+/**
+ * A read that did not succeed is denied when the read group refused it, omitted
+ * when the Run or the budget cut it off rather than the target, else failed.
+ */
+function recordUnsuccessfulRead(
+  run: ImportRun,
+  attempt: ReadAttempt,
+  admission: PermissionDecision | undefined,
+): void {
+  if (admission?.decision === 'reject') {
+    run.outcomes.push({ ...outcomeBase(attempt), outcome: 'denied' });
+  } else if (run.request.signal.aborted) {
+    run.omitted.push(attempt.target);
+  } else {
+    run.outcomes.push({ ...outcomeBase(attempt), outcome: 'failed' });
+  }
+}
+
 /** One read of a probe survivor or no-probe target, unless a bound closed. */
 async function attemptRead(
   run: ImportRun,
@@ -215,12 +252,9 @@ async function attemptRead(
   }
   run.reads += 1;
   const read = await run.request.readImport(attempt.readPath, attempt.ordinal);
-  const base = {
-    locator: attempt.target,
-    ...(attempt.resolved !== undefined && { resolved: attempt.resolved }),
-  };
+  const base = outcomeBase(attempt);
   if (read.result.status !== 'success') {
-    run.outcomes.push({ ...base, outcome: 'failed' });
+    recordUnsuccessfulRead(run, attempt, read.admission);
     return;
   }
   const size = Buffer.byteLength(read.text, 'utf8');
@@ -238,6 +272,10 @@ async function attemptRead(
   });
 }
 
+/** The work budget is spent or the Run was aborted. */
 function workExpired(run: ImportRun): boolean {
-  return run.request.nowMs() - run.startedAt >= PROMPT_IMPORT_WORK_MS;
+  return (
+    run.request.signal.aborted ||
+    run.request.nowMs() - run.startedAt >= PROMPT_IMPORT_WORK_MS
+  );
 }
