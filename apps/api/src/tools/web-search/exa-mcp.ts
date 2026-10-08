@@ -150,27 +150,33 @@ function createTransportFetch(
   };
 }
 
+/** Bound on the shared handshake, independent of any caller's signal. */
+const EXA_MCP_SESSION_TIMEOUT_MS = 60_000;
+
 function createSessionAccess(transport: HttpTransport): SessionAccess {
   let session: Promise<ExaSession> | undefined;
   const get = (): Promise<ExaSession> => {
     if (session !== undefined) return session;
-    let client: MCPClient | undefined;
-    const current = createMCPClient({
-      transport,
-      maxRetries: 0,
-    })
-      .then(async (connected) => {
-        client = connected;
-        return {
-          client: connected,
-          tool: toolFromSet(await connected.tools()),
-        };
-      })
-      .catch((error: unknown) => {
-        if (session === current) session = undefined;
-        if (client !== undefined) void client.close().catch(() => undefined);
-        throw error;
-      });
+    const initialization = createMCPClient({ transport, maxRetries: 0 }).then(
+      async (client) => {
+        try {
+          return { client, tool: toolFromSet(await client.tools()) };
+        } catch (error: unknown) {
+          void client.close().catch(() => undefined);
+          throw error;
+        }
+      },
+    );
+    const current = waitForSession(
+      initialization,
+      AbortSignal.timeout(EXA_MCP_SESSION_TIMEOUT_MS),
+    ).catch((error: unknown) => {
+      if (session === current) session = undefined;
+      void initialization
+        .then(({ client }) => client.close())
+        .catch(() => undefined);
+      throw error;
+    });
     session = current;
     return current;
   };
