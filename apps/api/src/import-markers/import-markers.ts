@@ -15,7 +15,6 @@ type Marker = {
   target: string;
 };
 type QuoteDelimiter = '"' | "'";
-type UnclosedQuoteLineEnds = Record<QuoteDelimiter, number | undefined>;
 type MarkerContext = {
   source: string;
   mask: Uint8Array;
@@ -23,7 +22,6 @@ type MarkerContext = {
 };
 type QuotedMarkerContext = {
   mask: Uint8Array;
-  unclosedLineEnds: UnclosedQuoteLineEnds;
   markers: Array<Marker>;
 };
 
@@ -85,17 +83,10 @@ function collectQuotedMarker(
   delimiter: QuoteDelimiter,
   context: QuotedMarkerContext,
 ): number {
-  const lineEnd = context.unclosedLineEnds[delimiter];
-
-  if (lineEnd !== undefined && offset < lineEnd) return offset + 2;
-
   let closingOffset = offset + 2;
   while (source.at(closingOffset) !== undefined) {
     const character = source.at(closingOffset);
-    if (character === '\n' || character === '\r') {
-      context.unclosedLineEnds[delimiter] = closingOffset;
-      return offset + 2;
-    }
+    if (character === '\n' || character === '\r') return offset + 2;
     if (context.mask[closingOffset] === 1) return closingOffset;
     if (character === delimiter) {
       const end = closingOffset + 1;
@@ -112,7 +103,6 @@ function collectQuotedMarker(
     closingOffset += 1;
   }
 
-  context.unclosedLineEnds[delimiter] = source.length;
   return offset + 2;
 }
 
@@ -397,7 +387,6 @@ function collectBareMarkers(
 ): void {
   const quoteContext: QuotedMarkerContext = {
     mask,
-    unclosedLineEnds: { '"': undefined, "'": undefined },
     markers,
   };
 

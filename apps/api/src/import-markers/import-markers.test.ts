@@ -118,6 +118,10 @@ describe('importTargets', () => {
     expect(importTargets('say @" then @README.md')).toEqual(['README.md']);
   });
 
+  it('starts no bare marker inside a masked unresolved reference', () => {
+    expect(importTargets('[a][@]a.md @b.md')).toEqual(['b.md']);
+  });
+
   it('does not close quoted markers on masked delimiters', () => {
     expect(importTargets(' @"a `x" y` z ')).toEqual([]);
     expect(importTargets('@"a <!-- " --> b')).toEqual([]);
