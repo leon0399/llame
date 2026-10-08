@@ -104,6 +104,27 @@ sources:
   - id: agui-client-compact
     resource: "https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/sdks/typescript/packages/client/src/compact/compact.ts#L77-L115"
     title: "AG-UI TypeScript event compaction"
+  - id: agui-genui-specs
+    resource: "https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/docs/concepts/generative-ui-specs.mdx#L6-L20"
+    title: "AG-UI generative UI specs concept page"
+  - id: agui-intro-genui
+    resource: "https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/docs/introduction.mdx#L296-L300"
+    title: "AG-UI introduction generative UI support table"
+  - id: agui-spec-activity
+    resource: "https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/docs/spec/1.0/events/activity.mdx#L6-L80"
+    title: "AG-UI 1.0 activity snapshots, deltas and messages"
+  - id: agui-a2ui-middleware
+    resource: "https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/middlewares/a2ui-middleware/src/index.ts#L52-L56"
+    title: "AG-UI A2UI middleware activity type"
+  - id: agui-a2ui-middleware-surface
+    resource: "https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/middlewares/a2ui-middleware/src/index.ts#L714-L725"
+    title: "AG-UI A2UI middleware surface snapshot"
+  - id: agui-a2ui-middleware-action
+    resource: "https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/middlewares/a2ui-middleware/src/index.ts#L273-L330"
+    title: "AG-UI A2UI middleware user-action return path"
+  - id: agui-mcp-apps-middleware
+    resource: "https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/middlewares/mcp-apps-middleware/README.md#L1-L50"
+    title: "AG-UI MCP Apps middleware"
 ---
 
 # AG-UI (Agent–User Interaction Protocol)
@@ -231,6 +252,32 @@ scheme or a durable queue.
    families. **Moderate confidence for llame:** this could project future worker
    or delegated-agent activity into one Run without inventing a second Run
    store; it is not a current llame subagent contract (#765).
+
+7. **Generative UI specs ride on existing event families.** AG-UI states that it is
+   not itself a generative UI specification: A2UI (Google), Open-JSON-UI (OpenAI)
+   and MCP-UI (Microsoft and Shopify) define what to render, while AG-UI is the
+   runtime connection that carries it, and a developer may define a custom
+   standard.[^agui-genui-specs] The introduction lists A2UI and MCP Apps as
+   supported, and describes "static" (typed components under application
+   control) and "declarative" (agent-proposed trees the application validates)
+   as capabilities.[^agui-intro-genui] The pinned spec defines no UI payload
+   event; payloads use generic carriers. The reference A2UI middleware injects a
+   `render_a2ui` tool, streams its `TOOL_CALL_ARGS`, and emits
+   `ACTIVITY_SNAPSHOT` messages with `activityType: "a2ui-surface"` and
+   `replace: true`, so the finished surface replaces its in-progress skeleton by
+   `messageId`.[^agui-a2ui-middleware][^agui-a2ui-middleware-surface] A user
+   action returns in the next input's `forwardedProps` (`a2uiAction`), which the
+   middleware turns into synthetic assistant and tool messages.[^agui-a2ui-middleware-action]
+   The MCP Apps middleware discovers UI-enabled MCP tools and emits activity
+   snapshots with resource URIs.[^agui-mcp-apps-middleware] Activity messages are
+   rendering material: `activityType` is an open string, consumers must tolerate
+   unknown types, and a consumer strips activity messages from the `messages` it
+   sends back as run input.[^agui-spec-activity] **Moderate confidence for llame:**
+   a surface is replay-safe only if the adapter persists the validated payload as
+   its own event or part; the activity wrapper is a UI projection, and the
+   `a2uiAction` mapping is middleware behavior, not part of the 1.0 spec. See
+   [A2UI](./a2ui.md) for the payload format and
+   [json-render](./json-render.md) for a catalog-constrained alternative.
 
 **Durable llame applications**
 
@@ -372,3 +419,17 @@ projection and compatibility vocabulary only.
 [^agui-client-reducer-init]: [AG-UI TypeScript reducer initialization](https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/sdks/typescript/packages/client/src/apply/default.ts#L135-L180)
 
 [^agui-spec-subagents]: [AG-UI 1.0 subagent attribution](https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/docs/spec/1.0/events/subagents.mdx#L6-L127)
+
+[^agui-genui-specs]: [AG-UI generative UI specs concept page](https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/docs/concepts/generative-ui-specs.mdx#L6-L20)
+
+[^agui-intro-genui]: [AG-UI introduction generative UI support table](https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/docs/introduction.mdx#L296-L300)
+
+[^agui-spec-activity]: [AG-UI 1.0 activity snapshots, deltas and messages](https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/docs/spec/1.0/events/activity.mdx#L6-L80)
+
+[^agui-a2ui-middleware]: [AG-UI A2UI middleware activity type](https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/middlewares/a2ui-middleware/src/index.ts#L52-L56)
+
+[^agui-a2ui-middleware-surface]: [AG-UI A2UI middleware surface snapshot](https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/middlewares/a2ui-middleware/src/index.ts#L714-L725)
+
+[^agui-a2ui-middleware-action]: [AG-UI A2UI middleware user-action return path](https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/middlewares/a2ui-middleware/src/index.ts#L273-L330)
+
+[^agui-mcp-apps-middleware]: [AG-UI MCP Apps middleware](https://github.com/ag-ui-protocol/ag-ui/blob/e0e6bff83b747ffd26feb780c22a546d0ceb87b8/middlewares/mcp-apps-middleware/README.md#L1-L50)

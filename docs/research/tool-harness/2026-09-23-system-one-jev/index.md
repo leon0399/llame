@@ -18,6 +18,9 @@ Third layer: [semantic find, jegrep and JUDGE](../2026-09-24-semantic-find-judge
 traces candidate selection and typed judgments, audits the reference benchmark,
 and develops applications U13-U20 beyond Knowledge search.
 
+- [Decision APIs](../2026-10-08-decision-apis.md) -
+  OpenAI's `/v1/decisions` and the decisionapi.net gateway as System One-family
+  backends, with llame applications and cautions.
 - [Cookbook applicability and ideas](./cookbooks.md) - All 18 TypeSafe recipes,
   direct reuse versus adaptation, and applications U21-U29. A concise,
   separately cited analysis; no additional experiments or review campaign.

@@ -31,6 +31,8 @@ independently reproduced performance.
   retrieval.
 - [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall.
 - [Graphify](./graphify.md) — Graph extraction, derived indexes and MCP queries.
+- [Agent Cache](./agentcache.md) — Documentation-site-to-Markdown bundles for
+  coding agents; offline docs, not a model or prompt cache.
 
 ## Work and prompt utilities
 
