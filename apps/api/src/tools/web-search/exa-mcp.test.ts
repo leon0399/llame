@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createMcpTestFixture,
   mcpStreamableHttpInitialize,
@@ -8,8 +8,12 @@ import {
 } from '../../mcp/mcp-test-fixture';
 import { type EngineRequest } from './chain';
 import { EXA_MCP_URL, createExaMcpEngine } from './exa-mcp';
-import { requestUrl, type CapturedRequest } from './test-fetch';
+import {
+  requestUrl,
+  type CapturedRequest,
+} from '../../testing/web-search-fetch';
 import { type VendorFetch } from './http';
+
 const exaTool = {
   name: 'web_search_exa',
   description: 'Real-time web search using Exa AI',
@@ -59,11 +63,10 @@ function rpcResult(id: number, result: JsonResult): McpFixtureResponse {
 }
 
 function toolResult(text: string, isError = false): TextToolResult {
-  const result: TextToolResult = {
+  return {
     content: [{ type: 'text', text }],
+    ...(isError && { isError: true as const }),
   };
-  if (!isError) return result;
-  return { ...result, isError: true };
 }
 
 function fixtureScripts(
@@ -71,18 +74,23 @@ function fixtureScripts(
   initializeResponses: ReadonlyArray<McpFixtureResponse> = [
     mcpStreamableHttpInitialize({ sessionId: 'exa-session' }),
   ],
+  toolLists: ReadonlyArray<
+    ReadonlyArray<typeof exaTool>
+  > = initializeResponses.map(() => [exaTool]),
 ) {
   return {
-    $get: [{ kind: 'raw', status: 405, body: '' }],
+    $get: initializeResponses.map(() => ({
+      kind: 'raw' as const,
+      status: 405,
+      body: '',
+    })),
     initialize: initializeResponses,
     'notifications/initialized': initializeResponses.map(() => ({
       kind: 'raw' as const,
       status: 204,
       body: '',
     })),
-    'tools/list': initializeResponses.map(() =>
-      rpcResult(1, { tools: [exaTool] }),
-    ),
+    'tools/list': toolLists.map((tools) => rpcResult(1, { tools })),
     'tools/call': callResponses,
     $delete: initializeResponses.map(() => ({
       kind: 'raw' as const,
@@ -113,22 +121,12 @@ function callRequestIndex(fixture: McpTestFixture): number {
 const SearchCallSchema = z.object({
   params: z.object({
     arguments: z.object({
-      query: z.string(),
-      numResults: z.number(),
-      objective: z.string(),
+      query: z.literal('latest llame release'),
+      numResults: z.literal(4),
+      objective: z.literal('latest llame release'),
     }),
   }),
 });
-type SearchCallBody = z.infer<typeof SearchCallSchema>;
-
-const isSearchCall = (body: SearchCallBody): boolean => {
-  const values = body.params.arguments;
-  return (
-    values.query === 'latest llame release' &&
-    values.numResults === 4 &&
-    values.objective === 'latest llame release'
-  );
-};
 
 let activeFixture: McpTestFixture | undefined;
 
@@ -149,7 +147,7 @@ describe('Exa MCP engine', () => {
         rpcResult(
           2,
           toolResult(
-            'Title: First result\nURL: https://example.test/first\nPublished: 2026-01-02\nHighlights:\nA useful highlight.\n\n---\n\nTitle: Missing URL\nHighlights: skip this block\n\n---\n\nTitle: Second result\nURL: https://example.test/second\nPublished: not-a-date\nHighlights: second highlight',
+            'Title: First result\nURL: https://example.test/first\nPublished: 2026-01-02\nHighlights:\nA useful highlight.\n\n---\n\nTitle: Missing URL\nHighlights: skip this block\n\n---\n\nTitle: Second result\nURL: https://example.test/second\nHighlights: second highlight',
           ),
         ),
       ]),
@@ -179,10 +177,10 @@ describe('Exa MCP engine', () => {
     });
     const index = callRequestIndex(currentFixture());
     expect(
-      currentFixture().requestMatches(index, (body) => {
-        const parsed = SearchCallSchema.safeParse(body);
-        return parsed.success && isSearchCall(parsed.data);
-      }),
+      currentFixture().requestMatches(
+        index,
+        (body) => SearchCallSchema.safeParse(body).success,
+      ),
     ).toBe(true);
     expect(seen[0]?.url).toBe(EXA_MCP_URL);
     expect(new Headers(seen[0]?.init?.headers).get('user-agent')).toContain(
@@ -197,7 +195,62 @@ describe('Exa MCP engine', () => {
     ).toBe(true);
   });
 
-  it('reuses one client and bounds highlights across calls', async () => {
+  it('parses indented fields and keeps field-looking highlight text', async () => {
+    activeFixture = await createMcpTestFixture(
+      fixtureScripts([
+        rpcResult(
+          2,
+          toolResult(
+            [
+              '  Title: Parsed result',
+              '  URL: https://example.test/parsed  ',
+              'Author: Example',
+              'Published: 2026-13-01   ',
+              'Highlights:',
+              'first   highlight',
+              '',
+              '  second highlight',
+              'URL: https://ignored.example/',
+              '---',
+              'Title: Datetime result',
+              'URL: https://example.test/datetime  ',
+              'Published: 2026-01-02T03:04:05Z   ',
+              'Highlights: final highlight',
+              '---',
+              'Title: Empty URL',
+              'URL:   ',
+              'Highlights: discarded',
+            ].join('\n'),
+          ),
+        ),
+      ]),
+    );
+    const engine = createExaMcpEngine(
+      { key: undefined },
+      { fetch: routedFetch(currentFixture(), []) },
+    );
+
+    await expect(engine(request())).resolves.toStrictEqual({
+      kind: 'results',
+      results: [
+        {
+          title: 'Parsed result',
+          url: 'https://example.test/parsed',
+          published: '2026-13-01',
+          snippet:
+            'first highlight second highlight URL: https://ignored.example/',
+        },
+        {
+          title: 'Datetime result',
+          url: 'https://example.test/datetime',
+          published: '2026-01-02T03:04:05Z',
+          snippet: 'final highlight',
+        },
+      ],
+    });
+  });
+
+  it('reuses one client and leaves output caps to normalization', async () => {
     activeFixture = await createMcpTestFixture(
       fixtureScripts([
         rpcResult(
@@ -220,7 +273,7 @@ describe('Exa MCP engine', () => {
         {
           title: 'One',
           url: 'https://example.test/one',
-          snippet: 'h'.repeat(300),
+          snippet: 'h'.repeat(350),
         },
       ],
     });
@@ -264,7 +317,7 @@ describe('Exa MCP engine', () => {
     ).toBe(true);
   });
 
-  it('maps isError statuses and Exa free-limit text to fixed failures', async () => {
+  it('maps isError statuses and keeps the client for the next call', async () => {
     const cases = [
       ['(401) invalid key', 'auth'],
       ['(403) invalid key', 'auth'],
@@ -278,7 +331,13 @@ describe('Exa MCP engine', () => {
 
     for (const [text, failureClass] of cases) {
       activeFixture = await createMcpTestFixture(
-        fixtureScripts([rpcResult(2, toolResult(text, true))]),
+        fixtureScripts([
+          rpcResult(2, toolResult(text, true)),
+          rpcResult(
+            3,
+            toolResult('Title: Recovered\nURL: https://example.test/recovered'),
+          ),
+        ]),
       );
       const engine = createExaMcpEngine(
         { key: undefined },
@@ -288,6 +347,36 @@ describe('Exa MCP engine', () => {
       await expect(engine(request())).rejects.toMatchObject({
         name: 'EngineFailure',
         failureClass,
+      });
+      await expect(engine(request())).resolves.toStrictEqual({
+        kind: 'results',
+        results: [
+          { title: 'Recovered', url: 'https://example.test/recovered' },
+        ],
+      });
+      expect(
+        currentFixture()
+          .requestSummaries()
+          .filter(({ rpcMethod }) => rpcMethod === 'initialize'),
+      ).toHaveLength(1);
+      await currentFixture().close();
+      activeFixture = undefined;
+    }
+  });
+
+  it('maps HTTP 401 and 403 transport failures to auth', async () => {
+    for (const status of [401, 403]) {
+      activeFixture = await createMcpTestFixture(
+        fixtureScripts([], [{ kind: 'raw', status, body: 'denied' }]),
+      );
+      const engine = createExaMcpEngine(
+        { key: 'exa-secret' },
+        { fetch: routedFetch(currentFixture(), []) },
+      );
+
+      await expect(engine(request())).rejects.toMatchObject({
+        name: 'EngineFailure',
+        failureClass: 'auth',
       });
       await currentFixture().close();
       activeFixture = undefined;
@@ -314,6 +403,81 @@ describe('Exa MCP engine', () => {
       name: 'EngineFailure',
       failureClass: 'rate_limited',
     });
+  });
+
+  it('reconnects after a missing MCP tool', async () => {
+    activeFixture = await createMcpTestFixture(
+      fixtureScripts(
+        [
+          rpcResult(
+            2,
+            toolResult('Title: Recovered\nURL: https://example.test/recovered'),
+          ),
+        ],
+        [
+          mcpStreamableHttpInitialize({ sessionId: 'first-session' }),
+          mcpStreamableHttpInitialize({ sessionId: 'second-session' }),
+        ],
+        [[], [exaTool]],
+      ),
+    );
+    const engine = createExaMcpEngine(
+      { key: undefined },
+      { fetch: routedFetch(currentFixture(), []) },
+    );
+
+    await expect(engine(request())).rejects.toMatchObject({
+      name: 'EngineFailure',
+      failureClass: 'upstream_error',
+    });
+    await expect(engine(request())).resolves.toStrictEqual({
+      kind: 'results',
+      results: [{ title: 'Recovered', url: 'https://example.test/recovered' }],
+    });
+    expect(
+      currentFixture()
+        .requestSummaries()
+        .filter(({ rpcMethod }) => rpcMethod === 'initialize'),
+    ).toHaveLength(2);
+  });
+
+  it('reconnects after a URL-less result failure', async () => {
+    activeFixture = await createMcpTestFixture(
+      fixtureScripts(
+        [
+          rpcResult(
+            2,
+            toolResult('Title: Missing URL\nHighlights: not a result'),
+          ),
+          rpcResult(
+            2,
+            toolResult('Title: Recovered\nURL: https://example.test/recovered'),
+          ),
+        ],
+        [
+          mcpStreamableHttpInitialize({ sessionId: 'first-session' }),
+          mcpStreamableHttpInitialize({ sessionId: 'second-session' }),
+        ],
+      ),
+    );
+    const engine = createExaMcpEngine(
+      { key: undefined },
+      { fetch: routedFetch(currentFixture(), []) },
+    );
+
+    await expect(engine(request())).rejects.toMatchObject({
+      name: 'EngineFailure',
+      failureClass: 'upstream_error',
+    });
+    await expect(engine(request())).resolves.toStrictEqual({
+      kind: 'results',
+      results: [{ title: 'Recovered', url: 'https://example.test/recovered' }],
+    });
+    expect(
+      currentFixture()
+        .requestSummaries()
+        .filter(({ rpcMethod }) => rpcMethod === 'initialize'),
+    ).toHaveLength(2);
   });
 
   it('reconnects after a dropped MCP session', async () => {
@@ -375,24 +539,46 @@ describe('Exa MCP engine', () => {
     expect(currentFixture().requestSummaries()).toHaveLength(0);
   });
 
-  it('fails text that contains no URL-bearing result block', async () => {
+  it('keeps the client after an in-flight call abort', async () => {
     activeFixture = await createMcpTestFixture(
       fixtureScripts([
+        {
+          ...rpcResult(
+            2,
+            toolResult('Title: First\nURL: https://example.test/first'),
+          ),
+          delayMs: 200,
+        },
         rpcResult(
-          2,
-          toolResult('Title: Missing URL\nHighlights: not a result'),
+          3,
+          toolResult('Title: Second\nURL: https://example.test/second'),
         ),
       ]),
     );
+    const controller = new AbortController();
+    const reason = 'cancelled by caller';
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
     );
-
-    await expect(engine(request())).rejects.toMatchObject({
-      name: 'EngineFailure',
-      failureClass: 'upstream_error',
+    const pending = engine(request({ signal: controller.signal }));
+    await vi.waitFor(() => {
+      expect(currentFixture().requestSummaries()).toContainEqual(
+        expect.objectContaining({ rpcMethod: 'tools/call' }),
+      );
     });
+    controller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    await expect(engine(request())).resolves.toStrictEqual({
+      kind: 'results',
+      results: [{ title: 'Second', url: 'https://example.test/second' }],
+    });
+    expect(
+      currentFixture()
+        .requestSummaries()
+        .filter(({ rpcMethod }) => rpcMethod === 'initialize'),
+    ).toHaveLength(1);
   });
 
   it('rejects malformed tool content without exposing it', async () => {

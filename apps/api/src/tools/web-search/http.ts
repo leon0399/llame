@@ -22,23 +22,25 @@ async function classifyStatus(response: Response): Promise<void> {
   throw new EngineFailure('upstream_error');
 }
 
-async function classifyJsonContentType(response: Response): Promise<void> {
+async function fetchVendorText(
+  url: string,
+  init: RequestInit,
+  options: VendorFetchOptions,
+  accepts: (mediaType: string | undefined) => boolean,
+): Promise<string> {
+  const response = await fetchResponse(url, init, options);
+  await classifyStatus(response);
+  options.signal.throwIfAborted();
   const contentType = response.headers.get('content-type');
   const mediaType = contentType?.split(';', 1)[0].trim().toLowerCase();
-  if (
-    mediaType !== 'application/json' &&
-    !(mediaType?.includes('/') && mediaType.endsWith('+json'))
-  ) {
+  if (!accepts(mediaType)) {
     await response.body?.cancel().catch(() => undefined);
     throw new EngineFailure('upstream_error');
   }
-}
-
-async function classifyHtmlContentType(response: Response): Promise<void> {
-  const contentType = response.headers.get('content-type');
-  const mediaType = contentType?.split(';', 1)[0].trim().toLowerCase();
-  if (mediaType !== 'text/html') {
-    await response.body?.cancel().catch(() => undefined);
+  try {
+    return await response.text();
+  } catch {
+    options.signal.throwIfAborted();
     throw new EngineFailure('upstream_error');
   }
 }
@@ -75,12 +77,15 @@ export async function fetchVendorJson<T>(
   options: VendorFetchOptions,
   schema: z.ZodType<T>,
 ): Promise<T> {
-  const response = await fetchResponse(url, init, options);
-  await classifyStatus(response);
-  options.signal.throwIfAborted();
-  await classifyJsonContentType(response);
+  const body = await fetchVendorText(
+    url,
+    init,
+    options,
+    (mediaType) =>
+      mediaType === 'application/json' ||
+      (mediaType?.includes('/') === true && mediaType.endsWith('+json')),
+  );
   try {
-    const body = await response.text();
     // SAFETY: JSON.parse returns any; the supplied Zod schema validates it.
     return schema.parse(JSON.parse(body) as unknown);
   } catch {
@@ -95,14 +100,10 @@ export async function fetchVendorHtml(
   init: RequestInit,
   options: VendorFetchOptions,
 ): Promise<string> {
-  const response = await fetchResponse(url, init, options);
-  await classifyStatus(response);
-  options.signal.throwIfAborted();
-  await classifyHtmlContentType(response);
-  try {
-    return await response.text();
-  } catch {
-    options.signal.throwIfAborted();
-    throw new EngineFailure('upstream_error');
-  }
+  return fetchVendorText(
+    url,
+    init,
+    options,
+    (mediaType) => mediaType === 'text/html',
+  );
 }

@@ -81,7 +81,7 @@ output.
 - [x] 3.3 Implement the `duckduckgo` engine: form POST, `df` recency, `linkedom` parsing, redirect-URL unwrapping, and `anomaly-modal` detection as `challenge`; verify by tests against recorded result and challenge pages
 - [x] 3.4 Document both engines, the keyless Exa limits, and DuckDuckGo's unsupported status and terms in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 3.5 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
-- [ ] 3.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 3.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 3.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 4. `web-search/aggregate` — concurrent fan-out (design D5)

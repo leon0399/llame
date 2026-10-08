@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import {
   createEngine,
   EngineFailure,
@@ -12,7 +11,7 @@ import {
   type WebSearchEngineConfig,
 } from '../../instance-config/llame-config';
 import { type VendorFetch } from './http';
-import { captureFetch } from '../../testing/web-search-fetch';
+import { requestUrl, captureFetch } from '../../testing/web-search-fetch';
 
 const request = (
   signal: AbortSignal = new AbortController().signal,
@@ -46,104 +45,12 @@ it('uses the stable EngineFailure name', () => {
 const result = (): Promise<EngineOutcome> => Promise.resolve(hit);
 const empty = (): Promise<EngineOutcome> => Promise.resolve({ kind: 'empty' });
 
-const RpcRequestSchema = z.object({
-  id: z.number().optional(),
-  method: z.string().optional(),
-});
-type RpcRequest = z.infer<typeof RpcRequestSchema>;
-type RpcResult = {
-  readonly protocolVersion?: string;
-  readonly capabilities?: {
-    readonly tools?: Readonly<Record<string, never>>;
-  };
-  readonly serverInfo?: {
-    readonly name: string;
-    readonly version: string;
-  };
-  readonly tools?: ReadonlyArray<{
-    readonly name: string;
-    readonly inputSchema: {
-      readonly type: string;
-      readonly properties: Readonly<Record<string, never>>;
-    };
-  }>;
-  readonly content?: ReadonlyArray<{
-    readonly type: string;
-    readonly text: string;
-  }>;
-};
-type RpcResponse = {
-  readonly jsonrpc: '2.0';
-  readonly id: number | undefined;
-  readonly result: RpcResult;
-};
-const jsonRpcResponse = (body: RpcResponse): Response =>
-  new Response(JSON.stringify(body), {
-    headers: { 'content-type': 'application/json' },
-  });
-
-type ExaMcpCapture = {
-  readonly fetch: VendorFetch;
-  readonly seen: () => ReadonlyArray<string>;
-};
-
-function parseRpcRequest(init: RequestInit | undefined): RpcRequest {
-  const body = z.string().parse(init?.body);
-  const parsed: unknown = JSON.parse(body);
-  return RpcRequestSchema.parse(parsed);
-}
-
-const exaToolsResult = {
-  tools: [
-    {
-      name: 'web_search_exa',
-      inputSchema: { type: 'object', properties: {} },
-    },
-  ],
-};
-const exaCallResult = {
-  content: [
-    {
-      type: 'text',
-      text: ['Title: Result', 'URL: https://example.test/a'].join('\n'),
-    },
-  ],
-};
-const rpcResult = (
-  id: number | undefined,
-  result: RpcResult,
-): Promise<Response> =>
-  Promise.resolve(jsonRpcResponse({ jsonrpc: '2.0', id, result }));
-function exaMcpCapture(): ExaMcpCapture {
-  const urls: Array<string> = [];
-  const fetch: VendorFetch = (input, init) => {
-    urls.push(input instanceof Request ? input.url : String(input));
-    if (init?.method === 'GET')
-      return Promise.resolve(new Response('', { status: 405 }));
-    const message = parseRpcRequest(init);
-    if (message.method === 'notifications/initialized')
-      return Promise.resolve(new Response('', { status: 202 }));
-    if (message.method === 'initialize')
-      return rpcResult(message.id, {
-        protocolVersion: '2025-11-25',
-        capabilities: { tools: {} },
-        serverInfo: { name: 'fixture', version: '1.0.0' },
-      });
-    if (message.method === 'tools/list')
-      return rpcResult(message.id, exaToolsResult);
-    if (message.method === 'tools/call')
-      return rpcResult(message.id, exaCallResult);
-    return Promise.resolve(new Response('', { status: 400 }));
-  };
-  return { fetch, seen: () => urls };
-}
-type FactoryMode = 'json' | 'html' | 'mcp';
 type FactoryCase = {
   readonly name: string;
   readonly config: WebSearchEngineConfig;
   readonly body: string;
   readonly expectedUrl: string;
-  readonly mode?: FactoryMode;
+  readonly headers?: HeadersInit;
 };
 const factoryCases: ReadonlyArray<FactoryCase> = [
   {
@@ -195,50 +102,45 @@ const factoryCases: ReadonlyArray<FactoryCase> = [
     expectedUrl: 'http://localhost:8888/prefix/search',
   },
   {
-    name: 'exa-mcp',
-    config: {
-      id: 'exa-mcp',
-      type: 'exa-mcp',
-      key: undefined,
-      timeoutSeconds: 60,
-    },
-    body: '',
-    expectedUrl: 'https://mcp.exa.ai/mcp',
-    mode: 'mcp',
-  },
-  {
     name: 'duckduckgo',
     config: { id: 'duckduckgo', type: 'duckduckgo', timeoutSeconds: 60 },
     body: '<div class="result"><a class="result__a" href="https://example.test/a">Result</a></div>',
     expectedUrl: 'https://html.duckduckgo.com/html/',
-    mode: 'html',
+    headers: { 'content-type': 'text/html' },
   },
 ];
 it.each(factoryCases)(
   'createEngine wires $name',
-  async ({ config: configEntry, body, expectedUrl, mode = 'json' }) => {
-    const captured = captureFetch(body);
-    let fetch: VendorFetch = captured.fetch;
-    let seenUrl = (): string => captured.seen().url;
-    if (mode === 'mcp') {
-      const mcp = exaMcpCapture();
-      fetch = mcp.fetch;
-      seenUrl = () => mcp.seen()[0] ?? '';
-    } else if (mode === 'html') {
-      fetch = async (input, init) => {
-        const original = await captured.fetch(input, init);
-        return new Response(await original.text(), {
-          status: original.status,
-          headers: { 'content-type': 'text/html' },
-        });
-      };
-    }
-    const output = await createEngine(configEntry, { fetch })(request());
-    const actual = new URL(seenUrl());
+  async ({ config: configEntry, body, expectedUrl, headers }) => {
+    const captured = captureFetch(body, 200, headers);
+    const output = await createEngine(configEntry, {
+      fetch: captured.fetch,
+    })(request());
+    const actual = new URL(captured.seen().url);
     expect(actual.origin + actual.pathname).toBe(expectedUrl);
     expect(output.kind).toBe('results');
   },
 );
+
+it('createEngine wires exa-mcp', async () => {
+  const urls: Array<string> = [];
+  const fetch: VendorFetch = (input) => {
+    urls.push(requestUrl(input));
+    return Promise.reject(new Error('fixture upstream failure'));
+  };
+  await expect(
+    createEngine(
+      {
+        id: 'exa-mcp',
+        type: 'exa-mcp',
+        key: undefined,
+        timeoutSeconds: 60,
+      },
+      { fetch },
+    )(request()),
+  ).rejects.toMatchObject({ failureClass: 'upstream_error' });
+  expect(urls[0]).toBe('https://mcp.exa.ai/mcp');
+});
 
 it('appends engine notes after chain notes', async () => {
   const output = await executeSearchChain(

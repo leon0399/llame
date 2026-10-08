@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createDuckDuckGoEngine, DUCKDUCKGO_SEARCH_URL } from './duckduckgo';
 import { type EngineOutcome, type EngineRequest } from './chain';
 import { type VendorFetch } from './http';
-
+import { requestUrl } from '../../testing/web-search-fetch';
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test cats',
   recency: 'week',
@@ -11,11 +11,6 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   userAgent: 'llame/test',
   ...overrides,
 });
-const requestUrl = (input: RequestInfo | URL): string => {
-  if (input instanceof URL) return input.href;
-  if (input instanceof Request) return input.url;
-  return input;
-};
 const response = (
   body: string,
   status = 200,
@@ -49,10 +44,7 @@ async function runWith(
     seenInit = init;
     return Promise.resolve(fetchResponse(body));
   };
-  const output = await createDuckDuckGoEngine(
-    { type: 'duckduckgo' },
-    { fetch },
-  )(request(overrides));
+  const output = await createDuckDuckGoEngine({ fetch })(request(overrides));
   return { output, init: seenInit, url: seenUrl };
 }
 
@@ -99,7 +91,7 @@ describe('DuckDuckGo HTML engine', () => {
     expect(form.has('df')).toBe(false);
   });
 
-  it('skips ads and slices results to the requested limit', async () => {
+  it('skips ads without applying the output limit', async () => {
     const body = html(`
       ${firstResult}
       <div class="result result--ad">
@@ -118,6 +110,11 @@ describe('DuckDuckGo HTML engine', () => {
           title: 'First result',
           url: 'https://example.test/first?x=1',
           snippet: 'First snippet',
+        },
+        {
+          title: 'Second',
+          url: 'https://example.test/second',
+          snippet: 'Second snippet',
         },
       ],
     });
@@ -144,30 +141,24 @@ describe('DuckDuckGo HTML engine', () => {
   });
 
   it('classifies a challenge page', async () => {
-    const engine = createDuckDuckGoEngine(
-      { type: 'duckduckgo' },
-      {
-        fetch: () =>
-          Promise.resolve(
-            response('<div class="anomaly-modal">verify</div>', 202),
-          ),
-      },
-    );
+    const engine = createDuckDuckGoEngine({
+      fetch: () =>
+        Promise.resolve(
+          response('<div class="anomaly-modal">verify</div>', 202),
+        ),
+    });
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'challenge',
     });
   });
 
   it('classifies a non-HTML response as an upstream error', async () => {
-    const engine = createDuckDuckGoEngine(
-      { type: 'duckduckgo' },
-      {
-        fetch: () =>
-          Promise.resolve(
-            response('{}', 200, { 'content-type': 'application/json' }),
-          ),
-      },
-    );
+    const engine = createDuckDuckGoEngine({
+      fetch: () =>
+        Promise.resolve(
+          response('{}', 200, { 'content-type': 'application/json' }),
+        ),
+    });
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'upstream_error',
     });
@@ -180,17 +171,14 @@ describe('DuckDuckGo HTML engine', () => {
         cancelled = true;
       },
     });
-    const engine = createDuckDuckGoEngine(
-      { type: 'duckduckgo' },
-      {
-        fetch: () =>
-          Promise.resolve(
-            new Response(body, {
-              headers: { 'content-type': 'application/json' },
-            }),
-          ),
-      },
-    );
+    const engine = createDuckDuckGoEngine({
+      fetch: () =>
+        Promise.resolve(
+          new Response(body, {
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+    });
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'upstream_error',
     });
@@ -198,10 +186,9 @@ describe('DuckDuckGo HTML engine', () => {
   });
 
   it('classifies a rate limit response', async () => {
-    const engine = createDuckDuckGoEngine(
-      { type: 'duckduckgo' },
-      { fetch: () => Promise.resolve(response('', 429)) },
-    );
+    const engine = createDuckDuckGoEngine({
+      fetch: () => Promise.resolve(response('', 429)),
+    });
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'rate_limited',
     });

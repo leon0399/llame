@@ -184,7 +184,7 @@ export function createEngine(
     case 'searxng':
       return createSearxngEngine(config, deps);
     case 'duckduckgo':
-      return createDuckDuckGoEngine(config, deps);
+      return createDuckDuckGoEngine(deps);
   }
 }
 

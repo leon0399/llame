@@ -23,11 +23,15 @@ export function jsonResponse(
   return new Response(body, { status, headers });
 }
 
-export function captureFetch(body: string, status = 200): FetchCapture {
+export function captureFetch(
+  body: string,
+  status = 200,
+  headers: HeadersInit = { 'content-type': 'application/json' },
+): FetchCapture {
   let captured: CapturedRequest = { url: '' };
   const fetch: VendorFetch = (input, init) => {
     captured = { url: requestUrl(input), init };
-    return Promise.resolve(jsonResponse(body, status));
+    return Promise.resolve(jsonResponse(body, status, headers));
   };
   return { fetch, seen: () => captured };
 }
