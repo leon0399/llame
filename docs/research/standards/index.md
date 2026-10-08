@@ -21,7 +21,9 @@ a standard.
   sessions over stdio; candidate local peer executor adapter.
 - [A2A (Agent2Agent)](./agent2agent.md) — task protocol between independent
   agents; candidate remote executor adapter.
-- [AG-UI](./ag-ui.md) — Event protocol connecting agent runs to user-facing applications; candidate durable llame Run stream adapter
+- [AG-UI](./ag-ui.md) — event protocol connecting agent runs to user-facing
+  applications, including generative UI payloads; candidate durable llame Run
+  stream adapter.
 
 ## Packaging and discovery
 
@@ -47,6 +49,8 @@ a standard.
   metadata.
 - [json-render](./json-render.md) — catalog-constrained generative UI streamed as
   JSON Patch lines.
+- [A2UI](./a2ui.md) — declarative streaming JSON UI rendered from a client-owned
+  component catalog; the catalog is the trust boundary.
 
 See [agentic harnesses](../harnesses/index.md) for execution runtimes and
 [tools and extensions](../tools/index.md) for supporting software.

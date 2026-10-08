@@ -1,7 +1,7 @@
 # Tool harness
 
 Research on llame's tool loop, MCP transports, code-mode tools, typed judgments,
-question-directed reads, permission classification and prompt caching.
+question-directed reads, permission classification, prompt caching and decision APIs.
 
 ## Studies
 
@@ -10,6 +10,7 @@ question-directed reads, permission classification and prompt caching.
 - [Code-driven tool calling (eval tool): prior art and issue plan](./2026-09-14-code-mode-eval-tool.md) - Compares eval and code-mode tools across peer harnesses, maps llame seams, and records the phase-1 decisions and issue plan for a Bun-backed eval tool.
 - [stdio MCP research — config surface, transport gaps, peer practice](./2026-08-12-mcp-stdio.md) - Examines the stdio MCP config surface, process lifecycle, and transport gaps against installed SDKs and four peer products, finding the authorization contract unchanged and the official transport sufficient to adopt.
 - [Provider prompt caching, explicit cache boundaries, and llame's dynamic context](./2026-09-26-prompt-cache-boundaries.md) - How provider KV/prefix caches decide what is reusable, where llame's per-turn and per-chat context sits in the request, and whether it prevents cache sharing between conversations.
+- [Decision APIs](./2026-10-08-decision-apis.md) - OpenAI /v1/decisions and the decisionapi.net gateway: typed predicate, choice and score answers, refusal, pricing, and llame applications, with egress, determinism and decision-is-not-authorization cautions.
 
 ## Research bundles
 
