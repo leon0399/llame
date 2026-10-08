@@ -126,6 +126,15 @@ describe('importTargets', () => {
     expect(importTargets('[a](&#47;etc&#47;passwd "import")')).toEqual([]);
   });
 
+  it('does not recognize an entity-encoded destination matching the link label', () => {
+    expect(
+      importTargets('[see /etc/passwd](&#47;etc&#47;passwd "import")'),
+    ).toEqual([]);
+    expect(importTargets('@[see /etc/passwd](&#47;etc&#47;passwd)')).toEqual(
+      [],
+    );
+  });
+
   it('recognizes an at-prefixed Markdown link', () => {
     expect(importTargets('@[docs](README.md)')).toEqual(['README.md']);
   });
