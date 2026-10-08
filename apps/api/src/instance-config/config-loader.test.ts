@@ -950,15 +950,35 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     );
   });
 
-  it('preserves rewrite and GitHub adapters in declared order', () => {
+  it('preserves rewrite, GitHub, and Bluesky adapters in declared order', () => {
     const rewrite = rewriteEntry();
     const github = { id: 'github', use: 'github' as const };
-    writeConfig(JSON.stringify({ tools: { webAdapters: [rewrite, github] } }));
+    const bluesky = { id: 'bluesky', use: 'bluesky' as const };
+    writeConfig(
+      JSON.stringify({ tools: { webAdapters: [rewrite, github, bluesky] } }),
+    );
 
     expect(loadInstanceConfig().tools.webAdapters).toStrictEqual([
       rewrite,
       github,
+      bluesky,
     ]);
+  });
+
+  it('rejects a credential on the Bluesky adapter', () => {
+    writeConfig(
+      JSON.stringify({
+        tools: {
+          webAdapters: [
+            { id: 'bluesky', use: 'bluesky', token: '{env:BSKY_TOKEN}' },
+          ],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /\/tools\/webAdapters\/0\/token/,
+    );
   });
 
   it('rejects unsupported adapter uses at boot', () => {

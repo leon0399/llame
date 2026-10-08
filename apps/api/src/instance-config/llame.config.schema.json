@@ -811,6 +811,25 @@
                     "description": "Optional GitHub credential. Boot accepts only a whole-value {env:}/{path:} interpolation token."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native Bluesky adapter. It reads public posts, threads, profiles, followers, and follows from the unauthenticated public.api.bsky.app AppView; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["bluesky"],
+                    "description": "Adapter implementation for bsky.app post, profile, followers, and follows URLs."
+                  }
+                }
               }
             ]
           }

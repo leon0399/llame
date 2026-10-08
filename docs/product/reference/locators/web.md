@@ -166,7 +166,8 @@ carry the type they were served (`text/markdown` supports an outline,
 `text/plain` does not), `alternate`, `md-suffix`, `readability`, and
 `llms-txt` are `text/markdown`, and `raw` has no media type. A rendered
 adapter outcome carries an internal media-type label: GitHub issue, pull
-request, repository, and commit renders are `text/markdown`; a GitHub blob
+request, repository, and commit renders and every Bluesky render are
+`text/markdown`; a GitHub blob
 uses the file extension table; a directory outcome has no outline type; and a
 rewrite adapter forwards the inner render's label. An unsupported web or
 adapter result uses the same `invalid_selector` as any other source, while an
@@ -264,6 +265,39 @@ note such as `review comments omitted: rate_limit`; the section is one of
 present. A primary rate-limit fall-through note includes
 `, resets <ISO-8601>` when that header is available; primary failures expose
 no response body, and rate limits are not retried.
+
+### Bluesky adapter
+
+A post renders in the [x.md](https://x.pcstyle.dev/) thread layout: reachable
+ancestors oldest first as `Parent`, the requested post as `Post`, then replies
+depth-first, labeled `Thread` while the author continues their own chain and
+`Reply` otherwise. Link facets become Markdown links to their full URIs,
+media and quoted posts are blockquoted, and each entry ends with its
+`bsky.app` URL and creation time:
+
+```text
+## Post · 1/3 — Alice (@alice.test)
+
+Read [example.com/very…](https://example.com/very/long) now
+
+> ![A cat sleeping](https://cdn.bsky.app/img/feed_fullsize/...)
+
+Source: https://bsky.app/profile/alice.test/post/3mx5e63uvns2d
+Date: 2026-10-01T00:00:00Z
+
+---
+
+## Reply · 2/3 — @bob.test
+...
+```
+
+A profile renders its linked name, description, follower, following, and post
+counts, then `## Latest posts` with one line per original post and no reposts;
+if the posts do not load, the profile stays and a `posts omitted: <failure>`
+note is added. `/followers` and `/follows` render one linked line per account
+for the first 100 and say when more were not loaded. Accounts labeled
+`!no-unauthenticated` are withheld: a requested post, profile, or list falls
+through with `empty`, and their replies, quotes, and list entries are omitted.
 
 ## Bounds
 

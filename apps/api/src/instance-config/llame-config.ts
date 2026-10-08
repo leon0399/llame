@@ -490,6 +490,10 @@ export type RawWebAdapterEntry =
       id: string;
       use: 'github';
       token?: string;
+    }
+  | {
+      id: string;
+      use: 'bluesky';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -527,7 +531,15 @@ export type GithubWebAdapterConfig = {
   readonly token?: string;
 };
 
-export type WebAdapterConfig = RewriteWebAdapterConfig | GithubWebAdapterConfig;
+export type BlueskyWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'bluesky';
+};
+
+export type WebAdapterConfig =
+  | RewriteWebAdapterConfig
+  | GithubWebAdapterConfig
+  | BlueskyWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

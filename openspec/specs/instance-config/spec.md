@@ -1135,11 +1135,13 @@ A `providers[]` entry and a `models[]` entry MAY each declare an optional `billi
 
 The optional `tools.webAdapters` setting SHALL be an ordered array of unique
 entries. Each entry SHALL have the shape `{ id, use, ... }`, where `id` is a
-non-empty operator-chosen identifier and `use` is exactly `github` or
-`rewrite`. The array SHALL be an explicit replacement: absent SHALL mean `[]`,
-while present SHALL enable exactly the listed entries. A `github` entry SHALL
-have the shape `{ id, use: "github", token? }`; `token`, when present, SHALL
-be an `{env:...}` or `{path:...}` interpolation token. A `rewrite` entry SHALL
+non-empty operator-chosen identifier and `use` is exactly `github`, `bluesky`,
+or `rewrite`. The array SHALL be an explicit replacement: absent SHALL mean
+`[]`, while present SHALL enable exactly the listed entries. A `github` entry
+SHALL have the shape `{ id, use: "github", token? }`; `token`, when present,
+SHALL be an `{env:...}` or `{path:...}` interpolation token. A `bluesky` entry
+SHALL have the shape `{ id, use: "bluesky" }` and accepts no credential. A
+`rewrite` entry SHALL
 have the shape `{ id, use: "rewrite", hosts, pathPattern?, target }`, where
 `hosts` is an array of exact canonical host matches,
 `pathPattern` is an optional RE2-compatible regular expression compiled by

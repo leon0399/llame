@@ -294,6 +294,8 @@ function resolveWebAdapterEntry(
   }
   seenIds.add(id);
 
+  if (value.use === 'bluesky') return { id, use: 'bluesky' };
+
   if (value.use === 'github') {
     const token = resolveGithubToken(value.token, `${entryPath}.token`, env);
     return token === undefined

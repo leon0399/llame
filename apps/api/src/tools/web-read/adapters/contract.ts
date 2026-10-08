@@ -10,6 +10,7 @@ import {
   type WebDirectory,
   type WebRender,
 } from '../pipeline';
+import { createBlueskyAdapter } from './bluesky/adapter';
 import { createGithubAdapter } from './github/adapter';
 import { createRewriteAdapter } from './rewrite';
 
@@ -139,6 +140,20 @@ function resetTimestamp(value: string | undefined): string | undefined {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
+/** The outcome of a failed request an adapter cannot render without; a
+ *  call-bound or caller-abort failure is marked fatal. */
+export function primaryFailure(failure: WebFetchFailure): WebAdapterOutcome {
+  const reset = rateLimitReset(failure);
+  const outcome: WebAdapterOutcome = {
+    kind: 'failed',
+    failure: classifyFetchFailure(failure),
+    ...(reset !== undefined && { reset }),
+  };
+  return isFatalAdapterFailure(failure)
+    ? { ...outcome, fatal: failure }
+    : outcome;
+}
+
 /** An adapter's own report that a response it received could not be parsed. */
 const ADAPTER_PARSE_FAILURE = 'parse';
 
@@ -250,9 +265,14 @@ function truncateAdapterDocument(content: string) {
 export function createWebAdapters(
   configs: ReadonlyArray<WebAdapterConfig>,
 ): ReadonlyArray<WebAdapter> {
-  return configs.map((config) =>
-    config.use === 'github'
-      ? createGithubAdapter(config)
-      : createRewriteAdapter(config),
-  );
+  return configs.map((config) => {
+    switch (config.use) {
+      case 'github':
+        return createGithubAdapter(config);
+      case 'bluesky':
+        return createBlueskyAdapter(config);
+      case 'rewrite':
+        return createRewriteAdapter(config);
+    }
+  });
 }

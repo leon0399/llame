@@ -110,6 +110,16 @@ describe('createWebAdapters', () => {
       true,
     );
   });
+
+  it('creates a native Bluesky adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'bsky', use: 'bluesky' }]);
+    if (adapter === undefined) throw new Error('expected Bluesky adapter');
+
+    expect(adapter).toMatchObject({ id: 'bsky', route: 'native' });
+    expect(adapter.match(new URL('https://bsky.app/profile/a.test'))).toBe(
+      true,
+    );
+  });
 });
 
 describe('dispatchWebAdapters', () => {
