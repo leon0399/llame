@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, waitFor, within } from "storybook/test";
 
+import {
+  Message,
+  MessageContent,
+} from "@workspace/ui/components/ai-elements/message";
 import { TooltipProvider } from "@workspace/ui/components/tooltip";
 
 import { PromptImportsPart } from "./prompt-imports-part";
@@ -12,7 +16,11 @@ const meta = {
   decorators: [
     (Story) => (
       <TooltipProvider>
-        <Story />
+        <Message from="user">
+          <MessageContent>
+            <Story />
+          </MessageContent>
+        </Message>
       </TooltipProvider>
     ),
   ],
@@ -25,9 +33,9 @@ type Story = StoryObj<typeof meta>;
  * One prompt whose `@` markers resolved every way: a file imported whole, one
  * cut at the per-file cap, one denied by the `read` permission group, one that
  * failed to read, and a marker skipped past the per-prompt cap. Each state is
- * its own badge; the muted states stay `secondary` rather than destructive —
- * the model-visible text never names them, and only the owner sees this
- * metadata.
+ * its own badge; muted states use the visible outline pill with a Ban icon —
+ * the model-visible text names denied/failed targets only as not imported and
+ * lists omitted locators, while outcome details and resolved paths are owner-only.
  *
  * @summary imported, truncated, denied, failed, and omitted prompt files
  */
@@ -70,14 +78,13 @@ export const ImportedDeniedFailedOmitted: Story = {
     await expect(within(failed).getByText("failed")).toBeVisible();
     await expect(within(omitted).getByText("omitted")).toBeVisible();
 
-    // Denied, failed, and omitted are policy or capacity states, not
-    // destructive ones: the muted `secondary` surface leaves Alert Red
-    // reserved for destructive states (DESIGN.md §10).
+    // All states use the visible outline pill on a user bubble; muted states
+    // convey policy/capacity through the Ban icon and state text.
     await expect(imported).toHaveAttribute("data-variant", "outline");
     await expect(truncated).toHaveAttribute("data-variant", "outline");
-    await expect(denied).toHaveAttribute("data-variant", "secondary");
-    await expect(failed).toHaveAttribute("data-variant", "secondary");
-    await expect(omitted).toHaveAttribute("data-variant", "secondary");
+    await expect(denied).toHaveAttribute("data-variant", "outline");
+    await expect(failed).toHaveAttribute("data-variant", "outline");
+    await expect(omitted).toHaveAttribute("data-variant", "outline");
 
     // The visible badge truncates a long locator; the tooltip carries the
     // locator as written and the path it resolved to.

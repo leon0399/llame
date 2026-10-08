@@ -728,6 +728,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
   async function seedBoundRun(
     key = `worker-${crypto.randomUUID()}`,
     permissionMode: PermissionMode = 'default',
+    text = 'use the bound context',
   ) {
     const chatId: string = crypto.randomUUID();
     const messageId = crypto.randomUUID();
@@ -742,7 +743,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         chatId,
         role: 'user',
         senderUserId: userId,
-        parts: [{ type: 'text', text: 'use the bound context' }],
+        parts: [{ type: 'text', text }],
       });
       const run = await new RunsRepository(tx).create({
         chatId,
@@ -5503,6 +5504,77 @@ describeIfDb('executeRun tool-loop persistence', () => {
         );
         expect(JSON.stringify(events)).not.toContain('foreign space rules');
         expect(JSON.stringify(events)).not.toContain(root);
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        await sql`DELETE FROM users WHERE id = ${otherOwnerId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps another owner's Knowledge locator as prose on an accepted turn", async () => {
+      const fixture = knowledgeInstructionsFixture();
+      const { root, spaces, put } = fixture;
+      const otherOwnerId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${otherOwnerId}, 'Foreign Prompt Import', ${`foreign-prompt-import-${otherOwnerId}@test.com`})`;
+      const foreign = await spaces.provisionForOwner(otherOwnerId);
+      put(foreign.id, 'file.md', 'foreign prompt-import secret\n');
+      const locator = `kb://${foreign.id}/file.md`;
+      // Control: the owner's own Space file in the same prompt is imported.
+      const own = await spaces.provisionForOwner(userId);
+      put(own.id, 'own.md', 'own prompt-import note\n');
+      const ownLocator = `kb://${own.id}/own.md`;
+      const seeded = await seedBoundRun(
+        `prompt-import-foreign-knowledge-${crypto.randomUUID()}`,
+        'default',
+        `Please use @${ownLocator} and @${locator} as context.`,
+      );
+      const model = new MockLanguageModelV3({
+        doStream: () =>
+          Promise.resolve(textResponse('The locator stayed prose.')),
+      });
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          fixture.service(),
+          createMockModelClient(model),
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        const stored = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findById(
+            seeded.chatId,
+            userId,
+            seeded.userMessage.id,
+          ),
+        );
+        const promptImports =
+          stored?.parts.filter(
+            (part) =>
+              isContextItemPart(part) &&
+              part.data.producer === 'prompt-imports',
+          ) ?? [];
+        expect(promptImports).toHaveLength(1);
+        expect(JSON.stringify(promptImports)).toContain(ownLocator);
+        expect(JSON.stringify(promptImports)).not.toContain(foreign.id);
+
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        const importEvents = events.filter(
+          (event) =>
+            isRecord(event.payload) &&
+            event.payload['origin'] === 'prompt-import',
+        );
+        expect(importEvents.length).toBeGreaterThan(0);
+        expect(JSON.stringify(importEvents)).not.toContain(foreign.id);
+
+        const prompt = model.doStreamCalls[0]?.prompt ?? [];
+        const promptTextValue = prompt.map(promptText).join('\n');
+        expect(promptTextValue).toContain(`@${locator}`);
+        expect(promptTextValue).toContain('own prompt-import note');
+        expect(promptTextValue).not.toContain('foreign prompt-import secret');
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         await sql`DELETE FROM users WHERE id = ${otherOwnerId}`;

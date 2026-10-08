@@ -65,9 +65,10 @@ export const LoadedTruncatedDenied: Story = {
     await expect(within(truncated).getByText("truncated")).toBeVisible();
     await expect(within(denied).getByText("denied")).toBeVisible();
 
-    // A denial is policy state, not a destructive one: the muted `secondary`
-    // surface leaves Alert Red reserved for destructive states (DESIGN.md §10).
-    await expect(denied).toHaveAttribute("data-variant", "secondary");
+    // A denial is policy state, not a destructive one: the visible `outline`
+    // surface uses the Ban icon and state text while Alert Red stays reserved
+    // for destructive states (DESIGN.md §10).
+    await expect(denied).toHaveAttribute("data-variant", "outline");
     await expect(truncated).toHaveAttribute("data-variant", "outline");
 
     // The visible badge truncates a long path; the tooltip carries the

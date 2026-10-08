@@ -139,8 +139,9 @@ export type PromptImportOutcome = "imported" | "denied" | "failed";
  * import markers in the prompt resolved. `imports` lists each marker's
  * locator as written with its outcome (`resolved` is the path it resolved
  * to, `truncated` marks a file cut at the cap); `omitted` lists the locators
- * past the per-prompt marker cap, present only when non-empty. Owner-only
- * metadata: the model-visible text never names a denied or failed locator.
+ * past the per-prompt marker cap, present only when non-empty. The model-visible
+ * text names denied/failed targets only as not imported and lists omitted
+ * locators; outcome detail and resolved paths are owner-only metadata.
  */
 export type PromptImportsPart = {
   type: "data-context";

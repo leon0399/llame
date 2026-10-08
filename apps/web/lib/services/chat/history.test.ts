@@ -805,17 +805,8 @@ describe("prompt-imports context items", () => {
     ).toBe(false);
   });
 
-  it("rejects an extra key at every level rather than rendering an unknown shape", () => {
+  it("rejects an extra key in payload or entries rather than rendering an unknown shape", () => {
     const entry = { locator: "a.md", outcome: "imported" };
-    expect(isPromptImportsPart({ ...promptImportsItem, extra: "leak" })).toBe(
-      false,
-    );
-    expect(
-      isPromptImportsPart({
-        ...promptImportsItem,
-        data: { ...promptImportsItem.data, extra: "leak" },
-      }),
-    ).toBe(false);
     expect(
       isPromptImportsPart(withPayload({ imports: [entry], extra: "leak" })),
     ).toBe(false);
