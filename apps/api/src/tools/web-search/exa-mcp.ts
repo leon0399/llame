@@ -31,7 +31,7 @@ type McpCallResult = z.infer<typeof McpCallResultSchema>;
 type ExaSession = { readonly client: MCPClient; readonly tool: ExaTool };
 
 type SessionAccess = {
-  readonly get: (signal: AbortSignal) => Promise<ExaSession>;
+  readonly get: () => Promise<ExaSession>;
   readonly discard: (session: Promise<ExaSession>) => void;
 };
 
@@ -55,34 +55,60 @@ function parseBlock(block: string): RawResult | undefined {
   let title = '';
   let url: string | undefined;
   let published: string | undefined;
-  let collectingHighlights = false;
+  let collecting: 'highlights' | 'text' | undefined;
   const highlights: Array<string> = [];
+  const text: Array<string> = [];
+  const snippets = { highlights, text };
 
   for (const line of block.split(/\r?\n/u)) {
-    if (collectingHighlights) {
-      highlights.push(line);
+    if (collecting !== undefined) {
+      snippets[collecting].push(line);
       continue;
     }
     const field = line
       .trimStart()
-      .match(/^(Title|URL|Published|Highlights):[ \t]*(.*)$/u);
+      .match(/^(Title|URL|Published|Highlights|Text):[ \t]*(.*)$/u);
     if (field === null) continue;
     const [, name, value] = field;
-    collectingHighlights = name === 'Highlights';
     if (name === 'Title') title = value;
     else if (name === 'URL') url = value.trim();
     else if (name === 'Published') published = value.trim();
-    else highlights.push(value);
+    else {
+      collecting = name === 'Highlights' ? 'highlights' : 'text';
+      snippets[collecting].push(value);
+    }
   }
 
   if (url === undefined || url === '') return undefined;
-  const snippet = highlights.join(' ').replaceAll(/\s+/gu, ' ').trim();
+  const snippet = (
+    snippets.highlights.length > 0 ? snippets.highlights : snippets.text
+  )
+    .join(' ')
+    .replaceAll(/\s+/gu, ' ')
+    .trim();
   return {
     title,
     url,
     ...(snippet !== '' && { snippet }),
     ...(published !== undefined && { published }),
   };
+}
+
+async function waitForSession(
+  session: Promise<ExaSession>,
+  signal: AbortSignal,
+): Promise<ExaSession> {
+  signal.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(new Error('Exa MCP session wait aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([session, aborted]);
+  } finally {
+    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort);
+  }
 }
 
 function parseCallResult(value: McpCallResult): EngineOutcome | undefined {
@@ -126,13 +152,12 @@ function createTransportFetch(
 
 function createSessionAccess(transport: HttpTransport): SessionAccess {
   let session: Promise<ExaSession> | undefined;
-  const get = (signal: AbortSignal): Promise<ExaSession> => {
+  const get = (): Promise<ExaSession> => {
     if (session !== undefined) return session;
     let client: MCPClient | undefined;
     const current = createMCPClient({
       transport,
       maxRetries: 0,
-      initializationOptions: { signal },
     })
       .then(async (connected) => {
         client = connected;
@@ -201,10 +226,10 @@ export function createExaMcpEngine(
   return async (request) => {
     userAgent = request.userAgent;
     request.signal.throwIfAborted();
-    const session = get(request.signal);
+    const session = get();
     let result: McpCallResult;
     try {
-      const { tool } = await session;
+      const { tool } = await waitForSession(session, request.signal);
       result = await executeSearchTool(tool, request);
     } catch (error: unknown) {
       request.signal.throwIfAborted();

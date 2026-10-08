@@ -217,6 +217,10 @@ describe('Exa MCP engine', () => {
               'Published: 2026-01-02T03:04:05Z   ',
               'Highlights: final highlight',
               '---',
+              'Title: Text result',
+              'URL: https://example.test/text',
+              'Text: fallback text',
+              '---',
               'Title: Empty URL',
               'URL:   ',
               'Highlights: discarded',
@@ -246,8 +250,86 @@ describe('Exa MCP engine', () => {
           published: '2026-01-02T03:04:05Z',
           snippet: 'final highlight',
         },
+        {
+          title: 'Text result',
+          url: 'https://example.test/text',
+          snippet: 'fallback text',
+        },
       ],
     });
+  });
+  it('keeps shared initialization after the first caller aborts', async () => {
+    activeFixture = await createMcpTestFixture(
+      fixtureScripts(
+        [
+          rpcResult(
+            2,
+            toolResult('Title: Recovered\nURL: https://example.test/recovered'),
+          ),
+        ],
+        [
+          {
+            ...mcpStreamableHttpInitialize({ sessionId: 'exa-session' }),
+            delayMs: 100,
+          },
+        ],
+      ),
+    );
+    const engine = createExaMcpEngine(
+      { key: undefined },
+      { fetch: routedFetch(currentFixture(), []) },
+    );
+    const controller = new AbortController();
+    const first = engine(request({ signal: controller.signal }));
+    await vi.waitFor(() => {
+      expect(
+        currentFixture()
+          .requestSummaries()
+          .filter(({ rpcMethod }) => rpcMethod === 'initialize'),
+      ).toHaveLength(1);
+    });
+    const second = engine(request());
+    const reason = new Error('first caller cancelled');
+    controller.abort(reason);
+
+    await expect(first).rejects.toBe(reason);
+    await expect(second).resolves.toStrictEqual({
+      kind: 'results',
+      results: [{ title: 'Recovered', url: 'https://example.test/recovered' }],
+    });
+    expect(
+      currentFixture()
+        .requestSummaries()
+        .filter(({ rpcMethod }) => rpcMethod === 'initialize'),
+    ).toHaveLength(1);
+  });
+
+  it('lets a caller abort while shared tools are being discovered', async () => {
+    const scripts = fixtureScripts([]);
+    activeFixture = await createMcpTestFixture({
+      ...scripts,
+      'tools/list': scripts['tools/list'].map((response) => ({
+        ...response,
+        delayMs: 200,
+      })),
+    });
+    const engine = createExaMcpEngine(
+      { key: undefined },
+      { fetch: routedFetch(currentFixture(), []) },
+    );
+    const controller = new AbortController();
+    const pending = engine(request({ signal: controller.signal }));
+    await vi.waitFor(() => {
+      expect(
+        currentFixture()
+          .requestSummaries()
+          .filter(({ rpcMethod }) => rpcMethod === 'tools/list'),
+      ).toHaveLength(1);
+    });
+    const reason = new DOMException('deadline exceeded', 'TimeoutError');
+    controller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
   });
 
   it('reuses one client and leaves output caps to normalization', async () => {

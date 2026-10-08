@@ -151,6 +151,26 @@ describe('DuckDuckGo HTML engine', () => {
       failureClass: 'challenge',
     });
   });
+  it('does not classify challenge text in a normal result page', async () => {
+    const { output } = await runWith(
+      html(`
+        <div class="result">
+          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.test%2F%3Fq%3Danomaly-modal">Result anomaly-modal</a>
+          <div class="result__snippet">Snippet mentions anomaly-modal</div>
+        </div>
+      `),
+    );
+    expect(output).toStrictEqual({
+      kind: 'results',
+      results: [
+        {
+          title: 'Result anomaly-modal',
+          url: 'https://example.test/?q=anomaly-modal',
+          snippet: 'Snippet mentions anomaly-modal',
+        },
+      ],
+    });
+  });
 
   it('classifies a non-HTML response as an upstream error', async () => {
     const engine = createDuckDuckGoEngine({

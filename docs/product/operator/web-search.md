@@ -104,8 +104,9 @@ Redirects are refused, so the key cannot follow a redirect to another host. Resp
 
 `exa-mcp` calls Exa's hosted MCP at `https://mcp.exa.ai/mcp` from llame code; the
 MCP and its tools are never exposed to the model. An optional `key` (for example
-`{env:EXA_API_KEY}`) raises limits. Without one, Exa allows about 2 requests/second
-and 50/day per egress IP, and does not support `recency`.
+`{env:EXA_API_KEY}`) raises limits. Without one, Exa's changelog (2 Feb 2026)
+gives about 3 requests/second and 150 calls/day per IP for unauthenticated use;
+Exa may change it. It does not support `recency`.
 Do not use keyless access to avoid API billing. Exa API storage restrictions apply
 to these results too.
 

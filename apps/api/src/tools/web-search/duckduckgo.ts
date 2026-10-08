@@ -24,8 +24,7 @@ function unwrapRedirect(href: string): string {
   return target ?? href;
 }
 
-function parseResults(body: string): ReadonlyArray<RawResult> {
-  const { document } = parseHTML(body);
+function parseResults(document: Document): ReadonlyArray<RawResult> {
   return Array.from(document.querySelectorAll('.result')).flatMap((result) => {
     if (result.classList.contains('result--ad')) return [];
     const anchor = result.querySelector('a.result__a');
@@ -68,9 +67,10 @@ export function createDuckDuckGoEngine(deps: {
         userAgent: request.userAgent,
       },
     );
-    if (htmlBody.includes('anomaly-modal'))
+    const { document } = parseHTML(htmlBody);
+    if (document.querySelector('[class^="anomaly-modal"]') !== null)
       throw new EngineFailure('challenge');
-    const results = parseResults(htmlBody);
+    const results = parseResults(document);
     return results.length > 0
       ? { kind: 'results', results }
       : { kind: 'empty' };
