@@ -15,10 +15,20 @@ const adapter = createBlueskyAdapter(
   { id: 'bluesky', use: 'bluesky' },
   { apiOrigin: API_ORIGIN },
 );
+/** Marks an author as self-labeled `!no-unauthenticated`; `author` fills in
+ *  the label's `src` with that author's own DID. */
 const HIDDEN = [{ val: '!no-unauthenticated' }];
 
 function author(handle: string, extra: JsonObject = {}): JsonObject {
-  return { did: `did:plc:${handle.split('.')[0]}`, handle, ...extra };
+  const did = `did:plc:${handle.split('.')[0]}`;
+  return {
+    did,
+    handle,
+    ...extra,
+    ...(extra.labels === HIDDEN && {
+      labels: [{ src: did, val: '!no-unauthenticated' }],
+    }),
+  };
 }
 
 function post(
@@ -81,6 +91,21 @@ describe('Bluesky adapter claim', () => {
     'https://bsky.app/profile/alice.test/follows?x=1#y',
   ])('claims %s', (source) => {
     expect(adapter.match(new URL(source))).toBe(true);
+  });
+
+  it('requests a DID profile spelled with %3A, as read requires', async () => {
+    const url = xrpc('app.bsky.actor.getProfile', { actor: 'did:plc:abc' });
+    const failure: WebFetchFailure = {
+      type: 'http_status',
+      message: 'HTTP 400',
+      httpStatus: 400,
+    };
+
+    const { urls } = await read('https://bsky.app/profile/did%3Aplc%3Aabc', [
+      [url, failure],
+    ]);
+
+    expect(urls).toStrictEqual([url]);
   });
 
   it.each([
@@ -451,11 +476,34 @@ describe('Bluesky adapter profiles', () => {
   it('withholds an opted-out profile without requesting its posts', async () => {
     const { outcome, urls } = await read(
       'https://bsky.app/profile/alice.test',
-      [[PROFILE_URL, response({ ...profile, labels: HIDDEN })]],
+      [
+        [
+          PROFILE_URL,
+          response({
+            ...profile,
+            labels: [{ src: 'did:plc:alice', val: '!no-unauthenticated' }],
+          }),
+        ],
+      ],
     );
 
     expect(outcome).toStrictEqual({ kind: 'failed', failure: 'empty' });
     expect(urls).toStrictEqual([PROFILE_URL]);
+  });
+
+  it('ignores the label when another labeler applied it', async () => {
+    const { outcome } = await read('https://bsky.app/profile/alice.test', [
+      [
+        PROFILE_URL,
+        response({
+          ...profile,
+          labels: [{ src: 'did:plc:labeler', val: '!no-unauthenticated' }],
+        }),
+      ],
+      [FEED_URL, response({ feed: [] })],
+    ]);
+
+    expect(outcome).toMatchObject({ kind: 'rendered' });
   });
 });
 

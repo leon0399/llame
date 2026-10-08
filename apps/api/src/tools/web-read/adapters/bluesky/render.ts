@@ -48,7 +48,9 @@ const AUTHOR = z.object({
   handle: z.string(),
   displayName: z.string().optional(),
   description: z.string().optional(),
-  labels: z.array(z.object({ val: z.string() })).optional(),
+  labels: z
+    .array(z.object({ src: z.string().optional(), val: z.string() }))
+    .optional(),
 });
 type Author = z.infer<typeof AUTHOR>;
 
@@ -436,8 +438,12 @@ function formatCount(value: number | undefined): string {
   return (value ?? 0).toLocaleString('en-US');
 }
 
+/** Only the account's own label counts, as in bsky.app: any labeler can
+ *  emit the value against any account. */
 function isHidden(author: Author): boolean {
-  return (author.labels ?? []).some(({ val }) => val === NO_UNAUTHENTICATED);
+  return (author.labels ?? []).some(
+    ({ src, val }) => val === NO_UNAUTHENTICATED && src === author.did,
+  );
 }
 
 function authorLabel(author: Author): string {

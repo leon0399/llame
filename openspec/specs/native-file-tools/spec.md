@@ -2309,7 +2309,9 @@ whose path is `/profile/{actor}`, `/profile/{actor}/post/{rkey}`,
 `/profile/{actor}/followers`, or `/profile/{actor}/follows`, where `{actor}` is
 an AT Protocol handle of at most 253 characters or a DID of at most 2,048
 characters and `{rkey}` is 1-512 record-key characters other than `.` and
-`..`. Query and fragment SHALL not change the claim; a trailing slash, another
+`..`; a `%3A` in `{actor}` or `{rkey}` SHALL be read as `:`, because `read`
+takes a literal colon in the last path segment as a selector. Query and
+fragment SHALL not change the claim; a trailing slash, another
 host or port, `http`, search, feeds, lists, and every other path SHALL be
 unclaimed. The adapter SHALL use only unauthenticated `GET` requests to
 `https://public.api.bsky.app/xrpc/` with `Accept: application/json`: a post
@@ -2336,8 +2338,9 @@ unparsable feed SHALL keep the
 profile and add a `posts omitted: {category}` note. A follow list SHALL render
 one linked line per account and state when more accounts were not loaded.
 
-An account labeled `!no-unauthenticated` SHALL be withheld as bsky.app
-withholds it from a reader without a session: a requested post, profile, or
+An account whose own label (`src` equal to its DID) is `!no-unauthenticated`
+SHALL be withheld as bsky.app withholds it from a reader without a session; a
+label another labeler applied SHALL be ignored. A requested post, profile, or
 follow-list subject by such an account SHALL fall through with `empty`; such
 an ancestor ends the ancestor chain, such a reply is omitted with its
 subtree, such a quoted post renders as unavailable, and such a listed post or

@@ -296,8 +296,8 @@ counts, then `## Latest posts` with one line per original post among the 30
 most recent feed items, reposts dropped;
 if the posts do not load, the profile stays and a `posts omitted: <failure>`
 note is added. `/followers` and `/follows` render one linked line per account
-for the first 100 and say when more were not loaded. Accounts labeled
-`!no-unauthenticated` are withheld: a requested post, profile, or list falls
+for the first 100 and say when more were not loaded. Accounts that label
+themselves `!no-unauthenticated` are withheld: a requested post, profile, or list falls
 through with `empty`, their replies and list entries are omitted, and a quote
 of one of their posts renders as unavailable.
 

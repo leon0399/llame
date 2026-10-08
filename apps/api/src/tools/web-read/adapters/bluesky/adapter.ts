@@ -43,7 +43,9 @@ export function parseBlueskyUrl(source: URL): BlueskyTarget | undefined {
   if (source.protocol !== 'https:' || source.host !== 'bsky.app') {
     return undefined;
   }
-  const match = PROFILE_PATH.exec(source.pathname);
+  // A DID's colons in the last segment arrive as `%3A`: `read` takes a
+  // literal colon there as a selector.
+  const match = PROFILE_PATH.exec(source.pathname.replaceAll(/%3A/giu, ':'));
   const actor = match?.[1];
   if (match === null || actor === undefined) return undefined;
   const limit = actor.startsWith('did:') ? MAX_DID_LENGTH : MAX_HANDLE_LENGTH;
