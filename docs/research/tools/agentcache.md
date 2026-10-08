@@ -74,8 +74,9 @@ authoritative source rather than remembered APIs.[^home]
    vendor's samples and unverified. Moderate confidence the order is sound.
    llame's native `read` already negotiates Markdown, follows announced
    alternates, probes a `.md` suffix and `llms.txt` per locator, with admission
-   per derived request.[^llame-web-locator] The new idea is the GitHub-tree
-   tier and whole-site fan-out, which llame's per-locator `read` lacks and
+   per derived request.[^llame-web-locator] `read` also serves GitHub repository and tree listings. The
+   new ideas are raw-CDN Markdown for GitHub-hosted docs and whole-site
+   fan-out, which llame's per-locator `read` lacks and
    which would need its own egress and quota admission. Study only; low
    confidence it is worth building.
 

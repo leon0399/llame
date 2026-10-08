@@ -56,7 +56,7 @@ launch is reported as a limited preview.[^decoder-devday]
 optional `safety_identifier`. `input` is a string or user messages holding text
 and inline images (at most 128 image parts; no system roles, tool calls, files
 or audio). Hosted image URLs and `file_id` are refused. Each question has a
-`type`, `instructions` and an optional `name`.[^openai-python][^openai-guide]
+`type`, `instructions` and an optional `name`.[^openai-python][^openai-node][^openai-guide]
 
 **Answers**, a discriminated union on `type`:
 
@@ -176,8 +176,8 @@ disclosure policy first.
   and count it in the Run usage.
 - **R5 Secrets.** Never pass resolved credentials or tokens in `input`; apply
   the same redaction as for model context.
-- **R6 Beta churn.** Public beta, one model, SDK minimums (Python 3.26.0,[^openai-python] JS
-  7.30.0[^openai-node]) and schema fields may change before GA.
+- **R6 Beta churn.** Public beta, one model, SDK minimums (Python 3.26.0, JS
+  7.30.0[^openai-guide]) and schema fields may change before GA.
 
 [^openai-guide]: [OpenAI Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
 

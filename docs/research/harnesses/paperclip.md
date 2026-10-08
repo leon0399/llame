@@ -28,6 +28,9 @@ sources:
   - id: readme-l37-l47
     resource: "https://github.com/paperclipai/paperclip/blob/317ed367d4e7ef3221cccab2079018534b5be560/README.md#L37-L47"
     title: "Product statement: company metaphor and bring-your-own-agent"
+  - id: server-package
+    resource: "https://github.com/paperclipai/paperclip/blob/317ed367d4e7ef3221cccab2079018534b5be560/server/package.json"
+    title: "Server package version and workspace adapter dependencies"
   - id: readme-l224-l329
     resource: "https://github.com/paperclipai/paperclip/blob/317ed367d4e7ef3221cccab2079018534b5be560/README.md#L224-L329"
     title: "Control-plane systems: identity, tasks, heartbeats, governance, budgets, routines"
@@ -92,8 +95,9 @@ sources:
 
 # Paperclip
 
-- **Stack:** TypeScript monorepo (Node server, React board UI, Drizzle on Postgres with embedded Postgres by default); MIT; root package version 0.3.1, while releases use calendar tags (the site names
-  `v2026.1005.0` as latest)[^readme-l37-l47][^spec-l98-l123][^paperclip-site]
+- **Stack:** TypeScript monorepo (Node server, React board UI, Drizzle on Postgres with embedded Postgres by default); MIT; workspace packages at version 0.3.1 (the root `package.json` declares none),
+  while releases use calendar tags (the site names `v2026.1005.0` as
+  latest)[^readme-l37-l47][^spec-l98-l123][^server-package][^paperclip-site]
 
 **Status:** Source and documentation inspection only; nothing was run, and the
 paperclip.ing landing page was read only for positioning and release claims. Paperclip models a business as
@@ -117,7 +121,9 @@ under load, since the specs are long and visibly accreted.
    sandbox semantics.[^spec-l1371-l1390] The Claude adapter still builds a
    `--print --output-format stream-json --resume` argv for explicit CLI
    mode.[^claude-l854-l870] Cursor, OpenCode, Pi, Hermes, Grok, OpenClaw gateway,
-   HTTP and plain-process adapters also exist.[^readme-l224-l329] The no-silent-fallback
+   HTTP and plain-process adapters also exist; the README range names Cursor,
+   Gemini, OpenClaw and HTTP bots, and the rest appear as workspace adapter
+   dependencies of the server.[^readme-l224-l329][^server-package] The no-silent-fallback
    rule is the part llame should copy.
 2. **Heartbeat wakeups.** Agents run when woken: assignment, comment, blocker
    resolution, schedule or manual. Wakeups are rows with `source`,
@@ -165,8 +171,8 @@ under load, since the specs are long and visibly accreted.
    Moderate confidence this is the cleanest published automation contract in the
    bundle; it maps directly onto scheduled llame Runs.
 8. **Isolation and auth.** Every table carries `company_id`, and the
-   specification requires "strict company boundary checks on every entity fetch
-   and mutation" in application code.[^spec-l1666-l1677] No Postgres row-level
+   specification requires "strict company boundary checks on every entity
+   fetch/mutation" in application code.[^spec-l1666-l1677] No Postgres row-level
    security appears in the database documentation or specification text I
    searched (moderate confidence; the schema files were not exhaustively
    scanned). Agents authenticate with hashed per-agent bearer keys and
@@ -242,3 +248,5 @@ llame's multi-user model without sandboxed execution targets.
 [^modes-l29-l52]: [local_trusted and authenticated deployment modes](https://github.com/paperclipai/paperclip/blob/317ed367d4e7ef3221cccab2079018534b5be560/doc/DEPLOYMENT-MODES.md#L29-L52)
 
 [^paperclip-site]: [Paperclip landing page](https://paperclip.ing)
+
+[^server-package]: [Server package version and workspace adapter dependencies](https://github.com/paperclipai/paperclip/blob/317ed367d4e7ef3221cccab2079018534b5be560/server/package.json)
