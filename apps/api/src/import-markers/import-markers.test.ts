@@ -98,6 +98,30 @@ describe('importTargets', () => {
     expect(importTargets('@[docs](README.md)')).toEqual(['README.md']);
   });
 
+  it('does not recognize an autolink after an at-sign', () => {
+    expect(importTargets('@<https://example.com>')).toEqual([]);
+  });
+
+  it('walks deeply nested blockquotes without recursive overflow', () => {
+    expect(importTargets('> '.repeat(5000) + '@a.md')).toEqual(['a.md']);
+  });
+
+  it('handles deeply nested unresolved references in linear time', () => {
+    const fence = '```';
+    const bodyLength = 64 * 1024 - fence.length * 2 - 2;
+    let references = '[x][r]';
+    while (references.length + 4 <= bodyLength) {
+      references = `[${references}][r]`;
+    }
+    const source = `${fence}\n${references}${' '.repeat(
+      bodyLength - references.length,
+    )}\n${fence}`;
+
+    const startedAt = performance.now();
+    expect(importTargets(source)).toEqual([]);
+    expect(performance.now() - startedAt).toBeLessThan(500);
+  });
+
   it('does not recognize an at-prefixed link with another title', () => {
     expect(importTargets('@[docs](README.md "Import")')).toEqual([]);
   });

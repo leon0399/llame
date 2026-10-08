@@ -47,34 +47,40 @@ function addMarker(
 }
 
 function collectNodes(
-  node: Nodes,
+  root: Nodes,
   source: string,
   mask: Uint8Array,
   markers: Array<Marker>,
 ): void {
-  const range = nodeRange(node);
-  if (range && Object.hasOwn(EXCLUDED_NODE_TYPES, node.type)) {
-    mask.fill(1, range.start, range.end);
-  }
+  const pending: Array<Nodes> = [root];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined) continue;
 
-  if (range && node.type === 'link') {
-    if (node.title === 'import') {
-      addMarker(markers, range.start, node.url);
-    } else if (node.title === null) {
-      const atOffset = range.start - 1;
-      if (
-        atOffset >= 0 &&
-        source.at(atOffset) === '@' &&
-        isBareBoundary(source, atOffset)
-      ) {
-        addMarker(markers, atOffset, node.url);
+    const range = nodeRange(node);
+    if (range && Object.hasOwn(EXCLUDED_NODE_TYPES, node.type)) {
+      mask.fill(1, range.start, range.end);
+    }
+
+    if (range && node.type === 'link') {
+      if (node.title === 'import') {
+        addMarker(markers, range.start, node.url);
+      } else if (node.title === null && source[range.start] === '[') {
+        const atOffset = range.start - 1;
+        if (
+          atOffset >= 0 &&
+          source.at(atOffset) === '@' &&
+          isBareBoundary(source, atOffset)
+        ) {
+          addMarker(markers, atOffset, node.url);
+        }
       }
     }
-  }
 
-  if ('children' in node) {
-    for (const child of node.children) {
-      collectNodes(child, source, mask, markers);
+    if ('children' in node) {
+      for (let index = node.children.length; index > 0; index -= 1) {
+        pending.push(node.children[index - 1]);
+      }
     }
   }
 }
@@ -87,6 +93,7 @@ function collectUnresolvedReferenceRanges(
     start: number;
     referenceStart: number | undefined;
   }> = [];
+  const referenceRanges: Array<SourceRange> = [];
   let previousClosingStart: number | undefined;
 
   for (let offset = 0; offset < source.length; offset += 1) {
@@ -112,9 +119,25 @@ function collectUnresolvedReferenceRanges(
       continue;
     }
     if (opening.referenceStart !== undefined) {
-      mask.fill(1, opening.referenceStart, offset + 1);
+      referenceRanges.push({
+        start: opening.referenceStart,
+        end: offset + 1,
+      });
     }
     previousClosingStart = opening.start;
+  }
+
+  if (referenceRanges.length === 0) return;
+  const delta = new Int32Array(source.length + 1);
+  for (const range of referenceRanges) {
+    delta[range.start] += 1;
+    delta[range.end] -= 1;
+  }
+
+  let active = 0;
+  for (let offset = 0; offset < source.length; offset += 1) {
+    active += delta[offset];
+    if (active > 0) mask[offset] = 1;
   }
 }
 
