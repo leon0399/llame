@@ -57,6 +57,9 @@ function collectNodeMarkers(
   markers: Array<Marker>,
 ): void {
   if (range === undefined || node.type !== 'link') return;
+  // `url` is CommonMark-decoded; an entity or escape in the destination would
+  // import a path the source text never spells, so such a link is not a marker.
+  if (!source.slice(range.start, range.end).includes(node.url)) return;
   if (node.title === 'import') {
     addMarker(markers, range.start, node.url);
     return;
