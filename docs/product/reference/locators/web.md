@@ -486,6 +486,28 @@ against the forum and empty heading anchors dropped; a small action without
 text, such as a closing, renders its event name. Each entry ends with `Source:`
 (the post's URL) and `Date:` lines.
 
+### dev.to and Substack adapters
+
+An article renders `# {title}`, the description (dev.to) or subtitle
+(Substack), then `Author`, `Published`, and `Tags` lines for the fields present
+and a `URL` line, then the body: dev.to's is the author's Markdown as written,
+with Liquid tags such as `{% embed ... %}` left as they are; Substack's is the
+post HTML converted to Markdown, with root-relative links resolved and the link
+Substack wraps around each image to its full-size file dropped.
+
+```text
+# JavaScript Visualized: Promises & Async/Await
+
+If you're here in 2024 (or later), here's an updated video: ...
+
+Author: Lydia Hallie
+Published: 2020-04-14T16:46:40Z
+Tags: javascript, node, webdev
+URL: https://dev.to/lydiahallie/javascript-visualized-promises-async-await-5gke
+
+...
+```
+
 ## Bounds
 
 | Bound                         | Value                                                                                                         |

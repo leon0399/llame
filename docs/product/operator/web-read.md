@@ -92,7 +92,8 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
-`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, or `discourse` entry. What an adapter does to a result — its
+`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, `discourse`, `devto`, or
+`substack` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -418,6 +419,29 @@ installed under a subfolder stay on the generic ladder. A read requests
 200 from `/t/{id}/posts.json?post_ids[]=...`, 100 ids per request: one to three
 requests in all. A longer topic adds `posts truncated: the first 200 of N`. With
 a domain allowlist, admit each listed host.
+
+### dev.to and Substack adapters
+
+Add a `devto` or `substack` entry to read blog articles from the platform's
+API instead of converting the page:
+
+```jsonc
+{ "id": "devto", "use": "devto" }
+{ "id": "substack", "use": "substack" }
+```
+
+Neither takes another field or sends a credential, and each read is one request.
+`devto` claims `https://dev.to/{username}/{slug}` and requests
+`https://dev.to/api/articles/{username}/{slug}`, which returns the author's own
+Markdown; profiles, tag pages, search, and dev.to's site pages stay on the
+generic ladder, and the API throttles bursts of keyless reads with `429`.
+`substack` claims `https://{publication}.substack.com/p/{slug}` and requests
+`https://{publication}.substack.com/api/v1/posts/{slug}`; a publication on a
+custom domain redirects that request to its domain, so with a domain allowlist
+admit that domain as well as `^https://[a-z0-9-]+\.substack\.com/`. A post for
+subscribers renders its public preview with `body truncated: subscribers only`. Custom-domain
+post URLs and Hashnode, whose free API was retired and whose pages answer
+with a bot challenge, are not claimed.
 
 ## Derived locators and permission admission
 

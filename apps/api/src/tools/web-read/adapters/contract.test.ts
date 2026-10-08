@@ -188,6 +188,24 @@ describe('createWebAdapters', () => {
     );
   });
 
+  it('creates a native dev.to adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'blogs', use: 'devto' }]);
+    if (adapter === undefined) throw new Error('expected dev.to adapter');
+
+    expect(adapter).toMatchObject({ id: 'blogs', route: 'native' });
+    expect(adapter.match(new URL('https://dev.to/alice/a-post'))).toBe(true);
+  });
+
+  it('creates a native Substack adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'letters', use: 'substack' }]);
+    if (adapter === undefined) throw new Error('expected Substack adapter');
+
+    expect(adapter).toMatchObject({ id: 'letters', route: 'native' });
+    expect(adapter.match(new URL('https://simonw.substack.com/p/a-post'))).toBe(
+      true,
+    );
+  });
+
   it('creates a native Discourse adapter with the configured id', () => {
     const [adapter] = createWebAdapters([
       { id: 'forums', use: 'discourse', hosts: ['forum.example.test'] },

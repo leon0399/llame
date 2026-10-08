@@ -15,6 +15,7 @@ import {
 import { createArxivAdapter } from './arxiv/adapter';
 import { createBlueskyAdapter } from './bluesky/adapter';
 import { createCratesAdapter } from './crates/adapter';
+import { createDevtoAdapter } from './devto/adapter';
 import { createDiscourseAdapter } from './discourse/adapter';
 import { createDoiAdapter } from './doi/adapter';
 import { createGithubAdapter } from './github/adapter';
@@ -23,6 +24,7 @@ import { createHuggingfaceAdapter } from './huggingface/adapter';
 import { createNpmAdapter } from './npm/adapter';
 import { createRewriteAdapter } from './rewrite';
 import { createStackexchangeAdapter } from './stackexchange/adapter';
+import { createSubstackAdapter } from './substack/adapter';
 
 export type WebAdapterRoute = 'native' | 'rewrite';
 
@@ -334,6 +336,10 @@ export function createWebAdapters(
         return createDoiAdapter(config);
       case 'discourse':
         return createDiscourseAdapter(config);
+      case 'devto':
+        return createDevtoAdapter(config);
+      case 'substack':
+        return createSubstackAdapter(config);
       case 'rewrite':
         return createRewriteAdapter(config);
     }

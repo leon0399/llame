@@ -988,6 +988,44 @@
                     "description": "Exact canonical forum hostnames (lowercase, without a port)."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native dev.to adapter. It reads an article's Markdown from the keyless dev.to API; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["devto"],
+                    "description": "Adapter implementation for dev.to article URLs."
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native Substack adapter. It reads a post from its publication's keyless Substack API; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["substack"],
+                    "description": "Adapter implementation for {publication}.substack.com post URLs."
+                  }
+                }
               }
             ]
           }

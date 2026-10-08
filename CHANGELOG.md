@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added native `devto` and `substack` web adapters. With
+  `{ "id": "devto", "use": "devto" }` or `{ "id": "substack", "use": "substack" }`
+  in `tools.webAdapters`, `read` renders dev.to articles as the author's
+  Markdown and `{publication}.substack.com/p/{slug}` posts as Markdown, each
+  with title, author, date, and tags, from the platforms' keyless APIs; a
+  subscribers-only Substack post notes `body truncated: subscribers only`.
 - Added a native `discourse` web adapter with a `hosts` list. With
   `{ "id": "forums", "use": "discourse", "hosts": ["meta.discourse.org"] }` in
   `tools.webAdapters`, `read` renders topic links on the listed Discourse
