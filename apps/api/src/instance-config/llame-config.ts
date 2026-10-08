@@ -530,7 +530,7 @@ export type RawWebAdapterEntry =
     }
   | {
       id: string;
-      use: 'devto' | 'substack' | 'osv';
+      use: 'devto' | 'substack' | 'osv' | 'wikipedia';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -616,20 +616,16 @@ export type DiscourseWebAdapterConfig = {
   readonly hosts: ReadonlyArray<string>;
 };
 
-export type DevtoWebAdapterConfig = {
+/** A native adapter entry that takes no field beyond its id. */
+type FieldlessWebAdapterConfig<Use extends string> = {
   readonly id: string;
-  readonly use: 'devto';
+  readonly use: Use;
 };
 
-export type SubstackWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'substack';
-};
-
-export type OsvWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'osv';
-};
+export type DevtoWebAdapterConfig = FieldlessWebAdapterConfig<'devto'>;
+export type SubstackWebAdapterConfig = FieldlessWebAdapterConfig<'substack'>;
+export type OsvWebAdapterConfig = FieldlessWebAdapterConfig<'osv'>;
+export type WikipediaWebAdapterConfig = FieldlessWebAdapterConfig<'wikipedia'>;
 
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
@@ -645,7 +641,8 @@ export type WebAdapterConfig =
   | DiscourseWebAdapterConfig
   | DevtoWebAdapterConfig
   | SubstackWebAdapterConfig
-  | OsvWebAdapterConfig;
+  | OsvWebAdapterConfig
+  | WikipediaWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

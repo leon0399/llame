@@ -521,6 +521,15 @@ no ranges, and repository ranges by commit;
 repository range names its repo as `GIT {repo}`, so a commit is not read as a
 package version.
 
+### Wikipedia adapter
+
+An article renders `# {title}` and a `URL` line with its canonical address
+(the target of a redirect title), then its body converted to Markdown. Citation
+markers, reference lists, navigation boxes, maintenance notices, the infobox,
+hidden text, and images are removed (a figure keeps its caption); a formula renders as its TeX source in
+code, code renders as fenced blocks, and article links become absolute
+`https://{lang}.wikipedia.org/wiki/...` links.
+
 ## Bounds
 
 | Bound                         | Value                                                                                                         |

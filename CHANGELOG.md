@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `wikipedia` web adapter. With
+  `{ "id": "wikipedia", "use": "wikipedia" }` in `tools.webAdapters`, `read`
+  renders `{lang}.wikipedia.org/wiki/{title}` articles from the Wikimedia REST
+  API as their prose, about a third the size of the converted page, without
+  citation markers, reference lists, navigation boxes, or the infobox.
 - Added a native `osv` web adapter. With `{ "id": "advisories", "use": "osv" }`
   in `tools.webAdapters`, `read` renders OSV.dev, NVD CVE, GitHub advisory, and
   cve.org record links as the advisory's aliases, severity, CWE, affected
