@@ -727,59 +727,50 @@ describe('runTool permission gate', () => {
     execute: (_ctx, { path }) => ({ status: 'success', path }),
   };
   describe('previewToolPermission', () => {
-    it('returns true for an allowed read', () => {
-      expect(
-        previewToolPermission(
-          nativeReadTool,
-          { path: '/tmp/allowed.md' },
-          contextWith({ read: { allow: true } }),
-        ),
-      ).toBe(true);
-    });
-
-    it('returns false for a rejected path', () => {
-      expect(
-        previewToolPermission(
-          nativeReadTool,
-          { path: '/tmp/blocked.md' },
+    it.each([
+      {
+        name: 'an allowed read',
+        expected: true,
+        args: { path: '/tmp/allowed.md' },
+        context: () => contextWith({ read: { allow: true } }),
+      },
+      {
+        name: 'a rejected path',
+        expected: false,
+        args: { path: '/tmp/blocked.md' },
+        context: () =>
           contextWith({
             read: {
               allow: true,
               reject: [{ field: 'path', literal: '/tmp/blocked.md' }],
             },
           }),
-        ),
-      ).toBe(false);
+      },
+      {
+        name: 'no permission policy',
+        expected: false,
+        args: { path: '/tmp/allowed.md' },
+        context: () => contextWithoutPolicy,
+      },
+      {
+        name: 'bypass mode',
+        expected: true,
+        args: { path: '/tmp/blocked.md' },
+        context: () => ({
+          ...contextWith({
+            read: {
+              allow: true,
+              reject: [{ field: 'path', literal: '/tmp/blocked.md' }],
+            },
+          }),
+          permissionMode: 'bypass' as const,
+        }),
+      },
+    ])('returns $expected for $name', ({ args, expected, context }) => {
+      expect(previewToolPermission(nativeReadTool, args, context())).toBe(
+        expected,
+      );
     });
-
-    it('returns false when no permission policy is supplied', () => {
-      expect(
-        previewToolPermission(
-          nativeReadTool,
-          { path: '/tmp/allowed.md' },
-          contextWithoutPolicy,
-        ),
-      ).toBe(false);
-    });
-
-    it('returns true in bypass mode', () => {
-      expect(
-        previewToolPermission(
-          nativeReadTool,
-          { path: '/tmp/blocked.md' },
-          {
-            ...contextWith({
-              read: {
-                allow: true,
-                reject: [{ field: 'path', literal: '/tmp/blocked.md' }],
-              },
-            }),
-            permissionMode: 'bypass',
-          },
-        ),
-      ).toBe(true);
-    });
-
     it('does not execute or record while previewing', () => {
       const execute = vi.spyOn(nativeReadTool, 'execute');
       const onDerivedDecision = vi.fn();

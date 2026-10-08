@@ -270,21 +270,19 @@ function isInstructionsFileEntry(
   value: unknown,
 ): value is InstructionsPart["data"]["payload"]["files"][number] {
   if (!isNonNullObject(value)) return false;
-  const keys = Object.keys(value);
-  const hasImportedBy = keysMatch(keys, [
-    "path",
-    "canonicalPath",
-    "truncated",
-    "importedBy",
-  ]);
+  const hasImportedBy = Object.hasOwn(value, "importedBy");
   if (
-    !hasImportedBy &&
-    !keysMatch(keys, ["path", "canonicalPath", "truncated"])
+    !keysMatch(Object.keys(value), [
+      "path",
+      "canonicalPath",
+      "truncated",
+      ...(hasImportedBy ? ["importedBy"] : []),
+    ])
   ) {
     return false;
   }
-  // SAFETY: `keysMatch` above confirmed `value` has exactly one of the two
-  // accepted file-entry shapes; each field is validated individually below.
+  // SAFETY: `keysMatch` above confirmed `value` has exactly the accepted
+  // file-entry shape; each field is validated individually below.
   const { path, canonicalPath, truncated, importedBy } = value as {
     path: unknown;
     canonicalPath: unknown;

@@ -30,6 +30,8 @@ import {
 export interface InstructionImportCollector {
   /** The attempt's seen keys, plus every canonical path loaded so far. */
   readonly keys: Set<string>;
+  /** Candidates and import targets already attempted in this bundle. */
+  readonly attempted: Set<string>;
   readonly files: Array<LoadedInstructionFile>;
   readonly denied: Array<string>;
 }
@@ -42,8 +44,6 @@ export interface InstructionImportGroup {
   readonly directories: Map<string, ReadonlySet<string>>;
   /** A Space group's files are owner-maintained Knowledge content. */
   readonly knowledge: boolean;
-  /** The Knowledge Space id, absent for the host filesystem. */
-  readonly spaceId?: string;
 }
 
 /** State shared by one world's chain and its recursive imports. */
@@ -51,15 +51,6 @@ export interface InstructionImportState {
   readonly collector: InstructionImportCollector;
   readonly group: InstructionImportGroup;
   readonly abortSignal: AbortSignal | undefined;
-  /** Canonical keys on the current recursive import path. */
-  readonly inProgress: Set<string>;
-}
-
-interface CandidateLoad {
-  /** The number of ordinary imports above this file. */
-  readonly hop: number;
-  /** Set only for a file loaded by an explicit import marker. */
-  readonly importedBy?: string;
 }
 
 interface ResolvedImport {
@@ -90,14 +81,14 @@ function resolveImport(
       : posix.resolve(posix.dirname(importer), target);
     return { key, path: key };
   }
-  if (target.startsWith('/') || group.spaceId === undefined) return undefined;
-  const prefix = `${KNOWLEDGE_LOCATOR_SCHEME}://`;
-  if (!importer.startsWith(prefix)) return undefined;
-  const parsed = parseKnowledgeLocator(importer.slice(prefix.length));
-  if ('type' in parsed || parsed.knowledgeSpaceId !== group.spaceId) {
+  if (
+    target.startsWith('/') ||
+    !importer.startsWith(`${KNOWLEDGE_LOCATOR_SCHEME}://`)
+  ) {
     return undefined;
   }
-  const base = parentKey(parsed.relativePath ?? '', '');
+  const base = candidateDirectory(group, importer);
+  if (base === undefined) return undefined;
   const key = posix.normalize(posix.join(base, target));
   if (key === '..' || key.startsWith('../')) return undefined;
   const relativePath = key === '.' ? '' : key;
@@ -120,24 +111,26 @@ function candidateDirectory(
 }
 
 /** Reads one candidate into the collector, unless it is disclosed or seen. */
+// eslint-disable-next-line max-params -- The import collector's plain parameters keep hop and provenance independent.
 export async function collectInstructionCandidate(
   state: InstructionImportState,
   candidate: InstructionCandidate,
   disclosed: ReadonlySet<string>,
-  load: CandidateLoad,
+  hop: number,
+  importedBy?: string,
 ): Promise<void> {
   const { collector, group } = state;
   if (collector.keys.has(candidate.canonicalPath)) return;
   if (disclosed.has(candidate.canonicalPath)) return;
+  if (collector.attempted.has(candidate.canonicalPath)) return;
+  collector.attempted.add(candidate.canonicalPath);
+  collector.attempted.add(candidate.path);
   const read = await readInstructionFile(candidate, group.page);
   if (read.kind === 'denied') {
     collector.denied.push(candidate.path);
     return;
   }
-  if (read.kind === 'failed') {
-    if (load.importedBy !== undefined) collector.denied.push(candidate.path);
-    return;
-  }
+  if (read.kind === 'failed') return;
   if (read.content.length === 0) return;
   collector.keys.add(candidate.canonicalPath);
   const file = {
@@ -148,39 +141,52 @@ export async function collectInstructionCandidate(
     omittedBytes: read.omittedBytes,
     knowledge: group.knowledge,
   };
-  if (load.importedBy !== undefined) {
-    collector.files.push({ ...file, importedBy: load.importedBy });
+  if (importedBy !== undefined) {
+    collector.files.push({ ...file, importedBy });
   } else {
     collector.files.push(file);
   }
-  if (load.importedBy !== undefined) {
+  if (importedBy !== undefined) {
     const directory = candidateDirectory(group, candidate.path);
     if (directory !== undefined) await loadDirectoryChain(state, directory);
   }
-  await expandImports(state, candidate.path, read.content, load.hop);
+  await expandImports(state, candidate.path, read.content, hop);
 }
 
+// eslint-disable-next-line max-lines-per-function -- Admission, probing, canonical checks, and recursive loading form one import operation.
 async function loadResolvedImport(
   state: InstructionImportState,
   importer: string,
   resolved: ResolvedImport,
   hop: number,
 ): Promise<void> {
+  const { collector } = state;
+  if (
+    collector.attempted.has(resolved.key) ||
+    collector.attempted.has(resolved.path)
+  ) {
+    return;
+  }
   if (!state.group.admitsRead(resolved.path)) {
+    collector.attempted.add(resolved.key);
+    collector.attempted.add(resolved.path);
     await state.group.page(`${resolved.path}${IMPORT_PAGE}`);
-    state.collector.denied.push(resolved.path);
+    collector.denied.push(resolved.path);
     return;
   }
   const probe = await state.group.scope.probe(resolved.key);
-  if (probe.kind !== 'file') return;
-  if (probe.canonicalPath !== resolved.path) {
-    state.collector.denied.push(resolved.path);
+  if (probe.kind !== 'file') {
+    collector.attempted.add(resolved.key);
+    collector.attempted.add(resolved.path);
     return;
   }
-  if (
-    state.collector.keys.has(probe.canonicalPath) ||
-    state.inProgress.has(probe.canonicalPath)
-  ) {
+  const attemptedCanonical = collector.attempted.has(probe.canonicalPath);
+  if (attemptedCanonical) return;
+  if (probe.canonicalPath !== resolved.path) {
+    collector.attempted.add(resolved.key);
+    collector.attempted.add(resolved.path);
+    collector.attempted.add(probe.canonicalPath);
+    collector.denied.push(resolved.path);
     return;
   }
   const candidate: InstructionCandidate = {
@@ -188,15 +194,15 @@ async function loadResolvedImport(
     canonicalPath: probe.canonicalPath,
     size: probe.size,
   };
-  state.inProgress.add(candidate.canonicalPath);
-  try {
-    await collectInstructionCandidate(state, candidate, new Set<string>(), {
-      hop: hop + 1,
-      importedBy: importer,
-    });
-  } finally {
-    state.inProgress.delete(candidate.canonicalPath);
-  }
+  await collectInstructionCandidate(
+    state,
+    candidate,
+    new Set<string>(),
+    hop + 1,
+    importer,
+  );
+  collector.attempted.add(resolved.key);
+  collector.attempted.add(resolved.path);
 }
 
 async function expandImports(
@@ -230,9 +236,7 @@ async function loadDirectoryChain(
     const candidates = await selectCandidates(group.scope, chainDirectory);
     for (const candidate of candidates) {
       state.abortSignal?.throwIfAborted();
-      await collectInstructionCandidate(state, candidate, new Set<string>(), {
-        hop: 0,
-      });
+      await collectInstructionCandidate(state, candidate, new Set<string>(), 0);
     }
   }
 }

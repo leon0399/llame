@@ -3126,8 +3126,7 @@ export class RunExecutionService {
       // must not reload on the attempt's first in-Run trigger.
       seenKeys: turn.seenCanonicalPaths,
       ...(this.hostInstructionsLoadable() && { readPage }),
-      ...((this.hostInstructionsLoadable() ||
-        this.knowledgeInstructionsLoadable()) && { admitsRead }),
+      admitsRead,
       ...(this.knowledgeInstructionsLoadable() && {
         knowledge: {
           readPage,

@@ -225,7 +225,7 @@ export interface InRunAttempt {
    */
   readonly readPage?: ReadPage;
   /** Preview the read permission without recording an audit event. */
-  readonly admitsRead?: (path: string) => boolean;
+  readonly admitsRead: (path: string) => boolean;
   /**
    * The Knowledge capability this attempt may load Space candidates with.
    * Absent when it may not: `read` is not allowlisted or no `knowledge.root`

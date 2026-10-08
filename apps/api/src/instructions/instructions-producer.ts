@@ -68,7 +68,6 @@ import {
   touchedPath,
   walkFrom,
   type InstructionScope,
-  type ReadPage,
 } from './instruction-files';
 import {
   collectInstructionCandidate,
@@ -250,13 +249,10 @@ async function resolveDirectories(
  * absent from this record may not load at all, so its triggers are ignored
  * before any filesystem is probed.
  */
-interface AttemptWorlds {
-  readonly readPage?: ReadPage;
-  readonly knowledge?: InRunAttempt['knowledge'];
-  readonly admitsRead?: (path: string) => boolean;
-}
-type BundleCollector = InstructionImportCollector;
-type TriggerGroup = InstructionImportGroup;
+type AttemptWorlds = Pick<
+  InRunAttempt,
+  'readPage' | 'knowledge' | 'admitsRead'
+>;
 
 /** One Space's triggers in a step. */
 interface SpaceTriggers {
@@ -300,17 +296,16 @@ function partitionTriggers(
 async function resolveGroups(input: {
   readonly triggers: ReadonlyArray<PendingTrigger>;
   readonly worlds: AttemptWorlds;
-}): Promise<Array<TriggerGroup>> {
+}): Promise<Array<InstructionImportGroup>> {
   const { onHost, bySpace } = partitionTriggers(input.triggers);
-  const groups: Array<TriggerGroup> = [];
-  const admitsRead = input.worlds.admitsRead ?? (() => true);
+  const groups: Array<InstructionImportGroup> = [];
   const hostPage = input.worlds.readPage;
   if (hostPage !== undefined) {
     const scope = hostInstructionScope();
     groups.push({
       scope,
       page: hostPage,
-      admitsRead,
+      admitsRead: input.worlds.admitsRead,
       directories: await resolveDirectories(onHost, scope),
       knowledge: false,
     });
@@ -327,10 +322,9 @@ async function resolveGroups(input: {
     groups.push({
       scope,
       page: knowledge.readPage,
-      admitsRead,
+      admitsRead: input.worlds.admitsRead,
       directories: await resolveDirectories(owned.triggers, scope),
       knowledge: true,
-      spaceId,
     });
   }
   return groups;
@@ -343,7 +337,7 @@ async function resolveGroups(input: {
  * counting segments orders both; code points break the one tie a world's own
  * root has with its top-level directories.
  */
-function walkOrder(group: TriggerGroup): Array<string> {
+function walkOrder(group: InstructionImportGroup): Array<string> {
   const walked = new Set<string>();
   for (const directory of group.directories.keys()) {
     for (const entry of walkFrom(group.scope.root, directory)) {
@@ -366,8 +360,9 @@ async function loadBundle(input: {
   readonly keys: Set<string>;
   readonly abortSignal: AbortSignal | undefined;
 }): Promise<AuthoredContextItemPart | undefined> {
-  const collector: BundleCollector = {
+  const collector: InstructionImportCollector = {
     keys: input.keys,
+    attempted: new Set<string>(),
     files: [],
     denied: [],
   };
@@ -379,7 +374,6 @@ async function loadBundle(input: {
       collector,
       group,
       abortSignal: input.abortSignal,
-      inProgress: new Set<string>(),
     };
     await loadGroup(state);
   }
@@ -403,9 +397,7 @@ async function loadGroup(state: InstructionImportState): Promise<void> {
       // An aborted Run stops loading at the next candidate instead of walking
       // a whole chain to the filesystem root.
       state.abortSignal?.throwIfAborted();
-      await collectInstructionCandidate(state, candidate, disclosed, {
-        hop: 0,
-      });
+      await collectInstructionCandidate(state, candidate, disclosed, 0);
     }
   }
 }

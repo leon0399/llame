@@ -237,14 +237,10 @@ function evaluateToolPermission(
  */
 export function previewToolPermission(
   tool: Tool,
-  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the shared argument admission path below.
-  args: unknown,
+  args: SubmittedToolArguments,
   context: ToolContext,
 ): boolean {
-  const parsed = validateToolArguments(tool, args);
-  if ('status' in parsed) return false;
-  const decision = evaluateToolPermission(tool, parsed.submittedArgs, context);
-  return decision?.decision === 'allow';
+  return evaluateToolPermission(tool, args, context)?.decision === 'allow';
 }
 
 /**
@@ -435,14 +431,6 @@ function parseToolArguments(
   return { args: parsed.data, submittedArgs: args };
 }
 
-function validateToolArguments(
-  tool: Tool,
-  args: unknown,
-): AdmittedArguments | ToolResult {
-  if (!isRecord(args)) return invalidToolArguments(tool);
-  return parseToolArguments(tool, args);
-}
-
 /**
  * The D4/D6 fail-closed guards (resolvable identity, not already cancelled,
  * a trusted timeout) plus schema validation (2.2), run before anything is
@@ -488,7 +476,10 @@ function admitToolCall(
     return { result: refusalResult(tool.id) };
   }
 
-  const parsed = validateToolArguments(tool, args);
+  if (!isRecord(args)) {
+    return { result: invalidToolArguments(tool) };
+  }
+  const parsed = parseToolArguments(tool, args);
   if ('status' in parsed) return { result: parsed };
   return { context, ...parsed };
 }

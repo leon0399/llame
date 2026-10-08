@@ -91,8 +91,8 @@ function attemptOf(
     runId: RUN_ID,
     chatId: '22222222-2222-4222-8222-222222222222',
     userId: 'owner',
+    admitsRead: input.admitsRead ?? (() => true),
     ...(input.seenKeys !== undefined && { seenKeys: input.seenKeys }),
-    ...(input.admitsRead !== undefined && { admitsRead: input.admitsRead }),
     ...(readPage !== undefined && { readPage }),
     ...(space !== undefined && {
       knowledge: { readPage: space.readPage, probe: space.knowledge },
@@ -1102,6 +1102,33 @@ describe('instructions producer imports', () => {
     ]);
   });
 
+  it('consumes ordinary import hops across directories', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    await write(rootFile, '@a/a.md\n');
+    let directory = root;
+    for (const [index, name] of ['a', 'b', 'c', 'd', 'e', 'f'].entries()) {
+      directory = join(directory, name);
+      const next = String.fromCharCode(name.charCodeAt(0) + 1);
+      await write(
+        join(directory, `${name}.md`),
+        index === 5 ? 'last\n' : `@${next}/${next}.md\n`,
+      );
+    }
+
+    const { producer, staged, prepare } = attemptOf();
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    const expected: Array<string> = [rootFile];
+    let expectedDirectory = root;
+    for (const name of ['a', 'b', 'c', 'd', 'e']) {
+      expectedDirectory = join(expectedDirectory, name);
+      expected.push(join(expectedDirectory, `${name}.md`));
+    }
+    expect(blockPaths(lastStaged(staged))).toEqual(expected);
+    expect(lastStaged(staged).data.text).toContain('@f/f.md');
+  });
+
   it('restarts hop counting for a chain file loaded by an import trigger', async () => {
     const rootFile = join(root, 'AGENTS.md');
     await write(rootFile, '@foo/doc.md\n');
@@ -1130,11 +1157,21 @@ describe('instructions producer imports', () => {
 
   it('leaves missing, schemed, home, and selector targets literal', async () => {
     const rootFile = join(root, 'AGENTS.md');
+    const literalTargets = [
+      join(root, '~', 'x.md'),
+      join(root, 'foo.md:30-35'),
+      join(root, 'https:', 'x'),
+      join(root, 'kb:', 's', 'x'),
+    ];
+    for (const target of literalTargets) {
+      await write(target, 'must stay literal\n');
+    }
     await write(
       rootFile,
       '@missing.md @~/x.md @https://x @kb://s/x @foo.md:30-35\n',
     );
     const reads: Array<string> = [];
+    const admitted: Array<string> = [];
     const readPage: ReadPage = async (selectorPath) => {
       reads.push(selectorPath);
       const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
@@ -1145,12 +1182,22 @@ describe('instructions producer imports', () => {
         truncated: false,
       };
     };
-    const { producer, staged, prepare } = attemptOf({ readPage });
+    const { producer, staged, prepare } = attemptOf({
+      readPage,
+      admitsRead: (path) => {
+        admitted.push(path);
+        return true;
+      },
+    });
     producer.observeToolCall?.(readCall(join(root, 'x.ts')));
     await prepare();
 
     expect(blockPaths(lastStaged(staged))).toEqual([rootFile]);
     expect(reads).toEqual([`${rootFile}:raw:1-2000`]);
+    expect(admitted).toEqual([join(root, 'missing.md')]);
+    for (const target of literalTargets) {
+      expect(admitted).not.toContain(target);
+    }
   });
 
   it('keeps Knowledge imports inside their Space', async () => {
@@ -1201,6 +1248,62 @@ describe('instructions producer imports', () => {
 
     expect(reads).toEqual([`${rootFile}:raw:1-2000`, `${target}:raw:1-2000`]);
     expect(deniedPaths(lastStaged(staged))).toEqual([target]);
+  });
+
+  it('audits rejected existing and missing imports identically', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const target = join(root, 'shared.md');
+    await write(rootFile, '@shared.md\n');
+
+    const load = async () => {
+      const reads: Array<string> = [];
+      const admitted: Array<string> = [];
+      const readPage: ReadPage = async (selectorPath) => {
+        reads.push(selectorPath);
+        if (selectorPath.startsWith(`${target}:raw:`)) {
+          return {
+            status: 'error',
+            type: 'permission_denied',
+            message: 'Denied by policy.',
+          };
+        }
+        const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+        return {
+          status: 'success',
+          kind: 'file',
+          content: await readFile(path, 'utf8'),
+          truncated: false,
+        };
+      };
+      const { producer, staged, prepare } = attemptOf({
+        readPage,
+        admitsRead: (path) => {
+          admitted.push(path);
+          return path !== target;
+        },
+      });
+      producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+      await prepare();
+      return {
+        part: lastStaged(staged),
+        reads,
+        admitted,
+      };
+    };
+
+    await write(target, 'existing target\n');
+    const existing = await load();
+    await rm(target);
+    const missing = await load();
+
+    expect(existing.part.data.payload).toEqual(missing.part.data.payload);
+    expect(existing.reads).toEqual([
+      `${rootFile}:raw:1-2000`,
+      `${target}:raw:1-2000`,
+    ]);
+    expect(missing.reads).toEqual(existing.reads);
+    expect(existing.admitted).toEqual([target]);
+    expect(missing.admitted).toEqual([target]);
   });
 
   it('evaluates a denied import again from a later trigger', async () => {
@@ -1256,6 +1359,61 @@ describe('instructions producer imports', () => {
     if (part === undefined) throw new Error('the accepted turn loaded nothing');
 
     expect(blockPaths(part)).toEqual([rootFile, doc]);
+  });
+
+  it('reloads imports when a fresh attempt has no seen keys', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const doc = join(root, 'foo/doc.md');
+    await write(rootFile, '@foo/doc.md\n');
+    await write(doc, 'doc\n');
+
+    const first = attemptOf();
+    first.producer.observeToolCall?.(readCall(join(root, 'first.ts')));
+    await first.prepare();
+    expect(blockPaths(lastStaged(first.staged))).toEqual([rootFile, doc]);
+
+    const second = attemptOf({ seenKeys: new Set() });
+    second.producer.observeToolCall?.(readCall(join(root, 'second.ts')));
+    await second.prepare();
+    expect(blockPaths(lastStaged(second.staged))).toEqual([rootFile, doc]);
+  });
+
+  it('audits a denied ancestor chain candidate once for several imports', async () => {
+    const rootFile = join(root, 'CLAUDE.md');
+    const denied = join(root, 'AGENTS.local.md');
+    const first = join(root, 'foo/doc.md');
+    const second = join(root, 'bar/doc.md');
+    await write(rootFile, '@foo/doc.md @bar/doc.md\n');
+    await write(denied, 'private rules\n');
+    await write(first, 'foo\n');
+    await write(second, 'bar\n');
+    const reads: Array<string> = [];
+    const readPage: ReadPage = async (selectorPath) => {
+      reads.push(selectorPath);
+      if (selectorPath.startsWith(`${denied}:raw:`)) {
+        return {
+          status: 'error',
+          type: 'permission_denied',
+          message: 'Denied by policy.',
+        };
+      }
+      const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+      return {
+        status: 'success',
+        kind: 'file',
+        content: await readFile(path, 'utf8'),
+        truncated: false,
+      };
+    };
+    const { producer, staged, prepare } = attemptOf({ readPage });
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([rootFile, first, second]);
+    expect(reads.filter((path) => path.startsWith(`${denied}:raw:`))).toEqual([
+      `${denied}:raw:1-2000`,
+    ]);
+    expect(deniedPaths(lastStaged(staged))).toEqual([denied]);
   });
 
   it('denies a symlinked import before reading its canonical target', async () => {

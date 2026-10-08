@@ -88,24 +88,27 @@ export function isInstructionsPayload(
 function isInstructionsPayloadFile(
   value: unknown,
 ): value is InstructionsPayloadFile {
-  if (isExactRecord(value, ['path', 'canonicalPath', 'truncated'])) {
-    return (
-      isNonEmptyString(value['path']) &&
-      isNonEmptyString(value['canonicalPath']) &&
-      isBoolean(value['truncated'])
-    );
-  }
-  return (
-    isExactRecord(value, [
+  const hasImportedBy =
+    value !== null &&
+    typeof value === 'object' &&
+    Object.hasOwn(value, 'importedBy');
+  if (
+    !isExactRecord(value, [
       'path',
       'canonicalPath',
       'truncated',
-      'importedBy',
-    ]) &&
+      ...(hasImportedBy ? ['importedBy'] : []),
+    ])
+  ) {
+    return false;
+  }
+  // SAFETY: `isExactRecord` above confirmed `value` is an object with exactly
+  // the accepted file-entry keys; each field is validated individually below.
+  return (
     isNonEmptyString(value['path']) &&
     isNonEmptyString(value['canonicalPath']) &&
     isBoolean(value['truncated']) &&
-    isNonEmptyString(value['importedBy'])
+    (!hasImportedBy || isNonEmptyString(value['importedBy']))
   );
 }
 
@@ -118,22 +121,22 @@ export function createInstructionsItem(input: {
   readonly files: ReadonlyArray<LoadedInstructionFile>;
   readonly denied: ReadonlyArray<string>;
 }): AuthoredContextItemPart {
-  const files: Array<InstructionsPayloadFile> = [];
-  for (const file of input.files) {
-    const payloadFile = {
+  const files: Array<InstructionsPayloadFile> = input.files.map((file) => {
+    const importedBy = file.importedBy;
+    return {
       path: file.path,
       canonicalPath: file.canonicalPath,
       truncated: file.truncated,
+      ...(importedBy !== undefined && { importedBy }),
     };
-    if (file.importedBy !== undefined) {
-      files.push({ ...payloadFile, importedBy: file.importedBy });
-    } else {
-      files.push(payloadFile);
-    }
-  }
+  });
+  const loadedPaths = new Set(files.map((file) => file.path));
+  const denied = [...new Set(input.denied)].filter(
+    (path) => !loadedPaths.has(path),
+  );
   const payload: InstructionsPayload = {
     files,
-    denied: [...input.denied],
+    denied,
   };
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isInstructionsPayload(payload)) {
