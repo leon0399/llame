@@ -90,7 +90,7 @@ Redirects are refused, so the key cannot follow a redirect to another host. Resp
 }
 ```
 
-`key` is required; llame sends it as `x-api-key` to `https://api.exa.ai/search`. `site:host` terms become `includeDomains` and `-site:host` terms become `excludeDomains`; those operators are removed from the outbound query. `recency` becomes `startPublishedDate` using the current date; `limit` becomes `numResults`.
+`key` is required; llame sends it as `x-api-key` to `https://api.exa.ai/search`. A `site:host` token becomes `includeDomains` and a `-site:host` token becomes `excludeDomains`, and those tokens are removed from the outbound query. Only an operator that stands alone as a whitespace-delimited token is translated; one wrapped in quotes or parentheses (`"rust site:docs.rs"`, `(site:a.com OR site:b.com)`) stays in the query text and reaches no filter. `recency` becomes `startPublishedDate` using the current date; `limit` becomes `numResults`.
 
 ## Perplexity
 
@@ -103,7 +103,7 @@ Redirects are refused, so the key cannot follow a redirect to another host. Resp
 }
 ```
 
-The Search API uses `https://api.perplexity.ai/search`; `key` is required and is sent as `Authorization: Bearer <key>`. `recency` maps to `search_recency_filter`, and `limit` to `max_results`. `search_domain_filter` is one mode with at most 20 hosts: `site:` terms form an allowlist; without them, `-site:` terms form a denylist. For mixed operators, only `site:` terms are filtered and each `-site:` remains in the query; overflow remains in the query with a note.
+The Search API uses `https://api.perplexity.ai/search`; `key` is required and is sent as `Authorization: Bearer <key>`. `recency` maps to `search_recency_filter`, and `limit` to `max_results`. `search_domain_filter` is one mode with at most 20 hosts: `site:` terms form an allowlist; without them, `-site:` terms form a denylist. For mixed operators, only `site:` terms are filtered and each `-site:` remains in the query; overflow remains in the query with a note. As for Exa, only standalone operator tokens are translated; wrapped ones stay in the query text.
 
 ## SearXNG
 
@@ -123,7 +123,7 @@ search:
   formats: [html, json]
 ```
 
-A 403 normally means JSON is disabled and is reported as `upstream_error`, not `auth`. `recency: "week"` is sent as `time_range=month`; `day`, `month`, and `year` map directly. `limit` is applied locally, and `site:`/`-site:` remain in the query.
+A 403 normally means JSON is disabled and is reported as `upstream_error`, not `auth`. `recency: "week"` is sent as `time_range=month`; `day`, `month`, and `year` map directly. `limit` is applied after URL canonicalization, and `site:`/`-site:` remain in the query.
 
 ## Query exfiltration
 
