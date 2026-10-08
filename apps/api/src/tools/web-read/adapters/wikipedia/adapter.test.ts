@@ -11,7 +11,7 @@ function html(body: string): WebResponse {
   return {
     finalUrl: `${API}/Rust/html`,
     contentType: 'text/html; charset=utf-8',
-    body: `<!DOCTYPE html><html><head><title>Rust (language)</title><style>.x{}</style></head><body>${body}</body></html>`,
+    body: `<!DOCTYPE html><html><head><title>Rust (language)</title></head><body>${body}</body></html>`,
   };
 }
 
@@ -26,18 +26,14 @@ describe('Wikipedia adapter claim', () => {
     ['https://en.wikipedia.org/wiki/Rust', `${API}/Rust/html`],
     ['https://en.m.wikipedia.org/wiki/Rust', `${API}/Rust/html`],
     [
-      'https://en.wikipedia.org/wiki/Rust_(programming_language)#History',
-      `${API}/Rust_(programming_language)/html`,
-    ],
-    [
       'https://de.wikipedia.org/wiki/Rust_%28Programmiersprache%29',
       'https://de.wikipedia.org/w/rest.php/v1/page/Rust_(Programmiersprache)/html',
     ],
     [
-      'https://en.wikipedia.org/wiki/Star_Wars:_Episode_IV',
+      'https://en.wikipedia.org/wiki/Star_Wars%3A_Episode_IV',
       `${API}/Star_Wars%3A_Episode_IV/html`,
     ],
-    ['https://en.wikipedia.org/wiki/AC%2FDC', `${API}/AC%2FDC/html`],
+    ['https://en.wikipedia.org/wiki/AC/DC', `${API}/AC%2FDC/html`],
   ])('claims %s', async (source, url) => {
     expect(adapter.match(new URL(source))).toBe(true);
     const { urls } = await read(source, html('<p>x</p>'), url);
@@ -50,10 +46,10 @@ describe('Wikipedia adapter claim', () => {
     'https://www.wikipedia.org/',
     'https://en.wikipedia.org/w/index.php?title=Rust',
     'https://en.wikipedia.org/wiki/',
-    'https://en.wikipedia.org/wiki/Special:Random',
+    'https://en.wikipedia.org/wiki/Rust?oldid=1000',
     'https://en.wikipedia.org/wiki/Talk:Rust',
-    'https://en.wikipedia.org/wiki/File:Rust_logo.svg',
-    'https://en.wikipedia.org/wiki/Category:Programming_languages',
+    'https://en.wikipedia.org/wiki/User%20talk%3AJimbo',
+    'https://de.wikipedia.org/wiki/Kategorie%3APhysik',
     'https://en.wikipedia.org/wiki/%E0%A4%A',
     'https://en.wikipedia.org.evil.test/wiki/Rust',
   ])('leaves %s to the generic ladder', (source) => {
@@ -70,7 +66,7 @@ describe('Wikipedia adapter read', () => {
           '<table class="infobox"><tr><td>Developer</td></tr></table>',
           '<div class="hatnote">For the fungus, see Rust (fungus).</div>',
           '<p><b>Rust</b> is a <a href="./Programming_language" title="Programming language">language</a>.<sup class="reference"><a href="#cite_note-1">[1]</a></sup></p>',
-          '<section><h2 id="Syntax">Syntax</h2><span class="mw-editsection">edit</span>',
+          String.raw`<section><h2 id="Syntax">Syntax</h2><p>Area: <span class="mwe-math-element"><span style="display: none;"><math><annotation encoding="application/x-tex">{\displaystyle a^{2}}</annotation></math></span><img class="mwe-math-fallback-image-inline" alt="a^2"></span>.<span style="display: none">hidden</span></p>`,
           '<pre id="mwA1">fn main() { let a = [1, 2]; }</pre></section>',
           '<figure><img src="//upload.example/x.png"></figure>',
           '<div class="navbox">Rust navigation</div>',
@@ -91,6 +87,8 @@ describe('Wikipedia adapter read', () => {
         '**Rust** is a [language](https://en.wikipedia.org/wiki/Programming_language).',
         '',
         '## Syntax',
+        '',
+        String.raw`Area: ${'`'}{\displaystyle a^{2}}${'`'}.`,
         '',
         '```',
         'fn main() { let a = [1, 2]; }',

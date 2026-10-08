@@ -494,8 +494,9 @@ carries:
 
 The entry takes no other field and sends no credential. It claims
 `https://{lang}.wikipedia.org/wiki/{title}` and the mobile
-`{lang}.m.wikipedia.org` form on any language edition; non-article namespaces
-such as `Special:`, `Talk:`, `File:`, and `Category:` stay on the generic
+`{lang}.m.wikipedia.org` form on any language edition. A URL with a query
+(`?oldid=`, `?diff=`) and a title whose prefix runs straight into a colon, the
+shape of every namespace such as `Talk:` or `Kategorie:`, stay on the generic
 ladder. A read is one request to
 `https://{lang}.wikipedia.org/w/rest.php/v1/page/{title}/html`, plus the
 same-origin hop a redirect title answers with, so a domain allowlist clause for

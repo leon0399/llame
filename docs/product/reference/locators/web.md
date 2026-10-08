@@ -525,9 +525,10 @@ package version.
 
 An article renders `# {title}` and a `URL` line with its canonical address
 (the target of a redirect title), then its body converted to Markdown. Citation
-markers, reference lists, edit links, navigation boxes, maintenance notices,
-the infobox, and images are removed; code renders as fenced blocks and article
-links become absolute `https://{lang}.wikipedia.org/wiki/...` links.
+markers, reference lists, navigation boxes, maintenance notices, the infobox,
+hidden text, and images are removed; a formula renders as its TeX source in
+code, code renders as fenced blocks, and article links become absolute
+`https://{lang}.wikipedia.org/wiki/...` links.
 
 ## Bounds
 

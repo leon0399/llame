@@ -2685,17 +2685,16 @@ rendered as a package version.
 
 A configured `wikipedia` adapter SHALL claim only
 `https://{lang}.wikipedia.org/wiki/{title}` and
-`https://{lang}.m.wikipedia.org/wiki/{title}` locators whose decoded title is
-not in a non-article namespace (`Special:`, `Talk:`, `User:`, `File:`,
-`Template:`, `Category:`, `Help:`, `Portal:`, `Draft:`, `Module:`, and the like),
-and SHALL send one unauthenticated `GET` to
+`https://{lang}.m.wikipedia.org/wiki/{title}` locators without a query whose
+decoded title does not start with a namespace-shaped prefix, one that runs
+straight into a colon such as `Talk:` or `Kategorie:`, and SHALL send one unauthenticated `GET` to
 `https://{lang}.wikipedia.org/w/rest.php/v1/page/{title}/html`, following the
 same-origin redirect a redirect title answers with. A failed response, or an
 article with no text after cleanup, SHALL fall through. The render SHALL be
 `# {title}`, a `URL` line, and the body converted to Markdown with citation
-markers, reference lists, edit links, navigation boxes, maintenance notices,
-the infobox, and images removed, code as fenced blocks, and article links
-absolute.
+markers, reference lists, navigation boxes, maintenance notices, the infobox,
+hidden text, and images removed, formulas as their TeX source, code as fenced
+blocks, and article links absolute.
 
 #### Scenario: A redirect title renders its target article
 

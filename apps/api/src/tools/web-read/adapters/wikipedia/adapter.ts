@@ -6,30 +6,29 @@ import { primaryFailure, type WebAdapter } from '../contract';
 
 /** `{lang}.wikipedia.org` or its mobile `{lang}.m.wikipedia.org`. */
 const ARTICLE_HOST = /^([a-z][a-z-]{1,15})(?:\.m)?\.wikipedia\.org$/u;
-const ARTICLE_PATH = /^\/wiki\/([^/]+)$/u;
-/** English namespaces whose pages are not articles. */
-const NAMESPACE =
-  /^(?:Special|Media|File|Image|Talk|User|User_talk|Wikipedia|Wikipedia_talk|File_talk|MediaWiki|MediaWiki_talk|Template|Template_talk|Help|Help_talk|Category|Category_talk|Portal|Portal_talk|Draft|Draft_talk|Module|Module_talk|TimedText|TimedText_talk):/iu;
+/** Main-namespace titles have no subpages, so a `/` is part of the title. */
+const ARTICLE_PATH = /^\/wiki\/(.+)$/u;
+/** A namespace prefix runs straight into its colon (`Talk:`, `Kategorie:`,
+ *  `WP:`); an article title with a colon, such as `Star Wars: Episode IV`,
+ *  follows it with a space. Namespace names differ by edition, so the shape is
+ *  the test. */
+const NAMESPACE = /^[^:]+:(?![_ ])/u;
 /** What a reader of the article text does not need: citation markers and
- *  lists, edit links, navigation boxes, maintenance notices, the infobox
- *  table, and media, down to the inline icons links carry. */
+ *  lists, navigation boxes, maintenance notices, the infobox table, hidden
+ *  text, and media, down to the inline icons links carry. */
 const NOISE = [
   'style',
-  'link',
   'sup.reference',
-  '.mw-editsection',
   '.mw-references-wrap',
-  '.reflist',
   '.navbox',
-  '.navbox-styles',
   '.hatnote',
-  '.ambox',
   '.metadata',
   '.noprint',
   '.infobox',
   '.sidebar',
-  '.shortdescription',
   '.mw-empty-elt',
+  '[style*="display:none"]',
+  '[style*="display: none"]',
   'figure',
   'img',
 ].join(',');
@@ -40,7 +39,13 @@ type WikipediaTarget = { readonly origin: string; readonly title: string };
 export function parseWikipediaUrl(source: URL): WikipediaTarget | undefined {
   const lang = ARTICLE_HOST.exec(source.host)?.[1];
   const title = ARTICLE_PATH.exec(source.pathname)?.[1];
-  if (source.protocol !== 'https:' || lang === undefined || !title) {
+  // A query (`?oldid=`, `?diff=`, `?action=`) asks for another view.
+  if (
+    source.protocol !== 'https:' ||
+    source.search !== '' ||
+    lang === undefined ||
+    title === undefined
+  ) {
     return undefined;
   }
   let decoded: string;
@@ -79,11 +84,20 @@ export function createWikipediaAdapter(
   };
 }
 
-/** Parsoid HTML with the noise removed, code kept as code, and links made
- *  absolute without their tooltip titles. */
+/** Parsoid HTML with the noise removed, formulas and code kept as code, and
+ *  links made absolute without their tooltip titles. */
 function renderArticle(html: string, origin: string): string | undefined {
   const { document } = parseHTML(html);
   const title = document.querySelector('title')?.textContent ?? '';
+  // A formula's hidden MathML and fallback image both go with the noise; its
+  // TeX source is what a reader can use.
+  for (const math of document.querySelectorAll('.mwe-math-element')) {
+    const code = document.createElement('code');
+    code.textContent =
+      math.querySelector('annotation[encoding="application/x-tex"]')
+        ?.textContent ?? '';
+    math.replaceWith(code);
+  }
   for (const node of document.querySelectorAll(NOISE)) node.remove();
   for (const pre of document.querySelectorAll('pre')) {
     const code = document.createElement('code');
