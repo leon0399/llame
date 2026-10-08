@@ -10,7 +10,7 @@ import {
 } from '../../../../testing/github-test-io';
 import { createNpmAdapter } from './adapter';
 
-const FILES_ORIGIN = 'http://127.0.0.1:43124';
+const FILES_ORIGIN = 'http://127.0.0.1:43124/npm';
 const adapter = createNpmAdapter(
   { id: 'npm', use: 'npm' },
   { registryOrigin: API_ORIGIN, filesOrigin: FILES_ORIGIN },
@@ -25,7 +25,7 @@ const manifest = {
   description: 'A package',
   license: { type: 'MIT' },
   homepage: 'https://example.com/pkg',
-  repository: { type: 'git', url: 'git+https://github.com/o/pkg.git' },
+  repository: { type: 'git', url: 'git+ssh://git@github.com/o/pkg.git' },
   deprecated: 'use other-pkg',
   engines: { node: '>=22' },
   dependencies: { a: '^1.0.0', b: '~2.1.0' },
@@ -55,6 +55,7 @@ describe('npm adapter claim', () => {
     'https://npmjs.com/package/@scope/pkg',
     'https://www.npmjs.com/package/@scope/pkg/v/1.2.3-beta.1+build',
     'https://www.npmjs.com/package/JSONStream?activeTab=readme',
+    'https://www.npmjs.com/package/%40scope%2Fpkg',
   ])('claims %s', (source) => {
     expect(adapter.match(new URL(source))).toBe(true);
   });
@@ -161,6 +162,21 @@ describe('npm adapter read', () => {
         '',
         'URL: https://www.npmjs.com/package/@scope/pkg/v/1.2.3',
       ].join('\n'),
+    });
+  });
+
+  it('keeps what arrived when the call deadline passes during a section', async () => {
+    const deadline: WebFetchFailure = { type: 'call_timeout', message: 'late' };
+
+    const { outcome } = await read('https://www.npmjs.com/package/@scope/pkg', [
+      [MANIFEST_URL, response({ name: '@scope/pkg', version: '1.2.3' })],
+      [TAGS_URL, response({ latest: '1.2.3' })],
+      [README_URL, deadline],
+    ]);
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['readme omitted: transport'],
     });
   });
 

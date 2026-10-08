@@ -247,15 +247,15 @@ own JSON URLs stay on the generic ladder. A read costs three requests: the
 version manifest from `https://registry.npmjs.org/{name}/{version}` (`latest`
 when the URL names none), the dist-tags from
 `https://registry.npmjs.org/-/package/{name}/dist-tags`, and the version's
-`README.md` from `https://unpkg.com/{name}@{version}/README.md`. The manifest
+`README.md` from `https://cdn.jsdelivr.net/npm/{name}@{version}/README.md`. The manifest
 is primary; a missing dist-tags list or README keeps the rest with a
 `dist-tags omitted:` or `readme omitted:` note, and a README with another file
 name is reported as `readme omitted: status`. The full registry document is
 never requested: for large packages it exceeds the 5 MiB body bound.
 
 With a domain allowlist, add `read` clauses for `^https://registry\.npmjs\.org/`
-and `^https://unpkg\.com/` (JSONC: `^https://registry\\.npmjs\\.org/` and
-`^https://unpkg\\.com/`); without the second, every read carries
+and `^https://cdn\.jsdelivr\.net/npm/` (JSONC:
+`^https://registry\\.npmjs\\.org/` and `^https://cdn\\.jsdelivr\\.net/npm/`); without the second, every read carries
 `readme omitted: permission`.
 
 ## Derived locators and permission admission

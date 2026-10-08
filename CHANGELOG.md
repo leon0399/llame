@@ -5,7 +5,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Added a native `npm` web adapter. With `{ "id": "npm", "use": "npm" }` in
   `tools.webAdapters`, `read` renders `npmjs.com/package/...` pages, which the
   site answers with a bot challenge, from the registry's version manifest,
-  dist-tags, and the version's README on unpkg.
+  dist-tags, and the version's README on jsDelivr.
 - Added a native `bluesky` web adapter. With
   `{ "id": "bluesky", "use": "bluesky" }` in `tools.webAdapters`, `read`
   renders `bsky.app` posts as x.md-style threads (parents, post, self-thread,

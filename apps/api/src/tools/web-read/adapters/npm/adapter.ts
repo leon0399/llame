@@ -17,8 +17,9 @@ import {
 
 /** The public npm registry; version documents and dist-tags need no key. */
 export const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org';
-/** The npm-mirroring CDN that serves a published version's files. */
-export const NPM_FILES_ORIGIN = 'https://unpkg.com';
+/** The npm-mirroring CDN that serves a published version's files; unlike
+ *  unpkg it keeps a legacy mixed-case name's case. */
+export const NPM_FILES_ORIGIN = 'https://cdn.jsdelivr.net/npm';
 
 const JSON_INIT: WebRequestInit = { accept: 'application/json' };
 const README_INIT: WebRequestInit = {
@@ -75,7 +76,10 @@ export function parseNpmUrl(source: URL): NpmTarget | undefined {
   ) {
     return undefined;
   }
-  const match = PACKAGE_PATH.exec(source.pathname);
+  // `encodeURIComponent`-built links spell a scope's `@` and `/` escaped.
+  const match = PACKAGE_PATH.exec(
+    source.pathname.replaceAll(/%40/giu, '@').replaceAll(/%2F/giu, '/'),
+  );
   const name = match?.[1];
   if (name === undefined || name.length > MAX_NAME_LENGTH) return undefined;
   const version = match?.[2];
@@ -228,7 +232,7 @@ function entries(
 function repositoryUrl(url: string | undefined): string | undefined {
   return url
     ?.replace(/^git\+/u, '')
-    .replace(/^git:\/\//u, 'https://')
+    .replace(/^(?:git:\/\/|ssh:\/\/git@)/u, 'https://')
     .replace(/\.git$/u, '');
 }
 

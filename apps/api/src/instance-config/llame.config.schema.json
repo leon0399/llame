@@ -834,7 +834,7 @@
               {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "One native npm adapter. It reads a package version's manifest and dist-tags from registry.npmjs.org and its README.md from unpkg.com; it takes no credential.",
+                "description": "One native npm adapter. It reads a package version's manifest and dist-tags from registry.npmjs.org and its README.md from cdn.jsdelivr.net; it takes no credential.",
                 "required": ["id", "use"],
                 "properties": {
                   "id": {

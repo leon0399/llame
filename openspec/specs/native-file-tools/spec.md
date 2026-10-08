@@ -2368,7 +2368,7 @@ unauthenticated `GET` requests: the version manifest from
 `https://registry.npmjs.org/{name}/{version}`, or `/{name}/latest` without a
 version, with `Accept: application/json`; then
 `https://registry.npmjs.org/-/package/{name}/dist-tags`; then
-`https://unpkg.com/{name}@{resolved version}/README.md`. It SHALL NOT request
+`https://cdn.jsdelivr.net/npm/{name}@{resolved version}/README.md`. It SHALL NOT request
 the full registry document.
 
 The render SHALL be `# {name}@{version}`, the description, then
@@ -2384,11 +2384,11 @@ the rest and add a `dist-tags omitted: {category}` or
 
 - **WHEN** the model reads `https://www.npmjs.com/package/react`
 - **THEN** the adapter requests `react/latest`, the dist-tags, and the resolved version's `README.md`
-- **AND** the text starts with `# react@{version}` and ends with `## README`
+- **AND** the text starts with `# react@{version}` and ends with a `## README` section holding the README text
 
 #### Scenario: A missing README keeps the manifest
 
-- **WHEN** unpkg answers 404 for the version's `README.md`
+- **WHEN** jsDelivr answers 404 for the version's `README.md`
 - **THEN** the manifest lines render and the note `readme omitted: status` is attached
 
 ### Requirement: Operator rewrite adapters are validated and opt-in

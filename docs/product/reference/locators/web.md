@@ -312,10 +312,10 @@ lines, then the README:
 React is a JavaScript library for building user interfaces.
 
 License: MIT
+Homepage: https://react.dev/
 Repository: https://github.com/react/react
 Dist-tags: latest 19.3.0, next 19.3.0-canary-…
 Engines: node >=0.10.0
-Dependencies: (2) a@^1.0.0, b@~2.1.0
 Tarball: https://registry.npmjs.org/react/-/react-19.3.0.tgz
 Integrity: sha512-…
 URL: https://www.npmjs.com/package/react/v/19.3.0
@@ -324,7 +324,7 @@ URL: https://www.npmjs.com/package/react/v/19.3.0
 ...
 ```
 
-`Deprecated`, `Homepage`, `Peer dependencies`, and `Maintainers` lines appear
+`Deprecated`, `Dependencies`, `Peer dependencies`, and `Maintainers` lines appear
 when the manifest has them. A package page without `/v/` reads the `latest`
 dist-tag. A failed dist-tags or README request leaves the rest with a note.
 
