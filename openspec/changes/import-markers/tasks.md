@@ -59,7 +59,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 1.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `instruction-imports`.
-- [ ] 1.5 Implement delimited markers (R1–R4) in the parser with unit tests for every new
+- [ ] 1.5 Implement the delimited bare markers of the `import-markers` requirement "Delimited bare markers carry the whole locator" in the parser with unit tests for every new
       scenario plus pathological unterminated quotes at 64 KiB in linear time.
 
 ## 2. `import-markers/instruction-imports`: imports in instruction files

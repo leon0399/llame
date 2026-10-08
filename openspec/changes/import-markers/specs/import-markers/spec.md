@@ -45,7 +45,7 @@ The system SHALL recognize import markers in Markdown source only as `@target`, 
 
 ### Requirement: Delimited bare markers carry the whole locator
 
-Delimited markers `@"…"`, `@'…'`, and `` @`…` `` SHALL carry non-empty, single-line content unchanged as the target, selectors included, with no escapes. Their `@` SHALL have the bare boundary. A backtick marker is an `@` ending a text run directly before an inline code span; code contents are never scanned. After the closing delimiter only whitespace, end, or trailing `.,;!?)]}>"'` then whitespace or end may follow; otherwise there is no marker.
+Delimited markers `@"…"`, `@'…'`, and `` @`…` `` SHALL carry non-empty, single-line content unchanged as the target, selectors included, with no escapes. Their `@` SHALL have the bare boundary. A backtick marker is an `@` ending a text run directly before an inline code span; code contents are never scanned. After the closing delimiter only whitespace, end, or trailing `.,;!?)]}>"'` then whitespace or end may follow; otherwise there is no marker, and no bare marker starts at that `@`.
 
 #### Scenario: A quoted marker preserves spaces in a path
 
@@ -89,7 +89,7 @@ Delimited markers `@"…"`, `@'…'`, and `` @`…` `` SHALL carry non-empty, si
 
 ### Requirement: Bare markers obey boundary, token, and selector rules
 
-A bare `@target` SHALL start only when the source character before `@` is the start of a line or block, whitespace, or one of `(`, `[`, `{`, `<`, `"`, and `'`; the boundary SHALL be tested on source characters, not parsed text. Its target SHALL run to the next whitespace in source, after which trailing `.,;!?)]}>"'` and one trailing bare `:` SHALL be removed; selector suffixes such as `:30-35`, `:outline`, and `:raw` SHALL remain part of the target.
+A bare `@target` SHALL start only where no delimited marker opens and when the source character before `@` is the start of a line or block, whitespace, or one of `(`, `[`, `{`, `<`, `"`, and `'`; the boundary SHALL be tested on source characters, not parsed text. Its target SHALL run to the next whitespace in source, after which trailing `.,;!?)]}>"'` and one trailing bare `:` SHALL be removed; selector suffixes such as `:30-35`, `:outline`, and `:raw` SHALL remain part of the target.
 
 #### Scenario: Sentence punctuation is excluded from a bare target
 

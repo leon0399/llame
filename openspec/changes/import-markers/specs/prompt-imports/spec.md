@@ -6,7 +6,7 @@ Prompt imports let an owner point at native `read` locators in a prompt while pr
 
 ### Requirement: Prompt text recognizes shared import markers
 
-The system SHALL scan the owner's stored, neutralized prompt text using the shared marker grammar defined by the `import-markers` capability. Markers in inline code or fenced code SHALL remain ordinary text, and importing SHALL leave the stored user text exactly as typed, including marker spelling and placement.
+The system SHALL scan the owner's stored, neutralized prompt text using the shared marker grammar defined by the `import-markers` capability. Markers inside inline code or fenced code SHALL remain ordinary text, while a delimited backtick marker is recognized as that grammar defines, and importing SHALL leave the stored user text exactly as typed, including marker spelling and placement.
 
 #### Scenario: A prompt marker is recognized without rewriting the prompt
 
