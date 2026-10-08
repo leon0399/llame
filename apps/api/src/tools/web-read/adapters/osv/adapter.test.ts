@@ -35,6 +35,7 @@ describe('OSV adapter claim', () => {
     ['https://nvd.nist.gov/vuln/detail/CVE-2021-44228', 'CVE-2021-44228'],
     [`https://github.com/advisories/${GHSA}`, GHSA],
     ['https://www.cve.org/CVERecord?id=CVE-2021-44228', 'CVE-2021-44228'],
+    ['https://osv.dev/vulnerability/RHSA-2022%3A0001', 'RHSA-2022:0001'],
   ])('claims %s as %s', async (source, id) => {
     expect(adapter.match(new URL(source))).toBe(true);
     const { urls } = await read(source, NOT_FOUND, id);
@@ -82,10 +83,14 @@ describe('OSV adapter read', () => {
                 type: 'ECOSYSTEM',
                 events: [{ introduced: '2.13.0' }, { fixed: '2.15.0' }],
               },
+              {
+                type: 'GIT',
+                repo: 'https://github.com/apache/logging-log4j2',
+                events: [{ introduced: '0' }, { fixed: 'abc123' }],
+              },
             ],
           },
           {
-            package: null,
             ranges: [
               {
                 type: 'GIT',
@@ -117,6 +122,7 @@ describe('OSV adapter read', () => {
         '## Affected (3)',
         '',
         '- Maven org.apache.logging.log4j:log4j-core: introduced 2.13.0, fixed 2.15.0',
+        '- Maven org.apache.logging.log4j:log4j-core GIT https://github.com/apache/logging-log4j2: introduced 0, fixed abc123',
         '- GIT https://github.com/apache/logging-log4j2: introduced 0',
         '- Debian:12 log4j',
         '',
@@ -131,38 +137,26 @@ describe('OSV adapter read', () => {
     });
   });
 
-  it('marks a withdrawn advisory and caps long lists with notes', async () => {
+  it('marks a withdrawn advisory and lists related ids', async () => {
     const { outcome } = await read(
       `https://osv.dev/vulnerability/${GHSA}`,
       response({
         id: GHSA,
         withdrawn: '2024-01-01T00:00:00Z',
-        related: Array.from({ length: 21 }, (_, index) => `R-${index}`),
-        affected: Array.from({ length: 51 }, (_, index) => ({
-          package: { ecosystem: 'npm', name: `p${index}` },
-        })),
-        references: Array.from({ length: 31 }, (_, index) => ({
-          type: 'WEB',
-          url: `https://ref.example/${index}`,
-        })),
+        related: ['R-1', 'R-2'],
       }),
     );
 
     expect(outcome).toMatchObject({
       kind: 'rendered',
-      notes: [
-        'related truncated: the first 20 of 21',
-        'affected truncated: the first 50 of 51',
-        'references truncated: the first 30 of 31',
-      ],
+      content: [
+        `# ${GHSA}`,
+        '',
+        'Withdrawn: 2024-01-01T00:00:00Z',
+        'Related: R-1, R-2',
+        `URL: https://osv.dev/vulnerability/${GHSA}`,
+      ].join('\n'),
     });
-    const content = outcome.kind === 'rendered' ? outcome.content : '';
-    expect(content).toMatch(/^# GHSA-jfh8-c2jp-5v3q\n\nWithdrawn: 2024-01-01/u);
-    expect(content).toContain('## Affected (51)');
-    expect(content).toContain('- npm p49\n');
-    expect(content).not.toContain('- npm p50');
-    expect(content).not.toContain('R-20');
-    expect(content).not.toContain('https://ref.example/30');
   });
 
   it('falls through on a missing advisory or a malformed payload', async () => {

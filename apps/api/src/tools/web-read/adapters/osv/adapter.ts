@@ -6,10 +6,6 @@ import { parseJsonBody, primaryFailure, type WebAdapter } from '../contract';
 /** OSV.dev: keyless advisories aggregated from GitHub, NVD, PyPA, RustSec,
  *  Go, distributions, and others, each by its own id or a CVE alias. */
 export const OSV_API_ORIGIN = 'https://api.osv.dev';
-/** Lists GitHub and distributions can run to hundreds of rows. */
-const MAX_AFFECTED = 50;
-const MAX_REFERENCES = 30;
-const MAX_RELATED = 20;
 
 const OSV_ID = /^[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9._:-]{1,100}$/u;
 const CVE_ID = /^CVE-\d{4}-\d{4,}$/u;
@@ -26,7 +22,7 @@ const SITES = {
 const RANGE = z.object({
   type: z.string(),
   repo: z.string().optional(),
-  events: z.array(z.record(z.string(), z.string())).default([]),
+  events: z.array(z.record(z.string(), z.string())),
 });
 
 const VULN = z.object({
@@ -46,7 +42,6 @@ const VULN = z.object({
       z.object({
         package: z
           .object({ ecosystem: z.string(), name: z.string() })
-          .nullable()
           .optional(),
         ranges: z.array(RANGE).default([]),
       }),
@@ -76,7 +71,11 @@ export function parseOsvUrl(source: URL): string | undefined {
   const site = Object.entries(SITES).find(([name]) => name === host)?.[1];
   if (site === undefined) return undefined;
   if (!source.pathname.startsWith(site.prefix)) return undefined;
-  const id = source.pathname.slice(site.prefix.length).replace(/\/$/u, '');
+  // `read` asks for a colon in a path segment as `%3A`, as in `RHSA-2022:0001`.
+  const id = source.pathname
+    .slice(site.prefix.length)
+    .replace(/\/$/u, '')
+    .replaceAll(/%3A/giu, ':');
   return site.id.test(id) ? id : undefined;
 }
 
@@ -99,18 +98,17 @@ export function createOsvAdapter(
       if ('type' in fetched) return primaryFailure(fetched);
       const vuln = parseJsonBody(fetched.body, VULN);
       if (vuln === undefined) return { kind: 'failed', failure: 'parse' };
-      const notes: Array<string> = [];
       return {
         kind: 'rendered',
-        content: renderVuln(vuln, notes),
+        content: renderVuln(vuln),
         mediaType: 'text/markdown',
-        notes,
+        notes: [],
       };
     },
   };
 }
 
-function renderVuln(vuln: Vuln, notes: Array<string>): string {
+function renderVuln(vuln: Vuln): string {
   const fields: Array<[string, string | undefined]> = [
     ['Withdrawn', vuln.withdrawn],
     ['Aliases', vuln.aliases.join(', ')],
@@ -118,7 +116,7 @@ function renderVuln(vuln: Vuln, notes: Array<string>): string {
     ['CWE', vuln.database_specific?.cwe_ids?.join(', ')],
     ['Published', vuln.published],
     ['Modified', vuln.modified],
-    ['Related', capped(vuln.related, MAX_RELATED, 'related', notes).join(', ')],
+    ['Related', vuln.related.join(', ')],
     ['URL', `https://osv.dev/vulnerability/${vuln.id}`],
   ];
   const title = vuln.summary ? `${vuln.id}: ${vuln.summary}` : vuln.id;
@@ -126,24 +124,17 @@ function renderVuln(vuln: Vuln, notes: Array<string>): string {
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);
   }
-  const affected = capped(vuln.affected, MAX_AFFECTED, 'affected', notes);
-  const references = capped(
-    vuln.references,
-    MAX_REFERENCES,
-    'references',
-    notes,
-  );
   const details = vuln.details?.trim();
   return [
     ...lines,
     ...section(
       `Affected (${vuln.affected.length})`,
-      affected.flatMap(affectedLines),
+      vuln.affected.flatMap(affectedLines),
     ),
     ...section('Details', details ? [details] : []),
     ...section(
       'References',
-      references.map(({ type, url }) => `- ${type}: ${url}`),
+      vuln.references.map(({ type, url }) => `- ${type}: ${url}`),
     ),
   ].join('\n');
 }
@@ -155,7 +146,7 @@ function section(
   return rows.length === 0 ? [] : ['', `## ${heading}`, '', ...rows];
 }
 
-/** The scores OSV carries, then the source database's own rating. */
+/** The source database's own rating, then each score OSV carries. */
 function severityOf(vuln: Vuln): string {
   return [
     vuln.database_specific?.severity,
@@ -165,29 +156,22 @@ function severityOf(vuln: Vuln): string {
     .join('; ');
 }
 
+/** One row per range. A repository range names its repo, so a commit is not
+ *  read as a package version. */
 function affectedLines(entry: Vuln['affected'][number]): Array<string> {
   const name = entry.package
     ? `${entry.package.ecosystem} ${entry.package.name}`
     : undefined;
   if (entry.ranges.length === 0) return name ? [`- ${name}`] : [];
   return entry.ranges.map((range) => {
-    const subject = name ?? `${range.type} ${range.repo ?? ''}`.trim();
+    const subject =
+      range.type === 'GIT'
+        ? [name, 'GIT', range.repo].filter(Boolean).join(' ')
+        : (name ?? range.type);
     const events = range.events
       .flatMap((event) => Object.entries(event))
       .map(([kind, version]) => `${kind} ${version}`)
       .join(', ');
-    return `- ${subject}: ${events || 'all versions'}`;
+    return `- ${subject}: ${events}`;
   });
-}
-
-function capped<T>(
-  items: ReadonlyArray<T>,
-  max: number,
-  label: string,
-  notes: Array<string>,
-): ReadonlyArray<T> {
-  if (items.length > max) {
-    notes.push(`${label} truncated: the first ${max} of ${items.length}`);
-  }
-  return items.slice(0, max);
 }

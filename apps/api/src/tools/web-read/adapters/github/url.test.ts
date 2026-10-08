@@ -140,6 +140,7 @@ describe('parseGithubUrl', () => {
   it('leaves GitHub reserved top-level paths unclaimed', () => {
     const reserved = [
       'about',
+      'advisories',
       'apps',
       'codespaces',
       'collections',

@@ -100,6 +100,7 @@ const COMMIT_SHA = /^[0-9a-fA-F]{7,40}$/u;
 const INVALID_SEGMENT = /[\\\p{Cc}]/u;
 const RESERVED_ROOT_NAMES = {
   about: true,
+  advisories: true,
   apps: true,
   codespaces: true,
   collections: true,

@@ -2671,8 +2671,8 @@ id}`, and `https://www.cve.org/CVERecord?id={CVE id}` locators, with or without
 through. The render SHALL be `# {id}: {summary}`, the `Withdrawn`, `Aliases`,
 `Severity`, `CWE`, `Published`, `Modified`, `Related`, and `URL` lines present,
 then `## Affected` with each package's range events, `## Details`, and
-`## References`. More than 50 affected rows, 30 references, or 20 related ids
-SHALL be cut with a `{list} truncated: the first {n} of {total}` note.
+`## References`. A repository range SHALL name its repo, so a commit is not
+rendered as a package version.
 
 #### Scenario: A GitHub advisory renders from OSV.dev
 

@@ -515,9 +515,9 @@ An advisory renders `# {id}: {summary}`, then `Withdrawn`, `Aliases`,
 `Modified`, `Related`, and `URL` lines for the fields present. `## Affected`
 lists each package with its ecosystem and the range events OSV records
 (`introduced`, `fixed`, `last_affected`), and repository ranges by commit;
-`## Details` carries the advisory text and `## References` its links. Lists past
-50 affected rows, 30 references, or 20 related ids are cut with a
-`{list} truncated: the first {n} of {total}` note.
+`## Details` carries the advisory text and `## References` its links. A
+repository range names its repo as `GIT {repo}`, so a commit is not read as a
+package version.
 
 ## Bounds
 
