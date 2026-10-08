@@ -473,6 +473,19 @@ DOI: https://doi.org/10.1145/3442188.3445922
 
 The `Open access` URL is a separate read; the adapter does not fetch it.
 
+### Discourse adapter
+
+A topic renders in the [x.md](https://x.pcstyle.dev/) thread layout: its first
+post as `Post` with the topic title in bold, then every other post in stream
+order as `Reply`, up to 200 posts. An author reads `Name (@username)`, or
+`@username` when the name is missing or only repeats the username, and
+`[deleted]` for a deleted account. A reply to a post other than the first adds
+`Replying to @{author}` (`Replying to post #{n}` when that post is not
+rendered). Bodies are converted to Markdown with root-relative links resolved
+against the forum and empty heading anchors dropped; a small action without
+text, such as a closing, renders its event name. Each entry ends with `Source:`
+(the post's URL) and `Date:` lines.
+
 ## Bounds
 
 | Bound                         | Value                                                                                                         |

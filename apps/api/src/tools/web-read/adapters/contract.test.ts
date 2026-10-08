@@ -187,6 +187,18 @@ describe('createWebAdapters', () => {
       true,
     );
   });
+
+  it('creates a native Discourse adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([
+      { id: 'forums', use: 'discourse', hosts: ['forum.example.test'] },
+    ]);
+    if (adapter === undefined) throw new Error('expected Discourse adapter');
+
+    expect(adapter).toMatchObject({ id: 'forums', route: 'native' });
+    expect(adapter.match(new URL('https://forum.example.test/t/topic/1'))).toBe(
+      true,
+    );
+  });
 });
 
 describe('dispatchWebAdapters', () => {

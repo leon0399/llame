@@ -1936,7 +1936,7 @@ redirect: a 3xx answer SHALL fail it as `http_status`.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
 credential, and the Bluesky, npm, Hugging Face, arXiv, Stack Exchange,
-crates.io, Hacker News, and DOI adapters SHALL send none; the GitHub token SHALL be
+crates.io, Hacker News, DOI, and Discourse adapters SHALL send none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1961,7 +1961,7 @@ representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
 sources use; the Bluesky, npm, Hugging Face, Stack Exchange, crates.io,
-Hacker News, and DOI adapters label their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
+Hacker News, DOI, and Discourse adapters label their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2574,6 +2574,33 @@ open-access URL.
 - **WHEN** the model reads `https://doi.org/10.1145/3442188.3445922`
 - **THEN** the adapter requests only the OpenAlex work for that DOI
 - **AND** the text has the title, `Authors`, `Published`, and `DOI` lines and an `## Abstract` section
+
+### Requirement: Discourse native adapter reads forum topics
+
+A configured `discourse` adapter SHALL claim only HTTPS locators whose host,
+without a port, is one of its configured `hosts` and whose path is `/t/{id}`,
+`/t/{id}/{post}`, `/t/{slug}/{id}`, or `/t/{slug}/{id}/{post}`, optionally with
+a trailing slash, where `{slug}` is never all digits; every other host and path
+SHALL be unclaimed. The adapter SHALL send only unauthenticated `GET` requests
+to the locator's origin: `/t/{id}.json`, then `/t/{id}/posts.json` with
+`post_ids[]` for the posts among the first 200 of the topic's post stream that
+the topic response did not carry, at most 100 ids per request. A failed or
+unparsable topic request SHALL fall through; a failed posts request SHALL keep
+the posts that arrived with a `posts omitted: {category}` note, and a topic
+longer than the posts rendered SHALL add `posts truncated: the first {n} of
+{total}`.
+
+The render SHALL use x.md's thread layout: the first post as
+`## Post · 1/{n} — {author}` with the topic title in bold, the rest as
+`## Reply · {i}/{n} — {author}` with `Replying to …` when the reply targets a
+post other than the first, each body converted to Markdown with root-relative
+links resolved against the forum, and `Source:` and `Date:` lines.
+
+#### Scenario: A listed forum's topic renders as a thread
+
+- **WHEN** `hosts` lists `meta.discourse.org` and the model reads `https://meta.discourse.org/t/discourse-retort/35903/300`
+- **THEN** the adapter requests `https://meta.discourse.org/t/35903.json` and the remaining posts among the first 200
+- **AND** the text starts with the first post and notes `posts truncated: the first 200 of {total}`
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 

@@ -522,6 +522,11 @@ export type RawWebAdapterEntry =
   | {
       id: string;
       use: 'doi';
+    }
+  | {
+      id: string;
+      use: 'discourse';
+      hosts: Array<string>;
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -599,6 +604,14 @@ export type DoiWebAdapterConfig = {
   readonly use: 'doi';
 };
 
+/** Discourse runs on any host, so the operator lists the forums by exact
+ *  canonical hostname (lowercase, no port). */
+export type DiscourseWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'discourse';
+  readonly hosts: ReadonlyArray<string>;
+};
+
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
   | GithubWebAdapterConfig
@@ -609,7 +622,8 @@ export type WebAdapterConfig =
   | StackexchangeWebAdapterConfig
   | CratesWebAdapterConfig
   | HackernewsWebAdapterConfig
-  | DoiWebAdapterConfig;
+  | DoiWebAdapterConfig
+  | DiscourseWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

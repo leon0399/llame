@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `discourse` web adapter with a `hosts` list. With
+  `{ "id": "forums", "use": "discourse", "hosts": ["meta.discourse.org"] }` in
+  `tools.webAdapters`, `read` renders topic links on the listed Discourse
+  forums, which serve a JavaScript shell to non-browser clients, as x.md-style
+  threads of up to the first 200 posts with authors, reply targets, and dates,
+  from each forum's keyless JSON API.
 - Added a native `doi` web adapter. With `{ "id": "doi", "use": "doi" }` in
   `tools.webAdapters`, `read` renders `doi.org` links, which otherwise yield a
   one-line citation or a publisher page that refuses bots, as the work's

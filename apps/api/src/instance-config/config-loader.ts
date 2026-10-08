@@ -294,22 +294,32 @@ function resolveWebAdapterEntry(
   }
   seenIds.add(id);
 
-  if (value.use === 'bluesky') return { id, use: 'bluesky' };
-  if (value.use === 'npm') return { id, use: 'npm' };
-  if (value.use === 'huggingface') return { id, use: 'huggingface' };
-  if (value.use === 'arxiv') return { id, use: 'arxiv' };
-  if (value.use === 'stackexchange') return { id, use: 'stackexchange' };
-  if (value.use === 'crates') return { id, use: 'crates' };
-  if (value.use === 'hackernews') return { id, use: 'hackernews' };
-  if (value.use === 'doi') return { id, use: 'doi' };
-
-  if (value.use === 'github') {
-    const token = resolveGithubToken(value.token, `${entryPath}.token`, env);
-    return token === undefined
-      ? { id, use: 'github' }
-      : { id, use: 'github', token };
+  switch (value.use) {
+    case 'github': {
+      const token = resolveGithubToken(value.token, `${entryPath}.token`, env);
+      return token === undefined
+        ? { id, use: 'github' }
+        : { id, use: 'github', token };
+    }
+    case 'discourse':
+      return {
+        id,
+        use: 'discourse',
+        hosts: resolveWebAdapterHosts(value.hosts, entryPath),
+      };
+    case 'rewrite':
+      return resolveRewriteEntry(value, id, entryPath);
+    default:
+      // Every other native adapter takes no field beyond its id.
+      return { id, use: value.use };
   }
+}
 
+function resolveRewriteEntry(
+  value: Extract<RawWebAdapterEntry, { use: 'rewrite' }>,
+  id: string,
+  entryPath: string,
+): WebAdapterConfig {
   const hosts = resolveWebAdapterHosts(value.hosts, entryPath);
   const pathPattern = resolveWebAdapterPathPattern(
     value.pathPattern,
