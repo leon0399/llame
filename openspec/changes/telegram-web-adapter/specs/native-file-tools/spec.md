@@ -159,7 +159,7 @@ always to `https://t.me`. A query SHALL NOT change a post read.
 
 #### Scenario: A response without the expected markup falls through as parse
 
-- **WHEN** the Post Widget answers 200 with neither a message nor an error element, or the preview answers 200 at `/s/{name}` without the channel header
+- **WHEN** the Post Widget answers 200 with neither a message nor an error element, or the preview answers 200 at `/s/{name}` without the channel header, or with a header but neither a post element nor the "No posts found" placeholder
 - **THEN** the adapter falls through with `parse`
 
 #### Scenario: Other shapes are unclaimed

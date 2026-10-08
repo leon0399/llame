@@ -169,13 +169,13 @@ Rejected:
 
 ### D4: Declines map to existing failure categories
 
-| Case                                                                                  | Category                          |
-| ------------------------------------------------------------------------------------- | --------------------------------- |
-| `/c/…` locator, `?q=`, conflicting or malformed cursor                                | `address`, before any request     |
-| widget error element ("Post not found", unknown name), or a widget service message    | `empty`                           |
-| preview `finalUrl` path is not `/s/{name}` (user, bot, group, unknown name)           | `status`                          |
-| widget 200 without a message or error element; preview 200 without the channel header | `parse`                           |
-| transport, status, rate limit, size                                                   | existing `primaryFailure` mapping |
+| Case                                                                                                                                                       | Category                          |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `/c/…` locator, `?q=`, conflicting or malformed cursor                                                                                                     | `address`, before any request     |
+| widget error element ("Post not found", unknown name), or a widget service message                                                                         | `empty`                           |
+| preview `finalUrl` path is not `/s/{name}` (user, bot, group, unknown name)                                                                                | `status`                          |
+| widget 200 without a message or error element; preview 200 without the channel header, or with neither a post element nor the "No posts found" placeholder | `parse`                           |
+| transport, status, rate limit, size                                                                                                                        | existing `primaryFailure` mapping |
 
 Every decline falls through with the bounded note and no response body,
 following the Bluesky `!no-unauthenticated` precedent. Rejected: a new
@@ -290,6 +290,9 @@ restores generic-ladder behavior. No data or API changes.
 
 ## Revision history
 
+- **r4 (2026-10-08):** GitHub review. A preview with a header but neither a
+  post element nor the "No posts found" placeholder is `parse`, so markup
+  drift falls through instead of rendering a header-only page.
 - **r3 (2026-10-08):** Review round 2. Service messages detected by
   `.service_message` on `/s/` and the "Service message" block on the widget;
   hidden blocks excluded by `media_not_supported_cont`, which also covers
