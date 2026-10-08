@@ -276,6 +276,44 @@ export const UnsafeUrl: Story = {
     await expect(
       canvas.getByText("Suspicious [result]").closest("a"),
     ).toBeNull();
+    await expect(
+      canvas.getByText("This source is deliberately rejected by the renderer."),
+    ).toBeInTheDocument();
+  },
+};
+
+/**
+ * Engines may return an empty title or a full ISO timestamp. The row stays
+ * named by its URL and shows only the date.
+ *
+ * @summary for a result with an empty title and a timestamp
+ */
+export const UntitledTimestampedResult: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      status: "success" as const,
+      kind: "results" as const,
+      engine: "fixture",
+      query: "engine values",
+      results: [
+        {
+          title: "",
+          url: "https://example.com/untitled",
+          published: "2024-01-15T10:30:00.000Z",
+          snippet: "Body text.",
+        },
+      ],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await expect(
+      canvas.getByRole("button", { name: "https://example.com/untitled" }),
+    ).toBeInTheDocument();
+    await expect(
+      canvas.getByText("example.com · 2024-01-15 · Body text."),
+    ).toBeInTheDocument();
   },
 };
 

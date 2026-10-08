@@ -146,21 +146,22 @@ function ResultItem({
   result: WebSearchResult;
   Markdown: ComponentType<{ children?: string }>;
 }) {
-  const parsedUrl = parseHttpUrl(result.url);
-  const host = parsedUrl?.host;
-  const hasMetadata =
-    host !== undefined ||
-    result.published !== undefined ||
-    result.snippet !== undefined;
+  const metadata = [
+    parseHttpUrl(result.url)?.host,
+    result.published?.slice(0, 10),
+    result.snippet,
+  ].filter(Boolean);
 
   return (
     <li className="pl-1">
-      <SearchLink label={result.title} url={result.url} Markdown={Markdown} />
-      {hasMetadata && (
+      <SearchLink
+        label={result.title || result.url}
+        url={result.url}
+        Markdown={Markdown}
+      />
+      {metadata.length > 0 && (
         <p className="mt-1 text-muted-foreground text-xs">
-          {host}
-          {result.published && <> · {result.published}</>}
-          {result.snippet && <> · {result.snippet}</>}
+          {metadata.join(" · ")}
         </p>
       )}
     </li>
