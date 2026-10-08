@@ -206,8 +206,13 @@ post's `https://t.me` URL, and `Date:`. A reply's parent SHALL NOT be fetched.
 
 #### Scenario: Hidden fallback blocks render nothing
 
-- **WHEN** a supported post carries Telegram's hidden "Please open Telegram to view this post" block and a video player's hidden unsupported-media block
+- **WHEN** a supported post carries Telegram's hidden "Please open Telegram to view this post" block, a sticker's hidden "This media is not supported in your browser" block, and a video player's hidden unsupported-media block
 - **THEN** the entry has no `[unsupported media]` note
+
+#### Scenario: Hashtag links render as plain text
+
+- **WHEN** a post on a channel page links a hashtag as `<a href="?q=%23iOS">#iOS</a>`
+- **THEN** the entry text has `#iOS` with no link, as the Post Widget renders it
 
 #### Scenario: A link preview card renders in full
 
@@ -217,24 +222,29 @@ post's `https://t.me` URL, and `Date:`. A reply's parent SHALL NOT be fetched.
 ### Requirement: Telegram native adapter renders a channel page newest first
 
 A channel locator SHALL render `# {title} (@{name})`, the description,
-`Subscribers:`, and `URL:` with the fetched page URL, then that page's posts
-newest first as thread entries separated by `---`, skipping service messages,
-then `Older:` and `Newer:` lines with the absolute `https://t.me/s/...` URLs
-of Telegram's previous and next page links, each only when its cursor value is
-a valid `{id}`. A read SHALL fetch one page.
+`Subscribers:`, `URL:` with the fetched page URL, then `Older:` and `Newer:`
+with the absolute `https://t.me/s/...` URLs of Telegram's previous and next
+page links, each only when its cursor value is a valid `{id}`, then the
+page's posts newest first as thread entries separated by `---`, skipping
+service messages. A read SHALL fetch one page.
 
 #### Scenario: The newest page lists recent posts first with an older cursor
 
 - **WHEN** the model reads `https://t.me/durov` and Telegram serves 20 posts with a previous-page link only
-- **THEN** the text starts with the channel header, `## Post · 1/20` is the newest post, and `## Post · 20/20` the oldest
-- **AND** it ends with `Older: https://t.me/s/durov?before={id}` and has no `Newer:` line
+- **THEN** the channel header ends with `Older: https://t.me/s/durov?before={id}` and has no `Newer:` line
+- **AND** `## Post · 1/20` is the newest post and `## Post · 20/20` the oldest
 
 #### Scenario: Reading the older cursor returns the preceding page
 
 - **WHEN** the model reads the `Older:` URL from a previous result
 - **THEN** the adapter requests that page only and renders it with both `Older:` and `Newer:` lines when Telegram links both
 
+#### Scenario: Service messages are skipped
+
+- **WHEN** the page holds a service message such as "Channel created" among its posts
+- **THEN** it renders no entry and the `i/n` count excludes it
+
 #### Scenario: An empty page renders the header without dead cursors
 
-- **WHEN** the preview serves the channel header, no posts, and a page link whose cursor value is empty, such as `/s/durov?before=`
+- **WHEN** the preview serves the channel header, a "No posts found" placeholder without a post id, and a page link whose cursor value is empty, such as `/s/durov?before=`
 - **THEN** the text is the header with no entries and no cursor line

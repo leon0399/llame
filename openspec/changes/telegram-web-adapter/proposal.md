@@ -26,9 +26,11 @@ adapter contract it depends on, #708, has shipped.
   - a header with the channel's title, handle, description, and subscriber
     count;
   - Telegram's page of up to 20 posts, newest first;
-  - `Older:` and `Newer:` lines carrying the cursor URLs Telegram links,
-    omitted when Telegram's link holds no valid post id. Cursor URLs carry a
-    query, so a cursor page takes no line selector; only the head page does.
+  - `Older:` and `Newer:` lines under the header carrying the cursor URLs
+    Telegram links, omitted when Telegram's link holds no valid post id.
+    Cursor URLs carry a query, so a cursor page takes no line selector; only
+    the head page does, and the cursor lines sit at the top so they survive
+    the tool-result cap.
 - The adapter cannot read four kinds of locator, and they fall through to the
   generic ladder with a bounded failure note:
   - private `/c/…` links, `?q=` search, and malformed cursors with `address`,
@@ -62,7 +64,6 @@ Settled in the 2026-10-08 design session on #940:
 - Discussion comments are a follow-up blocked by this change.
 - One request per channel read, up to 20 posts, newest first.
 - `?before=` and `?after=` are both claimed, and both cursors are rendered.
-  This decision is provisional and may change during proposal review.
 - `?q=` search is declined as `address`. Date filtering is out of scope.
 - Declines use the existing closed failure categories and fall through. The
   adapter contract gains no refusal outcome.
@@ -133,8 +134,8 @@ None. Web adapters belong to `native-file-tools`.
 - `read("https://t.me/durov/400")` returns `method: "adapter"` and one thread
   entry with the channel, text, date, views, and `Source:`, from a single
   request.
-- `read("https://t.me/durov")` returns the channel header and up to 20 posts,
-  newest first, with an `Older:` cursor URL; reading that URL returns the
+- `read("https://t.me/durov")` returns the channel header with an `Older:`
+  cursor URL and up to 20 posts, newest first; reading that URL returns the
   preceding page.
 - A public-group post renders its sender's name and profile link.
 - `t.me/c/…`, `?q=`, a missing post, and a user or bot name each fall through

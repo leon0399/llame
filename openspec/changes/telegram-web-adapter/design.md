@@ -38,23 +38,41 @@ Posts carry `<time datetime>` (ISO 8601 with offset), views, reactions,
 `tgme_widget_message_forwarded_from`, `tgme_widget_message_reply` (author,
 snippet, parent link), `tgme_widget_message_link_preview`, and media elements
 (photo, video with a duration, voice, round video, sticker, poll, location,
-document with a title, audio as a document whose extra line names title and
-performer). Every post also carries hidden fallback blocks: a
-`.media_not_supported_cont` ("Please open Telegram to view this post") and a
+and documents). A document's `.tgme_widget_message_document_title` holds the
+file name, or an audio track's title; audio is told apart only by the `audio`
+class on `.tgme_widget_message_document_icon`, and its
+`.tgme_widget_message_document_extra` holds the performer (a plain document's
+holds its size). No live voice or location post was found across about 40
+pages; their fixtures follow the class names in `widget-frame.css`.
+
+Posts carry hidden fallback blocks: a `.media_not_supported_cont` ("Please
+open Telegram to view this post", or beside a sticker "This media is not
+supported in your browser"), which can be a direct child of the bubble, and a
 `.message_media_not_supported_wrap` inside each video player, both hidden by
-`widget-frame.css`. Only a `.message_media_not_supported_wrap` that is a
-direct child of `.tgme_widget_message_bubble` is visible; a service message
-uses that position with the label "Service message". Reactions are
-`.tgme_reaction` spans holding either a standard emoji (`<i class="emoji"><b>😢</b></i>`),
-an empty `<tg-emoji emoji-id>` with no Unicode fallback, or a paid
-`.tgme_reaction_paid` star icon, followed by the count. Every emoji in post
-text is wrapped as `<i class="emoji"><b>…</b></i>`, which the shared
-converter would render as `_**🧠**_`.
+`widget-frame.css`. A visible unsupported block is a direct child of
+`.tgme_widget_message_bubble` with the `message_media_not_supported_wrap`
+class and without `media_not_supported_cont`.
+
+Service messages have two markers. On `/s/` the message element carries the
+`service_message` class, sometimes with text ("Channel created"). The widget
+for the same post has no such class and shows a bubble-child unsupported block
+labelled "Service message" (not localized).
+
+Reactions are `.tgme_reaction` spans holding either a standard emoji
+(`<i class="emoji"><b>😢</b></i>`), an empty `<tg-emoji emoji-id>` with no
+Unicode fallback, or a paid `.tgme_reaction_paid` star icon, followed by the
+count. Every emoji in post text is wrapped as `<i class="emoji"><b>…</b></i>`,
+which the shared converter would render as `_**🧠**_`. On `/s/` pages a
+hashtag in post text is a relative anchor `<a href="?q=%23iOS">#iOS</a>`; the
+widget renders the same hashtag as plain text.
 
 An empty page (`?after=` at the newest post, `?before=1`) carries the header,
-no posts, and cursor links with empty values (`/s/durov?before=`). Short
-pages omit links inconsistently (`?after=530` linked no previous page;
-`?after=540` did).
+one `.tgme_widget_message_wrap` holding `tme_no_messages_found` ("No posts
+found") with no `data-post`, and cursor links with empty values
+(`/s/durov?before=`). Short pages omit links inconsistently (`?after=530`
+linked no previous page; `?after=540` did). Post text alone measured 39,057
+characters on `t.me/s/tginfo`, well past the 16,000-character tool-result cap
+(`packages/runtime-safety/src/result-truncation.ts:12`).
 
 ### Prior art
 
@@ -122,10 +140,11 @@ be a list Telegram can grow without notice.
 
 ### D3: Channel page order and cursors
 
-The page's posts are reversed to newest first, numbered `i/n` from the top.
-Service messages are skipped. The cursors are not computed by the adapter. It
-renders `Older:` from the page's `<link rel="prev">` and `Newer:` from
-`<link rel="next">`, made absolute on `https://t.me`. A link that is missing,
+The page's posts, the `.tgme_widget_message[data-post]` elements, are
+reversed to newest first and numbered `i/n` from the top; service messages are
+skipped. The cursors are not computed by the adapter. It renders `Older:` from
+the page's `<link rel="prev">` and `Newer:` from `<link rel="next">`, made
+absolute on `https://t.me`, directly under the header. A link that is missing,
 or whose cursor value is not a valid `{id}` (an empty page links
 `?before=`), renders no line, so every rendered cursor is one the adapter
 claims. The model pages by reading those URLs. This needs no selector grammar
@@ -134,8 +153,11 @@ claims. The model pages by reading those URLs. This needs no selector grammar
 A cursor URL carries a query, and the shared locator grammar never opens a
 selector after a query (`locator.ts:51-56`), so `…?before=390:1-40` reaches the
 adapter as a malformed cursor and falls through with `address`. Cursor pages
-therefore take no selector; they are bounded by Telegram's 20-post page. Only
-the head page (`t.me/durov:1-40`) takes a line selector. Rejected:
+therefore take no selector, and a verbose page can exceed the tool-result
+cap. The cursor lines sit at the top so they survive truncation, and a
+truncated cursor page continues with `?before={id}` built from the last shown
+`Source:` id. Only the head page (`t.me/durov:1-40`) takes a line selector.
+Rejected:
 
 - Chronological order: `:1-40` would show the oldest posts first.
 - Two requests for 40 posts: this doubles rate-limit exposure and can render
@@ -191,20 +213,23 @@ Date: 2026-10-08T15:40:10+00:00
   `— Alexander (https://t.me/a5201852b512af86)`.
 - **Lines:** each line appears only when the markup carries its data.
 - **Body:** before conversion with `convertToMarkdown`, every
-  `<i class="emoji">` and `<tg-emoji>` is replaced by its text and spoiler
-  wrappers are unwrapped, so an emoji renders bare rather than as `_**🧠**_`.
+  `<i class="emoji">` and `<tg-emoji>` is replaced by its text, spoiler
+  wrappers are unwrapped, and an anchor whose `href` starts with `?q=` (a
+  hashtag link on `/s/`) is replaced by its text, matching the widget. Any
+  other relative `href` is resolved against `https://t.me`.
 - **Reactions:** a standard emoji renders as itself, an empty custom emoji as
   `custom`, and a paid reaction as `⭐`, each followed by its count.
 - **Separator:** entries on a channel page are separated by `---`, as in the
   other thread adapters.
-- **Media:** one note per item, so an album renders one note per photo:
-  `[photo]`, `[video {duration}]`, `[video message {duration}]` for a round
-  video, `[voice {duration}]`, `[sticker]`, `[location]`,
-  `[poll: {question}]`, `[audio: {title} — {performer}]`, and
-  `[document: {file name}]`. A visible `.message_media_not_supported_wrap`
-  (a direct child of the bubble, not a service message) and any other media
-  element render `[unsupported media]`; hidden fallback blocks render
-  nothing. No media URL is emitted.
+- **Media:** one note per bubble-child media item, so an album renders one
+  note per photo: `[photo]`, `[video {duration}]`, `[video message {duration}]`
+  for a round video, `[voice {duration}]`, `[sticker]`, `[location]`,
+  `[poll: {question}]`, `[audio: {title} — {performer}]` for a document whose
+  icon has the `audio` class, and `[document: {title}]` for any other
+  document. A visible unsupported block (see Context) and any other
+  `tgme_widget_message_*_wrap`, `_player`, or `_poll` child of the bubble, such
+  as a contact, game, or invoice, render `[unsupported media]`. Hidden
+  fallback blocks render nothing. No media URL is emitted.
 
 ### D6: Channel header
 
@@ -215,12 +240,14 @@ Founder of Telegram.
 
 Subscribers: 10.5M
 URL: https://t.me/s/durov
+Older: https://t.me/s/durov?before=528
 ```
 
 The header renders the title, handle, description (converted like a post body),
-the subscriber counter as Telegram displays it, and `URL:` with the fetched
-page's URL, cursor included. The photo, video, and link counters are omitted.
-A page with no posts renders the header and no entries.
+the subscriber counter as Telegram displays it, `URL:` with the fetched page's
+URL, cursor included, and then the cursor lines (D3). The photo, video, and
+link counters are omitted. A page with no posts renders the header and no
+entries.
 
 ### D7: Structure
 
@@ -259,14 +286,16 @@ differ (JSON versus DOM).
 None. The adapter is opt-in through `tools.webAdapters`; removing the entry
 restores generic-ladder behavior. No data or API changes.
 
-## Open Questions
-
-- Whether `?after=` survives proposal review. It is marked provisional; if it
-  is dropped, the `Newer:` line goes with it. Neither outcome changes the
-  remaining tasks.
-
 ## Revision history
 
+- **r3 (2026-10-08):** Review round 2. Service messages detected by
+  `.service_message` on `/s/` and the "Service message" block on the widget;
+  hidden blocks excluded by `media_not_supported_cont`, which also covers
+  stickers; audio told apart by the icon's `audio` class; "other media"
+  defined by bubble-child class names; hashtag `?q=` anchors rendered as text
+  and other relative links resolved; a post is `.tgme_widget_message[data-post]`;
+  cursor lines moved under the header so they survive the 16,000-character
+  result cap; `?after=` confirmed and its open question removed.
 - **r2 (2026-10-08):** Review round 1. Cursor lines only for valid `{id}`
   values; cursor pages take no selector; hidden fallback blocks and service
   messages excluded from media notes; emoji unwrapped before conversion;
