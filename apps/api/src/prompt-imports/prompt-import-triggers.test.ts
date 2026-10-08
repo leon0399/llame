@@ -48,7 +48,7 @@ describe('derivePromptImportTriggers', () => {
     expect(triggers).toEqual([]);
   });
 
-  it('normalizes an uppercase Space id in a persisted kb:// entry', () => {
+  it('does not trigger on an uppercase Space id in a persisted kb:// entry', () => {
     const triggers = derivePromptImportTriggers(
       [
         {
@@ -69,7 +69,6 @@ describe('derivePromptImportTriggers', () => {
     expect(triggers).toEqual([
       { space: { id: SPACE_ID }, key: 'notes/a.md' },
       { space: { id: SPACE_ID }, key: '' },
-      { space: { id: SPACE_ID }, key: 'a.md' },
     ]);
   });
 

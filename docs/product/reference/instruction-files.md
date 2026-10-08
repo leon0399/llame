@@ -66,9 +66,11 @@ import needs the native executor and a `kb://` import needs the Knowledge root,
 and both need `read` allowlisted. The import's read outcome does not matter, so
 a failed read still loads its directory's chain. A denied, missing, web, or
 `skill://` target loads nothing, and importing an instruction file itself
-neither loads nor marks it, though the root load can still select it. An
-attempt that detaches the Workspace stages no import load, and a retry stages
-the same load again from the stored item.
+neither loads nor marks it. Another prompt import in the same directory, or
+one whose chain walks through it, still selects that file even when no Workspace
+is bound; a bound-root load can also select it. An attempt that detaches the
+Workspace stages no import load, and a retry stages the same load again from the
+stored item.
 
 ## Knowledge Space triggers
 
