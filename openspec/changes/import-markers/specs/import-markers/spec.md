@@ -95,7 +95,7 @@ A bare `@target` SHALL start only when the source character before `@` is the st
 
 ### Requirement: Link markers require the import title and a valid at-sign boundary
 
-The system SHALL recognize `@[label](target)` only when its `@` is at a bare-marker boundary, and `[label](target "import")` only when the title is exactly `import`, in both cases only when the destination source spells the target verbatim. Plain links, images, image references, link references, definitions, and marker-shaped text inside link syntax SHALL not be import markers.
+The system SHALL recognize `@[label](target)` only when `@` has a bare-marker boundary, and `[label](target "import")` only when the title's source text inside its delimiters is exactly `import`; in either case, the destination is `verbatim` if its source text, after removing enclosing `<` and `>` from an angle-bracket destination, equals the target. Character references and escapes in destination or title do not count. Other link forms and marker-shaped text SHALL not be import markers.
 
 #### Scenario: A plain Markdown link is not an import marker
 
@@ -106,6 +106,16 @@ The system SHALL recognize `@[label](target)` only when its `@` is at a bare-mar
 
 - **WHEN** the text contains `[docs](README.md "import")`
 - **THEN** one import marker is recognized with target `README.md`
+
+#### Scenario: An angle-bracket destination matches its source target
+
+- **WHEN** the text contains `[x](<a b.md> "import")`
+- **THEN** one import marker is recognized with target `a b.md`
+
+#### Scenario: An encoded import title is not an import marker
+
+- **WHEN** the text contains `[click here](a.md "&#105;mport")`
+- **THEN** no import marker is recognized
 
 #### Scenario: An at-prefixed Markdown link is an import marker
 
