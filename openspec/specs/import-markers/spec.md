@@ -6,9 +6,9 @@ This capability defines the shared Markdown import-marker grammar and source-pre
 
 ## Requirements
 
-### Requirement: Markdown text recognizes only the three import marker shapes
+### Requirement: Markdown text recognizes only the defined import marker shapes
 
-The system SHALL recognize import markers in ordinary Markdown source only as `@target`, `@[label](target)`, or `[label](target "import")` with exactly `import` as the title. Boundaries and tokens SHALL use source characters. Source ranges of fenced code, inline code, raw HTML, images, image references, links, link references, and link reference definitions SHALL be excluded; only the two explicit link shapes are exceptions. Escaped `\@` and `&#64;` SHALL not be markers.
+The system SHALL recognize import markers in Markdown source only as `@target`, `@"target"`, `@'target'`, `` @`target` ``, `@[label](target)`, or `[label](target "import")` with exactly `import` as the title. Boundaries and tokens SHALL use source characters. Source ranges of fenced code, inline code, raw HTML, images, image references, links, link references, and link reference definitions SHALL be excluded, except link and backtick markers. Escaped `\@` and `&#64;` SHALL not be markers.
 
 #### Scenario: An email address is not a marker
 
@@ -44,6 +44,50 @@ The system SHALL recognize import markers in ordinary Markdown source only as `@
 
 - **WHEN** the text contains `[r]: @a.md "import"`
 - **THEN** no import marker is recognized
+
+### Requirement: Delimited bare markers carry the whole locator
+
+Delimited markers `@"…"`, `@'…'`, and `` @`…` `` SHALL carry non-empty, single-line content unchanged as the target, selectors included, with no escapes. Their `@` SHALL have the bare boundary. A backtick marker is an `@` ending a text run directly before an inline code span; code contents are never scanned. After the closing delimiter only whitespace, end, or trailing `.,;!?)]}>"'` then whitespace or end may follow; otherwise there is no marker.
+
+#### Scenario: A quoted marker preserves spaces in a path
+
+- **WHEN** the text contains `@"my notes/a b.md"`
+- **THEN** the marker target is `my notes/a b.md`
+
+#### Scenario: A backtick marker preserves a selector
+
+- **WHEN** the text contains `` @`file name.md:30-35` ``
+- **THEN** the marker target is `file name.md:30-35`
+
+#### Scenario: A quoted marker preserves a web selector
+
+- **WHEN** the text contains `@'https://x/y:outline'`
+- **THEN** the marker target is `https://x/y:outline`
+
+#### Scenario: Glued text after a quoted marker invalidates it
+
+- **WHEN** the text contains `@"a b.md"x`
+- **THEN** no import marker is recognized
+
+#### Scenario: An empty quoted marker is not recognized
+
+- **WHEN** the text contains `@""`
+- **THEN** no import marker is recognized
+
+#### Scenario: A quoted target cannot span a line ending
+
+- **WHEN** the source contains `@"a` followed by a line ending and `b.md"`
+- **THEN** no import marker is recognized
+
+#### Scenario: An at-sign inside inline code is not a marker
+
+- **WHEN** the text contains `` see `@a.md` ``
+- **THEN** no import marker is recognized
+
+#### Scenario: A backtick marker may follow an opening parenthesis
+
+- **WHEN** the text contains ``(@`a b.md`).``
+- **THEN** the marker target is `a b.md`
 
 ### Requirement: Bare markers obey boundary, token, and selector rules
 
