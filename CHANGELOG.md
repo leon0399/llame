@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `hackernews` web adapter. With
+  `{ "id": "hackernews", "use": "hackernews" }` in `tools.webAdapters`, `read`
+  renders `news.ycombinator.com/item?id=` links, which the generic converter
+  left as raw table markup, as x.md-style threads with every reply, from the
+  keyless Algolia Hacker News API.
 - Added a native `crates` web adapter. With `{ "id": "crates", "use": "crates" }`
   in `tools.webAdapters`, `read` renders crates.io crate and version pages,
   which serve an empty JavaScript shell, as the version's metadata, features,

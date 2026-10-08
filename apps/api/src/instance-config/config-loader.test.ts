@@ -959,10 +959,21 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     const arxiv = { id: 'arxiv', use: 'arxiv' as const };
     const se = { id: 'se', use: 'stackexchange' as const };
     const crates = { id: 'crates', use: 'crates' as const };
+    const hn = { id: 'hn', use: 'hackernews' as const };
     writeConfig(
       JSON.stringify({
         tools: {
-          webAdapters: [rewrite, github, bluesky, npm, hf, arxiv, se, crates],
+          webAdapters: [
+            rewrite,
+            github,
+            bluesky,
+            npm,
+            hf,
+            arxiv,
+            se,
+            crates,
+            hn,
+          ],
         },
       }),
     );
@@ -976,6 +987,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       arxiv,
       se,
       crates,
+      hn,
     ]);
   });
 

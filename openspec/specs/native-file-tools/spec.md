@@ -1931,8 +1931,8 @@ address resolution and pinning, 10-second header bound, 30-second call bound,
 5 MiB per-response body bound, and redirect rules as the generic web path.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
-credential, and the Bluesky, npm, Hugging Face, arXiv, Stack Exchange, and
-crates.io adapters SHALL send none; the GitHub token SHALL be
+credential, and the Bluesky, npm, Hugging Face, arXiv, Stack Exchange,
+crates.io, and Hacker News adapters SHALL send none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1956,8 +1956,8 @@ adapter outcome SHALL declare the media type of its document so the
 representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
-sources use; the Bluesky, npm, Hugging Face, Stack Exchange, and crates.io
-adapters label their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
+sources use; the Bluesky, npm, Hugging Face, Stack Exchange, crates.io, and
+Hacker News adapters label their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2523,6 +2523,30 @@ anchors (such as GitHub-style heading links) removed.
 
 - **WHEN** the README HTML opens a heading with `<a href="#usage" id="user-content-usage"></a>`
 - **THEN** the heading renders as `## Usage`, with no `[](#usage)` link
+
+### Requirement: Hacker News native adapter reads item threads
+
+A configured `hackernews` adapter SHALL claim only
+`https://news.ycombinator.com/item` locators whose `id` query parameter is a
+positive decimal item id, ignoring other query parameters; every other path
+SHALL be unclaimed. The adapter SHALL send one unauthenticated `GET` to
+`https://hn.algolia.com/api/v1/items/{id}`; a failed or unparsable response
+SHALL fall through.
+
+The render SHALL use x.md's thread layout: the requested item as
+`## Post · 1/{n} — @{author}`, then every reply depth-first in the response's
+order as `## Reply · {i}/{n} — @{author}`, with a `Replying to @{author}` line
+when the reply answers an item other than the requested one, the item's title
+in bold and a `Link:` line when present, its text converted to Markdown,
+`Points:` when present, and `Source:` and `Date:` lines; entries SHALL be
+separated by a `---` line between blank lines. A deleted item SHALL render as
+`[deleted]` in place so its replies keep their position.
+
+#### Scenario: A story renders with its reply tree
+
+- **WHEN** the model reads `https://news.ycombinator.com/item?id=8863`
+- **THEN** the adapter requests only `https://hn.algolia.com/api/v1/items/8863`
+- **AND** the text has one `Post` entry followed by one `Reply` entry per comment, each with `Source:` and `Date:` lines
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 

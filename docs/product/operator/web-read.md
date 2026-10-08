@@ -92,7 +92,7 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
-`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, or `crates` entry. What an adapter does to a result — its
+`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, or `hackernews` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -356,6 +356,23 @@ redirects to `https://static.crates.io/readmes/...`, so with a domain allowlist
 add clauses for `^https://crates\.io/api/` and `^https://static\.crates\.io/`;
 without the second, reads carry `readme omitted: permission`. A failed
 dependency list or README keeps the rest with an omission note.
+
+### Hacker News adapter
+
+Add a `hackernews` entry to render Hacker News threads, whose table layout
+the generic converter leaves as raw markup:
+
+```jsonc
+{ "id": "hackernews", "use": "hackernews" }
+```
+
+The entry takes no other field and sends no credential. It claims
+`https://news.ycombinator.com/item?id={id}`, ignoring other query parameters;
+front pages, user pages, and every other path stay on the generic ladder. A
+read is one request to `https://hn.algolia.com/api/v1/items/{id}`, which
+returns the item with its whole reply tree, so with a domain allowlist add a
+clause for `^https://hn\.algolia\.com/`. A very large thread whose response
+exceeds the 5 MiB body bound falls through with `too_large`.
 
 ## Derived locators and permission admission
 
