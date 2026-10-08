@@ -12,28 +12,31 @@ observed:
 sources:
   - id: home
     resource: "https://agentcache.run/"
-    title: "Product page: bundle layout, CLI and MCP snippets"
+    title: "Product page: bundle layout, CLI and MCP snippets (live page; sha256:75e212ba68a2bb1a of the 2026-10-08 fetch)"
   - id: about
     resource: "https://agentcache.run/about"
-    title: "Pipeline description, license, managed service"
+    title: "Pipeline description, license, managed service (live page; two fetches on 2026-10-08 hashed differently, so no digest)"
   - id: ladder
     resource: "https://agentcache.run/blog/acquisition-ladder"
-    title: "Six-tier acquisition ladder"
+    title: "Six-tier acquisition ladder (live page; sha256:fea1c1dfc202bc31 of the 2026-10-08 fetch)"
   - id: no-llm
     resource: "https://agentcache.run/blog/why-no-llm-extraction"
-    title: "Where LLMs fit in documentation extraction"
+    title: "Where LLMs fit in documentation extraction (live page; sha256:e3826946fd657eab of the 2026-10-08 fetch)"
   - id: llms-txt
     resource: "https://agentcache.run/llms.txt"
-    title: "Agent-facing usage and API summary"
+    title: "Agent-facing usage and API summary (live page; sha256:cfcbe08f46d35771 of the 2026-10-08 fetch)"
   - id: openapi
     resource: "https://agentcache.run/openapi.json"
-    title: "Agent Cache API 1.0.0 (5 paths, no security schemes)"
+    title: "Agent Cache API 1.0.0, 5 paths, no security schemes (live page; sha256:14f28a6fb7187070 of the 2026-10-08 fetch)"
   - id: privacy
     resource: "https://agentcache.run/privacy"
-    title: "Storage and retention"
+    title: "Storage and retention (live page; sha256:5c80705739ce3661 of the 2026-10-08 fetch)"
   - id: context7-compare
     resource: "https://agentcache.run/compare/context7"
-    title: "Vendor comparison with Context7"
+    title: "Vendor comparison with Context7 (live page; sha256:4e22f9e00ce63189 of the 2026-10-08 fetch)"
+  - id: llame-web-locator
+    resource: "../../product/reference/locators/web.md"
+    title: "llame web locator reference: read probes and derived-locator admission"
   - id: llame-prompt-cache
     resource: "../tool-harness/2026-09-26-prompt-cache-boundaries.md"
     title: "Provider prompt caching, explicit cache boundaries, and llame's dynamic context"
@@ -71,7 +74,7 @@ authoritative source rather than remembered APIs.[^home]
    vendor's samples and unverified. Moderate confidence the order is sound.
    llame's native `read` already negotiates Markdown, follows announced
    alternates, probes a `.md` suffix and `llms.txt` per locator, with admission
-   per derived request.[^llame-prompt-cache] The new idea is the GitHub-tree
+   per derived request.[^llame-web-locator] The new idea is the GitHub-tree
    tier and whole-site fan-out, which llame's per-locator `read` lacks and
    which would need its own egress and quota admission. Study only; low
    confidence it is worth building.
@@ -90,7 +93,7 @@ authoritative source rather than remembered APIs.[^home]
    No TTL, ETag revalidation or staleness signal is documented.[^llms-txt][^home]
    Provider prompt caching (llame already ships the Anthropic `cacheControl`
    default) is unrelated: its key is the request prefix. Do not cite Agent Cache
-   in the [prompt-cache study](../tool-harness/2026-09-26-prompt-cache-boundaries.md).
+   in the [prompt-cache study](../tool-harness/2026-09-26-prompt-cache-boundaries.md).[^llame-prompt-cache]
 
 4. **Isolation: none for the hosted service.** The OpenAPI document declares
    no security schemes; `POST /api/jobs`, `GET /api/jobs` (list of completed
@@ -146,4 +149,6 @@ maintainer, and cannot be pinned to a source revision from here.[^home][^about]
 
 [^context7-compare]: [Compare with Context7](https://agentcache.run/compare/context7)
 
-[^llame-prompt-cache]: [llame README, web read](../../../README.md) and [prompt-cache study](../tool-harness/2026-09-26-prompt-cache-boundaries.md)
+[^llame-web-locator]: [Web locator reference](../../product/reference/locators/web.md)
+
+[^llame-prompt-cache]: [Prompt-cache study](../tool-harness/2026-09-26-prompt-cache-boundaries.md)

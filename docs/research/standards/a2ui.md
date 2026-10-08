@@ -188,7 +188,8 @@ demo source was run for this entry.
 | Back to agent      | `action` with `context`                | Named actions run by app handlers | Next-run tool message or `resume`                |
 | Carries the others | Over A2A, AG-UI, MCP                   | Accepts A2UI input                | Carries A2UI, MCP Apps (see [AG-UI](./ag-ui.md)) |
 
-**llame fit: study (moderate confidence), protocol watch.** llame renders stored
+**llame fit: study.** Confidence is moderate, and the protocol itself still
+moves, so track its releases while studying it. llame renders stored
 `messages.parts` through fixed `@workspace/ui` elements, and the repository rule
 requires a spec for any new replay transform or part type. An A2UI surface would be
 a stored part type, so adopting it is a spec decision, not a library install.

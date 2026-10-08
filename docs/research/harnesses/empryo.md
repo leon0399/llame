@@ -49,7 +49,7 @@ sources:
 
 # Empryo (SoulForge)
 
-- **Stack:** Bun, TypeScript, OpenTUI, Vercel AI SDK, SQLite; BUSL-1.1 public core (Apache-2.0 on 2030-03-15), proprietary v3 terms[^readme-license-l85-l95][^license-l1-l20]
+- **Stack:** Bun, TypeScript, OpenTUI, Vercel AI SDK, SQLite; BUSL-1.1 public core (Apache-2.0 no later than 2030-03-15), proprietary v3 terms[^readme-license-l85-l95][^license-l1-l20]
 
 **Status:** Source inspection only; nothing was run. The repository is the public
 SoulForge v2 core and engine, not the current Empryo v3 product, so this

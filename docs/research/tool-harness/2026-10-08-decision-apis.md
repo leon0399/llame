@@ -12,28 +12,22 @@ observed:
 sources:
   - id: openai-guide
     resource: "https://developers.openai.com/api/docs/guides/decisions"
-    title: "OpenAI Decisions guide (unversioned page, read 2026-10-08)"
+    title: "OpenAI Decisions guide (live page, no version identifier; read 2026-10-08)"
   - id: openai-python
     resource: "https://github.com/openai/openai-python/tree/b99e3e4eee03e99eebc2c762eee9d73fdd4b0eff/src/openai/types"
-    title: "openai-python decision.py and decision_create_params.py"
+    title: "openai-python decision.py and decision_create_params.py (committed 2026-10-06, released as v3.26.0)"
   - id: openai-node
     resource: "https://github.com/openai/openai-node/commit/7195644a4fa98d4d379903a00e6ba6350136ab02"
-    title: "openai-node standalone Decisions support"
-  - id: openai-announce
-    resource: "https://x.com/OpenAIDevs/status/2107573387489165530"
-    title: "OpenAIDevs reply thread, text read through the fxtwitter mirror"
+    title: "openai-node standalone Decisions support (committed 2026-10-06, released as v7.30.0)"
   - id: decoder-devday
     resource: "https://the-decoder.com/openai-expands-codex-and-its-api-at-devday-with-security-scans-a-decisions-api-and-ultrafast/"
-    title: "The Decoder DevDay report (secondary)"
+    title: "The Decoder DevDay report (secondary; live page, no version identifier; read 2026-10-08; dated 2026-09-29)"
   - id: decisionapi-docs
     resource: "https://decisionapi.net/docs"
-    title: "decisionapi.net API reference"
+    title: "decisionapi.net API reference (live page, no version identifier; read 2026-10-08)"
   - id: decisionapi-site
     resource: "https://decisionapi.net"
-    title: "decisionapi.net landing page, FAQ and pricing"
-  - id: hf-guide
-    resource: "https://huggingface.co/blog/sora-2/what-is-openai-decisions-api-a-practical-guide"
-    title: "User-namespace Hugging Face guide (secondary, not relied on)"
+    title: "decisionapi.net landing page, FAQ and pricing (live page, no version identifier; read 2026-10-08)"
   - id: jev-report
     resource: "./2026-09-23-system-one-jev/report.md"
     title: "System One and Jev report"
@@ -55,9 +49,8 @@ endpoint and a gateway rather than describing a single product.
 
 ## OpenAI Decisions API
 
-**Status.** Public beta; the guide expects GA "in the coming weeks".[^openai-guide]
-The DevDay report of the limited preview is dated 2026-09-29 and the
-SDK commits land 2026-10-06.[^decoder-devday][^openai-python]
+**Status.** Public beta; the guide expects GA "in the coming weeks".[^openai-guide] The
+launch is reported as a limited preview.[^decoder-devday]
 
 **Request.** `POST /v1/decisions` with `model`, `input` and `questions`, plus an
 optional `safety_identifier`. `input` is a string or user messages holding text
@@ -137,8 +130,10 @@ something any source states.
   low-latency path. The probabilities are model signals; decisionapi.net says
   confidence is not an accuracy guarantee.[^decisionapi-site]
 - **OMP JUDGE / Jev.** Same interface idea. JUDGE is a role that chooses a
-  backend (TypeSafe Jev, OpenRouter, or a local model) and treats a failed call
-  as an application-specific no-op.[^jev-report] OpenAI's endpoint is a fourth
+  backend (TypeSafe Jev, OpenRouter, or a local model) and handles failures by
+  kind: an aborted or timed-out call propagates, an ordinary failure advances to
+  another retained candidate, and a failed native judgment is not replaced by
+  prompted probabilities.[^jev-report] OpenAI's endpoint is a fourth
   possible backend, not a replacement for the role. `gpt-6-luna` is hosted only.
 
 ## llame applications
@@ -181,12 +176,14 @@ disclosure policy first.
   and count it in the Run usage.
 - **R5 Secrets.** Never pass resolved credentials or tokens in `input`; apply
   the same redaction as for model context.
-- **R6 Beta churn.** Public beta, one model, SDK minimums (Python 3.26.0, JS
-  7.30.0) and schema fields may change before GA.
+- **R6 Beta churn.** Public beta, one model, SDK minimums (Python 3.26.0,[^openai-python] JS
+  7.30.0[^openai-node]) and schema fields may change before GA.
 
 [^openai-guide]: [OpenAI Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
 
 [^openai-python]: [openai-python types at b99e3e4e](https://github.com/openai/openai-python/tree/b99e3e4eee03e99eebc2c762eee9d73fdd4b0eff/src/openai/types)
+
+[^openai-node]: [openai-node standalone Decisions commit](https://github.com/openai/openai-node/commit/7195644a4fa98d4d379903a00e6ba6350136ab02)
 
 [^decoder-devday]: [The Decoder DevDay report](https://the-decoder.com/openai-expands-codex-and-its-api-at-devday-with-security-scans-a-decisions-api-and-ultrafast/)
 
