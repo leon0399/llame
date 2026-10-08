@@ -19,6 +19,7 @@ import {
   type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
 import { ModelSwitchBoundary } from "@workspace/ui/components/custom/model-switch-boundary";
+import { ReadTool } from "@workspace/ui/components/custom/read";
 import { WebSearchTool } from "@workspace/ui/components/custom/web-search";
 import {
   getToolName,
@@ -138,14 +139,15 @@ function MessagePartView({
     return <MessageResponse>{part.text}</MessageResponse>;
   }
   if (isToolUIPart(part)) {
-    if (getToolName(part) === "web_search") {
-      const toolState = toolHeaderState(part);
+    const toolName = getToolName(part);
+    if (toolName === "web_search" || toolName === "read") {
+      const DedicatedTool = toolName === "read" ? ReadTool : WebSearchTool;
       return (
-        <WebSearchTool
+        <DedicatedTool
           input={part.input}
           output={part.output}
           errorText={part.errorText}
-          state={toolState}
+          state={toolHeaderState(part)}
           Markdown={renderers.MessageResponse}
         />
       );
