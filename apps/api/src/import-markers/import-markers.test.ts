@@ -87,6 +87,53 @@ describe('importTargets', () => {
     expect(importTargets("'@a.md'")).toEqual(['a.md']);
   });
 
+  it('recognizes quoted markers and preserves locator selectors', () => {
+    expect(
+      importTargets(
+        '@"a b.md" @\'it"s.md\' @"kb://guide:raw" @"skill://review:30-35" @"https://x/y:outline"',
+      ),
+    ).toEqual([
+      'a b.md',
+      'it"s.md',
+      'kb://guide:raw',
+      'skill://review:30-35',
+      'https://x/y:outline',
+    ]);
+  });
+
+  it('requires a boundary before and after quoted markers', () => {
+    expect(importTargets('x@"a b.md"')).toEqual([]);
+    expect(importTargets('@"a b.md"x')).toEqual([]);
+    expect(importTargets('@"a b.md".,')).toEqual(['a b.md']);
+    expect(importTargets('@"a @hidden.md"x')).toEqual([]);
+    expect(importTargets('@"a"@b.md')).toEqual([]);
+  });
+
+  it('continues bare scanning after an unterminated quoted marker', () => {
+    expect(importTargets('@"a @hidden.md\n@visible.md')).toEqual([
+      'hidden.md',
+      'visible.md',
+    ]);
+    expect(importTargets('@"a\nb.md"\n@next.md')).toEqual(['next.md']);
+    expect(importTargets('say @" then @README.md')).toEqual(['README.md']);
+  });
+
+  it('does not close quoted markers on masked delimiters', () => {
+    expect(importTargets(' @"a `x" y` z ')).toEqual([]);
+    expect(importTargets('@"a <!-- " --> b')).toEqual([]);
+  });
+
+  it('recognizes inline code markers by source offsets', () => {
+    expect(importTargets('@`a.md`')).toEqual(['a.md']);
+    expect(importTargets('@``a`b.md``')).toEqual(['a`b.md']);
+    expect(importTargets('@`a.md`.')).toEqual(['a.md']);
+    expect(importTargets('@`a.md`x')).toEqual([]);
+    expect(importTargets('x@`a.md`')).toEqual([]);
+    expect(importTargets('`a.md`')).toEqual([]);
+    expect(importTargets('@`a\nb.md`')).toEqual([]);
+    expect(importTargets('[@`a.md`][missing]')).toEqual([]);
+  });
+
   it('does not treat a plain link after a non-marker boundary as an import', () => {
     expect(importTargets('([a](b))')).toEqual([]);
   });
@@ -205,6 +252,14 @@ describe('importTargets', () => {
     ).toEqual(['a.md', 'b.md', 'c.md']);
   });
 
+  it('orders mixed marker forms and deduplicates across forms', () => {
+    expect(importTargets('@a.md @"b.md" @`c.md` @"a.md" @`b.md`')).toEqual([
+      'a.md',
+      'b.md',
+      'c.md',
+    ]);
+  });
+
   it('treats selector variants as distinct targets', () => {
     expect(importTargets('@README.md:raw\n@README.md:outline')).toEqual([
       'README.md:raw',
@@ -216,6 +271,19 @@ describe('importTargets', () => {
     const nestedAtSigns = '(@'.repeat(32_768);
     const longTarget = '@' + '.'.repeat(65_536) + 'x';
     const unmatchedBrackets = '['.repeat(65_536);
+    const unmatchedQuotes = '@"'.repeat(32_768);
+    const unterminatedQuoteChunk = ' @a.md';
+    const unterminatedQuotes = (
+      '@"' +
+      unterminatedQuoteChunk.repeat(
+        Math.ceil((64 * 1024 - 2) / unterminatedQuoteChunk.length),
+      )
+    ).slice(0, 64 * 1024);
+
+    const completeBacktickChunk = ' @`a`';
+    const completeBackticks = completeBacktickChunk.repeat(
+      Math.floor((64 * 1024) / completeBacktickChunk.length),
+    );
 
     const nestedAtStartedAt = performance.now();
     const nestedAtTargets = importTargets(nestedAtSigns);
@@ -230,12 +298,25 @@ describe('importTargets', () => {
     const unmatchedBracketsStartedAt = performance.now();
     expect(importTargets(unmatchedBrackets)).toEqual([]);
     expect(performance.now() - unmatchedBracketsStartedAt).toBeLessThan(5000);
+    const unmatchedQuotesStartedAt = performance.now();
+    expect(importTargets(unmatchedQuotes)).toEqual([]);
+    expect(performance.now() - unmatchedQuotesStartedAt).toBeLessThan(5000);
+    const unterminatedQuotesStartedAt = performance.now();
+    expect(importTargets(unterminatedQuotes)).toEqual(['a.md']);
+    expect(performance.now() - unterminatedQuotesStartedAt).toBeLessThan(5000);
+
+    const completeBackticksStartedAt = performance.now();
+    expect(importTargets(completeBackticks)).toEqual(['a']);
+    expect(performance.now() - completeBackticksStartedAt).toBeLessThan(5000);
   });
 
   it('does not emit empty import targets', () => {
     expect(importTargets('@')).toEqual([]);
     expect(importTargets('@:')).toEqual([]);
     expect(importTargets('[x](<> "import")')).toEqual([]);
+    expect(importTargets('@``')).toEqual([]);
+    expect(importTargets('@""')).toEqual([]);
+    expect(importTargets("@''")).toEqual([]);
   });
 
   it('recognizes nested parentheses in link destinations', () => {

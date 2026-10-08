@@ -14,6 +14,18 @@ type Marker = {
   offset: number;
   target: string;
 };
+type QuoteDelimiter = '"' | "'";
+type UnclosedQuoteLineEnds = Record<QuoteDelimiter, number | undefined>;
+type MarkerContext = {
+  source: string;
+  mask: Uint8Array;
+  markers: Array<Marker>;
+};
+type QuotedMarkerContext = {
+  mask: Uint8Array;
+  unclosedLineEnds: UnclosedQuoteLineEnds;
+  markers: Array<Marker>;
+};
 
 const EXCLUDED_NODE_TYPES = {
   code: true,
@@ -39,6 +51,115 @@ function isBareBoundary(source: string, offset: number): boolean {
   if (offset === 0) return true;
   const previous = source.at(offset - 1);
   return previous !== undefined && /[\s([{<"']/u.test(previous);
+}
+function isDelimitedBoundary(source: string, offset: number): boolean {
+  let character = source.at(offset);
+  if (character !== undefined && /\s/u.test(character)) return true;
+
+  while (character !== undefined && TRAILING_PUNCTUATION.includes(character)) {
+    offset += 1;
+    character = source.at(offset);
+  }
+  return character === undefined || /\s/u.test(character);
+}
+
+function findTokenEnd(source: string, offset: number): number {
+  while (source.at(offset) !== undefined) {
+    if (/\s/u.test(source.charAt(offset))) break;
+    offset += 1;
+  }
+  return offset;
+}
+function sliceBareTarget(source: string, start: number, end: number): string {
+  let targetEnd = end;
+  while (TRAILING_PUNCTUATION.includes(source.charAt(targetEnd - 1))) {
+    targetEnd -= 1;
+  }
+  if (source.charAt(targetEnd - 1) === ':') targetEnd -= 1;
+  return source.slice(start, targetEnd);
+}
+
+function collectQuotedMarker(
+  source: string,
+  offset: number,
+  delimiter: QuoteDelimiter,
+  context: QuotedMarkerContext,
+): number {
+  const lineEnd = context.unclosedLineEnds[delimiter];
+
+  if (lineEnd !== undefined && offset < lineEnd) return offset + 2;
+
+  let closingOffset = offset + 2;
+  while (source.at(closingOffset) !== undefined) {
+    const character = source.at(closingOffset);
+    if (character === '\n' || character === '\r') {
+      context.unclosedLineEnds[delimiter] = closingOffset;
+      return offset + 2;
+    }
+    if (context.mask[closingOffset] === 1) return closingOffset;
+    if (character === delimiter) {
+      const end = closingOffset + 1;
+      if (!isDelimitedBoundary(source, end)) {
+        return findTokenEnd(source, end);
+      }
+      addMarker(
+        context.markers,
+        offset,
+        source.slice(offset + 2, closingOffset),
+      );
+      return end;
+    }
+    closingOffset += 1;
+  }
+
+  context.unclosedLineEnds[delimiter] = source.length;
+  return offset + 2;
+}
+
+function findInlineCodeMarker(
+  value: string,
+  range: SourceRange,
+  position: NonNullable<Nodes['position']>,
+  context: MarkerContext,
+): void {
+  const atOffset = range.start - 1;
+  if (
+    atOffset < 0 ||
+    context.source.at(atOffset) !== '@' ||
+    context.mask[atOffset] === 1 ||
+    !isBareBoundary(context.source, atOffset) ||
+    position.start.line !== position.end.line ||
+    !isDelimitedBoundary(context.source, range.end)
+  )
+    return;
+  addMarker(context.markers, atOffset, value);
+}
+
+function collectNodeMarkers(
+  node: Nodes,
+  range: SourceRange | undefined,
+  source: string,
+  markers: Array<Marker>,
+): void {
+  if (range === undefined || node.type !== 'link') return;
+  const labelEnd =
+    node.children.at(-1)?.position?.end.offset ?? range.start + 1;
+  const rawLink = parseRawLink(source, range, labelEnd);
+  if (rawLink === undefined || rawLink.destination !== node.url) return;
+  if (rawLink.title !== undefined && rawLink.title !== 'import') return;
+  if (node.title !== null) {
+    addMarker(markers, range.start, node.url);
+    return;
+  }
+
+  const atOffset = range.start - 1;
+  if (
+    atOffset >= 0 &&
+    source.at(atOffset) === '@' &&
+    isBareBoundary(source, atOffset)
+  ) {
+    addMarker(markers, atOffset, node.url);
+  }
 }
 
 function addMarker(
@@ -168,44 +289,18 @@ function parseRawLink(
   return { destination, title };
 }
 
-function collectNodeMarkers(
-  node: Nodes,
-  range: SourceRange | undefined,
-  source: string,
-  markers: Array<Marker>,
-): void {
-  if (range === undefined || node.type !== 'link') return;
-  const labelEnd =
-    node.children.at(-1)?.position?.end.offset ?? range.start + 1;
-  const rawLink = parseRawLink(source, range, labelEnd);
-  if (rawLink === undefined || rawLink.destination !== node.url) return;
-  if (rawLink.title !== undefined && rawLink.title !== 'import') return;
-  if (node.title !== null) {
-    addMarker(markers, range.start, node.url);
-    return;
-  }
-
-  const atOffset = range.start - 1;
-  if (
-    atOffset >= 0 &&
-    source.at(atOffset) === '@' &&
-    isBareBoundary(source, atOffset)
-  ) {
-    addMarker(markers, atOffset, node.url);
-  }
-}
-
-function visitNode(
-  node: Nodes,
-  source: string,
-  mask: Uint8Array,
-  markers: Array<Marker>,
-): void {
+function visitNode(node: Nodes, context: MarkerContext): void {
+  const { source, mask, markers } = context;
   const range = nodeRange(node);
+  const position = node.position;
   if (range && Object.hasOwn(EXCLUDED_NODE_TYPES, node.type)) {
     mask.fill(1, range.start, range.end);
   }
 
+  if (range && position && node.type === 'inlineCode') {
+    findInlineCodeMarker(node.value, range, position, context);
+    return;
+  }
   collectNodeMarkers(node, range, source, markers);
 }
 
@@ -218,17 +313,12 @@ function appendChildren(node: Nodes, pending: Array<Nodes>): void {
   }
 }
 
-function collectNodes(
-  root: Nodes,
-  source: string,
-  mask: Uint8Array,
-  markers: Array<Marker>,
-): void {
+function collectNodes(root: Nodes, context: MarkerContext): void {
   const pending: Array<Nodes> = [root];
   while (pending.length > 0) {
     const node = pending.pop();
     if (node === undefined) continue;
-    visitNode(node, source, mask, markers);
+    visitNode(node, context);
     appendChildren(node, pending);
   }
 }
@@ -305,36 +395,37 @@ function collectBareMarkers(
   mask: Uint8Array,
   markers: Array<Marker>,
 ): void {
+  const quoteContext: QuotedMarkerContext = {
+    mask,
+    unclosedLineEnds: { '"': undefined, "'": undefined },
+    markers,
+  };
+
   for (let offset = 0; source.at(offset) !== undefined; ) {
     if (
       source.at(offset) !== '@' ||
       !isBareBoundary(source, offset) ||
+      mask[offset] === 1 ||
       mask[offset + 1] === 1
     ) {
       offset += 1;
       continue;
     }
 
-    const tokenStart = offset + 1;
-    let tokenEnd = tokenStart;
-    while (source.at(tokenEnd) !== undefined) {
-      const character = source.charAt(tokenEnd);
-      if (/\s/u.test(character)) break;
-      tokenEnd += 1;
-    }
-
-    let targetEnd = tokenEnd;
-    if (targetEnd === tokenStart) {
-      offset = tokenEnd;
+    const delimiter = source.at(offset + 1);
+    if (delimiter === '"' || delimiter === "'") {
+      offset = collectQuotedMarker(source, offset, delimiter, quoteContext);
       continue;
     }
-    while (TRAILING_PUNCTUATION.includes(source.charAt(targetEnd - 1))) {
-      targetEnd -= 1;
+    if (delimiter === '`') {
+      offset += 2;
+      continue;
     }
-    if (source.charAt(targetEnd - 1) === ':') {
-      targetEnd -= 1;
-    }
-    addMarker(markers, offset, source.slice(tokenStart, targetEnd));
+
+    const tokenStart = offset + 1;
+    const tokenEnd = findTokenEnd(source, tokenStart);
+
+    addMarker(markers, offset, sliceBareTarget(source, tokenStart, tokenEnd));
     offset = tokenEnd;
   }
 }
@@ -343,9 +434,14 @@ export function importTargets(markdown: string): Array<string> {
   const tree = fromMarkdown(markdown);
   const mask = new Uint8Array(markdown.length);
   const markers: Array<Marker> = [];
+  const markerContext: MarkerContext = {
+    source: markdown,
+    mask,
+    markers,
+  };
 
-  collectNodes(tree, markdown, mask, markers);
   collectUnresolvedReferenceRanges(markdown, mask);
+  collectNodes(tree, markerContext);
   collectBareMarkers(markdown, mask, markers);
 
   markers.sort((left, right) => left.offset - right.offset);
