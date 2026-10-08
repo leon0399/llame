@@ -201,6 +201,11 @@ export type RawWebSearchEngineEntry =
       id: string;
       type: 'duckduckgo';
       timeoutSeconds?: unknown;
+    }
+  | {
+      id: string;
+      type: 'aggregate';
+      engines: Array<string>;
     };
 
 /** The still-uninterpolated operator `webSearch` section. */
@@ -209,29 +214,35 @@ export type RawWebSearchConfig = {
   chain: Array<string>;
 };
 
-/** A resolved `webSearch` engine. Later layers add more `type` members. */
-export type WebSearchEngineConfig = {
-  id: string;
-  /** Per-attempt deadline in seconds (default 60). */
-  timeoutSeconds: number;
-} & (
+export type WebSearchEngineConfig =
+  | ({
+      id: string;
+      /** Per-attempt deadline in seconds (default 60). */
+      timeoutSeconds: number;
+    } & (
+      | {
+          type: 'brave' | 'exa' | 'perplexity';
+          /** Interpolated vendor credential; never surfaced in output or errors. */
+          key: string;
+        }
+      | {
+          type: 'searxng';
+          /** Absolute http(s) base URL of the operator's SearXNG instance. */
+          baseUrl: string;
+        }
+      | {
+          type: 'exa-mcp';
+          /** Optional Exa key sent to the hosted MCP endpoint to raise its limits. */
+          key: string | undefined;
+        }
+      | { type: 'duckduckgo' }
+    ))
   | {
-      type: 'brave' | 'exa' | 'perplexity';
-      /** Interpolated vendor credential; never surfaced in output or errors. */
-      key: string;
-    }
-  | {
-      type: 'searxng';
-      /** Absolute http(s) base URL of the operator's SearXNG instance. */
-      baseUrl: string;
-    }
-  | {
-      type: 'exa-mcp';
-      /** Optional Exa key sent to the hosted MCP endpoint to raise its limits. */
-      key: string | undefined;
-    }
-  | { type: 'duckduckgo' }
-);
+      id: string;
+      type: 'aggregate';
+      /** Two or more distinct result-engine ids run concurrently and merged. */
+      engines: ReadonlyArray<string>;
+    };
 
 /** Resolved operator `webSearch` section: engines and the ordered chain of their ids. */
 export type WebSearchConfig = {

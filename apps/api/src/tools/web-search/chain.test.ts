@@ -6,6 +6,7 @@ import {
   type EngineOutcome,
   type EngineRequest,
 } from './chain';
+import { createAggregateEngine } from './aggregate';
 import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
@@ -47,7 +48,7 @@ const empty = (): Promise<EngineOutcome> => Promise.resolve({ kind: 'empty' });
 
 type FactoryCase = {
   readonly name: string;
-  readonly config: WebSearchEngineConfig;
+  readonly config: Exclude<WebSearchEngineConfig, { type: 'aggregate' }>;
   readonly body: string;
   readonly expectedUrl: string;
   readonly headers?: HeadersInit;
@@ -422,6 +423,57 @@ it('aborts an engine at its deadline and starts the next engine', async () => {
   expect(signalAborted).toBe(true);
   expect(backupStarted).toBe(true);
   expect(output).toMatchObject({ engine: 'backup', notes: ['slow: timeout'] });
+});
+it('lets an aggregate merge a fast child past equal child deadlines', async () => {
+  const timeoutSeconds = 0.01;
+  const aggregate = createAggregateEngine([
+    {
+      id: 'slow',
+      timeoutSeconds,
+      engine: ({ signal }) =>
+        new Promise<EngineOutcome>((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(new Error('child deadline')),
+            { once: true },
+          );
+        }),
+    },
+    {
+      id: 'fast',
+      timeoutSeconds,
+      engine: result,
+    },
+  ]);
+  const output = await executeSearchChain(
+    {
+      engines: [
+        {
+          id: 'slow',
+          type: 'brave',
+          key: 'test-key',
+          timeoutSeconds,
+        },
+        {
+          id: 'fast',
+          type: 'brave',
+          key: 'test-key',
+          timeoutSeconds,
+        },
+        { id: 'all', type: 'aggregate', engines: ['slow', 'fast'] },
+      ],
+      chain: ['all'],
+    },
+    request(),
+    lookup({ all: aggregate }),
+  );
+  expect(output).toEqual({
+    kind: 'results',
+    engine: 'all',
+    query: 'llame',
+    results: [{ title: 'Result', url: 'https://example.test/a' }],
+    notes: ['slow: timeout'],
+  });
 });
 it('uses the chain entry matching the requested engine id', async () => {
   const chainConfig: WebSearchConfig = {

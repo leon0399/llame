@@ -35,6 +35,7 @@ import {
   type RawModelEntry,
   type RawWebAdapterEntry,
   type RawWebSearchConfig,
+  type RawWebSearchEngineEntry,
   type WebAdapterConfig,
 } from './llame-config';
 import type { RequestHeaderTemplates } from '../models/request-headers';
@@ -511,7 +512,7 @@ function resolveWebSearchEngines(
   env: NodeJS.ProcessEnv,
 ): ReadonlyArray<WebSearchEngineConfig> {
   const seenEngineIds = new Set<string>();
-  return entries.map((entry) => {
+  const engines = entries.map((entry) => {
     if (seenEngineIds.has(entry.id)) {
       throw new InstanceConfigError(
         `webSearch.engines: duplicate engine id "${entry.id}"`,
@@ -520,6 +521,8 @@ function resolveWebSearchEngines(
     seenEngineIds.add(entry.id);
 
     const entryPath = `webSearch.engines[${entry.id}]`;
+    if (entry.type === 'aggregate')
+      return { id: entry.id, type: entry.type, engines: entry.engines };
     const timeoutPath = `${entryPath}.timeoutSeconds`;
     const timeoutSeconds = requireResolvedNumber(
       resolveNumeric({
@@ -534,10 +537,37 @@ function resolveWebSearchEngines(
     );
     return resolveWebSearchEngine(entry, entryPath, timeoutSeconds, env);
   });
+  assertAggregateChildren(engines);
+  return engines;
+}
+
+function assertAggregateChildren(
+  engines: ReadonlyArray<WebSearchEngineConfig>,
+): void {
+  const enginesById = new Map(engines.map((engine) => [engine.id, engine]));
+  for (const engine of engines) {
+    if (engine.type !== 'aggregate') {
+      continue;
+    }
+    const childrenPath = `webSearch.engines[${engine.id}].engines`;
+    for (const childId of engine.engines) {
+      const child = enginesById.get(childId);
+      if (child === undefined) {
+        throw new InstanceConfigError(
+          `${childrenPath}: unknown engine id "${childId}"`,
+        );
+      }
+      if (child.type === 'aggregate') {
+        throw new InstanceConfigError(
+          `${childrenPath}: child "${childId}" must be a result engine`,
+        );
+      }
+    }
+  }
 }
 
 function resolveWebSearchEngine(
-  entry: RawWebSearchConfig['engines'][number],
+  entry: Exclude<RawWebSearchEngineEntry, { type: 'aggregate' }>,
   entryPath: string,
   timeoutSeconds: number,
   env: NodeJS.ProcessEnv,

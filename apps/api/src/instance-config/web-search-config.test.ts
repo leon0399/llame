@@ -31,6 +31,9 @@ function brave(id = 'brave', key = 'brave-secret') {
 function searxng(id = 'searxng', baseUrl = 'https://search.example.test') {
   return { id, type: 'searxng', baseUrl };
 }
+function aggregate(id = 'aggregate', engines = ['brave', 'duckduckgo']) {
+  return { id, type: 'aggregate', engines };
+}
 
 const SEARXNG_BASE_URL_ERROR =
   'webSearch.engines[searxng].baseUrl: must be an absolute http or https URL without userinfo, query, or fragment';
@@ -418,6 +421,125 @@ describe('loadInstanceConfig — webSearch', () => {
       /webSearch\/engines\/0\/baseUrl/u,
     );
   });
+  it('loads an aggregate engine and allows it in the chain', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            brave(),
+            { id: 'duckduckgo', type: 'duckduckgo' },
+            aggregate(),
+          ],
+          chain: ['aggregate'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch).toStrictEqual({
+      engines: [
+        {
+          id: 'brave',
+          type: 'brave',
+          key: 'brave-secret',
+          timeoutSeconds: 60,
+        },
+        {
+          id: 'duckduckgo',
+          type: 'duckduckgo',
+          timeoutSeconds: 60,
+        },
+        {
+          id: 'aggregate',
+          type: 'aggregate',
+          engines: ['brave', 'duckduckgo'],
+        },
+      ],
+      chain: ['aggregate'],
+    });
+  });
+  it('rejects timeoutSeconds on an aggregate as an unknown key', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            brave(),
+            { id: 'duckduckgo', type: 'duckduckgo' },
+            { ...aggregate(), timeoutSeconds: 15 },
+          ],
+          chain: ['aggregate'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/engines\/2\/timeoutSeconds/u,
+    );
+  });
+
+  it('rejects a single aggregate child and names its engines path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [brave(), { ...aggregate(), engines: ['brave'] }],
+          chain: ['aggregate'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/engines\/1\/engines/u,
+    );
+  });
+
+  it('rejects duplicate aggregate children and names its engines path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [brave(), { ...aggregate(), engines: ['brave', 'brave'] }],
+          chain: ['aggregate'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/engines\/1\/engines/u,
+    );
+  });
+
+  it('rejects an unknown aggregate child and names its engines path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [brave(), { ...aggregate(), engines: ['brave', 'missing'] }],
+          chain: ['aggregate'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\.engines\[aggregate\]\.engines.*missing/u,
+    );
+  });
+
+  it('rejects a nested aggregate and names its engines path', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            brave(),
+            { id: 'duckduckgo', type: 'duckduckgo' },
+            aggregate('nested'),
+            { ...aggregate(), engines: ['nested', 'brave'] },
+          ],
+          chain: ['aggregate'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\.engines\[aggregate\]\.engines.*nested/u,
+    );
+  });
 
   it('rejects an unknown chain id', () => {
     writeConfig(
@@ -474,6 +596,8 @@ describe('loadInstanceConfig — webSearch', () => {
       }),
     );
 
-    expect(loadInstanceConfig().webSearch?.engines[0]?.timeoutSeconds).toBe(15);
+    expect(loadInstanceConfig().webSearch?.engines[0]).toMatchObject({
+      timeoutSeconds: 15,
+    });
   });
 });

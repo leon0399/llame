@@ -101,6 +101,75 @@ it('forwards recency and the product user agent to the configured engine', async
   }
 });
 
+it('wires aggregate children and merges their results', async () => {
+  const fetch = vi.fn<VendorFetch>((_input, init) => {
+    const key = new Headers(init?.headers).get('X-Subscription-Token');
+    const entries =
+      key === 'first-key'
+        ? [
+            { title: 'First', url: 'https://example.test/u1' },
+            { title: 'Second', url: 'https://example.test/u2' },
+          ]
+        : [
+            { title: 'Third', url: 'https://example.test/u3' },
+            { title: 'Shared', url: 'https://example.test/u1' },
+          ];
+    return Promise.resolve(
+      new Response(JSON.stringify({ web: { results: entries } }), {
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+  });
+  vi.stubGlobal('fetch', fetch);
+  try {
+    const context: ToolContext = {
+      userId: 'user',
+      chatId: 'chat',
+      tenantDb: {
+        runAs: () => Promise.reject(new Error('unused')),
+      },
+      webSearch: {
+        engines: [
+          {
+            id: 'first',
+            type: 'brave',
+            key: 'first-key',
+            timeoutSeconds: 60,
+          },
+          {
+            id: 'second',
+            type: 'brave',
+            key: 'second-key',
+            timeoutSeconds: 60,
+          },
+          {
+            id: 'mix',
+            type: 'aggregate',
+            engines: ['first', 'second'],
+          },
+        ],
+        chain: ['mix'],
+      },
+    };
+
+    await expect(
+      webSearchTool.execute(context, { query: 'llame', limit: 10 }),
+    ).resolves.toStrictEqual({
+      status: 'success',
+      kind: 'results',
+      engine: 'mix',
+      query: 'llame',
+      results: [
+        { title: 'First', url: 'https://example.test/u1' },
+        { title: 'Third', url: 'https://example.test/u3' },
+        { title: 'Second', url: 'https://example.test/u2' },
+      ],
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 it('reuses one Exa MCP client across tool executions', async () => {
   const exaTool = {
     name: 'web_search_exa',

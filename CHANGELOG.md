@@ -10,6 +10,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Added keyless `exa-mcp` and `duckduckgo` engines, including their provider
   limits and unsupported automation/storage terms.
 
+- Added aggregate web-search engines that fan out across configured result
+  engines and merge their results with rank fusion.
+
 # 2026-10-07
 
 - Added a per-provider `headers` map of string or `null` values. The

@@ -98,12 +98,12 @@ type OutcomeDecision =
       readonly success: ResultOutcome | AnswerOutcome;
     };
 
-function throwAbort(signal: AbortSignal): never {
+export function throwAbort(signal: AbortSignal): never {
   if (signal.reason instanceof Error) throw signal.reason;
   throw new DOMException('The web search was aborted.', 'AbortError');
 }
 
-function isFailureClass(value: RunOne): value is FailureClass {
+export function isFailureClass(value: RunOne): value is FailureClass {
   return WEB_SEARCH_FAILURE_CLASSES.some(
     (failureClass) => failureClass === value,
   );
@@ -117,7 +117,7 @@ function withChainNotes(
   return finalNotes.length === 0 ? result : { ...result, notes: finalNotes };
 }
 
-function canonicalizeResults(
+export function canonicalizeResults(
   results: ReadonlyArray<RawResult>,
 ): Array<RawResult> {
   return results.flatMap((result) => {
@@ -146,20 +146,26 @@ function canonicalizeOutcome(
     : { ...outcome, citations: canonicalizeCitations(outcome.citations) };
 }
 
-async function runOne(
+export async function runOne(
   engine: Engine,
-  entry: WebSearchEngineConfig,
+  timeoutSeconds: number | undefined,
   request: EngineRequest,
 ): Promise<RunOne> {
-  const deadline = AbortSignal.timeout(entry.timeoutSeconds * 1000),
-    signal = AbortSignal.any([request.signal, deadline]);
+  const deadline =
+    timeoutSeconds === undefined
+      ? undefined
+      : AbortSignal.timeout(timeoutSeconds * 1000);
+  const signal =
+    deadline === undefined
+      ? request.signal
+      : AbortSignal.any([request.signal, deadline]);
   try {
     const outcome = await engine({ ...request, signal });
     if (request.signal.aborted) throwAbort(request.signal);
-    return deadline.aborted ? 'timeout' : outcome;
+    return deadline?.aborted === true ? 'timeout' : outcome;
   } catch (error) {
     if (request.signal.aborted) throwAbort(request.signal);
-    return deadline.aborted
+    return deadline?.aborted === true
       ? 'timeout'
       : error instanceof EngineFailure
         ? error.failureClass
@@ -169,7 +175,7 @@ async function runOne(
 
 /** Build an engine adapter from one resolved entry. */
 export function createEngine(
-  config: WebSearchEngineConfig,
+  config: Exclude<WebSearchEngineConfig, { type: 'aggregate' }>,
   deps: { readonly fetch: VendorFetch },
 ): Engine {
   switch (config.type) {
@@ -258,7 +264,11 @@ export async function executeSearchChain(
     const entry = config.engines.find((candidate) => candidate.id === id)!;
     const decision = classifyOutcome(
       id,
-      await runOne(lookup(id), entry, request),
+      await runOne(
+        lookup(id),
+        entry.type === 'aggregate' ? undefined : entry.timeoutSeconds,
+        request,
+      ),
       notes,
     );
     if (decision.kind === 'success')
