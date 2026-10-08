@@ -1916,6 +1916,20 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
     expect(part).toBeUndefined();
   });
 
+  it('loads a candidate selected by another same-directory import', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    await write(candidate, 'root rules\n');
+    await write(join(root, 'other.md'), 'other\n');
+
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: candidate }, { key: join(root, 'other.md') }],
+    });
+    if (part === undefined) throw new Error('the imports loaded nothing');
+
+    expect(blockPaths(part)).toEqual([candidate]);
+  });
+
   it('still loads the imported instruction file from the same turn root load', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
     const part = await turn({

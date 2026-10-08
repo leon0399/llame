@@ -24,6 +24,18 @@ export type PromptImportTriggerGates = {
 };
 
 /**
+ * Persisted locators can preserve UUID casing. `spaceTarget` intentionally
+ * admits native lower-case-only locators, so normalize only the id segment
+ * before deriving a prompt-import trigger; path names remain case-sensitive.
+ */
+function normalizeKnowledgeSpaceId(rest: string): string {
+  const separator = rest.indexOf('/');
+  return separator < 0
+    ? rest.toLowerCase()
+    : `${rest.slice(0, separator).toLowerCase()}${rest.slice(separator)}`;
+}
+
+/**
  * The stored `resolved` path never carries a selector — the item persists the
  * literal path or the selector-free one — so a `:`-suffixed name is a literal
  * file name and only needs normalizing.
@@ -41,7 +53,7 @@ function triggerOf(
       : undefined;
   }
   return scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME && gates.knowledge
-    ? spaceTarget(scheme.rest)
+    ? spaceTarget(normalizeKnowledgeSpaceId(scheme.rest))
     : undefined;
 }
 

@@ -29,9 +29,9 @@
  * each prompt import's admitted local target together, as one bundle: an
  * import triggers like a native `read` of its path, with no binding required,
  * and names the file it read, so importing an instruction file does not by
- * itself load it. That exclusion yields to any other trigger of the turn whose
- * chain walks through the file's directory, so a bound root below it still
- * loads it.
+ * itself load it. That exclusion yields to another trigger whose chain walks
+ * through the file's directory, or that touches the same directory without
+ * excluding the file.
  */
 
 import { posix } from 'node:path';
@@ -102,9 +102,9 @@ interface PendingTrigger extends PromptImportTrigger {
    */
   readonly excludeCandidate?: boolean;
   /**
-   * The exclusion holds only while no other trigger of the set walks through
-   * the file's directory: a prompt import disclosed its file to the model, but
-   * another trigger's chain still loads it.
+   * A prompt import's self-read exclusion holds only while no other trigger
+   * walks through its directory or touches that directory without excluding
+   * the same file.
    */
   readonly yieldsToWalk?: boolean;
 }
@@ -208,24 +208,18 @@ interface PendingDirectory {
   readonly disclosedCanonicalPaths: Set<string>;
 }
 
-/**
- * The directories the pending triggers resolve to in one world, and their
- * exclusions. A read of an existing file neither loads nor marks that file,
- * compared by canonical identity, so a link the model read under another name
- * discloses the candidate it resolves to; other candidates in the directory
- * still load. An edit, a write, an entry, or a read of a directory or missing
- * path clears these exclusions and loads the directory's whole chain. A
- * trigger that `yieldsToWalk` keeps its exclusion only while no other trigger
- * of the set walks through its directory.
- */
-async function resolveDirectories(
+/** One trigger with the path it touched. */
+interface TriggerTouch {
+  readonly trigger: PendingTrigger;
+  readonly touched: TouchedPath;
+}
+
+/** Probes each trigger's path and collects every directory a chain walks through. */
+async function touchTriggers(
   triggers: ReadonlyArray<PendingTrigger>,
   scope: InstructionScope,
-): Promise<Map<string, ReadonlySet<string>>> {
-  const touches: Array<{
-    readonly trigger: PendingTrigger;
-    readonly touched: TouchedPath;
-  }> = [];
+): Promise<{ touches: Array<TriggerTouch>; walkedThrough: Set<string> }> {
+  const touches: Array<TriggerTouch> = [];
   const walkedThrough = new Set<string>();
   for (const trigger of triggers) {
     const touched = await touchedPath(scope, trigger.key);
@@ -234,20 +228,65 @@ async function resolveDirectories(
       if (directory !== touched.directory) walkedThrough.add(directory);
     }
   }
+  return { touches, walkedThrough };
+}
+
+/**
+ * Whether another trigger touches the same directory without excluding the
+ * same file, so a prompt import's self-read exclusion yields to it.
+ */
+function sharesDirectory(
+  touches: ReadonlyArray<TriggerTouch>,
+  index: number,
+): boolean {
+  const own = touches[index]?.touched;
+  return touches.some(
+    ({ trigger, touched }, otherIndex) =>
+      otherIndex !== index &&
+      touched.directory === own?.directory &&
+      !(
+        trigger.excludeCandidate === true &&
+        touched.canonicalPath === own.canonicalPath
+      ),
+  );
+}
+
+/**
+ * The directories the pending triggers resolve to in one world, and their
+ * exclusions. A read of an existing file neither loads nor marks that file,
+ * compared by canonical identity, so a link the model read under another name
+ * discloses the candidate it resolves to; other candidates in the directory
+ * still load. An edit, a write, an entry, or a read of a directory or missing
+ * path clears these exclusions and loads the directory's whole chain. A
+ * trigger that `yieldsToWalk` keeps its exclusion only while no other trigger
+ * walks through its directory or touches that directory without excluding the
+ * same file.
+ */
+async function resolveDirectories(
+  triggers: ReadonlyArray<PendingTrigger>,
+  scope: InstructionScope,
+): Promise<Map<string, ReadonlySet<string>>> {
+  const { touches, walkedThrough } = await touchTriggers(triggers, scope);
   const pending = new Map<string, PendingDirectory>();
-  for (const { trigger, touched } of touches) {
+  for (const [index, { trigger, touched }] of touches.entries()) {
     const entry = pending.get(touched.directory) ?? {
       plainTouch: false,
       disclosedCanonicalPaths: new Set<string>(),
     };
     pending.set(touched.directory, entry);
-    const excluded =
+    const walked = walkedThrough.has(touched.directory);
+    const yields =
+      trigger.yieldsToWalk === true &&
+      (walked || sharesDirectory(touches, index));
+    if (
       trigger.excludeCandidate &&
       touched.canonicalPath !== undefined &&
-      !(trigger.yieldsToWalk && walkedThrough.has(touched.directory));
-    if (excluded) {
+      !yields
+    ) {
       entry.disclosedCanonicalPaths.add(touched.canonicalPath);
-    } else {
+    } else if (!yields || walked) {
+      // A prompt import yielding only to a same-directory trigger drops its own
+      // exclusion and keeps exclusions native reads set in that directory.
       entry.plainTouch = true;
     }
   }
