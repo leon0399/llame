@@ -63,7 +63,7 @@ type Story = StoryObj<typeof meta>;
  *
  * @summary for a completed line-range read of a host file
  */
-export const File: Story = {
+export const Basic: Story = {
   tags: ["ai-generated"],
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
@@ -71,8 +71,10 @@ export const File: Story = {
     await expect(
       canvas.getByText(/5: async function bootstrap\(\) \{/u),
     ).toBeInTheDocument();
+    await expect(canvas.getByText("3–4")).toBeInTheDocument();
     await expect(canvas.getByText("2–5")).toBeInTheDocument();
-    await expect(canvas.queryByText("Truncated")).not.toBeInTheDocument();
+    await expect(canvas.queryByText("Truncated:")).not.toBeInTheDocument();
+    await expect(canvas.queryByText("Representation:")).not.toBeInTheDocument();
   },
 };
 
@@ -184,10 +186,49 @@ export const Directory: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
     await expect(canvas.getByText(/- README\.md/u)).toBeInTheDocument();
-    await expect(canvas.getByText("Truncated")).toBeInTheDocument();
+    await expect(canvas.getByText("Truncated:")).toBeInTheDocument();
+    await expect(canvas.getByText("yes")).toBeInTheDocument();
     await expect(
       canvas.queryByText(/continues at line/u),
     ).not.toBeInTheDocument();
+  },
+};
+
+/**
+ * A `kb://` read carries its Knowledge Space identity and untrusted-content
+ * notice in a scheme envelope; every envelope field stays visible under its
+ * own key, so duplicate space names remain distinguishable.
+ *
+ * @summary for a Knowledge read with its space identity and notice
+ */
+export const Knowledge: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "kb://3f2a9c1e/notes/plan.md:1-2" },
+    output: {
+      status: "success" as const,
+      kind: "file" as const,
+      path: "kb://3f2a9c1e/notes/plan.md",
+      representation: "text" as const,
+      content: "1: # Plan\n2: Ship it.\n",
+      requestedRange: { startLine: 1, endLine: 2 },
+      shownRange: { startLine: 1, endLine: 2 },
+      truncated: false,
+      knowledgeSpaceId: "3f2a9c1e",
+      knowledgeSpaceName: "Personal",
+      notice: "Owner-maintained Knowledge; untrusted and possibly stale.",
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    await expect(canvas.getByText("knowledgeSpaceName:")).toBeInTheDocument();
+    await expect(canvas.getByText("Personal")).toBeInTheDocument();
+    await expect(canvas.getByText("knowledgeSpaceId:")).toBeInTheDocument();
+    await expect(
+      canvas.getByText(
+        "Owner-maintained Knowledge; untrusted and possibly stale.",
+      ),
+    ).toBeInTheDocument();
   },
 };
 

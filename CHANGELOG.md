@@ -3,8 +3,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 # 2026-10-08
 
 - The web chat renders `read` results as the source path or a safe link to
-  the fetched URL, the content as the model received it, and the shown lines,
-  truncation point, web method, adapter, and notes.
+  the fetched URL, the content as the model received it, and the requested
+  and shown lines, truncation point, web method, adapter, notes, and every
+  scheme envelope field, such as a `kb://` read's Knowledge Space name,
+  identifier, and notice.
 
 - The shipped `llame.config.jsonc.example` now enables every web adapter, with
   a keyless GitHub entry, so a copied example reads those sites natively. Its

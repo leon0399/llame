@@ -6,7 +6,8 @@
  * no Git checkout or index is involved, so the browser exercises live bytes.
  * The model fixture requests only `knowledge_search` and the code-owned
  * native `read` tool (addressed through a `kb://` locator) for the prompts
- * below; the ordinary generic tool renderer is the citation surface.
+ * below; the generic renderer shows `knowledge_search` results and the
+ * dedicated `read` renderer shows reads, envelope fields included.
  */
 
 import {
@@ -280,6 +281,11 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       .filter({ hasText: readToolFilter })
       .first();
     await expect(readCard.locator("..")).toContainText(second.id);
+    // The kb:// envelope stays visible, so duplicate space names stay
+    // distinguishable (knowledge-tools: response-time attribution).
+    await expect(readCard.locator("..")).toContainText(
+      "knowledgeSpaceName: Projects",
+    );
 
     const added = await provisionKnowledgeSpace(request, account, "Added live");
     writeNote(
@@ -444,12 +450,13 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await firstRead.click();
     const firstReadDetails = firstRead.locator("..");
     await expect(firstReadDetails).toContainText(longNotePath);
-    await expect(firstReadDetails).toContainText('"requestedRange":');
-    await expect(firstReadDetails).toContainText('"shownRange":');
-    await expect(firstReadDetails).toContainText('"nextOffset":');
+    await expect(firstReadDetails).toContainText("Requested lines:");
+    await expect(firstReadDetails).toContainText("Shown lines:");
     // 2005 lines exceeds the native reader's 2000-line default window, so a
-    // first unranged read always truncates.
-    await expect(firstReadDetails).toContainText('"truncated": true');
+    // first unranged read always truncates and names where to continue.
+    await expect(firstReadDetails).toContainText(
+      "Truncated: continues at line",
+    );
     await expect(firstReadDetails).not.toContainText(requireKnowledgeRoot());
 
     const continuedRead = log
@@ -675,9 +682,9 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
         .filter({ hasText: readToolFilter })
         .nth(2);
       await expect(oversizedCard.locator("..")).toContainText(
-        '"truncated": true',
+        "Truncated: continues at line",
       );
-      await expect(oversizedCard.locator("..")).toContainText('"content": ""');
+      await expect(oversizedCard.locator("..")).toContainText("No content.");
 
       await sendPrompt(
         page,
@@ -790,15 +797,16 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expect(unterminated).toContainText("Completed", { timeout: 30_000 });
     await unterminated.click();
     const unterminatedDetails = unterminated.locator("..");
-    await expect(unterminatedDetails).toContainText("1: alpha LF");
-    // Rendered as JSON, an embedded `\r`/`\n` shows as its two-character
-    // escape; the CRLF line's `\r` survives, and "3: ...4: " with nothing
-    // between proves the lone `\r` did not split an extra numbered line.
-    await expect(unterminatedDetails).toContainText(
-      String.raw`bravo CRLF\r\n3: charlie CR\rstill charlie\n4: delta end`,
+    // The content block holds the result's exact bytes: the CRLF line keeps
+    // its `\r`, the lone `\r` does not split an extra numbered line, and the
+    // unterminated last line carries no newline.
+    await expect(
+      unterminatedDetails.locator("pre", { hasText: "1: alpha LF" }),
+    ).toHaveJSProperty(
+      "textContent",
+      "1: alpha LF\n2: bravo CRLF\r\n3: charlie CR\rstill charlie\n4: delta end",
     );
-    await expect(unterminatedDetails).toContainText('"endLine": 4');
-    await expect(unterminatedDetails).toContainText('delta end",');
+    await expect(unterminatedDetails).toContainText("Shown lines: 1–4");
     await expect(unterminatedDetails).not.toContainText(requireKnowledgeRoot());
 
     await sendPrompt(
@@ -812,11 +820,16 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expect(terminated).toContainText("Completed", { timeout: 30_000 });
     await terminated.click();
     const terminatedDetails = terminated.locator("..");
-    await expect(terminatedDetails).toContainText('"endLine": 4');
+    await expect(terminatedDetails).toContainText("Shown lines: 1–4");
     // Same 4 logical lines, but the file's own trailing newline survives
     // into the last rendered line -- the terminal-delimiter contrast with
     // the unterminated read above.
-    await expect(terminatedDetails).toContainText(String.raw`delta end\n",`);
+    await expect(
+      terminatedDetails.locator("pre", { hasText: "1: alpha LF" }),
+    ).toHaveJSProperty(
+      "textContent",
+      "1: alpha LF\n2: bravo CRLF\r\n3: charlie CR\rstill charlie\n4: delta end\n",
+    );
 
     await sendPrompt(
       page,
@@ -829,7 +842,6 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expect(listing).toContainText("Completed", { timeout: 30_000 });
     await listing.click();
     const listingDetails = listing.locator("..");
-    await expect(listingDetails).toContainText('"kind": "directory"');
     await expect(listingDetails).toContainText("- line-endings.md");
     await expect(listingDetails).toContainText("- line-endings-term.md");
     await expect(listingDetails).not.toContainText(requireKnowledgeRoot());

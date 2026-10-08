@@ -18,8 +18,10 @@ const lineRangeSchema = z.object({
   endLine: z.number(),
 });
 
-/** The native read result plus the web envelope; other fields are ignored. */
-const outputSchema = z.object({
+/** The native read result and the web envelope. Loose, so a scheme envelope
+ *  (`kb://` space identity and notice, `skill://` paths) survives parsing and
+ *  renders as a detail row instead of disappearing. */
+const outputSchema = z.looseObject({
   status: z.literal("success"),
   kind: z.enum(["file", "directory"]),
   path: z.string(),
@@ -27,6 +29,9 @@ const outputSchema = z.object({
   truncated: z.boolean(),
   nextOffset: z.number().optional(),
   realPath: z.string().optional(),
+  representation: z.string().optional(),
+  requestedRange: lineRangeSchema.nullable().optional(),
+  requestedRanges: z.array(lineRangeSchema).optional(),
   shownRange: lineRangeSchema.nullable().optional(),
   shownRanges: z.array(lineRangeSchema).optional(),
   finalUrl: z.string().optional(),
@@ -36,6 +41,7 @@ const outputSchema = z.object({
 });
 
 type ReadOutput = z.infer<typeof outputSchema>;
+type LineRange = z.infer<typeof lineRangeSchema>;
 
 /** Props for the dedicated read tool row. */
 export type ReadToolProps = {
@@ -51,53 +57,67 @@ export type ReadToolProps = {
   Markdown: ComponentType<{ children?: string }>;
 };
 
-function shownLines(output: ReadOutput): string | undefined {
-  const ranges =
-    output.shownRanges ?? (output.shownRange ? [output.shownRange] : []);
-  if (ranges.length === 0) return undefined;
-  return ranges
+function formatRanges(
+  ranges: ReadonlyArray<LineRange> | undefined,
+  range: LineRange | null | undefined,
+): string | undefined {
+  const all = ranges ?? (range ? [range] : []);
+  if (all.length === 0) return undefined;
+  return all
     .map(({ startLine, endLine }) =>
       startLine === endLine ? `${startLine}` : `${startLine}–${endLine}`,
     )
     .join(", ");
 }
 
-function ReadMetadata({ output }: { output: ReadOutput }) {
-  const lines = shownLines(output);
-  const method = output.adapter
-    ? `${output.method ?? "adapter"} (${output.adapter.id})`
-    : output.method;
+function truncation(output: ReadOutput): string | undefined {
+  if (!output.truncated) return undefined;
+  // A directory's nextOffset counts entries, not lines.
+  return output.kind === "file" && output.nextOffset !== undefined
+    ? `continues at line ${output.nextOffset + 1}`
+    : "yes";
+}
 
+/** Labelled rows for everything the source header and content do not show.
+ *  Unknown fields keep their own key, so no envelope is ever dropped. */
+function metadataRows(output: ReadOutput): Array<[string, string]> {
+  const rows: Array<[string, string | undefined]> = [
+    [
+      "Requested lines",
+      formatRanges(output.requestedRanges, output.requestedRange),
+    ],
+    ["Shown lines", formatRanges(output.shownRanges, output.shownRange)],
+    [
+      "Representation",
+      output.representation === "text" ? undefined : output.representation,
+    ],
+    [
+      "Method",
+      output.adapter
+        ? `${output.method ?? "adapter"} (${output.adapter.id})`
+        : output.method,
+    ],
+    ["Truncated", truncation(output)],
+    ...(output.notes ?? []).map((note): [string, string] => ["Note", note]),
+    ...Object.entries(output)
+      .filter(([key]) => !Object.hasOwn(outputSchema.shape, key))
+      .map(([key, value]): [string, string] => [
+        key,
+        z.string().safeParse(value).data ?? JSON.stringify(value),
+      ]),
+  ];
+  return rows.filter((row): row is [string, string] => row[1] !== undefined);
+}
+
+function ReadMetadata({ output }: { output: ReadOutput }) {
   return (
-    <div className="border-border border-t px-4 py-3 text-muted-foreground text-xs">
-      {lines && (
-        <p>
-          <span className="font-medium">Lines:</span> {lines}
-        </p>
-      )}
-      {method && (
-        <p>
-          <span className="font-medium">Method:</span> {method}
-        </p>
-      )}
-      {output.truncated && (
-        <p>
-          <span className="font-medium">Truncated</span>
-          {output.kind === "file" && output.nextOffset !== undefined
-            ? ` — continues at line ${output.nextOffset + 1}`
-            : null}
-        </p>
-      )}
-      {output.notes && output.notes.length > 0 && (
-        <ul className="mt-1 space-y-0.5">
-          {output.notes.map((note, index) => (
-            <li key={`${note}-${index}`}>
-              <span className="font-medium">Note:</span> {note}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    <ul className="space-y-0.5 border-border border-t px-4 py-3 text-muted-foreground text-xs">
+      {metadataRows(output).map(([label, value], index) => (
+        <li className="break-words" key={`${label}-${index}`}>
+          <span className="font-medium">{label}:</span> {value}
+        </li>
+      ))}
+    </ul>
   );
 }
 
