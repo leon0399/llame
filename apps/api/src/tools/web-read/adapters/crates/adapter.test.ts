@@ -198,6 +198,30 @@ describe('crates.io adapter read', () => {
     });
   });
 
+  it('reads a pinned version of a crate with no default version', async () => {
+    const noDefault = {
+      ...cratePage,
+      crate: { name: 'demo', default_version: null },
+      versions: [],
+    };
+
+    const { outcome, urls } = await read(
+      'https://crates.io/crates/demo/1.0.0',
+      [
+        [CRATE_URL, response(noDefault)],
+        [`${API}/1.0.0`, response({ version: version('1.0.0') })],
+        [`${API}/1.0.0/dependencies`, response({ dependencies: [] })],
+        [`${API}/1.0.0/readme`, NOT_FOUND],
+      ],
+    );
+
+    expect(urls[1]).toBe(`${API}/1.0.0`);
+    expect(outcome).toMatchObject({ kind: 'rendered' });
+    await expect(
+      read('https://crates.io/crates/demo', [[CRATE_URL, response(noDefault)]]),
+    ).resolves.toMatchObject({ outcome: { kind: 'failed', failure: 'empty' } });
+  });
+
   it('skips the README once the call deadline is spent', async () => {
     const deadline: WebFetchFailure = { type: 'call_timeout', message: 'late' };
 
@@ -209,7 +233,7 @@ describe('crates.io adapter read', () => {
     expect(urls).toHaveLength(2);
     expect(outcome).toMatchObject({
       kind: 'rendered',
-      notes: ['dependencies omitted: transport'],
+      notes: ['dependencies omitted: transport', 'readme omitted: transport'],
     });
   });
 });

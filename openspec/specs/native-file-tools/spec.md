@@ -2493,9 +2493,11 @@ then, under the canonical name the API returned,
 `/api/v1/crates/{name}/{version}` only when the URL names a version other
 than the default, then the version's `/dependencies` and `/readme`. The crate
 and version requests are primary: a failure or an unparsable payload SHALL
-fall through. A failed dependency list or README SHALL keep the rest with a
-`dependencies omitted: {category}` or `readme omitted: {category}` note, and a
-spent call deadline on the dependency list SHALL skip the README.
+fall through, and a crate page whose crate reports no default version SHALL
+fall through as `empty`. A failed dependency list or README SHALL keep the
+rest with a `dependencies omitted: {category}` or `readme omitted: {category}`
+note, and a spent call deadline on the dependency list SHALL skip the README
+with the same category in its `readme omitted:` note.
 
 The render SHALL be `# {name} {version}`, the description, metadata lines for
 the fields present (`Yanked`, `License`, `Default version` when another

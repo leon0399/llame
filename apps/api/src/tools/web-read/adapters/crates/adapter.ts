@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
 import type { CratesWebAdapterConfig } from '../../../../instance-config/llame-config';
-import type { WebRequestInit } from '../../http-client';
+import type { WebFetchFailure, WebRequestInit } from '../../http-client';
 import { convertToMarkdown } from '../../pipeline';
 import {
   loadSection,
+  omissionNote,
   parseJsonBody,
   primaryFailure,
   type WebAdapter,
@@ -42,7 +43,10 @@ const CRATE_PAGE = z.object({
   crate: z.object({
     name: z.string(),
     description: TEXT,
-    default_version: z.string(),
+    default_version: z
+      .string()
+      .nullable()
+      .transform((version) => version ?? undefined),
     downloads: z.number().optional(),
     recent_downloads: z.number().or(SKIPPED).optional(),
     repository: TEXT,
@@ -121,9 +125,9 @@ async function readCrate(
   );
   if ('fatal' in dependencies) return primaryFailure(dependencies.fatal);
   const readme =
-    dependencies.spent === true
-      ? {}
-      : await loadSection('readme', io.fetch(`${versionApi}/readme`), notes);
+    dependencies.spent === undefined
+      ? await loadSection('readme', io.fetch(`${versionApi}/readme`), notes)
+      : skipSection('readme', dependencies.spent, notes);
   if ('fatal' in readme) return primaryFailure(readme.fatal);
   return {
     kind: 'rendered',
@@ -148,6 +152,16 @@ function parseDependencies(
   return page?.dependencies;
 }
 
+/** A section a spent call deadline skips gets the note its own request would. */
+function skipSection(
+  section: string,
+  spent: WebFetchFailure,
+  notes: Array<string>,
+) {
+  notes.push(omissionNote(section, spent));
+  return { body: undefined };
+}
+
 /** The default version arrives with the crate; another one costs a request. */
 async function resolveVersion(
   target: CratesTarget,
@@ -155,11 +169,14 @@ async function resolveVersion(
   api: string,
   io: WebAdapterIo,
 ): Promise<Version | { readonly outcome: WebAdapterOutcome }> {
-  const included = page.versions.find(
-    ({ num }) => num === (target.version ?? page.crate.default_version),
-  );
+  // crates.io may report no default version; only a pinned URL reads then.
+  const wanted = target.version ?? page.crate.default_version;
+  if (wanted === undefined) {
+    return { outcome: { kind: 'failed', failure: 'empty' } };
+  }
+  const included = page.versions.find(({ num }) => num === wanted);
   if (included !== undefined) return included;
-  const fetched = await io.fetch(`${api}/${target.version}`, JSON_INIT);
+  const fetched = await io.fetch(`${api}/${wanted}`, JSON_INIT);
   if ('type' in fetched) return { outcome: primaryFailure(fetched) };
   const parsed = parseJsonBody(fetched.body, VERSION_PAGE);
   return parsed === undefined
