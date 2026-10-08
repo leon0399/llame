@@ -63,7 +63,9 @@ describe('arXiv adapter claim', () => {
 
 describe('arXiv adapter read', () => {
   it('reads a PDF link as the HTML full text with math as LaTeX', async () => {
-    const equation = String.raw`<table class="ltx_equation ltx_eqn_table" id="S3.E1"><tbody><tr><td><math alttext="\mathrm{Attention}(Q,K,V)=QK^{T}" display="block"><mi>A</mi></math></td><td><span class="ltx_tag ltx_tag_equation ltx_align_right">(1)</span></td></tr></tbody></table>`;
+    // An aligned group: two cells and a padded number, an unnumbered row, and
+    // a spacer row without math that must not become a blank line.
+    const equation = String.raw`<table class="ltx_equationgroup ltx_eqn_align ltx_eqn_table" id="S3.EGx1"><tbody><tr><td><math alttext="\displaystyle a" display="inline"><mi>a</mi></math></td><td><math alttext="=b" display="inline"><mi>b</mi></math></td><td><span class="ltx_tag ltx_tag_equation ltx_align_right"> (1) </span></td></tr><tr><td><math alttext="c=d" display="inline"><mi>c</mi></math></td></tr><tr><td></td></tr></tbody></table>`;
     const inline =
       'Keys have dimension <math alttext="d_{k}" display="inline"><msub><mi>d</mi><mi>k</mi></msub></math> here.';
 
@@ -88,9 +90,7 @@ describe('arXiv adapter read', () => {
     });
     const content = outcome.kind === 'rendered' ? outcome.content : '';
     expect(content).toContain('Keys have dimension `d_{k}` here.');
-    expect(content).toContain(
-      '```\n\\mathrm{Attention}(Q,K,V)=QK^{T}    (1)\n```',
-    );
+    expect(content).toContain('```\n\\displaystyle a =b    (1)\nc=d\n```');
     expect(content).not.toContain('<math');
   });
 
@@ -101,7 +101,7 @@ describe('arXiv adapter read', () => {
         ABS_URL,
         page(
           ABS_URL,
-          `<h1>Attention Is All You Need</h1><blockquote>${PROSE}</blockquote>`,
+          `<h1>Attention Is All You Need</h1><blockquote>${PROSE} Uses <math alttext="d_{k}"><mi>d</mi></math>.</blockquote>`,
         ),
       ],
     ]);
@@ -111,6 +111,9 @@ describe('arXiv adapter read', () => {
       kind: 'rendered',
       notes: ['full text omitted: status'],
     });
+    expect(outcome.kind === 'rendered' && outcome.content).toContain(
+      'Uses `d_{k}`.',
+    );
     expect(outcome.kind === 'rendered' && outcome.content).toContain(PROSE);
   });
 
@@ -121,6 +124,14 @@ describe('arXiv adapter read', () => {
     ]);
 
     expect(outcome).toStrictEqual({ kind: 'failed', failure: 'status' });
+  });
+
+  it('falls through as parse when the page fails the quality gate', async () => {
+    const { outcome } = await read('https://arxiv.org/abs/1706.03762v7', [
+      [HTML_URL, page(HTML_URL, '<p>Loading…</p>')],
+    ]);
+
+    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'parse' });
   });
 
   it('ends the call on a call-ending failure without trying the abstract', async () => {

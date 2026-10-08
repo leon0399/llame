@@ -23,7 +23,7 @@ const PAPER_PATH = new RegExp(
 /** LaTeXML's display-equation tables, one row per equation line. */
 const EQUATION_TABLE =
   /<table\b[^>]*\bclass="[^"]*\bltx_eqn_table\b[^"]*"[^>]*>([\s\S]*?)<\/table>/gu;
-const TABLE_ROW = /<tr\b[^>]*>([\s\S]*?)<\/tr>/gu;
+const TABLE_ROW = /<tr\b[^>]*>[\s\S]*?<\/tr>/gu;
 const MATH_TEX = /<math\b[^>]*?\balttext="([^"]*)"[^>]*>[\s\S]*?<\/math>/gu;
 const EQUATION_TAG =
   /<span\b[^>]*\bclass="ltx_tag ltx_tag_equation[^"]*"[^>]*>([^<]*)/u;
@@ -65,8 +65,7 @@ async function readPaper(
   origin: string,
 ): Promise<WebAdapterOutcome> {
   const html = await io.fetch(`${origin}/html/${id}`);
-  if (!('type' in html))
-    return render({ ...html, body: texify(html.body) }, []);
+  if (!('type' in html)) return render(html, []);
   if (isFatalAdapterFailure(html)) return primaryFailure(html);
 
   const abstract = await io.fetch(`${origin}/abs/${id}`);
@@ -78,19 +77,18 @@ function render(
   response: WebResponse,
   notes: ReadonlyArray<string>,
 ): WebAdapterOutcome {
-  try {
-    const rendered = renderWebDocument(response, { raw: false });
-    return rendered.method === 'raw'
-      ? { kind: 'failed', failure: 'parse' }
-      : {
-          kind: 'rendered',
-          content: rendered.content,
-          mediaType: rendered.mediaType,
-          notes,
-        };
-  } catch {
-    return { kind: 'failed', failure: 'parse' };
-  }
+  const rendered = renderWebDocument(
+    { ...response, body: texify(response.body) },
+    { raw: false },
+  );
+  return rendered.method === 'raw'
+    ? { kind: 'failed', failure: 'parse' }
+    : {
+        kind: 'rendered',
+        content: rendered.content,
+        mediaType: rendered.mediaType,
+        notes,
+      };
 }
 
 /**
@@ -101,7 +99,7 @@ function render(
 function texify(html: string): string {
   return html
     .replaceAll(EQUATION_TABLE, (_table, rows: string) => {
-      const lines = [...rows.matchAll(TABLE_ROW)].flatMap(([, row = '']) => {
+      const lines = [...rows.matchAll(TABLE_ROW)].flatMap(([row]) => {
         const tex = [...row.matchAll(MATH_TEX)].map(([, source]) => source);
         const tag = EQUATION_TAG.exec(row)?.[1]?.trim();
         if (tex.length === 0) return [];

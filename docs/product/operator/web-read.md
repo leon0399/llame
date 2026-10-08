@@ -301,9 +301,13 @@ old-style (`hep-th/9901001`) ids with an optional version; listings, author
 pages, and `export.arxiv.org` stay on the generic ladder. A read requests the
 paper's HTML rendering at `https://arxiv.org/html/{id}` and converts it like
 the generic Readability path, after replacing MathML with its LaTeX source.
-When arXiv has no HTML for that version, it reads `https://arxiv.org/abs/{id}`
-instead and adds `full text omitted: <failure>`. With a domain allowlist, a
-clause for `^https://arxiv\.org/` covers both requests.
+When arXiv has no HTML for that version, it reads `https://arxiv.org/abs/{id}`,
+rendered the same way, and adds `full text omitted: <failure>`; a read costs
+one request, or two on that fallback. With a domain allowlist, a clause for
+`^https://arxiv\.org/` covers both. Both are derived locators, so a narrower
+clause such as `^https://arxiv\.org/abs/` refuses them and every read falls
+through with `permission`, including the `/abs/` reads the generic ladder
+would otherwise serve.
 
 ## Derived locators and permission admission
 
