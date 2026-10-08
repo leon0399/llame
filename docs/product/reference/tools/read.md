@@ -79,9 +79,9 @@ directory's instruction chain, and a `kb://` read triggers its Space's chain; se
 [instruction files](../instruction-files.md). A `skill://`, `http(s)://`, or
 `bash` call never triggers a load.
 
-A marker in a prompt (`@path`, `@[label](path)`, or `[label](path "import")`)
-is read once for the owner before the first model request, with the same
-locators and selectors; see [prompt imports](../prompt-imports.md).
+A marker in a prompt (`@path`, `@"…"`, `@'…'`, ``@`…` ``, `@[label](path)`, or
+`[label](path "import")`) is read once for the owner before the first model
+request, with the same locators and selectors; see [prompt imports](../prompt-imports.md).
 
 ## Bounds
 

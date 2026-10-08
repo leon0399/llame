@@ -20,14 +20,15 @@ Your text is stored and shown exactly as typed; the import is added beside it.
 
 ## Markers
 
-Three shapes are recognized in prompt text, outside fenced code and inline
+Four shapes are recognized in prompt text, outside fenced code and inline
 code:
 
-| Shape                    | Example                               |
-| ------------------------ | ------------------------------------- |
-| `@path`                  | `compare @README.md:30-35`            |
-| `@[label](path)`         | `see @[the guide](docs/guide.md)`     |
-| `[label](path "import")` | `[the guide](docs/guide.md "import")` |
+| Shape                       | Example                               |
+| --------------------------- | ------------------------------------- |
+| `@path`                     | `compare @README.md:30-35`            |
+| `@"…"` / `@'…'` / ``@`…` `` | `compare @"my notes/a b.md:30-35"`    |
+| `@[label](path)`            | `see @[the guide](docs/guide.md)`     |
+| `[label](path "import")`    | `[the guide](docs/guide.md "import")` |
 
 A bare `@path` starts at the beginning of a line, after whitespace, or after one
 of `(`, `[`, `{`, `<`, `"`, `'`, and runs to the next whitespace without its
@@ -37,6 +38,14 @@ not imported and audited, even if nothing exists there. An admitted marker whose
 target does not exist stays prose and records nothing: with a readable path,
 `ping @leo` imports nothing and records nothing. The same marker twice is one
 import, and the markers are taken in first-occurrence order.
+
+Delimited bare forms are `@"…"`, `@'…'`, and ``@`…` ``. Their non-empty,
+single-line content is the whole locator passed to `read`, including any
+selector. They use the same `@` boundary as a bare marker and have no escapes:
+use another delimiter when the locator contains one, or a double-backtick span
+when it contains a backtick. The closing delimiter must be followed by
+whitespace, the end, or trailing punctuation; anything glued to it is not a
+marker. An `@` inside inline code, such as `` `@a.md` ``, remains literal.
 
 ## Targets
 
