@@ -231,4 +231,46 @@ describe('importTargets', () => {
     expect(importTargets(unmatchedBrackets)).toEqual([]);
     expect(performance.now() - unmatchedBracketsStartedAt).toBeLessThan(5000);
   });
+
+  it('does not emit empty import targets', () => {
+    expect(importTargets('@')).toEqual([]);
+    expect(importTargets('@:')).toEqual([]);
+    expect(importTargets('[x](<> "import")')).toEqual([]);
+  });
+
+  it('recognizes nested parentheses in link destinations', () => {
+    expect(importTargets('[d](a(b).md "import")')).toEqual(['a(b).md']);
+    expect(importTargets('[d](a(b(c)).md "import")')).toEqual(['a(b(c)).md']);
+    expect(importTargets('@[d](a(b(c)))')).toEqual(['a(b(c))']);
+  });
+
+  it('recognizes import links with empty labels', () => {
+    expect(importTargets('[](a.md "import")')).toEqual(['a.md']);
+  });
+
+  it('recognizes import links with labels containing multiple nodes', () => {
+    expect(importTargets('[a *b* c](a.md "import")')).toEqual(['a.md']);
+  });
+
+  it('does not treat a trailing at-sign as a link prefix', () => {
+    expect(importTargets('[x](a.md) @')).toEqual([]);
+  });
+
+  it('does not mask ordinary bracketed text after a prior bracket', () => {
+    expect(importTargets('[x] [@a.md]')).toEqual(['a.md']);
+  });
+
+  it('continues scanning after an unresolved reference', () => {
+    expect(importTargets('[@hidden.md][missing] @visible.md')).toEqual([
+      'visible.md',
+    ]);
+  });
+
+  it('recognizes a marker when no reference ranges need masking', () => {
+    expect(importTargets('@visible.md')).toEqual(['visible.md']);
+  });
+
+  it('ignores escaped brackets when masking references', () => {
+    expect(importTargets(String.raw`[\][@a.md]`)).toEqual(['a.md']);
+  });
 });

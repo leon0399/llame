@@ -31,8 +31,7 @@ const TRAILING_PUNCTUATION = '.,;!?)]}>"\'';
 function nodeRange(node: Nodes): SourceRange | undefined {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
-  if (start === undefined || end === undefined || end <= start)
-    return undefined;
+  if (start === undefined || end === undefined) return undefined;
   return { start, end };
 }
 
@@ -55,7 +54,8 @@ function skipLinkWhitespace(
   offset: number,
   end: number,
 ): number {
-  while (offset < end && /\s/u.test(source.at(offset) ?? '')) {
+  while (offset !== end) {
+    if (!/\s/u.test(source.charAt(offset))) break;
     offset += 1;
   }
   return offset;
@@ -66,13 +66,8 @@ function findAngleDestinationEnd(
   offset: number,
   end: number,
 ): number | undefined {
-  while (offset < end) {
-    const character = source.at(offset);
-    if (character === '\\') {
-      offset += 2;
-      continue;
-    }
-    if (character === '>') return offset;
+  while (offset !== end) {
+    if (source.at(offset) === '>') return offset;
     offset += 1;
   }
   return undefined;
@@ -84,15 +79,9 @@ function findBareDestinationEnd(
   end: number,
 ): number | undefined {
   let parentheses = 0;
-  while (offset < end) {
-    const character = source.at(offset);
-    if (character === '\\') {
-      offset += 2;
-      continue;
-    }
-    if (/\s/u.test(character ?? '')) {
-      return parentheses === 0 ? offset : undefined;
-    }
+  while (offset !== end) {
+    const character = source.charAt(offset);
+    if (/\s/u.test(character)) return offset;
     if (character === '(') {
       parentheses += 1;
       offset += 1;
@@ -115,16 +104,30 @@ function findLinkTitleEnd(
   end: number,
   delimiter: string,
 ): number | undefined {
-  while (offset < end) {
+  while (offset !== end) {
     const character = source.at(offset);
-    if (character === '\\') {
-      offset += 2;
-      continue;
-    }
     if (character === delimiter) return offset;
     offset += 1;
   }
   return undefined;
+}
+
+function parseRawLinkTitle(
+  source: string,
+  range: SourceRange,
+  offset: number,
+  delimiter: string,
+): string | undefined {
+  const titleStart = offset + 1;
+  const titleDelimiter = delimiter === '(' ? ')' : delimiter;
+  const titleEnd = findLinkTitleEnd(
+    source,
+    titleStart,
+    range.end,
+    titleDelimiter,
+  );
+  if (titleEnd === undefined) return undefined;
+  return source.slice(titleStart, titleEnd);
 }
 
 function parseRawLink(
@@ -132,15 +135,22 @@ function parseRawLink(
   range: SourceRange,
   labelEnd: number,
 ): { destination: string; title: string | undefined } | undefined {
-  const labelClose = source.indexOf('](', labelEnd);
-  if (labelClose < 0 || labelClose + 2 > range.end) return undefined;
-
-  let offset = skipLinkWhitespace(source, labelClose + 2, range.end);
+  if (
+    source.at(labelEnd) !== ']' ||
+    source.at(labelEnd + 1) !== '(' ||
+    labelEnd + 2 > range.end
+  )
+    return undefined;
+  let offset = skipLinkWhitespace(source, labelEnd + 2, range.end);
   let destinationStart = offset;
   let destinationEnd: number | undefined;
   if (source.at(offset) === '<') {
     destinationStart += 1;
-    destinationEnd = findAngleDestinationEnd(source, offset + 1, range.end);
+    destinationEnd = findAngleDestinationEnd(
+      source,
+      destinationStart,
+      range.end,
+    );
     if (destinationEnd === undefined) return undefined;
     offset = destinationEnd + 1;
   } else {
@@ -150,22 +160,11 @@ function parseRawLink(
   }
   const destination = source.slice(destinationStart, destinationEnd);
   offset = skipLinkWhitespace(source, offset, range.end);
-  let title: string | undefined;
   const delimiter = source.at(offset);
-  if (delimiter === '"' || delimiter === "'" || delimiter === '(') {
-    const titleStart = offset + 1;
-    const titleDelimiter = delimiter === '(' ? ')' : delimiter;
-    const titleEnd = findLinkTitleEnd(
-      source,
-      titleStart,
-      range.end,
-      titleDelimiter,
-    );
-    if (titleEnd === undefined) return undefined;
-    title = source.slice(titleStart, titleEnd);
-    offset = skipLinkWhitespace(source, titleEnd + 1, range.end);
-  }
-  if (source.at(offset) !== ')' || offset + 1 !== range.end) return undefined;
+  if (delimiter !== '"' && delimiter !== "'" && delimiter !== '(')
+    return { destination, title: undefined };
+  const title = parseRawLinkTitle(source, range, offset, delimiter);
+  if (title === undefined) return undefined;
   return { destination, title };
 }
 
@@ -179,20 +178,12 @@ function collectNodeMarkers(
   const labelEnd =
     node.children.at(-1)?.position?.end.offset ?? range.start + 1;
   const rawLink = parseRawLink(source, range, labelEnd);
-  if (
-    rawLink === undefined ||
-    rawLink.destination !== node.url ||
-    (node.title === null
-      ? rawLink.title !== undefined
-      : rawLink.title !== node.title)
-  )
-    return;
+  if (rawLink === undefined || rawLink.destination !== node.url) return;
   if (rawLink.title !== undefined && rawLink.title !== 'import') return;
   if (node.title !== null) {
     addMarker(markers, range.start, node.url);
     return;
   }
-  if (source[range.start] !== '[') return;
 
   const atOffset = range.start - 1;
   if (
@@ -220,8 +211,9 @@ function visitNode(
 
 function appendChildren(node: Nodes, pending: Array<Nodes>): void {
   if ('children' in node) {
-    for (let index = node.children.length; index > 0; index -= 1) {
-      pending.push(node.children[index - 1]);
+    for (let index = node.children.length; index; ) {
+      index -= 1;
+      pending.push(node.children[index]);
     }
   }
 }
@@ -246,7 +238,7 @@ function findReferenceRanges(source: string): Array<SourceRange> {
   const referenceRanges: Array<SourceRange> = [];
   let previousClosingStart: number | undefined;
 
-  for (let offset = 0; offset < source.length; offset += 1) {
+  for (let offset = 0; source.at(offset) !== undefined; offset += 1) {
     const character = source.at(offset);
     if (character === '\\') {
       offset += 1;
@@ -271,7 +263,7 @@ function findReferenceRanges(source: string): Array<SourceRange> {
     if (opening.referenceStart !== undefined) {
       referenceRanges.push({
         start: opening.referenceStart,
-        end: offset + 1,
+        end: offset,
       });
     }
     previousClosingStart = opening.start;
@@ -285,15 +277,14 @@ function maskReferenceRanges(
   mask: Uint8Array,
   referenceRanges: Array<SourceRange>,
 ): void {
-  if (referenceRanges.length === 0) return;
-  const delta = new Int32Array(source.length + 1);
+  const delta = new Int32Array(source.length);
   for (const range of referenceRanges) {
     delta[range.start] += 1;
     delta[range.end] -= 1;
   }
 
   let active = 0;
-  for (let offset = 0; offset < source.length; offset += 1) {
+  for (let offset = 0; offset !== source.length; offset += 1) {
     active += delta[offset];
     if (active > 0) mask[offset] = 1;
   }
@@ -303,7 +294,10 @@ function collectUnresolvedReferenceRanges(
   source: string,
   mask: Uint8Array,
 ): void {
-  maskReferenceRanges(source, mask, findReferenceRanges(source));
+  const referenceRanges = findReferenceRanges(source);
+  if (referenceRanges.length) {
+    maskReferenceRanges(source, mask, referenceRanges);
+  }
 }
 
 function collectBareMarkers(
@@ -311,10 +305,9 @@ function collectBareMarkers(
   mask: Uint8Array,
   markers: Array<Marker>,
 ): void {
-  for (let offset = 0; offset < source.length; ) {
+  for (let offset = 0; source.at(offset) !== undefined; ) {
     if (
       source.at(offset) !== '@' ||
-      mask[offset] !== 0 ||
       !isBareBoundary(source, offset) ||
       mask[offset + 1] === 1
     ) {
@@ -324,25 +317,24 @@ function collectBareMarkers(
 
     const tokenStart = offset + 1;
     let tokenEnd = tokenStart;
-    while (tokenEnd < source.length) {
+    while (source.at(tokenEnd) !== undefined) {
       const character = source.at(tokenEnd);
-      if (character === undefined || /\s/u.test(character)) break;
+      if (/\s/u.test(character)) break;
       tokenEnd += 1;
     }
 
     let targetEnd = tokenEnd;
-    while (
-      targetEnd > tokenStart &&
-      TRAILING_PUNCTUATION.includes(source.at(targetEnd - 1) ?? '')
-    ) {
+    if (targetEnd === tokenStart) {
+      offset = tokenEnd;
+      continue;
+    }
+    while (TRAILING_PUNCTUATION.includes(source.charAt(targetEnd - 1))) {
       targetEnd -= 1;
     }
-    if (targetEnd > tokenStart && source.at(targetEnd - 1) === ':') {
+    if (source.charAt(targetEnd - 1) === ':') {
       targetEnd -= 1;
     }
-    if (targetEnd > tokenStart) {
-      addMarker(markers, offset, source.slice(tokenStart, targetEnd));
-    }
+    addMarker(markers, offset, source.slice(tokenStart, targetEnd));
     offset = tokenEnd;
   }
 }
