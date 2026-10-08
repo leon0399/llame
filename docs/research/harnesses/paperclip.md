@@ -95,7 +95,7 @@ sources:
 
 # Paperclip
 
-- **Stack:** TypeScript monorepo (Node server, React board UI, Drizzle on Postgres with embedded Postgres by default); MIT; workspace packages at version 0.3.1 (the root `package.json` declares none),
+- **Stack:** TypeScript monorepo (Node server, React board UI, Drizzle on Postgres with embedded Postgres by default); MIT; the `@paperclipai/server` package at version 0.3.1 (the root `package.json` declares none),
   while releases use calendar tags (the site names `v2026.1005.0` as
   latest)[^readme-l37-l47][^spec-l98-l123][^server-package][^paperclip-site]
 
