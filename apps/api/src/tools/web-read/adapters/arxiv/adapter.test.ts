@@ -53,6 +53,7 @@ describe('arXiv adapter claim', () => {
     'https://export.arxiv.org/abs/1706.03762',
     'https://arxiv.org/abs/1706.03762/',
     'https://arxiv.org/abs/170.03762',
+    'https://arxiv.org/abs/1706.03762.pdf',
     'https://arxiv.org/list/cs.CL/recent',
     'https://arxiv.org/a/vaswani_a_1',
   ])('leaves %s to the generic ladder', (source) => {

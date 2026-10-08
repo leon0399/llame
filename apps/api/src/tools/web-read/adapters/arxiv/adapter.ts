@@ -16,7 +16,7 @@ export const ARXIV_ORIGIN = 'https://arxiv.org';
  *  `math.GT/0309136`), each with an optional version. */
 const PAPER_ID = String.raw`(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})(?:v\d{1,3})?`;
 const PAPER_PATH = new RegExp(
-  `^/(?:abs|pdf|html)/(${PAPER_ID})(?:\\.pdf)?$`,
+  `^/(?:(?:abs|html)/(${PAPER_ID})|pdf/(${PAPER_ID})(?:\\.pdf)?)$`,
   'u',
 );
 
@@ -36,7 +36,8 @@ export function parseArxivUrl(source: URL): string | undefined {
   ) {
     return undefined;
   }
-  return PAPER_PATH.exec(source.pathname)?.[1];
+  const match = PAPER_PATH.exec(source.pathname);
+  return match?.[1] ?? match?.[2];
 }
 
 /** Creates the native arXiv adapter. */
