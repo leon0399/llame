@@ -1286,7 +1286,7 @@ The config file SHALL accept an optional top-level `webSearch` object with an `e
 
 ### Requirement: Web search engine entries have fixed per-type shapes
 
-Each engine entry MAY set `timeoutSeconds`, a positive integer defaulting to 60. `brave`, `exa`, and `perplexity` SHALL require `key`; `exa-mcp` SHALL accept an optional `key`; `searxng` SHALL require an absolute `http:` or `https:` `baseUrl`; `duckduckgo` SHALL accept no other field; `aggregate` SHALL require `engines` with two or more distinct ids; and `model-hosted` SHALL require `model`. `key` and `baseUrl` SHALL be interpolated secrets.
+Each engine entry except `aggregate` MAY set `timeoutSeconds`, a positive integer defaulting to 60; an `aggregate` entry SHALL NOT set it. `brave`, `exa`, and `perplexity` SHALL require `key`; `exa-mcp` SHALL accept an optional `key`; `searxng` SHALL require an absolute `http:` or `https:` `baseUrl`; `duckduckgo` SHALL accept no other field; `aggregate` SHALL require `engines` with two or more distinct ids; and `model-hosted` SHALL require `model`. `key` and `baseUrl` SHALL be interpolated secrets.
 
 #### Scenario: Missing key fails startup
 

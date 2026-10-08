@@ -131,7 +131,7 @@ When every chain engine fails, the call SHALL return a tool error naming each at
 
 ### Requirement: Engine and call deadlines bound every search
 
-Each engine attempt SHALL be aborted after its `timeoutSeconds`, defaulting to 60, and classified `timeout`. The whole call, including every chain step and aggregate child, SHALL be bounded by `tools.callTimeoutSeconds`; when it elapses, every in-flight engine request SHALL be aborted and the call SHALL settle with the runner's timeout observation. Run cancellation SHALL abort in-flight engine requests.
+Each non-aggregate engine attempt SHALL be aborted after its `timeoutSeconds`, defaulting to 60, and classified `timeout`; an aggregate has no deadline of its own and is bounded by its children's deadlines. The whole call, including every chain step and aggregate child, SHALL be bounded by `tools.callTimeoutSeconds`; when it elapses, every in-flight engine request SHALL be aborted and the call SHALL settle with the runner's timeout observation. Run cancellation SHALL abort in-flight engine requests.
 
 #### Scenario: Slow engine advances the chain
 
