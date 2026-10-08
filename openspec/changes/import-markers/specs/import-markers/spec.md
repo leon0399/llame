@@ -95,7 +95,7 @@ A bare `@target` SHALL start only when the source character before `@` is the st
 
 ### Requirement: Link markers require the import title and a valid at-sign boundary
 
-The system SHALL recognize `@[label](target)` only when its `@` is at a bare-marker boundary, and SHALL recognize `[label](target "import")` only when the title is exactly `import`. A plain link without that title, an image, image reference, link reference, link reference definition, or other marker-shaped text inside link syntax SHALL not be import markers.
+The system SHALL recognize `@[label](target)` only when its `@` is at a bare-marker boundary, and `[label](target "import")` only when the title is exactly `import`, in both cases only when the destination source spells the target verbatim. Plain links, images, image references, link references, definitions, and marker-shaped text inside link syntax SHALL not be import markers.
 
 #### Scenario: A plain Markdown link is not an import marker
 
@@ -115,6 +115,11 @@ The system SHALL recognize `@[label](target)` only when its `@` is at a bare-mar
 #### Scenario: A mid-word at-prefixed link is not an import marker
 
 - **WHEN** the text contains `foo@[x](y)`
+- **THEN** no import marker is recognized
+
+#### Scenario: An entity-encoded destination is not an import marker
+
+- **WHEN** the text contains `[see /etc/passwd](&#47;etc&#47;passwd "import")`
 - **THEN** no import marker is recognized
 
 ### Requirement: Marker-bearing source text is preserved verbatim
