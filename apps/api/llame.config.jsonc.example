@@ -524,42 +524,40 @@
     // To enable Workspace entry/exit on a native host, also add
     // "enter_workspace" and "exit_workspace" to this allowlist.
     "allowed": ["search_conversations"],
-    // Optional ordered web adapters; absent means none, and a present array is
-    // the exact enabled list. This example includes native GitHub, Bluesky,
-    // npm, Hugging Face, arXiv, Stack Exchange, crates.io, Hacker News, DOI,
-    // Discourse, dev.to, Substack, OSV, and Wikipedia adapters and sends x.com
-    // status paths to the operator-declared origin below.
-    // "webAdapters": [
-    //   {
-    //     "id": "github",
-    //     "use": "github",
-    //     "token": "{env:GITHUB_READ_TOKEN}",
-    //   },
-    //   { "id": "bluesky", "use": "bluesky" },
-    //   { "id": "npm", "use": "npm" },
-    //   { "id": "huggingface", "use": "huggingface" },
-    //   { "id": "arxiv", "use": "arxiv" },
-    //   { "id": "stackexchange", "use": "stackexchange" },
-    //   { "id": "crates", "use": "crates" },
-    //   { "id": "hackernews", "use": "hackernews" },
-    //   { "id": "doi", "use": "doi" },
-    //   {
-    //     "id": "forums",
-    //     "use": "discourse",
-    //     "hosts": ["meta.discourse.org", "users.rust-lang.org"]
-    //   },
-    //   { "id": "devto", "use": "devto" },
-    //   { "id": "substack", "use": "substack" },
-    //   { "id": "advisories", "use": "osv" },
-    //   { "id": "wikipedia", "use": "wikipedia" },
-    //   {
-    //     "id": "x",
-    //     "use": "rewrite",
-    //     "hosts": ["x.com", "twitter.com"],
-    //     "pathPattern": "^/[^/]+/status/\\d+$",
-    //     "target": "https://x.pcstyle.dev{path}"
-    //   }
-    // ],
+    // Ordered web adapters; absent means none, and a present array is the
+    // exact enabled list. Every adapter is enabled here. The GitHub entry is
+    // keyless (60 requests/hour per egress IP); add
+    // "token": "{env:GITHUB_READ_TOKEN}" for private repositories, job logs,
+    // and discussions; an unset variable fails boot. The x rewrite sends x.com
+    // status URLs to the third-party origin x.pcstyle.dev; remove it to keep
+    // those reads on x.com. See docs/product/operator/web-adapters.md.
+    "webAdapters": [
+      { "id": "github", "use": "github" },
+      { "id": "bluesky", "use": "bluesky" },
+      { "id": "npm", "use": "npm" },
+      { "id": "huggingface", "use": "huggingface" },
+      { "id": "arxiv", "use": "arxiv" },
+      { "id": "stackexchange", "use": "stackexchange" },
+      { "id": "crates", "use": "crates" },
+      { "id": "hackernews", "use": "hackernews" },
+      { "id": "doi", "use": "doi" },
+      {
+        "id": "forums",
+        "use": "discourse",
+        "hosts": ["meta.discourse.org", "users.rust-lang.org"],
+      },
+      { "id": "devto", "use": "devto" },
+      { "id": "substack", "use": "substack" },
+      { "id": "advisories", "use": "osv" },
+      { "id": "wikipedia", "use": "wikipedia" },
+      {
+        "id": "x",
+        "use": "rewrite",
+        "hosts": ["x.com", "twitter.com"],
+        "pathPattern": "^/[^/]+/status/\\d+$",
+        "target": "https://x.pcstyle.dev{path}",
+      },
+    ],
     // Enabling "bypass" makes per-Run permission bypass available instance-wide;
     // omit this property (default ["default"]) to keep bypass unavailable.
     // "permissionModes": ["default", "bypass"],

@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- The shipped `llame.config.jsonc.example` now enables every web adapter, with
+  a keyless GitHub entry, so a copied example reads those sites natively. Its
+  `x` rewrite sends x.com status reads to the third-party `x.pcstyle.dev`;
+  remove that entry to keep them on x.com.
+
 - Added a native `wikipedia` web adapter. With
   `{ "id": "wikipedia", "use": "wikipedia" }` in `tools.webAdapters`, `read`
   renders `{lang}.wikipedia.org/wiki/{title}` articles from the Wikimedia REST
