@@ -16,10 +16,18 @@ import {
   ToolHeader,
   ToolInput,
   ToolOutput,
+  type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
 import { ModelSwitchBoundary } from "@workspace/ui/components/custom/model-switch-boundary";
 import { WebSearchTool } from "@workspace/ui/components/custom/web-search";
-import { getToolName, isToolUIPart, type ChatStatus, type UIMessage } from "ai";
+import {
+  getToolName,
+  isToolUIPart,
+  type ChatStatus,
+  type DynamicToolUIPart,
+  type ToolUIPart,
+  type UIMessage,
+} from "ai";
 
 import { CompactionBoundary } from "./compaction-boundary";
 import { EffectiveContextAction } from "./effective-context-inspector";
@@ -52,16 +60,21 @@ import {
 // handles so bodies land in one paint. TODO(#417): server-rendered markdown
 // per message under 'use cache' removes the client wait.
 
-/** A tool call/result part — its own component since a tool's header + input
- *  + output block carries real internal structure. */
+function toolHeaderState(
+  part: ToolUIPart | DynamicToolUIPart,
+): ToolHeaderState {
+  return part.state === "output-error" &&
+    part.resultProviderMetadata?.llame?.cancelled === true
+    ? "cancelled"
+    : (part.state ?? "input-streaming");
+}
+
+/** A tool call/result part — its own component since a tool's header + output
+ *  block carries real internal structure. */
 function ToolPartView({ part }: { part: UIMessage["parts"][number] }) {
   if (!isToolUIPart(part)) return null;
   const toolName = getToolName(part);
-  const toolState =
-    part.state === "output-error" &&
-    part.resultProviderMetadata?.llame?.cancelled === true
-      ? "cancelled"
-      : (part.state ?? "input-streaming");
+  const toolState = toolHeaderState(part);
   return (
     <Tool>
       <ToolHeader
@@ -125,13 +138,8 @@ function MessagePartView({
     return <MessageResponse>{part.text}</MessageResponse>;
   }
   if (isToolUIPart(part)) {
-    const toolName = getToolName(part);
-    if (toolName === "web_search") {
-      const toolState =
-        part.state === "output-error" &&
-        part.resultProviderMetadata?.llame?.cancelled === true
-          ? "cancelled"
-          : (part.state ?? "input-streaming");
+    if (getToolName(part) === "web_search") {
+      const toolState = toolHeaderState(part);
       return (
         <WebSearchTool
           input={part.input}

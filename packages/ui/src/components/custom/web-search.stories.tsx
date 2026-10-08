@@ -93,6 +93,14 @@ export const Results: Story = {
     await expect(
       canvas.getByText(/A concise overview of the latest release/iu),
     ).toBeInTheDocument();
+
+    await userEvent.click(
+      canvas.getByRole("link", { name: "Llame release notes" }),
+    );
+    await expect(canvas.getByText("Open external link?")).toBeVisible();
+    await expect(
+      canvas.getByText("You're about to visit an external website."),
+    ).toBeVisible();
   },
 };
 
@@ -138,15 +146,7 @@ export const Answer: Story = {
  */
 export const Empty: Story = {
   tags: ["ai-generated"],
-  args: {
-    output: {
-      status: "success" as const,
-      kind: "results" as const,
-      engine: "duckduckgo",
-      query: "a query with no matches",
-      results: [],
-    },
-  },
+  args: {},
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     await expect(canvas.getByText("No results found.")).toBeInTheDocument();

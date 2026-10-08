@@ -99,7 +99,7 @@ output.
 - [x] 5.2 Dispatch every tool part with `isToolUIPart(part) && getToolName(part) === "web_search"` to the renderer in `apps/web`, covering live `dynamic-tool` and stored `tool-web_search` parts; verify by component tests that a `javascript:` URL renders as text, a link click goes through link safety, a cancelled part renders without error text, and a live and a historical part render identically
 - [x] 5.3 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [ ] 5.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, and the `packages/ui` checks; exercise a chat with a `web_search` result in a browser against the Brave fixture, live and after reload, and confirm the links reach the result URLs
-- [ ] 5.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 5.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 5.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 6. `web-search/hosted` — model-hosted engines (design D8)

@@ -157,36 +157,6 @@ function renderedTitlesIn(trigger: HTMLElement): Array<string | null> {
   );
 }
 
-async function expectWebSearchLinks({ canvas }: PlayContext): Promise<void> {
-  const headers = await waitFor(
-    () => {
-      const found = canvas.getAllByRole("button", { name: /web_search/i });
-      expect(found).toHaveLength(2);
-      return found;
-    },
-    { timeout: 15_000 },
-  );
-
-  for (const header of headers) {
-    if (header.getAttribute("aria-expanded") === "false") {
-      await userEvent.click(header);
-    }
-  }
-
-  const links = await waitFor(() => {
-    const found = canvas.getAllByRole("link");
-    expect(found).toHaveLength(WEB_SEARCH_OUTPUT.results.length * 2);
-    return found;
-  });
-  expect(links.map((link) => link.getAttribute("href"))).toEqual([
-    ...WEB_SEARCH_OUTPUT.results.map((result) => result.url),
-    ...WEB_SEARCH_OUTPUT.results.map((result) => result.url),
-  ]);
-  for (const result of WEB_SEARCH_OUTPUT.results) {
-    expect(canvas.getAllByRole("link", { name: result.title })).toHaveLength(2);
-  }
-}
-
 /** The panel boundaries every conversation state must show: one Thinking
  *  panel per uninterrupted summary run, the tool between them, and the answer
  *  after — persisted order intact, reasoning never hoisted above the tool. */
@@ -288,11 +258,7 @@ export const LiveAndHistoricalWebSearch: Story = {
   args: { message: LIVE_WEB_SEARCH_MESSAGE },
   render: (args) => (
     <div>
-      <ChatMessageRow
-        {...args}
-        renderKey="web-search-live"
-        message={LIVE_WEB_SEARCH_MESSAGE}
-      />
+      <ChatMessageRow {...args} renderKey="web-search-live" />
       <ChatMessageRow
         {...args}
         renderKey="web-search-history"
@@ -300,8 +266,36 @@ export const LiveAndHistoricalWebSearch: Story = {
       />
     </div>
   ),
-  play: async (context) => {
-    await expectWebSearchLinks(context);
+  play: async ({ canvas }) => {
+    const headers = await waitFor(
+      () => {
+        const found = canvas.getAllByRole("button", { name: /web_search/iu });
+        expect(found).toHaveLength(2);
+        return found;
+      },
+      { timeout: 15_000 },
+    );
+
+    for (const header of headers) {
+      if (header.getAttribute("aria-expanded") === "false") {
+        await userEvent.click(header);
+      }
+    }
+
+    const links = await waitFor(() => {
+      const found = canvas.getAllByRole("link");
+      expect(found).toHaveLength(WEB_SEARCH_OUTPUT.results.length * 2);
+      return found;
+    });
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      ...WEB_SEARCH_OUTPUT.results.map((result) => result.url),
+      ...WEB_SEARCH_OUTPUT.results.map((result) => result.url),
+    ]);
+    for (const result of WEB_SEARCH_OUTPUT.results) {
+      expect(canvas.getAllByRole("link", { name: result.title })).toHaveLength(
+        2,
+      );
+    }
   },
 };
 
@@ -315,9 +309,12 @@ export const CancelledWebSearch: Story = {
   tags: ["ai-generated"],
   args: { message: CANCELLED_WEB_SEARCH_MESSAGE },
   play: async ({ canvas }) => {
-    await waitFor(() => expect(canvas.getByText("Cancelled")).toBeVisible(), {
-      timeout: 15_000,
-    });
+    const header = await waitFor(
+      () => canvas.getByRole("button", { name: /web_search/iu }),
+      { timeout: 15_000 },
+    );
+    await userEvent.click(header);
+    await expect(canvas.getByText("Cancelled")).toBeVisible();
     expect(
       canvas.queryByText(CANCELLED_WEB_SEARCH_ERROR),
     ).not.toBeInTheDocument();
