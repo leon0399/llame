@@ -9,10 +9,6 @@ export const OPENALEX_API_ORIGIN = 'https://api.openalex.org';
 const SELECT =
   'display_name,type,publication_date,authorships,primary_location,cited_by_count,open_access,abstract_inverted_index,is_retracted';
 const DOI = /^10\.\d{4,9}\/.+$/u;
-/** OpenAlex documents `authorships` as capped at the first 100 authors, yet
- *  its work endpoint has returned longer bylines whole, so only a list of
- *  exactly this length may have been cut. It sends no truncation flag. */
-const AUTHORSHIP_CAP = 100;
 
 const WORK = z.object({
   display_name: z.string().nullable(),
@@ -97,14 +93,12 @@ function renderWork(doi: string, work: Work): string {
   ]
     .filter(Boolean)
     .join(' ');
-  const authors = work.authorships.map(({ author }) => author.display_name);
-  const cut =
-    authors.length === AUTHORSHIP_CAP
-      ? ` (first ${AUTHORSHIP_CAP} listed; there may be more)`
-      : '';
   const fields: Array<[string, string | null | undefined]> = [
     ['Retracted', work.is_retracted ? 'yes' : undefined],
-    ['Authors', `${authors.join(', ')}${cut}`],
+    [
+      'Authors',
+      work.authorships.map(({ author }) => author.display_name).join(', '),
+    ],
     ['Published', published],
     ['Cited by', work.cited_by_count?.toLocaleString('en-US')],
     ['Open access', work.open_access?.oa_url],

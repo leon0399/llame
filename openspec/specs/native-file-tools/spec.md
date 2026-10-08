@@ -2559,25 +2559,17 @@ percent-encoded and a fixed `select` of the rendered fields; a failed or
 unparsable response SHALL fall through.
 
 The render SHALL be `# {title}` (the DOI when the work has no title), then
-`Retracted: yes` for a retracted work, `Authors` (ending with
-`(first 100 listed; there may be more)` when the list has exactly 100 names,
-the cap OpenAlex documents for `authorships`), `Published` (date, venue, and
-type), `Cited by`, `Open access` with an open copy's URL, and `DOI` lines for
-the fields present, then `## Abstract` with the text rebuilt from OpenAlex's
-inverted index when one exists. The adapter SHALL NOT fetch the open-access
-URL.
+`Retracted: yes` for a retracted work, `Authors`, `Published` (date, venue,
+and type), `Cited by`, `Open access` with an open copy's URL, and `DOI` lines
+for the fields present, then `## Abstract` with the text rebuilt from
+OpenAlex's inverted index when one exists. The adapter SHALL NOT fetch the
+open-access URL.
 
 #### Scenario: A DOI renders metadata and abstract
 
 - **WHEN** the model reads `https://doi.org/10.1145/3442188.3445922`
 - **THEN** the adapter requests only the OpenAlex work for that DOI
 - **AND** the text has the title, `Authors`, `Published`, and `DOI` lines and an `## Abstract` section
-
-#### Scenario: A full-length author list is marked as possibly cut
-
-- **WHEN** OpenAlex returns exactly 100 authorships for the work
-- **THEN** the `Authors` line lists all 100 names and ends with `(first 100 listed; there may be more)`
-- **AND** a list of 99 or 101 names carries no such note
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 
