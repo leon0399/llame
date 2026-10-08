@@ -101,6 +101,34 @@ function ReadMetadata({ output }: { output: ReadOutput }) {
   );
 }
 
+function ReadSource({
+  output,
+  Markdown,
+}: {
+  output: ReadOutput;
+  Markdown: ComponentType<{ children?: string }>;
+}) {
+  return (
+    <div className="space-y-1 px-4 pt-4 text-sm">
+      {output.finalUrl ? (
+        <SearchLink
+          label={output.finalUrl}
+          url={output.finalUrl}
+          Markdown={Markdown}
+        />
+      ) : (
+        <p className="break-all font-mono text-xs">{output.path}</p>
+      )}
+      {output.realPath && (
+        <p className="break-all text-muted-foreground text-xs">
+          <span className="font-medium">Resolves to:</span>{" "}
+          <span className="font-mono">{output.realPath}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ReadBody({
   output,
   Markdown,
@@ -110,28 +138,13 @@ function ReadBody({
 }) {
   return (
     <div className="space-y-4">
-      <div className="space-y-1 px-4 pt-4 text-sm">
-        {output.finalUrl ? (
-          <SearchLink
-            label={output.finalUrl}
-            url={output.finalUrl}
-            Markdown={Markdown}
-          />
-        ) : (
-          <p className="break-all font-mono text-xs">{output.path}</p>
-        )}
-        {output.realPath && (
-          <p className="break-all text-muted-foreground text-xs">
-            <span className="font-medium">Resolves to:</span>{" "}
-            <span className="font-mono">{output.realPath}</span>
-          </p>
-        )}
-      </div>
+      <ReadSource output={output} Markdown={Markdown} />
       <div className="px-4">
         {output.content === "" ? (
           <p className="text-muted-foreground text-sm">No content.</p>
         ) : (
-          <pre className="max-h-96 overflow-auto rounded-md bg-muted/50 p-3 font-mono text-xs">
+          // Wrapped, not scrolled: a scroll container would need keyboard focus.
+          <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 font-mono text-xs">
             {output.content}
           </pre>
         )}

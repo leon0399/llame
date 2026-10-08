@@ -98,6 +98,34 @@ export const RealPath: Story = {
   },
 };
 
+const LONG_LINE = `1: ${"minified-bundle-token ".repeat(40)}\n`;
+
+/**
+ * A long source line wraps inside the content block instead of scrolling it,
+ * so the block never becomes a scroll region a keyboard user cannot reach.
+ *
+ * @summary for a read whose line is wider than the panel
+ */
+export const LongLine: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...fileOutput,
+      content: LONG_LINE,
+      shownRange: { startLine: 1, endLine: 1 },
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    const block = canvas.getByText(
+      (_, element) =>
+        element?.tagName === "PRE" &&
+        element.textContent.startsWith("1: minified-bundle-token"),
+    );
+    await expect(block.scrollWidth).toBeLessThanOrEqual(block.clientWidth);
+  },
+};
+
 /**
  * A bounded read reports where the next read continues, one past the
  * zero-based `nextOffset`, and every shown range of a multi-range read.
