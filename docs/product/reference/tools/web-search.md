@@ -3,7 +3,7 @@ summary: "`web_search` returns bounded, untrusted web results or a cited answer"
 read_when:
   - you need the `web_search` input or output shape
   - you need to interpret search bounds, fall-through, or failures
-spec: tool-calling
+spec: web-search
 configured_by: ../../operator/web-search.md
 ---
 

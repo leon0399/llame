@@ -1231,10 +1231,10 @@ will reach and the two texts are one resource. A redirect hop is a different
 resource and SHALL keep being admitted in its own right, and every address a
 request would connect to SHALL additionally be judged under the
 address-admission requirement below. Availability and
-restriction for the web SHALL come only from the `read` permission group's
+restriction for fetching web locators through `read` SHALL come only from the `read` permission group's
 `path` clauses: a prefix allow admits the web, and a prefix or domain reject
 removes a host. This web-availability rule governs a `default`-mode attempt; under `bypass` the web is reachable without a `path` allow, as this capability's Purpose states. No web tool id, `tools.allowed` entry, configuration block, or
-advertisement condition SHALL be added; a process that does not advertise
+advertisement condition SHALL be added for fetching a web locator; `web_search`, specified by `web-search`, is a separate tool with its own allowlist entry, configuration, and permission group, and the `read` group's `path` clauses do not restrict it; a process that does not advertise
 `read` SHALL NOT reach a URL through it. Each call SHALL fetch afresh: no
 response or render SHALL be cached, and a later selector read of the same
 locator SHALL issue a new request. The tool SHALL NOT consult `robots.txt` or
@@ -1360,6 +1360,12 @@ it.
 - **WHEN** a page's `robots.txt` disallows the path or its response carries `content-signal: ai-train=no`
 - **THEN** an admitted read still fetches the locator and returns its content
 - **AND** the read does not report or enforce the signal
+
+#### Scenario: Read path clauses do not govern web search
+
+- **WHEN** the `read` group has no allow for `^https://` and `tools.allowed`, `webSearch`, and `tools.permissions.web_search` admit `web_search`
+- **THEN** a `web_search` call runs its engines and returns results
+- **AND** a `read` of any returned `https://` URL is still rejected as `no_allow` before any request
 
 ### Requirement: Web fetch bounds fail fast and are never retried
 

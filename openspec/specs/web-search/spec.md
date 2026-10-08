@@ -1,9 +1,11 @@
+# web-search Specification
+
 ## Purpose
 
 Lets the model search the web through one stable code-owned tool whose engines the operator
 configures, falls back between, fans out across, or delegates to a provider's hosted search.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: The web search tool has one stable model-facing contract
 
@@ -56,7 +58,7 @@ Every result and citation `url` SHALL be parsed as a WHATWG URL with scheme `htt
 
 ### Requirement: Output fields are bounded within the result cap
 
-Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles SHALL be at most 200, snippets 300, and answers 8,000 units; `published` SHALL be present only as an ISO 8601 date; results SHALL be cut to `limit` and citations to 20.`notes` SHALL hold at most 10 entries of at most 200 units; when more are due, the tenth SHALL count the rest.
+Lengths count JavaScript UTF-16 code units, cut at a code-point boundary. Titles SHALL be at most 200, snippets 300, and answers 8,000 units; `published` SHALL be present only as an ISO 8601 date; results SHALL be cut to `limit` and citations to 20. `notes` SHALL hold at most 10 notes of at most 200 UTF-16 units each; when more are due, the tenth SHALL record the remainder as `<n> more engines`.
 
 #### Scenario: Long snippet is cut
 
@@ -129,7 +131,7 @@ When every chain engine fails, the call SHALL return a tool error naming each at
 
 ### Requirement: Engine and call deadlines bound every search
 
-Each engine attempt SHALL be aborted after its `timeoutSeconds`, defaulting to 60, and classified `timeout`. The whole call, including every chain step and aggregate child, SHALL be bounded by `tools.callTimeoutSeconds`; when it elapses, every in-flight engine request SHALL be aborted and the call SHALL settle with the runner's timeout observation. Run cancellation SHALL abort in-flight engine requests.
+Each non-aggregate engine attempt SHALL be aborted after its `timeoutSeconds`, defaulting to 60, and classified `timeout`. The whole call, including every chain step and aggregate child, SHALL be bounded by `tools.callTimeoutSeconds`; when it elapses, every in-flight engine request SHALL be aborted and the call SHALL settle with the runner's timeout observation. Run cancellation SHALL abort in-flight engine requests.
 
 #### Scenario: Slow engine advances the chain
 

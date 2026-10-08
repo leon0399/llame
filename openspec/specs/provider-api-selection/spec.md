@@ -159,7 +159,7 @@ Every language-model request llame makes on behalf of any provider entry SHALL c
 
 ### Requirement: Language-model requests carry the Chat identity
 
-Both model-client input contracts — the streaming input and the structured-generation input — SHALL carry a required, transport-neutral Chat identity: the Chat's identifier and the lane the request belongs to, where the lane is `main` or `title`. The field SHALL be required, so every call site supplies it and the type checker enumerates every construction site rather than allowing a default. Call sites SHALL supply facts only, never a rendered header value or a transport name: each client renders the identity in the form its own provider requires and through the request-time variable of its entry's header map (`provider-request-headers`), and sends nothing derived from it when neither applies. The main turn and every compaction path SHALL send the `main` lane, because compaction reuses the conversation's own prefix; title generation SHALL send the `title` lane. The value SHALL be stable across retries, worker restarts, compaction, and model switches within the same Chat. The identity is not a credential: it is the Chat's own identifier, which llame already records, and it SHALL NOT reach model context or persisted message parts and SHALL add nothing to owner-visible output.
+Both model-client input contracts — the streaming input and the structured-generation input — SHALL carry a required, transport-neutral Chat identity: the Chat's identifier and the lane the request belongs to, where the lane is `main`, `title`, or `search`. The field SHALL be required, so every call site supplies it and the type checker enumerates every construction site rather than allowing a default. Call sites SHALL supply facts only, never a rendered header value or a transport name: each client renders the identity in the form its own provider requires and through the request-time variable of its entry's header map (`provider-request-headers`), and sends nothing derived from it when neither applies. The main turn and every compaction path SHALL send the `main` lane, because compaction reuses the conversation's own prefix; title generation SHALL send the `title` lane; and the hosted-search sub-request of a `web-search` model-hosted engine SHALL send the `search` lane, because it shares no prefix with the conversation. The value SHALL be stable across retries, worker restarts, compaction, and model switches within the same Chat. The identity is not a credential: it is the Chat's own identifier, which llame already records, and it SHALL NOT reach model context or persisted message parts and SHALL add nothing to owner-visible output.
 
 #### Scenario: The main turn and compaction carry the main lane
 
@@ -184,6 +184,12 @@ Both model-client input contracts — the streaming input and the structured-gen
 - **WHEN** the identity is supplied to a client and the request is inspected
 - **THEN** the identity value appears only in the provider-bound headers the client renders
 - **AND** it appears in no model context or persisted part, and adds nothing to owner-visible output
+
+#### Scenario: A hosted web search carries the search lane
+
+- **WHEN** a model-hosted web search engine makes its sub-request during a Run in a Chat
+- **THEN** the request carries that Chat's identifier under the `search` lane
+- **AND** a client that renders the lane distinguishes it from the Chat's main-lane and title-lane requests
 
 ### Requirement: Chat Completions failures reach the run as bounded messages
 

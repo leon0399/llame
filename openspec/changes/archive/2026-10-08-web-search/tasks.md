@@ -1,5 +1,5 @@
 Track [#1102](https://github.com/leon0399/llame/issues/1102) and its PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
 approval of the published proposal revision; keep live status in the Project.
 
 Implementation is one `gh stack` rooted on `master`, one PR per layer, bottom to top. Every layer
@@ -49,7 +49,7 @@ output.
 - [x] 0.2 Verify every MODIFIED and RENAMED block against its canonical requirement with a sentence-level diff, keeping every canonical scenario heading verbatim
 - [x] 0.3 Verify `pnpm exec openspec validate web-search --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`
 - [x] 0.4 SR: self-review the PR diff, fix accepted findings, then mark ready for Leo's approval
-- [ ] 0.5 GR: complete the ready-PR monitoring loop and obtain Leo's approval of the published revision before creating `web-search/core`
+- [x] 0.5 GR: complete the ready-PR monitoring loop and obtain Leo's approval of the published revision before creating `web-search/core`
 
 ## 1. `web-search/core` — configuration, tool, chain, Brave (design D1–D4, D6, D9–D12, D14)
 
@@ -91,16 +91,16 @@ output.
 - [x] 4.3 Document the aggregate, its cost multiplication, and its latency bound in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 4.4 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
 - [x] 4.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 4.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 4.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 5. `web-search/ui` — dedicated renderer (design D13)
 
 - [x] 5.1 Add the web search renderer to `packages/ui` on the shared tool component: results list, answer rendered through a Markdown renderer passed as a prop, citations, engine and notes, running, cancelled, and error states, and `http(s)`-only result and citation links rendered as escaped Markdown links through that renderer so Streamdown's `linkSafety` applies; add stories for results, answer, empty, error, cancelled, and running; verify with Storybook MCP story tests and return preview URLs, or the Storybook CLI fallback when MCP is unavailable
 - [x] 5.2 Dispatch every tool part with `isToolUIPart(part) && getToolName(part) === "web_search"` to the renderer in `apps/web`, covering live `dynamic-tool` and stored `tool-web_search` parts; verify by component tests that a `javascript:` URL renders as text, a link click goes through link safety, a cancelled part renders without error text, and a live and a historical part render identically
 - [x] 5.3 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 5.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, and the `packages/ui` checks; exercise a chat with a `web_search` result in a browser against the Brave fixture, live and after reload, and confirm the links reach the result URLs
+- [x] 5.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, and the `packages/ui` checks; exercise a chat with a `web_search` result in a browser against the Brave fixture, live and after reload, and confirm the links reach the result URLs
 - [x] 5.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 5.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 5.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 6. `web-search/hosted` — model-hosted engines (design D8)
 
@@ -111,12 +111,12 @@ output.
 - [x] 6.5 Document the three wires, per-search prices, the Codex shared-subscription risk, citation display obligations, and the unrecorded cost in the runbook; update `SPEC.md`; add the dated `CHANGELOG.md` entry; this layer's PR carries `Closes #1102`; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 6.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites
 - [x] 6.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 6.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 6.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 7. `web-search/finalize` — spec sync and archive
 
 Enter this layer with `$gh-stack` from the `hosted` top before `$openspec-sync-specs` writes. Its
 self-review and GitHub review are post-archive gates, not tasks here.
 
-- [ ] 7.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass
-- [ ] 7.2 Confirm `openspec status --change web-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
+- [x] 7.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass
+- [x] 7.2 Confirm `openspec status --change web-search --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
