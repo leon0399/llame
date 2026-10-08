@@ -965,6 +965,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     const substack = { id: 'substack', use: 'substack' as const };
     const osv = { id: 'advisories', use: 'osv' as const };
     const wikipedia = { id: 'wikipedia', use: 'wikipedia' as const };
+    const telegram = { id: 'telegram', use: 'telegram' as const };
     const forums = {
       id: 'forums',
       use: 'discourse' as const,
@@ -989,6 +990,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
             substack,
             osv,
             wikipedia,
+            telegram,
           ],
         },
       }),
@@ -1010,6 +1012,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       substack,
       osv,
       wikipedia,
+      telegram,
     ]);
   });
 
@@ -1042,6 +1045,20 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
 
     expect(() => loadInstanceConfig()).toThrow(
       /\/tools\/webAdapters\/0\/token/,
+    );
+  });
+
+  it('rejects an unknown field on the Telegram adapter', () => {
+    writeConfig(
+      JSON.stringify({
+        tools: {
+          webAdapters: [{ id: 'tg', use: 'telegram', hosts: ['x'] }],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /\/tools\/webAdapters\/0\/hosts/,
     );
   });
 

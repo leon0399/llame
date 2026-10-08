@@ -200,6 +200,14 @@ describe('createWebAdapters', () => {
     );
   });
 
+  it('creates a native Telegram adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'telegram', use: 'telegram' }]);
+    if (adapter === undefined) throw new Error('expected Telegram adapter');
+
+    expect(adapter).toMatchObject({ id: 'telegram', route: 'native' });
+    expect(adapter.match(new URL('https://t.me/durov/400'))).toBe(true);
+  });
+
   it('creates a native OSV adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'advisories', use: 'osv' }]);
     if (adapter === undefined) throw new Error('expected OSV adapter');

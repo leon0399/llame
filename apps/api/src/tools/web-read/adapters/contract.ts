@@ -26,6 +26,7 @@ import { createOsvAdapter } from './osv/adapter';
 import { createRewriteAdapter } from './rewrite';
 import { createStackexchangeAdapter } from './stackexchange/adapter';
 import { createSubstackAdapter } from './substack/adapter';
+import { createTelegramAdapter } from './telegram/adapter';
 import { createWikipediaAdapter } from './wikipedia/adapter';
 
 export type WebAdapterRoute = 'native' | 'rewrite';
@@ -346,6 +347,8 @@ export function createWebAdapters(
         return createOsvAdapter(config);
       case 'wikipedia':
         return createWikipediaAdapter(config);
+      case 'telegram':
+        return createTelegramAdapter(config);
       case 'rewrite':
         return createRewriteAdapter(config);
     }

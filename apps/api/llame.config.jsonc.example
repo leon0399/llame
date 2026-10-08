@@ -602,6 +602,7 @@
       { "id": "substack", "use": "substack" },
       { "id": "advisories", "use": "osv" },
       { "id": "wikipedia", "use": "wikipedia" },
+      { "id": "telegram", "use": "telegram" },
       {
         "id": "x",
         "use": "rewrite",
