@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `osv` web adapter. With `{ "id": "advisories", "use": "osv" }`
+  in `tools.webAdapters`, `read` renders OSV.dev, NVD CVE, GitHub advisory, and
+  cve.org record links as the advisory's aliases, severity, CWE, affected
+  version ranges, details, and references, from the keyless OSV.dev API.
 - The native `github` web adapter now also reads releases (`/releases`,
   `/releases/latest`, `/releases/tag/{tag}`), gists (every file in a code
   fence), Actions job links (steps, plus the last 400 log lines of a log under

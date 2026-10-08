@@ -508,6 +508,17 @@ URL: https://dev.to/lydiahallie/javascript-visualized-promises-async-await-5gke
 ...
 ```
 
+### OSV adapter
+
+An advisory renders `# {id}: {summary}`, then `Withdrawn`, `Aliases`,
+`Severity` (the source's rating, then each CVSS vector), `CWE`, `Published`,
+`Modified`, `Related`, and `URL` lines for the fields present. `## Affected`
+lists each package with its ecosystem and the range events OSV records
+(`introduced`, `fixed`, `last_affected`), and repository ranges by commit;
+`## Details` carries the advisory text and `## References` its links. Lists past
+50 affected rows, 30 references, or 20 related ids are cut with a
+`{list} truncated: the first {n} of {total}` note.
+
 ## Bounds
 
 | Bound                         | Value                                                                                                         |

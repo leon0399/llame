@@ -188,6 +188,18 @@ describe('createWebAdapters', () => {
     );
   });
 
+  it('creates a native OSV adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'advisories', use: 'osv' }]);
+    if (adapter === undefined) throw new Error('expected OSV adapter');
+
+    expect(adapter).toMatchObject({ id: 'advisories', route: 'native' });
+    expect(
+      adapter.match(
+        new URL('https://osv.dev/vulnerability/GHSA-jfh8-c2jp-5v3q'),
+      ),
+    ).toBe(true);
+  });
+
   it('creates a native dev.to adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'blogs', use: 'devto' }]);
     if (adapter === undefined) throw new Error('expected dev.to adapter');

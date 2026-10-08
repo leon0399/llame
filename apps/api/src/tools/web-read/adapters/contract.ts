@@ -22,6 +22,7 @@ import { createGithubAdapter } from './github/adapter';
 import { createHackernewsAdapter } from './hackernews/adapter';
 import { createHuggingfaceAdapter } from './huggingface/adapter';
 import { createNpmAdapter } from './npm/adapter';
+import { createOsvAdapter } from './osv/adapter';
 import { createRewriteAdapter } from './rewrite';
 import { createStackexchangeAdapter } from './stackexchange/adapter';
 import { createSubstackAdapter } from './substack/adapter';
@@ -340,6 +341,8 @@ export function createWebAdapters(
         return createDevtoAdapter(config);
       case 'substack':
         return createSubstackAdapter(config);
+      case 'osv':
+        return createOsvAdapter(config);
       case 'rewrite':
         return createRewriteAdapter(config);
     }

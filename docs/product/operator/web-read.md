@@ -92,8 +92,8 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
-`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, `discourse`, `devto`, or
-`substack` entry. What an adapter does to a result — its
+`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, `discourse`, `devto`,
+`substack`, or `osv` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -463,6 +463,24 @@ admit that domain as well as `^https://[a-z0-9-]+\.substack\.com/`. A post for
 subscribers renders its public preview with `body truncated: subscribers only`. Custom-domain
 post URLs and Hashnode, whose free API was retired and whose pages answer
 with a bot challenge, are not claimed.
+
+### OSV adapter
+
+Add an `osv` entry to read vulnerability advisories from
+[OSV.dev](https://osv.dev), which aggregates GitHub, NVD, PyPA, RustSec, Go,
+and distribution advisories:
+
+```jsonc
+{ "id": "advisories", "use": "osv" }
+```
+
+The entry takes no other field and sends no credential. It claims
+`https://osv.dev/vulnerability/{id}`, `https://nvd.nist.gov/vuln/detail/{CVE}`,
+`https://github.com/advisories/{GHSA}`, and `https://www.cve.org/CVERecord?id={CVE}`.
+A read is one request to `https://api.osv.dev/v1/vulns/{id}`, so a domain
+allowlist needs `^https://api\.osv\.dev/` as well as the advisory pages.
+Repository security advisories under `github.com/{owner}/{repo}/security` stay on
+the generic ladder.
 
 ## Derived locators and permission admission
 
