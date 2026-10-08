@@ -25,12 +25,12 @@ The system SHALL enforce the explicit-selection count, aggregate output, and agg
 
 ### Requirement: Activated instructions expand package-local imports
 
-After an explicit skill activation, markers in the frontmatter-free instruction body SHALL resolve relative to the package directory as raw `skill://<name>/<rel>` reads with `skill-activation` origin and canonical-path admission. Expansion SHALL recurse at most five hops, skip cycles and repeats, and leave absolute, `~/`, schemed, and package-escaping targets literal without triggering instruction chains.
+After an explicit skill activation, markers in the frontmatter-free instruction body SHALL resolve relative to the package directory as ordinary `skill://<name>/<rel>:raw` reads with `skill-activation` origin and exactly a proactive read's admission. Expansion SHALL recurse at most five hops, skip cycles and repeats, and leave absolute, `~/`, schemed, and package-escaping targets literal without triggering instruction chains. Symlink semantics SHALL remain as agent-skills defines.
 
 #### Scenario: A package-local reference is carried after instructions
 
 - **WHEN** an owner explicitly activates `research` whose instruction body contains `@references/checklist.md`
-- **THEN** the activation reads `skill://research/references/checklist.md` as a raw package-local file with origin `skill-activation`
+- **THEN** the activation reads `skill://research/references/checklist.md:raw` as a raw package-local file with origin `skill-activation` and exactly the admission a proactive read of that locator gets
 - **AND** the activation item carries that file block after the instruction body
 
 #### Scenario: A package-escaping reference remains literal

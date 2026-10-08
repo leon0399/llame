@@ -43,23 +43,26 @@ one change with separate implementation layers.
   `foo/doc.md` importing `@AGENTS.md` nor a direct `@foo/AGENTS.md` injects it twice.
 - **Skill imports** (`context-injection`, `agent-skills`). An explicit `$skill` activation
   expands markers in the activated `SKILL.md` body against its package directory, as
-  `skill://<name>/<relative path>` reads, within the activation's existing count, output,
-  and work bounds. Package-escaping and non-package targets stay literal. Skill imports do
-  not trigger instruction chains, as `skill://` reads do not today.
+  `skill://<name>/<relative path>` reads with exactly the admission a proactive read of
+  that locator gets, within the activation's existing output and work bounds.
+  Package-escaping and non-package targets stay literal. Skill imports do not trigger
+  instruction chains, as `skill://` reads do not today.
 - **Prompt imports** (new `prompt-imports`, closes #1142). The same three shapes in an
   owner's prompt accept every native `read` locator with its selectors: absolute host
   paths, `file:` aliases, Workspace-relative paths when a Workspace is bound, `kb://`,
   `skill://`, and `http(s)://`. `@FILE:30-35` imports what `read` returns for that range,
   context lines and Markdown ancestor headings included;
-  `@https://github.com/leon0399/llame/issues/1029:outline` imports the outline. Before the
-  Run's first model request, each distinct marker is read once through the native `read`
-  tool with system origin `prompt-import`, admitted by the `read` group under the Run's
+  `@https://github.com/leon0399/llame/issues/1029:outline` imports the outline. After the
+  attempt's Workspace binding re-check and explicit skill activation, and before the Run's
+  first model request, each distinct marker is read once through the native `read` tool
+  with system origin `prompt-import`, admitted by the `read` group under the Run's
   permission mode, and the results persist as one `prompt-imports` item on the triggering
   user message; retries and recovery reuse completed results. A host or Knowledge target
   that does not exist is prose: nothing is read, audited, or reported. A denied or failed
   read is reported to the owner and named to the model as not imported. Imported files are
-  data: their own markers are not followed. A local or Knowledge prompt import that was
-  admitted triggers that directory's instruction chain on the same accepted turn.
+  data: their own markers are not followed. A host or Knowledge prompt import that was
+  admitted triggers that directory's instruction chain on the same accepted turn, with or
+  without a Workspace binding. A detaching attempt performs no prompt imports.
 - **Owner disclosure.** The instructions chip marks imported files and their importer; a new
   chip on the user message lists imported, truncated, denied, failed, and omitted prompt
   imports. Non-owners, shares, exports, and search projections see none of it.
@@ -82,13 +85,16 @@ prose, no recursion from prompt imports; `@skill://name` is a data read and `$sk
 activation; a paste-time confirmation is [#1143](https://github.com/leon0399/llame/issues/1143).
 
 The following follow from those decisions but were not asked separately, and are open for
-review: prompt imports reuse the explicit-activation bounds (8 markers, 128 KiB aggregate
-output, 30 seconds) as a separate budget; the canonical-path admission applies to
-instruction and skill imports only, while prompt imports keep exact parity with a model
-`read`; `~/` in a host instruction import resolves to the native executor's home directory;
-the `prompt-imports` item precedes the user text in the same message, as every attached rail
-item does; the delivery stack has six implementation layers rather than the four first
-sketched, because #975 measured 4,600 authored lines against a 1,700-line estimate.
+review: prompt imports reuse the explicit-activation bounds (8 targets, 128 KiB aggregate
+output, 30 seconds) as a separate budget, and at most 64 distinct markers per message are
+probed at all; the canonical-path admission applies to instruction imports only, recorded
+as a derived `canonical` decision on the import's first page read, while prompt and skill
+imports keep exact parity with a `read` of the same locator; `~/` in a host instruction
+import resolves to the worker's home directory, where the in-process native executor runs;
+the `prompt-imports` item precedes the user text in the same message, as every attached
+rail item does; the delivery stack has seven implementation layers rather than the four
+first sketched, because #975 measured 4,600 authored lines against a 1,700-line estimate
+and round-1 review found the turn-load and admission work larger than first estimated.
 
 ## Capabilities
 
@@ -116,26 +122,35 @@ sketched, because #975 measured 4,600 authored lines against a 1,700-line estima
   unchanged.
 - `context-injection`: _Co-occurring items have a total author-time order_ adds
   `prompt-imports` after `skill-activation`; _Explicit activations are rail items carrying
-  current instructions_ carries imported package files after the instruction body.
+  current instructions_ carries imported package files after the instruction body;
+  _Workspace binding changes are rail-resident context items_ orders prompt imports after
+  the binding re-check and skips them on a detaching attempt.
 - `agent-skills`: _Explicit activation work is bounded before model preparation_ counts
   imported package files against the existing output and work bounds.
+- `tool-call-permissions`: the canonical-path evaluation of an instruction import becomes a
+  named exception to submitted-argument matching, bypassed and recorded like the other
+  named evaluations.
+- `workspace-entry`: prompt imports wait for the per-attempt binding re-check, and a
+  detaching attempt performs none.
 
-`native-file-tools` and `tool-call-permissions` are unchanged: prompt imports call `read`
-exactly as the model does, and the canonical-path admission of instruction imports is an
-additional evaluation of the existing `read` group owned by `instruction-files`.
+`native-file-tools` is unchanged: prompt imports call `read` exactly as the model does.
 
 ## Impact
 
-- `apps/api/src/instructions`: import expansion in the bundle collector, canonical
-  admission, import-triggered chain loads; `apps/api/src/chats/instructions-item.ts`:
-  `importedBy` in the payload and template wording; `apps/api/src/prompts/instructions.md`.
+- `apps/api/src/instructions`: import expansion in the bundle collector, a canonical
+  admission port recorded as a derived decision on the import's first page read,
+  import-triggered chain loads; `apps/api/src/chats/instructions-item.ts`: `importedBy` in
+  the payload and template wording; `apps/api/src/prompts/instructions.md`.
 - `apps/api/src/skills/skill-activation.ts`, `apps/api/src/chats/skill-activation-item.ts`:
   package-local imports in the activation item.
 - New marker parser module in `apps/api`, built on `mdast-util-from-markdown` promoted from
   a `packages/native-file-tools` development dependency to an `apps/api` runtime dependency.
 - New `prompt-imports` producer, item, and template; `apps/api/src/runs/tool-activity-origin.ts`
   gains origin `prompt-import`; `apps/api/src/chats/context-item.ts` producer order;
-  accepted-turn preparation in `apps/api/src/runs/run-execution.service.ts`.
+  accepted-turn preparation in `apps/api/src/runs/run-execution.service.ts`, including a
+  derived-decision sink on the system read path and an accepted-turn instruction load that
+  works without a Workspace binding and with a Knowledge world
+  (`apps/api/src/runs/in-run-context-items.ts`).
 - `apps/web`: the instructions chip shows importers; a new prompt-imports chip; the history
   payload validator.
 - Tests pinning current behavior: the instruction-files reference doc's "Imports are not

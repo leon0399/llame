@@ -6,7 +6,7 @@ This capability defines the shared Markdown import-marker grammar and source-pre
 
 ### Requirement: Markdown text recognizes only the three import marker shapes
 
-The system SHALL recognize import markers in ordinary Markdown text only in these shapes: `@target`, `@[label](target)`, and `[label](target "import")`, where the link title is exactly `import`. It SHALL ignore text inside fenced code, inline code, and raw HTML.
+The system SHALL recognize import markers in ordinary Markdown source only in these shapes: `@target`, `@[label](target)`, and `[label](target "import")`, where the link title is exactly `import`. Bare-marker boundaries and tokens SHALL be measured on source characters, not parsed text. A backslash-escaped `\@`, entity `&#64;`, and marker-shaped text inside fenced code, inline code, raw HTML, or other link syntax SHALL not be markers; the two explicit link shapes remain the only link markers.
 
 #### Scenario: An email address is not a marker
 
@@ -30,7 +30,7 @@ The system SHALL recognize import markers in ordinary Markdown text only in thes
 
 ### Requirement: Bare markers obey boundary, token, and selector rules
 
-A bare `@target` SHALL start only at the start of a text run or after whitespace or one of `(`, `[`, `{`, `<`, `"`, and `'`. Its target SHALL run to the next whitespace, after which trailing `.,;!?)]}"'` and one trailing bare `:` SHALL be removed; selector suffixes such as `:30-35`, `:outline`, and `:raw` SHALL remain part of the target.
+A bare `@target` SHALL start only when the source character before `@` is the start of a line or block, whitespace, or one of `(`, `[`, `{`, `<`, `"`, and `'`; the boundary SHALL be tested on source characters, not parsed text. Its target SHALL run to the next whitespace in source, after which trailing `.,;!?)]}"'` and one trailing bare `:` SHALL be removed; selector suffixes such as `:30-35`, `:outline`, and `:raw` SHALL remain part of the target.
 
 #### Scenario: Sentence punctuation is excluded from a bare target
 
@@ -47,9 +47,35 @@ A bare `@target` SHALL start only at the start of a text run or after whitespace
 - **WHEN** the text contains `(@a.md)`
 - **THEN** the marker target is `a.md`
 
+#### Scenario: Formatting does not create a marker boundary
+
+- **WHEN** ordinary text contains `**leo**@example.com`
+- **THEN** no import marker is recognized
+
+#### Scenario: A nested path remains one bare target
+
+- **WHEN** the text contains `@pkg/__init__.py`
+- **THEN** the marker target is `pkg/__init__.py`
+
+#### Scenario: A test path remains one bare target
+
+- **WHEN** the text contains `@apps/api/__tests__/x.test.ts`
+- **THEN** the marker target is `apps/api/__tests__/x.test.ts`
+
+#### Scenario: An escaped at-sign is not a marker
+
+- **WHEN** the text contains `\@notes.md`
+- **THEN** no import marker is recognized
+- **AND** the text remains ordinary source text
+
+#### Scenario: An at-sign entity is not a marker
+
+- **WHEN** the text contains `&#64;notes.md`
+- **THEN** no import marker is recognized
+
 ### Requirement: Link markers require the import title and a valid at-sign boundary
 
-The system SHALL recognize `@[label](target)` only when its `@` is at a bare-marker boundary, and SHALL recognize `[label](target "import")` only when the title is exactly `import`. A plain link without that title SHALL not be an import marker.
+The system SHALL recognize `@[label](target)` only when its `@` is at a bare-marker boundary, and SHALL recognize `[label](target "import")` only when the title is exactly `import`. A plain link without that title, and other marker-shaped text inside link syntax, SHALL not be import markers.
 
 #### Scenario: A plain Markdown link is not an import marker
 

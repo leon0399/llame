@@ -6,7 +6,7 @@ Loads instruction files and their same-store imports through existing triggers a
 
 ### Requirement: Entry, native file tools, and accepted turns are the only triggers
 
-A successful `enter_workspace` that establishes or switches the binding SHALL trigger a load for the canonical root, effective from the next model step of the same Run; a same-root re-entry SHALL NOT. Each native `read`, `edit`, or `write` whose `path` resolves to a local host filesystem path SHALL trigger a load for that path's directory, effective from the next model step, regardless of the call's own outcome and regardless of any read selector or representation suffix on the path; a denied call SHALL NOT trigger a load. Each native `read`, `edit`, or `write` whose `path` is a `kb://` locator SHALL trigger a load for the touched directory within that Space, effective from the next model step, under the Knowledge-locator requirement. `bash`, `knowledge_search`, `skill://`, `http://`, `https://`, and any other locator SHALL NOT trigger a load. A model-origin read whose target is itself a candidate file in its directory SHALL neither load that file nor mark it seen; other candidates in the chain are unaffected. An instruction import that is loaded SHALL trigger its own host or Knowledge directory chain in the same bundle, depth-first from its importer and sharing the bundle's seen set. At each accepted user turn on a Chat with a live Workspace binding, after the attempt's binding re-check and not on a detaching attempt, accepted-turn preparation SHALL stage a load for the canonical root before the first model request when any file of that chain is not in effective context. At that accepted turn, each admitted host-path or `kb://` prompt import recorded in the persisted `prompt-imports` item SHALL trigger a load for that path's directory; denied, missing, failed, web, and `skill://` prompt imports SHALL NOT trigger a load. Effective context for that decision SHALL be the history the model will read: when a checkpoint is published before that first model request, the decision is made against the rebuilt effective history the checkpoint leaves, and a file that checkpoint absorbed counts as not seen. A Chat without a binding SHALL receive no accepted-turn load. All triggers pending at one model step, or at one accepted turn, SHALL be resolved together into at most one item, and a step whose every candidate is already seen SHALL produce no item.
+A successful `enter_workspace` that establishes or switches the binding SHALL trigger a load for the canonical root, effective from the next model step of the same Run; a same-root re-entry SHALL NOT. Each native `read`, `edit`, or `write` whose `path` resolves to a local host filesystem path SHALL trigger a load for that path's directory, effective from the next model step, regardless of the call's own outcome and regardless of any read selector or representation suffix on the path; a denied call SHALL NOT trigger a load. Each native `read`, `edit`, or `write` whose `path` is a `kb://` locator SHALL trigger a load for the touched directory within that Space, effective from the next model step, under the Knowledge-locator requirement. `bash`, `knowledge_search`, `skill://`, `http://`, `https://`, and any other locator SHALL NOT trigger a load. A model-origin read or a prompt import whose target is itself a candidate file in its directory SHALL neither load that file nor mark it seen; other candidates in the chain are unaffected. An instruction import that is loaded SHALL trigger its own host or Knowledge directory chain in the same bundle, depth-first from its importer and sharing the epoch seen set. At each accepted user turn on a Chat with a live Workspace binding, after the attempt's binding re-check and not on a detaching attempt, accepted-turn preparation SHALL stage a load for the canonical root before the first model request when any file of that chain is not in effective context. At that accepted turn, each admitted host-path or `kb://` prompt import recorded in the persisted `prompt-imports` item SHALL trigger a load for that path's directory regardless of Workspace binding and of its read outcome after admission. Prompt-import triggers SHALL be gated exactly like in-Run triggers: a host-path trigger needs `read` allowlisted and a native executor, and a `kb://` trigger needs `read` allowlisted and a Knowledge root; denied, missing, web, and `skill://` prompt imports SHALL NOT trigger a load. The persisted item SHALL record, for each attempted target, whether it was admitted and its resolved absolute host path or canonical `kb://` locator, so accepted-turn preparation rebuilds these triggers from the item. Effective context for that decision SHALL be the history the model will read: when a checkpoint is published before that first model request, the decision is made against the rebuilt effective history the checkpoint leaves, and a file that checkpoint absorbed counts as not seen. A Chat without a binding SHALL receive no accepted-turn load. That no-binding rule applies to the root load only; prompt-import triggers are an explicit exception and do not require a Workspace binding. All triggers pending at one model step, or at one accepted turn, SHALL be resolved together into at most one item, and a step whose every candidate is already seen SHALL produce no item.
 
 #### Scenario: A ranged read triggers like a plain read
 
@@ -41,11 +41,23 @@ A successful `enter_workspace` that establishes or switches the binding SHALL tr
 - **WHEN** one model step reads `apps/api/a.ts` and `apps/web/b.ts`
 - **THEN** the next step carries one bundle with the union of both chains in directory order, each file once
 
+#### Scenario: An unbound Chat imports an absolute host file
+
+- **WHEN** an unbound Chat's prompt imports an admitted absolute host file while `read` is allowlisted and a native executor is available, and that file's directory has an instruction chain
+- **THEN** that directory's chain loads on that accepted turn
+- **AND** no Workspace binding is required for the trigger
+
+#### Scenario: An unbound Chat imports a Knowledge file without a native executor
+
+- **WHEN** an unbound Chat's prompt imports an admitted `kb://` file while `read` is allowlisted and a Knowledge root is available but no native executor is available, and that file's Space directory has an instruction chain
+- **THEN** that Space chain loads on that accepted turn
+- **AND** no Workspace binding or native executor is required for the trigger
+
 #### Scenario: An admitted prompt import triggers the accepted turn
 
-- **WHEN** the persisted `prompt-imports` item for an accepted turn records admitted host and `kb://` imports whose instruction chains have not been seen
+- **WHEN** the persisted `prompt-imports` item for an accepted turn records admitted host and `kb://` imports whose instruction chains have not been seen, including one whose read fails after admission
 - **THEN** accepted-turn preparation loads those chains in the same instructions bundle
-- **AND** denied, missing, failed, web, and `skill://` prompt imports add no instruction trigger
+- **AND** denied, missing, web, and `skill://` prompt imports add no instruction trigger
 
 ### Requirement: A file is loaded once per compaction epoch, derived from effective history
 
@@ -80,7 +92,7 @@ The seen set SHALL be the set of file identities named in the `files` payload of
 
 ### Requirement: Each candidate is read with system origin under the read permission group
 
-Candidate existence and size SHALL be probed without a permission decision and without an audit event — on the native executor for a host-path candidate and through the Run owner's Knowledge resolver for a `kb://` candidate — and the probe SHALL reveal nothing to the model; only a candidate that exists and is then denied by the `read` group is disclosed, to the owner alone, through the audit event and, when the same step loads another file, the chip. Each existing candidate SHALL then be read through the native `read` tool with system origin `instructions`, evaluated by the `read` permission group under the Run's effective permission mode, and audited with the same `tool.requested`, `tool.started`, and `tool.completed` events as a model-origin read, carrying that origin; a file longer than one read result SHALL be read as consecutive bounded pages, each starting at the line after the last complete line collected, each page one audited read, until the file ends, the 32 KiB budget is reached, or a page returns no new line because one source line cannot fit a result, at which point collection stops and the file is cut there. An instruction import SHALL be read the same way, with system origin `instructions` and the same `read` group evaluation, paging, and audit behavior; when its canonical path differs from its resolved path, the `read` group SHALL evaluate that canonical path too, and a rejection SHALL deny the import. A denied candidate SHALL be omitted from the bundle, SHALL NOT be named in the item text, and SHALL NOT be marked seen. A continuation page that starts past the end of the file ends collection; any other read that fails SHALL be omitted the same way. Loading SHALL NOT require `enter_workspace` and SHALL NOT depend on the `enter_workspace` group; it SHALL happen only when `read` is in `tools.allowed` and either a native executor is configured for a host-path trigger or a Knowledge root is configured for a `kb://` trigger. System-origin events SHALL NOT appear as assistant tool parts, whether observed live, reconstructed from the event log, or recovered after a worker restart.
+Candidate existence and size SHALL be probed without a permission decision and without an audit event — on the native executor for a host-path candidate and through the Run owner's Knowledge resolver for a `kb://` candidate — and the probe SHALL reveal nothing to the model; only a candidate that exists and is then denied by the `read` group is disclosed, to the owner alone, through the audit event and, when the same step loads another file, the chip. Each existing candidate SHALL then be read through the native `read` tool with system origin `instructions`, evaluated by the `read` permission group under the Run's effective permission mode, and audited with the same `tool.requested`, `tool.started`, and `tool.completed` events as a model-origin read, carrying that origin; a file longer than one read result SHALL be read as consecutive bounded pages, each starting at the line after the last complete line collected, each page one audited read, until the file ends, the 32 KiB budget is reached, or a page returns no new line because one source line cannot fit a result, at which point collection stops and the file is cut there. An instruction import SHALL be read the same way, with system origin `instructions` and the same `read` group evaluation, paging, and audit behavior. On the import's first page read call, the system SHALL record and attach a derived `canonical` permission decision to that call (the same derived-decision kind `enter_workspace` records); when the canonical path differs from the resolved path, the `read` group SHALL evaluate that canonical path, and a rejection SHALL deny that call (requested/completed, no started) and the import. A bypass SHALL admit it and record the decision like every bypassed evaluation. A denied candidate SHALL be omitted from the bundle, SHALL NOT be named in the item text, and SHALL NOT be marked seen. A continuation page that starts past the end of the file ends collection; any other read that fails SHALL be omitted the same way. Loading SHALL NOT require `enter_workspace` and SHALL NOT depend on the `enter_workspace` group; it SHALL happen only when `read` is in `tools.allowed` and either a native executor is configured for a host-path trigger or a Knowledge root is configured for a `kb://` trigger. System-origin events SHALL NOT appear as assistant tool parts, whether observed live, reconstructed from the event log, or recovered after a worker restart.
 
 #### Scenario: Reject rule excludes an ancestor file
 
@@ -124,6 +136,12 @@ Candidate existence and size SHALL be probed without a permission decision and w
 - **WHEN** `/repo/AGENTS.md` imports `/repo/link.md`, the resolved path is allowed, and the `read` group rejects its canonical target `/outside/doc.md`
 - **THEN** `/repo/link.md` is omitted and an `instructions`-origin denial is audited
 - **AND** the owner's chip marks `/repo/link.md` as denied while its marker remains literal
+
+#### Scenario: Canonical admission is bypassed for an import
+
+- **WHEN** `/repo/AGENTS.md` imports `/repo/link.md`, its resolved path is allowed, its canonical target is `/outside/doc.md`, and permission mode bypasses evaluation
+- **THEN** the import's first page read records a derived `canonical` decision as bypassed and admits the import
+- **AND** the import is read without a permission denial
 
 ### Requirement: A bundle is one persisted-literal notice with bounded file bodies
 
@@ -225,18 +243,24 @@ Each loaded instruction body SHALL expand recognized markers as whole-file impor
 #### Scenario: Instruction imports load whole files
 
 - **WHEN** `/repo/AGENTS.md` contains `[doc](foo/doc.md:30-35 "import")` and only `/repo/foo/doc.md` exists
-- **THEN** the selector is not interpreted as a range
-- **AND** no partial body is loaded from `/repo/foo/doc.md`
+- **THEN** the target `foo/doc.md:30-35` names no file and the marker remains literal
+- **AND** no read or audit event is recorded
 
 ### Requirement: Instruction imports are bounded and cycle-safe
 
-Instruction import expansion SHALL process distinct targets in first-occurrence order and recurse depth-first through at most five import hops. A target whose canonical host path or logical `kb://` locator is already in the current bundle's seen set SHALL be skipped, and a missing, non-regular, repeated, cyclic, or sixth-hop target SHALL keep its marker literal without loading or auditing it.
+Instruction import expansion SHALL process distinct targets in first-occurrence order and recurse depth-first for at most five hops; hops count edges from nearest chain file. A chain file loaded by import SHALL restart at zero. A target with canonical host path or logical `kb://` locator in the epoch seen set SHALL be skipped. Missing, non-regular, repeated, cyclic, and sixth-hop targets SHALL remain literal without loading or auditing; the epoch seen set SHALL guarantee termination.
 
 #### Scenario: A sixth import hop remains literal
 
 - **WHEN** `/repo/AGENTS.md` imports `a.md`, each of `a.md` through `d.md` imports the next file, and `e.md` imports `f.md`
 - **THEN** `a.md` through `e.md` load as five imports
 - **AND** `@f.md` remains literal in `e.md` with no sixth file loaded
+
+#### Scenario: An imported chain restarts hops across directories
+
+- **WHEN** `/repo/AGENTS.md` contains `@foo/doc.md`, `/repo/foo/doc.md` contains `@AGENTS.md`, `/repo/foo/AGENTS.md` contains `@bar/check.md`, and `/repo/foo/bar/check.md` contains `@deep/end.md`
+- **THEN** `/repo/foo/AGENTS.md` loads as the `/repo/foo` chain, and its `@bar/check.md` edge starts at hop zero
+- **AND** `/repo/foo/bar/check.md` and `/repo/foo/bar/deep/end.md` load in depth-first order without a duplicate path in the epoch seen set
 
 #### Scenario: A cycle loads each file once
 

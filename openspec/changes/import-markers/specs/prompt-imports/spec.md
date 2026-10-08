@@ -22,7 +22,7 @@ The system SHALL scan the owner's stored, neutralized prompt text using the shar
 
 ### Requirement: Prompt targets resolve as native read locators
 
-Each recognized target SHALL resolve exactly as the native `read` locator would, including its selectors: absolute host paths, `file:` aliases, Workspace-relative paths when a Workspace is bound, `kb://`, `skill://`, `http://`, and `https://`. A relative target on a Chat without a Workspace SHALL remain prose.
+Each target SHALL resolve exactly as native `read`, including selectors: absolute host paths, `file:` aliases, bound-Workspace-relative paths, `kb://`, `skill://`, `http://`, and `https://`. An unbound relative target SHALL remain prose. An absolute or `file:` host target MAY run unbound only with `read` allowlisted and a native executor; a `kb://` target MAY run unbound only with `read` allowlisted and a Knowledge root.
 
 #### Scenario: A Workspace-relative target uses the bound Workspace
 
@@ -44,7 +44,7 @@ Each recognized target SHALL resolve exactly as the native `read` locator would,
 
 ### Requirement: Local and Knowledge targets are probed before admission
 
-Before admission, each host-path or `kb://` target SHALL be probed with its selector removed, without making a permission decision or recording an audit event. If the probe finds no target, the marker SHALL remain prose: no read, audit event, model disclosure, or owner disclosure SHALL result.
+Before admission, each host-path or `kb://` target SHALL be probed with its selector removed according to native `read`'s literal-path-first split, without making a permission decision or recording an audit event. If no native executor is available for a host target, or the probe finds no target, the marker SHALL remain prose: no read, audit event, model disclosure, or owner disclosure SHALL result.
 
 #### Scenario: A missing host target stays prose
 
@@ -58,9 +58,21 @@ Before admission, each host-path or `kb://` target SHALL be probed with its sele
 - **THEN** the marker remains prose
 - **AND** no read or audit event is produced
 
+#### Scenario: An absolute host target without an executor stays prose
+
+- **WHEN** an unbound Chat imports `@/tmp/notes.md` on a process with no native executor
+- **THEN** the target cannot be probed and the marker remains prose
+- **AND** no read, permission decision, or audit event is recorded
+
+#### Scenario: Literal paths take precedence over selectors
+
+- **WHEN** a prompt imports `@/tmp/x.md:10-12` and a regular file literally named `/tmp/x.md:10-12` exists
+- **THEN** the probe and import read `/tmp/x.md:10-12` as that literal file
+- **AND** no `10-12` selector is applied
+
 ### Requirement: Admitted prompt reads use system origin
 
-Each distinct target that survives the probe SHALL be requested once through native `read` with system origin `prompt-import`, admitted by the `read` group under the Run's effective permission mode, and audited as requested/started/completed like explicit skill activation. A denied read SHALL audit requested/completed without started. The model SHALL not set this origin; no assistant tool part SHALL appear live or on replay. If `read` is absent from `tools.allowed`, nothing SHALL be imported.
+Each target surviving a probe or needing none (`skill://`/web) SHALL be read once through `read` with system origin `prompt-import` under effective `read` permission. The audit SHALL record requested/started/completed, except a denied read has requested/completed only. The system owns the origin; no assistant tool part SHALL appear. If `read` is not allowlisted, nothing SHALL be imported. The completion audit SHALL record derived web decisions with origin `prompt-import`.
 
 #### Scenario: An admitted target produces a system-origin read audit
 
@@ -86,6 +98,12 @@ Each distinct target that survives the probe SHALL be requested once through nat
 - **THEN** no prompt target is read or imported
 - **AND** no prompt-import audit event is recorded
 
+#### Scenario: Bypass admits a prompt read
+
+- **WHEN** `read` is allowlisted, a target exists, and the Run's effective permission mode is `bypass`
+- **THEN** the prompt-import read is admitted without evaluating the `read` group
+- **AND** its decision is recorded as bypass
+
 ### Requirement: Imported results equal native read output
 
 The imported body SHALL equal the model-facing output that native `read` returns for the same locator, with the locator's selectors honored, including read-provided context lines, Markdown ancestor headings, and representations such as `outline`.
@@ -102,15 +120,22 @@ The imported body SHALL equal the model-facing output that native `read` returns
 - **THEN** the imported body is the outline representation returned by native `read` for that locator
 - **AND** the URL selector is not discarded
 
+#### Scenario: Derived web decisions carry prompt-import origin
+
+- **WHEN** an admitted web prompt import causes native `read` to evaluate a redirect, alternate, adapter request, suffix candidate, or network address
+- **THEN** each derived decision is recorded in the completion audit with origin `prompt-import`
+- **AND** no assistant tool part exposes the derived decision
+
 ### Requirement: Prompt imports persist as one preceding rail item
 
-The triggering user message SHALL persist exactly one `prompt-imports` rail item with form `notice` before the Run's first model request and before the user text. It SHALL contain one file block per imported target labelled by the locator as written, neutralize reserved delimiters in bodies, and carry the third-party precedence statement. Denied or failed targets SHALL be named only as not imported, without content.
+Before the Run's first model request, the triggering message SHALL persist one `prompt-imports` rail item with form `notice` before user text. It SHALL contain one locator-labelled file block per imported target, neutralize reserved delimiters, and carry third-party precedence. Denied or failed targets SHALL be named only as not imported. Payload SHALL record, for each attempted target, whether it was admitted and its resolved absolute host path or canonical `kb://` locator when applicable.
 
 #### Scenario: Successful imports precede unchanged user text
 
 - **WHEN** a prompt imports two targets before its Run's first model request
 - **THEN** the triggering user message contains one `prompt-imports` notice before the user text
 - **AND** it has one locator-labelled file block for each imported target while the user text remains unchanged
+- **AND** its private payload records each attempted target's admission result and resolved absolute host or canonical Knowledge locator when applicable
 
 #### Scenario: Imported content carries precedence framing
 
@@ -126,35 +151,47 @@ The triggering user message SHALL persist exactly one `prompt-imports` rail item
 
 #### Scenario: Denied or failed content is not included
 
-- **WHEN** an admitted prompt target is denied or its read fails
+- **WHEN** a prompt target is denied or an admitted target's read fails
 - **THEN** the item names its locator only as not imported
 - **AND** it includes no content from that target
 
 ### Requirement: Prompt-import work has bounded targets, output, and time
 
-Prompt-import processing SHALL attempt at most 8 distinct targets in first-occurrence order, cap aggregate serialized item output at 128 KiB, and cap work at 30 seconds or the remaining Run deadline, whichever is sooner. A target beyond any bound SHALL not be read and SHALL be listed once as omitted.
+Prompt imports SHALL probe distinct markers in first-occurrence order before the count bound and consider at most 64 markers per message. Only probe survivors or no-probe `skill://`/web targets count toward 8 targets. Markers beyond 64 SHALL not be probed and SHALL remain prose. Aggregate output SHALL be capped at 128 KiB and work at 30 seconds or the remaining Run deadline. Targets beyond the 8-target, output, or work bound SHALL be listed once as omitted and not read; probes count toward work.
 
 #### Scenario: Targets beyond the count bound are omitted
 
-- **WHEN** a prompt contains more than 8 distinct import targets in first-occurrence order
+- **WHEN** a prompt contains more than 8 distinct targets that survive probing, in first-occurrence order
 - **THEN** only the first 8 targets are attempted
 - **AND** every later target is listed once as omitted without a read
 
 #### Scenario: Output and work bounds stop further reads
 
-- **WHEN** the serialized item would exceed 128 KiB, 30 seconds elapse, or the Run deadline arrives
-- **THEN** further targets are not read
+- **WHEN** the serialized item would exceed 128 KiB, 30 seconds of work elapse, or the Run deadline arrives
+- **THEN** further targets are not read or probed
 - **AND** each target skipped by the bound is listed once as omitted
+
+#### Scenario: Unresolved prose markers are not omitted
+
+- **WHEN** a prompt contains nine prose tokens like `@leo` and none resolves to a target that survives probing
+- **THEN** none is listed as omitted
+- **AND** no prompt import is attempted
 
 ### Requirement: Recovery reuses completed prompt imports
 
-A retry or worker resumption SHALL reuse persisted completed prompt-import results without reading those targets again, and SHALL read only unattempted targets. A target changed on disk after the turn SHALL not be re-read.
+A retry or worker resumption SHALL reuse persisted completed prompt-import results without rereading them and SHALL process only unfinished targets in original order. A target whose read started but did not complete SHALL receive fresh admission and read on recovery. A completed target changed on disk after the turn SHALL not be reread.
 
 #### Scenario: A retry reads only unfinished targets
 
-- **WHEN** a worker resumes after some prompt targets completed and others were unattempted
+- **WHEN** a worker resumes after some prompt targets completed and others are unfinished
 - **THEN** completed results are reused without another read
-- **AND** only the unattempted targets are read, in their original order
+- **AND** only unfinished targets receive fresh admission and read, in their original order
+
+#### Scenario: A started read receives fresh admission on recovery
+
+- **WHEN** a prompt target's read started but did not complete before worker failure
+- **THEN** recovery does not reuse a completed result for that target
+- **AND** it performs fresh admission and a new read for the target
 
 #### Scenario: A disk edit does not cause a historical reread
 
@@ -174,25 +211,47 @@ Markers inside an imported result SHALL be treated as data and SHALL not be pars
 
 ### Requirement: Admitted local imports trigger instruction loading
 
-An admitted host-path or `kb://` prompt import SHALL trigger the instruction-file load for its target directory on the same accepted turn. The trigger set SHALL be recoverable from the persisted item so retries stage the same load. Denied, missing, `skill://`, and web targets SHALL not trigger it, and importing an instruction file itself SHALL neither load nor mark that file seen.
+An admitted host-path or `kb://` prompt import SHALL trigger its target directory's instruction-file load on the same accepted turn regardless of read outcome after admission. Persisted resolved paths SHALL rebuild the trigger set on retries without re-projecting relative locators. Denied, missing, `skill://`, and web targets SHALL not trigger it. Importing an instruction file SHALL neither load nor mark that file seen unless another same-turn trigger selects it.
 
 #### Scenario: An admitted local import loads its directory instructions
 
-- **WHEN** a host or Knowledge target is admitted from a prompt
+- **WHEN** a host or Knowledge target survives probing, is admitted, and its read then completes or fails
 - **THEN** the target directory's instruction chain is loaded on that accepted turn
-- **AND** the load is staged from the persisted prompt-import item on retry
+- **AND** a retry stages the same load from the persisted resolved path without re-projecting the original marker
 
 #### Scenario: Non-triggering prompt targets load no instructions
 
-- **WHEN** a prompt target is denied, missing, `skill://`, or `http://` or `https://`
+- **WHEN** a prompt target is denied, missing and never read, `skill://`, or `http://` or `https://`
 - **THEN** it triggers no instruction-file load
 - **AND** its outcome does not add an instruction item
 
 #### Scenario: Importing an instruction file obeys the self-read rule
 
-- **WHEN** a prompt imports an instruction file such as `@AGENTS.md`
-- **THEN** that file is neither loaded as an instruction item nor marked as seen
-- **AND** a later ordinary trigger may load it
+- **WHEN** a prompt imports an instruction file such as `@AGENTS.md` and no other trigger selects it
+- **THEN** that prompt import does not load or mark the file as seen
+- **AND** if another trigger on the same turn selects it, the file loads under that trigger
+
+### Requirement: Prompt imports respect attempt gates and detachment
+
+Prompt imports SHALL run after the attempt's Workspace binding re-check and any detach, and after explicit skill activation. A detaching attempt SHALL perform no prompt imports. A host-path trigger SHALL require `read` to be allowlisted and a native executor; a `kb://` trigger SHALL require `read` to be allowlisted and a Knowledge root. These triggers SHALL not require a Workspace binding.
+
+#### Scenario: An unbound Chat imports an absolute host file
+
+- **WHEN** an unbound Chat imports an existing absolute host file while `read` is allowlisted and a native executor is available
+- **THEN** that file's directory instruction chain loads on that accepted turn
+- **AND** no Workspace binding is required
+
+#### Scenario: An unbound Chat imports a Knowledge file without a native executor
+
+- **WHEN** an unbound Chat imports an existing `kb://` file on a process with a Knowledge root, with `read` allowlisted and no native executor
+- **THEN** that Space's instruction chain loads on that accepted turn
+- **AND** no native executor is required for the Knowledge trigger
+
+#### Scenario: A detaching attempt skips prompt imports
+
+- **WHEN** the Workspace binding re-check detaches the binding before prompt-import processing
+- **THEN** the attempt performs no prompt imports and marker text remains prose for that attempt
+- **AND** no `$skill` activation occurs
 
 ### Requirement: Skill prompt targets are data reads
 
