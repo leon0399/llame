@@ -1,0 +1,241 @@
+import { z } from 'zod';
+
+import type { NpmWebAdapterConfig } from '../../../../instance-config/llame-config';
+import type {
+  WebFetchFailure,
+  WebRequestInit,
+  WebResponse,
+} from '../../http-client';
+import {
+  isFatalAdapterFailure,
+  omissionNote,
+  primaryFailure,
+  type WebAdapter,
+  type WebAdapterIo,
+  type WebAdapterOutcome,
+} from '../contract';
+
+/** The public npm registry; version documents and dist-tags need no key. */
+export const NPM_REGISTRY_ORIGIN = 'https://registry.npmjs.org';
+/** The npm-mirroring CDN that serves a published version's files. */
+export const NPM_FILES_ORIGIN = 'https://unpkg.com';
+
+const JSON_INIT: WebRequestInit = { accept: 'application/json' };
+const README_INIT: WebRequestInit = {
+  accept: 'text/markdown, text/plain;q=0.9',
+};
+
+type NpmTarget = { readonly name: string; readonly version?: string };
+
+/** npm's package-name charset, optionally scoped, at most 214 characters. */
+const NAME = String.raw`(?:@[a-z0-9~-][a-z0-9._~-]*/)?[A-Za-z0-9~-][A-Za-z0-9._~-]*`;
+const PACKAGE_PATH = new RegExp(
+  `^/package/(${NAME})(?:/v/([0-9A-Za-z][0-9A-Za-z.+-]{0,255}))?$`,
+  'u',
+);
+const MAX_NAME_LENGTH = 214;
+
+const PERSON = z
+  .string()
+  .or(z.object({ name: z.string() }).transform(({ name }) => name));
+const DEPENDENCIES = z.record(z.string(), z.string()).optional();
+
+/** `GET /{name}/{version}`: one published version's manifest. */
+const VERSION_DOCUMENT = z.object({
+  name: z.string(),
+  version: z.string(),
+  description: z.string().optional(),
+  license: z
+    .string()
+    .or(z.object({ type: z.string() }).transform(({ type }) => type))
+    .optional(),
+  homepage: z.string().optional(),
+  repository: z
+    .string()
+    .or(z.object({ url: z.string() }).transform(({ url }) => url))
+    .optional(),
+  deprecated: z.string().optional(),
+  engines: z.record(z.string(), z.string()).optional(),
+  dependencies: DEPENDENCIES,
+  peerDependencies: DEPENDENCIES,
+  maintainers: z.array(PERSON).optional(),
+  dist: z
+    .object({ tarball: z.string(), integrity: z.string().optional() })
+    .optional(),
+});
+type VersionDocument = z.infer<typeof VERSION_DOCUMENT>;
+
+const DIST_TAGS = z.record(z.string(), z.string());
+
+/** Matches `npmjs.com/package/{name}` and `/package/{name}/v/{version}`. */
+export function parseNpmUrl(source: URL): NpmTarget | undefined {
+  if (
+    source.protocol !== 'https:' ||
+    (source.host !== 'www.npmjs.com' && source.host !== 'npmjs.com')
+  ) {
+    return undefined;
+  }
+  const match = PACKAGE_PATH.exec(source.pathname);
+  const name = match?.[1];
+  if (name === undefined || name.length > MAX_NAME_LENGTH) return undefined;
+  const version = match?.[2];
+  return version === undefined ? { name } : { name, version };
+}
+
+/** Creates the native npm adapter. */
+export function createNpmAdapter(
+  config: NpmWebAdapterConfig,
+  options: {
+    readonly registryOrigin?: string;
+    readonly filesOrigin?: string;
+  } = {},
+): WebAdapter {
+  const origins = {
+    registry: options.registryOrigin ?? NPM_REGISTRY_ORIGIN,
+    files: options.filesOrigin ?? NPM_FILES_ORIGIN,
+  };
+  return {
+    id: config.id,
+    route: 'native',
+    match: (source) => parseNpmUrl(source) !== undefined,
+    read: (source, io) => readPackage(parseNpmUrl(source)!, io, origins),
+  };
+}
+
+/** The version manifest is primary; dist-tags and the README are secondary
+ *  sections whose failure leaves an omission note. */
+async function readPackage(
+  target: NpmTarget,
+  io: WebAdapterIo,
+  origins: { readonly registry: string; readonly files: string },
+): Promise<WebAdapterOutcome> {
+  const fetched = await io.fetch(
+    `${origins.registry}/${target.name}/${target.version ?? 'latest'}`,
+    JSON_INIT,
+  );
+  if ('type' in fetched) return primaryFailure(fetched);
+  const manifest = parseJson(fetched.body, VERSION_DOCUMENT);
+  if (manifest === undefined) return { kind: 'failed', failure: 'parse' };
+
+  const notes: Array<string> = [];
+  const tagsUrl = `${origins.registry}/-/package/${manifest.name}/dist-tags`;
+  const tags = await loadSection(
+    'dist-tags',
+    io.fetch(tagsUrl, JSON_INIT),
+    notes,
+  );
+  if ('fatal' in tags) return primaryFailure(tags.fatal);
+  const readmeUrl = `${origins.files}/${manifest.name}@${manifest.version}/README.md`;
+  const readme = await loadSection(
+    'readme',
+    io.fetch(readmeUrl, README_INIT),
+    notes,
+  );
+  if ('fatal' in readme) return primaryFailure(readme.fatal);
+
+  return {
+    kind: 'rendered',
+    content: renderPackage(
+      manifest,
+      parseDistTags(tags.body, notes),
+      readme.body,
+    ),
+    mediaType: 'text/markdown',
+    notes,
+  };
+}
+
+function parseDistTags(
+  body: string | undefined,
+  notes: Array<string>,
+): Readonly<Record<string, string>> | undefined {
+  if (body === undefined) return undefined;
+  const tags = parseJson(body, DIST_TAGS);
+  if (tags === undefined) notes.push('dist-tags omitted: parse');
+  return tags;
+}
+
+/**
+ * A secondary section's body, or `undefined` with an omission note. A call
+ * deadline keeps what already arrived; any other call-ending failure is
+ * returned so the read ends, as GitHub's secondary sections do.
+ */
+async function loadSection(
+  section: string,
+  request: Promise<WebResponse | WebFetchFailure>,
+  notes: Array<string>,
+): Promise<{ readonly body?: string } | { readonly fatal: WebFetchFailure }> {
+  const fetched = await request;
+  if (!('type' in fetched)) return { body: fetched.body };
+  if (isFatalAdapterFailure(fetched) && fetched.type !== 'call_timeout') {
+    return { fatal: fetched };
+  }
+  notes.push(omissionNote(section, fetched));
+  return {};
+}
+
+function renderPackage(
+  manifest: VersionDocument,
+  distTags: Readonly<Record<string, string>> | undefined,
+  readme: string | undefined,
+): string {
+  const lines = [`# ${manifest.name}@${manifest.version}`, ''];
+  const description = manifest.description?.trim();
+  if (description) lines.push(description, '');
+
+  const fields: Array<[string, string | undefined]> = [
+    ['Deprecated', manifest.deprecated],
+    ['License', manifest.license],
+    ['Homepage', manifest.homepage],
+    ['Repository', repositoryUrl(manifest.repository)],
+    ['Dist-tags', distTags && entries(distTags, ' ')],
+    ['Engines', manifest.engines && entries(manifest.engines, ' ')],
+    ['Dependencies', dependencyList(manifest.dependencies)],
+    ['Peer dependencies', dependencyList(manifest.peerDependencies)],
+    ['Maintainers', manifest.maintainers?.join(', ')],
+    ['Tarball', manifest.dist?.tarball],
+    ['Integrity', manifest.dist?.integrity],
+  ];
+  for (const [label, value] of fields) {
+    if (value) lines.push(`${label}: ${value}`);
+  }
+  lines.push(
+    `URL: https://www.npmjs.com/package/${manifest.name}/v/${manifest.version}`,
+  );
+  if (readme?.trim()) lines.push('', '## README', '', readme.trim());
+  return lines.join('\n');
+}
+
+function dependencyList(
+  dependencies: Readonly<Record<string, string>> | undefined,
+): string | undefined {
+  if (dependencies === undefined) return undefined;
+  const count = Object.keys(dependencies).length;
+  return count === 0 ? undefined : `(${count}) ${entries(dependencies, '@')}`;
+}
+
+function entries(
+  record: Readonly<Record<string, string>>,
+  separator: string,
+): string {
+  return Object.entries(record)
+    .map(([key, value]) => `${key}${separator}${value}`)
+    .join(', ');
+}
+
+/** Publish normalizes `repository` to a `git+https://…git` URL; render the
+ *  browsable form. */
+function repositoryUrl(url: string | undefined): string | undefined {
+  return url
+    ?.replace(/^git\+/u, '')
+    .replace(/^git:\/\//u, 'https://')
+    .replace(/\.git$/u, '');
+}
+
+function parseJson<T>(body: string, schema: z.ZodType<T>): T | undefined {
+  try {
+    return schema.safeParse(JSON.parse(body)).data;
+  } catch {
+    return undefined;
+  }
+}

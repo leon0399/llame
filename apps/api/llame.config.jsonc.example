@@ -525,9 +525,9 @@
     // "enter_workspace" and "exit_workspace" to this allowlist.
     "allowed": ["search_conversations"],
     // Optional ordered web adapters; absent means none, and a present array is
-    // the exact enabled list. This example includes native GitHub and Bluesky
-    // adapters and sends x.com status paths to the operator-declared origin
-    // below.
+    // the exact enabled list. This example includes native GitHub, Bluesky,
+    // and npm adapters and sends x.com status paths to the operator-declared
+    // origin below.
     // "webAdapters": [
     //   {
     //     "id": "github",
@@ -535,6 +535,7 @@
     //     "token": "{env:GITHUB_READ_TOKEN}",
     //   },
     //   { "id": "bluesky", "use": "bluesky" },
+    //   { "id": "npm", "use": "npm" },
     //   {
     //     "id": "x",
     //     "use": "rewrite",

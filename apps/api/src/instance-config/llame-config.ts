@@ -494,6 +494,10 @@ export type RawWebAdapterEntry =
   | {
       id: string;
       use: 'bluesky';
+    }
+  | {
+      id: string;
+      use: 'npm';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -536,10 +540,16 @@ export type BlueskyWebAdapterConfig = {
   readonly use: 'bluesky';
 };
 
+export type NpmWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'npm';
+};
+
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
   | GithubWebAdapterConfig
-  | BlueskyWebAdapterConfig;
+  | BlueskyWebAdapterConfig
+  | NpmWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {
