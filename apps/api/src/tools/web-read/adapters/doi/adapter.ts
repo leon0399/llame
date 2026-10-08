@@ -6,18 +6,9 @@ import { parseJsonBody, primaryFailure, type WebAdapter } from '../contract';
 /** OpenAlex: keyless scholarly metadata, abstracts included, for Crossref
  *  and other registrars' DOIs. */
 export const OPENALEX_API_ORIGIN = 'https://api.openalex.org';
-const SELECT = [
-  'display_name',
-  'type',
-  'publication_date',
-  'authorships',
-  'primary_location',
-  'cited_by_count',
-  'open_access',
-  'abstract_inverted_index',
-  'is_retracted',
-].join(',');
-const DOI_PATH = /^\/(10\.\d{4,9}\/.+)$/u;
+const SELECT =
+  'display_name,type,publication_date,authorships,primary_location,cited_by_count,open_access,abstract_inverted_index,is_retracted';
+const DOI = /^10\.\d{4,9}\/.+$/u;
 
 const WORK = z.object({
   display_name: z.string().nullable(),
@@ -41,7 +32,7 @@ const WORK = z.object({
     .record(z.string(), z.array(z.number().int()))
     .nullable()
     .default(null),
-  is_retracted: z.boolean().default(false),
+  is_retracted: z.boolean().nullable().default(null),
 });
 type Work = z.infer<typeof WORK>;
 
@@ -53,13 +44,14 @@ export function parseDoiUrl(source: URL): string | undefined {
   ) {
     return undefined;
   }
-  const encoded = DOI_PATH.exec(source.pathname)?.[1];
-  if (encoded === undefined) return undefined;
+  // Decoded first, so a DOI written with an escaped `/` is claimed too.
+  let doi: string;
   try {
-    return decodeURIComponent(encoded);
+    doi = decodeURIComponent(source.pathname.slice(1));
   } catch {
     return undefined;
   }
+  return DOI.test(doi) ? doi : undefined;
 }
 
 /** Creates the native DOI adapter. */
@@ -126,9 +118,13 @@ function renderWork(doi: string, work: Work): string {
 function abstractText(
   index: Readonly<Record<string, ReadonlyArray<number>>> | null,
 ): string {
-  const words: Array<string> = [];
-  for (const [word, positions] of Object.entries(index ?? {})) {
-    for (const position of positions) words[position] = word;
-  }
-  return words.filter((word) => word !== undefined).join(' ');
+  // Sorting pairs costs the word count, where indexing an array by position
+  // would cost the largest position an upstream record claims.
+  return Object.entries(index ?? {})
+    .flatMap(([word, positions]) =>
+      positions.map((position): [number, string] => [position, word]),
+    )
+    .sort(([left], [right]) => left - right)
+    .map(([, word]) => word)
+    .join(' ');
 }

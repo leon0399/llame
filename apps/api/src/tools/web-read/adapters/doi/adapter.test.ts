@@ -26,6 +26,7 @@ describe('DOI adapter claim', () => {
   it.each([
     'https://doi.org/10.1145/3442188.3445922',
     'https://dx.doi.org/10.1038/nature14539',
+    'https://doi.org/10.1145%2F3442188.3445922',
     'https://doi.org/10.1002/(SICI)1097-0258(19980815/30)17:15/16%3C1661::AID-SIM968%3E3.0.CO;2-2',
   ])('claims %s', (source) => {
     expect(adapter.match(new URL(source))).toBe(true);
@@ -108,6 +109,27 @@ describe('DOI adapter read', () => {
     expect(outcome).toMatchObject({
       kind: 'rendered',
       content: '# 10.1000/a<b>\n\nDOI: https://doi.org/10.1000/a<b>',
+    });
+  });
+
+  it('renders a work with null retraction state and sparse abstract positions', async () => {
+    const url = `${API_ORIGIN}/works/doi:10.1097/x?${SELECT}`;
+
+    const { outcome } = await read('https://doi.org/10.1097/x', [
+      [
+        url,
+        response({
+          display_name: null,
+          is_retracted: null,
+          abstract_inverted_index: { far: [4_294_967_294], near: [0] },
+        }),
+      ],
+    ]);
+
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      content:
+        '# 10.1097/x\n\nDOI: https://doi.org/10.1097/x\n\n## Abstract\n\nnear far',
     });
   });
 
