@@ -110,11 +110,11 @@ after the item's text. Each image SHALL be the model variant, read from storage 
 
 ### Requirement: A bounded image window selects which images are sent
 
-The window SHALL walk every resolvable media reference in the request, from owner file parts, tool
-results, and prompt-imports items alike, newest first in request order; each reference counts, even a
-repeated id. A reference SHALL be inside the window while, after adding it, there are at most 20
-images and at most 24 MiB (25,165,824 bytes) of summed base64 model variants. The first reference
-that would exceed either bound, and every older reference, SHALL be outside the window.
+Every model request, including each step of a Run, SHALL apply the window to all its resolvable media
+references (owner file parts, tool results, and prompt-imports items), newest first in request order;
+a repeated id counts again. A reference SHALL be inside the window while, after adding it, there are
+at most 20 images and at most 24 MiB (25,165,824 bytes) of summed base64 model variants. The first
+reference that would exceed either bound, and every older one, SHALL be outside the window.
 
 #### Scenario: The oldest of 21 images becomes a placeholder
 
@@ -124,10 +124,24 @@ that would exceed either bound, and every older reference, SHALL be outside the 
 
 #### Scenario: The byte bound stops the window
 
-- **WHEN** the newest three references each have a 9 MiB base64 model variant and older references are
+- **WHEN** the newest five references each have a 5 MiB base64 model variant and older references are
   small
-- **THEN** the two newest are sent as images
-- **AND** the third and every older reference are sent as placeholders
+- **THEN** the four newest are sent as images
+- **AND** the fifth and every older reference are sent as placeholders
+
+#### Scenario: The window is re-applied to each step of a Run
+
+- **WHEN** a Run on a vision model whose history carries no images `read`s one image per step for 21
+  steps
+- **THEN** the request for the next step sends the 20 newest `read` results as images
+- **AND** the first `read` result is sent as its placeholder
+
+#### Scenario: The byte bound applies within a Run
+
+- **WHEN** a Run on a vision model whose history carries no images `read`s five images in successive
+  steps, each with a 5 MiB base64 model variant
+- **THEN** the request for the next step sends the four newest `read` results as images
+- **AND** the first `read` result is sent as its placeholder
 
 ### Requirement: Images the model cannot receive become placeholders
 
@@ -254,6 +268,26 @@ summary mentions, so a later turn can read that image again after its message is
   mentions
 - **AND** the instruction remains only in the trailing user message, leaving the bound prompt and
   compactable prefix unchanged
+
+### Requirement: Image parts are sized by dimensions, not bytes
+
+Every request-size estimate used for admission or compaction, including the context-window fit
+check, the compaction trigger, and the continuation estimate, SHALL exclude image bytes and SHALL
+charge each image part `ceil(width × height / 750)` tokens, computed from its model variant's
+dimensions. A placeholder SHALL count as its text.
+
+#### Scenario: A large screenshot fits a large window
+
+- **WHEN** a request on a model with `contextWindowTokens` 200,000 carries one image part whose model
+  variant is 2000×1125 and otherwise fits the window
+- **THEN** the estimate charges that image 3,000 tokens
+- **AND** the request is admitted and that image alone does not trigger compaction
+
+#### Scenario: Variant bytes do not change the estimate
+
+- **WHEN** two otherwise identical requests each carry one 2000×1125 model variant, one of 200 KiB and
+  one of 3.7 MiB
+- **THEN** both requests receive the same estimate
 
 ### Requirement: Search, the recency digest, and public shares carry no image content
 

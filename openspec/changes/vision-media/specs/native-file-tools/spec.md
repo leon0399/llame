@@ -55,16 +55,22 @@ signature, SVG included, SHALL stay on the text path unchanged and SHALL create 
 ### Requirement: Image reads ingest into the owner's media store
 
 A detected image SHALL be ingested into the Run owner's media store under tenant enforcement, with
-provenance `read`, the submitted locator as source label, and the store's bounds. Bytes that owner
-already stored SHALL resolve to the existing object. A regular file over the byte bound SHALL be
-refused without being read whole. An ingest refusal SHALL fail the read with a bounded structured
-error, `image_too_large` for the byte or pixel bound, create no object, and not fall back to text.
+provenance `prompt-import` when the read's system origin is `prompt-import` and `read` otherwise, the
+submitted locator as source label, and the store's bounds. Bytes that owner already stored SHALL
+resolve to the existing object.
 
 #### Scenario: The stored object records its read provenance
 
 - **WHEN** the model reads `/work/shot.png`, whose bytes are a PNG image
 - **THEN** the Run owner holds a media object named by the result's `media` locator
 - **AND** that object has provenance `read` and source label `/work/shot.png`
+
+#### Scenario: A prompt-import read records prompt-import provenance
+
+- **WHEN** a prompt import reads `/work/shot.png` through `read` with system origin `prompt-import`,
+  and the owner has not stored those PNG bytes before
+- **THEN** the Run owner holds a new media object named by the result's `media` locator
+- **AND** that object has provenance `prompt-import` and source label `/work/shot.png`
 
 #### Scenario: Re-reading an image reuses its object
 
@@ -77,6 +83,12 @@ error, `image_too_large` for the byte or pixel bound, create no object, and not 
 - **WHEN** owner A's Run reads a PNG and owner B's Run later reads a file with identical bytes
 - **THEN** owner B's result carries a `media` locator different from owner A's
 - **AND** owner B's `read` of owner A's `media://` locator returns `not_found`
+
+### Requirement: Image ingest refusals fail the read
+
+A regular file over the media store's byte bound SHALL be refused without being read whole. An ingest
+refusal SHALL fail the read with a bounded structured error, `image_too_large` for the byte or pixel
+bound, create no object, and not fall back to text.
 
 #### Scenario: An oversized image is refused
 

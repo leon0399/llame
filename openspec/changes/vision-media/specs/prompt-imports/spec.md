@@ -2,18 +2,19 @@
 
 ### Requirement: Image targets import as image entries
 
-An admitted prompt-import target whose native `read` returns an image SHALL become an image entry
-of the same `prompt-imports` item: a block naming the target locator, the image's `media://<id>`
-locator, and its dimensions, with the image reaching the model after the item's text through the
-image window. Image entries SHALL count toward the 8-target bound; image bytes SHALL NOT count toward
-the 128 KiB output bound. Recovery SHALL reuse the persisted media id without rereading.
+An admitted prompt-import target whose native `read` returns an image SHALL become an image entry of
+the same `prompt-imports` item, whose body SHALL be exactly the image result `read` returns for that
+locator. The request SHALL carry that image's part or placeholder, as the image window selects,
+after the item's text. Image entries SHALL count toward the 8-target bound; image bytes SHALL NOT
+count toward the 128 KiB output bound. Recovery SHALL reuse the persisted media id without rereading.
 
 #### Scenario: An image target becomes an image entry
 
 - **WHEN** a Chat bound to `/repo` sends a prompt containing `@shot.png`, the target is admitted, and
-  native `read` of `/repo/shot.png` returns an image result for `media://<id>` at 1600×900
-- **THEN** the `prompt-imports` item holds an image entry naming `/repo/shot.png`, `media://<id>`,
-  and 1600×900
+  native `read` of `/repo/shot.png` returns a PNG image result for `media://<id>` at 1600×900
+- **THEN** the `prompt-imports` item holds an image entry whose body is exactly the image result that
+  `read("/repo/shot.png")` returns: `status: "ok"`, `kind: "image"`, `media` `media://<id>`,
+  `mediaType` `image/png`, `width` 1600, `height` 900, and `path` `/repo/shot.png`
 - **AND** the item's persisted text contains no image bytes or encoded image data, and the stored
   user text is unchanged
 

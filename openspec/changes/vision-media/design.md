@@ -4,8 +4,12 @@ See proposal.md (Why). State at `fc06bdba` (master):
 
 - Native `read` dispatches by scheme in `apps/api/src/tools/native-files.ts:29-122`: `file:` aliases, `kb://`,
   `skill://`, `http(s)://`; any other `scheme://` is `invalid_path` "This path scheme is not available."
-  Host and `kb://` bodies decode with `TextDecoder('utf-8', { fatal: true })`, so a PNG fails as
-  `invalid_utf8` (`packages/native-file-tools/src/read.ts:55-73`); nothing sniffs magic bytes.
+  Host and `kb://` reads go through `streamFileWindow`, which decodes 64 KiB chunks with a fatal
+  `TextDecoder` (`packages/native-file-tools/src/stream-read.ts:93-110`), so a PNG fails as
+  `invalid_utf8`; nothing sniffs magic bytes. The image check belongs ahead of the first chunk decode.
+- Admission and compaction size every prepared request as `JSON.stringify({ system, messages, tools })`
+  length / 4 (`apps/api/src/compaction/compaction.ts:112-135`), already excluding replayed reasoning
+  metadata. Base64 image data counted that way would make one 1 MiB screenshot about 350k tokens.
 - Web reads accept text media types only and reject `image/png` as `unsupported_content_type` before
   reading the body (`apps/api/src/tools/web-read/http-client.ts:96-151,278-296`), pinned by
   `native-file-tools` "Web reads accept text bodies only".
@@ -102,9 +106,11 @@ llame. Bounds are code constants; no deployment needs different values yet (Q14)
 ### D3: Upload first, owner-owned media, no deletion (Q6, Q7, Q13, Q17, Q18)
 
 - `POST /api/v1/media` accepts one `multipart/form-data` file per request, ingests it, and returns the
-  media descriptor: `id`, `locator`, `mediaType`, `name`, `width`, `height`, `byteSize`, and the model
-  variant's `mediaType`, `width`, `height`, `byteSize`. The route sets its own body limit just above
-  20 MiB; the JSON body limit is unchanged.
+  media descriptor: `id`, `locator`, `provenance`, `mediaType`, `name`, `width`, `height`, `byteSize`,
+  and a `model` object with the variant's `mediaType`, `width`, `height`, `byteSize`. The route uses
+  Nest's `FileInterceptor` (multer 2.2.0 already ships with `@nestjs/platform-express`) with
+  `limits.fileSize` at 20 MiB; `@types/multer` is added as a dev dependency. The JSON body limit is
+  unchanged.
 - `GET /api/v1/media/:id` returns the descriptor; `GET /api/v1/media/:id/original` and `/model` return
   bytes with the stored type, `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`,
   `Content-Security-Policy: sandbox`, and `Cache-Control: private, max-age=31536000, immutable`
@@ -158,13 +164,21 @@ At request time the conversion boundary resolves each media reference in effecti
 - **Chat Completions wires.** On `openai-completions` and `opencode-go`, a tool output's image cannot
   travel in the tool message: the adapter would serialize it as text. The tool message carries its text
   and the line `(image attached below)`, and the images of consecutive tool results follow in one
-  synthetic user message `Images from tool results:`, as OMP does. The same transform applies in the
-  live step loop through the existing `onStepStart` message override, which `ai@6.0.256` rebuilds each
-  step, so the transform is idempotent.
+  synthetic user message `Images from tool results:`, as OMP does.
+- **Live steps.** Tool results produced inside a Run never cross the history conversion boundary:
+  `ai@6.0.256` rebuilds each step as its initial messages plus response messages, carrying whatever
+  `toModelOutput` returned (`ai/dist/index.mjs:4647-4665`). The image window, the non-vision
+  placeholder, and the Chat Completions transform are therefore re-applied to every step's messages
+  in the clients' shared `prepareStep` composition (`applyToolCallingOptions`), on every wire.
+  Re-applying is idempotent because the SDK rebuilds the messages each step.
+- **Request-size estimate.** Every admission and compaction estimate leaves image bytes out, as it
+  already leaves out reasoning metadata, and charges each image part `ceil(width × height / 750)`
+  tokens on its model variant's dimensions (Anthropic's documented formula; a 2000×1125 variant is
+  3,000 tokens). Placeholders count as their text.
 
-Stored parts never contain base64. The image window replaces the UTF-16 measurement for image parts:
-the 8,000/32,000 code-unit budgets measure a tool pair's text only, and a `read` image result's text
-envelope fits well inside them.
+Stored parts never contain base64. The 8,000/32,000 code-unit budgets measure a tool pair's text
+only; a `read` image result's text envelope fits well inside them, and its image falls under the
+image window.
 
 The window takes image references newest first while both bounds hold: at most 20 images, matching
 Anthropic's tighter-dimension threshold, and at most 24 MiB of summed base64 model variants, leaving
@@ -209,8 +223,10 @@ An admitted prompt-import target whose native `read` returns an image becomes an
 `prompt-imports` item: a file block naming the locator and `media://<id>` with its dimensions, plus the
 image part from D6. Image entries count toward the 8-target bound; their bytes do not count toward the
 128 KiB output bound, which measures the item's text. Recovery reuses the persisted media id like a
-persisted text result. This delta ADDs one requirement to the `prompt-imports` capability introduced
-by `import-markers` (#1146); it does not restate that capability's requirements.
+persisted text result. The entry body is the image result envelope native `read` returns, so
+"Imported results equal native read output" holds unchanged. This delta ADDs two requirements to the
+`prompt-imports` capability introduced by `import-markers` (#1146): image entries, and `media://` as
+a prompt-import target. It does not restate that capability's requirements.
 
 ### D9: Text-only projections (Q16)
 
@@ -244,8 +260,10 @@ items), the file picker, and drag-and-drop all upload immediately through `POST 
 ### D11: Lightbox (Q10, Q20, Q21)
 
 `yet-another-react-lightbox` with its Zoom plugin, wrapped once in `packages/ui` and themed with
-semantic tokens. It is MIT-licensed and handles wheel and pinch zoom, keyboard navigation, swipe, and
-focus trapping. Clicking any thumbnail opens it.
+semantic tokens. It is MIT-licensed and handles pinch zoom, keyboard navigation, swipe, and focus
+trapping. Its Zoom plugin defaults do not meet the requirement: `scrollToZoom` is `false` (a plain
+wheel pans) and `maxZoomPixelRatio` is `1` (an image already at natural size cannot zoom). The wrapper
+sets `scrollToZoom: true` and `maxZoomPixelRatio: 8`. Clicking any thumbnail opens it.
 
 - **Slides.** Every image in the chat in transcript order: owner attachments, images returned by `read`
   (the read tool card shows a thumbnail), and prompt-import images. Arrow keys move between them.
