@@ -2321,8 +2321,10 @@ A configured `github` adapter SHALL also claim `github.com/{owner}/{repo}/releas
 `token`. A release SHALL request `/repos/{owner}/{repo}/releases/tags/{tag}`,
 `/releases/latest`, or `/releases?per_page=30`, and render its tag, name,
 author, dates, flags, assets, and Markdown body; a gist SHALL request
-`/gists/{id}` and render each text file in a code fence, noting truncated and
-binary files instead of fetching them. A job SHALL request
+`/gists/{id}` and render each text file in a code fence without fetching any
+file separately: a binary file SHALL be omitted, a truncated file that carries
+a prefix SHALL render that prefix with a `truncated` note, and a truncated file
+that arrived empty SHALL be omitted with `omitted: too_large`. A job SHALL request
 `/repos/{owner}/{repo}/actions/jobs/{job}` and render its status, conclusion,
 and steps; with a token it SHALL also request `/actions/jobs/{job}/logs`,
 following its redirect without the token, and render the last 400 log lines

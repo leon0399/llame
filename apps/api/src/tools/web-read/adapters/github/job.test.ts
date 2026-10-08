@@ -330,7 +330,7 @@ describe('GitHub job adapter', () => {
       response({
         run_id: 70,
         head_sha: 'abc123',
-        html_url: SOURCE,
+        html_url: null,
         status: 'queued',
         conclusion: null,
         name: 'build',
@@ -367,7 +367,6 @@ describe('GitHub job adapter', () => {
         'Status: queued',
         `Run: ${RUN_URL}`,
         'Commit: abc123',
-        `URL: ${SOURCE}`,
         '',
         '## Steps (0)',
       ].join('\n'),
