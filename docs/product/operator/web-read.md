@@ -91,8 +91,8 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 ## Adapter configuration
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
-the exact ordered list, with no built-in entries. An entry is either a
-`rewrite` entry or a `github` entry. What an adapter does to a result — its
+the exact ordered list, with no built-in entries. An entry is a `rewrite`,
+`github`, or `bluesky` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -192,6 +192,44 @@ Unauthenticated GitHub permits 60 requests per hour per egress IP, shared by
 every owner using that egress. Configure a token for long threads or when the
 instance shares an egress address with other users; paging a long thread
 otherwise spends the same shared quota on every page.
+
+### Bluesky adapter
+
+Add a `bluesky` entry to render public Bluesky posts and accounts through the
+unauthenticated AppView at `https://public.api.bsky.app`:
+
+```jsonc
+{ "id": "bluesky", "use": "bluesky" }
+```
+
+The entry takes no other field; Bluesky's public read API needs no key, and
+the adapter sends no credential. It claims these canonical HTTPS shapes, with
+query and fragment ignored:
+
+- `https://bsky.app/profile/{actor}/post/{rkey}`: the post and its thread
+- `https://bsky.app/profile/{actor}`: the profile and the original posts among
+  its 30 most recent feed items (reposts are dropped)
+- `https://bsky.app/profile/{actor}/followers` and `/follows`: the first 100
+  accounts
+
+`{actor}` is a handle or a DID; `read` takes a colon in the last path segment
+as a selector, so a DID profile URL is written with `%3A`
+(`/profile/did%3Aplc%3Aabc`), which the adapter decodes. Search, feeds, lists,
+starter packs, a trailing slash, and other hosts stay on the generic ladder.
+Bluesky's search endpoint refuses unauthenticated callers, so search is not
+claimed.
+
+A post costs one request, a profile two, and a follow list one. With a domain
+allowlist, add a `read` clause for `^https://public\.api\.bsky\.app/` (JSONC
+spelling: `^https://public\\.api\\.bsky\\.app/`) or the adapter falls through
+with `permission`. The AppView rate-limits per egress IP; a `429` falls
+through as `rate_limit`.
+
+Accounts that label themselves `!no-unauthenticated`, which asks clients not
+to show them to logged-out viewers, are withheld: their posts, profiles,
+and follow lists fall through with `empty`, their replies and list entries
+are omitted, and posts quoting them show the quote as unavailable. A label
+another labeler applied is ignored, as bsky.app ignores it.
 
 ## Derived locators and permission admission
 

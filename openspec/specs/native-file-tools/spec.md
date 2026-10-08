@@ -1931,7 +1931,8 @@ address resolution and pinning, 10-second header bound, 30-second call bound,
 5 MiB per-response body bound, and redirect rules as the generic web path.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
-credential; it SHALL be sent only to `https://api.github.com` and SHALL be
+credential, and the Bluesky adapter SHALL send none; the GitHub token SHALL be
+sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
 
@@ -1954,7 +1955,8 @@ adapter outcome SHALL declare the media type of its document so the
 representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
-sources use; a rewrite adapter forwards the media type its inner render
+sources use; the Bluesky adapter labels its renders `text/markdown`; a rewrite
+adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
 through the host directory-read path with the call's selector and result
@@ -2299,6 +2301,61 @@ to split SHALL be a `status` failure.
 - **WHEN** a commit's file pages reach 3,000 files
 - **THEN** all loaded files are rendered with counts and the view is paged with `:N-M`
 - **AND** the note `files omitted: too_large` marks the list as possibly incomplete
+
+### Requirement: Bluesky native adapter reads public posts and accounts
+
+A configured `bluesky` adapter SHALL claim only `https://bsky.app` locators
+whose path is `/profile/{actor}`, `/profile/{actor}/post/{rkey}`,
+`/profile/{actor}/followers`, or `/profile/{actor}/follows`, where `{actor}` is
+an AT Protocol handle of at most 253 characters or a DID of at most 2,048
+characters and `{rkey}` is 1-512 record-key characters other than `.` and
+`..`; a `%3A` in `{actor}` or `{rkey}` SHALL be read as `:`, because `read`
+takes a literal colon in the last path segment as a selector. Query and
+fragment SHALL not change the claim; a trailing slash, another
+host or port, `http`, search, feeds, lists, and every other path SHALL be
+unclaimed. The adapter SHALL use only unauthenticated `GET` requests to
+`https://public.api.bsky.app/xrpc/` with `Accept: application/json`: a post
+requests `app.bsky.feed.getPostThread` for `at://{actor}/app.bsky.feed.post/{rkey}`;
+a profile requests `app.bsky.actor.getProfile` and then
+`app.bsky.feed.getAuthorFeed` with `filter=posts_no_replies&limit=30`; followers
+and follows request `app.bsky.graph.getFollowers` or `app.bsky.graph.getFollows`
+with `limit=100`, one page only.
+
+A post SHALL render x.md's thread layout: the reachable ancestors oldest first
+as `Parent`, the requested post as `Post`, then replies depth-first in the
+order returned, labeled `Thread` while the post's author continues their own
+chain and `Reply` otherwise. Each entry SHALL be a `## {label} · {i}/{n} —
+{author}` heading, a `Replying to @{handle}` line when the entry answers a post
+other than the requested one, the text with each link facet's display text
+replaced by a Markdown link to its full URI, blockquoted media and quoted-post
+lines, `Source:` with the post's `bsky.app` URL, and `Date:` with the record's
+creation time; entries SHALL be separated by a `---` line between blank lines.
+An unknown or malformed embed SHALL render nothing rather than fail the read.
+A profile SHALL render its linked name heading, description, follower,
+following, and post counts, and `## Latest posts` with one line per original
+post among the 30 most recent feed items; reposts SHALL be omitted. A failed or
+unparsable feed SHALL keep the
+profile and add a `posts omitted: {category}` note. A follow list SHALL render
+one linked line per account and state when more accounts were not loaded.
+
+An account whose own label (`src` equal to its DID) is `!no-unauthenticated`
+SHALL be withheld as bsky.app withholds it from a reader without a session; a
+label another labeler applied SHALL be ignored. A requested post, profile, or
+follow-list subject by such an account SHALL fall through with `empty`; such
+an ancestor ends the ancestor chain, such a reply is omitted with its
+subtree, such a quoted post renders as unavailable, and such a listed post or
+account is omitted.
+
+#### Scenario: A post renders as an x.md thread
+
+- **WHEN** the model reads `https://bsky.app/profile/alice.test/post/p1` and the author replied to their own post
+- **THEN** the adapter requests only `app.bsky.feed.getPostThread`
+- **AND** the text has `Parent`, `Post`, `Thread`, and `Reply` headings with `i/n` positions, each followed by `Source:` and `Date:` lines
+
+#### Scenario: A withheld account falls through
+
+- **WHEN** the requested profile carries the `!no-unauthenticated` label
+- **THEN** the adapter issues no feed request and falls through with `empty`
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 

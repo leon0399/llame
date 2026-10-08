@@ -1,9 +1,8 @@
 import type { WebFetchFailure, WebRequestInit } from '../../http-client';
 import {
-  classifyFetchFailure,
   isFatalAdapterFailure,
   omissionNote,
-  rateLimitReset,
+  primaryFailure,
   type WebAdapterIo,
   type WebAdapterOutcome,
 } from '../contract';
@@ -59,18 +58,6 @@ export function finishRendered(
     mediaType: 'text/markdown',
     notes: context.notes,
   };
-}
-
-export function primaryFailure(failure: WebFetchFailure): WebAdapterOutcome {
-  const reset = rateLimitReset(failure);
-  const outcome: WebAdapterOutcome = {
-    kind: 'failed',
-    failure: classifyFetchFailure(failure),
-    ...(reset !== undefined && { reset }),
-  };
-  return isFatalAdapterFailure(failure)
-    ? { ...outcome, fatal: failure }
-    : outcome;
 }
 
 export function repoPath(target: {

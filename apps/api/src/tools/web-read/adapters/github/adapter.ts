@@ -1,6 +1,7 @@
 import type { GithubWebAdapterConfig } from '../../../../instance-config/llame-config';
 import type { WebRequestInit } from '../../http-client';
 import {
+  primaryFailure,
   type WebAdapter,
   type WebAdapterIo,
   type WebAdapterOutcome,
@@ -8,7 +9,6 @@ import {
 import {
   PARSE_FAILURE,
   finishRendered,
-  primaryFailure,
   recordSecondaryFailure,
   repoPath,
   requestJson,

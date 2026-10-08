@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `bluesky` web adapter. With
+  `{ "id": "bluesky", "use": "bluesky" }` in `tools.webAdapters`, `read`
+  renders `bsky.app` posts as x.md-style threads (parents, post, self-thread,
+  and replies with media, quotes, and expanded links), profiles with their
+  latest original posts, and the first 100 followers or follows, through
+  Bluesky's unauthenticated public AppView. Accounts that opt out of
+  logged-out visibility are withheld.
+
 - Added the `web_search` tool and top-level `webSearch` configuration with a
   Brave engine and operator-configured chain.
 

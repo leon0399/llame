@@ -6,13 +6,13 @@ import type { WebFetchFailure, WebRequestInit } from '../../http-client';
 
 import {
   MAX_ADAPTER_DOCUMENT_BYTES,
+  primaryFailure,
   type WebAdapterIo,
   type WebAdapterOutcome,
 } from '../contract';
 import {
   PARSE_FAILURE,
   finishRendered,
-  primaryFailure,
   recordSecondaryFailure,
   repoPath,
   requestJson,
