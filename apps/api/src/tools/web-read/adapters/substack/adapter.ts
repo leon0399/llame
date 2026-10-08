@@ -70,9 +70,12 @@ export function createSubstackAdapter(
         kind: 'rendered',
         content: renderPost(post, body),
         mediaType: 'text/markdown',
-        // A paid post's API body is its free preview.
+        // A gated post's API body is its public preview; `only_free` posts
+        // are gated to free subscribers, so the note names no payment.
         notes:
-          post.audience === 'everyone' ? [] : ['body truncated: paid post'],
+          post.audience === 'everyone'
+            ? []
+            : ['body truncated: subscribers only'],
       };
     },
   };

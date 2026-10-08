@@ -140,7 +140,7 @@ describe('Substack adapter read', () => {
     expect(requests.map(({ url }) => url)).toStrictEqual([api]);
   });
 
-  it.each(['only_paid', 'founding'])(
+  it.each(['only_paid', 'only_free', 'founding'])(
     'notes that a %s post carries only its preview',
     async (audience) => {
       const { outcome } = await read([
@@ -149,7 +149,7 @@ describe('Substack adapter read', () => {
 
       expect(outcome).toMatchObject({
         kind: 'rendered',
-        notes: ['body truncated: paid post'],
+        notes: ['body truncated: subscribers only'],
       });
     },
   );

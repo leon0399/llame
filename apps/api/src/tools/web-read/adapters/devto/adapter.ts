@@ -55,7 +55,10 @@ export function parseDevtoUrl(source: URL): DevtoTarget | undefined {
   const match = ARTICLE_PATH.exec(source.pathname);
   if (match === null) return undefined;
   const [, username, slug] = match;
-  return Object.hasOwn(SITE_PAGES, username) ? undefined : { username, slug };
+  // `/{username}/series` is the profile's series index, not an article.
+  return Object.hasOwn(SITE_PAGES, username) || slug === 'series'
+    ? undefined
+    : { username, slug };
 }
 
 /** Creates the native dev.to adapter. */

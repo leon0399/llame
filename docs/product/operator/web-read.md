@@ -438,8 +438,8 @@ generic ladder, and the API throttles bursts of keyless reads with `429`.
 `substack` claims `https://{publication}.substack.com/p/{slug}` and requests
 `https://{publication}.substack.com/api/v1/posts/{slug}`; a publication on a
 custom domain redirects that request to its domain, so with a domain allowlist
-admit that domain as well as `^https://[a-z0-9-]+\.substack\.com/`. A paid
-post renders its free preview with `body truncated: paid post`. Custom-domain
+admit that domain as well as `^https://[a-z0-9-]+\.substack\.com/`. A post for
+subscribers renders its public preview with `body truncated: subscribers only`. Custom-domain
 post URLs and Hashnode, whose free API was retired and whose pages answer
 with a bot challenge, are not claimed.
 

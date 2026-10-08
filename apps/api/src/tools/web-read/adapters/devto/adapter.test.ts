@@ -54,6 +54,7 @@ describe('dev.to adapter claim', () => {
   it.each([
     'http://dev.to/ben/post-1abc',
     'https://www.dev.to/ben/post-1abc',
+    'https://dev.to/correctover/series',
     'https://example.com/ben/post-1abc',
     'https://dev.to/',
     'https://dev.to/ben',

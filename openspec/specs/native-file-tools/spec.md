@@ -2623,7 +2623,7 @@ Each SHALL render `# {title}`, the description or subtitle when present,
 `Author`, `Published`, and `Tags` lines for the fields present, a `URL` line,
 and the body: dev.to's Markdown as written, Substack's HTML converted to
 Markdown with root-relative links resolved. A Substack post whose audience is
-not everyone SHALL add the note `body truncated: paid post`.
+not everyone SHALL add the note `body truncated: subscribers only`.
 
 #### Scenario: A dev.to article renders its own Markdown
 
