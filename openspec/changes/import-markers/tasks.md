@@ -238,7 +238,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       touched above, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR
       body, which uses `Closes #1142`.
-- [ ] 7.4 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 7.4 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 7.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `finalize`.
