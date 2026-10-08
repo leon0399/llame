@@ -54,6 +54,7 @@ describe('Hugging Face adapter claim', () => {
     'https://huggingface.co/datasets/org',
     'https://huggingface.co/meta-llama/models',
     'https://huggingface.co/search/full-text',
+    'https://huggingface.co/hardware/a100',
   ])('leaves %s to the generic ladder', (source) => {
     expect(adapter.match(new URL(source))).toBe(false);
   });
@@ -165,6 +166,37 @@ describe('Hugging Face adapter read', () => {
     expect(outcome.kind === 'rendered' && outcome.content).toContain(
       'Kind: Dataset\nLicense: a, b\nRevision: s1\nURL: https://huggingface.co/datasets/org/set',
     );
+  });
+
+  it('treats null metadata as absent and strips loosely spaced front matter', async () => {
+    const { outcome } = await read('https://huggingface.co/org/model', [
+      [
+        MODEL_URL,
+        response({
+          id: 'org/model',
+          sha: 'abc123',
+          pipeline_tag: null,
+          library_name: null,
+          safetensors: null,
+          cardData: null,
+          gated: false,
+        }),
+      ],
+      [MODEL_README, markdown('\n---\nlicense: mit\n---  ')],
+    ]);
+
+    expect(outcome).toStrictEqual({
+      kind: 'rendered',
+      mediaType: 'text/markdown',
+      notes: [],
+      content: [
+        '# org/model',
+        '',
+        'Kind: Model',
+        'Revision: abc123',
+        'URL: https://huggingface.co/org/model',
+      ].join('\n'),
+    });
   });
 
   it('falls through when the repository is missing or the payload is malformed', async () => {

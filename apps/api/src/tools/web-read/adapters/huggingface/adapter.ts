@@ -38,6 +38,7 @@ const RESERVED_OWNERS = {
   collections: true,
   datasets: true,
   docs: true,
+  hardware: true,
   inference: true,
   'inference-endpoints': true,
   join: true,
@@ -82,27 +83,37 @@ const SHARED_EXPAND = [
   'tags',
 ];
 
+/** The Hub sends an expanded field it has no value for as `null`. */
+const absent = <T>(value: T | null | undefined): T | undefined =>
+  value ?? undefined;
+
 const REPOSITORY = z.object({
   id: z.string(),
-  sha: z.string().optional(),
-  gated: z.union([z.literal(false), z.string()]).optional(),
-  likes: z.number().int().optional(),
-  downloads: z.number().int().optional(),
-  tags: z.array(z.string()).optional(),
-  createdAt: z.string().optional(),
-  lastModified: z.string().optional(),
-  library_name: z.string().optional(),
-  pipeline_tag: z.string().optional(),
-  sdk: z.string().optional(),
-  safetensors: z.object({ total: z.number() }).optional(),
+  sha: z.string().nullish().transform(absent),
+  gated: z
+    .union([z.literal(false), z.string()])
+    .nullish()
+    .transform(absent),
+  likes: z.number().int().nullish().transform(absent),
+  downloads: z.number().int().nullish().transform(absent),
+  tags: z.array(z.string()).nullish().transform(absent),
+  createdAt: z.string().nullish().transform(absent),
+  lastModified: z.string().nullish().transform(absent),
+  library_name: z.string().nullish().transform(absent),
+  pipeline_tag: z.string().nullish().transform(absent),
+  sdk: z.string().nullish().transform(absent),
+  safetensors: z.object({ total: z.number() }).nullish().transform(absent),
   cardData: z
-    .object({ license: z.string().or(z.array(z.string())).optional() })
-    .optional(),
+    .object({
+      license: z.string().or(z.array(z.string())).nullish().transform(absent),
+    })
+    .nullish()
+    .transform(absent),
 });
 type Repository = z.infer<typeof REPOSITORY>;
 
 /** A model card's YAML front matter, which the metadata lines already cover. */
-const FRONT_MATTER = /^---\r?\n[\s\S]*?\r?\n---\r?\n/u;
+const FRONT_MATTER = /^\s*---\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/u;
 
 const KIND_LABEL: Readonly<Record<RepoKind, string>> = {
   models: 'Model',
