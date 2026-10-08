@@ -212,9 +212,11 @@ Relative native paths and Bash `cwd` values project lexically from the root,
 preserving trailing separators; `..` may leave it, and an omitted Bash `cwd`
 defaults to the root. This is host-user authority, not filesystem confinement.
 Native `read`, `edit`, and `write` calls also load the touched directory's
-`LLAME.md`/`AGENTS.md`/`CLAUDE.md` chain, and a bound Chat loads its root's
-chain on entry and on a later accepted turn when effective context no longer
-carries it, as one `instructions` context item ordered after `workspace`
+`LLAME.md`/`AGENTS.md`/`CLAUDE.md` chain; each loaded instruction body can expand
+same-store whole-file markers (`@path`, `@[label](path)`, or
+`[label](path "import")`) outside code. A bound Chat loads its root's chain on
+entry and on a later accepted turn when effective context no longer carries it,
+as one `instructions` context item ordered after `workspace`
 (see [`instruction-files`](openspec/specs/instruction-files/spec.md)).
 
 The first absolute-path native call binds the Run's existing `worker_id` to

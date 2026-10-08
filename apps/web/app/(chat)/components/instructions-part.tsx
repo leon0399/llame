@@ -29,6 +29,7 @@ type InstructionFileChipEntry = {
   state: InstructionFileState;
   path: string;
   canonicalPath: string | null;
+  importedBy: string | undefined;
 };
 
 /** Loaded files first in the api's directory order, then the denied paths —
@@ -43,6 +44,7 @@ function chipEntries(
         state: file.truncated ? "truncated" : "loaded",
         path: file.path,
         canonicalPath: file.canonicalPath,
+        importedBy: file.importedBy,
       }),
     ),
     ...payload.denied.map(
@@ -51,9 +53,46 @@ function chipEntries(
         state: "denied",
         path,
         canonicalPath: null,
+        importedBy: undefined,
       }),
     ),
   ];
+}
+
+type InstructionFileChipTreeNode = {
+  entry: InstructionFileChipEntry;
+  children: Array<InstructionFileChipTreeNode>;
+};
+
+/** Groups imported entries below the loaded file whose path they reference. */
+function nestChipEntries(
+  entries: ReadonlyArray<InstructionFileChipEntry>,
+): Array<InstructionFileChipTreeNode> {
+  const nodes: Array<InstructionFileChipTreeNode> = entries.map((entry) => ({
+    entry,
+    children: [],
+  }));
+  const nodesByPath = new Map(
+    nodes.flatMap((node) =>
+      node.entry.canonicalPath === null
+        ? []
+        : [[node.entry.path, node] as const],
+    ),
+  );
+  const roots: Array<InstructionFileChipTreeNode> = [];
+
+  for (const node of nodes) {
+    const importer = node.entry.importedBy
+      ? nodesByPath.get(node.entry.importedBy)
+      : undefined;
+    if (importer && importer !== node) {
+      importer.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return roots;
 }
 
 /** One file entry: its selected path, marked when truncated or denied. A
@@ -91,6 +130,28 @@ function InstructionFileChip({ entry }: { entry: InstructionFileChipEntry }) {
   );
 }
 
+/** Renders an importer and its imported files as a nested layout group. */
+function InstructionFileChipTree({
+  node,
+}: {
+  node: InstructionFileChipTreeNode;
+}) {
+  if (node.children.length === 0) {
+    return <InstructionFileChip entry={node.entry} />;
+  }
+
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <InstructionFileChip entry={node.entry} />
+      <div className="flex flex-col items-start gap-1 pl-4">
+        {node.children.map((child) => (
+          <InstructionFileChipTree key={child.entry.key} node={child} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * The owner-facing chip for an `instructions` context item (design D9): the
  * paths a trigger loaded, each marked when the file was cut at the per-file
@@ -104,7 +165,7 @@ function InstructionFileChip({ entry }: { entry: InstructionFileChipEntry }) {
  * @summary owner chip for loaded, truncated, and denied instruction files
  */
 export function InstructionsPart(payload: InstructionsPayload) {
-  const entries = chipEntries(payload);
+  const roots = nestChipEntries(chipEntries(payload));
 
   return (
     <div className="my-1 flex flex-wrap items-center gap-1">
@@ -112,8 +173,8 @@ export function InstructionsPart(payload: InstructionsPayload) {
         <BookOpenIcon />
         Instructions
       </Badge>
-      {entries.map((entry) => (
-        <InstructionFileChip key={entry.key} entry={entry} />
+      {roots.map((node) => (
+        <InstructionFileChipTree key={node.entry.key} node={node} />
       ))}
     </div>
   );

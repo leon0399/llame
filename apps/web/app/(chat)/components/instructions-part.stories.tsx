@@ -85,3 +85,50 @@ export const LoadedTruncatedDenied: Story = {
     );
   },
 };
+
+/**
+ * Imported files sit directly beneath the file that named them, while the
+ * directory-chain file remains a top-level entry (design D9).
+ *
+ * @summary imported instruction file nested under its importer
+ */
+export const Imported: Story = {
+  tags: ["ai-generated"],
+  args: {
+    files: [
+      {
+        path: "/home/operator/repo/AGENTS.md",
+        canonicalPath: "/home/operator/repo/AGENTS.md",
+        truncated: false,
+      },
+      {
+        path: "/home/operator/repo/docs/README.md",
+        canonicalPath: "/home/operator/repo/docs/README.md",
+        truncated: false,
+        importedBy: "/home/operator/repo/AGENTS.md",
+      },
+      {
+        path: "/home/operator/repo/docs/AGENTS.md",
+        canonicalPath: "/home/operator/repo/docs/AGENTS.md",
+        truncated: false,
+      },
+    ],
+    denied: [],
+  },
+  play: async ({ canvas }) => {
+    const importer = canvas.getByLabelText(
+      "Loaded instruction file: /home/operator/repo/AGENTS.md",
+    );
+    const imported = canvas.getByLabelText(
+      "Loaded instruction file: /home/operator/repo/docs/README.md",
+    );
+    const chain = canvas.getByLabelText(
+      "Loaded instruction file: /home/operator/repo/docs/AGENTS.md",
+    );
+
+    await expect(importer).toBeVisible();
+    await expect(imported).toBeVisible();
+    await expect(chain).toBeVisible();
+    await expect(importer.parentElement).toContainElement(imported);
+  },
+};

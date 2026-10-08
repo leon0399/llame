@@ -232,6 +232,22 @@ function evaluateToolPermission(
 }
 
 /**
+ * Preview the permission decision for a schema-valid tool call without
+ * recording activity or executing the tool.
+ */
+export function previewToolPermission(
+  tool: Tool,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- validated by the shared argument admission path below.
+  args: unknown,
+  context: ToolContext,
+): boolean {
+  const parsed = validateToolArguments(tool, args);
+  if ('status' in parsed) return false;
+  const decision = evaluateToolPermission(tool, parsed.submittedArgs, context);
+  return decision?.decision === 'allow';
+}
+
+/**
  * Execute a tool end-to-end: absent-identity fail-closed (D4), input
  * validation against the tool's own schema (2.2), the timeout wrapper (D6),
  * failure-to-structured-error (never throws), and result truncation. Never
@@ -419,6 +435,14 @@ function parseToolArguments(
   return { args: parsed.data, submittedArgs: args };
 }
 
+function validateToolArguments(
+  tool: Tool,
+  args: unknown,
+): AdmittedArguments | ToolResult {
+  if (!isRecord(args)) return invalidToolArguments(tool);
+  return parseToolArguments(tool, args);
+}
+
 /**
  * The D4/D6 fail-closed guards (resolvable identity, not already cancelled,
  * a trusted timeout) plus schema validation (2.2), run before anything is
@@ -464,10 +488,7 @@ function admitToolCall(
     return { result: refusalResult(tool.id) };
   }
 
-  if (!isRecord(args)) {
-    return { result: invalidToolArguments(tool) };
-  }
-  const parsed = parseToolArguments(tool, args);
+  const parsed = validateToolArguments(tool, args);
   if ('status' in parsed) return { result: parsed };
   return { context, ...parsed };
 }

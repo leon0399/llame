@@ -449,6 +449,22 @@ describe("instructions context items", () => {
     output: { status: "success" },
   };
 
+  it("accepts an importedBy link on a file entry", () => {
+    expect(
+      isInstructionsPart(
+        withPayload({
+          ...instructionsItem.data.payload,
+          files: [
+            {
+              ...instructionsItem.data.payload.files[0],
+              importedBy: "/home/u/repo/AGENTS.md",
+            },
+          ],
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("parses only the exact persisted instructions shape", () => {
     expect(isInstructionsPart(instructionsItem)).toBe(true);
     expect(isInstructionsPart({ type: "text", text: "hello" })).toBe(false);
@@ -490,7 +506,37 @@ describe("instructions context items", () => {
       isInstructionsPart(
         withPayload({
           ...instructionsItem.data.payload,
+          files: [
+            {
+              ...instructionsItem.data.payload.files[0],
+              importedBy: "/home/u/repo/AGENTS.md",
+              extra: "leak",
+            },
+          ],
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isInstructionsPart(
+        withPayload({
+          ...instructionsItem.data.payload,
           files: [{ ...instructionsItem.data.payload.files[0], extra: "leak" }],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects an empty importedBy value", () => {
+    expect(
+      isInstructionsPart(
+        withPayload({
+          ...instructionsItem.data.payload,
+          files: [
+            {
+              ...instructionsItem.data.payload.files[0],
+              importedBy: "   ",
+            },
+          ],
         }),
       ),
     ).toBe(false);

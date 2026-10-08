@@ -73,6 +73,7 @@ function attemptOf(
     readonly seenKeys?: ReadonlySet<string>;
     /** `null` builds the attempt with no page reader at all. */
     readonly readPage?: ReadPage | null;
+    readonly admitsRead?: (path: string) => boolean;
     /** The Space capability; absent builds an attempt without one. */
     readonly space?: {
       readonly readPage: ReadPage;
@@ -91,6 +92,7 @@ function attemptOf(
     chatId: '22222222-2222-4222-8222-222222222222',
     userId: 'owner',
     ...(input.seenKeys !== undefined && { seenKeys: input.seenKeys }),
+    ...(input.admitsRead !== undefined && { admitsRead: input.admitsRead }),
     ...(readPage !== undefined && { readPage }),
     ...(space !== undefined && {
       knowledge: { readPage: space.readPage, probe: space.knowledge },
@@ -118,6 +120,25 @@ function blockPaths(part: AuthoredContextItemPart): Array<string> {
     throw new Error('the staged part is not an instructions payload');
   }
   return payload.files.map((file) => file.path);
+}
+function loadedFiles(part: AuthoredContextItemPart): ReadonlyArray<{
+  readonly path: string;
+  readonly canonicalPath: string;
+  readonly truncated: boolean;
+  readonly importedBy?: string;
+}> {
+  const payload = part.data.payload;
+  if (!isInstructionsPayload(payload)) {
+    throw new Error('the staged part is not an instructions payload');
+  }
+  return payload.files;
+}
+function deniedPaths(part: AuthoredContextItemPart): Array<string> {
+  const payload = part.data.payload;
+  if (!isInstructionsPayload(payload)) {
+    throw new Error('the staged part is not an instructions payload');
+  }
+  return [...payload.denied];
 }
 
 /** The canonical seen keys an item discloses. */
@@ -1002,6 +1023,258 @@ describe('instructions producer triggers', () => {
   });
 });
 
+describe('instructions producer imports', () => {
+  it('loads an imported file before its directory chain and keeps the literal marker', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const doc = join(root, 'foo/doc.md');
+    const chain = join(root, 'foo/AGENTS.md');
+    await write(rootFile, '@foo/doc.md\n');
+    await write(doc, 'doc says @AGENTS.md\n');
+    await write(chain, 'foo rules\n');
+
+    const { producer, staged, prepare } = attemptOf();
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    const part = lastStaged(staged);
+    expect(blockPaths(part)).toEqual([rootFile, doc, chain]);
+    const files = loadedFiles(part);
+    expect(files.map((file) => file.importedBy)).toEqual([
+      undefined,
+      rootFile,
+      undefined,
+    ]);
+    expect(part.data.text).toContain('@AGENTS.md');
+  });
+
+  it('loads a directly imported chain file once as an import', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const chain = join(root, 'foo/AGENTS.md');
+    await write(rootFile, '@foo/AGENTS.md\n');
+    await write(chain, 'foo rules\n');
+
+    const { producer, staged, prepare } = attemptOf();
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    const part = lastStaged(staged);
+    expect(blockPaths(part)).toEqual([rootFile, chain]);
+    expect(loadedFiles(part).map((file) => file.importedBy)).toEqual([
+      undefined,
+      rootFile,
+    ]);
+  });
+
+  it('cuts a cycle without repeating either imported file', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const first = join(root, 'a.md');
+    const second = join(root, 'b.md');
+    await write(rootFile, '@a.md\n');
+    await write(first, '@b.md\n');
+    await write(second, '@a.md\n');
+
+    const { producer, staged, prepare } = attemptOf();
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([rootFile, first, second]);
+  });
+
+  it('limits an ordinary import chain to five hops', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    await write(rootFile, '@a.md\n');
+    for (const [index, name] of ['a', 'b', 'c', 'd', 'e', 'f'].entries()) {
+      await write(
+        join(root, `${name}.md`),
+        index === 5
+          ? 'last\n'
+          : `@${String.fromCharCode(name.charCodeAt(0) + 1)}.md\n`,
+      );
+    }
+
+    const { producer, staged, prepare } = attemptOf();
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      rootFile,
+      ...['a', 'b', 'c', 'd', 'e'].map((name) => join(root, `${name}.md`)),
+    ]);
+  });
+
+  it('restarts hop counting for a chain file loaded by an import trigger', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    await write(rootFile, '@foo/doc.md\n');
+    await write(join(root, 'foo/doc.md'), 'doc\n');
+    await write(join(root, 'foo/AGENTS.md'), '@a.md\n');
+    for (const [index, name] of ['a', 'b', 'c', 'd', 'e', 'f'].entries()) {
+      await write(
+        join(root, `foo/${name}.md`),
+        index === 5
+          ? 'last\n'
+          : `@${String.fromCharCode(name.charCodeAt(0) + 1)}.md\n`,
+      );
+    }
+
+    const { producer, staged, prepare } = attemptOf();
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      rootFile,
+      join(root, 'foo/doc.md'),
+      join(root, 'foo/AGENTS.md'),
+      ...['a', 'b', 'c', 'd', 'e'].map((name) => join(root, `foo/${name}.md`)),
+    ]);
+  });
+
+  it('leaves missing, schemed, home, and selector targets literal', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    await write(
+      rootFile,
+      '@missing.md @~/x.md @https://x @kb://s/x @foo.md:30-35\n',
+    );
+    const reads: Array<string> = [];
+    const readPage: ReadPage = async (selectorPath) => {
+      reads.push(selectorPath);
+      const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+      return {
+        status: 'success',
+        kind: 'file',
+        content: await readFile(path, 'utf8'),
+        truncated: false,
+      };
+    };
+    const { producer, staged, prepare } = attemptOf({ readPage });
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([rootFile]);
+    expect(reads).toEqual([`${rootFile}:raw:1-2000`]);
+  });
+
+  it('keeps Knowledge imports inside their Space', async () => {
+    const space = spaceOf({
+      'AGENTS.md': '@notes/doc.md @../outside.md\n',
+      'notes/doc.md': 'doc\n',
+      'outside.md': 'outside\n',
+    });
+    const { producer, staged, prepare } = attemptOf({ space });
+    producer.observeToolCall?.(spaceCall('entry.md'));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      `kb://${SPACE}/AGENTS.md`,
+      `kb://${SPACE}/notes/doc.md`,
+    ]);
+    expect(space.reads).not.toContain(`kb://${SPACE}/outside.md:raw:1-2000`);
+  });
+
+  it('audits a denied import once without probing it', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const target = join(root, 'missing.md');
+    await write(rootFile, '@missing.md\n');
+    const reads: Array<string> = [];
+    const readPage: ReadPage = async (selectorPath) => {
+      reads.push(selectorPath);
+      if (selectorPath.startsWith(`${target}:raw:`)) {
+        return {
+          status: 'error',
+          type: 'permission_denied',
+          message: 'Denied by policy.',
+        };
+      }
+      const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+      return {
+        status: 'success',
+        kind: 'file',
+        content: await readFile(path, 'utf8'),
+        truncated: false,
+      };
+    };
+    const { producer, staged, prepare } = attemptOf({
+      readPage,
+      admitsRead: (path) => path !== target,
+    });
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    expect(reads).toEqual([`${rootFile}:raw:1-2000`, `${target}:raw:1-2000`]);
+    expect(deniedPaths(lastStaged(staged))).toEqual([target]);
+  });
+
+  it('evaluates a denied import again from a later trigger', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const nestedFile = join(root, 'nested/AGENTS.md');
+    const target = join(root, 'shared.md');
+    await write(rootFile, '@shared.md\n');
+    await write(nestedFile, '@../shared.md\n');
+    const reads: Array<string> = [];
+    const readPage: ReadPage = async (selectorPath) => {
+      reads.push(selectorPath);
+      if (selectorPath.startsWith(`${target}:raw:`)) {
+        return {
+          status: 'error',
+          type: 'permission_denied',
+          message: 'Denied by policy.',
+        };
+      }
+      const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
+      return {
+        status: 'success',
+        kind: 'file',
+        content: await readFile(path, 'utf8'),
+        truncated: false,
+      };
+    };
+    const attempt = attemptOf({
+      readPage,
+      admitsRead: (path) => path !== target,
+    });
+    attempt.producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await attempt.prepare();
+    attempt.producer.observeToolCall?.(readCall(join(root, 'nested/x.ts')));
+    await attempt.prepare();
+
+    expect(
+      reads.filter((path) => path.startsWith(`${target}:raw:`)),
+    ).toHaveLength(2);
+  });
+
+  it('expands imports during an accepted-turn load', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const doc = join(root, 'foo/doc.md');
+    await write(rootFile, '@foo/doc.md\n');
+    await write(doc, 'doc\n');
+    const part = await createInstructionsProducer().prepareTurn?.({
+      runId: RUN_ID,
+      workspaceRoot: root,
+      readPage: pageReader().readPage,
+      admitsRead: () => true,
+      seenKeys: new Set(),
+    });
+    if (part === undefined) throw new Error('the accepted turn loaded nothing');
+
+    expect(blockPaths(part)).toEqual([rootFile, doc]);
+  });
+
+  it('denies a symlinked import before reading its canonical target', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const target = join(root, 'foo/target.md');
+    const link = join(root, 'foo/link.md');
+    await write(rootFile, '@foo/link.md\n');
+    await write(target, 'target\n');
+    await symlink(target, link);
+    const { producer, staged, prepare } = attemptOf();
+
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([rootFile]);
+    expect(deniedPaths(lastStaged(staged))).toEqual([link]);
+  });
+});
+
 describe('instructions producer accepted turn', () => {
   it('stages the bound root chain with a payload naming the keys it establishes', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
@@ -1011,6 +1284,7 @@ describe('instructions producer accepted turn', () => {
       runId: RUN_ID,
       workspaceRoot: join(root, 'apps/api'),
       readPage: pageReader().readPage,
+      admitsRead: () => true,
       seenKeys: new Set(),
     });
     if (part === undefined) throw new Error('the accepted turn loaded nothing');
@@ -1029,6 +1303,7 @@ describe('instructions producer accepted turn', () => {
       runId: RUN_ID,
       workspaceRoot: root,
       readPage: pageReader().readPage,
+      admitsRead: () => true,
       seenKeys: new Set([await realpath(join(root, 'AGENTS.md'))]),
     });
 

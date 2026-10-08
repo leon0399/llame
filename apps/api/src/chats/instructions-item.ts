@@ -35,6 +35,8 @@ export interface LoadedInstructionFile {
   /** The identifier at which the candidate was selected: a host absolute path,
    * or a logical `kb://` locator for a Knowledge candidate. */
   readonly path: string;
+  /** The file that caused this candidate to load, when it was imported. */
+  readonly importedBy?: string;
   /** The file's identity: its host `realpath`, or its `kb://` locator, which
    * resolves no links. The seen-set key, never rendered. */
   readonly canonicalPath: string;
@@ -53,7 +55,7 @@ export interface LoadedInstructionFile {
 
 export type InstructionsPayloadFile = Pick<
   LoadedInstructionFile,
-  'path' | 'canonicalPath' | 'truncated'
+  'path' | 'canonicalPath' | 'truncated' | 'importedBy'
 >;
 
 /**
@@ -86,11 +88,24 @@ export function isInstructionsPayload(
 function isInstructionsPayloadFile(
   value: unknown,
 ): value is InstructionsPayloadFile {
+  if (isExactRecord(value, ['path', 'canonicalPath', 'truncated'])) {
+    return (
+      isNonEmptyString(value['path']) &&
+      isNonEmptyString(value['canonicalPath']) &&
+      isBoolean(value['truncated'])
+    );
+  }
   return (
-    isExactRecord(value, ['path', 'canonicalPath', 'truncated']) &&
+    isExactRecord(value, [
+      'path',
+      'canonicalPath',
+      'truncated',
+      'importedBy',
+    ]) &&
     isNonEmptyString(value['path']) &&
     isNonEmptyString(value['canonicalPath']) &&
-    isBoolean(value['truncated'])
+    isBoolean(value['truncated']) &&
+    isNonEmptyString(value['importedBy'])
   );
 }
 
@@ -103,12 +118,21 @@ export function createInstructionsItem(input: {
   readonly files: ReadonlyArray<LoadedInstructionFile>;
   readonly denied: ReadonlyArray<string>;
 }): AuthoredContextItemPart {
-  const payload: InstructionsPayload = {
-    files: input.files.map((file) => ({
+  const files: Array<InstructionsPayloadFile> = [];
+  for (const file of input.files) {
+    const payloadFile = {
       path: file.path,
       canonicalPath: file.canonicalPath,
       truncated: file.truncated,
-    })),
+    };
+    if (file.importedBy !== undefined) {
+      files.push({ ...payloadFile, importedBy: file.importedBy });
+    } else {
+      files.push(payloadFile);
+    }
+  }
+  const payload: InstructionsPayload = {
+    files,
     denied: [...input.denied],
   };
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
@@ -128,6 +152,7 @@ const renderInstructionsTemplate = loadPackagedTemplate<{
   readonly knowledgeNotice: string;
   readonly files: ReadonlyArray<{
     readonly path: string;
+    readonly importedBy?: string;
     readonly body: string;
     readonly truncated: boolean;
     readonly omittedBytes: number;
@@ -155,6 +180,10 @@ function renderInstructions(
       // from every operator prompt; the `<` is escaped rather than the token
       // dropped, keeping the body readable.
       path: escapeXmlAttribute(file.path),
+      importedBy:
+        file.importedBy === undefined
+          ? undefined
+          : escapeXmlAttribute(file.importedBy),
       body: sanitizeAuthoredText(file.content).replaceAll(
         /<(\s*\/?\s*file)(?=\s*\/?>|[\s/]+[\w-]+\s*=|$)/gi,
         '&lt;$1',

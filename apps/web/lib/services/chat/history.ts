@@ -102,9 +102,10 @@ export type ModelSwitchPart = {
 /**
  * A server-authored context item carrying the project instruction files one
  * trigger loaded. `payload.files` is the model-visible set — the API's seen
- * set keys on `canonicalPath` — and `payload.denied` is owner-only metadata:
- * the paths the `read` permission group rejected, which the model-visible
- * text never names.
+ * set keys on `canonicalPath` — and `importedBy` identifies an imported
+ * file's immediate importer. `payload.denied` is owner-only metadata: the
+ * paths the `read` permission group rejected, which the model-visible text
+ * never names.
  */
 export type InstructionsPart = {
   type: "data-context";
@@ -118,6 +119,7 @@ export type InstructionsPart = {
         path: string;
         canonicalPath: string;
         truncated: boolean;
+        importedBy?: string;
       }>;
       denied: ReadonlyArray<string>;
     };
@@ -267,23 +269,33 @@ function isNonEmptyString(value: unknown): value is string {
 function isInstructionsFileEntry(
   value: unknown,
 ): value is InstructionsPart["data"]["payload"]["files"][number] {
+  if (!isNonNullObject(value)) return false;
+  const keys = Object.keys(value);
+  const hasImportedBy = keysMatch(keys, [
+    "path",
+    "canonicalPath",
+    "truncated",
+    "importedBy",
+  ]);
   if (
-    !isNonNullObject(value) ||
-    !keysMatch(Object.keys(value), ["path", "canonicalPath", "truncated"])
+    !hasImportedBy &&
+    !keysMatch(keys, ["path", "canonicalPath", "truncated"])
   ) {
     return false;
   }
-  // SAFETY: `keysMatch` above confirmed `value` has exactly these three keys;
-  // each field is validated individually below.
-  const { path, canonicalPath, truncated } = value as {
+  // SAFETY: `keysMatch` above confirmed `value` has exactly one of the two
+  // accepted file-entry shapes; each field is validated individually below.
+  const { path, canonicalPath, truncated, importedBy } = value as {
     path: unknown;
     canonicalPath: unknown;
     truncated: unknown;
+    importedBy?: unknown;
   };
   return (
     isNonEmptyString(path) &&
     isNonEmptyString(canonicalPath) &&
-    typeof truncated === "boolean"
+    typeof truncated === "boolean" &&
+    (!hasImportedBy || isNonEmptyString(importedBy))
   );
 }
 

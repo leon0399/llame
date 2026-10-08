@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Instruction files now expand same-store `@path`, `@[label](path)`, and
+  `[label](path "import")` markers outside code into separate depth-first blocks.
+  Host and Knowledge imports stay in their own store, inherit scope, load their
+  directory chains, use system-origin `instructions` reads under the `read` group,
+  deduplicate across five hops, and keep each file within its 32 KiB cap. Rejected
+  targets report denied without revealing existence, and symlinked imports are
+  currently skipped as denied.
+
 - The web chat renders `read` results as the source path or a safe link to
   the fetched URL, the content as the model received it, and the requested
   and shown lines, truncation point, web method, adapter, notes, and every

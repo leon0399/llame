@@ -77,6 +77,13 @@ The chain names, the locators that identify each loaded page, and the
 host-path rules that apply unchanged are documented in
 [Instruction files](../reference/instruction-files.md).
 
+Instruction imports stay in the importing Space: only relative whole-file targets
+resolve, while absolute, escaping, `~/`, and schemed targets remain literal. They
+use the `read` group under system origin `instructions`; a denied target is audited
+without probing and reported as denied whether or not it exists. The full marker,
+ordering, hop, deduplication, and per-file size contract is in
+[Instruction files](../reference/instruction-files.md).
+
 A host path under `knowledge.root` is host authority, not Space content: a
 `read`, `edit`, or `write` that names one is a plain native file operation,
 governed by the host's own permissions, ownership, and executor, and it is
