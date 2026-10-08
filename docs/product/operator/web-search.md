@@ -55,7 +55,7 @@ Add optional top-level `webSearch`; `engines` contains operator-owned entries an
 ```
 
 Engine ids are unique strings of 1-64 characters; every chain id must exist, the chain is non-empty and has no repeats. There is no built-in engine/chain; omit `webSearch` to leave search unconfigured.
-Each engine's positive-integer `timeoutSeconds` defaults to 60 seconds. The whole call (all chain steps) uses existing `tools.callTimeoutSeconds`, default 120 seconds; do not add another web-search call timeout. Engine timeouts are `timeout` and advance; other failures and empty results also advance. The first non-empty result/grounded answer ends the call. If all attempts fail, the fixed error names engine ids/classes, never an upstream response or credential.
+Each non-aggregate engine's positive-integer `timeoutSeconds` defaults to 60 seconds. The whole call (all chain steps) uses existing `tools.callTimeoutSeconds`, default 120 seconds; do not add another web-search call timeout. Engine timeouts are `timeout` and advance; other failures and empty results also advance. The first non-empty result/grounded answer ends the call. If all attempts fail, the fixed error names engine ids/classes, never an upstream response or credential.
 
 ## Aggregate
 
@@ -66,7 +66,6 @@ An aggregate fans out across two or more distinct configured result-engine ids:
   "id": "broad",
   "type": "aggregate",
   "engines": ["brave", "exa"],
-  "timeoutSeconds": 60,
 }
 ```
 

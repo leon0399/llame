@@ -146,7 +146,6 @@ it('wires aggregate children and merges their results', async () => {
             id: 'mix',
             type: 'aggregate',
             engines: ['first', 'second'],
-            timeoutSeconds: 60,
           },
         ],
         chain: ['mix'],

@@ -1,12 +1,15 @@
 import {
   EngineFailure,
+  canonicalizeResults,
+  isFailureClass,
+  runOne,
+  throwAbort,
   type Engine,
   type EngineOutcome,
   type EngineRequest,
   type FailureClass,
   type RawResult,
 } from './chain';
-import { canonicalUrl } from './output';
 
 export type AggregateChild = {
   readonly id: string;
@@ -14,24 +17,23 @@ export type AggregateChild = {
   readonly engine: Engine;
 };
 
-type ChildRun =
+type ChildRun = { readonly child: AggregateChild } & (
   | {
-      readonly child: AggregateChild;
       readonly kind: 'results';
       readonly results: ReadonlyArray<RawResult>;
+      readonly notes?: ReadonlyArray<string>;
     }
   | {
-      readonly child: AggregateChild;
       readonly kind: 'empty';
+      readonly notes?: ReadonlyArray<string>;
     }
   | {
-      readonly child: AggregateChild;
       readonly kind: 'failure';
       readonly failureClass: FailureClass;
-    };
+    }
+);
 
 type ResultGroup = {
-  readonly key: string;
   url: string;
   score: number;
   bestRank: number;
@@ -39,66 +41,31 @@ type ResultGroup = {
   title: string;
   snippet: string | undefined;
   published: string | undefined;
+  children: Set<number>;
 };
-
-type MergedResult = {
-  title: string;
-  url: string;
-  snippet?: string;
-  published?: string;
-};
-
-function throwAbort(signal: AbortSignal): never {
-  if (signal.reason instanceof Error) throw signal.reason;
-  throw new DOMException('The web search was aborted.', 'AbortError');
-}
-
-function canonicalizeResults(
-  results: ReadonlyArray<RawResult>,
-): Array<RawResult> {
-  return results.flatMap((result) => {
-    const url = canonicalUrl(result.url);
-    return url === undefined ? [] : [{ ...result, url }];
-  });
-}
 
 function classifyOutcome(
   child: AggregateChild,
   outcome: EngineOutcome,
 ): ChildRun {
-  if (outcome.kind === 'empty') return { child, kind: 'empty' };
+  if (outcome.kind === 'empty')
+    return { child, kind: 'empty', notes: outcome.notes };
   if (outcome.kind !== 'results')
     return { child, kind: 'failure', failureClass: 'upstream_error' };
   const results = canonicalizeResults(outcome.results);
   return results.length === 0
-    ? { child, kind: 'empty' }
-    : { child, kind: 'results', results };
+    ? { child, kind: 'empty', notes: outcome.notes }
+    : { child, kind: 'results', results, notes: outcome.notes };
 }
 
 async function runChild(
   child: AggregateChild,
   request: EngineRequest,
 ): Promise<ChildRun> {
-  const deadline = AbortSignal.timeout(child.timeoutSeconds * 1000);
-  const signal = AbortSignal.any([request.signal, deadline]);
-  try {
-    const outcome = await child.engine({ ...request, signal });
-    if (request.signal.aborted) throwAbort(request.signal);
-    if (deadline.aborted)
-      return { child, kind: 'failure', failureClass: 'timeout' };
-    return classifyOutcome(child, outcome);
-  } catch (error) {
-    if (request.signal.aborted) throwAbort(request.signal);
-    return {
-      child,
-      kind: 'failure',
-      failureClass: deadline.aborted
-        ? 'timeout'
-        : error instanceof EngineFailure
-          ? error.failureClass
-          : 'upstream_error',
-    };
-  }
+  const outcome = await runOne(child.engine, child.timeoutSeconds, request);
+  return isFailureClass(outcome)
+    ? { child, kind: 'failure', failureClass: outcome }
+    : classifyOutcome(child, outcome);
 }
 
 function groupingKey(rawUrl: string): string {
@@ -119,11 +86,11 @@ function updateGroup(
   rank: number,
   childIndex: number,
 ): void {
-  group.score += 1 / (60 + rank);
-  if (
-    rank < group.bestRank ||
-    (rank === group.bestRank && childIndex < group.bestChild)
-  ) {
+  if (!group.children.has(childIndex)) {
+    group.children.add(childIndex);
+    group.score += 1 / (60 + rank);
+  }
+  if (rank < group.bestRank) {
     group.url = result.url;
     group.bestRank = rank;
     group.bestChild = childIndex;
@@ -141,10 +108,12 @@ function updateGroup(
 }
 
 function groupResult(group: ResultGroup): RawResult {
-  const result: MergedResult = { title: group.title, url: group.url };
-  if (group.snippet !== undefined) result.snippet = group.snippet;
-  if (group.published !== undefined) result.published = group.published;
-  return result;
+  return {
+    title: group.title,
+    url: group.url,
+    ...(group.snippet !== undefined && { snippet: group.snippet }),
+    ...(group.published !== undefined && { published: group.published }),
+  };
 }
 
 function mergeResultGroups(runs: ReadonlyArray<ChildRun>): Array<RawResult> {
@@ -154,21 +123,21 @@ function mergeResultGroups(runs: ReadonlyArray<ChildRun>): Array<RawResult> {
     run.results.forEach((result, resultIndex) => {
       const rank = resultIndex + 1;
       const key = groupingKey(result.url);
-      const group = groups.get(key);
+      let group = groups.get(key);
       if (group === undefined) {
-        groups.set(key, {
-          key,
-          url: result.url,
-          score: 1 / (60 + rank),
-          bestRank: rank,
-          bestChild: childIndex,
-          title: isNonEmpty(result.title) ? result.title : '',
-          snippet: result.snippet,
-          published: isNonEmpty(result.published)
-            ? result.published
-            : undefined,
-        });
-      } else updateGroup(group, result, rank, childIndex);
+        group = {
+          url: '',
+          score: 0,
+          bestRank: Infinity,
+          bestChild: 0,
+          title: '',
+          snippet: undefined,
+          published: undefined,
+          children: new Set<number>(),
+        };
+        groups.set(key, group);
+      }
+      updateGroup(group, result, rank, childIndex);
     });
   });
   return [...groups.values()]
@@ -191,6 +160,12 @@ function outcomeNotes(runs: ReadonlyArray<ChildRun>): Array<string> {
   );
 }
 
+function childNotes(runs: ReadonlyArray<ChildRun>): Array<string> {
+  return runs.flatMap((run) =>
+    run.kind === 'failure' ? [] : [...(run.notes ?? [])],
+  );
+}
+
 /** Build an aggregate engine that fans out to every configured child. */
 export function createAggregateEngine(
   children: ReadonlyArray<AggregateChild>,
@@ -201,7 +176,7 @@ export function createAggregateEngine(
       children.map((child) => runChild(child, request)),
     );
     if (request.signal.aborted) throwAbort(request.signal);
-    const notes = outcomeNotes(runs);
+    const notes = [...outcomeNotes(runs), ...childNotes(runs)];
     if (runs.some((run) => run.kind === 'results')) {
       const result = {
         kind: 'results' as const,
@@ -210,9 +185,7 @@ export function createAggregateEngine(
       return notes.length === 0 ? result : { ...result, notes };
     }
     if (runs.some((run) => run.kind === 'empty')) {
-      return notes.length === 0
-        ? { kind: 'empty' as const }
-        : { kind: 'empty' as const, notes };
+      return { kind: 'empty' as const, notes };
     }
     throw new EngineFailure('upstream_error');
   };

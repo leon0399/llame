@@ -154,10 +154,6 @@
               "uniqueItems": true,
               "items": { "type": "string", "minLength": 1 },
               "description": "Two or more distinct ids of configured result engines."
-            },
-            "timeoutSeconds": {
-              "$ref": "#/$defs/numberOrToken",
-              "description": "Per-engine deadline in seconds. Defaults to 60."
             }
           }
         }

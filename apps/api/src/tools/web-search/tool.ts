@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { loadPackagedToolDescription } from '../../prompts/tool-descriptions';
 import { type Tool, type ToolContext, type ToolResult } from '../types';
-import { type WebSearchConfig } from '../../instance-config/llame-config';
+import {
+  type WebSearchConfig,
+  type WebSearchEngineConfig,
+} from '../../instance-config/llame-config';
 import { createAggregateEngine } from './aggregate';
 import {
   createEngine,
@@ -25,7 +28,16 @@ const engineLookups = new WeakMap<WebSearchConfig, EngineLookup>();
 
 function buildEngineLookup(config: WebSearchConfig): EngineLookup {
   const engines = new Map<string, Engine>();
-  const entries = new Map(config.engines.map((entry) => [entry.id, entry]));
+  const entries = new Map(
+    config.engines
+      .filter(
+        (
+          entry,
+        ): entry is Exclude<WebSearchEngineConfig, { type: 'aggregate' }> =>
+          entry.type !== 'aggregate',
+      )
+      .map((entry) => [entry.id, entry]),
+  );
   for (const engineConfig of config.engines) {
     if (engineConfig.type === 'aggregate') continue;
     engines.set(

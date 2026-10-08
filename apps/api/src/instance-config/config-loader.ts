@@ -35,6 +35,7 @@ import {
   type RawModelEntry,
   type RawWebAdapterEntry,
   type RawWebSearchConfig,
+  type RawWebSearchEngineEntry,
   type WebAdapterConfig,
 } from './llame-config';
 import type { RequestHeaderTemplates } from '../models/request-headers';
@@ -520,6 +521,8 @@ function resolveWebSearchEngines(
     seenEngineIds.add(entry.id);
 
     const entryPath = `webSearch.engines[${entry.id}]`;
+    if (entry.type === 'aggregate')
+      return { id: entry.id, type: entry.type, engines: entry.engines };
     const timeoutPath = `${entryPath}.timeoutSeconds`;
     const timeoutSeconds = requireResolvedNumber(
       resolveNumeric({
@@ -564,7 +567,7 @@ function assertAggregateChildren(
 }
 
 function resolveWebSearchEngine(
-  entry: RawWebSearchConfig['engines'][number],
+  entry: Exclude<RawWebSearchEngineEntry, { type: 'aggregate' }>,
   entryPath: string,
   timeoutSeconds: number,
   env: NodeJS.ProcessEnv,
@@ -593,9 +596,6 @@ function resolveWebSearchEngine(
   }
   if (entry.type === 'duckduckgo') {
     return { ...base, type: entry.type };
-  }
-  if (entry.type === 'aggregate') {
-    return { ...base, type: entry.type, engines: entry.engines };
   }
   return {
     ...base,

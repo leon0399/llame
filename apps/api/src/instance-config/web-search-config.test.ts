@@ -452,11 +452,28 @@ describe('loadInstanceConfig — webSearch', () => {
           id: 'aggregate',
           type: 'aggregate',
           engines: ['brave', 'duckduckgo'],
-          timeoutSeconds: 60,
         },
       ],
       chain: ['aggregate'],
     });
+  });
+  it('rejects timeoutSeconds on an aggregate as an unknown key', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            brave(),
+            { id: 'duckduckgo', type: 'duckduckgo' },
+            { ...aggregate(), timeoutSeconds: 15 },
+          ],
+          chain: ['aggregate'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /webSearch\/engines\/2\/timeoutSeconds/u,
+    );
   });
 
   it('rejects a single aggregate child and names its engines path', () => {
@@ -579,6 +596,8 @@ describe('loadInstanceConfig — webSearch', () => {
       }),
     );
 
-    expect(loadInstanceConfig().webSearch?.engines[0]?.timeoutSeconds).toBe(15);
+    expect(loadInstanceConfig().webSearch?.engines[0]).toMatchObject({
+      timeoutSeconds: 15,
+    });
   });
 });
