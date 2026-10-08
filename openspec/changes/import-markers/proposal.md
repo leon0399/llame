@@ -89,8 +89,9 @@ activation; a paste-time confirmation is [#1143](https://github.com/leon0399/lla
 The following follow from those decisions but were not asked separately, and are open for
 review: prompt imports reuse the explicit-activation bounds (8 targets, 128 KiB aggregate
 output, 30 seconds) as a separate budget, and at most 64 distinct markers per message are
-probed at all; the canonical-path admission applies to instruction imports only, recorded
-imports keep exact parity with a `read` of the same locator; `~/` in a host instruction
+probed at all; the canonical-path admission applies to instruction imports only, recorded as a
+derived `canonical` decision on the import's first page read, while prompt and skill imports
+keep exact parity with a `read` of the same locator; `~/` in a host instruction
 import stays literal, so no server-resolved home path reaches labels or metadata;
 the `prompt-imports` item precedes the user text in the same message, as every attached
 rail item does; the delivery stack has seven implementation layers rather than the four
@@ -111,16 +112,24 @@ and round-1 review found the turn-load and admission work larger than first esti
 
 ### Modified Capabilities
 
-- `instruction-files`: _Entry, native file tools, and accepted turns are the only
-  triggers_ (loaded instruction imports and admitted local or Knowledge prompt imports
-  become triggers); _A file is loaded once per compaction epoch, derived from effective
-  history_ (imports are keyed and suppressed by the same seen set); _Each candidate is read
-  with system origin under the read permission group_ (imports are read the same way, with a
-  canonical-path admission); _A bundle is one persisted-literal notice with bounded file
-  bodies_ (import blocks, order, importer, inherited scope); _Owners see which files were
-  loaded, truncated, or denied_ (imports are marked with their importer). One requirement is
-  added for import expansion itself. Chain selection, the walk, and the Knowledge walk are
-  unchanged.
+- `instruction-files`: _A host-path trigger loads the chain from the filesystem
+  root down to the touched directory_ (loaded instruction imports and admitted
+  host-path prompt imports are additional triggers); _A Knowledge locator loads
+  the chain within its Space_ (admitted Knowledge prompt imports load its Space
+  chain on the accepted turn); _Entry, native file tools, and accepted turns are
+  the only triggers_ (loaded instruction imports and admitted local or Knowledge
+  prompt imports become triggers); _A file is loaded once per compaction epoch,
+  derived from effective history_ (imports share the seen set); _Each candidate is
+  read with system origin under the read permission group_ (imports are read the
+  same way, with canonical-path admission); _A bundle is one persisted-literal
+  notice with bounded file bodies_ (import blocks, order, importer, inherited
+  scope); _Owners see which files were loaded, truncated, or denied_ (imports are
+  marked with their importers). Added requirements: _Instruction bodies expand
+  import markers_; _Instruction import targets are admitted before probing_;
+  _Instruction imports are bounded and cycle-safe_. Chain selection is unchanged;
+  the walks gain the two import trigger kinds (loaded instruction imports and
+  admitted host or Knowledge prompt imports), and the Knowledge walk gains the
+  accepted-turn exception for prompt imports.
 - `context-injection`: _Co-occurring items have a total author-time order_ adds
   `prompt-imports` after `skill-activation`; _Explicit activations are rail items carrying
   current instructions_ carries imported package files after the instruction body;
