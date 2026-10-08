@@ -38,18 +38,32 @@ const RESERVED_OWNERS = {
   collections: true,
   datasets: true,
   docs: true,
+  inference: true,
+  'inference-endpoints': true,
   join: true,
+  kernels: true,
   learn: true,
   login: true,
+  mcp: true,
   models: true,
   new: true,
   organizations: true,
   papers: true,
   posts: true,
   pricing: true,
+  search: true,
   settings: true,
   spaces: true,
   tasks: true,
+} as const satisfies Readonly<Record<string, true>>;
+
+/** Second segments that are an owner's listing pages (`/meta-llama/models`). */
+const OWNER_LISTINGS = {
+  collections: true,
+  datasets: true,
+  models: true,
+  papers: true,
+  spaces: true,
 } as const satisfies Readonly<Record<string, true>>;
 
 /** Fields requested per repository kind; the Hub rejects a field a kind
@@ -60,7 +74,6 @@ const EXPAND: Readonly<Record<RepoKind, ReadonlyArray<string>>> = {
   spaces: ['sdk'],
 };
 const SHARED_EXPAND = [
-  'author',
   'cardData',
   'createdAt',
   'lastModified',
@@ -109,7 +122,11 @@ export function parseHuggingfaceUrl(
   const [, prefix, owner = '', name = ''] = match;
   const kind: RepoKind =
     prefix === 'datasets' || prefix === 'spaces' ? prefix : 'models';
-  if (kind === 'models' && Object.hasOwn(RESERVED_OWNERS, owner)) {
+  if (
+    kind === 'models' &&
+    (Object.hasOwn(RESERVED_OWNERS, owner) ||
+      Object.hasOwn(OWNER_LISTINGS, name))
+  ) {
     return undefined;
   }
   return { kind, id: `${owner}/${name}` };

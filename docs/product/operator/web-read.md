@@ -273,8 +273,8 @@ Markdown with their metadata:
 { "id": "huggingface", "use": "huggingface" }
 ```
 
-The entry takes no other field and sends no credential, so gated and private
-repositories render metadata only. It claims
+The entry takes no other field and sends no credential, so a gated repository
+renders metadata only and a private one falls through to the generic ladder. It claims
 `https://huggingface.co/{owner}/{name}`, `/datasets/{owner}/{name}`, and
 `/spaces/{owner}/{name}`; file, tree, and discussion pages, single-segment
 legacy model ids, and Hub pages such as `/docs/...`, `/blog/...`, and

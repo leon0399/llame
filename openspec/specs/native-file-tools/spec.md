@@ -2399,7 +2399,8 @@ the rest and add a `dist-tags omitted: {category}` or
 A configured `huggingface` adapter SHALL claim only `https://huggingface.co`
 locators whose path is `/{owner}/{name}`, `/datasets/{owner}/{name}`, or
 `/spaces/{owner}/{name}`; a model path whose owner segment is a Hub page such
-as `docs`, `blog`, or `papers` SHALL be unclaimed, as SHALL every other path.
+as `docs`, `blog`, or `papers`, or whose name segment is an owner listing such
+as `models` or `datasets`, SHALL be unclaimed, as SHALL every other path.
 The adapter SHALL send only unauthenticated `GET` requests to
 `https://huggingface.co`: `/api/{models|datasets|spaces}/{owner}/{name}` with
 the `expand[]` fields its kind supports and `Accept: application/json`, then

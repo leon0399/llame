@@ -14,7 +14,7 @@ const adapter = createHuggingfaceAdapter(
   { origin: API_ORIGIN },
 );
 const SHARED =
-  'expand[]=author&expand[]=cardData&expand[]=createdAt&expand[]=lastModified&expand[]=likes&expand[]=sha&expand[]=tags';
+  'expand[]=cardData&expand[]=createdAt&expand[]=lastModified&expand[]=likes&expand[]=sha&expand[]=tags';
 const MODEL_URL = `${API_ORIGIN}/api/models/org/model?${SHARED}&expand[]=library_name&expand[]=pipeline_tag&expand[]=downloads&expand[]=gated&expand[]=safetensors`;
 const MODEL_README = `${API_ORIGIN}/org/model/raw/abc123/README.md`;
 const NOT_FOUND: WebFetchFailure = {
@@ -52,6 +52,8 @@ describe('Hugging Face adapter claim', () => {
     'https://huggingface.co/blog/some-post',
     'https://huggingface.co/papers/2412.19437',
     'https://huggingface.co/datasets/org',
+    'https://huggingface.co/meta-llama/models',
+    'https://huggingface.co/search/full-text',
   ])('leaves %s to the generic ladder', (source) => {
     expect(adapter.match(new URL(source))).toBe(false);
   });
