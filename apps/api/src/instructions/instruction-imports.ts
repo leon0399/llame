@@ -108,6 +108,16 @@ function candidateDirectory(
     : parentKey(parsed.relativePath, group.scope.root);
 }
 
+function disclosedForImport(
+  state: InstructionImportState,
+  path: string,
+): ReadonlySet<string> {
+  const directory = candidateDirectory(state.group, path);
+  return directory === undefined
+    ? EMPTY_DISCLOSED
+    : (state.disclosed.get(directory) ?? EMPTY_DISCLOSED);
+}
+
 /** Reads one candidate into the collector, unless it is disclosed or seen. */
 export async function collectInstructionCandidate(
   state: InstructionImportState,
@@ -181,11 +191,7 @@ async function loadResolvedImport(
     canonicalPath: probe.canonicalPath,
     size: probe.size,
   };
-  const directory = candidateDirectory(group, resolved.path);
-  const disclosed =
-    directory === undefined
-      ? EMPTY_DISCLOSED
-      : (state.disclosed.get(directory) ?? EMPTY_DISCLOSED);
+  const disclosed = disclosedForImport(state, resolved.path);
   await collectInstructionCandidate(state, candidate, disclosed, {
     hop: hop + 1,
     importedBy: importer,
