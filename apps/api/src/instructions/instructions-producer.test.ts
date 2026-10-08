@@ -1850,6 +1850,22 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
       join(root, 'apps/api/AGENTS.md'),
     ]);
   });
+  it('loads an existing prompt-import directory and its ancestor chain', async () => {
+    await write(join(root, 'apps/AGENTS.md'), 'apps rules\n');
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'apps/api') }],
+    });
+    if (part === undefined)
+      throw new Error('the directory trigger loaded nothing');
+
+    expect(withinRoot(blockPaths(part))).toEqual([
+      join(root, 'apps/AGENTS.md'),
+      join(root, 'apps/api/AGENTS.md'),
+    ]);
+  });
 
   it('loads a Space chain on an unbound turn with only a Knowledge world', async () => {
     await write(join(root, 'AGENTS.md'), 'host rules\n');
