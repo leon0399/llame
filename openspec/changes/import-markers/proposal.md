@@ -21,7 +21,7 @@ one change with separate implementation layers.
 ## What Changes
 
 - **Import marker grammar** (new `import-markers`). Three shapes are recognized in Markdown
-  text outside fenced code and inline code: `@target`, `@[label](target)`, and
+  text, with markers inside fenced code and inline code left literal: `@target`, `@[label](target)`, and
   `[label](target "import")`. A bare `@target` starts at the start of a line or block, after
   whitespace, or after one of `(`, `[`, `{`, `<`, `"`, and `'`, and runs to the next
   whitespace, with trailing sentence punctuation removed. A delimited bare marker, `@"target"`,

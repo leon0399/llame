@@ -289,7 +289,8 @@ payloads.
   path reaches labels or metadata. A Knowledge importer also leaves `~/` literal.
 - [An `@token` that happens to name an existing file in the Workspace imports it]
   → the owner sees the chip; the read is admitted like any model read; #1143 adds paste
-  confirmation. A code span keeps a token literal.
+  confirmation. A code span keeps a token literal only when the `@` is inside it:
+  `` ping @`leo` `` is a backtick marker, while `` `@leo` `` stays prose.
 - [Prompt imports of web targets fetch on every accepted turn that carries them] → each
   turn reads once and persists; retries reuse the result; web bounds apply per request.
 - [mdast parses CommonMark, not GitHub Flavored Markdown] → it is used only for link
