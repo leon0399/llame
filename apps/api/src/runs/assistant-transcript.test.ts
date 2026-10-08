@@ -1341,6 +1341,39 @@ describe('system-origin tool activity', () => {
     expect(result.openToolCalls).toEqual(new Map());
   });
 
+  it('produces no assistant part and no open call for a prompt-import-origin read', () => {
+    const completed = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'prompt-import-1',
+        toolName: 'read',
+        input: { path: '/repo/README.md:30-35' },
+        origin: 'prompt-import',
+      }),
+      event('tool.completed', {
+        toolCallId: 'prompt-import-1',
+        toolName: 'read',
+        status: 'success',
+        output: { status: 'success', content: 'readme' },
+        origin: 'prompt-import',
+      }),
+    ]);
+    expect(completed.collector.parts()).toEqual([]);
+    expect(completed.openToolCalls).toEqual(new Map());
+
+    // A request left open by a worker restart must not become a synthesized
+    // settlement either: recovery never turns it into an assistant tool part.
+    const open = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'prompt-import-2',
+        toolName: 'read',
+        input: { path: '/repo/README.md' },
+        origin: 'prompt-import',
+      }),
+    ]);
+    expect(open.collector.parts()).toEqual([]);
+    expect(open.openToolCalls).toEqual(new Map());
+  });
+
   it('leaves model-origin activity beside it untouched', () => {
     const result = reconstructDurableAssistant([
       event('tool.requested', requested('activation-1')),

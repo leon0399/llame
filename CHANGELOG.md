@@ -2,6 +2,22 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Prompts now expand `@path`, `@[label](path)`, and `[label](path "import")`
+  markers outside code. Before the Run's first model request, each target is
+  read once through native `read`, with its selectors, and the results are
+  persisted as one `prompt-imports` item ahead of the unchanged message text.
+  Absolute, `file:`, Workspace-relative, `kb://`, `skill://`, and web targets
+  are accepted, so `@README.md:30-35` and
+  `@https://github.com/leon0399/llame/issues/1029:outline` import what `read`
+  returns. Host and Knowledge targets are silently pre-evaluated by the `read`
+  group: a denied one is audited and named as not imported whether or not it
+  exists, and an admitted missing one stays prose. Reads carry audit origin
+  `prompt-import` and never appear as assistant tool calls; imported files do
+  not nest, `@skill://name` reads data without activating, 64 markers, 8 reads,
+  128 KiB, and 30 s bound the work, a retry reuses the stored item, and an
+  attempt that detaches the Workspace imports nothing. See
+  [prompt imports](docs/product/reference/prompt-imports.md).
+
 - Instruction files now expand same-store `@path`, `@[label](path)`, and
   `[label](path "import")` markers outside code into separate depth-first blocks.
   Host and Knowledge imports stay in their own store, inherit scope, load their

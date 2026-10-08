@@ -3,7 +3,10 @@ import { realpath, stat } from 'node:fs/promises';
 import { isBashTool, isHostCapabilityTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
-import { serializeNativeModelOutput } from '@workspace/native-file-tools';
+import {
+  serializeNativeModelOutput,
+  statHostPath,
+} from '@workspace/native-file-tools';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   tool,
@@ -133,12 +136,19 @@ import {
 } from '../tools/web-read/admission';
 import {
   ORIGIN_INSTRUCTIONS,
+  ORIGIN_PROMPT_IMPORT,
   ORIGIN_SKILL_ACTIVATION,
   type ToolActivityOrigin,
 } from './tool-activity-origin';
 import { activateSkills } from '../skills/skill-activation';
 import { parseSkillMentions } from '../skills/skill-mention';
 import { ActivationPartsRepository } from '../chats/activation-parts.repository';
+import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
+import { createPromptImportsItem } from '../chats/prompt-imports-item';
+import {
+  resolvePromptImports as resolvePromptImportTargets,
+  type PromptImportRequest,
+} from '../prompt-imports/prompt-imports';
 import { nativeReadTool } from '../tools/native-files';
 import {
   type KnowledgeToolResolver,
@@ -146,6 +156,11 @@ import {
   type ToolContext,
   type ToolResult,
 } from '../tools/types';
+import {
+  formatKnowledgeLocator,
+  parseKnowledgeLocator,
+  resolveKnowledgeLocator,
+} from '../knowledge/knowledge-locator';
 import { createKnowledgeInstructionProbe } from '../knowledge/knowledge-instruction-probe';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
 import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
@@ -283,6 +298,17 @@ type WorkspaceWrites = {
 type WorkspacePreparation = {
   readonly root: string | undefined;
   readonly chat: Chat | undefined;
+  readonly detaching: boolean;
+};
+
+type PromptImportStep = {
+  readonly input: ExecuteRunInput;
+  readonly attemptId: string;
+  readonly nativeDeliverySequence: number;
+  readonly workspaceRoot: WorkspaceRootCell;
+  readonly effectivePermissionMode: PermissionMode;
+  readonly skillSelection: ReadonlySet<string>;
+  readonly detaching: boolean;
 };
 
 type WorkspaceStagedContext = {
@@ -914,6 +940,18 @@ export class RunExecutionService {
       workspaceRoot,
       effectivePermissionMode,
     );
+    // Prompt imports run right after explicit activation, on the same binding
+    // re-check: a detaching attempt imports nothing, and their item persists on
+    // the user message before context assembly like the activation items.
+    await this.resolvePromptImports({
+      input,
+      attemptId,
+      nativeDeliverySequence: claim.nativeDeliverySequence,
+      workspaceRoot,
+      effectivePermissionMode,
+      skillSelection,
+      detaching: workspacePreparation.detaching,
+    });
     // Prompt/catalog resolution, the single pre-step compaction trigger, and the
     // request this Run actually sends (design D4/D5): both prompt surfaces come
     // from the current owner state, admitted catalog, and boot-loaded
@@ -2148,18 +2186,18 @@ export class RunExecutionService {
     const executorId = chat?.workspaceExecutorId;
     const generation = chat?.workspaceGeneration;
     if (root === undefined || root === null || executorId === undefined) {
-      return { root: undefined, chat };
+      return { root: undefined, chat, detaching: false };
     }
 
     if (executorId === null || generation === undefined) {
-      return { root: undefined, chat };
+      return { root: undefined, chat, detaching: false };
     }
     const reason = await this.workspaceDetachReason(
       root,
       executorId,
       effectivePermissionMode,
     );
-    if (reason === undefined) return { root, chat };
+    if (reason === undefined) return { root, chat, detaching: false };
 
     const detached = await this.tenantDb.runAs(input.userId, (tx) =>
       new WorkspaceBindingRepository(tx).detach({
@@ -2188,11 +2226,12 @@ export class RunExecutionService {
                 workspaceGeneration: generation + 1,
                 workspaceDetachReason: reason,
               },
+        detaching: true,
       };
     }
     // A concurrent enter/exit won the generation compare-and-set. Do not
     // reuse the root that failed this attempt's checks.
-    return { root: undefined, chat };
+    return { root: undefined, chat, detaching: false };
   }
   private async workspaceDetachReason(
     root: string,
@@ -2307,6 +2346,147 @@ export class RunExecutionService {
       );
     }
     return outcome.selection;
+  }
+
+  /**
+   * Import the locators the owner marked in the stored prompt before the first
+   * model request (prompt-imports D6/D7). Every read goes through `runTool` with
+   * the bound `read` declaration, so a target gets exactly the admission a model
+   * `read` of it gets; the result persists as one rail item on the user message.
+   * A detaching attempt, a Run without `read`, and a Run whose earlier attempt
+   * already persisted its item import nothing.
+   */
+  private async resolvePromptImports(step: PromptImportStep): Promise<void> {
+    const { input } = step;
+    const readAllowed =
+      this.instanceConfig.config.tools.allowed.includes('read');
+    if (step.detaching || !readAllowed) return;
+    const message = {
+      id: input.userMessage.id,
+      chatId: input.chatId,
+      runId: input.runId,
+    };
+    const stored = await this.tenantDb.runAs(input.userId, (tx) =>
+      new PromptImportPartsRepository(tx).findForRun(message),
+    );
+    if (stored !== undefined) return;
+    const { outcomes, omitted } = await resolvePromptImportTargets(
+      this.promptImportRequest(step),
+    );
+    // An aborted attempt publishes nothing; the abort settles the Run.
+    if (input.abortSignal?.aborted) return;
+    if (outcomes.length === 0 && omitted.length === 0) return;
+    const item = createPromptImportsItem({
+      runId: input.runId,
+      outcomes,
+      omitted,
+    });
+    await this.tenantDb.runAs(input.userId, (tx) =>
+      new PromptImportPartsRepository(tx).appendForRun({ ...message, item }),
+    );
+  }
+
+  /**
+   * The ports the resolution module runs against, all built from the system
+   * read context: the same silent `read` pre-evaluation the instruction loader
+   * uses, the same native-executor and Knowledge-root gates, and an owner-scoped
+   * Knowledge probe.
+   */
+  private promptImportRequest(step: PromptImportStep): PromptImportRequest {
+    const { input } = step;
+    const context: ToolContext = {
+      ...this.buildSystemReadContext(
+        input,
+        step.nativeDeliverySequence,
+        step.workspaceRoot,
+        step.effectivePermissionMode,
+      ),
+      skillSelection: step.skillSelection,
+    };
+    return {
+      text: partsToText(input.userMessage.parts),
+      runId: input.runId,
+      workspaceRoot: step.workspaceRoot.current(),
+      hostAvailable: this.hostInstructionsLoadable(),
+      knowledgeAvailable: this.knowledgeInstructionsLoadable(),
+      admitsRead: (path) =>
+        previewToolPermission(nativeReadTool, { path }, context),
+      probeHost: async (path) => {
+        const { kind } = await statHostPath(path);
+        return kind === 'file' || kind === 'directory';
+      },
+      probeKnowledge: (locator) => this.probePromptKnowledge(context, locator),
+      readImport: (path, ordinal) =>
+        this.readPromptImport(step, context, path, ordinal),
+      nowMs: () => Date.now(),
+    };
+  }
+
+  /**
+   * The canonical `kb://` locator of an existing target in the Run owner's own
+   * Spaces, or undefined when it cannot be found for that owner. Resolution
+   * runs under the owner-scoped resolver, so another owner's Space is
+   * indistinguishable from a missing one.
+   */
+  private async probePromptKnowledge(
+    context: ToolContext,
+    locator: string,
+  ): Promise<string | undefined> {
+    const rest = locator.slice('kb://'.length);
+    const parsed = parseKnowledgeLocator(rest);
+    if ('type' in parsed) return undefined;
+    const target = await resolveKnowledgeLocator(context, locator, rest);
+    return 'status' in target ? undefined : formatKnowledgeLocator(parsed);
+  }
+
+  /**
+   * One audited prompt-import read: requested, started (allowed calls only),
+   * and completed under the `prompt-import` origin, with the derived web
+   * decisions the read collected recorded beside the completion. `text` is the
+   * output the model would receive for the same result.
+   */
+  private async readPromptImport(
+    step: PromptImportStep,
+    context: ToolContext,
+    path: string,
+    ordinal: number,
+  ): Promise<{ result: ToolResult; text: string }> {
+    const { input } = step;
+    const toolCallId = [
+      'prompt-import',
+      input.runId,
+      step.attemptId,
+      ordinal,
+    ].join('-');
+    const toolInput = { path };
+    const derivedDecisions: Array<DerivedDecisionRecord> = [];
+    const result = await runTool(
+      nativeReadTool,
+      toolInput,
+      {
+        ...context,
+        toolCallId,
+        onDerivedDecision: (decision) =>
+          appendDerivedDecision(derivedDecisions, decision),
+      },
+      this.instanceConfig.config.tools.callTimeoutSeconds,
+      (decision) =>
+        this.recordSystemReadAdmission(
+          input,
+          toolCallId,
+          toolInput,
+          ORIGIN_PROMPT_IMPORT,
+          decision,
+        ),
+    );
+    await this.recordSystemReadCompletion(
+      input,
+      toolCallId,
+      ORIGIN_PROMPT_IMPORT,
+      result,
+      derivedDecisions,
+    );
+    return { result, text: serializeNativeModelOutput(result) };
   }
 
   /**

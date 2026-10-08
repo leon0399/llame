@@ -57,6 +57,7 @@ export const CONTEXT_ITEM_PRODUCERS = [
   // precede the digest so a turn's new context reads before its history.
   'skill-catalog',
   'skill-activation',
+  'prompt-imports',
   'recency-digest',
   'temporal',
   'compaction',
