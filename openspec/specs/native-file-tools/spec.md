@@ -2610,7 +2610,8 @@ A configured `devto` adapter SHALL claim only `https://dev.to/{username}/{slug}`
 locators, with or without a trailing `/`, whose username has at least two
 characters and is not a dev.to site page (`admin`, `api`, `dashboard`, `feed`,
 `new`, `notifications`, `page`, `readinglist`, `search`, `settings`, `tag`,
-`top`, `users`), and SHALL send one unauthenticated `GET` to
+`top`, `users`) and whose slug is not `series`, and SHALL send one
+unauthenticated `GET` to
 `https://dev.to/api/articles/{username}/{slug}`. A configured `substack` adapter
 SHALL claim only `https://{publication}.substack.com/p/{slug}` locators, with or
 without a trailing `/`, where `{publication}` is one host label other than
