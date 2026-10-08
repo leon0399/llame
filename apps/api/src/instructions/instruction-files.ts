@@ -195,7 +195,10 @@ export async function selectCandidates(
   return candidates;
 }
 
-export type ReadPage = (selectorPath: string) => Promise<ToolResult>;
+export type ReadPage = (
+  selectorPath: string,
+  canonicalPath?: string,
+) => Promise<ToolResult>;
 
 export type InstructionFileRead =
   | {
@@ -224,6 +227,19 @@ function loaded(
   return { kind: 'loaded', content, truncated: omittedBytes > 0, omittedBytes };
 }
 
+function readPageForCandidate(
+  readPage: ReadPage,
+  path: string,
+  lines: number,
+  canonicalPath: string | undefined,
+): Promise<ToolResult> {
+  const from = lines + 1;
+  const selectorPath = `${path}:raw:${from}-${from + MAX_READ_LINES - 1}`;
+  return lines === 0 && canonicalPath !== undefined
+    ? readPage(selectorPath, canonicalPath)
+    : readPage(selectorPath);
+}
+
 /**
  * Read one candidate as consecutive bounded `:raw` pages, cut at
  * INSTRUCTION_FILE_BYTE_LIMIT UTF-8 bytes on a character boundary.
@@ -238,13 +254,16 @@ function loaded(
 export async function readInstructionFile(
   candidate: InstructionCandidate,
   readPage: ReadPage,
+  canonicalPath?: string,
 ): Promise<InstructionFileRead> {
   let content = '';
   let lines = 0;
   for (;;) {
-    const from = lines + 1;
-    const result = await readPage(
-      `${candidate.path}:raw:${from}-${from + MAX_READ_LINES - 1}`,
+    const result = await readPageForCandidate(
+      readPage,
+      candidate.path,
+      lines,
+      canonicalPath,
     );
     if (result.status === 'error') {
       if (result.type === 'permission_denied') return { kind: 'denied' };

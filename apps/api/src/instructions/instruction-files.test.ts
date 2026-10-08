@@ -305,6 +305,54 @@ describe('readInstructionFile', () => {
     });
   });
 
+  it('passes a canonical path only on the first page', async () => {
+    const calls: Array<readonly [string, string | undefined]> = [];
+    const pages: Array<ToolResult> = [
+      {
+        status: 'success',
+        kind: 'file',
+        path: '/srv/link.md',
+        content: 'first\n',
+        nextOffset: 1,
+        truncated: true,
+      },
+      {
+        status: 'success',
+        kind: 'file',
+        path: '/srv/link.md',
+        content: 'second\n',
+        truncated: false,
+      },
+    ];
+    const readPage: ReadPage = (selectorPath, canonicalPath) => {
+      calls.push([selectorPath, canonicalPath]);
+      const page = pages.shift();
+      if (page === undefined) throw new Error('unexpected page request');
+      return Promise.resolve(page);
+    };
+
+    const result = await readInstructionFile(
+      {
+        path: '/srv/link.md',
+        canonicalPath: '/srv/target.md',
+        size: 13,
+      },
+      readPage,
+      '/srv/target.md',
+    );
+
+    expect(result).toEqual({
+      kind: 'loaded',
+      content: 'first\nsecond\n',
+      truncated: false,
+      omittedBytes: 0,
+    });
+    expect(calls).toEqual([
+      ['/srv/link.md:raw:1-2000', '/srv/target.md'],
+      ['/srv/link.md:raw:2-2001', undefined],
+    ]);
+  });
+
   it('pages a 20 KiB file and joins it into one body', async () => {
     const file = join(root, 'AGENTS.md');
     const line = `${'a'.repeat(1023)}\n`;

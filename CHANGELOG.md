@@ -7,8 +7,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Host and Knowledge imports stay in their own store, inherit scope, load their
   directory chains, use system-origin `instructions` reads under the `read` group,
   deduplicate across five hops, and keep each file within its 32 KiB cap. Rejected
-  targets report denied without revealing existence, and symlinked imports are
-  currently skipped as denied.
+  targets report denied without revealing existence. When an import resolves
+  through a symlink, its canonical path is also evaluated by `read` on the first
+  page and recorded as a derived `canonical` decision; a canonical reject denies
+  the import, while `bypass` admits and records it.
 
 - The web chat renders `read` results as the source path or a safe link to
   the fetched URL, the content as the model received it, and the requested

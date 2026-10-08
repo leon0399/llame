@@ -609,6 +609,32 @@ type ToolCompletedEventPayload = {
   origin?: ToolActivityOrigin;
 };
 
+function appendDerivedDecision(
+  decisions: Array<DerivedDecisionRecord>,
+  decision: DerivedDecision,
+): void {
+  const isAddress = decision.kind === 'address';
+  const isAdapter = decision.kind === 'adapter';
+  let recordedCount = 0;
+  for (const recorded of decisions) {
+    const sameAddress = isAddress && recorded.kind === 'address';
+    const sameAdapter = isAdapter && recorded.kind === 'adapter';
+    const sameGeneric =
+      !isAddress &&
+      !isAdapter &&
+      recorded.kind !== 'address' &&
+      recorded.kind !== 'adapter';
+    if (sameAddress || sameAdapter || sameGeneric) recordedCount += 1;
+  }
+  const limit = isAddress
+    ? MAX_ADDRESS_DECISIONS
+    : isAdapter
+      ? MAX_ADAPTER_DECISIONS
+      : MAX_DERIVED_DECISIONS;
+  if (recordedCount >= limit) return;
+  decisions.push({ ...decision.decision, kind: decision.kind });
+}
+
 /**
  * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
  * assembly, the model call, and every durable side effect (assistant turn,
@@ -1225,26 +1251,7 @@ export class RunExecutionService {
       const open = openToolCalls.get(toolCallId);
       if (open === undefined) return;
       const decisions = (open.derivedDecisions ??= []);
-      const isAddress = decision.kind === 'address';
-      const isAdapter = decision.kind === 'adapter';
-      let recordedCount = 0;
-      for (const recorded of decisions) {
-        const sameAddress = isAddress && recorded.kind === 'address';
-        const sameAdapter = isAdapter && recorded.kind === 'adapter';
-        const sameGeneric =
-          !isAddress &&
-          !isAdapter &&
-          recorded.kind !== 'address' &&
-          recorded.kind !== 'adapter';
-        if (sameAddress || sameAdapter || sameGeneric) recordedCount += 1;
-      }
-      const limit = isAddress
-        ? MAX_ADDRESS_DECISIONS
-        : isAdapter
-          ? MAX_ADAPTER_DECISIONS
-          : MAX_DERIVED_DECISIONS;
-      if (recordedCount >= limit) return;
-      decisions.push({ ...decision.decision, kind: decision.kind });
+      appendDerivedDecision(decisions, decision);
     };
     const recordToolCompleted = (
       toolCallId: string,
@@ -1371,6 +1378,7 @@ export class RunExecutionService {
     // the two never collide in the event log.
     const readInstructionPage = async (
       selectorPath: string,
+      canonicalPath?: string,
     ): Promise<ToolResult> => {
       const toolCallId = turnInstructions.nextToolCallId();
       const toolInput = { path: selectorPath };
@@ -1378,7 +1386,15 @@ export class RunExecutionService {
       const result = await runTool(
         nativeReadTool,
         toolInput,
-        { ...toolContext, toolCallId },
+        {
+          ...toolContext,
+          toolCallId,
+          ...(canonicalPath !== undefined && {
+            canonicalReadPath: canonicalPath,
+          }),
+          onDerivedDecision: (decision) =>
+            recordDerivedDecision(toolCallId, decision),
+        },
         callTimeoutSeconds,
         (decision) =>
           admitToolCall(
@@ -2391,12 +2407,13 @@ export class RunExecutionService {
       readPage:
         toolContext === undefined
           ? undefined
-          : (selectorPath) =>
+          : (selectorPath, canonicalPath) =>
               this.readTurnInstructionPage(
                 input,
                 toolContext,
                 selectorPath,
                 nextToolCallId(),
+                canonicalPath,
               ),
       admitsRead:
         toolContext === undefined
@@ -2481,12 +2498,22 @@ export class RunExecutionService {
     toolContext: ToolContext,
     selectorPath: string,
     toolCallId: string,
+    canonicalPath?: string,
   ): Promise<ToolResult> {
     const toolInput = { path: selectorPath };
+    const derivedDecisions: Array<DerivedDecisionRecord> = [];
     const result = await runTool(
       nativeReadTool,
       toolInput,
-      { ...toolContext, toolCallId },
+      {
+        ...toolContext,
+        toolCallId,
+        ...(canonicalPath !== undefined && {
+          canonicalReadPath: canonicalPath,
+        }),
+        onDerivedDecision: (decision) =>
+          appendDerivedDecision(derivedDecisions, decision),
+      },
       this.instanceConfig.config.tools.callTimeoutSeconds,
       (decision) =>
         this.recordSystemReadAdmission(
@@ -2502,6 +2529,7 @@ export class RunExecutionService {
       toolCallId,
       ORIGIN_INSTRUCTIONS,
       result,
+      derivedDecisions,
     );
     return result;
   }
@@ -2553,16 +2581,25 @@ export class RunExecutionService {
     toolCallId: string,
     origin: ToolActivityOrigin,
     result: ToolResult,
+    derivedDecisions?: ReadonlyArray<DerivedDecisionRecord>,
   ): Promise<void> {
-    await this.tenantDb.runAs(input.userId, (tx) =>
-      new RunEventsRepository(tx).append(input.runId, 'tool.completed', {
+    await this.tenantDb.runAs(input.userId, (tx) => {
+      const payload: ToolCompletedEventPayload = {
         toolCallId,
         toolName: 'read',
         status: result.status,
         output: result,
         origin,
-      }),
-    );
+      };
+      if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
+        payload.derivedDecisions = derivedDecisions;
+      }
+      return new RunEventsRepository(tx).append(
+        input.runId,
+        'tool.completed',
+        payload,
+      );
+    });
   }
 
   /**

@@ -123,14 +123,18 @@ export async function collectInstructionCandidate(
   state: InstructionImportState,
   candidate: InstructionCandidate,
   disclosed: ReadonlySet<string>,
-  origin: { hop: number; importedBy?: string },
+  origin: { hop: number; importedBy?: string; canonicalPath?: string },
 ): Promise<void> {
   const { collector, group } = state;
   if (collector.keys.has(candidate.canonicalPath)) return;
   if (disclosed.has(candidate.canonicalPath)) return;
   if (collector.attempted.has(candidate.path)) return;
   collector.attempted.add(candidate.path);
-  const read = await readInstructionFile(candidate, group.page);
+  const read = await readInstructionFile(
+    candidate,
+    group.page,
+    origin.canonicalPath,
+  );
   if (read.kind === 'denied') {
     collector.denied.push(candidate.path);
     return;
@@ -178,14 +182,8 @@ async function loadResolvedImport(
     collector.attempted.add(resolved.path);
     return;
   }
-  if (
-    probe.canonicalPath !== resolved.path &&
-    !collector.keys.has(probe.canonicalPath)
-  ) {
-    collector.attempted.add(resolved.path);
-    collector.denied.push(resolved.path);
-    return;
-  }
+  const canonicalPath =
+    probe.canonicalPath !== resolved.path ? probe.canonicalPath : undefined;
   const candidate: InstructionCandidate = {
     path: resolved.path,
     canonicalPath: probe.canonicalPath,
@@ -195,6 +193,7 @@ async function loadResolvedImport(
   await collectInstructionCandidate(state, candidate, disclosed, {
     hop: hop + 1,
     importedBy: importer,
+    canonicalPath,
   });
   collector.attempted.add(resolved.path);
 }

@@ -59,14 +59,16 @@ async function write(path: string, content: string): Promise<void> {
 /** A page reader over the real files, recording every selector it was asked for. */
 function pageReader() {
   const reads: Array<string> = [];
-  const readPage: ReadPage = async (selectorPath) => {
+  const canonicalPaths: Array<string | undefined> = [];
+  const readPage: ReadPage = async (selectorPath, canonicalPath) => {
     reads.push(selectorPath);
+    canonicalPaths.push(canonicalPath);
     const marker = selectorPath.lastIndexOf(':raw:');
     const path = marker < 0 ? selectorPath : selectorPath.slice(0, marker);
     const content = await readFile(path, 'utf8');
     return { status: 'success', kind: 'file', content, truncated: false };
   };
-  return { readPage, reads };
+  return { readPage, reads, canonicalPaths };
 }
 
 /** One attempt's producer plus the items it stages at each step. */
@@ -1559,17 +1561,42 @@ describe('instructions producer imports', () => {
     await write(chain, 'foo rules\n');
     await symlink(join(root, 'foo'), link);
 
+    const linkFile = join(root, 'link/AGENTS.md');
+    const reads: Array<readonly [string, string | undefined]> = [];
+    const readPage: ReadPage = async (selectorPath, canonicalPath) => {
+      reads.push([selectorPath, canonicalPath]);
+      if (canonicalPath === chain) {
+        return {
+          status: 'error',
+          type: 'permission_denied',
+          message: 'Canonical path rejected.',
+        };
+      }
+      const marker = selectorPath.lastIndexOf(':raw:');
+      const path = marker < 0 ? selectorPath : selectorPath.slice(0, marker);
+      return {
+        status: 'success',
+        kind: 'file',
+        content: await readFile(path, 'utf8'),
+        truncated: false,
+      };
+    };
     const part = await createInstructionsProducer().prepareTurn?.({
       runId: RUN_ID,
       workspaceRoot: join(root, 'foo'),
-      readPage: pageReader().readPage,
+      readPage,
       admitsRead: () => true,
       seenKeys: new Set(),
     });
     if (part === undefined) throw new Error('the bound turn loaded nothing');
 
     expect(blockPaths(part)).toEqual([rootFile, chain]);
-    expect(deniedPaths(part)).toEqual([join(root, 'link/AGENTS.md')]);
+    expect(deniedPaths(part)).toEqual([linkFile]);
+    expect(reads).toEqual([
+      [`${rootFile}:raw:1-2000`, undefined],
+      [`${linkFile}:raw:1-2000`, chain],
+      [`${chain}:raw:1-2000`, undefined],
+    ]);
   });
 
   it('loads a symlink target once when its import precedes the target import', async () => {
@@ -1585,11 +1612,18 @@ describe('instructions producer imports', () => {
     await prepare();
 
     const part = lastStaged(staged);
-    expect(blockPaths(part)).toEqual([rootFile, target]);
+    expect(blockPaths(part)).toEqual([rootFile, link]);
     expect(
-      loadedFiles(part).filter((file) => file.path === target),
-    ).toHaveLength(1);
-    expect(deniedPaths(part)).toEqual([link]);
+      loadedFiles(part).filter((file) => file.canonicalPath === target),
+    ).toEqual([
+      {
+        path: link,
+        canonicalPath: target,
+        truncated: false,
+        importedBy: rootFile,
+      },
+    ]);
+    expect(deniedPaths(part)).toEqual([]);
   });
 
   it('audits an import with the selector used by its first page read', async () => {
@@ -1627,20 +1661,81 @@ describe('instructions producer imports', () => {
     expect(reads).toEqual([`${rootFile}:raw:1-2000`, `${target}:raw:1-2000`]);
   });
 
-  it('denies a symlinked import before reading its canonical target', async () => {
+  it('loads an allowed symlinked import with its resolved label and canonical payload', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const target = join(root, 'foo/target.md');
+    const link = join(root, 'foo/link.md');
+    const chain = join(root, 'foo/AGENTS.md');
+    await write(rootFile, '@foo/link.md\n');
+    await write(target, 'target\n');
+    await write(chain, 'foo rules\n');
+    await symlink(target, link);
+    const reader = pageReader();
+    const { producer, staged, prepare } = attemptOf({
+      readPage: reader.readPage,
+    });
+
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    const part = lastStaged(staged);
+    expect(blockPaths(part)).toEqual([rootFile, link, chain]);
+    expect(
+      loadedFiles(part).map(({ path, canonicalPath, importedBy }) => ({
+        path,
+        canonicalPath,
+        importedBy,
+      })),
+    ).toEqual([
+      { path: rootFile, canonicalPath: rootFile, importedBy: undefined },
+      { path: link, canonicalPath: target, importedBy: rootFile },
+      { path: chain, canonicalPath: chain, importedBy: undefined },
+    ]);
+    expect(reader.canonicalPaths).toEqual([undefined, target, undefined]);
+  });
+
+  it('denies a symlinked import when its canonical target is rejected', async () => {
     const rootFile = join(root, 'AGENTS.md');
     const target = join(root, 'foo/target.md');
     const link = join(root, 'foo/link.md');
     await write(rootFile, '@foo/link.md\n');
     await write(target, 'target\n');
     await symlink(target, link);
-    const { producer, staged, prepare } = attemptOf();
+    const reads: Array<readonly [string, string | undefined]> = [];
+    const readPage: ReadPage = async (selectorPath, canonicalPath) => {
+      reads.push([selectorPath, canonicalPath]);
+      if (canonicalPath === target) {
+        return {
+          status: 'error',
+          type: 'permission_denied',
+          message: 'Canonical path rejected.',
+        };
+      }
+      const marker = selectorPath.lastIndexOf(':raw:');
+      const path = marker < 0 ? selectorPath : selectorPath.slice(0, marker);
+      return {
+        status: 'success',
+        kind: 'file',
+        content: await readFile(path, 'utf8'),
+        truncated: false,
+      };
+    };
+    const { producer, staged, prepare } = attemptOf({
+      readPage,
+      admitsRead: () => true,
+    });
 
     producer.observeToolCall?.(readCall(join(root, 'x.ts')));
     await prepare();
 
-    expect(blockPaths(lastStaged(staged))).toEqual([rootFile]);
-    expect(deniedPaths(lastStaged(staged))).toEqual([link]);
+    const part = lastStaged(staged);
+    expect(blockPaths(part)).toEqual([rootFile]);
+    expect(deniedPaths(part)).toEqual([link]);
+    expect(seenKeys(part)).toEqual([rootFile]);
+    expect(reads).toEqual([
+      [`${rootFile}:raw:1-2000`, undefined],
+      [`${link}:raw:1-2000`, target],
+    ]);
   });
   it('does not deny a symlink whose canonical target was already imported', async () => {
     const rootFile = join(root, 'AGENTS.md');

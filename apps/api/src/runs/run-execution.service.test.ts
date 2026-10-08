@@ -9511,6 +9511,52 @@ describe('RunExecutionService instruction files', () => {
     }
   });
 
+  it('records canonical decisions on accepted-turn import reads', async () => {
+    const root = instructionsRoot();
+    const imported = path.join(root, 'imported.md');
+    const canonical = path.join(root, 'canonical.md');
+    writeFileSync(canonical, 'imported rules\n');
+    rmSync(path.join(root, 'AGENTS.md'));
+    symlinkSync(canonical, imported);
+    writeFileSync(
+      path.join(root, 'AGENTS.md'),
+      'run the tests\n@imported.md\n',
+    );
+    const touch = touchFile(root);
+    try {
+      mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const { client } = readThenAnswerClient(touch);
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+
+      const completions = eventsWithOrigin(append, 'instructions').filter(
+        (record) => record.type === 'tool.completed',
+      );
+      expect(completions).toHaveLength(2);
+      expect(completions[1]?.payload).toMatchObject({
+        derivedDecisions: [
+          {
+            kind: 'canonical',
+            decision: 'allow',
+            reason: 'matched_allow',
+          },
+        ],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('publishes no instructions item when the model call fails after the load', async () => {
     const root = instructionsRoot();
     try {

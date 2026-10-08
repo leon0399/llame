@@ -72,6 +72,8 @@ export interface ToolContext {
   readonly onMcpDispatchRecorded?: () => void;
   /** Stops this Run when a native mutation cannot be safely settled. */
   readonly onNativeMutationUnknown?: () => void;
+  /** Trusted canonical target for the first page of an instruction import. */
+  readonly canonicalReadPath?: string;
   /** Trusted per-call sink for a web read's derived-locator decisions; never model-visible. */
   readonly onDerivedDecision?: (decision: DerivedDecision) => void;
   /** Boot-time instance-config identity (`llame/<version>`) every web request sends. */

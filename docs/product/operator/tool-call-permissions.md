@@ -134,6 +134,13 @@ the read selector grammar, such as `/home/u/.ssh:old`, keeps its suffix in a
 file a read selects into, because the selector is gone before the clause sees
 the text: `read /srv/.env:raw` is matched as `/srv/.env`.
 
+## Bypass
+
+An effective `bypass` mode also admits an instruction import's canonical-path
+`read` evaluation when it differs from the resolved path. The first page read
+records the resulting derived `canonical` decision. See [permission
+modes](../reference/permission-modes.md) for the mode's full scope.
+
 ## Limits
 
 Code-owned, not operator-configurable:
