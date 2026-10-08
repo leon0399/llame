@@ -450,4 +450,22 @@ describe('Telegram channel page', () => {
       ),
     ).toStrictEqual({ failure: 'parse' });
   });
+
+  it('renders the header for a page whose only post is a service message', () => {
+    const html = page([
+      message(
+        'durov/1',
+        `${OWNER}${text('Channel created')}${footer('durov/1')}`,
+        ' service_message',
+      ),
+    ]);
+
+    expect(
+      content(renderChannelPage(html, 'https://t.me/s/durov?before=2')),
+    ).toBe(
+      ['# Pavel Durov (@durov)', '', 'URL: https://t.me/s/durov?before=2'].join(
+        '\n',
+      ),
+    );
+  });
 });
