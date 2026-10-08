@@ -289,6 +289,23 @@ describe('Telegram post entry', () => {
     );
     expect(rendered).not.toContain('telesco.pe');
   });
+
+  it('renders an image-only link-preview card as its URL', () => {
+    const html = widget(
+      post(
+        9,
+        [
+          '<a class="tgme_widget_message_link_preview" href="https://telegra.ph/file/x.png">',
+          `<i class="link_preview_image" style="background-image:url('${CDN}')"></i>`,
+          '</a>',
+        ].join(''),
+      ),
+    );
+
+    expect(content(renderWidgetPost(html))).toContain(
+      '\n\n> Link: https://telegra.ph/file/x.png\n\n',
+    );
+  });
 });
 
 describe('Telegram widget failures', () => {
@@ -404,7 +421,7 @@ describe('Telegram channel page', () => {
       [
         '<div class="tgme_widget_message_centered"><div class="tme_no_messages_found">No posts found</div></div>',
       ],
-      '<link rel="prev" href="/s/durov?before="><link rel="next" href="/s/durov?after=">',
+      '<link rel="prev" href="/s/durov?before=0"><link rel="next" href="/s/durov?after=">',
     );
 
     expect(
@@ -414,17 +431,6 @@ describe('Telegram channel page', () => {
         '\n',
       ),
     );
-  });
-
-  it('renders no cursor line for a cursor that is not a post id', () => {
-    const html = page(
-      [],
-      '<link rel="prev" href="/s/durov?before=0"><link rel="next" href="/s/durov?after=12a">',
-    );
-
-    const rendered = content(renderChannelPage(html, 'https://t.me/s/durov'));
-    expect(rendered).not.toContain('Older:');
-    expect(rendered).not.toContain('Newer:');
   });
 
   it('maps a preview without the channel header to parse', () => {

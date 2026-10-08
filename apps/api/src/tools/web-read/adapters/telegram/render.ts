@@ -9,7 +9,6 @@ export type TelegramRender =
 const ORIGIN = 'https://t.me';
 const POST_ID = /^[1-9][0-9]{0,9}$/u;
 const SCHEME = /^[a-z][a-z\d+.-]*:/iu;
-const TEXT_NODE = 3;
 const MESSAGE = '.tgme_widget_message[data-post]';
 /** Wrappers that hold media items rather than being one: the album grid and
  *  the containers Telegram nests text and media in. */
@@ -69,10 +68,10 @@ function channelHeader(
   info: Element,
   pageUrl: string,
 ): string {
-  const username = text(info, '.tgme_channel_info_header_username');
-  const name =
-    username.replace(/^@/u, '') ||
-    (new URL(pageUrl).pathname.split('/')[2] ?? '');
+  const name = text(info, '.tgme_channel_info_header_username').replace(
+    /^@/u,
+    '',
+  );
   const lines = [
     `# ${text(info, '.tgme_channel_info_header_title')} (@${name})`,
     '',
@@ -99,8 +98,7 @@ function cursor(document: Document, rel: string, key: string): string {
   const href = document
     .querySelector(`link[rel="${rel}"]`)
     ?.getAttribute('href');
-  if (!href || !URL.canParse(href, ORIGIN)) return '';
-  const value = new URL(href, ORIGIN).searchParams.get(key) ?? '';
+  const value = URL.parse(href ?? '', ORIGIN)?.searchParams.get(key) ?? '';
   return POST_ID.test(value) ? value : '';
 }
 
@@ -127,7 +125,7 @@ function renderPost(message: Element, index: number, total: number): string {
 /** The channel as `{title} (@{name})`, or a group message's sender with the
  *  sender's `t.me` link when the markup carries one. */
 function authorLabel(bubble: Element, post: string): string {
-  const author = childWithClass(bubble, 'tgme_widget_message_author');
+  const author = bubble.querySelector(':scope > .tgme_widget_message_author');
   const sender = author?.querySelector('.tgme_widget_message_author_name');
   if (sender) return withUrl(flatText(sender), sender);
   const title = text(bubble, '.tgme_widget_message_owner_name');
@@ -136,15 +134,17 @@ function authorLabel(bubble: Element, post: string): string {
 
 function quoteLines(bubble: Element): Array<string> {
   const lines: Array<string> = [];
-  const forward = childWithClass(bubble, 'tgme_widget_message_forwarded_from');
+  const forward = bubble.querySelector(
+    ':scope > .tgme_widget_message_forwarded_from',
+  );
   const origin = forward?.querySelector(
     '.tgme_widget_message_forwarded_from_name',
   );
   if (origin) {
     lines.push(`> Forwarded from: ${withUrl(flatText(origin), origin)}`);
   }
-  const reply = childWithClass(bubble, 'tgme_widget_message_reply');
-  if (reply !== undefined) {
+  const reply = bubble.querySelector(':scope > .tgme_widget_message_reply');
+  if (reply !== null) {
     const author = text(reply, '.tgme_widget_message_author_name');
     const snippet = text(reply, '.tgme_widget_message_text');
     const label = snippet ? `${author}: ${snippet}` : author;
@@ -277,19 +277,17 @@ function toMarkdown(node: Element): string {
   return convertToMarkdown(node.innerHTML).trim();
 }
 
-/** `label (url)` with the element's `href` made absolute, or the label alone. */
+/** `label (url)` with the element's `href` made absolute, the URL alone when
+ *  there is no label, or the label alone when there is no `href`. */
 function withUrl(label: string, node: Element): string {
   const href = node.getAttribute('href');
-  return href ? `${label} (${absolute(href)})` : label;
+  if (!href) return label;
+  return label ? `${label} (${absolute(href)})` : absolute(href);
 }
 
 function absolute(href: string): string {
-  if (SCHEME.test(href) || !URL.canParse(href, ORIGIN)) return href;
-  return new URL(href, ORIGIN).href;
-}
-
-function childWithClass(parent: Element, name: string): Element | undefined {
-  return [...parent.children].find((child) => child.classList.contains(name));
+  if (SCHEME.test(href)) return href;
+  return URL.parse(href, ORIGIN)?.href ?? href;
 }
 
 /** Whitespace-collapsed text of the first match, with line breaks as spaces. */
@@ -307,7 +305,7 @@ function flatText(node: Element): string {
 function ownText(node: Element): string {
   return [...node.childNodes]
     .flatMap((child) =>
-      child.nodeType === TEXT_NODE ? [child.textContent ?? ''] : [],
+      child.nodeType === node.TEXT_NODE ? [child.textContent ?? ''] : [],
     )
     .join('')
     .replaceAll(/\s+/gu, ' ')
