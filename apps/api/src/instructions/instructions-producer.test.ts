@@ -1599,6 +1599,22 @@ describe('instructions producer imports', () => {
     ]);
   });
 
+  it('skips a symlinked import of a file the step read directly', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const chain = join(root, 'foo/AGENTS.md');
+    await write(rootFile, '@link/AGENTS.md\n');
+    await write(chain, 'foo rules\n');
+    await symlink(join(root, 'foo'), join(root, 'link'));
+    const { producer, staged, prepare } = attemptOf();
+
+    // The read disclosed `foo/AGENTS.md` under `foo`; the import reaches the
+    // same file through `link`, so it must not be injected a second time.
+    producer.observeToolCall?.(readCall(chain));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([rootFile]);
+  });
+
   it('loads a symlink target once when its import precedes the target import', async () => {
     const rootFile = join(root, 'AGENTS.md');
     const target = join(root, 'foo/target.md');

@@ -108,7 +108,25 @@ function candidateDirectory(
     : parentKey(parsed.relativePath, group.scope.root);
 }
 
+/**
+ * The disclosed canonical paths that exclude an import: those filed under its
+ * lexical parent and those under its canonical file's parent, so a disclosed
+ * file is excluded however a link reaches it.
+ */
 function disclosedForImport(
+  state: InstructionImportState,
+  path: string,
+  canonicalPath: string,
+): ReadonlySet<string> {
+  const lexical = disclosedIn(state, path);
+  if (canonicalPath === path) return lexical;
+  const canonical = disclosedIn(state, canonicalPath);
+  if (lexical.size === 0) return canonical;
+  if (canonical.size === 0) return lexical;
+  return new Set([...lexical, ...canonical]);
+}
+
+function disclosedIn(
   state: InstructionImportState,
   path: string,
 ): ReadonlySet<string> {
@@ -201,7 +219,11 @@ async function loadResolvedImport(
     canonicalPath: probe.canonicalPath,
     size: probe.size,
   };
-  const disclosed = disclosedForImport(state, resolved.path);
+  const disclosed = disclosedForImport(
+    state,
+    resolved.path,
+    probe.canonicalPath,
+  );
   await collectInstructionCandidate(state, candidate, disclosed, {
     hop: hop + 1,
     importedBy: importer,
