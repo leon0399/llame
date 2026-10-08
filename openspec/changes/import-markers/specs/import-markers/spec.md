@@ -45,7 +45,7 @@ The system SHALL recognize import markers in Markdown source only as `@target`, 
 
 ### Requirement: Delimited bare markers carry the whole locator
 
-Delimited markers `@"…"`, `@'…'`, and `` @`…` `` SHALL carry non-empty, single-line content as the target, selectors included, with no escapes; a backtick marker is an `@` directly before a single-line inline code span, whose target is its text with one surrounding space stripped. Their `@` SHALL have the bare boundary. After the closing delimiter only whitespace, end, or a run of trailing `.,;!?)]}>"'` then whitespace or end may follow; otherwise there is no marker, and no bare marker starts at that `@`.
+Delimited markers `@"…"`, `@'…'`, and `` @`…` `` SHALL carry non-empty, single-line content as the target, selectors included, without escapes; a backtick marker is an `@` directly before a single-line inline code span, whose target is its text with one surrounding space stripped. The `@` SHALL have the bare boundary. After the closing delimiter only whitespace, end, or a run of trailing `.,;!?)]}>"'` then whitespace or end may follow; otherwise no marker, bare or delimited, starts at that `@`.
 
 #### Scenario: A quoted marker preserves spaces in a path
 
