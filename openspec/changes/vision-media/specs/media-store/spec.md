@@ -244,14 +244,17 @@ SHALL return `401` and store nothing.
 ### Requirement: Upload refusals and body limits
 
 An `unsupported_media_type` refusal SHALL return `415` and an `image_too_large` refusal SHALL return
-`413`, each carrying that error code. The upload route SHALL set its own request body limit just
-above 20 MiB; the JSON body limit of other routes SHALL remain unchanged.
+`413`, each carrying that error code. The upload route SHALL bound the file at the media store's byte
+bound, and a file over it SHALL be answered `413` with the same `image_too_large` body as any ingest
+refusal, whichever layer detects the overflow. The JSON body limit of other routes SHALL remain
+unchanged.
 
 #### Scenario: Refusals map to HTTP statuses
 
 - **WHEN** an owner posts an SVG, then a 21 MiB PNG
 - **THEN** the first returns `415` with `unsupported_media_type`
-- **AND** the second returns `413` with `image_too_large`
+- **AND** the second returns `413` with `image_too_large`, the same body an ingest refusal returns,
+  and no media object is created
 
 #### Scenario: JSON body limit is unchanged
 

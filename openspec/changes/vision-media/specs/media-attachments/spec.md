@@ -215,13 +215,22 @@ has already transformed SHALL change nothing.
 
 Persisted message parts, including user file parts, tool results, and context items, SHALL reference
 images only by `media://` locator. Image bytes, base64 strings, and `data:` URLs built for a request
-SHALL NOT be persisted to any message part.
+SHALL NOT be persisted to any message part. A Run's live tool outputs SHALL likewise carry `media://`
+references, not image bytes, until a step's request is composed; that request SHALL load bytes only
+for references inside its window, never for an out-of-window reference.
 
 #### Scenario: A completed vision Run stores references only
 
 - **WHEN** a Run sends an attached image and a `read` image to a vision model and completes
 - **THEN** the stored user and assistant message parts contain the `media://` locators
 - **AND** they contain no base64 image data and no `data:` URL
+
+#### Scenario: Only in-window references are loaded for a step
+
+- **WHEN** a Run on a vision model whose history carries no images `read`s one image per step for 21
+  steps
+- **THEN** the request for the next step carries image parts for the 20 newest `read` results only
+- **AND** the first `read` result's model variant bytes are not loaded for that request
 
 ### Requirement: Title generation receives image placeholders
 

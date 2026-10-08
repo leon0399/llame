@@ -86,15 +86,22 @@ resolve to the existing object.
 
 ### Requirement: Image ingest refusals fail the read
 
-A regular file over the media store's byte bound SHALL be refused without being read whole. An ingest
-refusal SHALL fail the read with a bounded structured error, `image_too_large` for the byte or pixel
-bound, create no object, and not fall back to text.
+A regular file whose leading bytes match an accepted image signature and whose size exceeds the media
+store's byte bound SHALL be refused without being read whole. A file matching no signature SHALL stay
+on the text path whatever its size. An ingest refusal SHALL fail the read with a bounded structured
+error, `image_too_large` for the byte or pixel bound, create no object, and not fall back to text.
 
 #### Scenario: An oversized image is refused
 
 - **WHEN** the model reads a 21 MiB PNG file, or a PNG file under 20 MiB whose header declares 41 megapixels
 - **THEN** the read fails with `image_too_large`
 - **AND** no media object is created and no text content is returned
+
+#### Scenario: A large text file is read as text
+
+- **WHEN** the model reads `/work/app.log`, a 25 MiB regular file whose bytes are text
+- **THEN** the read returns the file's text with line numbers under the ordinary text read rules
+- **AND** it does not fail with `image_too_large` and no media object is created
 
 ### Requirement: Media locators read the owner's stored media
 
@@ -491,9 +498,10 @@ targets SHALL follow the same regular-file, directory, selector, context,
 truncation, mutation, and `file_exists` behavior as absolute paths. No
 Markdown-only or per-file byte policy SHALL apply to `kb://` operations, except
 that the explicit `outline` representation is available only for content the
-representation requirements identify as Markdown, and that a read whose leading
-bytes are an image is bounded by the image ingest bounds under the image read
-requirement; text and raw reads, edits, and writes are unaffected.
+representation requirements identify as Markdown, and that a file whose leading
+bytes match an accepted image signature is bounded by the media store's bounds
+under "Image ingest refusals fail the read"; text and raw reads, edits, and
+writes are unaffected.
 
 Every `kb://` result SHALL identify the target by its locator and SHALL carry
 the response-time Knowledge Space identifier and display name. It SHALL expose

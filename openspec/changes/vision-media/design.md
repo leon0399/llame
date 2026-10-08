@@ -98,7 +98,9 @@ cross-owner match would reveal that another owner holds the image.
 5. Build the model variant: apply EXIF orientation, strip metadata, take the first frame of an animated
    GIF or WebP, scale so the long edge is at most 2000 px, encode PNG; if that exceeds 3.75 MiB, encode
    JPEG quality 85; if that still exceeds 3.75 MiB, scale down by 0.75 steps until it fits.
-6. Compute everything inside one transaction with the metadata row.
+6. Do the decoding and encoding above before opening a transaction, then write the metadata row and
+   both blobs in one short transaction. A pooled connection (`db.poolSize`, default 10) is never held
+   across `sharp` work.
 
 The original keeps its EXIF, because it is only ever served to its owner; only the model variant leaves
 llame. Bounds are code constants; no deployment needs different values yet (Q14).
@@ -109,8 +111,11 @@ llame. Bounds are code constants; no deployment needs different values yet (Q14)
   media descriptor: `id`, `locator`, `provenance`, `mediaType`, `name`, `width`, `height`, `byteSize`,
   and a `model` object with the variant's `mediaType`, `width`, `height`, `byteSize`. The route uses
   Nest's `FileInterceptor` (multer 2.2.0 already ships with `@nestjs/platform-express`) with
-  `limits.fileSize` at 20 MiB; `@types/multer` is added as a dev dependency. The JSON body limit is
-  unchanged.
+  `limits.fileSize` at 20 MiB; `@types/multer` is added as a dev dependency. Multer's `LIMIT_FILE_SIZE`
+  surfaces as Nest's generic `PayloadTooLargeException`, so the route maps it to `413` with the
+  `image_too_large` body every other ingest refusal uses. Multer keeps the file in memory; at most
+  20 MiB per concurrent upload is the same per-request bound ingest already holds. The JSON body limit
+  is unchanged.
 - `GET /api/v1/media/:id` returns the descriptor; `GET /api/v1/media/:id/original` and `/model` return
   bytes with the stored type, `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`,
   `Content-Security-Policy: sandbox`, and `Cache-Control: private, max-age=31536000, immutable`
@@ -149,32 +154,44 @@ web chat preserves paste position, and a plain `<textarea>` cannot keep a placeh
 `models[].input` is an optional array over the closed set `text`, `image`; it must contain `text` and no
 duplicates. Absent means `["text"]`. `GET /api/v1/models` always publishes `input`.
 
-At request time the conversion boundary resolves each media reference in effective history:
+One step composer builds every model request, including each step of a Run. History conversion and
+live tool outputs both carry media references only: a `read` image result's `toModelOutput` is its
+text envelope, never bytes. `ai@6.0.256` `streamText` pushes each tool output permanently into its
+response messages and rebuilds every step as initial plus response messages
+(`ai/dist/index.mjs:7723-7741`, `responseMessages.push` at `:8191`), so bytes returned there would
+stay in worker memory for the whole Run while only 20 images are ever sent.
+
+The composer runs in the clients' shared `prepareStep` composition (`applyToolCallingOptions`), on
+the final messages after the `onStepStart` override that in-Run context items use, so that splice's
+recorded prefix index (`in-run-context-items.ts:154`) is computed before any transform. It takes a
+per-Run media resolver, loaded under the Run owner's identity, that returns each reference's
+descriptor (name, original and variant dimensions) and loads variant bytes on demand. For each step:
 
 - **Owner file parts.** Within one user message, after context rail items and the temporal row and
   before the owner's text, each file part becomes a label text part `Image n (media://<id>):` followed
   by an image part from the model variant; `n` counts that message's attachments from 1.
-- **Tool results.** A `read` result carrying an image becomes a tool output of type `content`: the
-  text envelope plus an image part.
+- **Tool results.** A `read` image result becomes a tool output of type `content`: the text envelope
+  plus an image part.
 - **Prompt imports.** An image entry in a `prompt-imports` item becomes an image part after the item's
   text.
-- **Window.** Only image references inside the image window (below) become image parts. Older ones, and
-  every image when the request's model does not declare `image`, become the placeholder
-  `[image media://<id> <name> <width>×<height>]`, with `name` the neutralized source label.
+- **Window.** Only image references inside the image window (below) become image parts, and only their
+  bytes are loaded. Older ones, and every image when the request's model does not declare `image`,
+  become the placeholder `[image media://<id> <name> <width>×<height>]`, with `name` the neutralized
+  source label and the original's dimensions.
 - **Chat Completions wires.** On `openai-completions` and `opencode-go`, a tool output's image cannot
   travel in the tool message: the adapter would serialize it as text. The tool message carries its text
   and the line `(image attached below)`, and the images of consecutive tool results follow in one
   synthetic user message `Images from tool results:`, as OMP does.
-- **Live steps.** Tool results produced inside a Run never cross the history conversion boundary:
-  `ai@6.0.256` rebuilds each step as its initial messages plus response messages, carrying whatever
-  `toModelOutput` returned (`ai/dist/index.mjs:4647-4665`). The image window, the non-vision
-  placeholder, and the Chat Completions transform are therefore re-applied to every step's messages
-  in the clients' shared `prepareStep` composition (`applyToolCallingOptions`), on every wire.
-  Re-applying is idempotent because the SDK rebuilds the messages each step.
-- **Request-size estimate.** Every admission and compaction estimate leaves image bytes out, as it
-  already leaves out reasoning metadata, and charges each image part `ceil(width × height / 750)`
-  tokens on its model variant's dimensions (Anthropic's documented formula; a 2000×1125 variant is
-  3,000 tokens). Placeholders count as their text.
+
+Composing from references every step is idempotent: the SDK hands `prepareStep` the untransformed
+messages again on each step.
+
+**Request-size estimate.** Every admission and compaction estimate leaves image bytes out, as it
+already leaves out reasoning metadata, and charges each image reference `ceil(width × height / 750)`
+tokens on its model variant's dimensions (Anthropic's documented formula; a 2000×1125 variant is
+3,000 tokens). Placeholders count as their text. The estimators (`estimateProjectionTokens`,
+`estimateContinuationTokens`, and the context-window fit check) receive the resolver's descriptor
+map, because stored file parts and image envelopes do not carry variant dimensions.
 
 Stored parts never contain base64. The 8,000/32,000 code-unit budgets measure a tool pair's text
 only; a `read` image result's text envelope fits well inside them, and its image falls under the
@@ -190,8 +207,8 @@ bound, and every older one, is a placeholder. Both bounds are code constants (Q1
 Every native `read` locator that yields bytes may yield an image: host paths and `file:` aliases,
 `kb://`, `skill://`, `http(s)://`, and `media://`. For a regular file (host, `kb://`, `skill://`),
 the reader checks the magic bytes of the first bytes before UTF-8 decoding. On a match, it ingests
-the file (D2) with provenance `read` and the requesting locator as source label, then returns an
-image result:
+the file (D2) with provenance `prompt-import` when the read's system origin is `prompt-import` and
+`read` otherwise, and the requesting locator as source label, then returns an image result:
 
 ```json
 {
@@ -217,11 +234,14 @@ a web image is equally refused. A `media://` read ingests nothing and returns th
 Instruction-file triggers are unchanged: a host or `kb://` image read triggers its directory chain like
 any read, and a `media://` read triggers nothing.
 
+The 20 MiB refusal applies only to a file whose leading bytes match an image signature; a large file
+matching no signature keeps the text path, which has no size ceiling.
+
 ### D8: Prompt-import images (Q9)
 
 An admitted prompt-import target whose native `read` returns an image becomes an image entry in the same
-`prompt-imports` item: a file block naming the locator and `media://<id>` with its dimensions, plus the
-image part from D6. Image entries count toward the 8-target bound; their bytes do not count toward the
+`prompt-imports` item, followed in the request by the image part or placeholder from D6. Image entries
+count toward the 8-target bound; their bytes do not count toward the
 128 KiB output bound, which measures the item's text. Recovery reuses the persisted media id like a
 persisted text result. The entry body is the image result envelope native `read` returns, so
 "Imported results equal native read output" holds unchanged. This delta ADDs two requirements to the
