@@ -109,9 +109,11 @@ function candidateDirectory(
 }
 
 /**
- * The disclosed canonical paths that exclude an import: those filed under its
- * lexical parent and those under its canonical file's parent, so a disclosed
- * file is excluded however a link reaches it.
+ * A disclosed file is excluded only when the import's lexical parent or its
+ * canonical file's parent is the directory named by the read. A disclosure
+ * filed under a symlinked directory the import does not traverse (for example,
+ * a read through a link followed by an import through the real path or another
+ * link) is not matched, so the file may load as a separate block.
  */
 function disclosedForImport(
   state: InstructionImportState,
