@@ -2452,13 +2452,15 @@ SHALL fall through. A render the quality gate rejects SHALL fall through as
 ### Requirement: Stack Exchange native adapter reads question threads
 
 A configured `stackexchange` adapter SHALL claim only HTTPS locators on
-`stackoverflow.com`, `superuser.com`, `serverfault.com`, `askubuntu.com`,
-`mathoverflow.net`, or a single-label `{site}.stackexchange.com` host (each
+`stackoverflow.com` or its two-letter language or `meta.` subdomain,
+`superuser.com`, `serverfault.com`, `askubuntu.com`, `mathoverflow.net`,
+`stackapps.com`, or a one- or two-label `stackexchange.com` subdomain (each
 optionally prefixed `www.`) whose path is `/questions/{id}`,
-`/questions/{id}/{slug}`, `/q/{id}`, `/q/{id}/{user}`, `/a/{id}`, or
-`/a/{id}/{user}`; every other path SHALL be unclaimed. The adapter SHALL send
-only unauthenticated `GET` requests to `https://api.stackexchange.com/2.3/`
-with the host's `site` parameter: for an `/a/` link `answers/{id}` to find its
+`/questions/{id}/{slug}`, `/questions/{id}/{slug}/{answerId}`, `/q/{id}`,
+`/q/{id}/{user}`, `/a/{id}`, or `/a/{id}/{user}`; every other path SHALL be
+unclaimed. The adapter SHALL send only unauthenticated `GET` requests to
+`https://api.stackexchange.com/2.3/` with the host, without `www.`, as its
+`site` parameter: for an `/a/` link `answers/{id}` to find its
 question, then `questions/{id}` with `filter=withbody`, then
 `questions/{id}/answers` with `filter=withbody&sort=votes&order=desc&pagesize=100`.
 
@@ -2468,7 +2470,7 @@ The render SHALL be `# {title}` with HTML entities decoded, `Score`/`Answers`
 by a `---` line as `## Answer · {i}/{n} — [accepted · ]score {score} — {author}`,
 its body, and `Source:` and `Date:` lines, the accepted answer first. A failed
 or unparsable question request SHALL fall through, and a response with no
-question SHALL fall through as `empty`; a failed answers request SHALL keep
+question, or an `/a/` lookup with no answer, SHALL fall through as `empty`; a failed answers request SHALL keep
 the question with an `answers omitted: {category}` note, and more than 100
 answers SHALL add `answers truncated: the first 100 by score`.
 

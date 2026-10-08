@@ -14,8 +14,8 @@ const adapter = createStackexchangeAdapter(
   { id: 'se', use: 'stackexchange' },
   { apiOrigin: API_ORIGIN },
 );
-const QUESTION_URL = `${API_ORIGIN}/2.3/questions/42?site=stackoverflow&filter=withbody`;
-const ANSWERS_URL = `${API_ORIGIN}/2.3/questions/42/answers?site=stackoverflow&filter=withbody&sort=votes&order=desc&pagesize=100`;
+const QUESTION_URL = `${API_ORIGIN}/2.3/questions/42?site=stackoverflow.com&filter=withbody`;
+const ANSWERS_URL = `${API_ORIGIN}/2.3/questions/42/answers?site=stackoverflow.com&filter=withbody&sort=votes&order=desc&pagesize=100`;
 const LINK = 'https://stackoverflow.com/questions/42/why-is-it-faster';
 
 const question: JsonObject = {
@@ -58,6 +58,9 @@ describe('Stack Exchange adapter claim', () => {
     'https://unix.stackexchange.com/questions/1/dd',
     'https://superuser.com/questions/5',
     'https://mathoverflow.net/q/9',
+    'https://ru.stackoverflow.com/questions/5',
+    'https://meta.stackexchange.com/questions/7',
+    'https://stackoverflow.com/questions/42/why-is-it-faster/43',
   ])('claims %s', (source) => {
     expect(adapter.match(new URL(source))).toBe(true);
   });
@@ -68,7 +71,8 @@ describe('Stack Exchange adapter claim', () => {
     'https://stackoverflow.com/questions/tagged/java',
     'https://stackoverflow.com/users/87234/x',
     'https://stackoverflow.com/questions/42/slug/extra',
-    'https://meta.unix.stackexchange.com/questions/1',
+    'https://stackoverflow.com/questions/42/slug/43/more',
+    'https://example.stackexchange.org/questions/1',
     'https://stackexchange.com/questions/1',
   ])('leaves %s to the generic ladder', (source) => {
     expect(adapter.match(new URL(source))).toBe(false);
@@ -130,9 +134,9 @@ describe('Stack Exchange adapter read', () => {
   });
 
   it('resolves an answer link to its question on the same site', async () => {
-    const lookup = `${API_ORIGIN}/2.3/answers/43?site=unix`;
-    const unixQuestion = `${API_ORIGIN}/2.3/questions/42?site=unix&filter=withbody`;
-    const unixAnswers = `${API_ORIGIN}/2.3/questions/42/answers?site=unix&filter=withbody&sort=votes&order=desc&pagesize=100`;
+    const lookup = `${API_ORIGIN}/2.3/answers/43?site=unix.stackexchange.com`;
+    const unixQuestion = `${API_ORIGIN}/2.3/questions/42?site=unix.stackexchange.com&filter=withbody`;
+    const unixAnswers = `${API_ORIGIN}/2.3/questions/42/answers?site=unix.stackexchange.com&filter=withbody&sort=votes&order=desc&pagesize=100`;
 
     const { outcome, urls } = await read(
       'https://unix.stackexchange.com/a/43',
@@ -151,21 +155,32 @@ describe('Stack Exchange adapter read', () => {
   });
 
   it('keeps the question with a note when the answers do not load', async () => {
-    const limited: WebFetchFailure = {
+    // The API reports quota and throttling as HTTP 400 with an error_id.
+    const throttled: WebFetchFailure = {
       type: 'http_status',
-      message: 'HTTP 429',
-      httpStatus: 429,
+      message: 'HTTP 400',
+      httpStatus: 400,
     };
 
     const { outcome } = await read(LINK, [
       [QUESTION_URL, response({ items: [question] })],
-      [ANSWERS_URL, limited],
+      [ANSWERS_URL, throttled],
     ]);
 
     expect(outcome).toMatchObject({
       kind: 'rendered',
-      notes: ['answers omitted: rate_limit'],
+      notes: ['answers omitted: status'],
     });
+  });
+
+  it('falls through as empty when an answer link names a deleted answer', async () => {
+    const lookup = `${API_ORIGIN}/2.3/answers/43?site=stackoverflow.com`;
+
+    const { outcome } = await read('https://stackoverflow.com/a/43', [
+      [lookup, response({ items: [] })],
+    ]);
+
+    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'empty' });
   });
 
   it('falls through on a deleted question or a malformed payload', async () => {

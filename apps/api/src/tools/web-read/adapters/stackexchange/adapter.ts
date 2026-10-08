@@ -24,17 +24,14 @@ export const STACKEXCHANGE_API_ORIGIN = 'https://api.stackexchange.com';
 const JSON_INIT: WebRequestInit = { accept: 'application/json' };
 const ANSWER_PAGE_SIZE = '100';
 
-/** Hosts whose API `site` parameter is their first label. */
-const NAMED_SITES = {
-  'stackoverflow.com': 'stackoverflow',
-  'superuser.com': 'superuser',
-  'serverfault.com': 'serverfault',
-  'askubuntu.com': 'askubuntu',
-  'mathoverflow.net': 'mathoverflow.net',
-} as const satisfies Readonly<Record<string, string>>;
-const NETWORK_SITE = /^([a-z0-9]+)\.stackexchange\.com$/u;
+/** Stack Exchange Q&A hosts, metas included; the API takes the host itself as
+ *  its `site` parameter. */
+const SITE_HOST =
+  /^(?:(?:(?:meta|[a-z]{2})\.)?stackoverflow\.com|superuser\.com|serverfault\.com|askubuntu\.com|mathoverflow\.net|stackapps\.com|(?:[a-z0-9]+\.){1,2}stackexchange\.com)$/u;
+/** A question with an optional slug and answer id (the answer permalink),
+ *  or a `/q/` or `/a/` share link. */
 const POST_PATH =
-  /^\/(?:questions\/(\d{1,12})(?:\/[^/]*)?|q\/(\d{1,12})(?:\/\d+)?|a\/(\d{1,12})(?:\/\d+)?)$/u;
+  /^\/(?:questions\/(\d{1,12})(?:\/[^/]*(?:\/\d{1,12})?)?|q\/(\d{1,12})(?:\/\d+)?|a\/(\d{1,12})(?:\/\d+)?)$/u;
 
 type StackexchangeTarget = {
   readonly site: string;
@@ -87,12 +84,9 @@ export function parseStackexchangeUrl(
   source: URL,
 ): StackexchangeTarget | undefined {
   if (source.protocol !== 'https:') return undefined;
-  const host = source.host.replace(/^www\./u, '');
-  const site = isNamedSite(host)
-    ? NAMED_SITES[host]
-    : NETWORK_SITE.exec(host)?.[1];
+  const site = source.host.replace(/^www\./u, '');
   const match = POST_PATH.exec(source.pathname);
-  if (site === undefined || match === null) return undefined;
+  if (!SITE_HOST.test(site) || match === null) return undefined;
   const [, question, short, answer] = match;
   return answer === undefined
     ? { site, question: question ?? short }
@@ -158,9 +152,12 @@ async function questionOf(
 ): Promise<{ readonly id: string } | { readonly outcome: WebAdapterOutcome }> {
   const lookup = await query(`answers/${target.answer}`);
   if ('type' in lookup) return { outcome: primaryFailure(lookup) };
-  const owner = parseJsonBody(lookup.body, ANSWER_LOOKUP)?.items[0];
+  const page = parseJsonBody(lookup.body, ANSWER_LOOKUP);
+  if (page === undefined)
+    return { outcome: { kind: 'failed', failure: 'parse' } };
+  const owner = page.items[0];
   return owner === undefined
-    ? { outcome: { kind: 'failed', failure: 'parse' } }
+    ? { outcome: { kind: 'failed', failure: 'empty' } }
     : { id: String(owner.question_id) };
 }
 
@@ -246,10 +243,6 @@ function answerLines(
     `Source: ${questionLink.replace(/\/questions\/.*/u, `/a/${answer.answer_id}`)}`,
     `Date: ${isoDate(answer.creation_date)}`,
   ];
-}
-
-function isNamedSite(host: string): host is keyof typeof NAMED_SITES {
-  return Object.hasOwn(NAMED_SITES, host);
 }
 
 /** Titles and names arrive HTML-encoded. */

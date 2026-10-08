@@ -319,15 +319,18 @@ questions, which the sites answer with a bot challenge:
 ```
 
 The entry takes no other field and sends no credential. It claims
-`/questions/{id}[/{slug}]`, `/q/{id}[/{user}]`, and `/a/{id}[/{user}]` on
-`stackoverflow.com`, `superuser.com`, `serverfault.com`, `askubuntu.com`,
-`mathoverflow.net`, and single-label `{site}.stackexchange.com` hosts; tag,
-user, and listing pages and meta sites stay on the generic ladder. A read
+`/questions/{id}[/{slug}[/{answerId}]]`, `/q/{id}[/{user}]`, and
+`/a/{id}[/{user}]` on `stackoverflow.com` and its language and meta sites
+(`ru.stackoverflow.com`, `meta.stackoverflow.com`), `superuser.com`,
+`serverfault.com`, `askubuntu.com`, `mathoverflow.net`, `stackapps.com`, and
+`{site}.stackexchange.com` hosts including their metas; tag, user, and listing
+pages stay on the generic ladder. A read
 requests the question and then up to 100 answers by score from
 `https://api.stackexchange.com/2.3/` (an `/a/` link first looks up its
 question), so it costs two or three requests. Keyless use shares a quota of
-300 requests per day per IP address; once it is spent, reads fall through
-with `status` or `rate_limit` until it resets. With a domain allowlist, add a
+300 requests per day per IP address. The API reports a spent quota or a
+throttle as HTTP 400, so until it resets reads fall through with `status`, or
+keep the question with `answers omitted: status`. With a domain allowlist, add a
 clause for `^https://api\.stackexchange\.com/`.
 
 ## Derived locators and permission admission
