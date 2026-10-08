@@ -304,10 +304,10 @@ the generic Readability path, after replacing MathML with its LaTeX source.
 When arXiv has no HTML for that version, it reads `https://arxiv.org/abs/{id}`,
 rendered the same way, and adds `full text omitted: <failure>`; a read costs
 one request, or two on that fallback. With a domain allowlist, a clause for
-`^https://arxiv\.org/` covers both. Both are derived locators, so a narrower
-clause such as `^https://arxiv\.org/abs/` refuses them and every read falls
-through with `permission`, including the `/abs/` reads the generic ladder
-would otherwise serve.
+`^https://arxiv\.org/` covers both. Both are derived locators admitted on
+their own: with only `^https://arxiv\.org/abs/`, the HTML request is refused,
+so every read degrades to the abstract with `full text omitted: permission`;
+with neither path admitted, the read falls through with `permission`.
 
 ## Derived locators and permission admission
 
