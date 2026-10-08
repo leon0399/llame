@@ -143,12 +143,18 @@ describe('Hacker News adapter read', () => {
       [ITEM_URL, response(job)],
     ]);
 
-    expect(outcome.kind === 'rendered' && outcome.content).not.toContain(
-      'Link:',
-    );
+    expect(outcome.kind).toBe('rendered');
+    if (outcome.kind !== 'rendered') throw new Error('expected render');
+    expect(outcome.content).not.toContain('Link:');
+    expect(outcome.content).toContain('Apply');
     await expect(
       read('https://news.ycombinator.com/item?id=1', [
         [ITEM_URL, response(item(1, 'pg', [], { type: 'poll' }))],
+      ]),
+    ).resolves.toMatchObject({ outcome: { kind: 'failed', failure: 'parse' } });
+    await expect(
+      read('https://news.ycombinator.com/item?id=1', [
+        [ITEM_URL, response(item(1, 'pg', [], { type: 'pollopt' }))],
       ]),
     ).resolves.toMatchObject({ outcome: { kind: 'failed', failure: 'parse' } });
   });
