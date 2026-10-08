@@ -13,7 +13,9 @@ import {
 import type { GithubDiscussionTarget } from './url';
 
 const COMMENT_PAGE_SIZE = 100;
-const REPLY_PAGE_SIZE = 100;
+/** Low enough that 100 comments' replies stay well inside the 5 MiB body
+ *  bound; a longer reply chain is noted as truncated. */
+const REPLY_PAGE_SIZE = 20;
 
 /** Discussions have no REST endpoint, so one GraphQL query carries the
  *  discussion with its first comments and their first replies. */

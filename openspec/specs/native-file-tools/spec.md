@@ -2331,7 +2331,7 @@ following its redirect without the token, and render the last 400 log lines
 with timestamps and ANSI escapes removed, and without one it SHALL add
 `log omitted: token required`. A discussion SHALL be one `POST` of a GraphQL
 query to `https://api.github.com/graphql` rendering its category, author,
-answer, and first 100 comments with their first 100 replies.
+answer, and first 100 comments with their first 20 replies.
 
 #### Scenario: A job without a token renders its steps
 

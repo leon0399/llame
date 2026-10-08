@@ -121,7 +121,7 @@ describe('GitHub discussion adapter', () => {
     });
     expect(sent.query).toContain('discussion(number: $number)');
     expect(sent.query).toContain('comments(first: 100)');
-    expect(sent.query).toContain('replies(first: 100)');
+    expect(sent.query).toContain('replies(first: 20)');
   });
 
   it('renders the answer, body, comments, and replies in the issue layout', async () => {

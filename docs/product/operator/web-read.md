@@ -167,7 +167,9 @@ The same entry claims releases, gists, Actions jobs, and discussions:
 - `https://github.com/{owner}/{repo}/releases`, `/releases/latest`, and
   `/releases/tag/{tag}`: one request each; the list renders the newest 30.
 - `https://gist.github.com/{id}` and `/{owner}/{id}`: one request to
-  `/gists/{id}`; truncated and binary files are noted, not fetched.
+  `/gists/{id}`; a binary file is omitted, a truncated file renders the part
+  that arrived with a `truncated` note, and one that arrived empty is omitted
+  as `too_large`.
 - `https://github.com/{owner}/{repo}/actions/runs/{run}/job/{job}`: the job's
   status and steps from one request. With a `token`, a second request fetches
   the log, which redirects to Azure blob storage; the token is not sent there.
