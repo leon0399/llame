@@ -72,7 +72,7 @@ output.
 - [x] 2.5 Document the three engines, their credentials, their storage terms, and SearXNG's required `search.formats: [html, json]` in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 2.6 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
 - [x] 2.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 3. `web-search/engines-keyless` — Exa MCP, DuckDuckGo (design D6, D7)
 
@@ -95,11 +95,11 @@ output.
 
 ## 5. `web-search/ui` — dedicated renderer (design D13)
 
-- [ ] 5.1 Add the web search renderer to `packages/ui` on the shared tool component: results list, answer rendered through a Markdown renderer passed as a prop, citations, engine and notes, running, cancelled, and error states, and `http(s)`-only result and citation links rendered as escaped Markdown links through that renderer so Streamdown's `linkSafety` applies; add stories for results, answer, empty, error, cancelled, and running; verify with Storybook MCP story tests and return preview URLs, or the Storybook CLI fallback when MCP is unavailable
-- [ ] 5.2 Dispatch every tool part with `isToolUIPart(part) && getToolName(part) === "web_search"` to the renderer in `apps/web`, covering live `dynamic-tool` and stored `tool-web_search` parts; verify by component tests that a `javascript:` URL renders as text, a link click goes through link safety, a cancelled part renders without error text, and a live and a historical part render identically
-- [ ] 5.3 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 5.1 Add the web search renderer to `packages/ui` on the shared tool component: results list, answer rendered through a Markdown renderer passed as a prop, citations, engine and notes, running, cancelled, and error states, and `http(s)`-only result and citation links rendered as escaped Markdown links through that renderer so Streamdown's `linkSafety` applies; add stories for results, answer, empty, error, cancelled, and running; verify with Storybook MCP story tests and return preview URLs, or the Storybook CLI fallback when MCP is unavailable
+- [x] 5.2 Dispatch every tool part with `isToolUIPart(part) && getToolName(part) === "web_search"` to the renderer in `apps/web`, covering live `dynamic-tool` and stored `tool-web_search` parts; verify by component tests that a `javascript:` URL renders as text, a link click goes through link safety, a cancelled part renders without error text, and a live and a historical part render identically
+- [x] 5.3 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [ ] 5.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, and the `packages/ui` checks; exercise a chat with a `web_search` result in a browser against the Brave fixture, live and after reload, and confirm the links reach the result URLs
-- [ ] 5.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 5.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 5.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 6. `web-search/hosted` — model-hosted engines (design D8)

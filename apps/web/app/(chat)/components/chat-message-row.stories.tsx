@@ -44,6 +44,78 @@ const STREAMING_MESSAGE = summaryRunMessage("streaming");
 // part, because those bytes are what the provider signed or encrypted.
 const persistedPartsAtLoad = JSON.stringify(PERSISTED_MESSAGE.parts);
 
+const WEB_SEARCH_OUTPUT = {
+  status: "success",
+  kind: "results",
+  engine: "brave",
+  query: "quiet mechanical keyboards",
+  results: [
+    {
+      title: "Quiet mechanical keyboards",
+      url: "https://example.com/keyboards",
+      published: "2026-10-01",
+      snippet: "A guide to quieter switches and stabilizers.",
+    },
+    {
+      title: "Switch sound comparison",
+      url: "https://example.net/switches",
+      published: "2026-09-28",
+      snippet: "Measured sound profiles for common keyboard switches.",
+    },
+    {
+      title: "Desk setup acoustics",
+      url: "https://example.org/acoustics",
+      published: "2026-09-20",
+      snippet: "Practical ways to reduce noise in a home office.",
+    },
+  ],
+} as const;
+
+const LIVE_WEB_SEARCH_MESSAGE: UIMessage = {
+  id: "assistant-web-search-live",
+  role: "assistant",
+  parts: [
+    {
+      type: "dynamic-tool",
+      toolCallId: "web-search-live",
+      toolName: "web_search",
+      state: "output-available",
+      input: { query: WEB_SEARCH_OUTPUT.query },
+      output: WEB_SEARCH_OUTPUT,
+    },
+  ],
+};
+
+const HISTORICAL_WEB_SEARCH_MESSAGE: UIMessage = {
+  id: "assistant-web-search-history",
+  role: "assistant",
+  parts: [
+    {
+      type: "tool-web_search",
+      toolCallId: "web-search-history",
+      state: "output-available",
+      input: { query: WEB_SEARCH_OUTPUT.query },
+      output: WEB_SEARCH_OUTPUT,
+    },
+  ],
+};
+
+const CANCELLED_WEB_SEARCH_ERROR = "The web search was cancelled.";
+const CANCELLED_WEB_SEARCH_MESSAGE: UIMessage = {
+  id: "assistant-web-search-cancelled",
+  role: "assistant",
+  parts: [
+    {
+      type: "tool-web_search",
+      toolCallId: "web-search-cancelled",
+      state: "output-error",
+      input: { query: "cancelled search" },
+      errorText: CANCELLED_WEB_SEARCH_ERROR,
+      resultProviderMetadata: { llame: { cancelled: true } },
+    },
+  ],
+};
+
 const meta = {
   component: ChatMessageRow,
   tags: ["autodocs"],
@@ -172,6 +244,91 @@ export const LiveStreaming: Story = {
   args: { message: STREAMING_MESSAGE },
   play: async (context) => {
     await expectGroupedSummaryRun(context);
+  },
+};
+
+// The web_search Parameters panel renders through the shared Shiki CodeBlock,
+// whose built-in "one-light" palette ships token colors below WCAG AA
+// color-contrast (same third-party-theme defect code-block.stories.tsx
+// suppresses). Only the color-contrast rule is disabled.
+const webSearchShikiContrastKnownIssue = {
+  a11y: {
+    config: {
+      rules: [{ id: "color-contrast", enabled: false }],
+    },
+  },
+};
+
+/**
+ * Live dynamic-tool parts and stored tool-web_search parts use the same
+ * dedicated renderer, so reloading a completed search preserves its links.
+ *
+ * @summary live and historical web-search parts render the same links
+ */
+export const LiveAndHistoricalWebSearch: Story = {
+  tags: ["ai-generated"],
+  parameters: webSearchShikiContrastKnownIssue,
+  args: { message: LIVE_WEB_SEARCH_MESSAGE },
+  render: (args) => (
+    <div>
+      <ChatMessageRow {...args} renderKey="web-search-live" />
+      <ChatMessageRow
+        {...args}
+        renderKey="web-search-history"
+        message={HISTORICAL_WEB_SEARCH_MESSAGE}
+      />
+    </div>
+  ),
+  play: async ({ canvas }) => {
+    const headers = await waitFor(
+      () => {
+        const found = canvas.getAllByRole("button", { name: /web_search/iu });
+        expect(found).toHaveLength(2);
+        return found;
+      },
+      { timeout: 15_000 },
+    );
+
+    for (const header of headers) {
+      if (header.getAttribute("aria-expanded") === "false") {
+        await userEvent.click(header);
+      }
+    }
+
+    for (const result of WEB_SEARCH_OUTPUT.results) {
+      const found = await waitFor(() => {
+        const buttons = canvas.getAllByRole("button", { name: result.title });
+        expect(buttons).toHaveLength(2);
+        return buttons;
+      });
+      for (const button of found) {
+        expect(button).toHaveAttribute("data-streamdown", "link");
+      }
+    }
+    expect(canvas.queryAllByRole("link")).toHaveLength(0);
+  },
+};
+
+/**
+ * A cancelled search keeps the neutral cancelled status and does not expose
+ * the transport's cancellation text as a tool error.
+ *
+ * @summary cancelled web search omits error text
+ */
+export const CancelledWebSearch: Story = {
+  tags: ["ai-generated"],
+  parameters: webSearchShikiContrastKnownIssue,
+  args: { message: CANCELLED_WEB_SEARCH_MESSAGE },
+  play: async ({ canvas }) => {
+    const header = await waitFor(
+      () => canvas.getByRole("button", { name: /web_search/iu }),
+      { timeout: 15_000 },
+    );
+    await userEvent.click(header);
+    await expect(canvas.getByText("Cancelled")).toBeVisible();
+    expect(
+      canvas.queryByText(CANCELLED_WEB_SEARCH_ERROR),
+    ).not.toBeInTheDocument();
   },
 };
 
