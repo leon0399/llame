@@ -76,6 +76,26 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
               text: '<system-reminder>PRIVATE_TIME_REMINDER</system-reminder>',
             },
           },
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'prompt-imports',
+              form: 'notice',
+              runId: '11111111-2222-4333-8444-555555555555',
+              payload: {
+                imports: [
+                  {
+                    locator: 'PRIVATE_IMPORT_LOCATOR.md',
+                    resolved: '/srv/PRIVATE_IMPORT_RESOLVED/notes.md',
+                    outcome: 'imported',
+                  },
+                ],
+                omitted: ['PRIVATE_IMPORT_OMITTED.md'],
+              },
+              text: '<system-reminder>PRIVATE_IMPORT_BODY</system-reminder>',
+            },
+          },
           { type: 'text', text: 'a public question' },
         ],
       });
@@ -226,6 +246,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
     expect(serialized).not.toContain('PRIVATE_THINKING');
     expect(serialized).toContain('the public answer');
     expect(serialized).not.toContain('tool-web_search');
+    expect(serialized).not.toMatch(/PRIVATE_IMPORT|prompt-imports/);
     expect(serialized).not.toContain('PRIVATE_SEARCH_SNIPPET');
     expect(serialized).not.toContain('senderUserId');
     expect(serialized).not.toContain(owner);
@@ -376,6 +397,7 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       const serialized = JSON.stringify(copiedMessages);
       expect(serialized).not.toContain('PRIVATE_THINKING');
       expect(serialized).not.toContain('PRIVATE_TIME_REMINDER');
+      expect(serialized).not.toMatch(/PRIVATE_IMPORT|prompt-imports/);
       expect(serialized).not.toContain(owner);
       expect(serialized).toContain('the public answer');
 

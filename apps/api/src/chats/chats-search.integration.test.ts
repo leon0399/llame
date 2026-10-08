@@ -173,6 +173,28 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
             },
           },
           {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'prompt-imports',
+              form: 'notice',
+              runId: '33333333-3333-4333-8333-333333333333',
+              payload: {
+                imports: [
+                  {
+                    locator: 'zzprivatelocatorplum.md',
+                    resolved:
+                      '/srv/zzprivateresolvedteal/zzprivatelocatorplum.md',
+                    outcome: 'imported',
+                    truncated: true,
+                  },
+                ],
+                omitted: ['zzprivateomittedcoral.md'],
+              },
+              text: '<system-reminder producer="prompt-imports" form="notice">zzimportedbodyrust</system-reminder>',
+            },
+          },
+          {
             type: 'tool-search_conversations',
             inputSchema: 'zztoolschemamercury',
           },
@@ -291,6 +313,10 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
       'zzremovedtoolscarlet',
       'zzunavailabletoolazure',
       'zzavailabilityreminderbronze',
+      'zzprivatelocatorplum',
+      'zzprivateresolvedteal',
+      'zzprivateomittedcoral',
+      'zzimportedbodyrust',
       'zzsystempromptamber',
       'zztoolschemamercury',
       'zzcompactionlilac',
@@ -307,7 +333,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     );
     expect(visible?.snippet).toContain('zzhumanoriginalgreen');
     expect(JSON.stringify(visible)).not.toMatch(
-      /zz(prevmodel|currentmodel|reminderprose|removedtool|unavailabletool|availabilityreminder|systemprompt|toolschema|compaction|checkpoint)/,
+      /zz(prevmodel|currentmodel|reminderprose|removedtool|unavailabletool|availabilityreminder|systemprompt|toolschema|compaction|checkpoint|privatelocator|privateresolved|privateomitted|importedbody)/,
     );
   });
 

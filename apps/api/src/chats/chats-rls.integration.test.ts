@@ -41,6 +41,8 @@ import {
   type Db,
 } from './chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
+import { RunEventsRepository } from '../runs/runs-repository';
+import { PromptImportPartsRepository } from './prompt-import-parts.repository';
 import { SessionsRepository } from '../auth/sessions.repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { isRecord } from '@workspace/runtime-safety';
@@ -646,6 +648,127 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     } finally {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`); // cascades to runs → run_events
     }
+  });
+
+  describe('prompt-imports items and prompt-import audit events', () => {
+    const IMPORT_RUN_ID = '44444444-4444-4444-8444-444444444444';
+    const promptImportParts = JSON.stringify([
+      {
+        type: 'data-context',
+        data: {
+          v: 1,
+          producer: 'prompt-imports',
+          form: 'notice',
+          runId: IMPORT_RUN_ID,
+          payload: {
+            imports: [
+              {
+                locator: 'PRIVATE_IMPORT_LOCATOR.md',
+                resolved: '/srv/PRIVATE_IMPORT_RESOLVED/notes.md',
+                outcome: 'imported',
+              },
+            ],
+            omitted: ['PRIVATE_IMPORT_OMITTED.md'],
+          },
+          text: '<system-reminder>PRIVATE_IMPORT_BODY</system-reminder>',
+        },
+      },
+      { type: 'text', text: 'owner question' },
+    ]);
+    const importEventPayload = {
+      toolCallId: `prompt-import-${IMPORT_RUN_ID}-attempt-0`,
+      toolName: 'read',
+      input: { path: '/srv/PRIVATE_IMPORT_RESOLVED/notes.md' },
+      origin: 'prompt-import',
+    };
+    let chatId = '';
+    let messageId = '';
+    let runId = '';
+
+    /** A's chat: one user message carrying the item, one run with `prompt-import`-origin reads. */
+    async function seedImportChat(): Promise<void> {
+      chatId = crypto.randomUUID();
+      messageId = crypto.randomUUID();
+      runId = crypto.randomUUID();
+      await asUser(userAId, async (tx) => {
+        await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Import Chat')`;
+        await tx`INSERT INTO messages (id, chat_id, seq, role, sender_user_id, parts) VALUES (${messageId}, ${chatId}, 1, 'user', ${userAId}, ${promptImportParts}::jsonb)`;
+        await tx`INSERT INTO runs (id, chat_id, user_id, model_id) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini')`;
+        await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.requested', ${JSON.stringify(importEventPayload)}::jsonb)`;
+        await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.completed', ${JSON.stringify({ ...importEventPayload, status: 'success', output: { content: 'PRIVATE_IMPORT_BODY' } })}::jsonb)`;
+      });
+    }
+
+    beforeEach(seedImportChat);
+    afterEach(async () => {
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
+    });
+
+    it("B cannot read A's prompt-imports item or its metadata, through SQL or the repositories", async () => {
+      const tenant = new TenantDbService(db);
+      const owned = await tenant.runAs(userAId, async (tx) => ({
+        history: await new MessagesRepository(tx).findByChatId(chatId, userAId),
+        stored: await new PromptImportPartsRepository(tx).findForRun({
+          id: messageId,
+          chatId,
+          runId: IMPORT_RUN_ID,
+        }),
+      }));
+      // The owner reads it, so the denials below are not vacuous.
+      expect(JSON.stringify(owned.history)).toContain(
+        'PRIVATE_IMPORT_LOCATOR.md',
+      );
+      expect(owned.stored?.data.payload.omitted).toEqual([
+        'PRIVATE_IMPORT_OMITTED.md',
+      ]);
+
+      const rows = await asUser(
+        userBId,
+        (tx) => tx`SELECT id, parts FROM messages WHERE id = ${messageId}`,
+      );
+      expect(rows).toHaveLength(0);
+      const denied = await tenant.runAs(userBId, async (tx) => ({
+        history: await new MessagesRepository(tx).findByChatId(chatId, userBId),
+        stored: await new PromptImportPartsRepository(tx).findForRun({
+          id: messageId,
+          chatId,
+          runId: IMPORT_RUN_ID,
+        }),
+      }));
+      expect(denied.history).toEqual([]);
+      expect(denied.stored).toBeUndefined();
+    });
+
+    it("B cannot read, replay, or forge A's prompt-import-origin run events", async () => {
+      const tenant = new TenantDbService(db);
+      const owned = await tenant.runAs(userAId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(runId, userAId),
+      );
+      expect(owned.map((event) => event.eventType)).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+
+      const rows = await asUser(
+        userBId,
+        (tx) =>
+          tx`SELECT sequence FROM run_events WHERE run_id = ${runId} AND payload->>'origin' = 'prompt-import'`,
+      );
+      expect(rows).toHaveLength(0);
+      expect(
+        await tenant.runAs(userBId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(runId, userBId),
+        ),
+      ).toEqual([]);
+
+      await expect(
+        asUser(
+          userBId,
+          (tx) =>
+            tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.completed', '{"origin":"prompt-import"}'::jsonb)`,
+        ),
+      ).rejects.toThrow(/row-level security|violates/i);
+    });
   });
 });
 

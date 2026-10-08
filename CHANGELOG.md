@@ -20,7 +20,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Workspace imports nothing. An admitted host or Knowledge import also loads its
   directory's instruction chain on the same turn, before the first model
   request, with or without a bound Workspace and whatever its read outcome;
-  denied, missing, web, and skill targets and detaching attempts load none. See
+  denied, missing, web, and skill targets and detaching attempts load none. The owner sees a chip on the message listing each import as imported, truncated, denied, failed, or omitted; shares, exports, search, and other owners see none of it. See
   [prompt imports](docs/product/reference/prompt-imports.md).
 
 - Instruction files now expand same-store `@path`, `@[label](path)`, and

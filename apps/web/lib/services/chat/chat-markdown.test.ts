@@ -301,6 +301,40 @@ describe("chatToMarkdown", () => {
     );
   });
 
+  it("excludes prompt-imports items, so an export carries no locator, resolved path, or imported body", () => {
+    const md = chatToMarkdown("T", [
+      msg({
+        role: "user",
+        parts: [
+          {
+            type: "data-context",
+            data: {
+              v: 1,
+              producer: "prompt-imports",
+              form: "notice",
+              runId: "44444444-4444-4444-8444-444444444444",
+              payload: {
+                imports: [
+                  {
+                    locator: "PRIVATE_LOCATOR.md",
+                    resolved: "/srv/PRIVATE_RESOLVED/PRIVATE_LOCATOR.md",
+                    outcome: "imported",
+                  },
+                ],
+                omitted: ["PRIVATE_OMITTED.md"],
+              },
+              text: '<system-reminder producer="prompt-imports" form="notice">PRIVATE_IMPORTED_BODY</system-reminder>',
+            },
+          },
+          { type: "text", text: "visible question" },
+        ],
+      }),
+    ]);
+
+    expect(md).toContain("visible question");
+    expect(md).not.toMatch(/PRIVATE_|prompt-imports|system-reminder/i);
+  });
+
   it("collapses a newline in the title so the heading stays intact", () => {
     expect(chatToMarkdown("line1\nline2", [])).toBe("# line1 line2\n");
   });

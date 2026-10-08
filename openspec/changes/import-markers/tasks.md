@@ -224,15 +224,15 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 7. `import-markers/prompt-import-chip`: owner disclosure
 
-- [ ] 7.1 Add the prompt-imports chip on the user message and its web history validation
+- [x] 7.1 Add the prompt-imports chip on the user message and its web history validation
       (design D9). Verify with a story and Storybook tests for imported, truncated, denied,
       failed, and omitted entries.
-- [ ] 7.2 Verify the negative isolation cases with the API integration suite: another owner
+- [x] 7.2 Verify the negative isolation cases with the API integration suite: another owner
       cannot read the item, its metadata, or the `prompt-import` audit events through any
       API; public shares, transcript exports, and search projections expose neither text nor
       metadata; a `kb://` target naming another owner's Space imports nothing and records no
       audit event.
-- [ ] 7.3 Extend `docs/product/reference/prompt-imports.md` with the owner chip and its
+- [x] 7.3 Extend `docs/product/reference/prompt-imports.md` with the owner chip and its
       visibility, and add a dated `CHANGELOG.md` entry. Run
       `pnpm --filter web lint` and `typecheck`, the Storybook tests, the integration files
       touched above, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`, and

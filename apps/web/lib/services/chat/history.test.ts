@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 import {
   adoptServerHistory,
   isInstructionsPart,
+  isPromptImportsPart,
   messageRenderKey,
   mergeTrustedModelContextParts,
   messageSeqFromMetadata,
@@ -725,6 +726,138 @@ describe("instructions context items", () => {
     );
 
     expect(message?.parts).toEqual([{ type: "text", text: "Answer." }]);
+  });
+});
+
+describe("prompt-imports context items", () => {
+  const promptImportsItem = {
+    type: "data-context" as const,
+    data: {
+      v: 1 as const,
+      producer: "prompt-imports" as const,
+      form: "notice" as const,
+      runId: "a5dc235e-1de8-4aad-84d8-e0e247b6a135",
+      payload: {
+        imports: [
+          {
+            locator: "docs/GUIDE.md",
+            resolved: "/home/u/repo/docs/GUIDE.md",
+            outcome: "imported" as const,
+          },
+          {
+            locator: "~/long.md",
+            outcome: "imported" as const,
+            truncated: true,
+          },
+          { locator: "/srv/secret.md", outcome: "denied" as const },
+          { locator: "missing.md", outcome: "failed" as const },
+        ],
+        omitted: ["extra.md"],
+      },
+    },
+  };
+
+  /** The same item with one nested value replaced, so each rejection below
+   *  differs from a valid part in exactly one way. */
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- test fixture: each case deliberately hands the parser a malformed payload it must reject, so there is no valid domain type to accept here.
+  const withPayload = (payload: unknown) => ({
+    ...promptImportsItem,
+    data: { ...promptImportsItem.data, payload },
+  });
+
+  it("accepts every outcome, the optional fields, and an omitted list", () => {
+    expect(isPromptImportsPart(promptImportsItem)).toBe(true);
+    expect(
+      isPromptImportsPart(
+        withPayload({ imports: [{ locator: "a.md", outcome: "imported" }] }),
+      ),
+    ).toBe(true);
+    expect(
+      isPromptImportsPart({
+        ...promptImportsItem,
+        data: { ...promptImportsItem.data, text: "imported 1 file" },
+      }),
+    ).toBe(true);
+  });
+
+  it("accepts empty imports only beside a non-empty omitted list", () => {
+    expect(
+      isPromptImportsPart(withPayload({ imports: [], omitted: ["a.md"] })),
+    ).toBe(true);
+    expect(isPromptImportsPart(withPayload({ imports: [] }))).toBe(false);
+    expect(isPromptImportsPart(withPayload({ imports: [], omitted: [] }))).toBe(
+      false,
+    );
+  });
+
+  it("rejects an unknown outcome or an untrustworthy field", () => {
+    const entry = { locator: "a.md", outcome: "imported" };
+    for (const bad of [
+      { ...entry, outcome: "skipped" },
+      { ...entry, locator: "  " },
+      { ...entry, resolved: "" },
+      { ...entry, truncated: "yes" },
+    ]) {
+      expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
+    }
+    expect(
+      isPromptImportsPart(withPayload({ imports: [entry], omitted: [""] })),
+    ).toBe(false);
+  });
+
+  it("rejects an extra key at every level rather than rendering an unknown shape", () => {
+    const entry = { locator: "a.md", outcome: "imported" };
+    expect(isPromptImportsPart({ ...promptImportsItem, extra: "leak" })).toBe(
+      false,
+    );
+    expect(
+      isPromptImportsPart({
+        ...promptImportsItem,
+        data: { ...promptImportsItem.data, extra: "leak" },
+      }),
+    ).toBe(false);
+    expect(
+      isPromptImportsPart(withPayload({ imports: [entry], extra: "leak" })),
+    ).toBe(false);
+    expect(
+      isPromptImportsPart(
+        withPayload({ imports: [{ ...entry, extra: "leak" }] }),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects every other producer's data-context item", () => {
+    expect(
+      isPromptImportsPart({
+        ...promptImportsItem,
+        data: { ...promptImportsItem.data, producer: "instructions" },
+      }),
+    ).toBe(false);
+    expect(isPromptImportsPart(null)).toBe(false);
+  });
+
+  it("overlays the server-fetched item on a user turn and drops it from an assistant one", () => {
+    const live = (id: string, role: "user" | "assistant"): UIMessage => ({
+      id,
+      role,
+      parts: [{ type: "text", text: "Read @docs/GUIDE.md" }],
+    });
+    const stored = (id: string, role: "user" | "assistant"): UIMessage => ({
+      id,
+      role,
+      // SAFETY: `promptImportsItem` is `PromptImportsPart`, narrower than the
+      // SDK's generic `data-*` part — the same mismatch the merge casts
+      // around.
+      parts: [promptImportsItem as never, ...live(id, role).parts],
+    });
+
+    const messages = mergeTrustedModelContextParts(
+      [live("user-1", "user"), live("assistant-1", "assistant")],
+      [stored("user-1", "user"), stored("assistant-1", "assistant")],
+    );
+
+    expect(messages[0]?.parts).toEqual(stored("user-1", "user").parts);
+    expect(messages[1]?.parts).toEqual(live("assistant-1", "assistant").parts);
   });
 });
 

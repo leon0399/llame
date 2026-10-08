@@ -147,6 +147,13 @@ read outcome; denied, missing, web, and skill targets load none, and a detaching
 attempt loads none. Importing an instruction file itself does not load it. A
 retry stages the same load.
 
+## Disclosure
+
+Your message shows a chip listing each import locator as imported, truncated,
+denied, failed, or omitted; hovering shows the resolved path when it differs.
+The chip reads the item's private metadata. Other owners, public shares,
+transcript exports, and search see neither the item's text nor its metadata.
+
 ## Configured by
 
 - [Native files](../operator/native-files.md) enables the host executor and the
