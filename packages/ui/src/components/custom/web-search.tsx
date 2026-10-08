@@ -95,7 +95,9 @@ function escapeMarkdownUrl(value: string): string {
   return value.replaceAll("\\", "%5C").replaceAll("&", String.raw`\&`);
 }
 
-function SearchLink({
+/** An http(s) URL as an escaped Markdown link through the chat renderer, so
+ *  link safety applies; any other URL stays plain text. */
+export function SearchLink({
   label,
   url,
   Markdown,
