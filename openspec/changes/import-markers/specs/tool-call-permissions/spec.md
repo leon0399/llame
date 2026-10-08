@@ -68,7 +68,7 @@ without a compiled policy admits no address.
 
 Known incompatible code-owned fields SHALL fail configuration validation. If an exact MCP rule targets a field absent from or incompatible with its currently admitted input declaration, the call SHALL fail closed with a safe policy diagnostic, without changing tool visibility or silently dropping the clause. This applies to both allow and reject field clauses. No field semantics SHALL be inferred from arbitrary MCP names.
 
-Instruction-import canonical-path evaluation is a fourth named exception: when an import's canonical path differs from its resolved path, the `read` group SHALL evaluate the canonical path. The resulting decision SHALL be recorded as a derived `canonical` decision beside the call decision in the completion payload when the call settles, and a rejection SHALL deny that call and the import.
+Instruction-import canonical-path evaluation is a fourth named exception: when an import's canonical path differs from its resolved path, the `read` group SHALL evaluate the canonical path. The resulting decision SHALL be recorded as a derived `canonical` decision in the completion payload when the call settles, and a rejection SHALL deny that call and the import.
 
 The silent pre-evaluation of a prompt or instruction import target before any probe SHALL record no decision of its own, because the audited `read` that follows records the call decision; in `bypass`, it SHALL admit without evaluating, like every other evaluation.
 
@@ -298,7 +298,7 @@ The bypass list also includes an instruction-import canonical-path evaluation wh
 ### Requirement: Bypassed evaluations are recorded as bypass decisions
 
 Every evaluation that `bypass` admits SHALL still produce a trusted decision recorded wherever this capability records a decision of that kind: the call decision on `tool.requested` before any `tool.started` event or executor dispatch, each derived-locator decision of a web read, and the canonical-path decision of `enter_workspace`. A bypass decision SHALL carry the executing process's policy-instance ID, the decision `allow`, the static reason `permission_mode_bypass`, and no clause reference. Because an address record is kept only for a refused address, a `bypass` attempt SHALL produce no address record. Bypass decisions SHALL follow the existing privacy rules for decision metadata: owner-scoped, excluded from model replay, public shares, exports, and search, and carried through completion, abort settlement, and durable transcript reconstruction.
-The recorded decisions also include the derived `canonical` decision attached to the first page read call of an instruction import when its canonical path differs from its resolved path; it is recorded beside the call decision in the completion payload when the call settles.
+The recorded decisions also include the derived `canonical` decision attached to the first page read call of an instruction import when its canonical path differs from its resolved path; it is recorded in the completion payload's derived decisions when the call settles.
 
 #### Scenario: A bypassed call records its reason
 
@@ -321,4 +321,4 @@ The recorded decisions also include the derived `canonical` decision attached to
 
 - **WHEN** a `bypass` attempt imports an instruction file whose canonical path differs from its resolved path
 - **THEN** the import's first page read call records a derived `canonical` decision with `allow`, reason `permission_mode_bypass`, the process's policy-instance ID, and no clause reference
-- **AND** the completion payload records it beside the call decision when the call settles
+- **AND** the completion payload records it among its derived decisions when the call settles
