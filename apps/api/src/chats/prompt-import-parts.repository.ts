@@ -47,7 +47,8 @@ export class PromptImportPartsRepository {
   /**
    * The `prompt-imports` item a prior attempt of this Run persisted, so a
    * retry or worker resumption reuses completed results without rereading.
-   * An item that fails the producer's payload validation is treated as absent.
+   * An item with this producer and Run is authoritative; an invalid payload is
+   * an impossible server-written state and fails closed.
    */
   async findForRun(input: {
     id: string;
@@ -61,9 +62,16 @@ export class PromptImportPartsRepository {
     const parts: ReadonlyArray<unknown> = Array.isArray(row?.parts)
       ? row.parts
       : [];
-    return parts.find((part): part is PromptImportsPart =>
-      isRunPromptImportsPart(part, input.runId),
+    const stored = parts.find((part): part is ContextItemPart =>
+      isRunPromptImportsEnvelope(part, input.runId),
     );
+    if (stored === undefined) return undefined;
+    if (!isPromptImportsPartPayload(stored)) {
+      throw new Error(
+        `Stored prompt-imports item for Run ${input.runId} has an invalid payload.`,
+      );
+    }
+    return stored;
   }
 
   /**
@@ -105,14 +113,19 @@ export class PromptImportPartsRepository {
 }
 
 /** `isContextItemPart` validates the envelope only; the payload is ours to check. */
-function isRunPromptImportsPart(
+function isRunPromptImportsEnvelope(
   part: unknown,
   runId: string,
-): part is PromptImportsPart {
+): part is ContextItemPart {
   return (
     isContextItemPart(part) &&
     part.data.producer === PROMPT_IMPORTS_PRODUCER &&
-    part.data.runId === runId &&
-    isPromptImportsPayload(part.data.payload)
+    part.data.runId === runId
   );
+}
+
+function isPromptImportsPartPayload(
+  part: ContextItemPart,
+): part is PromptImportsPart {
+  return isPromptImportsPayload(part.data.payload);
 }

@@ -11,6 +11,7 @@ import {
 } from '@workspace/native-file-tools';
 
 import type { PromptImportOutcome } from '../chats/prompt-imports-item';
+import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import { importTargets } from '../import-markers/import-markers';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
@@ -26,6 +27,15 @@ export const MAX_PROMPT_IMPORT_READS = 8;
 export const MAX_PROMPT_IMPORT_BYTES = 128 * 1024;
 /** Work budget, probes included. */
 export const PROMPT_IMPORT_WORK_MS = 30_000;
+
+/**
+ * A Knowledge probe can be cancelled after the resolver has entered the
+ * filesystem. It closes this pass without turning the cancellation into a
+ * failed import.
+ */
+export const PROMPT_IMPORT_KNOWLEDGE_CANCELLED = Symbol(
+  'prompt-import-knowledge-cancelled',
+);
 
 const KNOWLEDGE_PREFIX = `${KNOWLEDGE_LOCATOR_SCHEME}://`;
 
@@ -45,7 +55,7 @@ export type PromptImportRequest = {
   /** The canonical `kb://` locator when the resource exists for the owner. */
   readonly probeKnowledge: (
     locatorWithoutSelector: string,
-  ) => Promise<string | undefined>;
+  ) => Promise<string | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED>;
   /**
    * One audited read. `ordinal` is the target's position among the distinct
    * markers, so a target keeps its call identity across retries. `admission`
@@ -84,6 +94,7 @@ type ImportRun = PromptImportResolution & {
   reads: number;
   bytes: number;
   outputFull: boolean;
+  knowledgeProbeCancelled: boolean;
 };
 
 /**
@@ -101,14 +112,20 @@ export async function resolvePromptImports(
     reads: 0,
     bytes: 0,
     outputFull: false,
+    knowledgeProbeCancelled: false,
   };
   const targets = importTargets(request.text).slice(
     0,
     MAX_PROMPT_IMPORT_MARKERS,
   );
   for (const [ordinal, target] of targets.entries()) {
-    const plan = planTarget(request, target);
-    if (plan !== undefined) await handleTarget(run, target, ordinal, plan);
+    try {
+      const plan = planTarget(request, target);
+      if (plan !== undefined) await handleTarget(run, target, ordinal, plan);
+    } catch (error) {
+      if (!isKnowledgeCancellation(error)) throw error;
+      run.knowledgeProbeCancelled = true;
+    }
   }
   return { outcomes: run.outcomes, omitted: run.omitted };
 }
@@ -175,6 +192,10 @@ async function handleTarget(
     return;
   }
   const resolved = await probePlan(run.request, plan);
+  if (resolved === PROMPT_IMPORT_KNOWLEDGE_CANCELLED) {
+    run.knowledgeProbeCancelled = true;
+    return;
+  }
   if (resolved === undefined) return;
   return attemptRead(run, {
     target,
@@ -192,12 +213,17 @@ async function handleTarget(
 async function probePlan(
   request: PromptImportRequest,
   plan: Exclude<ImportPlan, { kind: 'direct' }>,
-): Promise<string | undefined> {
+): Promise<string | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED> {
   if (plan.kind === 'knowledge') {
     const colon = plan.readPath.indexOf(':', KNOWLEDGE_PREFIX.length);
-    return request.probeKnowledge(
-      colon < 0 ? plan.readPath : plan.readPath.slice(0, colon),
-    );
+    try {
+      return await request.probeKnowledge(
+        colon < 0 ? plan.readPath : plan.readPath.slice(0, colon),
+      );
+    } catch (error) {
+      if (!isKnowledgeCancellation(error)) throw error;
+      return PROMPT_IMPORT_KNOWLEDGE_CANCELLED;
+    }
   }
   if (await request.probeHost(plan.hostPath)) return plan.hostPath;
   const { path, selector } = splitSelectorSuffix(plan.hostPath);
@@ -272,10 +298,19 @@ async function attemptRead(
   });
 }
 
-/** The work budget is spent or the Run was aborted. */
 function workExpired(run: ImportRun): boolean {
   return (
+    run.knowledgeProbeCancelled ||
     run.request.signal.aborted ||
     run.request.nowMs() - run.startedAt >= PROMPT_IMPORT_WORK_MS
+  );
+}
+
+function isKnowledgeCancellation(
+  error: unknown,
+): error is KnowledgeFilesystemError {
+  return (
+    error instanceof KnowledgeFilesystemError &&
+    error.code === 'knowledge_cancelled'
   );
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { type ToolResult } from '../tools/types';
 import {
@@ -27,6 +28,8 @@ type HarnessOptions = {
   readonly onRead?: (path: string, controller: AbortController) => void;
   /** Runs as a host probe starts; may abort the Run mid-probe. */
   readonly onProbe?: (controller: AbortController) => void;
+  /** Overrides the Knowledge probe for cancellation and failure cases. */
+  readonly probeKnowledge?: (locator: string) => Promise<string | undefined>;
 };
 
 const OK: ToolResult = { status: 'success', truncated: false };
@@ -62,7 +65,10 @@ function createHarness(options: HarnessOptions = {}) {
       probeKnowledge: (locator) => {
         calls.knowledgeProbes.push(locator);
         now += options.probeCostMs ?? 0;
-        return Promise.resolve(options.knowledge?.[locator]);
+        return (
+          options.probeKnowledge?.(locator) ??
+          Promise.resolve(options.knowledge?.[locator])
+        );
       },
       readImport: (path, ordinal) => {
         calls.reads.push({ path, ordinal });
@@ -691,5 +697,23 @@ describe('resolvePromptImports abort', () => {
       'https://x.test/0',
     ]);
     expect(result.omitted).toEqual(['https://x.test/1']);
+  });
+
+  it('cuts off the pass when a Knowledge probe is cancelled', async () => {
+    const { calls, run } = createHarness({
+      probeKnowledge: () =>
+        Promise.reject(new KnowledgeFilesystemError('knowledge_cancelled')),
+    });
+
+    const result = await run(
+      '@kb://notes/cancel.md @kb://notes/later.md @https://x.test/after',
+    );
+
+    expect(calls.knowledgeProbes).toEqual(['kb://notes/cancel.md']);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({
+      outcomes: [],
+      omitted: ['https://x.test/after'],
+    });
   });
 });

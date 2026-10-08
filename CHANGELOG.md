@@ -13,9 +13,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   group: a denied one is audited and named as not imported whether or not it
   exists, and an admitted missing one stays prose. Reads carry audit origin
   `prompt-import` and never appear as assistant tool calls; imported files do
-  not nest, `@skill://name` reads data without activating, 64 markers, 8 reads,
-  128 KiB, and 30 s bound the work, a retry reuses the stored item, and an
-  attempt that detaches the Workspace imports nothing. See
+  not nest, `@skill://name` reads data without activating, 64 markers, 8 reads
+  for admitted targets, 128 KiB, and 30 s bound the work, while a denied host or
+  Knowledge target within the marker cap is audited without a read and does not
+  count; a retry reuses the stored item, and an attempt that detaches the
+  Workspace imports nothing. See
   [prompt imports](docs/product/reference/prompt-imports.md).
 
 - Instruction files now expand same-store `@path`, `@[label](path)`, and

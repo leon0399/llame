@@ -249,7 +249,7 @@ describe('PromptImportPartsRepository.findForRun', () => {
     ).toBeUndefined();
   });
 
-  it('treats an item with an invalid payload as absent', async () => {
+  it('throws when this Run has an invalid stored payload', async () => {
     const malformed = createContextItemPart({
       producer: 'prompt-imports',
       form: 'notice',
@@ -258,7 +258,9 @@ describe('PromptImportPartsRepository.findForRun', () => {
       text: 'malformed',
     });
 
-    expect(await find([malformed])).toBeUndefined();
+    await expect(find([malformed])).rejects.toThrow(
+      `Stored prompt-imports item for Run ${RUN_ID} has an invalid payload.`,
+    );
   });
 
   it('returns undefined when the message is gone', async () => {

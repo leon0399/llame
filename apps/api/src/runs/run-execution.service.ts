@@ -146,6 +146,7 @@ import { ActivationPartsRepository } from '../chats/activation-parts.repository'
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import { createPromptImportsItem } from '../chats/prompt-imports-item';
 import {
+  PROMPT_IMPORT_KNOWLEDGE_CANCELLED,
   PROMPT_IMPORT_WORK_MS,
   resolvePromptImports as resolvePromptImportTargets,
   type PromptImportRequest,
@@ -157,6 +158,7 @@ import {
   type ToolContext,
   type ToolResult,
 } from '../tools/types';
+import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import {
   formatKnowledgeLocator,
   KNOWLEDGE_LOCATOR_SCHEME,
@@ -2448,12 +2450,22 @@ export class RunExecutionService {
   private async probePromptKnowledge(
     context: ToolContext,
     locator: string,
-  ): Promise<string | undefined> {
+  ): Promise<string | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED> {
     const rest = locator.slice(`${KNOWLEDGE_LOCATOR_SCHEME}://`.length);
     const parsed = parseKnowledgeLocator(rest);
     if ('type' in parsed) return undefined;
-    const target = await resolveKnowledgeLocator(context, locator, rest);
-    return 'status' in target ? undefined : formatKnowledgeLocator(parsed);
+    try {
+      const target = await resolveKnowledgeLocator(context, locator, rest);
+      return 'status' in target ? undefined : formatKnowledgeLocator(parsed);
+    } catch (error) {
+      if (
+        error instanceof KnowledgeFilesystemError &&
+        error.code === 'knowledge_cancelled'
+      ) {
+        return PROMPT_IMPORT_KNOWLEDGE_CANCELLED;
+      }
+      throw error;
+    }
   }
 
   /**

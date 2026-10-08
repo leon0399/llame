@@ -115,12 +115,12 @@ nothing; activation stays the `$review` form.
 
 ## Bounds
 
-| Bound              | Limit                                                                 |
-| ------------------ | --------------------------------------------------------------------- |
-| markers considered | 64, in first-occurrence order; later ones are prose                   |
-| reads per message  | 8 targets that survived the probe or need none                        |
-| output             | 128 KiB for the whole item; each result keeps `read`'s own truncation |
-| work               | 30 s, probes included, or the Run's remaining deadline                |
+| Bound              | Limit                                                                                                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| markers considered | 64, in first-occurrence order; later ones are prose                                                                                                               |
+| reads per message  | 8 admitted targets that survive the probe or need none; a denied host or Knowledge target (within the 64-marker cap) is audited without a read and does not count |
+| output             | 128 KiB for the whole item; each result keeps `read`'s own truncation                                                                                             |
+| work               | 30 s, probes included, or the Run's remaining deadline                                                                                                            |
 
 A target past the count or output bound, or one that survived probing when the
 time bound fires, is listed once as omitted and not read. A host or Knowledge

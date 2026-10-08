@@ -141,7 +141,10 @@ import {
 } from './run-execution.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
-import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
+import {
+  KnowledgeFilesystemAdapter,
+  KnowledgeFilesystemError,
+} from '../knowledge/knowledge-filesystem';
 import {
   TOOL_REGISTRY,
   registerTestOnlyTool,
@@ -11253,6 +11256,52 @@ describe('RunExecutionService prompt imports', () => {
     expect(signals[0]?.aborted).toBe(false);
     controller.abort();
     expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it('cuts off prompt imports when the Knowledge probe is cancelled', async () => {
+    const { append } = serveRepositories();
+    const spaceId = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+    const resolver: KnowledgeToolResolver = {
+      listForOwnerPage: () => Promise.resolve({ spaces: [] }),
+      resolveBindingForOwnerById: () =>
+        Promise.resolve({
+          id: spaceId,
+          root: '/knowledge',
+          directory: `/knowledge/${spaceId}`,
+        }),
+      createAdapter: () => ({
+        search: () => Promise.resolve([]),
+        resolveHostPath: () =>
+          Promise.reject(new KnowledgeFilesystemError('knowledge_cancelled')),
+        isInsideSpace: () => Promise.resolve(true),
+      }),
+    };
+    const read = vi.spyOn(nativeReadTool, 'execute');
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        allowed: ['read'],
+        knowledgeRoot: '/knowledge',
+        knowledgeResolver: resolver,
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      promptInput(
+        execution.client,
+        `see @kb://${spaceId}/cancel.md @kb://${spaceId}/later.md @https://example.test/after`,
+      ),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(read).not.toHaveBeenCalled();
+    expect(append).toHaveBeenCalledOnce();
+    expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+      imports: [],
+      omitted: ['https://example.test/after'],
+    });
   });
 
   it('replays a stored item on a detaching retry without reading again', async () => {
