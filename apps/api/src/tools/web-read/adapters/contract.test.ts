@@ -150,6 +150,15 @@ describe('createWebAdapters', () => {
       true,
     );
   });
+
+  it('creates a native Stack Exchange adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'qa', use: 'stackexchange' }]);
+    if (adapter === undefined)
+      throw new Error('expected Stack Exchange adapter');
+
+    expect(adapter).toMatchObject({ id: 'qa', route: 'native' });
+    expect(adapter.match(new URL('https://stackoverflow.com/q/42'))).toBe(true);
+  });
 });
 
 describe('dispatchWebAdapters', () => {

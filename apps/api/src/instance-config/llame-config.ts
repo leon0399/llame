@@ -506,6 +506,10 @@ export type RawWebAdapterEntry =
   | {
       id: string;
       use: 'arxiv';
+    }
+  | {
+      id: string;
+      use: 'stackexchange';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -563,13 +567,19 @@ export type ArxivWebAdapterConfig = {
   readonly use: 'arxiv';
 };
 
+export type StackexchangeWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'stackexchange';
+};
+
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
   | GithubWebAdapterConfig
   | BlueskyWebAdapterConfig
   | NpmWebAdapterConfig
   | HuggingfaceWebAdapterConfig
-  | ArxivWebAdapterConfig;
+  | ArxivWebAdapterConfig
+  | StackexchangeWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

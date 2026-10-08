@@ -18,6 +18,7 @@ import { createGithubAdapter } from './github/adapter';
 import { createHuggingfaceAdapter } from './huggingface/adapter';
 import { createNpmAdapter } from './npm/adapter';
 import { createRewriteAdapter } from './rewrite';
+import { createStackexchangeAdapter } from './stackexchange/adapter';
 
 export type WebAdapterRoute = 'native' | 'rewrite';
 
@@ -319,6 +320,8 @@ export function createWebAdapters(
         return createHuggingfaceAdapter(config);
       case 'arxiv':
         return createArxivAdapter(config);
+      case 'stackexchange':
+        return createStackexchangeAdapter(config);
       case 'rewrite':
         return createRewriteAdapter(config);
     }

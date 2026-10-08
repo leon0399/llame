@@ -887,6 +887,25 @@
                     "description": "Adapter implementation for arxiv.org abs, pdf, and html paper URLs."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native Stack Exchange adapter. It reads a question and its answers from the keyless api.stackexchange.com, which allows 300 requests per day per IP address; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["stackexchange"],
+                    "description": "Adapter implementation for Stack Overflow and other Stack Exchange question and answer URLs."
+                  }
+                }
               }
             ]
           }

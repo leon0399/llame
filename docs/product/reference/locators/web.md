@@ -377,6 +377,36 @@ A version without an HTML rendering reads the abstract page instead, with the
 note `full text omitted: status`. The render's media type is the converter's
 `text/markdown`.
 
+### Stack Exchange adapter
+
+A question renders its title, counts, tags, asker, license, and URL, the
+question body converted to Markdown, then each answer with the accepted one
+first and the rest by score:
+
+```text
+# Why is processing a sorted array faster than processing an unsorted array?
+
+Score: 27,546 · Answers: 25 · Views: 2,004,504
+Tags: java, c++, performance, cpu-architecture, branch-prediction
+Asked: 2012-06-27T13:51:36.000Z by GManNickG
+License: CC BY-SA 4.0
+URL: https://stackoverflow.com/questions/11227809/...
+
+## Question
+...
+
+---
+
+## Answer · 1/25 — accepted · score 35,296 — Mysticial
+...
+Source: https://stackoverflow.com/a/11227902
+Date: 2012-06-27T13:56:42.000Z
+```
+
+An `/a/` link, or a `/q/` link that names an answer, renders the whole thread.
+`answers truncated: the first 100 by score` when there are more, and a failed
+answers request keeps the question with an `answers omitted:` note.
+
 ## Bounds
 
 | Bound                         | Value                                                                                                         |
