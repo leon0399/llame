@@ -61,7 +61,7 @@ output.
 - [x] 1.6 Write `docs/product/operator/web-search.md` (configuration, chain semantics, deadlines, the `web_search` permission group and query-exfiltration warning, Brave setup and terms, storage posture) and `docs/product/reference/tools/web-search.md`; link both from their indexes; update `SPEC.md` and `README.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 1.7 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites
 - [x] 1.8 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
-- [ ] 1.9 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 1.9 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 2. `web-search/engines-api` — Exa, Perplexity, SearXNG (design D6)
 
@@ -71,7 +71,7 @@ output.
 - [x] 2.4 Implement the `searxng` engine against its `baseUrl` with `time_range` (noting `week` sent as `month`); verify by fixture tests, including that an `http:` base URL is used as configured, redirects are refused, and a 403 is `upstream_error`
 - [x] 2.5 Document the three engines, their credentials, their storage terms, and SearXNG's required `search.formats: [html, json]` in the runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 2.6 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
-- [ ] 2.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 2.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 3. `web-search/engines-keyless` — Exa MCP, DuckDuckGo (design D6, D7)

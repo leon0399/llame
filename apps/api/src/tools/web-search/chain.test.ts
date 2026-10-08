@@ -207,6 +207,28 @@ it('removes the canonicalized empty note when a later engine fails', async () =>
     notes: ['backup: auth'],
   });
 });
+it('removes only the answering empty engine note at any chain position', async () => {
+  const output = await executeSearchChain(
+    config(['first', 'invalid', 'last']),
+    request(),
+    lookup({
+      first: () => Promise.reject(new EngineFailure('upstream_error')),
+      invalid: () =>
+        Promise.resolve({
+          kind: 'results',
+          results: [{ title: 'Invalid', url: 'not a url' }],
+        }),
+      last: () => Promise.reject(new EngineFailure('upstream_error')),
+    }),
+  );
+  expect(output).toEqual({
+    kind: 'results',
+    engine: 'invalid',
+    query: 'llame',
+    results: [],
+    notes: ['first: upstream_error', 'last: upstream_error'],
+  });
+});
 
 it('returns the last empty engine after failures and emptiness', async () => {
   const output = await executeSearchChain(
