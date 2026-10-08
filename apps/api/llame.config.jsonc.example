@@ -527,8 +527,8 @@
     // Optional ordered web adapters; absent means none, and a present array is
     // the exact enabled list. This example includes native GitHub, Bluesky,
     // npm, Hugging Face, arXiv, Stack Exchange, crates.io, Hacker News, DOI,
-    // Discourse, dev.to, Substack, and OSV adapters and sends x.com status paths
-    // to the operator-declared origin below.
+    // Discourse, dev.to, Substack, OSV, and Wikipedia adapters and sends x.com
+    // status paths to the operator-declared origin below.
     // "webAdapters": [
     //   {
     //     "id": "github",
@@ -551,6 +551,7 @@
     //   { "id": "devto", "use": "devto" },
     //   { "id": "substack", "use": "substack" },
     //   { "id": "advisories", "use": "osv" },
+    //   { "id": "wikipedia", "use": "wikipedia" },
     //   {
     //     "id": "x",
     //     "use": "rewrite",

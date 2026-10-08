@@ -93,7 +93,7 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
 `github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, `crates`, `hackernews`, `doi`, `discourse`, `devto`,
-`substack`, or `osv` entry. What an adapter does to a result — its
+`substack`, `osv`, or `wikipedia` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -481,6 +481,26 @@ A read is one request to `https://api.osv.dev/v1/vulns/{id}`, so a domain
 allowlist needs `^https://api\.osv\.dev/` as well as the advisory pages.
 Repository security advisories under `github.com/{owner}/{repo}/security` stay on
 the generic ladder.
+
+### Wikipedia adapter
+
+Add a `wikipedia` entry to read Wikipedia articles as their prose, without the
+citation markers, reference lists, navigation boxes, and infobox the page
+carries:
+
+```jsonc
+{ "id": "wikipedia", "use": "wikipedia" }
+```
+
+The entry takes no other field and sends no credential. It claims
+`https://{lang}.wikipedia.org/wiki/{title}` and the mobile
+`{lang}.m.wikipedia.org` form on any language edition; non-article namespaces
+such as `Special:`, `Talk:`, `File:`, and `Category:` stay on the generic
+ladder. A read is one request to
+`https://{lang}.wikipedia.org/w/rest.php/v1/page/{title}/html`, plus the
+same-origin hop a redirect title answers with, so a domain allowlist clause for
+`^https://[a-z-]+\.wikipedia\.org/` covers it. Infobox facts are dropped with
+the table; read the page through the generic ladder when you need them.
 
 ## Derived locators and permission admission
 

@@ -530,7 +530,7 @@ export type RawWebAdapterEntry =
     }
   | {
       id: string;
-      use: 'devto' | 'substack' | 'osv';
+      use: 'devto' | 'substack' | 'osv' | 'wikipedia';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -631,6 +631,11 @@ export type OsvWebAdapterConfig = {
   readonly use: 'osv';
 };
 
+export type WikipediaWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'wikipedia';
+};
+
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
   | GithubWebAdapterConfig
@@ -645,7 +650,8 @@ export type WebAdapterConfig =
   | DiscourseWebAdapterConfig
   | DevtoWebAdapterConfig
   | SubstackWebAdapterConfig
-  | OsvWebAdapterConfig;
+  | OsvWebAdapterConfig
+  | WikipediaWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

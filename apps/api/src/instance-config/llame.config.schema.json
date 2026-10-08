@@ -1045,6 +1045,25 @@
                     "description": "Adapter implementation for OSV.dev, NVD, GitHub advisory, and cve.org advisory URLs."
                   }
                 }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "One native Wikipedia adapter. It reads article HTML from the keyless Wikimedia REST API and renders it without citations, navigation, or infobox; it takes no credential.",
+                "required": ["id", "use"],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 56,
+                    "description": "Operator-chosen adapter identifier, unique within tools.webAdapters."
+                  },
+                  "use": {
+                    "type": "string",
+                    "enum": ["wikipedia"],
+                    "description": "Adapter implementation for {lang}.wikipedia.org article URLs."
+                  }
+                }
               }
             ]
           }

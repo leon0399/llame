@@ -1936,8 +1936,8 @@ redirect: a 3xx answer SHALL fail it as `http_status`.
 There SHALL be no adapter request-count cap; the rendered adapter document
 SHALL be bounded at 5 MiB. The GitHub `token` SHALL be the only adapter
 credential, and the Bluesky, npm, Hugging Face, arXiv, Stack Exchange,
-crates.io, Hacker News, DOI, Discourse, dev.to, Substack, and OSV adapters
-SHALL send none; the GitHub token SHALL be
+crates.io, Hacker News, DOI, Discourse, dev.to, Substack, OSV, and
+Wikipedia adapters SHALL send none; the GitHub token SHALL be
 sent only to `https://api.github.com` and SHALL be
 removed before any cross-origin hop. An adapter SHALL never widen the source
 permission or bypass address admission.
@@ -1962,8 +1962,8 @@ representation requirements can decide whether a member applies: the GitHub
 adapter labels its issue, pull request, repository, and commit renders
 `text/markdown` and a decoded blob by the same extension table the file
 sources use; the Bluesky, npm, Hugging Face, Stack Exchange, crates.io,
-Hacker News, DOI, Discourse, dev.to, Substack, and OSV adapters label their
-renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
+Hacker News, DOI, Discourse, dev.to, Substack, OSV, and Wikipedia adapters
+label their renders `text/markdown` and the arXiv adapter forwards its converter's label; a rewrite
 adapter forwards the media type its inner render
 reports. The label is internal and SHALL NOT be returned as a result field. A successful
 adapter MAY return a directory read instead of text; it SHALL be rendered
@@ -2680,6 +2680,28 @@ rendered as a package version.
 - **WHEN** the model reads `https://github.com/advisories/GHSA-jfh8-c2jp-5v3q`
 - **THEN** the adapter requests only `https://api.osv.dev/v1/vulns/GHSA-jfh8-c2jp-5v3q`
 - **AND** the text lists the CVE alias, severity, and the affected Maven ranges with their fixed versions
+
+### Requirement: Wikipedia native adapter reads articles
+
+A configured `wikipedia` adapter SHALL claim only
+`https://{lang}.wikipedia.org/wiki/{title}` and
+`https://{lang}.m.wikipedia.org/wiki/{title}` locators whose decoded title is
+not in a non-article namespace (`Special:`, `Talk:`, `User:`, `File:`,
+`Template:`, `Category:`, `Help:`, `Portal:`, `Draft:`, `Module:`, and the like),
+and SHALL send one unauthenticated `GET` to
+`https://{lang}.wikipedia.org/w/rest.php/v1/page/{title}/html`, following the
+same-origin redirect a redirect title answers with. A failed response, or an
+article with no text after cleanup, SHALL fall through. The render SHALL be
+`# {title}`, a `URL` line, and the body converted to Markdown with citation
+markers, reference lists, edit links, navigation boxes, maintenance notices,
+the infobox, and images removed, code as fenced blocks, and article links
+absolute.
+
+#### Scenario: A redirect title renders its target article
+
+- **WHEN** the model reads `https://en.wikipedia.org/wiki/Rust_language`
+- **THEN** the adapter requests that title's page HTML and follows its redirect to `Rust_(programming_language)`
+- **AND** the text starts with `# Rust (programming language)` and contains no `[1]` citation markers
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 

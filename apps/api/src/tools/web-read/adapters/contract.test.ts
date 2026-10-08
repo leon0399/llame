@@ -188,6 +188,18 @@ describe('createWebAdapters', () => {
     );
   });
 
+  it('creates a native Wikipedia adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([
+      { id: 'wikipedia', use: 'wikipedia' },
+    ]);
+    if (adapter === undefined) throw new Error('expected Wikipedia adapter');
+
+    expect(adapter).toMatchObject({ id: 'wikipedia', route: 'native' });
+    expect(adapter.match(new URL('https://en.wikipedia.org/wiki/Rust'))).toBe(
+      true,
+    );
+  });
+
   it('creates a native OSV adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'advisories', use: 'osv' }]);
     if (adapter === undefined) throw new Error('expected OSV adapter');
