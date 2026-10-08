@@ -230,7 +230,7 @@ describe('PromptImportPartsRepository.findForRun', () => {
     ]);
 
     expect(found).toEqual(stored);
-    expect(found?.data.payload.imports).toEqual([
+    expect(found?.data.payload?.imports).toEqual([
       {
         locator: 'notes.md',
         resolved: '/repo/notes.md',
@@ -249,7 +249,7 @@ describe('PromptImportPartsRepository.findForRun', () => {
     ).toBeUndefined();
   });
 
-  it('throws when this Run has an invalid stored payload', async () => {
+  it("returns this Run's item with an undefined payload when invalid", async () => {
     const malformed = createContextItemPart({
       producer: 'prompt-imports',
       form: 'notice',
@@ -258,9 +258,13 @@ describe('PromptImportPartsRepository.findForRun', () => {
       text: 'malformed',
     });
 
-    await expect(find([malformed])).rejects.toThrow(
-      `Stored prompt-imports item for Run ${RUN_ID} has an invalid payload.`,
-    );
+    const found = await find([malformed]);
+
+    expect(found).toEqual({
+      ...malformed,
+      data: { ...malformed.data, payload: undefined },
+    });
+    expect(found?.data.payload).toBeUndefined();
   });
 
   it('returns undefined when the message is gone', async () => {

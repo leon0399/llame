@@ -11020,6 +11020,33 @@ describe('RunExecutionService prompt imports', () => {
     }
   });
 
+  it('does not read again when the stored item payload is unreadable', async () => {
+    const root = repoRoot();
+    try {
+      const { find, append, events } = serveRepositories();
+      bindChat(root);
+      const stored = storedImportItem(root);
+      find.mockResolvedValue({
+        ...stored,
+        data: { ...stored.data, payload: undefined },
+      });
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const execution = serviceFor(['enter_workspace', 'read']);
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(find).toHaveBeenCalledOnce();
+      expect(read).not.toHaveBeenCalled();
+      expect(append).not.toHaveBeenCalled();
+      expect(importEvents(events)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('never turns prompt-import activity into an assistant tool part', async () => {
     const root = repoRoot();
     try {

@@ -2373,6 +2373,7 @@ export class RunExecutionService {
     const stored = await this.tenantDb.runAs(input.userId, (tx) =>
       new PromptImportPartsRepository(tx).findForRun(message),
     );
+    // Presence is authoritative even when an older reader cannot decode payload.
     if (stored !== undefined) return;
     const { outcomes, omitted } = await resolvePromptImportTargets(
       this.promptImportRequest(step),

@@ -34,9 +34,18 @@ const PROMPT_IMPORTS_RANK = CONTEXT_ITEM_PRODUCERS.indexOf(
   PROMPT_IMPORTS_PRODUCER,
 );
 
-/** A stored `prompt-imports` item whose payload passed this producer's validator. */
+/**
+ * A stored `prompt-imports` item. Its payload is present only when this
+ * producer's validator accepts it.
+ */
 export type PromptImportsPart = Omit<ContextItemPart, 'data'> & {
   readonly data: Omit<ContextItemPart['data'], 'payload'> & {
+    readonly payload: PromptImportsPayload | undefined;
+  };
+};
+
+type ValidPromptImportsPart = Omit<PromptImportsPart, 'data'> & {
+  readonly data: Omit<PromptImportsPart['data'], 'payload'> & {
     readonly payload: PromptImportsPayload;
   };
 };
@@ -47,8 +56,9 @@ export class PromptImportPartsRepository {
   /**
    * The `prompt-imports` item a prior attempt of this Run persisted, so a
    * retry or worker resumption reuses completed results without rereading.
-   * An item with this producer and Run is authoritative; an invalid payload is
-   * an impossible server-written state and fails closed.
+   * An item with this producer and Run is authoritative. An unreadable payload
+   * is retained as undefined so an older reader degrades rather than rejecting
+   * a newer writer's part.
    */
   async findForRun(input: {
     id: string;
@@ -66,12 +76,14 @@ export class PromptImportPartsRepository {
       isRunPromptImportsEnvelope(part, input.runId),
     );
     if (stored === undefined) return undefined;
-    if (!isPromptImportsPartPayload(stored)) {
-      throw new Error(
-        `Stored prompt-imports item for Run ${input.runId} has an invalid payload.`,
-      );
-    }
-    return stored;
+    if (isPromptImportsPartPayload(stored)) return stored;
+    return {
+      ...stored,
+      data: {
+        ...stored.data,
+        payload: undefined,
+      },
+    };
   }
 
   /**
@@ -126,6 +138,6 @@ function isRunPromptImportsEnvelope(
 
 function isPromptImportsPartPayload(
   part: ContextItemPart,
-): part is PromptImportsPart {
+): part is ValidPromptImportsPart {
   return isPromptImportsPayload(part.data.payload);
 }
