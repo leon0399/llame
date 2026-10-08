@@ -8,8 +8,11 @@ for the placement of owner `file` parts stated below, omit declared display-only
 parts except reasoning parts, which `reasoning-output`
 returns to the provider for the Chat that stores them, and map each surviving
 `data-context` part on a user message to one
-ordinary SDK text part containing `data.text`, followed by the image parts of
-any image entries that `prompt-imports` attaches to that item. A `data-context`
+ordinary SDK text part containing `data.text`, followed, for each image entry
+that `prompt-imports` attaches to that item, by either one image part built from
+the referenced object's model variant or the image placeholder text part, chosen
+by the image window and the request model's declared input as `media-attachments`
+requires. A `data-context`
 part stored on an
 assistant message SHALL be mapped to one user-role message containing one text
 part with `data.text`, emitted directly after the tool-result message of the
@@ -127,6 +130,16 @@ no other stored form of superseded history is replayed.
 - **WHEN** the same stored tool part is replayed to a model whose `input` lacks `image`
 - **THEN** the tool output carries the result's text followed by the image placeholder
 - **AND** it carries no image part
+
+#### Scenario: A prompt-import image crosses as an image part or a placeholder
+
+- **WHEN** a stored user message holds a `data-context` item to which `prompt-imports` attaches one
+  image entry, and the request is replayed once to a model declaring `image` input with the
+  reference inside the image window and once to a model whose `input` lacks `image`
+- **THEN** the first request supplies the item's text followed by one image part built from the
+  referenced object's model variant
+- **AND** the second supplies the item's text followed by the image placeholder text part and no
+  image part for that entry
 
 #### Scenario: Another owner's media never enters the request
 
