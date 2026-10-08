@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `crates` web adapter. With `{ "id": "crates", "use": "crates" }`
+  in `tools.webAdapters`, `read` renders crates.io crate and version pages,
+  which serve an empty JavaScript shell, as the version's metadata, features,
+  dependencies by kind, and README.
 - Added a native `stackexchange` web adapter. With
   `{ "id": "stackexchange", "use": "stackexchange" }` in `tools.webAdapters`,
   `read` renders Stack Overflow and other Stack Exchange question and answer

@@ -14,6 +14,7 @@ import {
 } from '../pipeline';
 import { createArxivAdapter } from './arxiv/adapter';
 import { createBlueskyAdapter } from './bluesky/adapter';
+import { createCratesAdapter } from './crates/adapter';
 import { createGithubAdapter } from './github/adapter';
 import { createHuggingfaceAdapter } from './huggingface/adapter';
 import { createNpmAdapter } from './npm/adapter';
@@ -322,6 +323,8 @@ export function createWebAdapters(
         return createArxivAdapter(config);
       case 'stackexchange':
         return createStackexchangeAdapter(config);
+      case 'crates':
+        return createCratesAdapter(config);
       case 'rewrite':
         return createRewriteAdapter(config);
     }

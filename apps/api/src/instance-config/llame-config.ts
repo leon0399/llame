@@ -510,6 +510,10 @@ export type RawWebAdapterEntry =
   | {
       id: string;
       use: 'stackexchange';
+    }
+  | {
+      id: string;
+      use: 'crates';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -572,6 +576,11 @@ export type StackexchangeWebAdapterConfig = {
   readonly use: 'stackexchange';
 };
 
+export type CratesWebAdapterConfig = {
+  readonly id: string;
+  readonly use: 'crates';
+};
+
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
   | GithubWebAdapterConfig
@@ -579,7 +588,8 @@ export type WebAdapterConfig =
   | NpmWebAdapterConfig
   | HuggingfaceWebAdapterConfig
   | ArxivWebAdapterConfig
-  | StackexchangeWebAdapterConfig;
+  | StackexchangeWebAdapterConfig
+  | CratesWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

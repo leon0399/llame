@@ -92,7 +92,7 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` absent means `[]` (no adapter); when present, the array is
 the exact ordered list, with no built-in entries. An entry is a `rewrite`,
-`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, or `stackexchange` entry. What an adapter does to a result — its
+`github`, `bluesky`, `npm`, `huggingface`, `arxiv`, `stackexchange`, or `crates` entry. What an adapter does to a result — its
 `method`, its provenance, its notes, and the documents it renders — is in [web
 locators](../reference/locators/web.md#behavior).
 
@@ -333,6 +333,26 @@ per IP address. The API reports a spent quota or a throttle as HTTP 400, so
 until it resets reads fall through with `status`, or keep the question with
 `answers omitted: status`. With a domain allowlist, add a clause for
 `^https://api\.stackexchange\.com/`.
+
+### crates.io adapter
+
+Add a `crates` entry to render crates.io pages, which serve an empty
+JavaScript shell to the generic ladder:
+
+```jsonc
+{ "id": "crates", "use": "crates" }
+```
+
+The entry takes no other field and sends no credential. It claims
+`https://crates.io/crates/{name}` and `/crates/{name}/{version}`; search,
+version lists, and other pages stay on the generic ladder. A read requests
+`https://crates.io/api/v1/crates/{name}?include=default_version`, the pinned
+version's `/api/v1/crates/{name}/{version}` when the URL names one other than
+the default, then the version's `/dependencies` and `/readme`. The README
+redirects to `https://static.crates.io/readmes/...`, so with a domain allowlist
+add clauses for `^https://crates\.io/api/` and `^https://static\.crates\.io/`;
+without the second, reads carry `readme omitted: permission`. A failed
+dependency list or README keeps the rest with an omission note.
 
 ## Derived locators and permission admission
 
