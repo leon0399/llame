@@ -21,13 +21,7 @@ const BraveResultSchema = z.object({
 const BravePayloadSchema = z.object({
   web: z.object({ results: z.array(z.unknown()).optional() }).optional(),
 });
-
 type BravePayload = z.infer<typeof BravePayloadSchema>;
-
-function parseBravePayload(body: string): BravePayload {
-  // SAFETY: JSON.parse returns any; Zod validates the complete Brave payload.
-  return BravePayloadSchema.parse(JSON.parse(body) as unknown);
-}
 
 function textContent(value: string): string {
   const document = parseHTML(
@@ -81,7 +75,7 @@ export function createBraveEngine(
         fetch: deps.fetch,
         userAgent: request.userAgent,
       },
-      parseBravePayload,
+      BravePayloadSchema,
     );
     const results = readResults(payload);
     return results.length === 0

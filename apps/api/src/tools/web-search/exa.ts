@@ -18,66 +18,39 @@ const ExaResultSchema = z.object({
   url: z.string(),
   publishedDate: z.string().optional(),
   highlights: z.array(z.string()).optional(),
-  text: z.string().optional(),
 });
 const ExaPayloadSchema = z.object({ results: z.array(z.unknown()) });
-type ExaPayload = z.infer<typeof ExaPayloadSchema>;
-export type ExaDependencies = {
-  readonly fetch: VendorFetch;
-  readonly now?: () => Date;
-};
 
-type ExaRequestBody = {
-  readonly query: string;
-  readonly numResults: number;
-  readonly includeDomains?: ReadonlyArray<string>;
-  readonly excludeDomains?: ReadonlyArray<string>;
-  readonly startPublishedDate?: string;
-  readonly contents: { readonly highlights: true };
-};
-
-function parseExaPayload(body: string): ExaPayload {
-  // SAFETY: JSON.parse returns any; Zod validates the complete Exa envelope.
-  return ExaPayloadSchema.parse(JSON.parse(body) as unknown);
-}
-
-function mapExaResult(value: unknown): RawResult | undefined {
+function mapExaResult(value: unknown): Array<RawResult> {
   const parsed = ExaResultSchema.safeParse(value);
-  if (!parsed.success) return undefined;
+  if (!parsed.success) return [];
   const { data } = parsed;
-  const snippet = data.highlights?.[0] ?? data.text;
-  return {
-    title: data.title,
-    url: data.url,
-    ...(snippet !== undefined && { snippet }),
-    ...(data.publishedDate !== undefined && { published: data.publishedDate }),
-  };
+  return [
+    {
+      title: data.title,
+      url: data.url,
+      ...(data.highlights?.[0] !== undefined && {
+        snippet: data.highlights[0],
+      }),
+      ...(data.publishedDate !== undefined && {
+        published: data.publishedDate,
+      }),
+    },
+  ];
 }
 
-function readResults(payload: ExaPayload): Array<RawResult> {
-  return payload.results.flatMap((value) => {
-    const result = mapExaResult(value);
-    return result === undefined ? [] : [result];
-  });
-}
-
-function cutoffDate(
-  recency: EngineRequest['recency'],
-  now: () => Date,
-): string | undefined {
-  if (recency === undefined) return undefined;
-  return new Date(now().getTime() - RECENCY_MS[recency]).toISOString();
-}
-
-function requestBody(request: EngineRequest, now: () => Date): ExaRequestBody {
+function requestBody(request: EngineRequest) {
   const filters = splitSiteFilters(request.query);
-  const startPublishedDate = cutoffDate(request.recency, now);
   return {
-    query: filters.query,
+    query: filters.query || request.query,
     numResults: request.limit,
     ...(filters.include.length > 0 && { includeDomains: filters.include }),
     ...(filters.exclude.length > 0 && { excludeDomains: filters.exclude }),
-    ...(startPublishedDate !== undefined && { startPublishedDate }),
+    ...(request.recency !== undefined && {
+      startPublishedDate: new Date(
+        Date.now() - RECENCY_MS[request.recency],
+      ).toISOString(),
+    }),
     contents: { highlights: true },
   };
 }
@@ -85,9 +58,8 @@ function requestBody(request: EngineRequest, now: () => Date): ExaRequestBody {
 /** Create an Exa Search API adapter for one resolved operator engine. */
 export function createExaEngine(
   config: { readonly key: string },
-  deps: ExaDependencies,
+  deps: { readonly fetch: VendorFetch },
 ): Engine {
-  const now = deps.now ?? (() => new Date());
   return async (request: EngineRequest) => {
     const payload = await fetchVendorJson(
       EXA_SEARCH_URL,
@@ -98,16 +70,16 @@ export function createExaEngine(
           'Content-Type': 'application/json',
           'x-api-key': config.key,
         },
-        body: JSON.stringify(requestBody(request, now)),
+        body: JSON.stringify(requestBody(request)),
       },
       {
         signal: request.signal,
         fetch: deps.fetch,
         userAgent: request.userAgent,
       },
-      parseExaPayload,
+      ExaPayloadSchema,
     );
-    const results = readResults(payload);
+    const results = payload.results.flatMap(mapExaResult);
     return results.length === 0
       ? { kind: 'empty' }
       : { kind: 'results', results };

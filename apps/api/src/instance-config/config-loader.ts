@@ -542,23 +542,22 @@ function resolveWebSearchEngine(
   timeoutSeconds: number,
   env: NodeJS.ProcessEnv,
 ): WebSearchEngineConfig {
+  const base = { id: entry.id, timeoutSeconds };
   if (entry.type === 'searxng') {
     return {
-      id: entry.id,
+      ...base,
       type: entry.type,
       baseUrl: resolveSearxngBaseUrl(
         `${entryPath}.baseUrl`,
         entry.baseUrl,
         env,
       ),
-      timeoutSeconds,
     };
   }
   return {
-    id: entry.id,
+    ...base,
     type: entry.type,
     key: requireNonBlankString(`${entryPath}.key`, entry.key, env),
-    timeoutSeconds,
   };
 }
 
@@ -568,17 +567,17 @@ function resolveSearxngBaseUrl(
   env: NodeJS.ProcessEnv,
 ): string {
   const resolved = requireNonBlankString(configPath, raw, env);
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(resolved);
-  } catch {
+  const parsedUrl = URL.parse(resolved);
+  if (
+    parsedUrl === null ||
+    (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') ||
+    parsedUrl.username !== '' ||
+    parsedUrl.password !== '' ||
+    parsedUrl.search !== '' ||
+    parsedUrl.hash !== ''
+  ) {
     throw new InstanceConfigError(
-      `${configPath}: must be an absolute http or https URL`,
-    );
-  }
-  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-    throw new InstanceConfigError(
-      `${configPath}: must be an absolute http or https URL`,
+      `${configPath}: must be an absolute http or https URL without userinfo, query, or fragment`,
     );
   }
   return resolved;

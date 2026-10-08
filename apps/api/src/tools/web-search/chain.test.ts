@@ -10,7 +10,7 @@ import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
 } from '../../instance-config/llame-config';
-import { type VendorFetch } from './http';
+import { captureFetch } from './test-fetch';
 
 const request = (
   signal: AbortSignal = new AbortController().signal,
@@ -43,73 +43,28 @@ it('uses the stable EngineFailure name', () => {
 });
 const result = (): Promise<EngineOutcome> => Promise.resolve(hit);
 const empty = (): Promise<EngineOutcome> => Promise.resolve({ kind: 'empty' });
-type EndpointCapture = {
-  readonly fetch: VendorFetch;
-  readonly url: () => string;
-};
-function requestUrl(input: RequestInfo | URL): string {
-  if (input instanceof URL) return input.href;
-  if (input instanceof Request) return input.url;
-  return input;
-}
-function captureEndpoint(body: string): EndpointCapture {
-  let seen = '';
-  const fetch: VendorFetch = (input) => {
-    seen = requestUrl(input);
-    return Promise.resolve(
-      new Response(body, { headers: { 'content-type': 'application/json' } }),
-    );
-  };
-  return { fetch, url: () => seen };
-}
-async function expectFactoryEndpoint(
-  configEntry: WebSearchEngineConfig,
-  body: string,
-  expectedUrl: string,
-): Promise<void> {
-  const captured = captureEndpoint(body);
-  const output = await createEngine(configEntry, { fetch: captured.fetch })(
-    request(),
-  );
-  const actual = new URL(captured.url());
-  expect(actual.origin + actual.pathname).toBe(expectedUrl);
-  expect(output.kind).toBe('results');
-}
-it('createEngine wires brave', async () => {
-  await expectFactoryEndpoint(
+type FactoryCase = readonly [string, WebSearchEngineConfig, string, string];
+const factoryCases: ReadonlyArray<FactoryCase> = [
+  [
+    'brave',
     { id: 'brave', type: 'brave', key: 'key', timeoutSeconds: 60 },
     JSON.stringify({
       web: { results: [{ title: 'Result', url: 'https://example.test/a' }] },
     }),
     'https://api.search.brave.com/res/v1/web/search',
-  );
-});
-
-it('createEngine wires exa', async () => {
-  await expectFactoryEndpoint(
-    {
-      id: 'exa',
-      type: 'exa',
-      key: 'key',
-      timeoutSeconds: 60,
-    },
+  ],
+  [
+    'exa',
+    { id: 'exa', type: 'exa', key: 'key', timeoutSeconds: 60 },
     JSON.stringify({
       results: [{ title: 'Result', url: 'https://example.test/a' }],
     }),
     'https://api.exa.ai/search',
-  );
-});
-
-it('createEngine wires perplexity', async () => {
-  await expectFactoryEndpoint(
-    {
-      id: 'perplexity',
-      type: 'perplexity',
-      key: 'key',
-      timeoutSeconds: 60,
-    },
+  ],
+  [
+    'perplexity',
+    { id: 'perplexity', type: 'perplexity', key: 'key', timeoutSeconds: 60 },
     JSON.stringify({
-      id: 'search-id',
       results: [
         {
           title: 'Result',
@@ -119,11 +74,9 @@ it('createEngine wires perplexity', async () => {
       ],
     }),
     'https://api.perplexity.ai/search',
-  );
-});
-
-it('createEngine wires searxng', async () => {
-  await expectFactoryEndpoint(
+  ],
+  [
+    'searxng',
     {
       id: 'searxng',
       type: 'searxng',
@@ -134,8 +87,20 @@ it('createEngine wires searxng', async () => {
       results: [{ title: 'Result', url: 'https://example.test/a' }],
     }),
     'http://localhost:8888/prefix/search',
-  );
-});
+  ],
+];
+it.each(factoryCases)(
+  'createEngine wires %s',
+  async (_name, configEntry, body, expectedUrl) => {
+    const captured = captureFetch(body);
+    const output = await createEngine(configEntry, { fetch: captured.fetch })(
+      request(),
+    );
+    const actual = new URL(captured.seen().url);
+    expect(actual.origin + actual.pathname).toBe(expectedUrl);
+    expect(output.kind).toBe('results');
+  },
+);
 
 it('appends engine notes after chain notes', async () => {
   const output = await executeSearchChain(

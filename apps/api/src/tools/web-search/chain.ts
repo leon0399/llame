@@ -53,7 +53,6 @@ type AnswerOutcome = {
   readonly kind: 'answer';
   readonly answer: string;
   readonly citations: ReadonlyArray<RawCitation>;
-  readonly notes?: ReadonlyArray<string>;
 };
 type EmptyOutcome = {
   readonly kind: 'empty';
@@ -144,12 +143,6 @@ function canonicalizeOutcome(
     ? { ...outcome, results: canonicalizeResults(outcome.results) }
     : { ...outcome, citations: canonicalizeCitations(outcome.citations) };
 }
-function isUngroundedAnswer(success: ResultOutcome | AnswerOutcome): boolean {
-  return (
-    success.kind === 'answer' &&
-    (success.answer.trim() === '' || success.citations.length === 0)
-  );
-}
 
 async function runOne(
   engine: Engine,
@@ -212,19 +205,12 @@ function classifyOutcome(
     notes.push(`${id}: ${outcome}`);
     return { kind: 'continue' };
   }
-  if (outcome.kind === 'empty') {
-    notes.push(`${id}: empty`);
-    return {
-      kind: 'continue',
-      lastEmpty: {
-        engine: id,
-        noteIndex: notes.length - 1,
-        notes: outcome.notes,
-      },
-    };
-  }
-  const success = canonicalizeOutcome(outcome);
-  if (success.kind === 'results' && success.results.length === 0) {
+  const success =
+    outcome.kind === 'empty' ? outcome : canonicalizeOutcome(outcome);
+  if (
+    success.kind === 'empty' ||
+    (success.kind === 'results' && success.results.length === 0)
+  ) {
     notes.push(`${id}: empty`);
     return {
       kind: 'continue',
@@ -235,7 +221,10 @@ function classifyOutcome(
       },
     };
   }
-  if (isUngroundedAnswer(success)) {
+  if (
+    success.kind === 'answer' &&
+    (success.answer.trim() === '' || success.citations.length === 0)
+  ) {
     notes.push(`${id}: ungrounded`);
     return { kind: 'continue' };
   }

@@ -12,9 +12,11 @@ export function splitSiteFilters(query: string): SiteFilters {
     .trim()
     .split(/\s+/)
     .filter((token) => {
-      const match = /^(site:|-site:)(\S+)$/i.exec(token);
+      const match = /^(-?)site:(\S+)/iu.exec(token);
       if (match === null) return true;
-      (match[1].startsWith('-') ? exclude : include).push(match[2]);
+      const host = match[2].replaceAll(/^["'(),]+|["'(),]+$/gu, '');
+      if (host.length === 0) return true;
+      (match[1] === '-' ? exclude : include).push(host);
       return false;
     });
   return { query: remaining.join(' '), include, exclude };

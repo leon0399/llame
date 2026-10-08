@@ -14,97 +14,41 @@ const PerplexityResultSchema = z.object({
 });
 const PerplexityPayloadSchema = z.object({
   results: z.array(z.unknown()),
-  id: z.string(),
 });
-type PerplexityPayload = z.infer<typeof PerplexityPayloadSchema>;
-type PerplexityRequestBody = {
-  readonly query: string;
-  readonly max_results: number;
-  readonly search_recency_filter?: NonNullable<EngineRequest['recency']>;
-  readonly search_domain_filter?: ReadonlyArray<string>;
-};
-type DomainPlan = {
-  readonly query: string;
-  readonly domains: ReadonlyArray<string>;
-  readonly stayedInQuery: boolean;
-};
-type RequestPlan = {
-  readonly body: PerplexityRequestBody;
-  readonly stayedInQuery: boolean;
-};
 
-function parsePerplexityPayload(body: string): PerplexityPayload {
-  // SAFETY: JSON.parse returns any; Zod validates the complete Perplexity envelope.
-  return PerplexityPayloadSchema.parse(JSON.parse(body) as unknown);
-}
-
-function mapPerplexityResult(value: unknown): RawResult | undefined {
+function mapPerplexityResult(value: unknown): Array<RawResult> {
   const parsed = PerplexityResultSchema.safeParse(value);
-  if (!parsed.success) return undefined;
+  if (!parsed.success) return [];
   const { data } = parsed;
-  return {
-    title: data.title,
-    url: data.url,
-    snippet: data.snippet,
-    ...(data.date !== undefined &&
-      data.date !== null && { published: data.date }),
-  };
-}
-
-function readResults(payload: PerplexityPayload): Array<RawResult> {
-  return payload.results.flatMap((value) => {
-    const result = mapPerplexityResult(value);
-    return result === undefined ? [] : [result];
-  });
-}
-
-function domainPlan(query: string): DomainPlan {
-  const filters = splitSiteFilters(query);
-  if (filters.include.length > 0) {
-    const domains = filters.include.slice(0, DOMAIN_FILTER_LIMIT);
-    const stayed = [
-      ...filters.include
-        .slice(DOMAIN_FILTER_LIMIT)
-        .map((host) => `site:${host}`),
-      ...filters.exclude.map((host) => `-site:${host}`),
-    ];
-    return {
-      query: [...stayed, filters.query]
-        .filter((part) => part.length > 0)
-        .join(' '),
-      domains,
-      stayedInQuery: stayed.length > 0,
-    };
-  }
-  const domains = filters.exclude
-    .slice(0, DOMAIN_FILTER_LIMIT)
-    .map((host) => `-${host}`);
-  const stayed = filters.exclude
-    .slice(DOMAIN_FILTER_LIMIT)
-    .map((host) => `-site:${host}`);
-  return {
-    query: [...stayed, filters.query]
-      .filter((part) => part.length > 0)
-      .join(' '),
-    domains,
-    stayedInQuery: stayed.length > 0,
-  };
-}
-
-function requestBody(request: EngineRequest): RequestPlan {
-  const plan = domainPlan(request.query);
-  return {
-    body: {
-      query: plan.query,
-      max_results: request.limit,
-      ...(request.recency !== undefined && {
-        search_recency_filter: request.recency,
-      }),
-      ...(plan.domains.length > 0 && {
-        search_domain_filter: plan.domains,
-      }),
+  return [
+    {
+      title: data.title,
+      url: data.url,
+      snippet: data.snippet,
+      ...(data.date !== undefined &&
+        data.date !== null && { published: data.date }),
     },
-    stayedInQuery: plan.stayedInQuery,
+  ];
+}
+
+function domainPlan(query: string) {
+  const filters = splitSiteFilters(query);
+  const allow = filters.include.length > 0;
+  const hosts = allow ? filters.include : filters.exclude;
+  const stayed = [
+    ...hosts
+      .slice(DOMAIN_FILTER_LIMIT)
+      .map((host) => `${allow ? '' : '-'}site:${host}`),
+    ...(allow ? filters.exclude.map((host) => `-site:${host}`) : []),
+  ];
+  return {
+    query:
+      [...stayed, filters.query].filter((part) => part.length > 0).join(' ') ||
+      query,
+    domains: hosts
+      .slice(0, DOMAIN_FILTER_LIMIT)
+      .map((host) => (allow ? host : `-${host}`)),
+    stayedInQuery: stayed.length > 0,
   };
 }
 
@@ -114,7 +58,8 @@ export function createPerplexityEngine(
   deps: { readonly fetch: VendorFetch },
 ): Engine {
   return async (request: EngineRequest) => {
-    const { body: requestPayload, stayedInQuery } = requestBody(request);
+    const plan = domainPlan(request.query);
+    const extra = plan.stayedInQuery ? { notes: [DOMAIN_FILTER_NOTE] } : {};
     const payload = await fetchVendorJson(
       PERPLEXITY_SEARCH_URL,
       {
@@ -124,23 +69,27 @@ export function createPerplexityEngine(
           Authorization: `Bearer ${config.key}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestPayload),
+        body: JSON.stringify({
+          query: plan.query,
+          max_results: request.limit,
+          ...(request.recency !== undefined && {
+            search_recency_filter: request.recency,
+          }),
+          ...(plan.domains.length > 0 && {
+            search_domain_filter: plan.domains,
+          }),
+        }),
       },
       {
         signal: request.signal,
         fetch: deps.fetch,
         userAgent: request.userAgent,
       },
-      parsePerplexityPayload,
+      PerplexityPayloadSchema,
     );
-    const results = readResults(payload);
-    if (results.length > 0) {
-      return stayedInQuery
-        ? { kind: 'results', results, notes: [DOMAIN_FILTER_NOTE] }
-        : { kind: 'results', results };
-    }
-    return stayedInQuery
-      ? { kind: 'empty', notes: [DOMAIN_FILTER_NOTE] }
-      : { kind: 'empty' };
+    const results = payload.results.flatMap(mapPerplexityResult);
+    return results.length > 0
+      ? { kind: 'results', results, ...extra }
+      : { kind: 'empty', ...extra };
   };
 }
