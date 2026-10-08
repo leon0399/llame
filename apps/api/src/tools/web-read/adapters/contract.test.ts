@@ -167,6 +167,16 @@ describe('createWebAdapters', () => {
     expect(adapter).toMatchObject({ id: 'rust', route: 'native' });
     expect(adapter.match(new URL('https://crates.io/crates/serde'))).toBe(true);
   });
+
+  it('creates a native Hacker News adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'hn', use: 'hackernews' }]);
+    if (adapter === undefined) throw new Error('expected Hacker News adapter');
+
+    expect(adapter).toMatchObject({ id: 'hn', route: 'native' });
+    expect(
+      adapter.match(new URL('https://news.ycombinator.com/item?id=1')),
+    ).toBe(true);
+  });
 });
 
 describe('dispatchWebAdapters', () => {

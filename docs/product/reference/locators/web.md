@@ -440,6 +440,17 @@ URL: https://crates.io/crates/serde/1.0.229
 ...
 ```
 
+### Hacker News adapter
+
+An item renders in the [x.md](https://x.pcstyle.dev/) thread layout: the
+requested story or comment as `Post`, then every reply depth-first as `Reply`,
+with `Replying to @{author}` when a reply answers someone other than the
+requested item. A story carries its title in bold and a `Link:` line; each
+entry ends with `Source:` (its `news.ycombinator.com` URL) and `Date:` lines,
+and a story adds `Points:`. Dead and deleted comments are omitted together
+with their replies, as the API omits them, and replies follow the API's order,
+not Hacker News's ranking.
+
 ## Bounds
 
 | Bound                         | Value                                                                                                         |
