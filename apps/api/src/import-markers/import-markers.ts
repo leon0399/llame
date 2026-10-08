@@ -318,7 +318,7 @@ function collectBareMarkers(
     const tokenStart = offset + 1;
     let tokenEnd = tokenStart;
     while (source.at(tokenEnd) !== undefined) {
-      const character = source.at(tokenEnd);
+      const character = source.charAt(tokenEnd);
       if (/\s/u.test(character)) break;
       tokenEnd += 1;
     }
