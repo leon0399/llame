@@ -10,7 +10,8 @@ import {
   type WebSearchConfig,
   type WebSearchEngineConfig,
 } from '../../instance-config/llame-config';
-import { captureFetch } from '../../testing/web-search-fetch';
+import { type VendorFetch } from './http';
+import { requestUrl, captureFetch } from '../../testing/web-search-fetch';
 
 const request = (
   signal: AbortSignal = new AbortController().signal,
@@ -43,28 +44,40 @@ it('uses the stable EngineFailure name', () => {
 });
 const result = (): Promise<EngineOutcome> => Promise.resolve(hit);
 const empty = (): Promise<EngineOutcome> => Promise.resolve({ kind: 'empty' });
-type FactoryCase = readonly [string, WebSearchEngineConfig, string, string];
+
+type FactoryCase = {
+  readonly name: string;
+  readonly config: WebSearchEngineConfig;
+  readonly body: string;
+  readonly expectedUrl: string;
+  readonly headers?: HeadersInit;
+};
 const factoryCases: ReadonlyArray<FactoryCase> = [
-  [
-    'brave',
-    { id: 'brave', type: 'brave', key: 'key', timeoutSeconds: 60 },
-    JSON.stringify({
+  {
+    name: 'brave',
+    config: { id: 'brave', type: 'brave', key: 'key', timeoutSeconds: 60 },
+    body: JSON.stringify({
       web: { results: [{ title: 'Result', url: 'https://example.test/a' }] },
     }),
-    'https://api.search.brave.com/res/v1/web/search',
-  ],
-  [
-    'exa',
-    { id: 'exa', type: 'exa', key: 'key', timeoutSeconds: 60 },
-    JSON.stringify({
+    expectedUrl: 'https://api.search.brave.com/res/v1/web/search',
+  },
+  {
+    name: 'exa',
+    config: { id: 'exa', type: 'exa', key: 'key', timeoutSeconds: 60 },
+    body: JSON.stringify({
       results: [{ title: 'Result', url: 'https://example.test/a' }],
     }),
-    'https://api.exa.ai/search',
-  ],
-  [
-    'perplexity',
-    { id: 'perplexity', type: 'perplexity', key: 'key', timeoutSeconds: 60 },
-    JSON.stringify({
+    expectedUrl: 'https://api.exa.ai/search',
+  },
+  {
+    name: 'perplexity',
+    config: {
+      id: 'perplexity',
+      type: 'perplexity',
+      key: 'key',
+      timeoutSeconds: 60,
+    },
+    body: JSON.stringify({
       results: [
         {
           title: 'Result',
@@ -73,34 +86,61 @@ const factoryCases: ReadonlyArray<FactoryCase> = [
         },
       ],
     }),
-    'https://api.perplexity.ai/search',
-  ],
-  [
-    'searxng',
-    {
+    expectedUrl: 'https://api.perplexity.ai/search',
+  },
+  {
+    name: 'searxng',
+    config: {
       id: 'searxng',
       type: 'searxng',
       baseUrl: 'http://localhost:8888/prefix',
       timeoutSeconds: 60,
     },
-    JSON.stringify({
+    body: JSON.stringify({
       results: [{ title: 'Result', url: 'https://example.test/a' }],
     }),
-    'http://localhost:8888/prefix/search',
-  ],
+    expectedUrl: 'http://localhost:8888/prefix/search',
+  },
+  {
+    name: 'duckduckgo',
+    config: { id: 'duckduckgo', type: 'duckduckgo', timeoutSeconds: 60 },
+    body: '<div class="result"><a class="result__a" href="https://example.test/a">Result</a></div>',
+    expectedUrl: 'https://html.duckduckgo.com/html/',
+    headers: { 'content-type': 'text/html' },
+  },
 ];
 it.each(factoryCases)(
-  'createEngine wires %s',
-  async (_name, configEntry, body, expectedUrl) => {
-    const captured = captureFetch(body);
-    const output = await createEngine(configEntry, { fetch: captured.fetch })(
-      request(),
-    );
+  'createEngine wires $name',
+  async ({ config: configEntry, body, expectedUrl, headers }) => {
+    const captured = captureFetch(body, 200, headers);
+    const output = await createEngine(configEntry, {
+      fetch: captured.fetch,
+    })(request());
     const actual = new URL(captured.seen().url);
     expect(actual.origin + actual.pathname).toBe(expectedUrl);
     expect(output.kind).toBe('results');
   },
 );
+
+it('createEngine wires exa-mcp', async () => {
+  const urls: Array<string> = [];
+  const fetch: VendorFetch = (input) => {
+    urls.push(requestUrl(input));
+    return Promise.reject(new Error('fixture upstream failure'));
+  };
+  await expect(
+    createEngine(
+      {
+        id: 'exa-mcp',
+        type: 'exa-mcp',
+        key: undefined,
+        timeoutSeconds: 60,
+      },
+      { fetch },
+    )(request()),
+  ).rejects.toMatchObject({ failureClass: 'upstream_error' });
+  expect(urls[0]).toBe('https://mcp.exa.ai/mcp');
+});
 
 it('appends engine notes after chain notes', async () => {
   const output = await executeSearchChain(

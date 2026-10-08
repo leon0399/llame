@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { EngineFailure, type FailureClass } from './chain';
 import {
+  fetchVendorHtml,
   fetchVendorJson,
   VENDOR_RESPONSE_MAX_BYTES,
   type VendorFetch,
@@ -91,7 +92,21 @@ describe('web search vendor HTTP', () => {
       ),
     ).resolves.toEqual({ ok: true });
   });
-
+  it('accepts HTML content type with casing and spacing', async () => {
+    await expect(
+      fetchVendorHtml(
+        'https://vendor.example/search',
+        { method: 'GET' },
+        options(() =>
+          Promise.resolve(
+            new Response('<html>ok</html>', {
+              headers: { 'content-type': 'Text/HTML ; charset=utf-8' },
+            }),
+          ),
+        ),
+      ),
+    ).resolves.toBe('<html>ok</html>');
+  });
   it.each(['text/plain', '+json', undefined])(
     'rejects a non-JSON content type before reading (%s)',
     async (contentType) => {

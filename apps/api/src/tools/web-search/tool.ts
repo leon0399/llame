@@ -6,6 +6,7 @@ import {
   createEngine,
   executeSearchChain,
   type Engine,
+  type EngineLookup,
   type EngineRequest,
 } from './chain';
 import { normalizeOutput } from './output';
@@ -19,7 +20,9 @@ export type WebSearchArguments = z.output<typeof webSearchInputSchema>;
 export const WEB_SEARCH_NOT_CONFIGURED_MESSAGE =
   'Web search is not configured.';
 
-function buildEngineLookup(config: WebSearchConfig): (id: string) => Engine {
+const engineLookups = new WeakMap<WebSearchConfig, EngineLookup>();
+
+function buildEngineLookup(config: WebSearchConfig): EngineLookup {
   const engines = new Map<string, Engine>();
   for (const engineConfig of config.engines)
     engines.set(
@@ -27,6 +30,15 @@ function buildEngineLookup(config: WebSearchConfig): (id: string) => Engine {
       createEngine(engineConfig, { fetch: globalThis.fetch }),
     );
   return (id) => engines.get(id)!;
+}
+
+function engineLookupFor(config: WebSearchConfig): EngineLookup {
+  let lookup = engineLookups.get(config);
+  if (lookup === undefined) {
+    lookup = buildEngineLookup(config);
+    engineLookups.set(config, lookup);
+  }
+  return lookup;
 }
 
 export const webSearchTool: Tool<WebSearchArguments> = {
@@ -56,7 +68,7 @@ export const webSearchTool: Tool<WebSearchArguments> = {
     const result = await executeSearchChain(
       config,
       request,
-      buildEngineLookup(config),
+      engineLookupFor(config),
     );
     return 'status' in result ? result : normalizeOutput(result, input.limit);
   },

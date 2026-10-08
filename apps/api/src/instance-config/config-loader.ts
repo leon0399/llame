@@ -554,6 +554,19 @@ function resolveWebSearchEngine(
       ),
     };
   }
+  if (entry.type === 'exa-mcp') {
+    const key =
+      resolveNullableString({
+        configPath: `${entryPath}.key`,
+        present: entry.key !== undefined,
+        raw: entry.key,
+        env,
+      }) ?? undefined;
+    return { ...base, type: entry.type, key };
+  }
+  if (entry.type === 'duckduckgo') {
+    return { ...base, type: entry.type };
+  }
   return {
     ...base,
     type: entry.type,

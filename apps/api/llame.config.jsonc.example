@@ -426,6 +426,17 @@
   //       "type": "exa",
   //       "key": "{env:EXA_API_KEY}",
   //     },
+  //     // Exa's hosted MCP is keyless by default; an optional key raises limits.
+  //     {
+  //       "id": "exa-mcp",
+  //       "type": "exa-mcp",
+  //       // "key": "{env:EXA_API_KEY}",
+  //     },
+  //     // DuckDuckGo is keyless and requires no credential.
+  //     {
+  //       "id": "duckduckgo",
+  //       "type": "duckduckgo",
+  //     },
   //     {
   //       "id": "perplexity",
   //       "type": "perplexity",

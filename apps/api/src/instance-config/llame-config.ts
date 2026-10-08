@@ -189,6 +189,18 @@ export type RawWebSearchEngineEntry =
       /** Required operator-controlled SearXNG base URL before interpolation. */
       baseUrl: string;
       timeoutSeconds?: unknown;
+    }
+  | {
+      id: string;
+      type: 'exa-mcp';
+      /** Optional Exa credential; interpolation may still resolve blank. */
+      key?: string | null;
+      timeoutSeconds?: unknown;
+    }
+  | {
+      id: string;
+      type: 'duckduckgo';
+      timeoutSeconds?: unknown;
     };
 
 /** The still-uninterpolated operator `webSearch` section. */
@@ -213,6 +225,12 @@ export type WebSearchEngineConfig = {
       /** Absolute http(s) base URL of the operator's SearXNG instance. */
       baseUrl: string;
     }
+  | {
+      type: 'exa-mcp';
+      /** Optional Exa key sent to the hosted MCP endpoint to raise its limits. */
+      key: string | undefined;
+    }
+  | { type: 'duckduckgo' }
 );
 
 /** Resolved operator `webSearch` section: engines and the ordered chain of their ids. */

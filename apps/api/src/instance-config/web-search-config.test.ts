@@ -128,6 +128,77 @@ describe('loadInstanceConfig — webSearch', () => {
     });
   });
 
+  it.each([
+    [
+      'an interpolated key',
+      '{env:EXA_MCP_KEY}',
+      { EXA_MCP_KEY: 'exa-secret' },
+      'exa-secret',
+    ],
+    ['no key', undefined, {}, undefined],
+    [
+      'a blank resolved key',
+      '{env:EXA_MCP_KEY}',
+      { EXA_MCP_KEY: '' },
+      undefined,
+    ],
+  ] as const)(
+    'loads an Exa MCP engine with %s',
+    (_description, key, environment, expectedKey) => {
+      writeConfig(
+        JSON.stringify({
+          webSearch: {
+            engines: [{ id: 'exa-mcp', type: 'exa-mcp', key }],
+            chain: ['exa-mcp'],
+          },
+        }),
+      );
+
+      expect(loadInstanceConfig(environment).webSearch).toStrictEqual({
+        engines: [
+          {
+            id: 'exa-mcp',
+            type: 'exa-mcp',
+            key: expectedKey,
+            timeoutSeconds: 60,
+          },
+        ],
+        chain: ['exa-mcp'],
+      });
+    },
+  );
+
+  it('loads a keyless DuckDuckGo engine', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [{ id: 'duckduckgo', type: 'duckduckgo' }],
+          chain: ['duckduckgo'],
+        },
+      }),
+    );
+
+    expect(loadInstanceConfig().webSearch).toStrictEqual({
+      engines: [{ id: 'duckduckgo', type: 'duckduckgo', timeoutSeconds: 60 }],
+      chain: ['duckduckgo'],
+    });
+  });
+
+  it('rejects a key on a DuckDuckGo engine as an unknown key', () => {
+    writeConfig(
+      JSON.stringify({
+        webSearch: {
+          engines: [
+            { id: 'duckduckgo', type: 'duckduckgo', key: 'not-allowed' },
+          ],
+          chain: ['duckduckgo'],
+        },
+      }),
+    );
+
+    expect(() => loadInstanceConfig()).toThrow(/webSearch\/engines\/0\/key/u);
+  });
+
   it('loads a SearXNG engine with an absolute HTTP base URL', () => {
     writeConfig(
       JSON.stringify({
