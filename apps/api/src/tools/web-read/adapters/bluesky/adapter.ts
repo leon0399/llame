@@ -50,11 +50,7 @@ export function parseBlueskyUrl(source: URL): BlueskyTarget | undefined {
   if (actor.length > limit) return undefined;
 
   const [, , rkey, list] = match;
-  if (rkey !== undefined) {
-    return rkey === '.' || rkey === '..'
-      ? undefined
-      : { kind: 'post', actor, rkey };
-  }
+  if (rkey !== undefined) return { kind: 'post', actor, rkey };
   return {
     kind: list === 'followers' || list === 'follows' ? list : 'profile',
     actor,

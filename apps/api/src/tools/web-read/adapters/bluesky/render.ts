@@ -279,7 +279,8 @@ export function renderProfile(
   if (posts === undefined) return lines.join('\n');
 
   lines.push('', '## Latest posts');
-  if (posts.length === 0) lines.push('', 'No posts.');
+  if (posts.length === 0)
+    lines.push('', 'No original posts among the latest 30.');
   for (const post of posts) {
     lines.push(
       `- [@${post.author.handle}](${profileUrl(post.author)}): ${oneLine(post.record.text)} [Source](${postUrl(post.author, post.uri)})`,
@@ -305,19 +306,16 @@ export function renderFollowList(
     `# ${title} [${authorLabel(page.subject)}](${profileUrl(page.subject)})`,
     '',
   ];
-  if (accounts.length === 0) lines.push('No accounts.');
-  for (const account of accounts) {
-    if (account === undefined || isHidden(account)) continue;
+  const listed = accounts.flatMap((account) => {
+    if (account === undefined || isHidden(account)) return [];
     const bio = oneLine(account.description ?? '');
-    lines.push(
+    return [
       `- [${authorLabel(account)}](${profileUrl(account)})${bio ? `: ${bio}` : ''}`,
-    );
-  }
+    ];
+  });
+  lines.push(...(listed.length === 0 ? ['No accounts.'] : listed));
   if (page.cursor !== undefined) {
-    lines.push(
-      '',
-      `Showing the first ${accounts.length}; more are not loaded.`,
-    );
+    lines.push('', `Showing the first ${listed.length}; more are not loaded.`);
   }
   return { content: lines.join('\n') };
 }
@@ -466,11 +464,9 @@ function blockquote(line: string): string {
 }
 
 function parseJson<T>(body: string, schema: z.ZodType<T>): T | undefined {
-  let value: unknown;
   try {
-    value = JSON.parse(body);
+    return schema.safeParse(JSON.parse(body)).data;
   } catch {
     return undefined;
   }
-  return schema.safeParse(value).data;
 }

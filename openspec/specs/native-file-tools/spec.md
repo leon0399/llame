@@ -2331,7 +2331,8 @@ creation time; entries SHALL be separated by a `---` line between blank lines.
 An unknown or malformed embed SHALL render nothing rather than fail the read.
 A profile SHALL render its linked name heading, description, follower,
 following, and post counts, and `## Latest posts` with one line per original
-post; reposts SHALL be omitted. A failed or unparsable feed SHALL keep the
+post among the 30 most recent feed items; reposts SHALL be omitted. A failed or
+unparsable feed SHALL keep the
 profile and add a `posts omitted: {category}` note. A follow list SHALL render
 one linked line per account and state when more accounts were not loaded.
 

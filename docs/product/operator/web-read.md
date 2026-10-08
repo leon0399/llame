@@ -207,7 +207,8 @@ the adapter sends no credential. It claims these canonical HTTPS shapes, with
 query and fragment ignored:
 
 - `https://bsky.app/profile/{actor}/post/{rkey}`: the post and its thread
-- `https://bsky.app/profile/{actor}`: the profile and its 30 latest posts
+- `https://bsky.app/profile/{actor}`: the profile and the original posts among
+  its 30 most recent feed items (reposts are dropped)
 - `https://bsky.app/profile/{actor}/followers` and `/follows`: the first 100
   accounts
 
@@ -223,8 +224,8 @@ through as `rate_limit`.
 
 Accounts that set Bluesky's `!no-unauthenticated` label, which asks clients
 not to show them to logged-out viewers, are withheld: their posts, profiles,
-and follow lists fall through with `empty`, and their replies, quotes, and
-list entries are omitted from other documents.
+and follow lists fall through with `empty`, their replies and list entries
+are omitted, and posts quoting them show the quote as unavailable.
 
 ## Derived locators and permission admission
 

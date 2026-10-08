@@ -50,7 +50,11 @@ function xrpc(method: string, params: Record<string, string>): string {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
-  return { outcome, urls: run.requests.map(({ url }) => url) };
+  return {
+    outcome,
+    urls: run.requests.map(({ url }) => url),
+    inits: run.requests.map(({ init }) => init),
+  };
 }
 
 function contentOf(outcome: WebAdapterOutcome) {
@@ -85,11 +89,12 @@ describe('Bluesky adapter claim', () => {
     'https://bsky.app:8443/profile/alice.test',
     'https://bsky.app/profile/alice.test/',
     'https://bsky.app/profile/localhost',
-    'https://bsky.app/profile/alice.test/post/..',
+    'https://bsky.app/profile/alice.test/post/',
     'https://bsky.app/profile/alice.test/feed/whats-hot',
     'https://bsky.app/profile/alice.test/lists/abc',
     'https://bsky.app/search?q=llame',
-    `https://bsky.app/profile/${'a'.repeat(250)}.test`,
+    `https://bsky.app/profile/${Array.from({ length: 4 }, () => 'a'.repeat(63)).join('.')}.test`,
+    `https://bsky.app/profile/did:plc:${'a'.repeat(2041)}`,
   ])('leaves %s to the generic ladder', (source) => {
     expect(adapter.match(new URL(source))).toBe(false);
   });
@@ -154,11 +159,10 @@ describe('Bluesky adapter posts', () => {
     };
     const thread = node(focal, {
       parent: node(post('root.test', 'r0', 'Root post'), {
-        parent: {
-          $type: 'app.bsky.feed.defs#notFoundPost',
-          uri: 'at://x',
-          notFound: true,
-        },
+        parent: node(
+          post('hid.test', 'h0', 'Withheld', { author: { labels: HIDDEN } }),
+          { parent: node(post('grand.test', 'g0', 'Above withheld')) },
+        ),
       }),
       replies: [
         node(post('alice.test', 'p2', 'Self thread'), {
@@ -178,12 +182,13 @@ describe('Bluesky adapter posts', () => {
       ],
     });
 
-    const { outcome, urls } = await read(
+    const { outcome, urls, inits } = await read(
       'https://bsky.app/profile/alice.test/post/p1',
       [[THREAD_URL, response({ thread })]],
     );
 
     expect(urls).toStrictEqual([THREAD_URL]);
+    expect(inits).toStrictEqual([{ accept: 'application/json' }]);
     expect(outcome).toMatchObject({ mediaType: 'text/markdown', notes: [] });
     expect(contentOf(outcome)).toBe(
       [
@@ -484,9 +489,27 @@ describe('Bluesky adapter follow lists', () => {
           '- [Bob (@bob.test)](https://bsky.app/profile/bob.test): Two lines',
           '- [@handle.invalid](https://bsky.app/profile/did:plc:dan)',
           '',
-          'Showing the first 3; more are not loaded.',
+          'Showing the first 2; more are not loaded.',
         ].join('\n'),
       );
     },
   );
+
+  it('withholds a list whose subject opted out of logged-out visibility', async () => {
+    const url = xrpc('app.bsky.graph.getFollowers', {
+      actor: 'alice.test',
+      limit: '100',
+    });
+    const page = {
+      subject: author('alice.test', { labels: HIDDEN }),
+      followers: [author('bob.test')],
+    };
+
+    const { outcome } = await read(
+      'https://bsky.app/profile/alice.test/followers',
+      [[url, response(page)]],
+    );
+
+    expect(outcome).toStrictEqual({ kind: 'failed', failure: 'empty' });
+  });
 });
