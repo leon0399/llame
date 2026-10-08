@@ -154,6 +154,37 @@ describe('Stack Exchange adapter read', () => {
     });
   });
 
+  it('reads a /q/ link that names an answer through its question', async () => {
+    const asQuestion = `${API_ORIGIN}/2.3/questions/43?site=stackoverflow.com&filter=withbody`;
+    const lookup = `${API_ORIGIN}/2.3/answers/43?site=stackoverflow.com`;
+
+    const { outcome, urls } = await read('https://stackoverflow.com/q/43', [
+      [asQuestion, response({ items: [] })],
+      [lookup, response({ items: [{ question_id: 42 }] })],
+      [QUESTION_URL, response({ items: [question] })],
+      [ANSWERS_URL, response({ items: [] })],
+    ]);
+
+    expect(urls).toStrictEqual([asQuestion, lookup, QUESTION_URL, ANSWERS_URL]);
+    expect(outcome).toMatchObject({ kind: 'rendered' });
+  });
+
+  it('resolves root-relative links in post bodies against the site', async () => {
+    const linked = {
+      ...question,
+      body: '<p>See <a href="/u/7">this user</a> and <img src="//i.sstatic.net/x.png" alt="x"></p>',
+    };
+
+    const { outcome } = await read(LINK, [
+      [QUESTION_URL, response({ items: [linked] })],
+      [ANSWERS_URL, response({ items: [] })],
+    ]);
+
+    expect(outcome.kind === 'rendered' && outcome.content).toContain(
+      'See [this user](https://stackoverflow.com/u/7) and ![x](//i.sstatic.net/x.png)',
+    );
+  });
+
   it('keeps the question with a note when the answers do not load', async () => {
     // The API reports quota and throttling as HTTP 400 with an error_id.
     const throttled: WebFetchFailure = {

@@ -37,6 +37,8 @@ type StackexchangeTarget = {
   readonly site: string;
   readonly question?: string;
   readonly answer?: string;
+  /** A `/q/` short link, which may name an answer as well as a question. */
+  readonly short?: true;
 };
 
 const OWNER = z
@@ -88,9 +90,10 @@ export function parseStackexchangeUrl(
   const match = POST_PATH.exec(source.pathname);
   if (!SITE_HOST.test(site) || match === null) return undefined;
   const [, question, short, answer] = match;
-  return answer === undefined
-    ? { site, question: question ?? short }
-    : { site, answer };
+  if (answer !== undefined) return { site, answer };
+  return short === undefined
+    ? { site, question }
+    : { site, question: short, short: true };
 }
 
 /** Creates the native Stack Exchange adapter. */
@@ -132,7 +135,12 @@ async function readThread(
   const page = parseJsonBody(fetched.body, QUESTION_PAGE);
   if (page === undefined) return { kind: 'failed', failure: 'parse' };
   const question = page.items[0];
-  if (question === undefined) return { kind: 'failed', failure: 'empty' };
+  if (question === undefined) {
+    // A `/q/` id that is not a question may be an answer.
+    return target.short === true
+      ? readThread({ site: target.site, answer: resolved.id }, io, api)
+      : { kind: 'failed', failure: 'empty' };
+  }
 
   const notes: Array<string> = [];
   const answers = await loadAnswers(query, resolved.id, notes);
@@ -211,7 +219,7 @@ function renderThread(
     '',
     '## Question',
     '',
-    convertToMarkdown(question.body).trim(),
+    bodyMarkdown(question.body, question.link),
   );
 
   // Stack Overflow lists the accepted answer first, then by score.
@@ -238,11 +246,19 @@ function answerLines(
     '',
     `## Answer · ${position} — ${accepted}score ${formatCount(answer.score)} — ${answer.owner}`,
     '',
-    convertToMarkdown(answer.body).trim(),
+    bodyMarkdown(answer.body, questionLink),
     '',
     `Source: ${questionLink.replace(/\/questions\/.*/u, `/a/${answer.answer_id}`)}`,
     `Date: ${isoDate(answer.creation_date)}`,
   ];
+}
+
+/** Post bodies link within the site root-relatively (`/u/16940`). */
+function bodyMarkdown(html: string, link: string): string {
+  const origin = new URL(link).origin;
+  return convertToMarkdown(
+    html.replaceAll(/\b(href|src)="\/(?!\/)/gu, `$1="${origin}/`),
+  ).trim();
 }
 
 /** Titles and names arrive HTML-encoded. */

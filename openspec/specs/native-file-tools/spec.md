@@ -2463,6 +2463,9 @@ unclaimed. The adapter SHALL send only unauthenticated `GET` requests to
 `site` parameter: for an `/a/` link `answers/{id}` to find its
 question, then `questions/{id}` with `filter=withbody`, then
 `questions/{id}/answers` with `filter=withbody&sort=votes&order=desc&pagesize=100`.
+A `/q/{id}` whose question request returns no question SHALL be read as an
+`/a/{id}` link, since short links name answers too. Root-relative links in
+post bodies SHALL be resolved against the site's origin.
 
 The render SHALL be `# {title}` with HTML entities decoded, `Score`/`Answers`
 /`Views`, `Tags`, `Asked`, `Closed` when closed, `License`, and `URL` lines,
