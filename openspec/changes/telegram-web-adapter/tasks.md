@@ -31,7 +31,7 @@ layer inside the review budget.
 
 - [x] 0.1 Run two adversarial review rounds with two independent reviewers each; verify findings against code, specs, and live Telegram responses; commit each round separately.
 - [x] 0.2 Prove the final revision: `pnpm exec openspec validate telegram-web-adapter --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`, and a script diff of each MODIFIED block against its canonical requirement showing only the Telegram additions and every canonical scenario kept; record Leo's approval of that revision.
-- [ ] 0.3 Self-review the proposal diff before marking the PR ready; record the review rounds in the PR body.
+- [x] 0.3 Self-review the proposal diff before marking the PR ready; record the review rounds in the PR body.
 - [ ] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
 ## 1. adapter
@@ -49,7 +49,7 @@ layer inside the review budget.
 
 ## 2. finalize
 
-- [ ] 2.1 Enter `telegram-web-adapter/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the synced `native-file-tools` and `instance-config` text matches the deltas word for word, with every canonical scenario kept.
+- [x] 2.1 Enter `telegram-web-adapter/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the synced `native-file-tools` and `instance-config` text matches the deltas word for word, with every canonical scenario kept.
 - [ ] 2.2 Confirm archive readiness: `openspec status --change telegram-web-adapter --json` reports every artifact done and every task above is checked; run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 
 ## Workflow follow-up
