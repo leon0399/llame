@@ -18,7 +18,7 @@ The system SHALL scan the owner's stored, neutralized prompt text using the shar
 
 #### Scenario: Code text remains ordinary prompt text
 
-- **WHEN** an inline code span or fenced code block contains an import-shaped string
+- **WHEN** an inline code span or fenced code block contains an import-shaped string, and no marker `@` immediately precedes the inline code span
 - **THEN** no prompt import is created from that string
 - **AND** the code text remains unchanged
 
