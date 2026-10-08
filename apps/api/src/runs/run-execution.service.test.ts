@@ -9655,6 +9655,78 @@ describe('RunExecutionService instruction files', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+  it('records rejected canonical decisions on in-Run import reads', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    const nested = path.join(root, 'apps/api');
+    const imported = path.join(nested, 'imported.md');
+    const canonical = path.join(nested, 'canonical.md');
+    writeFileSync(canonical, 'imported rules\n');
+    symlinkSync(canonical, imported);
+    writeFileSync(path.join(nested, 'AGENTS.md'), 'api rules\n@imported.md\n');
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const { client } = readThenAnswerClient(touch);
+      const permissionPolicy = compileToolPermissionMap(
+        {
+          enter_workspace: { allow: true },
+          read: {
+            allow: true,
+            reject: [{ field: 'path', literal: canonical }],
+          },
+        },
+        'test-policy',
+      );
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        'host-a',
+        executionOptions(permissionPolicy),
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+
+      const reads = eventsWithOrigin(append, 'instructions');
+      const importedRequest = reads.find(
+        (record) =>
+          record.type === 'tool.requested' &&
+          JSON.stringify(record.payload).includes(`${imported}:raw:1-2000`),
+      );
+      expect(importedRequest?.payload).toMatchObject({
+        permission: { decision: 'reject', reason: 'explicit_reject' },
+      });
+      const importedCallId = callIdOf(importedRequest?.payload);
+      expect(eventsForCall(append, importedCallId)).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+      const importedCompletion = reads.find(
+        (record) =>
+          record.type === 'tool.completed' &&
+          callIdOf(record.payload) === importedCallId,
+      );
+      expect(importedCompletion?.payload).toMatchObject({
+        derivedDecisions: [
+          {
+            kind: 'canonical',
+            decision: 'reject',
+            reason: 'explicit_reject',
+          },
+        ],
+      });
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+      expect(storedInstructionPart(repositories)?.data.payload).toMatchObject({
+        denied: [imported],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it('records the bypass decision on instruction reads', async () => {
     const { root, touch } = nestedInstructionsRoot();

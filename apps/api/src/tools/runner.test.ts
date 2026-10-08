@@ -727,7 +727,14 @@ describe('runTool permission gate', () => {
     execute: (_ctx, { path }) => ({ status: 'success', path }),
   };
   describe('canonical read permission', () => {
-    it('rejects an allowed submitted path when the canonical path is rejected', async () => {
+    async function runCanonicalRead(
+      input: {
+        readonly path?: string;
+        readonly canonicalPath?: string;
+        readonly permissionMap?: ToolPermissionMap;
+        readonly permissionMode?: ToolContext['permissionMode'];
+      } = {},
+    ) {
       const execute = vi.fn(
         (_context: ToolContext, { path }: { path: string }) => ({
           status: 'success' as const,
@@ -735,22 +742,39 @@ describe('runTool permission gate', () => {
         }),
       );
       const decisions: Array<unknown> = [];
-      const canonicalPath = '/tmp/canonical.md';
+      const onDerivedDecision: NonNullable<ToolContext['onDerivedDecision']> = (
+        decision,
+      ) => decisions.push(decision);
+      const context = {
+        ...contextWith(input.permissionMap ?? { read: { allow: true } }),
+        onDerivedDecision,
+      };
+      if (input.canonicalPath !== undefined) {
+        context.canonicalReadPath = input.canonicalPath;
+      }
+      if (input.permissionMode !== undefined) {
+        context.permissionMode = input.permissionMode;
+      }
       const result = await runTool(
         { ...pathTool, execute },
-        { path: '/tmp/submitted.md:raw:1-2' },
-        {
-          ...contextWith({
-            read: {
-              allow: true,
-              reject: [{ field: 'path', literal: canonicalPath }],
-            },
-          }),
-          canonicalReadPath: canonicalPath,
-          onDerivedDecision: (decision) => decisions.push(decision),
-        },
+        { path: input.path ?? '/tmp/submitted.md:raw:1-2' },
+        context,
         5,
       );
+      return { result, execute, decisions };
+    }
+
+    it('rejects an allowed submitted path when the canonical path is rejected', async () => {
+      const canonicalPath = '/tmp/canonical.md';
+      const { result, execute, decisions } = await runCanonicalRead({
+        canonicalPath,
+        permissionMap: {
+          read: {
+            allow: true,
+            reject: [{ field: 'path', literal: canonicalPath }],
+          },
+        },
+      });
 
       expect(result).toMatchObject({
         status: 'error',
@@ -766,24 +790,10 @@ describe('runTool permission gate', () => {
     });
 
     it('reports a canonical allow and proceeds', async () => {
-      const execute = vi.fn(
-        (_context: ToolContext, { path }: { path: string }) => ({
-          status: 'success' as const,
-          path,
-        }),
-      );
-      const decisions: Array<unknown> = [];
       const canonicalPath = '/tmp/canonical.md';
-      const result = await runTool(
-        { ...pathTool, execute },
-        { path: '/tmp/submitted.md:raw:1-2' },
-        {
-          ...contextWith({ read: { allow: true } }),
-          canonicalReadPath: canonicalPath,
-          onDerivedDecision: (decision) => decisions.push(decision),
-        },
-        5,
-      );
+      const { result, execute, decisions } = await runCanonicalRead({
+        canonicalPath,
+      });
 
       expect(result).toMatchObject({ status: 'success' });
       expect(execute).toHaveBeenCalledOnce();
@@ -796,24 +806,11 @@ describe('runTool permission gate', () => {
     });
 
     it('does not report an equal canonical path', async () => {
-      const execute = vi.fn(
-        (_context: ToolContext, { path }: { path: string }) => ({
-          status: 'success' as const,
-          path,
-        }),
-      );
-      const decisions: Array<unknown> = [];
       const canonicalPath = '/tmp/canonical.md';
-      const result = await runTool(
-        { ...pathTool, execute },
-        { path: `${canonicalPath}:raw:1-2` },
-        {
-          ...contextWith({ read: { allow: true } }),
-          canonicalReadPath: canonicalPath,
-          onDerivedDecision: (decision) => decisions.push(decision),
-        },
-        5,
-      );
+      const { result, execute, decisions } = await runCanonicalRead({
+        path: `${canonicalPath}:raw:1-2`,
+        canonicalPath,
+      });
 
       expect(result).toMatchObject({ status: 'success' });
       expect(execute).toHaveBeenCalledOnce();
@@ -821,30 +818,17 @@ describe('runTool permission gate', () => {
     });
 
     it('reports a bypassed canonical path and proceeds', async () => {
-      const execute = vi.fn(
-        (_context: ToolContext, { path }: { path: string }) => ({
-          status: 'success' as const,
-          path,
-        }),
-      );
-      const decisions: Array<unknown> = [];
       const canonicalPath = '/tmp/canonical.md';
-      const result = await runTool(
-        { ...pathTool, execute },
-        { path: '/tmp/submitted.md:raw:1-2' },
-        {
-          ...contextWith({
-            read: {
-              allow: true,
-              reject: true,
-            },
-          }),
-          canonicalReadPath: canonicalPath,
-          permissionMode: 'bypass' as const,
-          onDerivedDecision: (decision) => decisions.push(decision),
+      const { result, execute, decisions } = await runCanonicalRead({
+        canonicalPath,
+        permissionMap: {
+          read: {
+            allow: true,
+            reject: true,
+          },
         },
-        5,
-      );
+        permissionMode: 'bypass',
+      });
 
       expect(result).toMatchObject({ status: 'success' });
       expect(execute).toHaveBeenCalledOnce();
@@ -863,22 +847,9 @@ describe('runTool permission gate', () => {
     });
 
     it('keeps behavior unchanged without a canonical path', async () => {
-      const execute = vi.fn(
-        (_context: ToolContext, { path }: { path: string }) => ({
-          status: 'success' as const,
-          path,
-        }),
-      );
-      const decisions: Array<unknown> = [];
-      const result = await runTool(
-        { ...pathTool, execute },
-        { path: '/tmp/submitted.md' },
-        {
-          ...contextWith({ read: { allow: true } }),
-          onDerivedDecision: (decision) => decisions.push(decision),
-        },
-        5,
-      );
+      const { result, execute, decisions } = await runCanonicalRead({
+        path: '/tmp/submitted.md',
+      });
 
       expect(result).toMatchObject({ status: 'success' });
       expect(execute).toHaveBeenCalledOnce();

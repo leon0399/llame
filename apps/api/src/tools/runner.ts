@@ -150,8 +150,6 @@ function mcpDeclaredStringFields(tool: Tool): ReadonlySet<string> | undefined {
 
 type SubmittedToolArguments = UnknownRecord;
 
-type PermissionEvaluationOptions = Parameters<typeof evaluatePermission>[1];
-
 type WorkspaceProjection = {
   readonly args: SubmittedToolArguments;
   readonly changed: boolean;
@@ -185,7 +183,7 @@ function projectWorkspaceArguments(
 
 function applyCanonicalReadPermission(
   context: ToolContext,
-  options: PermissionEvaluationOptions,
+  options: Parameters<typeof evaluatePermission>[1],
   evaluatedPath: string | undefined,
   decision: PermissionDecision | undefined,
 ): PermissionDecision | undefined {
@@ -267,9 +265,12 @@ function evaluateToolPermission(
     }
     return evaluatePermission(policy, options);
   });
-  return tool.id === 'read'
-    ? applyCanonicalReadPermission(context, options, evaluatedPath, decision)
-    : decision;
+  return applyCanonicalReadPermission(
+    context,
+    options,
+    evaluatedPath,
+    decision,
+  );
 }
 
 /**

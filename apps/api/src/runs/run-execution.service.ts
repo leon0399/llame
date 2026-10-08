@@ -1389,9 +1389,7 @@ export class RunExecutionService {
         {
           ...toolContext,
           toolCallId,
-          ...(canonicalPath !== undefined && {
-            canonicalReadPath: canonicalPath,
-          }),
+          canonicalReadPath: canonicalPath,
           onDerivedDecision: (decision) =>
             recordDerivedDecision(toolCallId, decision),
         },
@@ -2508,9 +2506,7 @@ export class RunExecutionService {
       {
         ...toolContext,
         toolCallId,
-        ...(canonicalPath !== undefined && {
-          canonicalReadPath: canonicalPath,
-        }),
+        canonicalReadPath: canonicalPath,
         onDerivedDecision: (decision) =>
           appendDerivedDecision(derivedDecisions, decision),
       },
