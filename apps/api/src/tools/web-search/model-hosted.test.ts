@@ -1,6 +1,7 @@
 import { APICallError } from '@ai-sdk/provider';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { RetryError } from 'ai';
+import { isString } from '@workspace/runtime-safety';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -140,10 +141,11 @@ describe('the hosted request', () => {
     expect(createClient).toHaveBeenCalledExactlyOnceWith('search-model');
     expect(inputs).toHaveLength(1);
     const [input] = inputs;
-    // Nothing else: no effort, no usage callback, no history, no step cap.
+    // Nothing else: no effort, no usage callback, no history.
     expect(Object.keys(input).sort()).toEqual([
       'abortSignal',
       'chat',
+      'maxSteps',
       'messages',
       'onError',
       'system',
@@ -192,7 +194,11 @@ describe('the hosted request', () => {
 describe('the provider search tool', () => {
   it.each([
     ['openai-responses', 'openai.web_search', 'required'],
-    ['openai-codex', 'openai.web_search', 'required'],
+    [
+      'openai-codex',
+      'openai.web_search',
+      { type: 'tool', toolName: 'web_search' },
+    ],
     ['anthropic-messages', 'anthropic.web_search_20250305', undefined],
   ] as const)(
     'uses the %s tool %s with choice %s',
@@ -205,7 +211,8 @@ describe('the provider search tool', () => {
         type: 'provider',
         id,
       });
-      expect(inputs[0].toolChoice).toBe(choice);
+      expect(inputs[0].toolChoice).toStrictEqual(choice);
+      expect(inputs[0].maxSteps).toBe(1);
     },
   );
 
@@ -521,6 +528,75 @@ describe('provider failures through the real clients', () => {
       }
     },
   );
+
+  it('forces the hosted tool on the Codex wire request body', async () => {
+    const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(new Response('unauthorized', { status: 401 })),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await failureOf(
+        'openai-codex',
+        createOpenAICodexModelClient({
+          credential: secret,
+          accountId: 'account-id',
+          providerModelId: 'gpt-test',
+          modelId: 'system:codex:gpt-test',
+          contextWindowTokens: 128_000,
+          userAgent: 'llame/test',
+          requestHeaders: {},
+        }),
+      );
+
+      const raw = fetchMock.mock.calls[0]?.[1]?.body;
+      if (!isString(raw)) throw new Error('expected a JSON body');
+      const body: unknown = JSON.parse(raw);
+      expect(body).toMatchObject({ tool_choice: { type: 'web_search' } });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('settles a paused Messages turn that never delivers its search result', async () => {
+    const paused = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"id":"msg-1","type":"message","role":"assistant","content":[],"model":"model","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":1}}}',
+      '',
+      'event: content_block_start',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{}}}',
+      '',
+      'event: content_block_delta',
+      `data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":${JSON.stringify(JSON.stringify({ query: QUERY }))}}}`,
+      '',
+      'event: content_block_stop',
+      'data: {"type":"content_block_stop","index":0}',
+      '',
+      'event: message_delta',
+      'data: {"type":"message_delta","delta":{"stop_reason":"pause_turn","stop_sequence":null},"usage":{"output_tokens":2}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ];
+    // A regression that loops would otherwise spin forever: cut it off.
+    let served = 0;
+    const harness = buildHarness({
+      respond: () => {
+        served += 1;
+        return served > 4
+          ? new Response('stop', { status: 400 })
+          : new Response(paused.join('\n') + '\n', {
+              status: 200,
+              headers: { 'Content-Type': 'text/event-stream' },
+            });
+      },
+    });
+
+    const failure = await failureOf('anthropic-messages', buildClient(harness));
+
+    expect(failure).toMatchObject({ failureClass: 'ungrounded' });
+    expect(harness.requests).toHaveLength(2);
+  });
 });
 
 describe('cancellation and deadlines', () => {

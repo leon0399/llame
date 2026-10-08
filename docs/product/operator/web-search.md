@@ -99,11 +99,16 @@ other Run context. A configured `{session:id}` header (by default
 `X-Session-Id`, except on Codex, which has no default) renders as
 `search:<chatId>`.
 
-OpenAI Responses and Codex use the provider's hosted web search; Anthropic uses
-`web_search_20250305` with `maxUses: 5`. `site:host` terms become allowed
-domains. The answer's citations are only URLs that its text cites; empty or
-uncited answers are `ungrounded`, so the chain advances. No reasoning effort is
-sent: set it through the referenced model's `providerOptions` if needed.
+OpenAI Responses and Codex use the provider's hosted web search and force it
+(Responses with a required tool choice, Codex by naming the hosted tool);
+Anthropic uses `web_search_20250305` with `maxUses: 5` without forcing it. Each
+call makes at most one search step and one answer step. `site:host` terms
+become allowed domains. The answer's citations are only URLs that its text
+cites; empty or uncited answers are `ungrounded`, so the chain advances. No
+reasoning effort is sent: set it through the referenced model's
+`providerOptions` if needed. The Codex backend's support for hosted search
+sources is undocumented and was not verified against a live subscription; if
+it drops them, every Codex answer is `ungrounded`.
 
 OpenAI and Anthropic cost about $10 per 1,000 searches plus tokens; this spend
 is not recorded in llame usage. Codex uses the operator's ChatGPT subscription

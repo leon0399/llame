@@ -87,9 +87,17 @@ const ANTHROPIC_WIRE: WireProfile = {
     isString(source.providerMetadata?.anthropic?.citedText),
 };
 
+// The Codex backend is not documented to accept a bare `required` choice;
+// Codex clients that force a search name the hosted tool instead, which the
+// adapter sends as `{ type: "web_search" }`.
+const CODEX_WIRE: WireProfile = {
+  ...OPENAI_WIRE,
+  toolChoice: { type: 'tool', toolName: 'web_search' },
+};
+
 const WIRES: Record<HostedConfig['wire'], WireProfile> = {
   'openai-responses': OPENAI_WIRE,
-  'openai-codex': OPENAI_WIRE,
+  'openai-codex': CODEX_WIRE,
   'anthropic-messages': ANTHROPIC_WIRE,
 };
 
@@ -137,6 +145,9 @@ async function requestHostedAnswer(
       messages: hostedMessages(request),
       tools: wire.tools(splitSiteFilters(request.query).include),
       toolChoice: wire.toolChoice,
+      // One search step, then one tool-free answer step at most: a provider
+      // turn that pauses before its deferred search result cannot loop.
+      maxSteps: 1,
       abortSignal: request.signal,
       onError: ({ error }) => {
         failures.push(error);
