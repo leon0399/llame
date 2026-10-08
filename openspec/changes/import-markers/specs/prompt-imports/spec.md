@@ -164,7 +164,7 @@ Before the Run's first model request, the triggering message SHALL persist one `
 
 ### Requirement: Prompt-import work has bounded targets, output, and time
 
-Prompt imports SHALL consider at most 64 markers in first-occurrence order. Admitted probe survivors and no-probe `skill://`/web targets count toward 8 reads; output is capped at 128 KiB and work at 30 seconds or the Run deadline. An admitted target past the read or output bound SHALL be listed as omitted; a denied target is audited without a read and never counts or is omitted. When work ends, unprobed targets SHALL be dropped silently.
+Prompt imports SHALL consider at most 64 markers in first-occurrence order and SHALL read at most 8 targets, counting admitted probe survivors and every `skill://`/web target, within 128 KiB of output and 30 s of work, probes included, or the remaining Run deadline. A target past the read or output bound SHALL be listed as omitted; a host or Knowledge target the `read` group denies is audited without a read, never counted or omitted. When work ends, unprobed targets SHALL be dropped silently.
 
 #### Scenario: Targets beyond the count bound are omitted
 
@@ -232,7 +232,7 @@ Markers inside an imported result SHALL be treated as data and SHALL not be pars
 
 ### Requirement: Admitted local imports trigger instruction loading
 
-An admitted host-path or `kb://` prompt import SHALL trigger its target directory's instruction-file load on the same accepted turn regardless of read outcome after admission. Persisted resolved paths SHALL rebuild the trigger set on retries without re-projecting relative locators. Denied, missing, `skill://`, and web targets SHALL not trigger it. Importing an instruction file SHALL neither load nor mark that file seen unless another same-turn trigger selects it.
+An admitted host-path or `kb://` prompt import whose target exists SHALL trigger its target directory's instruction-file load on the same accepted turn, whether its read then succeeds or fails. Persisted resolved paths SHALL rebuild the trigger set on retries without re-projecting relative locators. Denied, missing, `skill://`, and web targets SHALL not trigger it. Importing an instruction file SHALL neither load nor mark that file seen unless another same-turn trigger selects it.
 
 #### Scenario: An admitted local import loads its directory instructions
 

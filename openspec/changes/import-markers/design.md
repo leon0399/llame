@@ -89,8 +89,9 @@ titles, angle-bracket destinations with spaces, and code-span boundaries.
 
 Delimited bare markers (#1159) reuse the same tree. `@"…"` and `@'…'` are matched in the bare
 scan up to the matching quote before the next line ending. `` @`…` `` is an `@` ending a text
-run whose next node is an `inlineCode` node, compared by source offsets; its target is the code
-span's value, so code contents themselves are still never scanned. The delimited content is the
+run whose next node is a single-line `inlineCode` node, compared by source offsets; its target is
+the code span's text with one surrounding space stripped, so code contents themselves are still
+never scanned. A span that crosses a line ending is not a marker. The delimited content is the
 whole locator, selector included, with no escapes. OMP accepts `@"…"` and `@'…'`; Claude Code
 has neither form.
 
