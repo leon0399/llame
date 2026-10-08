@@ -247,6 +247,18 @@ export const LiveStreaming: Story = {
   },
 };
 
+// The web_search Parameters panel renders through the shared Shiki CodeBlock,
+// whose built-in "one-light" palette ships token colors below WCAG AA
+// color-contrast (same third-party-theme defect code-block.stories.tsx
+// suppresses). Only the color-contrast rule is disabled.
+const webSearchShikiContrastKnownIssue = {
+  a11y: {
+    config: {
+      rules: [{ id: "color-contrast", enabled: false }],
+    },
+  },
+};
+
 /**
  * Live dynamic-tool parts and stored tool-web_search parts use the same
  * dedicated renderer, so reloading a completed search preserves its links.
@@ -255,6 +267,7 @@ export const LiveStreaming: Story = {
  */
 export const LiveAndHistoricalWebSearch: Story = {
   tags: ["ai-generated"],
+  parameters: webSearchShikiContrastKnownIssue,
   args: { message: LIVE_WEB_SEARCH_MESSAGE },
   render: (args) => (
     <div>
@@ -282,20 +295,17 @@ export const LiveAndHistoricalWebSearch: Story = {
       }
     }
 
-    const links = await waitFor(() => {
-      const found = canvas.getAllByRole("link");
-      expect(found).toHaveLength(WEB_SEARCH_OUTPUT.results.length * 2);
-      return found;
-    });
-    expect(links.map((link) => link.getAttribute("href"))).toEqual([
-      ...WEB_SEARCH_OUTPUT.results.map((result) => result.url),
-      ...WEB_SEARCH_OUTPUT.results.map((result) => result.url),
-    ]);
     for (const result of WEB_SEARCH_OUTPUT.results) {
-      expect(canvas.getAllByRole("link", { name: result.title })).toHaveLength(
-        2,
-      );
+      const found = await waitFor(() => {
+        const buttons = canvas.getAllByRole("button", { name: result.title });
+        expect(buttons).toHaveLength(2);
+        return buttons;
+      });
+      for (const button of found) {
+        expect(button).toHaveAttribute("data-streamdown", "link");
+      }
     }
+    expect(canvas.queryAllByRole("link")).toHaveLength(0);
   },
 };
 
@@ -307,6 +317,7 @@ export const LiveAndHistoricalWebSearch: Story = {
  */
 export const CancelledWebSearch: Story = {
   tags: ["ai-generated"],
+  parameters: webSearchShikiContrastKnownIssue,
   args: { message: CANCELLED_WEB_SEARCH_MESSAGE },
   play: async ({ canvas }) => {
     const header = await waitFor(

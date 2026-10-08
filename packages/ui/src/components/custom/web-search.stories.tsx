@@ -7,9 +7,23 @@ import { WebSearchTool, type WebSearchToolProps } from "./web-search.js";
 
 const markdownRenderer: WebSearchToolProps["Markdown"] = MessageResponse;
 
+// The Parameters panel renders through the shared Shiki CodeBlock, whose
+// built-in "one-light" palette ships token colors below WCAG AA color-contrast
+// (e.g. #e45649 and #50a14f on white). Same third-party-theme defect that
+// code-block.stories.tsx suppresses, and it only surfaces once Shiki's async
+// highlight resolves (always, here, because the play function expands the
+// panel first). Only the color-contrast rule is disabled.
+const shikiThemeContrastKnownIssue = {
+  a11y: {
+    config: {
+      rules: [{ id: "color-contrast", enabled: false }],
+    },
+  },
+};
+
 const meta = {
   component: WebSearchTool,
-  parameters: { layout: "centered" },
+  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -80,13 +94,13 @@ export const Results: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     await expect(
-      canvas.getByRole("link", { name: "Llame release notes" }),
+      canvas.getByRole("button", { name: "Llame release notes" }),
     ).toBeInTheDocument();
     await expect(
-      canvas.getByRole("link", { name: "Search architecture" }),
+      canvas.getByRole("button", { name: "Search architecture" }),
     ).toBeInTheDocument();
     await expect(
-      canvas.getByRole("link", { name: "Tool calling guide" }),
+      canvas.getByRole("button", { name: "Tool calling guide" }),
     ).toBeInTheDocument();
     await expect(canvas.getByText(/^example\.com\b/iu)).toBeInTheDocument();
     await expect(canvas.getByText(/2026-10-08/iu)).toBeInTheDocument();
@@ -95,12 +109,20 @@ export const Results: Story = {
     ).toBeInTheDocument();
 
     await userEvent.click(
-      canvas.getByRole("link", { name: "Llame release notes" }),
+      canvas.getByRole("button", { name: "Llame release notes" }),
     );
     await expect(canvas.getByText("Open external link?")).toBeVisible();
     await expect(
       canvas.getByText("You're about to visit an external website."),
     ).toBeVisible();
+
+    // Streamdown's link-safety overlay nests focusable controls inside a
+    // `role="button"` backdrop (axe nested-interactive) — a third-party defect
+    // outside this component, so dismiss it before the a11y check runs.
+    await userEvent.keyboard("{Escape}");
+    await expect(
+      canvas.queryByText("Open external link?"),
+    ).not.toBeInTheDocument();
   },
 };
 
@@ -130,10 +152,10 @@ export const Answer: Story = {
     await expect(canvas.getByText("The answer")).toBeInTheDocument();
     await expect(canvas.getByText("context")).toBeInTheDocument();
     await expect(
-      canvas.getByRole("link", { name: "Search design" }),
+      canvas.getByRole("button", { name: "Search design" }),
     ).toBeInTheDocument();
     await expect(
-      canvas.getByRole("link", { name: "Search output" }),
+      canvas.getByRole("button", { name: "Search output" }),
     ).toBeInTheDocument();
   },
 };
@@ -169,7 +191,9 @@ export const Error: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
-    await expect(canvas.getByText("Error")).toBeInTheDocument();
+    await expect(
+      canvas.getByText("Error", { selector: "h4" }),
+    ).toBeInTheDocument();
     await expect(
       canvas.getByText("The web search engine timed out."),
     ).toBeInTheDocument();
@@ -246,8 +270,59 @@ export const UnsafeUrl: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     await expect(canvas.getByText("Suspicious [result]")).toBeInTheDocument();
     await expect(
-      canvas.queryByRole("link", { name: "Suspicious [result]" }),
+      canvas.queryByRole("button", { name: "Suspicious [result]" }),
     ).not.toBeInTheDocument();
+    await expect(canvas.queryByRole("link")).not.toBeInTheDocument();
+    await expect(
+      canvas.getByText("Suspicious [result]").closest("a"),
+    ).toBeNull();
+  },
+};
+
+/**
+ * Result titles are plain text, so Markdown and LaTeX delimiters in them stay
+ * literal link text instead of rendering as math or formatting.
+ *
+ * @summary for results whose titles contain Markdown and math delimiters
+ */
+export const MarkdownTitles: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      status: "success" as const,
+      kind: "results" as const,
+      engine: "fixture",
+      query: "markdown titles",
+      results: [
+        {
+          title: "Python (programming language) - Wikipedia",
+          url: "https://en.wikipedia.org/wiki/Python_(programming_language)",
+        },
+        {
+          title: "Release notes [v2.0] and more",
+          url: "https://example.com/releases/v2",
+        },
+        {
+          title: "Price $5 & $10 *now*",
+          url: "https://example.com/pricing",
+        },
+      ],
+    },
+  },
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await expect(
+      canvas.getByRole("button", {
+        name: "Python (programming language) - Wikipedia",
+      }),
+    ).toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Release notes [v2.0] and more" }),
+    ).toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Price $5 & $10 *now*" }),
+    ).toBeInTheDocument();
+    await expect(canvasElement.querySelector(".katex")).toBeNull();
   },
 };
 

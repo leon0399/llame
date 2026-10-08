@@ -12,7 +12,7 @@ import {
   type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
 
-const markdownSpecialCharacterPattern = /([\\`*_[\]{}()#+\-.!|<>~$&])/gu;
+const markdownSpecialCharacterPattern = /[\\`*_[\]{}()#+\-.!|<>~$&]/gu;
 
 /** The normalized result shape displayed by the web search renderer. */
 const resultSchema = z.object({
@@ -78,10 +78,17 @@ function parseHttpUrl(value: string): URL | undefined {
   }
 }
 
+/**
+ * Link labels use numeric character references because backslash escapes such
+ * as `\(` and `\[` are read as LaTeX delimiters by the chat math preset.
+ */
 function escapeMarkdown(value: string): string {
   return value
     .replaceAll(/[\r\n]+/gu, " ")
-    .replaceAll(markdownSpecialCharacterPattern, String.raw`\$1`);
+    .replaceAll(
+      markdownSpecialCharacterPattern,
+      (character) => `&#${character.codePointAt(0)};`,
+    );
 }
 
 function escapeMarkdownUrl(value: string): string {
