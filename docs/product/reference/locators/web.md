@@ -403,7 +403,7 @@ Source: https://stackoverflow.com/a/11227902
 Date: 2012-06-27T13:56:42.000Z
 ```
 
-An `/a/` link renders the whole thread. At most 100 answers load, with
+An `/a/` link, or a `/q/` link that names an answer, renders the whole thread.
 `answers truncated: the first 100 by score` when there are more, and a failed
 answers request keeps the question with an `answers omitted:` note.
 

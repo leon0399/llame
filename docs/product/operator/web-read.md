@@ -327,7 +327,9 @@ The entry takes no other field and sends no credential. It claims
 pages stay on the generic ladder. A read
 requests the question and then up to 100 answers by score from
 `https://api.stackexchange.com/2.3/` (an `/a/` link first looks up its
-question), so it costs two or three requests. Keyless use shares a quota of
+question), so a read costs two requests, three for an `/a/` link, and four for
+an `/q/` link that names an answer (the empty question probe, then the
+lookup). Keyless use shares a quota of
 300 requests per day per IP address. The API reports a spent quota or a
 throttle as HTTP 400, so until it resets reads fall through with `status`, or
 keep the question with `answers omitted: status`. With a domain allowlist, add a
