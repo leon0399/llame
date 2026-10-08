@@ -2488,8 +2488,9 @@ answers SHALL add `answers truncated: the first 100 by score`.
 A configured `crates` adapter SHALL claim only `https://crates.io` locators
 whose path is `/crates/{name}` or `/crates/{name}/{version}`; every other path
 SHALL be unclaimed. The adapter SHALL send only unauthenticated `GET`
-requests: `https://crates.io/api/v1/crates/{name}?include=default_version`,
-then `/api/v1/crates/{name}/{version}` only when the URL names a version other
+requests: `https://crates.io/api/v1/crates/{name}?include=default_version,keywords,categories,downloads`,
+then, under the canonical name the API returned,
+`/api/v1/crates/{name}/{version}` only when the URL names a version other
 than the default, then the version's `/dependencies` and `/readme`. The crate
 and version requests are primary: a failure or an unparsable payload SHALL
 fall through. A failed dependency list or README SHALL keep the rest with a

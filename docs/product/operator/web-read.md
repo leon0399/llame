@@ -346,9 +346,11 @@ JavaScript shell to the generic ladder:
 The entry takes no other field and sends no credential. It claims
 `https://crates.io/crates/{name}` and `/crates/{name}/{version}`; search,
 version lists, and other pages stay on the generic ladder. A read requests
-`https://crates.io/api/v1/crates/{name}?include=default_version`, the pinned
+`https://crates.io/api/v1/crates/{name}?include=default_version,keywords,categories,downloads`,
+the pinned
 version's `/api/v1/crates/{name}/{version}` when the URL names one other than
-the default, then the version's `/dependencies` and `/readme`. The README
+the default, then the version's `/dependencies` and `/readme`. Requests after
+the first use the crate's canonical name, so `serde-json` reads `serde_json`. The README
 redirects to `https://static.crates.io/readmes/...`, so with a domain allowlist
 add clauses for `^https://crates\.io/api/` and `^https://static\.crates\.io/`;
 without the second, reads carry `readme omitted: permission`. A failed

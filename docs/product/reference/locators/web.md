@@ -423,6 +423,13 @@ A generic serialization/deserialization framework
 
 License: MIT OR Apache-2.0
 Rust version: 1.56
+Edition: 2021
+Downloads: 1,496,216,235 (345,806,252 in the last 90 days)
+Repository: https://github.com/serde-rs/serde
+Homepage: https://serde.rs
+Documentation: https://docs.rs/serde
+Keywords: serialization, no_std, serde
+Categories: no-std, encoding, no-std::no-alloc
 Features: alloc, default, derive, rc, std, unstable
 Dependencies: (2) serde_core =1.0.229, serde_derive ^1 (optional)
 Published: 2026-07-18T23:05:13.266456Z by dtolnay

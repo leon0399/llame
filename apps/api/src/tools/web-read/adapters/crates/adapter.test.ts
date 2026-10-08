@@ -15,7 +15,7 @@ const adapter = createCratesAdapter(
   { origin: API_ORIGIN },
 );
 const API = `${API_ORIGIN}/api/v1/crates/demo`;
-const CRATE_URL = `${API}?include=default_version`;
+const CRATE_URL = `${API}?include=default_version,keywords,categories,downloads`;
 const NOT_FOUND: WebFetchFailure = {
   type: 'http_status',
   message: 'HTTP 404',
@@ -159,6 +159,27 @@ describe('crates.io adapter read', () => {
     expect(content).toContain(
       'Yanked: yes\nLicense: MIT\nDefault version: 2.0.0',
     );
+  });
+
+  it('follows the canonical name after a differently spelled URL', async () => {
+    const spelled = `${API_ORIGIN}/api/v1/crates/Demo-Crate?include=default_version,keywords,categories,downloads`;
+    const canonical = `${API_ORIGIN}/api/v1/crates/demo_crate/2.0.0`;
+    const page = {
+      ...cratePage,
+      crate: { name: 'demo_crate', default_version: '2.0.0' },
+    };
+
+    const { urls } = await read('https://crates.io/crates/Demo-Crate', [
+      [spelled, response(page)],
+      [`${canonical}/dependencies`, response({ dependencies: [] })],
+      [`${canonical}/readme`, html('<p>Readme</p>')],
+    ]);
+
+    expect(urls).toStrictEqual([
+      spelled,
+      `${canonical}/dependencies`,
+      `${canonical}/readme`,
+    ]);
   });
 
   it('falls through for an unknown crate or version', async () => {

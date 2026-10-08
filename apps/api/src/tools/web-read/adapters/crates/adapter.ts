@@ -17,6 +17,8 @@ import {
 export const CRATES_ORIGIN = 'https://crates.io';
 
 const JSON_INIT: WebRequestInit = { accept: 'application/json' };
+/** With any `include`, crates.io returns only the listed crate fields. */
+const INCLUDE = 'default_version,keywords,categories,downloads';
 
 type CratesTarget = { readonly name: string; readonly version?: string };
 
@@ -97,11 +99,16 @@ async function readCrate(
   io: WebAdapterIo,
   origin: string,
 ): Promise<WebAdapterOutcome> {
-  const api = `${origin}/api/v1/crates/${target.name}`;
-  const fetched = await io.fetch(`${api}?include=default_version`, JSON_INIT);
+  const fetched = await io.fetch(
+    `${origin}/api/v1/crates/${target.name}?include=${INCLUDE}`,
+    JSON_INIT,
+  );
   if ('type' in fetched) return primaryFailure(fetched);
   const page = parseJsonBody(fetched.body, CRATE_PAGE);
   if (page === undefined) return { kind: 'failed', failure: 'parse' };
+  // Later requests use the canonical name: crates.io accepts `-` for `_` and
+  // any case, but its README redirect answers 403 for another spelling.
+  const api = `${origin}/api/v1/crates/${page.crate.name}`;
   const version = await resolveVersion(target, page, api, io);
   if ('outcome' in version) return version.outcome;
 
@@ -118,19 +125,27 @@ async function readCrate(
       ? {}
       : await loadSection('readme', io.fetch(`${versionApi}/readme`), notes);
   if ('fatal' in readme) return primaryFailure(readme.fatal);
-  const parsedDependencies =
-    dependencies.body === undefined
-      ? undefined
-      : parseJsonBody(dependencies.body, DEPENDENCY_PAGE)?.dependencies;
-  if (dependencies.body !== undefined && parsedDependencies === undefined) {
-    notes.push('dependencies omitted: parse');
-  }
   return {
     kind: 'rendered',
-    content: renderCrate(page.crate, version, parsedDependencies, readme.body),
+    content: renderCrate(
+      page.crate,
+      version,
+      parseDependencies(dependencies.body, notes),
+      readme.body,
+    ),
     mediaType: 'text/markdown',
     notes,
   };
+}
+
+function parseDependencies(
+  body: string | undefined,
+  notes: Array<string>,
+): ReadonlyArray<Dependency> | undefined {
+  if (body === undefined) return undefined;
+  const page = parseJsonBody(body, DEPENDENCY_PAGE);
+  if (page === undefined) notes.push('dependencies omitted: parse');
+  return page?.dependencies;
 }
 
 /** The default version arrives with the crate; another one costs a request. */
