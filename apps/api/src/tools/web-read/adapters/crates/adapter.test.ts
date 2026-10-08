@@ -65,15 +65,19 @@ describe('crates.io adapter claim', () => {
     'https://crates.io/crates/serde',
     'https://crates.io/crates/serde_json/1.0.140',
     'https://crates.io/crates/tokio/1.0.0-alpha.1?tab=readme',
+    'https://www.crates.io/crates/serde',
+    'https://www.crates.io/crates/serde_json/1.0.140',
   ])('claims %s', (source) => {
     expect(adapter.match(new URL(source))).toBe(true);
   });
 
   it.each([
     'http://crates.io/crates/serde',
-    'https://www.crates.io/crates/serde',
+    'http://www.crates.io/crates/serde',
+    'https://static.crates.io/crates/serde',
     'https://crates.io/crates/serde/',
     'https://crates.io/crates/serde/versions',
+    'https://www.crates.io/crates/serde/versions',
     'https://crates.io/search?q=serde',
     'https://crates.io/crates/1serde',
   ])('leaves %s to the generic ladder', (source) => {
@@ -133,6 +137,44 @@ describe('crates.io adapter read', () => {
         '# Demo\n\nUse `demo`.',
       ].join('\n'),
     });
+  });
+
+  it('reads a www.crates.io link through the same API requests', async () => {
+    const { outcome, urls } = await read('https://www.crates.io/crates/demo', [
+      [CRATE_URL, response(cratePage)],
+      [`${API}/2.0.0/dependencies`, response({ dependencies: [] })],
+      [`${API}/2.0.0/readme`, html('<p>Readme</p>')],
+    ]);
+
+    expect(urls).toStrictEqual([
+      CRATE_URL,
+      `${API}/2.0.0/dependencies`,
+      `${API}/2.0.0/readme`,
+    ]);
+    expect(outcome).toMatchObject({ kind: 'rendered' });
+  });
+
+  it.each([
+    [
+      'a heading anchor',
+      '<h2><a href="#usage" id="user-content-usage" rel="nofollow noopener noreferrer"></a>Usage</h2>',
+      '## Usage',
+    ],
+    ['an upper-case anchor', '<h2><A HREF="#usage"></A>Usage</h2>', '## Usage'],
+    [
+      'only the empty anchors of a paragraph',
+      '<p>See <a href="#top"></a><a href="https://example.com/docs">the docs</a>.</p>',
+      'See [the docs](https://example.com/docs).',
+    ],
+  ])('drops the empty anchors of %s in the README', async (_name, body, md) => {
+    const { outcome } = await read('https://crates.io/crates/demo', [
+      [CRATE_URL, response(cratePage)],
+      [`${API}/2.0.0/dependencies`, response({ dependencies: [] })],
+      [`${API}/2.0.0/readme`, html(body)],
+    ]);
+
+    const content = outcome.kind === 'rendered' ? outcome.content : '';
+    expect(content.split('\n## README\n\n')[1]).toBe(md);
   });
 
   it('fetches a pinned version and names the default one', async () => {

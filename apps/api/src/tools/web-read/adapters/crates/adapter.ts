@@ -20,6 +20,10 @@ export const CRATES_ORIGIN = 'https://crates.io';
 const JSON_INIT: WebRequestInit = { accept: 'application/json' };
 /** With any `include`, crates.io returns only the listed crate fields. */
 const INCLUDE = 'default_version,keywords,categories,downloads';
+/** An anchor with no content. crates.io READMEs open each heading with one,
+ *  `<h2><a href="#usage" id="user-content-usage"></a>Usage</h2>`, which
+ *  would render as `## [](#usage)Usage`. */
+const EMPTY_ANCHOR = /<a\s[^<>]*><\/a>/giu;
 
 type CratesTarget = { readonly name: string; readonly version?: string };
 
@@ -71,9 +75,13 @@ const DEPENDENCY_PAGE = z.object({
 });
 type Dependency = z.infer<typeof DEPENDENCY_PAGE>['dependencies'][number];
 
-/** Matches `crates.io/crates/{name}` and `/crates/{name}/{version}`. */
+/** Matches `crates.io/crates/{name}` and `/crates/{name}/{version}`, also on
+ *  `www.crates.io`, which redirects there. */
 export function parseCratesUrl(source: URL): CratesTarget | undefined {
-  if (source.protocol !== 'https:' || source.host !== 'crates.io') {
+  if (
+    source.protocol !== 'https:' ||
+    (source.host !== 'crates.io' && source.host !== 'www.crates.io')
+  ) {
     return undefined;
   }
   const match = CRATE_PATH.exec(source.pathname);
@@ -135,7 +143,7 @@ async function readCrate(
       page.crate,
       version,
       parseDependencies(dependencies.body, notes),
-      readme.body,
+      readme.body?.replaceAll(EMPTY_ANCHOR, ''),
     ),
     mediaType: 'text/markdown',
     notes,

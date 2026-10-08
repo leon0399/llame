@@ -2485,10 +2485,11 @@ answers SHALL add `answers truncated: the first 100 by score`.
 
 ### Requirement: crates.io native adapter reads crate pages
 
-A configured `crates` adapter SHALL claim only `https://crates.io` locators
-whose path is `/crates/{name}` or `/crates/{name}/{version}`; every other path
-SHALL be unclaimed. The adapter SHALL send only unauthenticated `GET`
-requests: `https://crates.io/api/v1/crates/{name}?include=default_version,keywords,categories,downloads`,
+A configured `crates` adapter SHALL claim only `https://crates.io` and
+`https://www.crates.io` locators whose path is `/crates/{name}` or
+`/crates/{name}/{version}`; every other path SHALL be unclaimed. The adapter
+SHALL send only unauthenticated `GET` requests:
+`https://crates.io/api/v1/crates/{name}?include=default_version,keywords,categories,downloads`,
 then, under the canonical name the API returned,
 `/api/v1/crates/{name}/{version}` only when the URL names a version other
 than the default, then the version's `/dependencies` and `/readme`. The crate
@@ -2504,13 +2505,24 @@ the fields present (`Yanked`, `License`, `Default version` when another
 version was named, `Rust version`, `Edition`, `Downloads`, `Repository`,
 `Homepage`, `Documentation`, `Keywords`, `Categories`, `Features`,
 `Dependencies`, `Build dependencies`, `Dev dependencies`, `Published`), a
-`URL` line, and `## README` with the README converted to Markdown.
+`URL` line, and `## README` with the README converted to Markdown, its empty
+anchors (such as GitHub-style heading links) removed.
 
 #### Scenario: A crate page renders its default version
 
 - **WHEN** the model reads `https://crates.io/crates/serde`
 - **THEN** the adapter requests the crate with its default version, then that version's dependencies and README
 - **AND** the text starts with `# serde {version}` and lists dependencies by kind
+
+#### Scenario: A link on the www host is read like crates.io
+
+- **WHEN** the model reads `https://www.crates.io/crates/serde`
+- **THEN** the adapter claims it and requests the same `https://crates.io/api/v1/crates/serde` endpoints as for `https://crates.io/crates/serde`
+
+#### Scenario: README heading anchors do not render as empty links
+
+- **WHEN** the README HTML opens a heading with `<a href="#usage" id="user-content-usage"></a>`
+- **THEN** the heading renders as `## Usage`, with no `[](#usage)` link
 
 ### Requirement: Operator rewrite adapters are validated and opt-in
 

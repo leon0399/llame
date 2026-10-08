@@ -344,8 +344,9 @@ JavaScript shell to the generic ladder:
 ```
 
 The entry takes no other field and sends no credential. It claims
-`https://crates.io/crates/{name}` and `/crates/{name}/{version}`; search,
-version lists, and other pages stay on the generic ladder. A read requests
+`https://crates.io/crates/{name}` and `/crates/{name}/{version}`, also on
+`www.crates.io`, which redirects there; search, version lists, and other
+pages stay on the generic ladder. A read requests
 `https://crates.io/api/v1/crates/{name}?include=default_version,keywords,categories,downloads`,
 the pinned
 version's `/api/v1/crates/{name}/{version}` when the URL names one other than

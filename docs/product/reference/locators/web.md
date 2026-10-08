@@ -414,7 +414,8 @@ the description, then `Yanked`, `License`, `Default version` (when another
 version was named), `Rust version`, `Edition`, `Downloads`, `Repository`,
 `Homepage`, `Documentation`, `Keywords`, `Categories`, `Features`,
 `Dependencies`, `Build dependencies`, `Dev dependencies`, `Published`, and
-`URL` lines for the fields present, then the README converted to Markdown:
+`URL` lines for the fields present, then the README converted to Markdown
+with its empty anchors, such as heading links, removed:
 
 ```text
 # serde 1.0.229
