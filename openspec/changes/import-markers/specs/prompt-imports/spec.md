@@ -164,7 +164,7 @@ Before the Run's first model request, the triggering message SHALL persist one `
 
 ### Requirement: Prompt-import work has bounded targets, output, and time
 
-Prompt imports SHALL consider at most 64 markers in first-occurrence order. Probed survivors and no-probe `skill://`/web targets count toward 8 targets. Output SHALL be capped at 128 KiB; work at 30 seconds or remaining Run deadline. Targets beyond the 8-target or output bound SHALL be listed as omitted. When work ends, only probed survivors or no-probe targets SHALL be listed as omitted; unprobed host or Knowledge targets SHALL be dropped silently. Probes count toward work.
+Prompt imports SHALL consider at most 64 markers in first-occurrence order. Admitted probe survivors and no-probe `skill://`/web targets count toward 8 reads; output is capped at 128 KiB and work at 30 seconds or the Run deadline. An admitted target past the read or output bound SHALL be listed as omitted; a denied target is audited without a read and never counts or is omitted. When work ends, unprobed targets SHALL be dropped silently.
 
 #### Scenario: Targets beyond the count bound are omitted
 
@@ -175,9 +175,9 @@ Prompt imports SHALL consider at most 64 markers in first-occurrence order. Prob
 #### Scenario: Output and work bounds stop further reads
 
 - **WHEN** the serialized item would exceed 128 KiB, 30 seconds of work elapse, or the Run deadline arrives
-- **THEN** further targets are not read, and once the work or deadline bound fires they are not probed either
-- **AND** after the output bound, later host or Knowledge targets are still probed, so a prose token is never listed as omitted
-- **AND** targets skipped by the output bound, or targets that survived probing or needed no probe when the work bound fires, are listed once as omitted
+- **THEN** no further admitted target is read, and once the work or deadline bound fires no further target is probed or evaluated
+- **AND** after the output bound, later host or Knowledge targets are still evaluated and probed, so a prose token is never listed as omitted and a denied target is still reported as not imported
+- **AND** admitted targets skipped by the output bound, or admitted targets that survived probing or needed no probe when the work bound fires, are listed once as omitted
 - **AND** unprobed host or Knowledge targets skipped by the work bound are dropped silently and may remain prose
 
 #### Scenario: Markers beyond the count bound stay prose
