@@ -8,6 +8,7 @@
  */
 
 import {
+  MAX_OMISSION_IMPORT_NAMES,
   MAX_OMISSION_NAMES,
   SKILL_ACTIVATION_FAILURE_REASONS,
   createSkillActivationFailureItem,
@@ -268,7 +269,7 @@ describe('the selections left unattempted', () => {
 
   it('bounds imported omission names and reports their remainder', () => {
     const imports = Array.from(
-      { length: MAX_OMISSION_NAMES + 2 },
+      { length: MAX_OMISSION_IMPORT_NAMES + 2 },
       (_, index) => `skill://research/import-${index}.md`,
     );
     const item = createSkillActivationOmissionItem({
@@ -280,12 +281,12 @@ describe('the selections left unattempted', () => {
     expect(item.data.payload).toEqual({
       kind: 'omission',
       skills: [],
-      imports: imports.slice(0, MAX_OMISSION_NAMES),
-      beyond: 2,
+      imports: imports.slice(0, MAX_OMISSION_IMPORT_NAMES),
+      importsBeyond: 2,
     });
     expect(bodyOf(item)).toContain('and 2 more not listed here.');
     expect(bodyOf(item)).not.toContain(
-      `\`skill://research/import-${MAX_OMISSION_NAMES}.md\``,
+      `\`skill://research/import-${MAX_OMISSION_IMPORT_NAMES}.md\``,
     );
   });
 
@@ -377,6 +378,13 @@ describe('the payload guard', () => {
         kind: 'omission',
         skills: [],
         imports: ['skill://a/notes.md'],
+      }),
+    ).toBe(true);
+    expect(
+      isSkillActivationPayload({
+        kind: 'omission',
+        skills: [],
+        importsBeyond: 2,
       }),
     ).toBe(true);
     expect(isSkillActivationPayload({ kind: 'omission', skills: ['a'] })).toBe(

@@ -16,8 +16,8 @@ export const SKILL_LOCATOR_SCHEME = 'skill';
  * Path bounds mirroring the Knowledge locator's: one operator-authored package
  * resource can be neither arbitrarily long nor arbitrarily deep.
  */
-const SKILL_MAX_PATH_BYTES = 1024;
-const SKILL_MAX_PATH_COMPONENTS = 32;
+export const SKILL_MAX_PATH_BYTES = 1024;
+export const SKILL_MAX_PATH_COMPONENTS = 32;
 
 /**
  * A parsed `skill://` locator. Four shapes share one type:

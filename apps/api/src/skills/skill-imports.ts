@@ -1,17 +1,21 @@
 import { posix } from 'node:path';
 
-import { splitSelectorSuffix } from '@workspace/native-file-tools';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
 import {
-  decodeRelativePath,
-  encodeRelativePath,
-} from '../tools/locator-spelling';
-
-import { importTargets } from '../import-markers/import-markers';
+  importTargets,
+  isLocalImportTarget,
+  MAX_IMPORT_HOPS,
+} from '../import-markers/import-markers';
+import { decodeRelativePath } from '../tools/locator-spelling';
 import { type PermissionDecision } from '../tools/permissions/types';
 import { runTool } from '../tools/runner';
 import { type Tool, type ToolContext, type ToolResult } from '../tools/types';
+import {
+  formatSkillLocator,
+  SKILL_MAX_PATH_BYTES,
+  SKILL_MAX_PATH_COMPONENTS,
+} from './skill-locator';
 
 /** Imports from an activated package, in depth-first order. */
 export type SkillImport = {
@@ -20,9 +24,48 @@ export type SkillImport = {
   readonly truncationNotice?: string;
 };
 
-export const MAX_SKILL_IMPORT_HOPS = 5;
+export type SkillActivationReadInput = {
+  readonly path: string;
+};
 
-const IMPORT_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
+/**
+ * Audit callbacks shared by activation's root read and package-local imports.
+ * Admission is awaited before the read is dispatched, while completion records
+ * the result that actually came back.
+ */
+export type SkillActivationActivity = {
+  readonly admitted: (
+    toolCallId: string,
+    input: SkillActivationReadInput,
+    decision: PermissionDecision,
+  ) => void | Promise<void>;
+  readonly completed: (
+    toolCallId: string,
+    result: ToolResult,
+  ) => void | Promise<void>;
+};
+
+type SkillImportExpansionInput = {
+  readonly skill: string;
+  readonly runId: string;
+  readonly mentionOrdinal: number;
+  readonly body: string;
+  readonly selection: ReadonlySet<string>;
+  readonly toolContext: ToolContext;
+  readonly readTool: Tool;
+  readonly callTimeoutSeconds: number;
+  readonly deadline: number;
+  readonly activity: SkillActivationActivity;
+  readonly canAccept: (imports: ReadonlyArray<SkillImport>) => boolean;
+};
+
+type ImportState = SkillImportExpansionInput & {
+  readonly imports: Array<SkillImport>;
+  readonly omitted: Array<string>;
+  readonly seen: Set<string>;
+  readOrdinal: number;
+  exhausted: boolean;
+};
 
 type ResolvedImport = {
   readonly relativePath: string;
@@ -34,50 +77,7 @@ type ImportRead = {
   readonly relativePath: string;
 };
 
-type ImportState = {
-  readonly skill: string;
-  readonly runId: string;
-  readonly mentionOrdinal: number;
-  readonly selection: ReadonlySet<string>;
-  readonly toolContext: ToolContext;
-  readonly readTool: Tool;
-  readonly callTimeoutSeconds: number;
-  readonly deadline: number;
-  readonly activity: SkillImportActivity;
-  readonly imports: Array<SkillImport>;
-  readonly omitted: Array<string>;
-  readonly seen: Set<string>;
-  readonly canAccept: (imports: ReadonlyArray<SkillImport>) => boolean;
-  readOrdinal: number;
-  exhausted: boolean;
-};
-
-export type SkillImportActivity = {
-  readonly admitted: (
-    toolCallId: string,
-    decision: PermissionDecision,
-  ) => void | Promise<void>;
-  readonly completed: (
-    toolCallId: string,
-    result: ToolResult,
-  ) => void | Promise<void>;
-};
-
-export type SkillImportExpansionInput = {
-  readonly skill: string;
-  readonly runId: string;
-  readonly mentionOrdinal: number;
-  readonly body: string;
-  readonly selection: ReadonlySet<string>;
-  readonly toolContext: ToolContext;
-  readonly readTool: Tool;
-  readonly callTimeoutSeconds: number;
-  readonly deadline: number;
-  readonly activity: SkillImportActivity;
-  readonly canAccept: (imports: ReadonlyArray<SkillImport>) => boolean;
-};
-
-export type SkillImportExpansion = {
+type SkillImportExpansion = {
   readonly imports: ReadonlyArray<SkillImport>;
   readonly omitted: ReadonlyArray<string>;
 };
@@ -98,36 +98,62 @@ export async function expandSkillImports(
   return { imports: state.imports, omitted: state.omitted };
 }
 
+/**
+ * One audited read shared by activation's root SKILL.md and imported files.
+ * The input passed to admission is the exact locator sent to the tool.
+ */
+export async function readSkillActivationFile(input: {
+  readonly readTool: Tool;
+  readonly toolContext: ToolContext;
+  readonly selection: ReadonlySet<string>;
+  readonly remainingMs: number;
+  readonly callTimeoutSeconds: number;
+  readonly toolCallId: string;
+  readonly readInput: SkillActivationReadInput;
+  readonly activity: SkillActivationActivity;
+}): Promise<ToolResult> {
+  const result = await runTool(
+    input.readTool,
+    input.readInput,
+    {
+      ...readContext(input.toolContext, input.selection, input.remainingMs),
+      toolCallId: input.toolCallId,
+    },
+    input.callTimeoutSeconds,
+    (decision) =>
+      input.activity.admitted(input.toolCallId, input.readInput, decision),
+  );
+  await input.activity.completed(input.toolCallId, result);
+  return result;
+}
+
 async function expandBody(
   state: ImportState,
   importer: string,
   body: string,
   hop: number,
 ): Promise<void> {
-  if (hop >= MAX_SKILL_IMPORT_HOPS) return;
+  if (hop >= MAX_IMPORT_HOPS) return;
   for (const target of importTargets(body)) {
     const resolved = resolveImport(state.skill, importer, target);
     if (resolved === undefined || state.seen.has(resolved.relativePath))
       continue;
     state.seen.add(resolved.relativePath);
     if (state.exhausted || Date.now() >= state.deadline) {
-      state.exhausted = true;
-      state.omitted.push(resolved.locator);
+      omitImport(state, resolved.locator);
       continue;
     }
     if (
       !state.canAccept([...state.imports, { path: resolved.locator, body: '' }])
     ) {
-      state.exhausted = true;
-      state.omitted.push(resolved.locator);
+      omitImport(state, resolved.locator);
       continue;
     }
     const loaded = await readImport(state, resolved);
     if (loaded === undefined) continue;
     const candidate = [...state.imports, loaded.file];
     if (!state.canAccept(candidate)) {
-      state.exhausted = true;
-      state.omitted.push(resolved.locator);
+      omitImport(state, resolved.locator);
       continue;
     }
     state.imports.push(loaded.file);
@@ -135,34 +161,46 @@ async function expandBody(
   }
 }
 
+function omitImport(state: ImportState, locator: string): void {
+  state.exhausted = true;
+  state.omitted.push(locator);
+}
+
+function isBudgetAbort(result: ToolResult, deadline: number): boolean {
+  return (
+    result.status === 'error' &&
+    (result.type === 'cancelled' ||
+      result.type === 'timeout' ||
+      result.type === 'timed_out') &&
+    Date.now() >= deadline
+  );
+}
+
 function resolveImport(
   skill: string,
   importer: string,
   target: string,
 ): ResolvedImport | undefined {
-  if (
-    target.startsWith('~/') ||
-    IMPORT_SCHEME.test(target) ||
-    posix.isAbsolute(target) ||
-    splitSelectorSuffix(target).selector !== undefined
-  ) {
+  if (!isLocalImportTarget(target) || posix.isAbsolute(target))
     return undefined;
-  }
   const decodedTarget = decodeRelativePath(target);
   if (decodedTarget === undefined) return undefined;
   const relativePath = posix.normalize(
     posix.join(posix.dirname(importer), decodedTarget),
   );
+  const components = relativePath.split('/');
   if (
     relativePath === '.' ||
     relativePath === '..' ||
-    relativePath.startsWith('../')
+    relativePath.startsWith('../') ||
+    Buffer.byteLength(relativePath, 'utf8') > SKILL_MAX_PATH_BYTES ||
+    components.length > SKILL_MAX_PATH_COMPONENTS
   ) {
     return undefined;
   }
   return {
     relativePath,
-    locator: `skill://${skill}/${encodeRelativePath(relativePath)}`,
+    locator: formatSkillLocator({ name: skill, relativePath }),
   };
 }
 
@@ -171,19 +209,26 @@ async function readImport(
   resolved: ResolvedImport,
 ): Promise<ImportRead | undefined> {
   const remainingMs = state.deadline - Date.now();
-  if (remainingMs <= 0) return undefined;
+  if (remainingMs <= 0) {
+    omitImport(state, resolved.locator);
+    return undefined;
+  }
   const toolCallId = `skill-activation-${state.runId}-${state.mentionOrdinal}-${state.readOrdinal++}`;
-  const result = await runTool(
-    state.readTool,
-    { path: `${resolved.locator}:raw` },
-    {
-      ...readContext(state.toolContext, state.selection, remainingMs),
-      toolCallId,
-    },
-    state.callTimeoutSeconds,
-    (decision) => state.activity.admitted(toolCallId, decision),
-  );
-  await state.activity.completed(toolCallId, result);
+  const readInput = { path: `${resolved.locator}:raw` };
+  const result = await readSkillActivationFile({
+    readTool: state.readTool,
+    toolContext: state.toolContext,
+    selection: state.selection,
+    remainingMs,
+    callTimeoutSeconds: state.callTimeoutSeconds,
+    toolCallId,
+    readInput,
+    activity: state.activity,
+  });
+  if (isBudgetAbort(result, state.deadline)) {
+    omitImport(state, resolved.locator);
+    return undefined;
+  }
   const output = readImportOutput(result);
   if (output === undefined) return undefined;
   return {

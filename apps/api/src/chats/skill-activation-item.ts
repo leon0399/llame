@@ -69,8 +69,10 @@ export interface SkillActivationOmissionPayload extends UnknownRecord {
   readonly kind: 'omission';
   readonly skills: ReadonlyArray<string>;
   readonly imports?: ReadonlyArray<string>;
-  /** Names past the list bound, reported as a count rather than listed. */
+  /** Skills past the list bound, reported as a count rather than listed. */
   readonly beyond?: number;
+  /** Imports past the list bound, reported separately from skill names. */
+  readonly importsBeyond?: number;
 }
 
 type SkillActivationItemPayload =
@@ -118,17 +120,29 @@ export function isSkillActivationPayload(
 function isOmissionPayload(value: UnknownRecord): boolean {
   const hasImports = Object.hasOwn(value, 'imports');
   const hasBeyond = Object.hasOwn(value, 'beyond');
+  const hasImportsBeyond = Object.hasOwn(value, 'importsBeyond');
   const skills = value['skills'];
   const imports = value['imports'];
   const hasSkills = Array.isArray(skills) && skills.length > 0;
   const hasNonEmptyImports =
     hasImports && Array.isArray(imports) && imports.length > 0;
+  const beyondValid =
+    !hasBeyond ||
+    (isNumber(value['beyond']) &&
+      Number.isInteger(value['beyond']) &&
+      value['beyond'] > 0);
+  const importsBeyondValid =
+    !hasImportsBeyond ||
+    (isNumber(value['importsBeyond']) &&
+      Number.isInteger(value['importsBeyond']) &&
+      value['importsBeyond'] > 0);
   return (
     isExactRecord(value, [
       'kind',
       'skills',
       ...(hasImports ? ['imports'] : []),
       ...(hasBeyond ? ['beyond'] : []),
+      ...(hasImportsBeyond ? ['importsBeyond'] : []),
     ]) &&
     Array.isArray(skills) &&
     skills.every(isNonEmptyString) &&
@@ -136,13 +150,9 @@ function isOmissionPayload(value: UnknownRecord): boolean {
       (Array.isArray(imports) &&
         imports.length > 0 &&
         imports.every(isNonEmptyString))) &&
-    (hasSkills || hasNonEmptyImports) &&
-    // Present only when names were left out, and then it counts at least one:
-    // a zero would claim a remainder that does not exist.
-    (!hasBeyond ||
-      (isNumber(value['beyond']) &&
-        Number.isInteger(value['beyond']) &&
-        value['beyond'] > 0))
+    (hasSkills || hasNonEmptyImports || hasBeyond || hasImportsBeyond) &&
+    beyondValid &&
+    importsBeyondValid
   );
 }
 
@@ -250,8 +260,15 @@ export function createSkillActivationFailureItem(input: {
   });
 }
 
-/** How many names one notice lists before it reports the rest as a count. */
+/** How many skill names one notice lists before it reports the rest as a count. */
 export const MAX_OMISSION_NAMES = 32;
+
+/**
+ * Imported locators have a larger bounded spelling than skill names. Keeping
+ * their list below the skill-name bound leaves room for the encoded worst-case
+ * locator while the whole omission item remains under the activation cap.
+ */
+export const MAX_OMISSION_IMPORT_NAMES = 16;
 
 /**
  * The omission body. The noun, the bounded name list, and the remainder
@@ -282,11 +299,12 @@ type SkillActivationOmissionInput = {
   readonly skills: ReadonlyArray<string>;
   readonly imports?: ReadonlyArray<string>;
   /**
-   * Names an earlier notice already reported as a count rather than listing.
-   * A rebuild carries it forward: those selections are still unattempted, and
-   * rebuilding from the truncated list alone would silently drop them.
+   * Skill names an earlier notice already reported as a count rather than
+   * listing. A rebuild carries them forward separately from imported files.
    */
   readonly unlisted?: number;
+  /** Imported locators an earlier notice already reported as a count. */
+  readonly unlistedImports?: number;
 };
 
 type ActivationOmissionTemplateValues = {
@@ -307,11 +325,11 @@ type BuiltOmission = {
 function buildOmission(input: SkillActivationOmissionInput): BuiltOmission {
   const imports = input.imports ?? [];
   const listedNames = input.skills.slice(0, MAX_OMISSION_NAMES);
-  const listedImports = imports.slice(0, MAX_OMISSION_NAMES);
+  const listedImports = imports.slice(0, MAX_OMISSION_IMPORT_NAMES);
   const unlistedSkills =
     input.skills.length - listedNames.length + (input.unlisted ?? 0);
-  const unlistedImports = imports.length - listedImports.length;
-  const beyond = unlistedSkills + unlistedImports;
+  const unlistedImports =
+    imports.length - listedImports.length + (input.unlistedImports ?? 0);
   const listed = listedNames.map((skill) => `\`$${skill}\``).join(', ');
   const listedImportNames = listedImports
     .map((path) => `\`${path}\``)
@@ -321,15 +339,16 @@ function buildOmission(input: SkillActivationOmissionInput): BuiltOmission {
       kind: 'omission',
       skills: listedNames,
       ...(listedImports.length > 0 && { imports: listedImports }),
-      ...(beyond > 0 && { beyond }),
+      ...(unlistedSkills > 0 && { beyond: unlistedSkills }),
+      ...(unlistedImports > 0 && { importsBeyond: unlistedImports }),
     },
     template: {
-      hasSkills: listedNames.length > 0,
+      hasSkills: listedNames.length > 0 || unlistedSkills > 0,
       noun: input.skills.length === 1 ? 'skill' : 'skills',
       listed,
       rest:
         unlistedSkills > 0 ? ` and ${unlistedSkills} more not listed here` : '',
-      hasImports: listedImports.length > 0,
+      hasImports: listedImports.length > 0 || unlistedImports > 0,
       imports: listedImportNames,
       importsRest:
         unlistedImports > 0
@@ -343,7 +362,6 @@ export function createSkillActivationOmissionItem(
   input: SkillActivationOmissionInput,
 ): AuthoredContextItemPart {
   const { payload, template } = buildOmission(input);
-  // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the non-empty invariant this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isSkillActivationPayload(payload)) {
     throw new TypeError('Invalid server-authored skill activation metadata');
   }

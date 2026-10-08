@@ -1,5 +1,23 @@
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes } from 'mdast';
+import { splitSelectorSuffix } from '@workspace/native-file-tools';
+
+const IMPORT_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
+
+/** Maximum depth shared by instruction and skill package imports. */
+export const MAX_IMPORT_HOPS = 5;
+
+/**
+ * Whether an import target is a package-local spelling rather than a home
+ * path, a different scheme, or a selector-bearing target.
+ */
+export function isLocalImportTarget(target: string): boolean {
+  return (
+    !target.startsWith('~/') &&
+    !IMPORT_SCHEME.test(target) &&
+    splitSelectorSuffix(target).selector === undefined
+  );
+}
 
 type SourceRange = {
   start: number;

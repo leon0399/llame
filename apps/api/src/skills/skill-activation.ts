@@ -25,14 +25,19 @@ import {
   createSkillActivationFailureItem,
   createSkillActivationItem,
   createSkillActivationOmissionItem,
+  MAX_OMISSION_IMPORT_NAMES,
   MAX_OMISSION_NAMES,
   type SkillActivationFailureReason,
 } from '../chats/skill-activation-item';
-import { type PermissionDecision } from '../tools/permissions/types';
-import { runTool } from '../tools/runner';
 import { type Tool, type ToolContext, type ToolResult } from '../tools/types';
 import { type SkillMention } from './skill-mention';
-import { expandSkillImports, type SkillImport } from './skill-imports';
+import {
+  expandSkillImports,
+  readSkillActivationFile,
+  type SkillActivationActivity,
+  type SkillImport,
+} from './skill-imports';
+import { SKILL_MAX_PATH_BYTES } from './skill-locator';
 import { skillInstructionBody } from './skill-package';
 
 /**
@@ -42,8 +47,9 @@ import { skillInstructionBody } from './skill-package';
  */
 export const MAX_SKILL_ACTIVATIONS = 8;
 
-/** Longest model-visible locator: scheme, 64-char name, slash, and path. */
-const MAX_SKILL_IMPORT_PATH_LENGTH = 'skill://'.length + 64 + 1 + 1024;
+/** Longest encoded locator admitted by the skill locator grammar. */
+const MAX_SKILL_IMPORT_PATH_LENGTH =
+  'skill://'.length + 64 + 1 + SKILL_MAX_PATH_BYTES * 3;
 
 /** Aggregate serialized activation output, envelopes included. */
 export const MAX_SKILL_ACTIVATION_BYTES = 128 * 1024;
@@ -60,27 +66,6 @@ export type SkillActivationOutcome = {
    * model-initiated read of that skill's resources is not refused as unselected.
    */
   readonly selection: ReadonlySet<string>;
-};
-
-/**
- * Durable audit for activation reads.
- *
- * Split into `admitted` and `completed` rather than one callback because the
- * ORDER is the guarantee: the admission record must be durable BEFORE the file
- * is opened (an audit failure prevents the read), and the completion record
- * carries what was actually returned. Both are keyed by the caller-supplied
- * call id, which encodes the `(Run, mention ordinal)` identity the recovery path
- * reuses.
- */
-export type SkillActivationActivity = {
-  readonly admitted: (
-    toolCallId: string,
-    decision: PermissionDecision,
-  ) => void | Promise<void>;
-  readonly completed: (
-    toolCallId: string,
-    result: ToolResult,
-  ) => void | Promise<void>;
 };
 
 type ActivationRequest = {
@@ -159,9 +144,10 @@ function instructionCeiling(input: ActivationRequest): number {
       ...reserved,
       ...(input.mentions.length > reserved.length ? ['x'] : []),
     ],
-    // Imports are discovered only after an activation succeeds, so reserve
-    // their locator bound up front to keep a later omission notice in bounds.
-    imports: Array.from({ length: MAX_OMISSION_NAMES + 1 }, () =>
+    // Imports are discovered only after an activation succeeds. Their
+    // encoded locator can use three output characters per path byte, so the
+    // smaller import-list bound keeps this reserve inside 128 KiB.
+    imports: Array.from({ length: MAX_OMISSION_IMPORT_NAMES + 1 }, () =>
       'x'.repeat(MAX_SKILL_IMPORT_PATH_LENGTH),
     ),
   });
@@ -362,50 +348,16 @@ async function readActivation(
   activation: ActivationRead,
 ): Promise<ToolResult> {
   const toolCallId = `skill-activation-${input.runId}-${activation.ordinal}`;
-  const result = await runTool(
-    input.readTool,
-    { path: `skill://${activation.mention.name}:raw` },
-    {
-      ...readContext(
-        input.toolContext,
-        activation.selection,
-        activation.remainingMs,
-      ),
-      toolCallId,
-    },
-    input.callTimeoutSeconds,
-    (decision) => input.activity.admitted(toolCallId, decision),
-  );
-  await input.activity.completed(toolCallId, result);
-  return result;
-}
-
-/**
- * The trusted context for one activation read: the Run's own context, plus the
- * turn's selection set and a deadline clamped to what remains of the activation
- * budget.
- *
- * The clamp is an ABORT SIGNAL, not `timeoutMs`. `runTool` derives its own
- * timeout from `tool.timeoutSeconds ?? callTimeoutSeconds` and OVERWRITES
- * `context.timeoutMs`, so a field-level clamp would be dead code and one slow
- * read could delay the turn's first model request by the full per-call timeout.
- * Composing the remaining budget into the signal is what actually bounds the
- * read: the runner composes that with its own timeout, and whichever expires
- * first aborts.
- */
-function readContext(
-  toolContext: ToolContext,
-  selection: ReadonlySet<string>,
-  remainingMs: number,
-): ToolContext {
-  const budgetSignal = AbortSignal.timeout(remainingMs);
-  return {
-    ...toolContext,
-    skillSelection: selection,
-    abortSignal: toolContext.abortSignal
-      ? AbortSignal.any([toolContext.abortSignal, budgetSignal])
-      : budgetSignal,
-  };
+  return readSkillActivationFile({
+    readTool: input.readTool,
+    toolContext: input.toolContext,
+    selection: activation.selection,
+    remainingMs: activation.remainingMs,
+    callTimeoutSeconds: input.callTimeoutSeconds,
+    toolCallId,
+    readInput: { path: `skill://${activation.mention.name}:raw` },
+    activity: input.activity,
+  });
 }
 
 function createActivationFromRead(

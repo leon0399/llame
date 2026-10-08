@@ -8,9 +8,11 @@
 
 import { posix } from 'node:path';
 
-import { splitSelectorSuffix } from '@workspace/native-file-tools';
-
-import { importTargets } from '../import-markers/import-markers';
+import {
+  importTargets,
+  isLocalImportTarget,
+  MAX_IMPORT_HOPS,
+} from '../import-markers/import-markers';
 import {
   KNOWLEDGE_LOCATOR_SCHEME,
   parseKnowledgeLocator,
@@ -60,9 +62,7 @@ interface ResolvedImport {
   readonly path: string;
 }
 
-const IMPORT_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
 const IMPORT_PAGE = ':raw:1-2000';
-const MAX_IMPORT_HOPS = 5;
 const EMPTY_DISCLOSED: ReadonlySet<string> = new Set<string>();
 
 function resolveImport(
@@ -70,13 +70,7 @@ function resolveImport(
   importer: string,
   target: string,
 ): ResolvedImport | undefined {
-  if (
-    target.startsWith('~/') ||
-    IMPORT_SCHEME.test(target) ||
-    splitSelectorSuffix(target).selector !== undefined
-  ) {
-    return undefined;
-  }
+  if (!isLocalImportTarget(target)) return undefined;
   if (!group.knowledge) {
     const key = target.startsWith('/')
       ? posix.normalize(target)
