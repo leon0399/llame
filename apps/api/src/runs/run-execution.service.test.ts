@@ -9468,6 +9468,48 @@ describe('RunExecutionService instruction files', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+  it('passes instruction paths to path-sensitive read admission', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    const permissionPolicy = compileToolPermissionMap(
+      {
+        enter_workspace: { allow: true },
+        read: {
+          allow: [
+            { field: 'path', literal: path.join(root, 'AGENTS.md') },
+            { field: 'path', literal: path.join(root, 'apps/api/AGENTS.md') },
+            { field: 'path', literal: touch },
+          ],
+        },
+      },
+      'instruction-path-policy',
+    );
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const { client } = readThenAnswerClient(touch);
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        'host-a',
+        executionOptions(permissionPolicy),
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.recordContextItems).toHaveBeenCalled(),
+      );
+      const items = instructionItems(repositories);
+      expect(items).toHaveLength(2);
+      expect(items.map((item) => item.text).join('\n')).toContain(
+        'run the tests',
+      );
+      expect(items.map((item) => item.text).join('\n')).toContain('api rules');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it('publishes no instructions item when the model call fails after the load', async () => {
     const root = instructionsRoot();

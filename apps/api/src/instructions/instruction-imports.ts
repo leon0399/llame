@@ -71,7 +71,6 @@ function resolveImport(
   target: string,
 ): ResolvedImport | undefined {
   if (
-    target.length === 0 ||
     target.startsWith('~/') ||
     IMPORT_SCHEME.test(target) ||
     splitSelectorSuffix(target).selector !== undefined
@@ -84,12 +83,7 @@ function resolveImport(
       : posix.resolve(posix.dirname(importer), target);
     return { key, path: key };
   }
-  if (
-    target.startsWith('/') ||
-    !importer.startsWith(`${KNOWLEDGE_LOCATOR_SCHEME}://`)
-  ) {
-    return undefined;
-  }
+  if (target.startsWith('/')) return undefined;
   const base = candidateDirectory(group, importer);
   if (base === undefined) return undefined;
   const key = posix.normalize(posix.join(base, target));
@@ -107,20 +101,19 @@ function candidateDirectory(
 ): string | undefined {
   if (!group.knowledge) return parentKey(path, group.scope.root);
   const prefix = `${KNOWLEDGE_LOCATOR_SCHEME}://`;
-  if (!path.startsWith(prefix)) return undefined;
   const parsed = parseKnowledgeLocator(path.slice(prefix.length));
   if ('type' in parsed) return undefined;
-  return parentKey(parsed.relativePath ?? '', '');
+  return parsed.relativePath === undefined
+    ? group.scope.root
+    : parentKey(parsed.relativePath, group.scope.root);
 }
 
 /** Reads one candidate into the collector, unless it is disclosed or seen. */
-// eslint-disable-next-line max-params -- The import collector's plain parameters keep hop and provenance independent.
 export async function collectInstructionCandidate(
   state: InstructionImportState,
   candidate: InstructionCandidate,
   disclosed: ReadonlySet<string>,
-  hop: number,
-  importedBy?: string,
+  origin: { hop: number; importedBy?: string },
 ): Promise<void> {
   const { collector, group } = state;
   if (collector.keys.has(candidate.canonicalPath)) return;
@@ -144,19 +137,18 @@ export async function collectInstructionCandidate(
     omittedBytes: read.omittedBytes,
     knowledge: group.knowledge,
   };
-  if (importedBy !== undefined) {
-    collector.files.push({ ...file, importedBy });
-  } else {
-    collector.files.push(file);
-  }
-  if (importedBy !== undefined) {
+  collector.files.push(
+    origin.importedBy === undefined
+      ? file
+      : { ...file, importedBy: origin.importedBy },
+  );
+  if (origin.importedBy !== undefined) {
     const directory = candidateDirectory(group, candidate.path);
     if (directory !== undefined) await loadDirectoryChain(state, directory);
   }
-  await expandImports(state, candidate.path, read.content, hop);
+  await expandImports(state, candidate.path, read.content, origin.hop);
 }
 
-// eslint-disable-next-line max-lines-per-function -- Admission, probing, canonical checks, and recursive loading form one import operation.
 async function loadResolvedImport(
   state: InstructionImportState,
   importer: string,
@@ -194,13 +186,10 @@ async function loadResolvedImport(
     directory === undefined
       ? EMPTY_DISCLOSED
       : (state.disclosed.get(directory) ?? EMPTY_DISCLOSED);
-  await collectInstructionCandidate(
-    state,
-    candidate,
-    disclosed,
-    hop + 1,
-    importer,
-  );
+  await collectInstructionCandidate(state, candidate, disclosed, {
+    hop: hop + 1,
+    importedBy: importer,
+  });
   collector.attempted.add(resolved.path);
 }
 
@@ -236,7 +225,9 @@ async function loadDirectoryChain(
     const candidates = await selectCandidates(group.scope, chainDirectory);
     for (const candidate of candidates) {
       state.abortSignal?.throwIfAborted();
-      await collectInstructionCandidate(state, candidate, disclosed, 0);
+      await collectInstructionCandidate(state, candidate, disclosed, {
+        hop: 0,
+      });
     }
   }
 }

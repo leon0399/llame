@@ -398,6 +398,18 @@ describe('a bundle of loaded files', () => {
     expect(bodyOf(part)).toContain('Run `sort < file` when a < file size.');
   });
 
+  it('removes a denied path once the same path loaded successfully', () => {
+    const loadedPath = '/home/u/repo/AGENTS.md';
+    const part = createInstructionsItem({
+      runId: RUN_ID,
+      files: [loaded(loadedPath, 'Repository rules.')],
+      denied: [loadedPath, '/srv/AGENTS.md', loadedPath],
+    });
+
+    expect(part.data.payload['denied']).toEqual(['/srv/AGENTS.md']);
+    expect(bodyOf(part)).not.toContain('/srv/AGENTS.md');
+  });
+
   it('keeps denied paths in the private metadata only', () => {
     const part = createInstructionsItem({
       runId: RUN_ID,

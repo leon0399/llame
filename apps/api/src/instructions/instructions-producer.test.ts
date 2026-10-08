@@ -1232,12 +1232,37 @@ describe('instructions producer imports', () => {
       expect(admitted).not.toContain(target);
     }
   });
+  it('resolves a host import with a trailing slash from its importer', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const targetName = `.llame-import-${root.slice(root.lastIndexOf('/') + 1)}`;
+    const target = join(root, targetName);
+    const decoy = join(process.cwd(), targetName);
+    await write(rootFile, `@${targetName}/\n`);
+    await write(target, 'the importer directory wins\n');
+    await write(decoy, 'the process directory must not win\n');
+
+    try {
+      const { producer, staged, prepare } = attemptOf();
+      producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+      await prepare();
+
+      const part = lastStaged(staged);
+      expect(blockPaths(part)).toEqual([rootFile, target]);
+      expect(part.data.text).toContain('the importer directory wins');
+      expect(part.data.text).not.toContain('the process directory');
+      expect(deniedPaths(part)).toEqual([]);
+    } finally {
+      await rm(decoy, { force: true });
+    }
+  });
 
   it('keeps Knowledge imports inside their Space', async () => {
     const space = spaceOf({
-      'AGENTS.md': '@notes/doc.md @../outside.md\n',
+      'AGENTS.md': '@notes/doc.md @../outside.md @/x.md\n',
       'notes/doc.md': 'doc\n',
       'outside.md': 'outside\n',
+      '../outside.md': 'outside the Space\n',
+      '/x.md': 'absolute outside the Space\n',
     });
     const { producer, staged, prepare } = attemptOf({ space });
     producer.observeToolCall?.(spaceCall('entry.md'));
@@ -1248,6 +1273,44 @@ describe('instructions producer imports', () => {
       `kb://${SPACE}/notes/doc.md`,
     ]);
     expect(space.reads).not.toContain(`kb://${SPACE}/outside.md:raw:1-2000`);
+    expect(space.reads).not.toContain(`kb://${SPACE}/../outside.md:raw:1-2000`);
+    expect(space.reads).not.toContain(`kb://${SPACE}//x.md:raw:1-2000`);
+  });
+  it('treats a Knowledge root key as the Space directory', async () => {
+    const space = spaceOf({
+      'AGENTS.md': '@.\n',
+      '.': 'a dot-named file must not be imported\n',
+      'Stryker was here!': 'the fallback spelling must not be imported\n',
+      'Stryker%20was%20here!': 'the fallback spelling must not be imported\n',
+    });
+    const { producer, staged, prepare } = attemptOf({ space });
+    producer.observeToolCall?.(spaceCall('entry.md'));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([`kb://${SPACE}/AGENTS.md`]);
+    expect(lastStaged(staged).data.text).not.toContain('dot-named file');
+    expect(lastStaged(staged).data.text).not.toContain('fallback spelling');
+  });
+
+  it('does not repeat a denied Knowledge import when its marker repeats', async () => {
+    const target = `kb://${SPACE}/notes/doc.md`;
+    const space = spaceOf({
+      'AGENTS.md': '@notes/doc.md @notes/doc.md\n',
+      'notes/doc.md': 'private notes\n',
+    });
+    const { producer, staged, prepare } = attemptOf({
+      space,
+      admitsRead: (path) => path !== target,
+    });
+    producer.observeToolCall?.(spaceCall('entry.md'));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([`kb://${SPACE}/AGENTS.md`]);
+    expect(space.reads).toEqual([
+      `kb://${SPACE}/AGENTS.md:raw:1-2000`,
+      `${target}:raw:1-2000`,
+    ]);
+    expect(deniedPaths(lastStaged(staged))).toEqual([target]);
   });
 
   it('loads identical relative imports independently in two Knowledge Spaces', async () => {
@@ -1500,6 +1563,21 @@ describe('instructions producer imports', () => {
 
     expect(blockPaths(lastStaged(staged))).toEqual([rootFile]);
     expect(deniedPaths(lastStaged(staged))).toEqual([link]);
+  });
+  it('does not deny a symlink whose canonical target was already imported', async () => {
+    const rootFile = join(root, 'AGENTS.md');
+    const target = join(root, 'foo/target.md');
+    const link = join(root, 'foo/link.md');
+    await write(rootFile, '@foo/target.md @foo/link.md\n');
+    await write(target, 'target\n');
+    await symlink(target, link);
+    const { producer, staged, prepare } = attemptOf();
+
+    producer.observeToolCall?.(readCall(join(root, 'x.ts')));
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([rootFile, target]);
+    expect(deniedPaths(lastStaged(staged))).toEqual([]);
   });
 });
 

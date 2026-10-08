@@ -398,7 +398,9 @@ async function loadGroup(state: InstructionImportState): Promise<void> {
       // An aborted Run stops loading at the next candidate instead of walking
       // a whole chain to the filesystem root.
       state.abortSignal?.throwIfAborted();
-      await collectInstructionCandidate(state, candidate, disclosed, 0);
+      await collectInstructionCandidate(state, candidate, disclosed, {
+        hop: 0,
+      });
     }
   }
 }
