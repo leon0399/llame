@@ -44,7 +44,7 @@ layer inside the review budget.
 - [x] 1.6 Run a throwaway live smoke check through `createWebAdapters` against `t.me/durov/400`, `t.me/durov`, its `Older:` URL, a public-group post, `t.me/BotFather`, and `t.me/c/1/1`; record the observed outputs in the PR body and delete the script.
 - [x] 1.7 Document the adapter in `docs/product/operator/web-adapters.md` (table row and section), `docs/product/reference/web-adapters.md` (Thread adapters entry, channel page shape, and that cursor pages take no selector), `docs/development/harness-comparison/read.md`, the hand-edited adapter clause in `apps/api/src/prompts/tools/read.md`, and a dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
 - [x] 1.8 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/tools/web-read src/instance-config`, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
-- [ ] 1.9 Self-review the parent-relative diff against REVIEW_GUIDE.md and this change's specs before marking the PR ready; fix accepted findings with new commits and rerun affected checks.
+- [x] 1.9 Self-review the parent-relative diff against REVIEW_GUIDE.md and this change's specs before marking the PR ready; fix accepted findings with new commits and rerun affected checks.
 - [ ] 1.10 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #940` in the PR body.
 
 ## 2. finalize
