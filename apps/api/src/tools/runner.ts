@@ -232,6 +232,18 @@ function evaluateToolPermission(
 }
 
 /**
+ * Preview the permission decision for a schema-valid tool call without
+ * recording activity or executing the tool.
+ */
+export function previewToolPermission(
+  tool: Tool,
+  args: SubmittedToolArguments,
+  context: ToolContext,
+): boolean {
+  return evaluateToolPermission(tool, args, context)?.decision === 'allow';
+}
+
+/**
  * Execute a tool end-to-end: absent-identity fail-closed (D4), input
  * validation against the tool's own schema (2.2), the timeout wrapper (D6),
  * failure-to-structured-error (never throws), and result truncation. Never

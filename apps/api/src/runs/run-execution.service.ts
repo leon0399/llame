@@ -112,6 +112,7 @@ import {
 import {
   BASH_SETTLEMENT_GRACE_MS,
   invalidCallResult,
+  previewToolPermission,
   refusalResult,
   runTool,
 } from '../tools/runner';
@@ -300,6 +301,8 @@ type TurnInstructions = {
   readonly root: string | undefined;
   /** The turn's audited page reader; undefined when the `read` gate bars it. */
   readonly readPage: ReadPage | undefined;
+  /** Preview the read permission without recording an audit event. */
+  readonly admitsRead: ((path: string) => boolean) | undefined;
   /** Allocates the attempt-scoped tool-call id of one audited read. */
   readonly nextToolCallId: () => string;
   part: AuthoredContextItemPart | undefined;
@@ -1389,10 +1392,13 @@ export class RunExecutionService {
       recordToolCompleted(toolCallId, 'read', toolInput, result);
       return result;
     };
+    const admitsRead = (path: string): boolean =>
+      previewToolPermission(nativeReadTool, { path }, toolContext);
     const inRunProducer = this.beginInRunAttempt(
       input,
       turnInstructions,
       readInstructionPage,
+      admitsRead,
     );
 
     let toolAdditions: AttemptToolAdditions;
@@ -2392,6 +2398,11 @@ export class RunExecutionService {
                 selectorPath,
                 nextToolCallId(),
               ),
+      admitsRead:
+        toolContext === undefined
+          ? undefined
+          : (path) =>
+              previewToolPermission(nativeReadTool, { path }, toolContext),
       nextToolCallId,
       part: undefined,
       seenCanonicalPaths: seenInstructionPaths,
@@ -2425,11 +2436,13 @@ export class RunExecutionService {
   ): Promise<void> {
     const producer = this.inRunProducer;
     const readPage = turn.readPage;
+    const admitsRead = turn.admitsRead;
     const root = turn.root;
     if (
       producer === undefined ||
       producer.prepareTurn === undefined ||
       readPage === undefined ||
+      admitsRead === undefined ||
       root === undefined
     ) {
       return;
@@ -2438,6 +2451,7 @@ export class RunExecutionService {
       runId: input.runId,
       workspaceRoot: root,
       readPage,
+      admitsRead,
       seenKeys: seenCanonicalPaths,
       abortSignal: input.abortSignal,
     });
@@ -3102,6 +3116,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     turn: TurnInstructions,
     readPage: ReadPage,
+    admitsRead: (path: string) => boolean,
   ): InRunAttemptProducer | undefined {
     return this.inRunProducer?.beginAttempt({
       runId: input.runId,
@@ -3111,6 +3126,7 @@ export class RunExecutionService {
       // must not reload on the attempt's first in-Run trigger.
       seenKeys: turn.seenCanonicalPaths,
       ...(this.hostInstructionsLoadable() && { readPage }),
+      admitsRead,
       ...(this.knowledgeInstructionsLoadable() && {
         knowledge: {
           readPage,

@@ -85,3 +85,59 @@ export const LoadedTruncatedDenied: Story = {
     );
   },
 };
+
+/**
+ * Imported files keep their payload order while their import ancestry is
+ * expressed as indentation (design D9).
+ *
+ * @summary imported instruction file indented under its importer
+ */
+export const Imported: Story = {
+  tags: ["ai-generated"],
+  args: {
+    files: [
+      {
+        path: "/home/operator/repo/AGENTS.md",
+        canonicalPath: "/home/operator/repo/AGENTS.md",
+        truncated: false,
+      },
+      {
+        path: "/home/operator/repo/docs/AGENTS.md",
+        canonicalPath: "/home/operator/repo/docs/AGENTS.md",
+        truncated: false,
+      },
+      {
+        path: "/home/operator/repo/docs/README.md",
+        canonicalPath: "/home/operator/repo/docs/README.md",
+        truncated: false,
+        importedBy: "/home/operator/repo/AGENTS.md",
+      },
+    ],
+    denied: [],
+  },
+  play: async ({ canvas }) => {
+    const importer = canvas.getByLabelText(
+      "Loaded instruction file: /home/operator/repo/AGENTS.md",
+    );
+    const imported = canvas.getByLabelText(
+      "Loaded instruction file: /home/operator/repo/docs/README.md",
+    );
+    const chain = canvas.getByLabelText(
+      "Loaded instruction file: /home/operator/repo/docs/AGENTS.md",
+    );
+
+    await expect(importer).toBeVisible();
+    await expect(imported).toBeVisible();
+    await expect(chain).toBeVisible();
+    const labels = canvas
+      .getAllByLabelText(/instruction file:/i)
+      .map((chip) => chip.getAttribute("aria-label"));
+    await expect(labels).toEqual([
+      "Loaded instruction file: /home/operator/repo/AGENTS.md",
+      "Loaded instruction file: /home/operator/repo/docs/AGENTS.md",
+      "Loaded instruction file: /home/operator/repo/docs/README.md",
+    ]);
+    await expect(imported.parentElement).toHaveClass("ps-4");
+    await expect(importer.parentElement?.className).not.toMatch(/\bps-/u);
+  },
+};

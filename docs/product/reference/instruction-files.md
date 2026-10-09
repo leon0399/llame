@@ -113,8 +113,41 @@ A file larger than 32 KiB is cut at 32 KiB on a UTF-8 character boundary and
 followed by one line naming the path and the byte count omitted; there is no
 aggregate cap across files.
 
-Imports are not supported; instruction files are loaded only from the directory
-chains above.
+## Imports
+
+A loaded instruction body can name same-store whole-file imports outside fenced and
+inline code, using these marker shapes:
+
+| Shape                    | Meaning                                     |
+| ------------------------ | ------------------------------------------- |
+| `@path`                  | bare path                                   |
+| `@[label](path)`         | Markdown link preceded by `@`               |
+| `[label](path "import")` | Markdown link with the exact `import` title |
+
+The marker stays literal. Host imports resolve absolute paths as written or relative
+to the importing file's directory. `~/` and any schemed target stay literal. A
+Knowledge import resolves only a relative target within the importer's Space;
+absolute, escaping, `~/`, and schemed targets stay literal. Selectors are not
+interpreted: an import names a whole file.
+
+Each resolved target is silently pre-evaluated against the `read` group before
+probing. An admitted existing regular target is read as a separate system-origin
+`read` with origin `instructions`; a missing or non-regular target stays literal
+without an audit. A denied target takes the audited `read` path without a probe and
+is reported as denied/not imported whether or not it exists. A denied or failed
+import is not added to the seen set. A symlinked host import whose canonical path
+differs from its resolved path is currently skipped as denied.
+
+An imported file is a separate block immediately after its importer, marked
+`imported-by="…"` and inheriting the importer's scope and precedence. Its directory
+chain is loaded before its own markers; chain files have no `imported-by` attribute and
+restart import hops at zero. Imports then continue depth-first in first-occurrence
+order for at most five hops from the nearest chain file. Repeated or cyclic
+canonical host paths and logical `kb://` locators are skipped by the epoch seen set
+and remain literal. A sixth hop remains literal. Each file, including imports, has
+its own 32 KiB cap; there is no aggregate cap.
+
+The owner chip lists files in injection order, indents each imported file under its importer, and marks denied imports.
 
 ## Disclosure
 

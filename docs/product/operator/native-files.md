@@ -131,6 +131,12 @@ Per-directory project instruction files are loaded into the model's context by
 directory chain and trigger; the contract is in
 [instruction files](../reference/instruction-files.md).
 
+Host instruction imports use the same `read` group and effective permission mode as
+ordinary host reads. A denied target is audited through `read` without a filesystem
+probe and reported as denied whether or not it exists. In this layer, an import whose
+canonical path differs from its resolved path (for example, a symlink) is skipped as
+denied.
+
 A `read` reject rule excludes a path from every load. Add the rule to the
 existing `tools.permissions` map rather than replacing what is already
 configured there:

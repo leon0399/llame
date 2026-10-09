@@ -63,7 +63,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 2. `import-markers/instruction-imports`: imports in instruction files
 
-- [ ] 2.1 Extend the bundle collector to expand markers in each loaded body: same-store
+- [x] 2.1 Extend the bundle collector to expand markers in each loaded body: same-store
       resolution with `~/` left literal, silent `read`-group pre-evaluation before every
       probe, denied targets sent through the audited `read` path without a filesystem probe
       regardless of existence, admitted-only probing, the skip rules, 5 hops counted from
@@ -78,7 +78,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       `instruction-files` scenarios on chains, cycles, the six-hop chain, a selector-bearing
       target left literal, a host importer's web and `kb://` targets staying literal, and a
       Knowledge importer staying in its Space.
-- [ ] 2.2 Make a loaded import a trigger for its own directory, walked before the import's
+- [x] 2.2 Make a loaded import a trigger for its own directory, walked before the import's
       own markers, with chain files it loads restarting hop counting (design D2, D4). Verify
       the proposal's acceptance examples: `/repo/AGENTS.md` importing `@foo/doc.md` yields
       `/repo/AGENTS.md`, `/repo/foo/doc.md`, `/repo/foo/AGENTS.md` (a chain file, no
@@ -87,19 +87,19 @@ Re-estimate authored size at each layer boundary and before publication; split a
       (a sixth import across directories stays literal), and only a chain file loaded through
       an import's directory trigger restarts at hop zero; a later epoch after compaction
       reloads imports.
-- [ ] 2.3 Render the `imported-by` block attribute and the inherited-scope clause in
+- [x] 2.3 Render the `imported-by` block attribute and the inherited-scope clause in
       `apps/api/src/prompts/instructions.md`; render imports under their importer in the
       instructions chip and accept `importedBy` in the web history validator. Verify the
       template snapshot, the chip story, and that an item stored before this layer still
       renders.
-- [ ] 2.4 Update `docs/product/reference/instruction-files.md` (replace "Imports are not
+- [x] 2.4 Update `docs/product/reference/instruction-files.md` (replace "Imports are not
       supported"), `docs/product/operator/native-files.md`, `docs/product/operator/knowledge.md`,
       the `SPEC.md` instruction-file sentence, and add a dated `CHANGELOG.md` entry. Run
       `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused integration
       files touched above, `pnpm --filter web lint` and `typecheck`, Storybook tests for the
       chip, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR body.
-- [ ] 2.5 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 2.5 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 2.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `import-admission`.

@@ -29,6 +29,7 @@ type InstructionFileChipEntry = {
   state: InstructionFileState;
   path: string;
   canonicalPath: string | null;
+  importedBy: string | undefined;
 };
 
 /** Loaded files first in the api's directory order, then the denied paths —
@@ -43,6 +44,7 @@ function chipEntries(
         state: file.truncated ? "truncated" : "loaded",
         path: file.path,
         canonicalPath: file.canonicalPath,
+        importedBy: file.importedBy,
       }),
     ),
     ...payload.denied.map(
@@ -51,9 +53,56 @@ function chipEntries(
         state: "denied",
         path,
         canonicalPath: null,
+        importedBy: undefined,
       }),
     ),
   ];
+}
+
+type InstructionFileChipRenderEntry = {
+  entry: InstructionFileChipEntry;
+  depth: number;
+};
+
+/** Computes each file's indentation without changing the payload order. */
+function chipEntryDepths(
+  entries: ReadonlyArray<InstructionFileChipEntry>,
+): Array<InstructionFileChipRenderEntry> {
+  const entriesByPath = new Map(
+    entries.flatMap((entry) =>
+      entry.canonicalPath === null ? [] : [[entry.path, entry] as const],
+    ),
+  );
+  const depths = new Map<InstructionFileChipEntry, number>();
+
+  const depthOf = (
+    entry: InstructionFileChipEntry,
+    ancestors: Set<InstructionFileChipEntry>,
+  ): number => {
+    const cached = depths.get(entry);
+    if (cached !== undefined) return cached;
+    if (ancestors.has(entry)) return 0;
+
+    const importer =
+      entry.importedBy === undefined
+        ? undefined
+        : entriesByPath.get(entry.importedBy);
+    if (importer === undefined || importer === entry) {
+      depths.set(entry, 0);
+      return 0;
+    }
+
+    ancestors.add(entry);
+    const depth = depthOf(importer, ancestors) + 1;
+    ancestors.delete(entry);
+    depths.set(entry, depth);
+    return depth;
+  };
+
+  return entries.map((entry) => ({
+    entry,
+    depth: depthOf(entry, new Set<InstructionFileChipEntry>()),
+  }));
 }
 
 /** One file entry: its selected path, marked when truncated or denied. A
@@ -91,6 +140,25 @@ function InstructionFileChip({ entry }: { entry: InstructionFileChipEntry }) {
   );
 }
 
+/** Import depth is bounded by the 5-hop limit, so a fixed class table covers it. */
+const DEPTH_INDENT = ["", "ps-4", "ps-8", "ps-12", "ps-16", "ps-20"];
+
+/** Renders one chip with indentation derived from its import ancestry. */
+function InstructionFileChipRow({
+  entry,
+  depth,
+}: {
+  entry: InstructionFileChipEntry;
+  depth: number;
+}) {
+  const indent = DEPTH_INDENT[Math.min(depth, DEPTH_INDENT.length - 1)];
+  return (
+    <div className={`flex items-center gap-1 ${indent}`}>
+      <InstructionFileChip entry={entry} />
+    </div>
+  );
+}
+
 /**
  * The owner-facing chip for an `instructions` context item (design D9): the
  * paths a trigger loaded, each marked when the file was cut at the per-file
@@ -104,7 +172,7 @@ function InstructionFileChip({ entry }: { entry: InstructionFileChipEntry }) {
  * @summary owner chip for loaded, truncated, and denied instruction files
  */
 export function InstructionsPart(payload: InstructionsPayload) {
-  const entries = chipEntries(payload);
+  const entries = chipEntryDepths(chipEntries(payload));
 
   return (
     <div className="my-1 flex flex-wrap items-center gap-1">
@@ -112,8 +180,8 @@ export function InstructionsPart(payload: InstructionsPayload) {
         <BookOpenIcon />
         Instructions
       </Badge>
-      {entries.map((entry) => (
-        <InstructionFileChip key={entry.key} entry={entry} />
+      {entries.map(({ entry, depth }) => (
+        <InstructionFileChipRow key={entry.key} entry={entry} depth={depth} />
       ))}
     </div>
   );

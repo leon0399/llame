@@ -36,10 +36,7 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 
 import { compareCodePoints } from '../canonical-json';
 import type { AuthoredContextItemPart } from '../chats/context-item';
-import {
-  createInstructionsItem,
-  type LoadedInstructionFile,
-} from '../chats/instructions-item';
+import { createInstructionsItem } from '../chats/instructions-item';
 import {
   KNOWLEDGE_LOCATOR_SCHEME,
   parseKnowledgeLocator,
@@ -67,14 +64,17 @@ import {
 } from '../tools/workspace-path';
 import {
   hostInstructionScope,
-  readInstructionFile,
   selectCandidates,
   touchedPath,
   walkFrom,
-  type InstructionCandidate,
   type InstructionScope,
-  type ReadPage,
 } from './instruction-files';
+import {
+  collectInstructionCandidate,
+  type InstructionImportCollector,
+  type InstructionImportGroup,
+  type InstructionImportState,
+} from './instruction-imports';
 
 /** The tool ids whose input names a local path to load for. */
 const FILE_TOOL_IDS: ReadonlyArray<string> = [
@@ -110,14 +110,6 @@ interface PendingTrigger extends TriggerTarget {
    * an accepted turn's bound root — discloses nothing, so it carries none.
    */
   readonly excludeCandidate?: boolean;
-}
-
-/** The whole read budget of one trigger set, collected as it loads. */
-interface BundleCollector {
-  /** The attempt's seen keys, plus every canonical path loaded so far. */
-  readonly keys: Set<string>;
-  readonly files: Array<LoadedInstructionFile>;
-  readonly denied: Array<string>;
 }
 
 /**
@@ -257,16 +249,10 @@ async function resolveDirectories(
  * absent from this record may not load at all, so its triggers are ignored
  * before any filesystem is probed.
  */
-type AttemptWorlds = Pick<InRunAttempt, 'readPage' | 'knowledge'>;
-
-/** One world a trigger set walks, with the exclusions of each directory. */
-interface TriggerGroup {
-  readonly scope: InstructionScope;
-  readonly page: ReadPage;
-  readonly directories: Map<string, ReadonlySet<string>>;
-  /** A Space group's files are owner-maintained Knowledge content. */
-  readonly knowledge: boolean;
-}
+type AttemptWorlds = Pick<
+  InRunAttempt,
+  'readPage' | 'knowledge' | 'admitsRead'
+>;
 
 /** One Space's triggers in a step. */
 interface SpaceTriggers {
@@ -310,15 +296,16 @@ function partitionTriggers(
 async function resolveGroups(input: {
   readonly triggers: ReadonlyArray<PendingTrigger>;
   readonly worlds: AttemptWorlds;
-}): Promise<Array<TriggerGroup>> {
+}): Promise<Array<InstructionImportGroup>> {
   const { onHost, bySpace } = partitionTriggers(input.triggers);
-  const groups: Array<TriggerGroup> = [];
+  const groups: Array<InstructionImportGroup> = [];
   const hostPage = input.worlds.readPage;
   if (hostPage !== undefined) {
     const scope = hostInstructionScope();
     groups.push({
       scope,
       page: hostPage,
+      admitsRead: input.worlds.admitsRead,
       directories: await resolveDirectories(onHost, scope),
       knowledge: false,
     });
@@ -335,6 +322,7 @@ async function resolveGroups(input: {
     groups.push({
       scope,
       page: knowledge.readPage,
+      admitsRead: input.worlds.admitsRead,
       directories: await resolveDirectories(owned.triggers, scope),
       knowledge: true,
     });
@@ -349,7 +337,7 @@ async function resolveGroups(input: {
  * counting segments orders both; code points break the one tie a world's own
  * root has with its top-level directories.
  */
-function walkOrder(group: TriggerGroup): Array<string> {
+function walkOrder(group: InstructionImportGroup): Array<string> {
   const walked = new Set<string>();
   for (const directory of group.directories.keys()) {
     for (const entry of walkFrom(group.scope.root, directory)) {
@@ -363,35 +351,6 @@ function walkOrder(group: TriggerGroup): Array<string> {
   );
 }
 
-/** Reads one candidate into the collector, unless it is disclosed or seen. */
-async function collectCandidate(
-  collector: BundleCollector,
-  candidate: InstructionCandidate,
-  disclosed: ReadonlySet<string>,
-  group: TriggerGroup,
-): Promise<void> {
-  if (collector.keys.has(candidate.canonicalPath)) return;
-  if (disclosed.has(candidate.canonicalPath)) return;
-  const read = await readInstructionFile(candidate, group.page);
-  if (read.kind === 'denied') {
-    collector.denied.push(candidate.path);
-    return;
-  }
-  // An empty candidate ends its chain but discloses nothing: it is neither
-  // named to the model nor marked seen (spec: Empty placeholder suppresses
-  // later names).
-  if (read.kind === 'failed' || read.content.length === 0) return;
-  collector.keys.add(candidate.canonicalPath);
-  collector.files.push({
-    path: candidate.path,
-    canonicalPath: candidate.canonicalPath,
-    content: read.content,
-    truncated: read.truncated,
-    omittedBytes: read.omittedBytes,
-    knowledge: group.knowledge,
-  });
-}
-
 /** Loads every candidate the trigger set resolves to; undefined when none loaded. */
 async function loadBundle(input: {
   readonly runId: string;
@@ -401,8 +360,9 @@ async function loadBundle(input: {
   readonly keys: Set<string>;
   readonly abortSignal: AbortSignal | undefined;
 }): Promise<AuthoredContextItemPart | undefined> {
-  const collector: BundleCollector = {
+  const collector: InstructionImportCollector = {
     keys: input.keys,
+    attempted: new Set<string>(),
     files: [],
     denied: [],
   };
@@ -410,7 +370,13 @@ async function loadBundle(input: {
     triggers: input.triggers,
     worlds: input.worlds,
   })) {
-    await loadGroup(group, collector, input.abortSignal);
+    const state: InstructionImportState = {
+      collector,
+      group,
+      disclosed: group.directories,
+      abortSignal: input.abortSignal,
+    };
+    await loadGroup(state);
   }
   if (collector.files.length === 0) return undefined;
   return createInstructionsItem({
@@ -421,11 +387,8 @@ async function loadBundle(input: {
 }
 
 /** Loads one world's chain into the shared collector, broadest directory first. */
-async function loadGroup(
-  group: TriggerGroup,
-  collector: BundleCollector,
-  abortSignal: AbortSignal | undefined,
-): Promise<void> {
+async function loadGroup(state: InstructionImportState): Promise<void> {
+  const { group } = state;
   for (const directory of walkOrder(group)) {
     // The exclusions of one directory, never those of another: a sibling
     // directory whose candidate is the same canonical file still loads it.
@@ -434,8 +397,10 @@ async function loadGroup(
     for (const candidate of candidates) {
       // An aborted Run stops loading at the next candidate instead of walking
       // a whole chain to the filesystem root.
-      abortSignal?.throwIfAborted();
-      await collectCandidate(collector, candidate, disclosed, group);
+      state.abortSignal?.throwIfAborted();
+      await collectInstructionCandidate(state, candidate, disclosed, {
+        hop: 0,
+      });
     }
   }
 }
@@ -476,9 +441,9 @@ export function createInstructionsProducer(): InRunContextProducer {
       return loadBundle({
         runId: context.runId,
         triggers: [{ key: context.workspaceRoot }],
-        // An accepted turn starts from a bound Workspace root, so only the
-        // host world has a directory to walk: no Space is probed for it.
-        worlds: { readPage: context.readPage },
+        // An accepted turn may carry the host and Knowledge capabilities
+        // together; both use the same silent read admission function.
+        worlds: context,
         // The caller derives the turn's seen set from the returned item, so
         // this set is a scratch guard for the walk: the turn's seen keys plus
         // every canonical path the load collects, so no candidate is read

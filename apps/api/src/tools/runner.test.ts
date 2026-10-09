@@ -8,7 +8,7 @@ import {
 } from '@workspace/runtime-safety';
 import { bashTool } from './bash';
 import { nativeReadTool } from './native-files';
-import { runTool } from './runner';
+import { previewToolPermission, runTool } from './runner';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
@@ -726,6 +726,71 @@ describe('runTool permission gate', () => {
     inputSchema: z.strictObject({ path: z.string() }),
     execute: (_ctx, { path }) => ({ status: 'success', path }),
   };
+  describe('previewToolPermission', () => {
+    it.each([
+      {
+        name: 'an allowed read',
+        expected: true,
+        args: { path: '/tmp/allowed.md' },
+        context: () => contextWith({ read: { allow: true } }),
+      },
+      {
+        name: 'a rejected path',
+        expected: false,
+        args: { path: '/tmp/blocked.md' },
+        context: () =>
+          contextWith({
+            read: {
+              allow: true,
+              reject: [{ field: 'path', literal: '/tmp/blocked.md' }],
+            },
+          }),
+      },
+      {
+        name: 'no permission policy',
+        expected: false,
+        args: { path: '/tmp/allowed.md' },
+        context: () => contextWithoutPolicy,
+      },
+      {
+        name: 'bypass mode',
+        expected: true,
+        args: { path: '/tmp/blocked.md' },
+        context: () => ({
+          ...contextWith({
+            read: {
+              allow: true,
+              reject: [{ field: 'path', literal: '/tmp/blocked.md' }],
+            },
+          }),
+          permissionMode: 'bypass' as const,
+        }),
+      },
+    ])('returns $expected for $name', ({ args, expected, context }) => {
+      expect(previewToolPermission(nativeReadTool, args, context())).toBe(
+        expected,
+      );
+    });
+    it('does not execute or record while previewing', () => {
+      const execute = vi.spyOn(nativeReadTool, 'execute');
+      const onDerivedDecision = vi.fn();
+      const context = {
+        ...contextWith({ read: { allow: true } }),
+        onDerivedDecision,
+      };
+
+      expect(
+        previewToolPermission(
+          nativeReadTool,
+          { path: '/tmp/allowed.md' },
+          context,
+        ),
+      ).toBe(true);
+      expect(execute).not.toHaveBeenCalled();
+      expect(onDerivedDecision).not.toHaveBeenCalled();
+    });
+  });
+
   it('matches a relative native path only after Workspace projection', async () => {
     const result = await runTool(
       nativeReadTool,
