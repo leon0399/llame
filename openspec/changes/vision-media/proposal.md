@@ -21,8 +21,11 @@ handed most often ([#935](https://github.com/leon0399/llame/issues/935)).
 - **Image window and placeholders.**
   - The newest images in the request, up to 20 and 24 MiB of base64, are sent as provider image
     parts. The window applies to history and is re-applied at every step of a Run.
-  - Older images, and every image sent to a model without `image` input, replay as
-    `[image media://<id> <name> <w>×<h>]`. The model can re-read any of them with `read`.
+  - Every image sent to a model without `image` input becomes
+    `[image media://<id> <name> <w>×<h>, omitted: this model has no image input]`.
+  - For a vision model, older images outside the window become
+    `[image media://<id> <name> <w>×<h>, not attached; read the locator to view it]`, and the model
+    can re-read them with `read`.
   - Admission and compaction estimates charge each image `ceil(width × height / 750)` tokens on its
     model variant instead of counting its base64.
 - **Native `read` of images.** Host paths, `file:`, `kb://`, `skill://`, `http(s)://`, and the new

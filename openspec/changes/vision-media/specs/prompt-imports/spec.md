@@ -28,8 +28,8 @@ bound. Recovery SHALL reuse the persisted media id without rereading.
 #### Scenario: A text-only model receives the placeholder
 
 - **WHEN** the Run's model declares text-only input and the prompt imported an image target
-- **THEN** the request carries the placeholder `[image media://<id> <name> <width>×<height>]`
-  immediately after the item's text
+- **THEN** the request carries the placeholder
+  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]` immediately after the item's text
 - **AND** the request carries no image part
 
 #### Scenario: Image entries count toward the target bound
