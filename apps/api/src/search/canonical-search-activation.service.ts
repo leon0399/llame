@@ -35,9 +35,9 @@ export function isProjectionCoverageReady(report: ProjectionCoverage): boolean {
 }
 
 /** How long a gate waits for queued rebuilds to complete coverage, and how
- *  often it re-reads coverage meanwhile. */
+ *  often it re-reads the corpus-wide coverage aggregate meanwhile. */
 export const COVERAGE_REPAIR_DEADLINE_MS = 120_000;
-export const COVERAGE_REPAIR_POLL_MS = 1000;
+export const COVERAGE_REPAIR_POLL_MS = 5000;
 
 /**
  * Validates canonical projection coverage once per process graph. HTTP Run
@@ -48,7 +48,8 @@ export const COVERAGE_REPAIR_POLL_MS = 1000;
  * more discovery producer: it enqueues the stale Chats on the coalesced
  * reindex queue, then waits for reindex workers to complete coverage. Callers
  * run it in onApplicationBootstrap, after a co-located reindex consumer has
- * registered; it fails closed when the deadline passes.
+ * registered. It fails closed when an enqueue fails, when no stale Chat could
+ * be queued, or when the deadline passes.
  */
 @Injectable()
 export class CanonicalSearchCoverageService {
@@ -76,18 +77,11 @@ export class CanonicalSearchCoverageService {
         this.tenantDb,
         CHUNKER_VERSION,
       );
-      if (!isProjectionCoverageReady(report)) {
-        await this.enqueueStaleChats();
-        const deadline = Date.now() + COVERAGE_REPAIR_DEADLINE_MS;
-        while (!isProjectionCoverageReady(report) && Date.now() < deadline) {
-          await new Promise<void>((resolve) => {
-            setTimeout(resolve, COVERAGE_REPAIR_POLL_MS);
-          });
-          report = await getProjectionCoverageReport(
-            this.tenantDb,
-            CHUNKER_VERSION,
-          );
-        }
+      if (
+        !isProjectionCoverageReady(report) &&
+        (await this.enqueueStaleChats()) > 0
+      ) {
+        report = await this.awaitRepairedCoverage(report);
       }
     } catch (error) {
       throw new Error(
@@ -105,7 +99,27 @@ export class CanonicalSearchCoverageService {
     }
   }
 
-  private async enqueueStaleChats(): Promise<void> {
+  /** Re-reads coverage until it is complete or the repair deadline passes. */
+  private async awaitRepairedCoverage(
+    initial: ProjectionCoverage,
+  ): Promise<ProjectionCoverage> {
+    let report = initial;
+    const deadline = Date.now() + COVERAGE_REPAIR_DEADLINE_MS;
+    while (!isProjectionCoverageReady(report) && Date.now() < deadline) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, COVERAGE_REPAIR_POLL_MS);
+      });
+      report = await getProjectionCoverageReport(
+        this.tenantDb,
+        CHUNKER_VERSION,
+      );
+    }
+    return report;
+  }
+
+  /** Returns how many stale Chats were queued; none means waiting cannot
+   *  change coverage. */
+  private async enqueueStaleChats(): Promise<number> {
     // Same cross-tenant discovery function and batch as the sweep; only
     // identifiers cross it.
     const stale = [
@@ -122,9 +136,12 @@ export class CanonicalSearchCoverageService {
         row.owner_user_id,
       );
     }
-    this.logger.log(
-      `Enqueued ${stale.length} stale chat reindex job(s); waiting for projection coverage`,
-    );
+    if (stale.length > 0) {
+      this.logger.log(
+        `Enqueued ${stale.length} stale chat reindex job(s); waiting for projection coverage`,
+      );
+    }
+    return stale.length;
   }
 }
 

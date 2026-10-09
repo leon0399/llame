@@ -180,7 +180,7 @@ describe('CanonicalSearchActivationService', () => {
       const incomplete = { ...COVERAGE_ROW, ...fields };
       const { moduleRef, service } = await buildService(true, true, [
         [incomplete],
-        [],
+        [STALE_ROW],
         [incomplete],
       ]);
 
@@ -202,30 +202,23 @@ describe('CanonicalSearchActivationService', () => {
     },
   );
 
-  it('reports only aggregate readiness counts for incomplete coverage', async () => {
-    vi.useFakeTimers();
+  it('fails at once with aggregate counts when no stale chat can be queued', async () => {
     const incomplete = {
       ...COVERAGE_ROW,
       ready_chat_count: 10,
       stale_chat_count: 2,
       complete_document_count: 54,
     };
-    const { moduleRef, service } = await buildService(true, true, [
-      [incomplete],
-      [],
-      [incomplete],
-    ]);
+    const { enqueueChatReindex, moduleRef, service } = await buildService(
+      true,
+      true,
+      [[incomplete], []],
+    );
 
-    const outcome = service.onApplicationBootstrap().then(
-      () => 'admitted',
-      (error: unknown) => String(error),
-    );
-    await vi.advanceTimersByTimeAsync(
-      COVERAGE_REPAIR_DEADLINE_MS + COVERAGE_REPAIR_POLL_MS,
-    );
-    expect(await outcome).toContain(
+    await expect(service.onApplicationBootstrap()).rejects.toThrow(
       'chats=12, ready=10, stale=2, documents=57, complete=54',
     );
+    expect(enqueueChatReindex).not.toHaveBeenCalled();
     await moduleRef.close();
   });
 
