@@ -101,8 +101,9 @@ change falls through as `parse` instead of rendering wrong content.
 
 A `/c/` private link, a `?q=` search, and a conflicting or malformed cursor
 fall through as `address` before any request. A preview redirected off
-`/s/{name}` (a user, bot, group, or unknown name) falls through as `status`;
-a widget error ("Post not found") or service message falls through as `empty`.
+`/s/{name}` (a user, bot, group, or unknown name), or any response whose final
+URL left `https://t.me` after a redirect, falls through as `status`; a widget
+error ("Post not found") or service message falls through as `empty`.
 
 ## Quotas
 
