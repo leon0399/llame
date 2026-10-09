@@ -55,6 +55,28 @@ loads only when the user names it explicitly in the current turn, for example by
 writing `$review`. Without that selection its body and resource reads return
 `skill_requires_explicit_selection` and the catalog listing omits it.
 
+## Behavior
+
+After an explicit activation reads `SKILL.md`, markers in its frontmatter-free
+body outside fenced and inline code — `@path`, `@[label](path)`, and
+`[label](path "import")` — load package-local files. A relative target resolves
+against the importing file's directory inside the package, including for nested
+imports. Each admitted file is read raw through `skill://<name>/<path>:raw` and
+rendered as a `skill://<name>/<path>` file block after the instructions, in
+depth-first order for at most five import hops.
+
+Absolute, `~/`, schemed, selector-bearing, and package-escaping targets stay
+literal. A denied or missing import is skipped and its marker stays literal.
+Skill imports use the activation read path and never load instruction files.
+
+## Bounds
+
+Imported files share the activation's aggregate `128 KiB` output and `30 s`
+work bounds. No import read starts after either bound is exhausted, or after
+the Run is cancelled; omitted imports are named in the activation's bounded
+omission notice, which lists at most 8 locators (each cut to 256 characters
+with a trailing ellipsis) and counts the rest.
+
 ## Listing
 
 `skill://<name>/` lists the package directory and `skill://` lists the catalog,

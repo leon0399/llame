@@ -24,11 +24,15 @@ import {
 } from '@workspace/runtime-safety';
 
 import {
+  escapeXmlAttribute,
+  type AuthoredContextItemPart,
+} from './context-item';
+import {
   createRenderedContextItem,
   isExactRecord,
   isNonEmptyString,
 } from './context-item-shared';
-import { type AuthoredContextItemPart } from './context-item';
+import { neutralizeFileElementBody } from './instructions-item';
 
 /** Closed reasons a selection can fail. Never carries operator diagnostics. */
 export const SKILL_ACTIVATION_FAILURE_REASONS = [
@@ -53,6 +57,7 @@ export interface SkillActivationPayload extends UnknownRecord {
   readonly skill: string;
   readonly skillDirectory: string;
   readonly instructionsPath: string;
+  readonly imports?: ReadonlyArray<string>;
 }
 
 export interface SkillActivationFailurePayload extends UnknownRecord {
@@ -64,8 +69,11 @@ export interface SkillActivationFailurePayload extends UnknownRecord {
 export interface SkillActivationOmissionPayload extends UnknownRecord {
   readonly kind: 'omission';
   readonly skills: ReadonlyArray<string>;
-  /** Names past the list bound, reported as a count rather than listed. */
+  readonly imports?: ReadonlyArray<string>;
+  /** Skills past the list bound, reported as a count rather than listed. */
   readonly beyond?: number;
+  /** Imports past the list bound, reported separately from skill names. */
+  readonly importsBeyond?: number;
 }
 
 type SkillActivationItemPayload =
@@ -78,18 +86,25 @@ export function isSkillActivationPayload(
 ): value is SkillActivationItemPayload {
   if (!isRecordWithKind(value)) return false;
   switch (value['kind']) {
-    case 'activation':
+    case 'activation': {
+      const hasImports = Object.hasOwn(value, 'imports');
       return (
         isExactRecord(value, [
           'kind',
           'skill',
           'skillDirectory',
           'instructionsPath',
+          ...(hasImports ? ['imports'] : []),
         ]) &&
         isNonEmptyString(value['skill']) &&
         isNonEmptyString(value['skillDirectory']) &&
-        isNonEmptyString(value['instructionsPath'])
+        isNonEmptyString(value['instructionsPath']) &&
+        (!hasImports ||
+          (Array.isArray(value['imports']) &&
+            value['imports'].length > 0 &&
+            value['imports'].every(isNonEmptyString)))
       );
+    }
     case 'failure':
       return (
         isExactRecord(value, ['kind', 'skill', 'reason']) &&
@@ -104,21 +119,39 @@ export function isSkillActivationPayload(
 }
 
 function isOmissionPayload(value: UnknownRecord): boolean {
-  const hasBeyond = 'beyond' in value;
+  const hasImports = Object.hasOwn(value, 'imports');
+  const hasBeyond = Object.hasOwn(value, 'beyond');
+  const hasImportsBeyond = Object.hasOwn(value, 'importsBeyond');
+  const skills = value['skills'];
+  const imports = value['imports'];
+  const hasSkills = Array.isArray(skills) && skills.length > 0;
+  const beyondValid =
+    !hasBeyond ||
+    (isNumber(value['beyond']) &&
+      Number.isInteger(value['beyond']) &&
+      value['beyond'] > 0);
+  const importsBeyondValid =
+    !hasImportsBeyond ||
+    (isNumber(value['importsBeyond']) &&
+      Number.isInteger(value['importsBeyond']) &&
+      value['importsBeyond'] > 0);
   return (
-    isExactRecord(
-      value,
-      hasBeyond ? ['kind', 'skills', 'beyond'] : ['kind', 'skills'],
-    ) &&
-    Array.isArray(value['skills']) &&
-    value['skills'].length > 0 &&
-    value['skills'].every(isNonEmptyString) &&
-    // Present only when names were left out, and then it counts at least one:
-    // a zero would claim a remainder that does not exist.
-    (!hasBeyond ||
-      (isNumber(value['beyond']) &&
-        Number.isInteger(value['beyond']) &&
-        value['beyond'] > 0))
+    isExactRecord(value, [
+      'kind',
+      'skills',
+      ...(hasImports ? ['imports'] : []),
+      ...(hasBeyond ? ['beyond'] : []),
+      ...(hasImportsBeyond ? ['importsBeyond'] : []),
+    ]) &&
+    Array.isArray(skills) &&
+    skills.every(isNonEmptyString) &&
+    (!hasImports ||
+      (Array.isArray(imports) &&
+        imports.length > 0 &&
+        imports.every(isNonEmptyString))) &&
+    (hasSkills || hasImports || hasBeyond || hasImportsBeyond) &&
+    beyondValid &&
+    importsBeyondValid
   );
 }
 
@@ -152,12 +185,20 @@ export function createSkillActivationItem(input: {
    * as the complete skill.
    */
   readonly truncationNotice?: string;
+  readonly imports?: ReadonlyArray<{
+    readonly path: string;
+    readonly body: string;
+    readonly truncationNotice?: string;
+  }>;
 }): AuthoredContextItemPart {
+  const imports = input.imports ?? [];
+  const importPaths = imports.map((file) => file.path);
   const payload: SkillActivationPayload = {
     kind: 'activation',
     skill: input.skill,
     skillDirectory: input.skillDirectory,
     instructionsPath: input.instructionsPath,
+    ...(importPaths.length > 0 && { imports: importPaths }),
   };
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isSkillActivationPayload(payload)) {
@@ -168,7 +209,12 @@ export function createSkillActivationItem(input: {
     form: 'notice',
     runId: input.runId,
     payload,
-    body: renderActivation(payload, input.instructions, input.truncationNotice),
+    body: renderActivation(
+      payload,
+      input.instructions,
+      input.truncationNotice,
+      imports,
+    ),
   });
 }
 
@@ -213,17 +259,36 @@ export function createSkillActivationFailureItem(input: {
   });
 }
 
-/** How many names one notice lists before it reports the rest as a count. */
+/** How many skill names one notice lists before it reports the rest as a count. */
 export const MAX_OMISSION_NAMES = 32;
+
+/**
+ * How many imported locators one notice lists before it reports the rest as a
+ * count. Together with `MAX_OMISSION_IMPORT_LOCATOR_LENGTH` this bounds the
+ * import list, so the activation budget reserves a few KB for it rather than
+ * the encoded worst case of every locator.
+ */
+export const MAX_OMISSION_IMPORT_NAMES = 8;
+
+/**
+ * The longest a listed locator may be, in characters. A longer one is cut and
+ * ends in an ellipsis; the model needs a recognizable name, not the full
+ * encoded spelling.
+ */
+export const MAX_OMISSION_IMPORT_LOCATOR_LENGTH = 256;
 
 /**
  * The omission body. The noun, the bounded name list, and the remainder
  * clause are all derived in the producer; the template only joins them.
  */
 const renderActivationOmissionTemplate = loadPackagedTemplate<{
+  readonly hasSkills: boolean;
   readonly noun: string;
   readonly listed: string;
   readonly rest: string;
+  readonly hasImports: boolean;
+  readonly imports: string;
+  readonly importsRest: string;
 }>(__dirname, 'skill-activation-omission');
 
 /**
@@ -236,37 +301,92 @@ const renderActivationOmissionTemplate = loadPackagedTemplate<{
  * overflow be the thing that overflows: past `MAX_OMISSION_NAMES` the rest is
  * reported as a count, which keeps the notice a fixed size.
  */
-export function createSkillActivationOmissionItem(input: {
+type SkillActivationOmissionInput = {
   readonly runId: string;
   readonly skills: ReadonlyArray<string>;
+  readonly imports?: ReadonlyArray<string>;
   /**
-   * Names an earlier notice already reported as a count rather than listing.
-   * A rebuild carries it forward: those selections are still unattempted, and
-   * rebuilding from the truncated list alone would silently drop them.
+   * Skill names an earlier notice already reported as a count rather than
+   * listing. A rebuild carries them forward separately from imported files.
    */
   readonly unlisted?: number;
-}): AuthoredContextItemPart {
+  /** Imported locators an earlier notice already reported as a count. */
+  readonly unlistedImports?: number;
+};
+
+type ActivationOmissionTemplateValues = {
+  readonly hasSkills: boolean;
+  readonly noun: string;
+  readonly listed: string;
+  readonly rest: string;
+  readonly hasImports: boolean;
+  readonly imports: string;
+  readonly importsRest: string;
+};
+
+type BuiltOmission = {
+  readonly payload: SkillActivationOmissionPayload;
+  readonly template: ActivationOmissionTemplateValues;
+};
+
+function truncateLocator(locator: string): string {
+  const characters = Array.from(locator);
+  return characters.length <= MAX_OMISSION_IMPORT_LOCATOR_LENGTH
+    ? locator
+    : `${characters.slice(0, MAX_OMISSION_IMPORT_LOCATOR_LENGTH - 1).join('')}…`;
+}
+
+function buildOmission(input: SkillActivationOmissionInput): BuiltOmission {
+  const imports = input.imports ?? [];
   const listedNames = input.skills.slice(0, MAX_OMISSION_NAMES);
-  const beyond =
+  const listedImports = imports
+    .slice(0, MAX_OMISSION_IMPORT_NAMES)
+    .map(truncateLocator);
+  const unlistedSkills =
     input.skills.length - listedNames.length + (input.unlisted ?? 0);
-  const payload: SkillActivationOmissionPayload = {
-    kind: 'omission',
-    skills: listedNames,
-    ...(beyond > 0 && { beyond }),
+  const unlistedImports =
+    imports.length - listedImports.length + (input.unlistedImports ?? 0);
+  const listed = listedNames.map((skill) => `\`$${skill}\``).join(', ');
+  const listedImportNames = listedImports
+    .map((path) => `\`${path}\``)
+    .join(', ');
+  return {
+    payload: {
+      kind: 'omission',
+      skills: listedNames,
+      ...(listedImports.length > 0 && { imports: listedImports }),
+      ...(unlistedSkills > 0 && { beyond: unlistedSkills }),
+      ...(unlistedImports > 0 && { importsBeyond: unlistedImports }),
+    },
+    template: {
+      hasSkills: listedNames.length > 0 || unlistedSkills > 0,
+      noun: input.skills.length === 1 ? 'skill' : 'skills',
+      listed,
+      rest:
+        unlistedSkills > 0 ? ` and ${unlistedSkills} more not listed here` : '',
+      hasImports: listedImports.length > 0 || unlistedImports > 0,
+      imports: listedImportNames,
+      importsRest:
+        unlistedImports > 0
+          ? ` and ${unlistedImports} more not listed here`
+          : '',
+    },
   };
-  // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the non-empty invariant this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
+}
+
+export function createSkillActivationOmissionItem(
+  input: SkillActivationOmissionInput,
+): AuthoredContextItemPart {
+  const { payload, template } = buildOmission(input);
   if (!isSkillActivationPayload(payload)) {
     throw new TypeError('Invalid server-authored skill activation metadata');
   }
-  const listed = listedNames.map((skill) => `\`$${skill}\``).join(', ');
-  const noun = input.skills.length === 1 ? 'skill' : 'skills';
-  const rest = beyond > 0 ? ` and ${beyond} more not listed here` : '';
   return createRenderedContextItem({
     producer: 'skill-activation',
     form: 'notice',
     runId: input.runId,
     payload,
-    body: renderActivationOmissionTemplate({ noun, listed, rest }),
+    body: renderActivationOmissionTemplate(template),
   });
 }
 
@@ -274,6 +394,12 @@ export function createSkillActivationOmissionItem(input: {
  * The activation body, carrying the path guidance and precedence line as
  * literal template text plus the current instructions element.
  */
+type SkillActivationImport = {
+  readonly path: string;
+  readonly body: string;
+  readonly truncationNotice?: string;
+};
+
 const renderActivationTemplate = loadPackagedTemplate<{
   readonly skill: string;
   readonly skillDirectory: string;
@@ -281,12 +407,19 @@ const renderActivationTemplate = loadPackagedTemplate<{
   readonly hasTruncation: boolean;
   readonly truncationNotice: string | undefined;
   readonly instructions: string;
+  readonly imports: ReadonlyArray<{
+    readonly path: string;
+    readonly hasTruncation: boolean;
+    readonly truncationNotice: string | undefined;
+    readonly body: string;
+  }>;
 }>(__dirname, 'skill-activation');
 
 function renderActivation(
   payload: SkillActivationPayload,
   instructions: string,
   truncationNotice: string | undefined,
+  imports: ReadonlyArray<SkillActivationImport>,
 ): string {
   return renderActivationTemplate({
     skill: payload.skill,
@@ -299,5 +432,11 @@ function renderActivation(
     // envelope. Applied here rather than by the caller so every path into this
     // producer is covered.
     instructions: sanitizeAuthoredText(instructions),
+    imports: imports.map((file) => ({
+      path: escapeXmlAttribute(file.path),
+      hasTruncation: file.truncationNotice !== undefined,
+      truncationNotice: file.truncationNotice,
+      body: neutralizeFileElementBody(file.body),
+    })),
   });
 }

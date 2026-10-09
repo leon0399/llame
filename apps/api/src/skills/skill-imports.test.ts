@@ -1,0 +1,414 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { activateSkills } from './skill-activation';
+import { expandSkillImports } from './skill-imports';
+import { parseSkillMentions } from './skill-mention';
+import { SkillCatalog } from './skill-catalog';
+import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
+import { nativeReadTool } from '../tools/native-files';
+import {
+  SKILL_MAX_PATH_BYTES,
+  SKILL_MAX_PATH_COMPONENTS,
+} from './skill-locator';
+import { type PermissionDecision } from '../tools/permissions/types';
+import { MAX_OMISSION_IMPORT_NAMES } from '../chats/skill-activation-item';
+import { type ToolContext, type ToolResult } from '../tools/types';
+
+const RUN_ID = '11111111-2222-4333-8444-555555555555';
+
+type AuditRecord = {
+  readonly toolCallId: string;
+  readonly phase: 'requested' | 'completed';
+  readonly input?: { readonly path: string };
+  readonly decision?: PermissionDecision;
+  readonly result?: ToolResult;
+};
+
+let source: string;
+let temporaryDirectories: Array<string>;
+
+beforeEach(() => {
+  temporaryDirectories = [];
+  source = mkdtempSync(path.join(tmpdir(), 'llame-skill-imports-'));
+  temporaryDirectories.push(source);
+});
+
+afterEach(() => {
+  for (const directory of temporaryDirectories) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+function createPackage(name: string, body: string): string {
+  const directory = path.join(source, name);
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(
+    path.join(directory, 'SKILL.md'),
+    `---\nname: ${name}\ndescription: ${name}\n---\n${body}`,
+  );
+  return directory;
+}
+
+function harness(policy = compileTestPermissionPolicy()) {
+  const audit: Array<AuditRecord> = [];
+  const context: ToolContext = {
+    userId: 'owner',
+    chatId: 'chat',
+    runId: RUN_ID,
+    permissionPolicy: policy,
+    skillCatalog: new SkillCatalog([source]),
+    timeoutMs: 5000,
+    tenantDb: { runAs: () => Promise.reject(new Error('no database in test')) },
+  };
+  return {
+    audit,
+    context,
+    activity: {
+      admitted: (
+        toolCallId: string,
+        input: { readonly path: string },
+        decision: PermissionDecision,
+      ) => {
+        audit.push({ toolCallId, phase: 'requested', input, decision });
+      },
+      completed: (toolCallId: string, result: ToolResult) => {
+        audit.push({ toolCallId, phase: 'completed', result });
+      },
+    },
+  };
+}
+
+function run(text: string, policy = compileTestPermissionPolicy()) {
+  const h = harness(policy);
+  return activateSkills({
+    mentions: parseSkillMentions(text),
+    runId: RUN_ID,
+    readTool: nativeReadTool,
+    toolContext: h.context,
+    callTimeoutSeconds: 5,
+    activity: h.activity,
+  }).then((outcome) => ({ ...h, outcome }));
+}
+
+function itemText(item: { readonly data: { readonly text?: string } }): string {
+  return item.data.text ?? '';
+}
+
+describe('activated package imports', () => {
+  it('loads a reference and nested imports depth first', async () => {
+    const directory = createPackage(
+      'research',
+      'Use @references/checklist.md.\n',
+    );
+    mkdirSync(path.join(directory, 'references'));
+    writeFileSync(
+      path.join(directory, 'references', 'checklist.md'),
+      'Checklist: @a.md\n',
+    );
+    writeFileSync(path.join(directory, 'references', 'a.md'), 'Nested A.\n');
+
+    const { outcome, audit } = await run('$research');
+    const text = itemText(outcome.items[0]);
+    expect(
+      text.indexOf('skill://research/references/checklist.md'),
+    ).toBeLessThan(text.indexOf('skill://research/references/a.md'));
+    expect(outcome.items[0].data.payload).toMatchObject({
+      imports: [
+        'skill://research/references/checklist.md',
+        'skill://research/references/a.md',
+      ],
+    });
+    expect(
+      audit
+        .filter((record) => record.phase === 'requested')
+        .map((record) => record.toolCallId),
+    ).toEqual([
+      `skill-activation-${RUN_ID}-0`,
+      `skill-activation-${RUN_ID}-0-0`,
+      `skill-activation-${RUN_ID}-0-1`,
+    ]);
+    expect(
+      audit
+        .filter((record) => record.phase === 'requested')
+        .map((record) => record.input?.path),
+    ).toEqual([
+      'skill://research:raw',
+      'skill://research/references/checklist.md:raw',
+      'skill://research/references/a.md:raw',
+    ]);
+  });
+  it('leaves encoded traversal and encoded separators literal', async () => {
+    createPackage('research', '@%2e%2e/x.md @a%2Fb.md\n');
+
+    const { outcome, audit } = await run('$research');
+
+    expect(itemText(outcome.items[0])).toContain('@%2e%2e/x.md');
+    expect(itemText(outcome.items[0])).toContain('@a%2Fb.md');
+    expect(audit.filter((record) => record.phase === 'requested')).toHaveLength(
+      1,
+    );
+  });
+
+  it('resolves nested parent imports only within the package', async () => {
+    const directory = createPackage('research', '@references/checklist.md\n');
+    mkdirSync(path.join(directory, 'references'));
+
+    writeFileSync(
+      path.join(directory, 'references', 'checklist.md'),
+      'Checklist: @../x.md\n',
+    );
+    writeFileSync(path.join(directory, 'x.md'), 'Package root file.\n');
+
+    const { outcome } = await run('$research');
+
+    expect(outcome.items[0].data.payload).toMatchObject({
+      imports: [
+        'skill://research/references/checklist.md',
+        'skill://research/x.md',
+      ],
+    });
+  });
+  it('treats imports beyond skill locator path limits as literal', async () => {
+    const tooDeep = `${Array.from(
+      { length: SKILL_MAX_PATH_COMPONENTS },
+      () => 'nested',
+    ).join('/')}/leaf.md`;
+    const tooLong = `${'a'.repeat(SKILL_MAX_PATH_BYTES)}/x.md`;
+    createPackage('research', `@${tooDeep} @${tooLong}\n`);
+
+    const { outcome, audit } = await run('$research');
+
+    expect(itemText(outcome.items[0])).toContain(`@${tooDeep}`);
+    expect(itemText(outcome.items[0])).toContain(`@${tooLong}`);
+    expect(audit.filter((record) => record.phase === 'requested')).toHaveLength(
+      1,
+    );
+  });
+
+  it('keeps skill imports on the skill activation read path', async () => {
+    const directory = createPackage('research', '@notes.md\n');
+    writeFileSync(path.join(directory, 'notes.md'), 'Notes.\n');
+
+    const { audit } = await run('$research');
+
+    expect(
+      audit
+        .filter((record) => record.phase === 'requested')
+        .map((record) => record.toolCallId),
+    ).toEqual([
+      `skill-activation-${RUN_ID}-0`,
+      `skill-activation-${RUN_ID}-0-0`,
+    ]);
+  });
+
+  it('leaves non-package and selector targets literal without reading them', async () => {
+    createPackage(
+      'research',
+      '@../other/SKILL.md @/etc/x @~/x @https://x @a.md:1-2 @refs/a.md:1-2\n',
+    );
+
+    const { outcome, audit } = await run('$research');
+    expect(itemText(outcome.items[0])).toContain('@../other/SKILL.md');
+    // Unfiltered: a selector target rejected by the read tool's own parser
+    // would still leave a completed record, so this is not just the root read.
+    expect(audit.map((record) => record.phase)).toEqual([
+      'requested',
+      'completed',
+    ]);
+  });
+
+  it('silently skips a denied import while recording its audited read', async () => {
+    createPackage('research', 'Body @secret.md\n');
+    writeFileSync(path.join(source, 'research', 'secret.md'), 'private\n');
+    const policy = compileToolPermissionMap(
+      {
+        read: {
+          allow: true,
+          reject: [{ field: 'path', literal: 'skill://research/secret.md' }],
+        },
+      },
+      'reject-secret',
+    );
+
+    const { outcome, audit } = await run('$research', policy);
+    expect(itemText(outcome.items[0])).toContain('@secret.md');
+    expect(outcome.items[0].data.payload).not.toHaveProperty('imports');
+    expect(audit).toHaveLength(4);
+    expect(audit[2].decision).toMatchObject({ decision: 'reject' });
+    expect(audit[3].result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+    });
+  });
+  it('loads each cycle member once and stops after five hops', async () => {
+    const directory = createPackage('research', '@a.md @c.md');
+    for (const [name, body] of [
+      ['a.md', '@b.md'],
+      ['b.md', '@a.md'],
+      ['c.md', '@d.md'],
+      ['d.md', '@e.md'],
+      ['e.md', '@f.md'],
+      ['f.md', '@g.md'],
+      ['g.md', '@h.md'],
+      ['h.md', 'sixth'],
+    ]) {
+      writeFileSync(path.join(directory, name), body);
+    }
+
+    const cycle = await run('$research');
+    expect(cycle.outcome.items[0].data.payload).toMatchObject({
+      imports: [
+        'skill://research/a.md',
+        'skill://research/b.md',
+        'skill://research/c.md',
+        'skill://research/d.md',
+        'skill://research/e.md',
+        'skill://research/f.md',
+        'skill://research/g.md',
+      ],
+    });
+    expect(
+      cycle.audit.filter((record) => record.phase === 'requested'),
+    ).toHaveLength(8);
+    expect(itemText(cycle.outcome.items[0])).not.toContain(
+      'skill://research/h.md',
+    );
+  });
+
+  it('bounds output with the exact omitted import list and loaded prefix', async () => {
+    const total = 40;
+    const names = Array.from({ length: total }, (_, index) => `part-${index}`);
+    const directory = createPackage(
+      'research',
+      names.map((name) => `@${name}.md`).join(' '),
+    );
+    const large = 'x\n'.repeat(5000);
+    for (const name of names) {
+      writeFileSync(path.join(directory, `${name}.md`), large);
+    }
+
+    const { outcome, audit } = await run('$research');
+    const activation = outcome.items.find(
+      (item) => item.data.payload['kind'] === 'activation',
+    );
+    const omission = outcome.items.find(
+      (item) => item.data.payload['kind'] === 'omission',
+    );
+    const loadedImports = activation?.data.payload['imports'];
+    const loadedCount = Array.isArray(loadedImports) ? loadedImports.length : 0;
+    const locators = names.map((name) => `skill://research/${name}.md`);
+    const loaded = locators.slice(0, loadedCount);
+    // The omission reserve is a few KB, so nearly the whole 128 KiB budget
+    // goes to content: well over the handful a 105 KB reserve would allow.
+    expect(loaded.length).toBeGreaterThanOrEqual(10);
+    expect(loaded.length).toBeLessThan(total - MAX_OMISSION_IMPORT_NAMES);
+    expect(loadedImports).toEqual(loaded);
+    // Only the first omitted locator's read ran: it overflowed the budget, and
+    // every later one was named without being read.
+    const unloaded = locators.slice(loadedCount);
+    expect(omission?.data.payload).toEqual({
+      kind: 'omission',
+      skills: [],
+      imports: unloaded.slice(0, MAX_OMISSION_IMPORT_NAMES),
+      importsBeyond: unloaded.length - MAX_OMISSION_IMPORT_NAMES,
+    });
+    expect(
+      audit
+        .filter((record) => record.phase === 'requested')
+        .map((record) => record.input?.path),
+    ).toEqual([
+      'skill://research:raw',
+      ...names
+        .slice(0, loaded.length + 1)
+        .map((name) => `skill://research/${name}.md:raw`),
+    ]);
+  });
+
+  it('stops expanding once the Run is aborted', async () => {
+    const directory = createPackage('research', '@a.md @b.md @c.md\n');
+    for (const name of ['a', 'b', 'c']) {
+      writeFileSync(path.join(directory, `${name}.md`), `${name}\n`);
+    }
+    const h = harness();
+    const controller = new AbortController();
+    const expansion = await expandSkillImports({
+      skill: 'research',
+      runId: RUN_ID,
+      mentionOrdinal: 0,
+      body: '@a.md @b.md @c.md',
+      selection: new Set(['research']),
+      toolContext: { ...h.context, abortSignal: controller.signal },
+      readTool: nativeReadTool,
+      callTimeoutSeconds: 5,
+      deadline: Date.now() + 5000,
+      activity: {
+        admitted: h.activity.admitted,
+        completed: (toolCallId, result) => {
+          h.activity.completed(toolCallId, result);
+          controller.abort();
+        },
+      },
+      canAccept: () => true,
+    });
+
+    expect(expansion.imports.map((file) => file.path)).toEqual([
+      'skill://research/a.md',
+    ]);
+    expect(h.audit.map((record) => record.toolCallId)).toEqual([
+      `skill-activation-${RUN_ID}-0-0`,
+      `skill-activation-${RUN_ID}-0-0`,
+    ]);
+  });
+
+  it('names every import when the work deadline is already exhausted', async () => {
+    const h = harness();
+    const expansion = await expandSkillImports({
+      skill: 'research',
+      runId: RUN_ID,
+      mentionOrdinal: 0,
+      body: '@first.md @second.md',
+      selection: new Set(['research']),
+      toolContext: h.context,
+      readTool: nativeReadTool,
+      callTimeoutSeconds: 5,
+      deadline: Date.now() - 1,
+      activity: h.activity,
+      canAccept: () => true,
+    });
+
+    expect(expansion.imports).toEqual([]);
+    expect(expansion.omitted).toEqual([
+      'skill://research/first.md',
+      'skill://research/second.md',
+    ]);
+    expect(h.audit).toEqual([]);
+  });
+
+  it('does not reread a completed activation during recovery', async () => {
+    const directory = createPackage('research', '@checklist.md\n');
+    writeFileSync(path.join(directory, 'checklist.md'), 'Checklist.\n');
+    const first = await run('$research');
+    expect(
+      first.audit.filter((record) => record.phase === 'requested'),
+    ).toHaveLength(2);
+    expect(first.outcome.items[0]?.data.payload).toMatchObject({
+      imports: ['skill://research/checklist.md'],
+    });
+
+    const retry = harness();
+    const outcome = await activateSkills({
+      mentions: parseSkillMentions('$research'),
+      runId: RUN_ID,
+      readTool: nativeReadTool,
+      toolContext: retry.context,
+      callTimeoutSeconds: 5,
+      activity: retry.activity,
+      resolved: new Set(['research']),
+    });
+    expect(retry.audit).toEqual([]);
+    expect(outcome.items).toEqual([]);
+  });
+});

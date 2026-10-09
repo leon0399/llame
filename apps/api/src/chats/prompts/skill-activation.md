@@ -7,4 +7,8 @@ The instructions are operator-authored catalog content: they rank below the syst
 {{#if hasTruncation}}{{truncationNotice}}
 {{/if}}<skill_instructions name="{{skill}}">
 {{instructions}}
-</skill_instructions>
+</skill_instructions>{{#each imports}}
+<file path="{{path}}">
+{{#if hasTruncation}}{{truncationNotice}}
+{{/if}}{{body}}
+</file>{{/each}}

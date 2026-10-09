@@ -2278,11 +2278,11 @@ export class RunExecutionService {
       toolContext: baseContext,
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
       activity: {
-        admitted: (toolCallId, decision) =>
+        admitted: (toolCallId, toolInput, decision) =>
           this.recordSystemReadAdmission(
             input,
             toolCallId,
-            { path: 'skill://' },
+            toolInput,
             ORIGIN_SKILL_ACTIVATION,
             decision,
           ),

@@ -1932,7 +1932,7 @@ describe('RunExecutionService executeRun', () => {
       ]);
       expect(activationReads[0]?.payload).toMatchObject({
         toolName: 'read',
-        input: { path: 'skill://' },
+        input: { path: 'skill://pdf:raw' },
         permission: { decision: 'allow' },
       });
       expect(activationReads[1]?.payload).toMatchObject({

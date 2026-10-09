@@ -203,9 +203,18 @@ function activationIdentity(part: ContextItemPart): string {
   const kind = String(payload['kind']);
   if (kind === 'omission') {
     const skills: unknown = payload['skills'];
-    if (!Array.isArray(skills)) return 'omission:';
-    const names = skills.filter(isString);
-    return `omission:${[...names].sort(compareCodePoints).join(',')}`;
+    const imports: unknown = payload['imports'];
+    const names = Array.isArray(skills) ? skills.filter(isString) : [];
+    const locators = Array.isArray(imports) ? imports.filter(isString) : [];
+    const beyond = isNumber(payload['beyond']) ? payload['beyond'] : 0;
+    const importsBeyond = isNumber(payload['importsBeyond'])
+      ? payload['importsBeyond']
+      : 0;
+    return `omission:${[...names].sort(compareCodePoints).join(',')}|${[
+      ...locators,
+    ]
+      .sort(compareCodePoints)
+      .join(',')}|${beyond}|${importsBeyond}`;
   }
   const skill: unknown = payload['skill'];
   return `${kind}:${isString(skill) ? skill : ''}`;
@@ -225,13 +234,40 @@ function resolvedNames(
   return names;
 }
 
+/** Rebuild one omission while keeping skill and import remainders separate. */
+function rebuildOmission(
+  part: ContextItemPart,
+  runId: string,
+  skills: ReadonlyArray<string>,
+): ContextItemPart | undefined {
+  const imports: unknown = part.data.payload['imports'];
+  const remainingImports = Array.isArray(imports)
+    ? imports.filter(isString)
+    : [];
+  const unlisted = part.data.payload['beyond'];
+  const stillUnlisted = isNumber(unlisted) ? unlisted : 0;
+  const importsUnlisted = part.data.payload['importsBeyond'];
+  const stillImportsUnlisted = isNumber(importsUnlisted) ? importsUnlisted : 0;
+  if (
+    skills.length === 0 &&
+    remainingImports.length === 0 &&
+    stillUnlisted === 0 &&
+    stillImportsUnlisted === 0
+  ) {
+    return undefined;
+  }
+  return createSkillActivationOmissionItem({
+    runId,
+    skills,
+    imports: remainingImports,
+    unlisted: stillUnlisted,
+    unlistedImports: stillImportsUnlisted,
+  });
+}
+
 /**
  * Remove just-resolved names from this Run's omission items, dropping an item
- * once it names nothing.
- *
- * Returns the original array when no item changed, so the caller can tell a
- * rewrite from a no-op and skip a write that would store what is already
- * there.
+ * only when no listed or counted skill/import remainder survives.
  */
 function dropResolvedFromOmissions(
   parts: ReadonlyArray<unknown>,
@@ -250,20 +286,8 @@ function dropResolvedFromOmissions(
       (name) => isString(name) && !resolved.has(name),
     );
     if (remaining.length === skills.length) return [part];
-    // Names the stored notice reported as a count rather than listing are
-    // still unattempted, so they survive the rebuild. Dropping the item on an
-    // empty list would discard them silently.
-    const unlisted = part.data.payload['beyond'];
-    const stillUnlisted = isNumber(unlisted) ? unlisted : 0;
-    if (remaining.length === 0 && stillUnlisted === 0) return [];
-    if (remaining.length === 0) return [part];
-    return [
-      createSkillActivationOmissionItem({
-        runId,
-        skills: remaining,
-        unlisted: stillUnlisted,
-      }),
-    ];
+    const rebuilt = rebuildOmission(part, runId, remaining);
+    return rebuilt === undefined ? [] : [rebuilt];
   });
   const unchanged =
     rewritten.length === parts.length &&

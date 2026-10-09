@@ -91,6 +91,7 @@ function truncatedReadTool(): typeof nativeReadTool {
 type AuditRecord = {
   readonly toolCallId: string;
   readonly phase: 'requested' | 'completed';
+  readonly input?: { readonly path: string };
   readonly decision?: PermissionDecision;
   readonly result?: ToolResult;
 };
@@ -122,8 +123,12 @@ function harness(
     audit,
     context,
     activity: {
-      admitted: (toolCallId: string, decision: PermissionDecision) => {
-        audit.push({ toolCallId, phase: 'requested', decision });
+      admitted: (
+        toolCallId: string,
+        input: { readonly path: string },
+        decision: PermissionDecision,
+      ) => {
+        audit.push({ toolCallId, phase: 'requested', input, decision });
       },
       completed: (toolCallId: string, result: ToolResult) => {
         audit.push({ toolCallId, phase: 'completed', result });
@@ -301,6 +306,7 @@ describe('activateSkills', () => {
     // The identity encodes (Run, mention ordinal), so a recovery of this Run
     // addresses the same read.
     expect(audit[0].toolCallId).toBe(`skill-activation-${RUN_ID}-0`);
+    expect(audit[0].input).toEqual({ path: 'skill://pdf:raw' });
     expect(audit[0].decision).toMatchObject({ decision: 'allow' });
     expect(audit[1].result).toMatchObject({ status: 'success' });
   });

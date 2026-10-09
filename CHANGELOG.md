@@ -12,6 +12,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   page and recorded as a derived `canonical` decision; a canonical reject denies
   the import, while `bypass` admits and records it.
 
+- Explicit skill activation now expands `@path`, `@[label](path)`, and
+  `[label](path "import")` markers outside code into package-local
+  `skill://<name>/<path>` file blocks after the instructions, depth-first for
+  five hops within the activation's 128 KiB output and 30 s work bounds.
+  Overflow is named in the omission notice; absolute, `~/`, schemed,
+  selector-bearing, and package-escaping targets stay literal, denied or
+  missing imports are skipped, and skill imports never load instruction files.
+
 - The web chat renders `read` results as the source path or a safe link to
   the fetched URL, the content as the model received it, and the requested
   and shown lines, truncation point, web method, adapter, notes, and every

@@ -285,6 +285,115 @@ describe('ActivationPartsRepository.appendForRun', () => {
       ),
     ).toEqual([['writing']]);
   });
+  it('carries imported remainders through a recovery rewrite', async () => {
+    const imports = [
+      'skill://research/references/checklist.md',
+      'skill://research/references/example.md',
+    ];
+    const omission = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: {
+        kind: 'omission',
+        skills: ['research', 'writing'],
+        imports,
+        beyond: 3,
+        importsBeyond: 2,
+      },
+      text: 'omitted',
+    });
+    const activation = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: { kind: 'activation', skill: 'research' },
+      text: 'activation research',
+    });
+
+    const { writes } = await append([omission], [activation]);
+
+    const rebuilt = (writes[0] ?? []).find(
+      (part) =>
+        isContextItemPart(part) && part.data.payload['kind'] === 'omission',
+    );
+    expect(isContextItemPart(rebuilt) ? rebuilt.data.payload : {}).toEqual({
+      kind: 'omission',
+      skills: ['writing'],
+      imports,
+      beyond: 3,
+      importsBeyond: 2,
+    });
+  });
+
+  it('keeps an import-only remainder instead of dropping it', async () => {
+    const omission = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: {
+        kind: 'omission',
+        skills: ['research'],
+        imports: ['skill://research/notes.md'],
+      },
+      text: 'omitted',
+    });
+    const activation = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: { kind: 'activation', skill: 'research' },
+      text: 'activation research',
+    });
+
+    const { writes } = await append([omission], [activation]);
+
+    const rebuilt = (writes[0] ?? []).find(
+      (part) =>
+        isContextItemPart(part) && part.data.payload['kind'] === 'omission',
+    );
+    expect(isContextItemPart(rebuilt) ? rebuilt.data.payload : {}).toEqual({
+      kind: 'omission',
+      skills: [],
+      imports: ['skill://research/notes.md'],
+    });
+  });
+
+  it('does not fold import overflow into the skill remainder count', async () => {
+    const imports = ['skill://research/one.md', 'skill://research/two.md'];
+    const omission = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: {
+        kind: 'omission',
+        skills: ['research'],
+        imports,
+        importsBeyond: 4,
+      },
+      text: 'omitted',
+    });
+    const activation = createContextItemPart({
+      producer: 'skill-activation',
+      form: 'notice',
+      runId: RUN_ID,
+      payload: { kind: 'activation', skill: 'research' },
+      text: 'activation research',
+    });
+
+    const { writes } = await append([omission], [activation]);
+
+    const rebuilt = (writes[0] ?? []).find(
+      (part) =>
+        isContextItemPart(part) && part.data.payload['kind'] === 'omission',
+    );
+    expect(isContextItemPart(rebuilt) ? rebuilt.data.payload : {}).toEqual({
+      kind: 'omission',
+      skills: [],
+      imports,
+      importsBeyond: 4,
+    });
+  });
 
   it('removes the omission item once every name is resolved', async () => {
     const omission = createContextItemPart({
@@ -386,6 +495,28 @@ describe('ActivationPartsRepository.appendForRun', () => {
       [omission(['alpha', 'beta'])],
     );
     expect(wider.applied).toBe(true);
+  });
+  it('includes imported locators in omission identity', async () => {
+    const omission = (imports: ReadonlyArray<string>) =>
+      createContextItemPart({
+        producer: 'skill-activation',
+        form: 'notice',
+        runId: RUN_ID,
+        payload: { kind: 'omission', skills: ['alpha'], imports },
+        text: 'omitted',
+      });
+
+    const same = await append(
+      [omission(['skill://research/a.md', 'skill://research/b.md'])],
+      [omission(['skill://research/b.md', 'skill://research/a.md'])],
+    );
+    expect(same.applied).toBe(false);
+
+    const different = await append(
+      [omission(['skill://research/a.md'])],
+      [omission(['skill://research/b.md'])],
+    );
+    expect(different.applied).toBe(true);
   });
 
   it('identifies an omission item with an unusable name list', async () => {
