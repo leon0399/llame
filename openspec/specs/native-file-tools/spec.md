@@ -2740,6 +2740,11 @@ always to `https://t.me`. A query SHALL NOT change a post read.
 - **THEN** the adapter falls through with `status`
 - **AND** the generic ladder may render the source
 
+#### Scenario: A response from another origin falls through as status
+
+- **WHEN** the Post Widget or preview request is redirected and its final URL's origin is not `https://t.me`
+- **THEN** the adapter falls through with `status` and renders nothing from that response
+
 #### Scenario: A response without the expected markup falls through as parse
 
 - **WHEN** the Post Widget answers 200 with neither a message nor an error element, or the preview answers 200 at `/s/{name}` without the channel header, or with a header but neither a post element nor the "No posts found" placeholder
