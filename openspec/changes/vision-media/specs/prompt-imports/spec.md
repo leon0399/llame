@@ -5,8 +5,9 @@
 An admitted prompt-import target whose native `read` returns an image SHALL become an image entry of
 the same `prompt-imports` item, whose body SHALL be exactly the image result `read` returns for that
 locator. The request SHALL carry that image's part or placeholder, as the epoch window selects,
-after the item's text. Image entries SHALL count toward the 8-target bound; image bytes SHALL NOT count toward the 128 KiB output
-bound. Recovery SHALL reuse the persisted media id without rereading.
+after the item's text. Image entries SHALL count toward the 8-target bound; image bytes SHALL NOT
+count toward the 128 KiB output bound. Recovery SHALL reuse the persisted media id without
+rereading.
 
 #### Scenario: An image target becomes an image entry
 
@@ -28,8 +29,8 @@ bound. Recovery SHALL reuse the persisted media id without rereading.
 #### Scenario: A text-only model receives the placeholder
 
 - **WHEN** the Run's model declares text-only input and the prompt imported an image target
-- **THEN** the request carries the placeholder
-  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]` immediately after the item's text
+- **THEN** the request carries, immediately after the item's text, the placeholder
+  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`
 - **AND** the request carries no image part
 
 #### Scenario: Image entries count toward the target bound
@@ -57,7 +58,7 @@ bound. Recovery SHALL reuse the persisted media id without rereading.
 - **WHEN** the silent `read` pre-evaluation rejects `@/tmp/shot.png`
 - **THEN** the item names that locator only as not imported, through the normal audited denied
   `read`
-- **AND** no probe, read, ingest, media object, or image entry is produced for it
+- **AND** no probe, ingest, media object, or image entry is produced for it
 
 #### Scenario: A refused image is not imported
 

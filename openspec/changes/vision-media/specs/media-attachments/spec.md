@@ -165,9 +165,10 @@ targets.
 
 ### Requirement: A text-only model receives an omitted placeholder for every image
 
-When the request's model does not declare `image` in its `input`, every resolvable media reference SHALL reach
-the model, in the image's position and after any `Image n (media://<id>):` label, as
-`[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`, where `<name>` is the media's stored, neutralized name and the dimensions are the original's.
+When the request's model does not declare `image` in its `input`, every resolvable media reference
+SHALL reach the model, in the image's position and after any `Image n (media://<id>):` label, as
+`[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`, where
+`<name>` is the media's stored, neutralized name and the dimensions are the original's.
 
 #### Scenario: A text-only model receives placeholders only
 
@@ -180,8 +181,9 @@ the model, in the image's position and after any `Image n (media://<id>):` label
 #### Scenario: A text-only model is never told about the image limit
 
 - **WHEN** a text-only model's request carries more image references than the epoch's bounds admit
-- **THEN** every resolvable reference, including those beyond the bounds, uses the `omitted: this
-model has no image input` form, and an unresolvable one keeps `[image media://<id> unavailable]`
+- **THEN** every resolvable reference, including those beyond the bounds, uses the
+  `omitted: this model has no image input` form, and an unresolvable one keeps
+  `[image media://<id> unavailable]`
 - **AND** no placeholder in the request contains `image limit is reached`
 
 ### Requirement: An image beyond the epoch's bounds is not attached
@@ -203,16 +205,17 @@ limit.
 ### Requirement: Image overflow compacts at the start of the next Run
 
 Before a Run's first model step, a prepared request on a model that declares `image` input SHALL
-trigger the window-triggered compaction that `model-system-prompts` defines when it carries a
-reference not attached because the epoch's bounds are reached and an image reference in a row before
-the triggering user message. The new epoch SHALL admit images oldest first again. A Run SHALL NOT
-compact after its first model step.
+count as reaching its compaction threshold when it carries a reference not attached because the
+epoch's bounds are reached and an image reference in a row before the triggering user message. It
+SHALL trigger the compaction variant that `model-system-prompts` selects for it. The new epoch SHALL
+admit images oldest first again. A Run SHALL NOT compact after its first model step.
 
 #### Scenario: Image overflow triggers compaction at the next Run
 
-- **WHEN** a vision-model chat's epoch carries 100 attached images in earlier turns and the owner
-  sends a message attaching one more image
-- **THEN** the window-triggered compaction runs before the Run's first model step
+- **WHEN** a vision-model chat's epoch carries 100 attached images in earlier turns, the request
+  fits the model's window, and the owner sends a message attaching one more image
+- **THEN** the threshold-triggered compaction runs on the Run's own model before its first model
+  step
 - **AND** the Run's request admits the triggering message's image under the new epoch and sends it as
   an image
 
@@ -230,12 +233,28 @@ compact after its first model step.
 - **THEN** that `read` result reaches the next step as the limit placeholder
 - **AND** no compaction runs before the Run ends
 
+### Requirement: A failed overflow compaction never fails the Run
+
+When image overflow is the only trigger condition and its compaction fails or yields no usable
+summary, the Run SHALL proceed without a checkpoint and the overflowing references SHALL keep the
+limit placeholder. The trigger SHALL be evaluated again before every Run's first model step, so
+those references stay unattached only until the next Run whose compaction succeeds and starts a new
+epoch.
+
+#### Scenario: A failed overflow compaction keeps the limit placeholder
+
+- **WHEN** a Run's only trigger condition is image overflow and its summarization call throws
+- **THEN** the Run proceeds without a checkpoint and the overflowing images reach the model as the
+  limit placeholder
+- **AND** the next Run evaluates the trigger again and, when its compaction succeeds, admits
+  images oldest first under the new epoch
+
 ### Requirement: Unresolvable media references never fail a request
 
 A reference the chat owner's store cannot resolve, because the id is unknown or belongs to another
-owner, SHALL reach the model as `[image media://<id> unavailable]` in its position. It SHALL NOT count
-toward the epoch's image bounds, SHALL NOT fail the request, and SHALL put no bytes or descriptor field of
-any object into the request.
+owner, SHALL reach the model as `[image media://<id> unavailable]` in its position. It SHALL NOT
+count toward the epoch's image bounds, SHALL NOT fail the request, and SHALL put no bytes or
+descriptor field of any object into the request.
 
 #### Scenario: An unresolvable reference becomes an unavailable placeholder
 
@@ -360,8 +379,8 @@ that locator returns a fresh image result in the new epoch.
 
 #### Scenario: A kept locator is re-read into the new epoch
 
-- **WHEN** a checkpoint absorbed an image whose `media://` locator its summary kept, and a later Run on
-  a vision model `read`s that locator
+- **WHEN** a checkpoint absorbed an image whose `media://` locator its summary kept, and a later
+  Run on a vision model `read`s that locator
 - **THEN** the `read` returns a fresh image result
 - **AND** that result is sent as an image when the new epoch's bounds admit it
 
@@ -507,8 +526,8 @@ support wheel and pinch zoom, move between slides with the left and right arrow 
 
 #### Scenario: Arrow keys cross messages and tool results
 
-- **WHEN** a chat has an attachment in its first message and a `read` image result in a later turn, and
-  the owner opens the attachment
+- **WHEN** a chat has an attachment in its first message and a `read` image result in a later
+  turn, and the owner opens the attachment
 - **THEN** pressing the right arrow key shows the `read` image
 
 #### Scenario: The composer lightbox spans unsent thumbnails only
@@ -530,8 +549,8 @@ caption SHALL show the shown variant's dimensions and format, the image's proven
 
 #### Scenario: The variant toggle switches the image and caption
 
-- **WHEN** the owner switches the toggle between `original` and `model` on a 4000×3000 JPEG whose model
-  variant is a 2000×1500 PNG
+- **WHEN** the owner switches the toggle between `original` and `model` on a 4000×3000 JPEG whose
+  model variant is a 2000×1500 PNG
 - **THEN** the shown image loads from the matching `/original` or `/model` route
 - **AND** the caption shows 4000×3000 JPEG for `original` and 2000×1500 PNG for `model`
 

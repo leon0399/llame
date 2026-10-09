@@ -103,8 +103,9 @@ until the library ships a delete action.
 
 ### New Capabilities
 
-- `media-store`: the owner media object, ingest bounds and formats, the model variant, dedup, the upload
-  and fetch routes, the `media://` grammar and its owner-only resolution, retention without deletion,
+- `media-store`: the owner media object, ingest bounds and formats, the model variant, dedup,
+  single-line and credential-free source labels, the upload and fetch routes with `ETag`
+  revalidation, the `media://` grammar and its owner-only resolution, retention without deletion,
   and tenant isolation.
 - `media-attachments`: owner `file` parts on messages, image-only messages, the model projection
   (ordering, labels, image window, placeholders, Chat Completions transport), text-only projections,
@@ -159,9 +160,10 @@ until the library ships a delete action.
 - `model-system-prompts`:
   - "A model switch replaces the top-level prompt and preserves portable history" carries images and
     placeholders across switches.
-  - "Compaction publishes a summary-only checkpoint before the Run's first model step" adds image
-    overflow as a window-variant trigger for vision models when an earlier row carries an image; if
-    the window variant cannot run, the attempt proceeds and overflow keeps the limit placeholder.
+  - "Compaction publishes a summary-only checkpoint before the Run's first model step" counts image
+    overflow on a vision model as reaching the threshold when an earlier row carries an image, so the
+    attempt's own model summarizes; a failed overflow-only compaction lets the attempt proceed with
+    the limit placeholder, and the trigger is re-evaluated before every Run.
 - `media-attachments` also owns an ADDED compaction rule: the compaction request carries images under
   the same epoch window, and the instruction keeps `media://` locators.
 - `owner-chat-forks`: "A shared or public fork receives no checkpoint row" omits file parts from shared

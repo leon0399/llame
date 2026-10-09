@@ -77,8 +77,8 @@ Failed-attempt visible output and tool observations SHALL remain part of the com
 - **WHEN** earlier turns carry an owner `file` part and an image `read` result that a vision model
   received as image parts
 - **AND** the next turn selects a model whose declared input is text only
-- **THEN** that model receives each earlier image as its placeholder
-  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]` in the image's original position
+- **THEN** that model receives each earlier image, in the image's original position, as its
+  placeholder `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`
 - **AND** the request carries no image part and the stored parts are unchanged
 
 #### Scenario: A switch to a vision model restores image parts
@@ -118,15 +118,21 @@ threshold and only the window variant can summarize it. Otherwise a measured
 context size at or above the Run model's threshold SHALL select the threshold
 variant. No request SHALL be compacted by both variants.
 
-A prepared request on a model that declares `image` input SHALL also select the
-window variant when it carries an image reference that `media-attachments` does
-not attach because its epoch's image bounds are reached and at least one image
-reference in a row before the triggering user message. When image overflow is
-the only condition and the window variant cannot run, because no previous
-completed Run exists or its model or receipt cannot execute or fit the prefix,
-the attempt SHALL proceed without compaction and the overflowing references
-SHALL keep the limit placeholder that `media-attachments` defines; image
-overflow alone SHALL NOT fail an attempt.
+A prepared request on a model that declares `image` input SHALL also count as
+reaching the Run model's threshold when it carries an image reference that
+`media-attachments` does not attach because its epoch's image bounds are reached
+and an image reference in a row before the triggering user message. Image
+overflow SHALL therefore select the threshold variant on the attempt's own
+model, because that request fits; a request that also does not fit SHALL select
+the window variant as above.
+
+When image overflow is the only trigger condition and its compaction fails or
+yields no usable summary, the attempt SHALL proceed without a checkpoint and the
+overflowing references SHALL keep the limit placeholder that `media-attachments`
+defines; image overflow alone SHALL NOT fail an attempt. The trigger SHALL be
+evaluated again before every Run's first model step, so those references stay
+unattached only until the next Run whose compaction succeeds and starts a new
+epoch.
 
 Measured context size SHALL be the previous completed assistant message's
 persisted final-request context size plus the estimate of the rows and rail
@@ -420,15 +426,15 @@ work.
 - **THEN** it does not reuse this compaction
 - **AND** it requires a separately specified summary contract
 
-#### Scenario: Image overflow selects the window variant
+#### Scenario: Image overflow selects the threshold variant
 
 - **WHEN** a prepared request on a model that declares `image` input fits that
-  model's window and is below its threshold, but carries an image reference
-  beyond its epoch's image bounds and an image reference in a row before the
-  triggering user message
-- **THEN** the window variant runs before the Run's first model step, with the
-  previous completed Run's model, its system-prompt receipt and effort, and no
-  tool declarations
+  model's window and its measured context size is below the threshold, but it
+  carries an image reference beyond its epoch's image bounds and an image
+  reference in a row before the triggering user message
+- **THEN** the threshold variant runs before the Run's first model step, with
+  that attempt's own model client, system prompt, schema-only tool declarations,
+  and effort
 - **AND** the request after the checkpoint admits images oldest first under the
   new epoch
 
@@ -442,9 +448,11 @@ work.
 
 #### Scenario: Image overflow alone never fails an attempt
 
-- **WHEN** image overflow is the only trigger condition and no previous completed
-  Run exists, or its model or system-prompt receipt cannot execute or cannot fit
-  the prefix
-- **THEN** the attempt proceeds without compaction instead of failing
+- **WHEN** image overflow is the only trigger condition and its summarization
+  call throws or returns no usable summary
+- **THEN** the attempt proceeds without a checkpoint instead of failing
   `context_incompatible`
 - **AND** the overflowing images keep the limit placeholder
+- **AND** the next Run evaluates the trigger again before its first model step
+  and, when its compaction succeeds, admits images oldest first under the new
+  epoch

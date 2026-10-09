@@ -21,9 +21,12 @@ See proposal.md (Why). State at `fc06bdba` (master):
   (`apps/api/src/chats/dto/chats.dto.ts:165-235`), and the loop rejects a message with no text part
   (`apps/api/src/chats/chat-loop.service.ts:200-212`). No spec states these limits.
 - `models[]` declares no input modality (`apps/api/src/instance-config/llame.config.schema.json:434-531`).
-- No blob, upload, or object-storage code exists; `messages.attachments` is an unused JSONB column
-  (`apps/api/src/db/schema/chats.ts:237-241`). The API and a dedicated worker share Postgres and no
-  filesystem except Knowledge mounts (`docs/product/operator/scaling.md:10-21,121-127`).
+- No blob, upload, or object-storage code exists. `messages.attachments` (`chats.ts:238-241`) is
+  written as an empty array on both insert paths (`messages-repository.ts:518,551,576`), published in
+  the message DTO (`chats.dto.ts:492,549`), and copied verbatim by forks (`fork-copy.ts:176`); no
+  producer fills it. This change leaves it as is and stores attachments as `file` parts, the AI SDK
+  shape `useChat` sends. The API and a dedicated worker share Postgres and no filesystem except
+  Knowledge mounts (`docs/product/operator/scaling.md:10-21,121-127`).
 - The web client sends `sendMessage({ text })` through AI SDK `useChat`
   (`apps/web/app/(chat)/components/use-chat-conversation.ts:27-66`) with cookie credentials; the session
   cookie is `SameSite=Lax` (`apps/api/src/auth/auth.controller.ts:246`). `packages/ui` has a
@@ -71,10 +74,15 @@ from stored variants, never stored base64.
 
 ### D1: Postgres metadata and blob tables under RLS (Q1)
 
-`media_objects` holds one row per owner image: id (UUIDv7, generated in the API with the `uuid` package's `v7()`, because neither PostgreSQL 17 nor Node 22 provides one), owner id, detected format, original byte
-size and dimensions, model-variant format, byte size, and dimensions, SHA-256 of the original,
-provenance (`upload`, `read`, `prompt-import`), a source label (upload filename or source locator,
-neutralized, at most 256 characters), and creation time. `media_blobs` holds `(media_id, variant)` →
+`media_objects` holds one row per owner image: id (UUIDv7, generated in the API with the `uuid`
+package's `v7()`, because neither PostgreSQL 17 nor Node 22 provides one), owner id, detected format,
+original byte size and dimensions, model-variant format, byte size, and dimensions, SHA-256 of the
+original,
+provenance (`upload`, `read`, `prompt-import`), a single-line source label, and creation time. The
+label is the upload filename or the source locator with control characters replaced by spaces, `[`
+and `]` replaced by `(` and `)`, reserved delimiters neutralized, and at most 256 characters; a web
+source keeps only scheme, host, port, and path, so URL userinfo, query tokens, and fragments never
+reach a model through a placeholder. `media_blobs` holds `(media_id, variant)` →
 `bytea` for `original` and `model`. Both tables use enabled, forced RLS keyed on the authenticated owner,
 like every tenant table. The metadata/blob split lets a later object-storage move replace only
 `media_blobs` rows without changing any stored part.
@@ -120,8 +128,10 @@ llame. Bounds are code constants; no deployment needs different values yet (Q14)
   is unchanged.
 - `GET /api/v1/media/:id` returns the descriptor; `GET /api/v1/media/:id/original` and `/model` return
   bytes with the stored type, `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`,
-  `Content-Security-Policy: sandbox`, and `Cache-Control: private, max-age=31536000, immutable`
-  (content under an id never changes). Another owner's id, or an unknown id, is `404`.
+  `Content-Security-Policy: sandbox`, a strong `ETag` from the content hash, and
+  `Cache-Control: private, no-cache`. The browser revalidates every reuse against the authenticated
+  route and gets `304` when the ETag matches, so a profile shared by two owners never serves one
+  owner's cached bytes to the other. Another owner's id, or an unknown id, is `404`.
 - Media belongs to its owner. Messages reference it; forks copy the reference (`owner-chat-forks` already
   copies parts verbatim). Nothing deletes media: no automatic collection on chat deletion, no delete
   route, and unsent uploads are kept (Q13, Q17, Q18). This is recorded as a known gap for the library.
@@ -156,7 +166,10 @@ web chat preserves paste position, and a plain `<textarea>` cannot keep a placeh
 `models[].input` is an optional array over the closed set `text`, `image`; it must contain `text` and no
 duplicates. Absent means `["text"]`. `GET /api/v1/models` always publishes `input`.
 
-One step composer builds every model request, including each step of a Run. History conversion and
+One step composer builds every Run request and compaction request, including each step of a Run.
+Title generation calls `generateText` directly (`generateToolBoundObject`,
+`openai-model-client.ts:706-717`) and never reaches the composer; it receives the placeholder lines of
+D9 instead. History conversion and
 live tool outputs both carry media references only: a `read` image result's `toModelOutput` is its
 text envelope, never bytes. `ai@6.0.256` `streamText` pushes each tool output permanently into its
 response messages and rebuilds every step as initial plus response messages
@@ -186,10 +199,21 @@ dimensions) and loads variant bytes on demand. For each step:
   model, an image the window does not attach becomes
   `[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`.
   Neither form invites a re-read: re-reading would hit the same limit or the same model. `name` is
-  the neutralized source label and the dimensions are the original's. The forms name the cause, as
-  Codex, pi, OpenClaw, and OMP do. Unresolvable references keep `[image media://<id> unavailable]`.
-  `conversation_read` and title lines keep the bare `[image media://<id> <name> <width>×<height>]`
-  form, which states no cause.
+  the single-line source label and the dimensions are the original's. Unresolvable references keep
+  `[image media://<id> unavailable]`. `conversation_read` and title lines keep the bare
+  `[image media://<id> <name> <width>×<height>]` form, which states no cause.
+
+  Naming the cause follows the harnesses that handle non-vision models in source:
+
+  | Harness                  | Placeholder                                                                 | Source                                                                                                                                                        |
+  | ------------------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Codex CLI                | `image content omitted because you do not support image input`              | [unsupported_media.rs](https://github.com/openai/codex/blob/89c8759d8c497b30629a2d67a51c163aa9ed3c44/codex-rs/core/src/context/unsupported_media.rs#L10-L14)  |
+  | pi (`earendil-works/pi`) | `(image omitted: model does not support images)`, `(tool image omitted: …)` | [transform-messages.ts](https://github.com/earendil-works/pi/blob/eba849739511223c51a62bbd7e3f1c00f99fb1d0/packages/ai/src/api/transform-messages.ts#L12-L77) |
+  | OpenClaw                 | same strings as pi                                                          | [transcript-transform.ts](https://github.com/openclaw/openclaw/blob/3e90389813229bd33c169fb07b883b567847224e/packages/ai/src/transcript-transform.ts#L19-L41) |
+  | OMP                      | `[image omitted: model does not support vision]`                            | [vision-guard.ts](https://github.com/can1357/oh-my-pi/blob/5aafbec7a2f03c836fe2b938b3adfbbd46e8482e/packages/ai/src/providers/vision-guard.ts#L4-L43)         |
+
+  None of them includes an id the model can re-read; the `media://` locator is llame's addition.
+
 - **Chat Completions wires.** On `openai-completions` and `opencode-go`, a tool output's image cannot
   travel in the tool message: the adapter would serialize it as text. A tool message whose image is
   sent as an image part (attached, vision model) carries its text and the line
@@ -222,29 +246,39 @@ message blocks when images are added or removed anywhere in the prompt
 ([prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)).
 
 Before a Run's first model step, a vision-model request with an unattached image and at least one
-image in a row before the triggering user message compacts as if it did not fit the model's window.
-Image overflow alone never fails an attempt: when the window variant cannot run (no previous completed
-Run, or its model or receipt cannot execute or fit), the attempt proceeds without compaction and the
-overflowing images keep the limit placeholder.
-Absorbed images survive as the `media://` locators the summary keeps, and the model re-reads them
-into the new epoch with `read`. Compaction never runs inside a Run, so an image read past the bounds
-mid-Run stays unattached until the next turn compacts. Overflow inside the triggering message alone
-(ten maximum-size images exceed 24 MiB) does not compact, because compaction cannot absorb that
-message.
+image in a row before the triggering user message counts as reaching the compaction threshold, so it
+selects the threshold variant on the attempt's own model: the request fits, and that variant is the
+cache-aligned continuation. A request that also does not fit still selects the window variant. An
+overflow-only compaction that fails or yields no usable summary does not fail the attempt; the attempt
+proceeds and the overflowing images keep the limit placeholder. The trigger is re-evaluated before
+every Run, so images left unattached are attached again by the next successful compaction. Absorbed
+images survive as the `media://` locators the summary keeps, and the model re-reads them into the new
+epoch with `read`. Compaction never runs inside a Run, so an image read past the bounds mid-Run stays
+unattached until the next turn compacts. Overflow inside the triggering message alone (ten
+maximum-size images exceed 24 MiB) does not compact, because compaction cannot absorb that message.
 
 The count bound is 100, Anthropic's per-request limit for 200k-context models. Anthropic's
 2000×2000 limit above 20 images per request is already met, because every model variant is at most
 2000 px on its long edge. Both bounds are code constants (Q14).
 
-Prior art: OMP drops the oldest images on every request (`clampProviderContextImages` in
-`packages/coding-agent/src/session/provider-image-budget.ts` at `5aafbec7`), which misses the cache
-on every request once over budget. Claude Code fixed the same symptom ("prompt-cache misses on every
-turn in long screenshot-heavy sessions once images exceeded the per-request size cap", CHANGELOG
-2.1.257). OpenClaw advances its image cut only at user-turn boundaries, in batches of 8 turns, "to
-stop repeated image payloads ... busting prompt caches" (`docs/concepts/session-pruning.md` at
-`23b8ffe5`). pi and Codex never evict mid-session and leave images to compaction. A cut at compaction
-is the limit case of OpenClaw's batching: one rewrite per checkpoint, at a point that already
-invalidates the cache.
+Prior art for when images leave the request:
+
+- OMP drops the oldest images on every request
+  ([provider-image-budget.ts](https://github.com/can1357/oh-my-pi/blob/5aafbec7a2f03c836fe2b938b3adfbbd46e8482e/packages/coding-agent/src/session/provider-image-budget.ts#L21-L160)),
+  which misses the cache on every request once over budget.
+- Claude Code fixed the same symptom: "prompt-cache misses on every turn in long screenshot-heavy
+  sessions once images exceeded the per-request size cap"
+  ([CHANGELOG](https://github.com/anthropics/claude-code/blob/602df92bf481ed904533e95c09f740f40aab5aed/CHANGELOG.md#L2593)).
+- OpenClaw advances its image cut only at user-turn boundaries, in batches of 8 turns, "to stop
+  repeated image payloads ... busting prompt caches"
+  ([session-pruning.md](https://github.com/openclaw/openclaw/blob/23b8ffe56805d966e4f6a17a2bc9bc94b82173cb/docs/concepts/session-pruning.md),
+  [history-image-prune.ts](https://github.com/openclaw/openclaw/blob/23b8ffe56805d966e4f6a17a2bc9bc94b82173cb/src/agents/embedded-agent-runner/run/history-image-prune.ts#L19-L62)).
+- pi and Codex never evict mid-session and leave images to compaction
+  ([pi compaction.ts](https://github.com/earendil-works/pi/blob/eba849739511223c51a62bbd7e3f1c00f99fb1d0/packages/coding-agent/src/core/compaction/compaction.ts#L276-L335),
+  [Codex compact.rs](https://github.com/openai/codex/blob/65b82cdf96f9d305494bc8c6c8d2404d37709030/codex-rs/core/src/compact.rs#L443-L560)).
+
+A cut at compaction is the limit case of OpenClaw's batching: one rewrite per checkpoint, at a point
+that already invalidates the cache.
 
 ### D7: Native `read` of images (Q5, Q8)
 
@@ -291,8 +325,8 @@ persisted text result. The entry's private payload records `media: "media://<id>
 where the conversion boundary and the owner chip find the image; the payload validator
 (`isPromptImportsPayloadEntry` in `apps/api/src/chats/prompt-imports-item.ts`, an exact-key check)
 accepts that key, as must the web client's own exact-key check (`isPromptImportEntry` in
-`apps/web/lib/services/chat/history.ts`), or the owner chip disappears for the whole item; a rollback
-build drops items carrying it from derived state. Provenance
+`apps/web/lib/services/chat/history.ts`), or the owner chip disappears for the whole item. The
+Migration Plan states the rollback consequence for such items. Provenance
 `prompt-import` needs the system-read origin on `ToolContext`, which today reaches only the audit
 callbacks. The entry body is the image result envelope native `read` returns, so
 "Imported results equal native read output" holds unchanged. This delta ADDs three requirements to the
@@ -378,11 +412,17 @@ navigation, preloading, and zoom reset.
 
 - One Drizzle migration adds both tables with `pgPolicy` owner policies and a hand-appended
   `FORCE ROW LEVEL SECURITY`; owner-keyed tables need no `db:provision-rls` change, which only owns
-  cross-tenant SECURITY DEFINER functions; it touches no
-  existing table. A rollback to a build without this change leaves stored `file` parts that the old
-  conversion boundary does not map (`userPartsToModelContent` in `apps/api/src/chats/context-builder.ts`
-  emits only text and context parts), so the model silently stops seeing those images while the tables
-  remain. Dropping the tables loses every stored image and is a separate, deliberate step.
+  cross-tenant SECURITY DEFINER functions; it touches no existing table.
+- A rollback to a build without this change keeps stored `file` parts that the old conversion
+  boundary does not map (`userPartsToModelContent` in `apps/api/src/chats/context-builder.ts` emits
+  only text and context parts), so the model silently stops seeing those images while the tables
+  remain.
+- A rollback also degrades `prompt-imports` items that carry an image entry. The old exact-key
+  validator rejects the whole payload, and `PromptImportPartsRepository.findForRun` keeps it as
+  `undefined` (`apps/api/src/chats/prompt-import-parts.repository.ts:57-59`). The item text still
+  replays, but every derived state of that item is lost, including `derivePromptImportTriggers`. The
+  instruction-file loads for the text imports in the same item are therefore skipped on recovery.
+- Dropping the tables loses every stored image and is a separate, deliberate step.
 - Existing configs keep working: `input` is optional and defaults to text-only.
 - `sharp` adds a native dependency to the API image.
 
