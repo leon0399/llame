@@ -59,9 +59,10 @@ retried; its note adds `resets <ISO-8601>` when GitHub sends the header.
 
 ## Thread adapters
 
-Bluesky, Hacker News, and Discourse use the [x.md](https://x.pcstyle.dev/)
-thread layout: one `## {Label} · {i}/{n} — {author}` entry per post, ending in
-`Source:` and `Date:` lines.
+Bluesky, Hacker News, Discourse, and Telegram use the
+[x.md](https://x.pcstyle.dev/) thread layout: one
+`## {Label} · {i}/{n} — {author}` entry per post, ending in `Source:` and
+`Date:` lines.
 
 ```text
 ## Post · 1/3 — Alice (@alice.test)
@@ -82,6 +83,18 @@ Date: 2026-10-01T00:00:00Z
   are omitted.
 - **Discourse:** the first post as `Post` with the topic title, then up to 199
   replies, each with `Replying to @{author}` when it answers a later post.
+- **Telegram:** a post renders one `Post` entry: `> Forwarded from:`, a
+  `> Replying to {author}:` snippet with the parent's URL (the parent is not
+  fetched), the text, one blockquoted note per media item naming its type
+  (`> [photo]`, `> [video 0:42]`, `> [document: report.pdf]`) with no media
+  URL, a `> Link:` card, then `Signed:`, `Views:`, `Reactions:`, and `Edited`
+  when present. A public-group message names its sender. A channel renders
+  `# {title} (@{name})`, the description, `Subscribers:`, `URL:`, then
+  `Older:` and `Newer:` page URLs directly under the header, then up to 20
+  posts newest first, separated by `---`; service messages are skipped. A
+  cursor URL carries a query, so a cursor page takes no line selector; only
+  the head page (`t.me/{name}:N-M`) does. A truncated cursor page continues
+  with `?before={id}` from the last shown `Source:` id.
 
 ## Package adapters
 

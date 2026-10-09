@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
+- Added a native `telegram` web adapter (#940). With
+  `{ "id": "telegram", "use": "telegram" }` in `tools.webAdapters`, `read`
+  renders public `t.me` posts from Telegram's Post Widget as one thread entry
+  with forward origin, reply snippet, media notes, views, and reactions, and
+  channel pages from the `t.me/s/` web preview as the channel header and its
+  up to 20 posts newest first, with `Older:` and `Newer:` page URLs. Private
+  `/c/` links and channel search fall through to the generic ladder.
+
 - Prompts now expand `@path`, `@"…"`, `@'…'`, ``@`…` ``,
   `@[label](path)`, and `[label](path "import")` markers outside code.
   Before the Run's first model request, each target is read once through native

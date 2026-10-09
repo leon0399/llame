@@ -23,23 +23,24 @@ allowlist must admit the hosts in the last column; a refused primary request
 falls through with `permission`, a refused secondary one adds
 `<section> omitted: permission`.
 
-| `use`           | Claims                                                                                   | Requests                                        | Allowlist                                                                |
-| --------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------ |
-| `rewrite`       | `hosts` and `pathPattern`                                                                | `target`                                        | the target origin                                                        |
-| `github`        | see [GitHub](#github)                                                                    | REST, GraphQL for discussions                   | `api.github.com`; job logs: `productionresultssa*.blob.core.windows.net` |
-| `bluesky`       | `bsky.app/profile/{actor}`, `/post/{rkey}`, `/followers`, `/follows`                     | 1 (post, follows) or 2 (profile)                | `public.api.bsky.app`                                                    |
-| `npm`           | `npmjs.com/package/{name}[/v/{version}]`                                                 | 3: manifest, dist-tags, README                  | `registry.npmjs.org`, `cdn.jsdelivr.net/npm/`                            |
-| `huggingface`   | `huggingface.co/[datasets/\|spaces/]{owner}/{name}`                                      | 2: API, raw README                              | `huggingface.co`                                                         |
-| `arxiv`         | `arxiv.org/abs/`, `/pdf/`, `/html/{id}`                                                  | 1, or 2 when no HTML exists (abstract fallback) | `arxiv.org`                                                              |
-| `stackexchange` | `/questions/`, `/q/`, `/a/` on Stack Exchange network sites                              | 2–4                                             | `api.stackexchange.com`                                                  |
-| `crates`        | `crates.io/crates/{name}[/{version}]`                                                    | 3–4: crate, version, dependencies, README       | `crates.io/api/`, `static.crates.io`                                     |
-| `hackernews`    | `news.ycombinator.com/item?id={id}`                                                      | 1                                               | `hn.algolia.com`                                                         |
-| `doi`           | `doi.org/{doi}`, `dx.doi.org/{doi}`                                                      | 1                                               | `api.openalex.org`                                                       |
-| `discourse`     | `/t/[{slug}/]{id}[/{post}]` on `hosts`                                                   | 1–3                                             | each listed host                                                         |
-| `devto`         | `dev.to/{username}/{slug}`                                                               | 1                                               | `dev.to`                                                                 |
-| `substack`      | `{publication}.substack.com/p/{slug}`                                                    | 1                                               | `*.substack.com` and any custom domain it redirects to                   |
-| `osv`           | `osv.dev/vulnerability/`, `nvd.nist.gov/vuln/detail/`, `github.com/advisories/`, cve.org | 1                                               | `api.osv.dev`                                                            |
-| `wikipedia`     | `{lang}[.m].wikipedia.org/wiki/{title}`, no query, no namespace                          | 1                                               | `{lang}.wikipedia.org`                                                   |
+| `use`           | Claims                                                                                          | Requests                                        | Allowlist                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------ |
+| `rewrite`       | `hosts` and `pathPattern`                                                                       | `target`                                        | the target origin                                                        |
+| `github`        | see [GitHub](#github)                                                                           | REST, GraphQL for discussions                   | `api.github.com`; job logs: `productionresultssa*.blob.core.windows.net` |
+| `bluesky`       | `bsky.app/profile/{actor}`, `/post/{rkey}`, `/followers`, `/follows`                            | 1 (post, follows) or 2 (profile)                | `public.api.bsky.app`                                                    |
+| `npm`           | `npmjs.com/package/{name}[/v/{version}]`                                                        | 3: manifest, dist-tags, README                  | `registry.npmjs.org`, `cdn.jsdelivr.net/npm/`                            |
+| `huggingface`   | `huggingface.co/[datasets/\|spaces/]{owner}/{name}`                                             | 2: API, raw README                              | `huggingface.co`                                                         |
+| `arxiv`         | `arxiv.org/abs/`, `/pdf/`, `/html/{id}`                                                         | 1, or 2 when no HTML exists (abstract fallback) | `arxiv.org`                                                              |
+| `stackexchange` | `/questions/`, `/q/`, `/a/` on Stack Exchange network sites                                     | 2–4                                             | `api.stackexchange.com`                                                  |
+| `crates`        | `crates.io/crates/{name}[/{version}]`                                                           | 3–4: crate, version, dependencies, README       | `crates.io/api/`, `static.crates.io`                                     |
+| `hackernews`    | `news.ycombinator.com/item?id={id}`                                                             | 1                                               | `hn.algolia.com`                                                         |
+| `doi`           | `doi.org/{doi}`, `dx.doi.org/{doi}`                                                             | 1                                               | `api.openalex.org`                                                       |
+| `discourse`     | `/t/[{slug}/]{id}[/{post}]` on `hosts`                                                          | 1–3                                             | each listed host                                                         |
+| `devto`         | `dev.to/{username}/{slug}`                                                                      | 1                                               | `dev.to`                                                                 |
+| `substack`      | `{publication}.substack.com/p/{slug}`                                                           | 1                                               | `*.substack.com` and any custom domain it redirects to                   |
+| `osv`           | `osv.dev/vulnerability/`, `nvd.nist.gov/vuln/detail/`, `github.com/advisories/`, cve.org        | 1                                               | `api.osv.dev`                                                            |
+| `wikipedia`     | `{lang}[.m].wikipedia.org/wiki/{title}`, no query, no namespace                                 | 1                                               | `{lang}.wikipedia.org`                                                   |
+| `telegram`      | `t.me`, `telegram.me`, `telegram.dog`: `/{name}`, `/s/{name}`, `/{name}/{id}`, `/s/{name}/{id}` | 1                                               | `t.me`                                                                   |
 
 ## Rewrite
 
@@ -88,6 +89,21 @@ read for discussions.
 `{ id, use: "discourse", hosts }`, with `hosts` validated like a rewrite
 entry's. A topic renders its first 200 posts whatever post number the URL
 names.
+
+## Telegram
+
+`{ id, use: "telegram" }`. Every request goes to `https://t.me`, whichever
+alias host the URL names: a post reads the Post Widget
+(`/{name}/{id}?embed=1&mode=tme`, which also serves public-group messages), a
+channel reads the web preview `/s/{name}` with at most one `before` or `after`
+cursor. Both are keyless public HTML with no stability contract, so a markup
+change falls through as `parse` instead of rendering wrong content.
+
+A `/c/` private link, a `?q=` search, and a conflicting or malformed cursor
+fall through as `address` before any request. A preview redirected off
+`/s/{name}` (a user, bot, group, or unknown name), or any response whose final
+URL left `https://t.me` after a redirect, falls through as `status`; a widget
+error ("Post not found") or service message falls through as `empty`.
 
 ## Quotas
 

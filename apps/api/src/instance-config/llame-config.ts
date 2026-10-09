@@ -530,7 +530,7 @@ export type RawWebAdapterEntry =
     }
   | {
       id: string;
-      use: 'devto' | 'substack' | 'osv' | 'wikipedia';
+      use: 'devto' | 'substack' | 'osv' | 'wikipedia' | 'telegram';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -626,6 +626,7 @@ export type DevtoWebAdapterConfig = FieldlessWebAdapterConfig<'devto'>;
 export type SubstackWebAdapterConfig = FieldlessWebAdapterConfig<'substack'>;
 export type OsvWebAdapterConfig = FieldlessWebAdapterConfig<'osv'>;
 export type WikipediaWebAdapterConfig = FieldlessWebAdapterConfig<'wikipedia'>;
+export type TelegramWebAdapterConfig = FieldlessWebAdapterConfig<'telegram'>;
 
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
@@ -642,7 +643,8 @@ export type WebAdapterConfig =
   | DevtoWebAdapterConfig
   | SubstackWebAdapterConfig
   | OsvWebAdapterConfig
-  | WikipediaWebAdapterConfig;
+  | WikipediaWebAdapterConfig
+  | TelegramWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {
