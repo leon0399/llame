@@ -71,7 +71,7 @@ from stored variants, never stored base64.
 
 ### D1: Postgres metadata and blob tables under RLS (Q1)
 
-`media_objects` holds one row per owner image: id (UUIDv7), owner id, detected format, original byte
+`media_objects` holds one row per owner image: id (UUIDv7, generated in the API with the `uuid` package's `v7()`, because neither PostgreSQL 17 nor Node 22 provides one), owner id, detected format, original byte
 size and dimensions, model-variant format, byte size, and dimensions, SHA-256 of the original,
 provenance (`upload`, `read`, `prompt-import`), a source label (upload filename or source locator,
 neutralized, at most 256 characters), and creation time. `media_blobs` holds `(media_id, variant)` →
@@ -163,13 +163,13 @@ response messages and rebuilds every step as initial plus response messages
 (`ai/dist/index.mjs:7723-7741`, `responseMessages.push` at `:8191`), so bytes returned there would
 stay in worker memory for the whole Run while only 20 images are ever sent.
 
-The composer runs on every model request, whether or not it offers tools. With tools, it runs in the
-clients' shared `prepareStep` composition, on the final messages after the `onStepStart` override
-that in-Run context items use, so that splice's recorded prefix index (`in-run-context-items.ts:154`)
-is computed before any transform. Without tools (the default `tools.allowed: []`, and compaction
-when no tool declarations exist), `applyToolCallingOptions` returns before installing `prepareStep`
-(`openai-model-client.ts:145-149`), so the composer is applied once to the initial messages before
-`streamText`. It takes a per-Run media resolver, passed on `ModelStreamInput` and loaded under the
+The composer runs on every model request, whether or not it offers tools, as an always-installed
+`prepareStep`: `ai@6.0.256` awaits `prepareStep` on every step with or without tools
+(`ai/dist/index.mjs:7724`), while the client's `streamText` call is synchronous and cannot await
+the resolver itself. `applyToolCallingOptions` returns early without tools
+(`openai-model-client.ts:149`), so only the step cap and the `onStepStart` override stay gated on
+tools; the composer runs on the final messages after that override, so the in-Run splice's recorded
+prefix index (`in-run-context-items.ts:154`) is computed before any transform. It takes a per-Run media resolver, passed on `ModelStreamInput` and loaded under the
 Run owner's identity, that returns each reference's descriptor (name, original and variant
 dimensions) and loads variant bytes on demand. For each step:
 
@@ -181,11 +181,14 @@ dimensions) and loads variant bytes on demand. For each step:
 - **Prompt imports.** An image entry in a `prompt-imports` item becomes an image part after the item's
   text.
 - **Window.** Only image references inside the image window (below) become image parts, and only their
-  bytes are loaded. Every image sent to a model that does not declare `image` becomes
+  bytes are loaded. Every resolvable image sent to a model that does not declare `image` becomes
   `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`; for a vision model, an image outside the window becomes
-  `[image media://<id> <name> <width>×<height>, not attached; read the locator to view it]`. `name` is the neutralized source label and the dimensions are the original's. The two
-  forms name the cause, as Codex, pi, OpenClaw, and OMP do, so a text-only model is never told to
-  re-read an image it cannot see. `conversation_read` and title lines keep the bare
+  `[image media://<id> <name> <width>×<height>, not attached; read the locator to view it]` when the
+  request offers `read`, and `[image media://<id> <name> <width>×<height>, not attached]` when it
+  does not (compaction, a Run under empty `tools.allowed`). `name` is the neutralized source label and
+  the dimensions are the original's. The forms name the cause, as Codex, pi, OpenClaw, and OMP do, so
+  no model is told to re-read an image it cannot see or cannot read. Unresolvable references keep
+  `[image media://<id> unavailable]`. `conversation_read` and title lines keep the bare
   `[image media://<id> <name> <width>×<height>]` form, which states no cause.
 - **Chat Completions wires.** On `openai-completions` and `opencode-go`, a tool output's image cannot
   travel in the tool message: the adapter would serialize it as text. The tool message carries its text
@@ -255,7 +258,9 @@ count toward the 8-target bound; their bytes do not count toward the
 persisted text result. The entry's private payload records `media: "media://<id>"`, which is
 where the conversion boundary and the owner chip find the image; the payload validator
 (`isPromptImportsPayloadEntry` in `apps/api/src/chats/prompt-imports-item.ts`, an exact-key check)
-accepts that key, and a rollback build drops items carrying it from derived state. Provenance
+accepts that key, as must the web client's own exact-key check (`isPromptImportEntry` in
+`apps/web/lib/services/chat/history.ts`), or the owner chip disappears for the whole item; a rollback
+build drops items carrying it from derived state. Provenance
 `prompt-import` needs the system-read origin on `ToolContext`, which today reaches only the audit
 callbacks. The entry body is the image result envelope native `read` returns, so
 "Imported results equal native read output" holds unchanged. This delta ADDs three requirements to the
@@ -267,8 +272,9 @@ a prompt-import target. It does not restate that capability's requirements.
 - `conversation_read` renders the message's visible text exactly as today, then one line per media
   reference, `[image media://<id> <name> <width>×<height>]`. Search line coordinates are unaffected
   because search indexes only the text that precedes those lines.
-- Title generation receives the same placeholder lines after the first message's text, so an image-only
-  prompt can still be titled.
+- Title generation receives the same placeholder lines after the titled turn's message text (the
+  existing path titles from the Run's triggering message, `run-execution.service.ts:3607`), so an
+  image-only prompt can still be titled.
 - Compaction sends the prepared prefix exactly as the Run would (D6, projected for the compaction
   model's own `input`). The summarization instruction tells the summarizer to keep every `media://`
   locator it mentions, so a later turn can re-read an image after its message is absorbed.
@@ -338,7 +344,9 @@ navigation, preloading, and zoom reset.
 
 ## Migration Plan
 
-- One Drizzle migration adds both tables, their RLS policies, and the provisioning grants; it touches no
+- One Drizzle migration adds both tables with `pgPolicy` owner policies and a hand-appended
+  `FORCE ROW LEVEL SECURITY`; owner-keyed tables need no `db:provision-rls` change, which only owns
+  cross-tenant SECURITY DEFINER functions; it touches no
   existing table. A rollback to a build without this change leaves stored `file` parts that the old
   conversion boundary does not map (`userPartsToModelContent` in `apps/api/src/chats/context-builder.ts`
   emits only text and context parts), so the model silently stops seeing those images while the tables
