@@ -121,6 +121,18 @@ describe('Telegram adapter read', () => {
     expect(outcome).toStrictEqual({ kind: 'failed', failure: 'status' });
   });
 
+  it.each([
+    ['https://t.me/durov/400', WIDGET, 'https://evil.test/durov/400', POST],
+    ['https://t.me/durov', HEADER, 'https://evil.test/s/durov', CHANNEL],
+  ])(
+    'falls through as status when %s redirects off t.me',
+    async (source, body, finalUrl, url) => {
+      const { outcome } = await read(source, html(body, finalUrl), url);
+
+      expect(outcome).toStrictEqual({ kind: 'failed', failure: 'status' });
+    },
+  );
+
   it('falls through as empty on the widget error element', async () => {
     const { outcome } = await read(
       'https://t.me/durov/400',

@@ -16,6 +16,7 @@ const HOST = /^(?:t\.me|telegram\.me|telegram\.dog)$/u;
 const LOCATOR =
   /^\/(?:s\/)?([A-Za-z][A-Za-z0-9_]{3,31})(?:\/([1-9][0-9]{0,9}))?$/u;
 const ID = /^[1-9][0-9]{0,9}$/u;
+const ORIGIN = 'https://t.me';
 
 type TelegramTarget =
   | { readonly kind: 'private' }
@@ -78,13 +79,15 @@ async function readPost(
   id: string,
   io: WebAdapterIo,
 ): Promise<WebAdapterOutcome | TelegramRender> {
-  const fetched = await io.fetch(
-    `https://t.me/${name}/${id}?embed=1&mode=tme`,
-    { accept: 'text/html' },
-  );
-  return 'type' in fetched
-    ? primaryFailure(fetched)
-    : renderWidgetPost(fetched.body);
+  const fetched = await io.fetch(`${ORIGIN}/${name}/${id}?embed=1&mode=tme`, {
+    accept: 'text/html',
+  });
+  if ('type' in fetched) return primaryFailure(fetched);
+  // An admitted redirect may leave t.me; only Telegram's answer is a post.
+  if (new URL(fetched.finalUrl).origin !== ORIGIN) {
+    return { kind: 'failed', failure: 'status' };
+  }
+  return renderWidgetPost(fetched.body);
 }
 
 /** A channel page through the web preview. A user, bot, group, or unknown
@@ -96,10 +99,11 @@ async function readChannel(
 ): Promise<WebAdapterOutcome | TelegramRender> {
   const cursor = channelCursor(params);
   if (cursor === undefined) return { kind: 'failed', failure: 'address' };
-  const url = `https://t.me/s/${name}${cursor}`;
+  const url = `${ORIGIN}/s/${name}${cursor}`;
   const fetched = await io.fetch(url, { accept: 'text/html' });
   if ('type' in fetched) return primaryFailure(fetched);
-  if (new URL(fetched.finalUrl).pathname !== `/s/${name}`) {
+  const final = new URL(fetched.finalUrl);
+  if (final.origin !== ORIGIN || final.pathname !== `/s/${name}`) {
     return { kind: 'failed', failure: 'status' };
   }
   return renderChannelPage(fetched.body, url);
