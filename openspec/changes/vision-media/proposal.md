@@ -3,7 +3,8 @@
 llame is text-only at every image boundary. `read` refuses a PNG (`invalid_utf8` on host and `kb://`,
 `unsupported_content_type` on the web). The composer cannot attach a screenshot, and no model declares
 that it accepts images. Screenshots, diagrams, and design exports are what a coding assistant is
-handed most often ([#935](https://github.com/leon0399/llame/issues/935)).
+handed most often ([#935](https://github.com/leon0399/llame/issues/935); web UI in
+[#1166](https://github.com/leon0399/llame/issues/1166)).
 
 ## What Changes
 
@@ -217,19 +218,27 @@ Deliberately unchanged:
 
 ## Acceptance
 
-- With a vision model selected, a pasted screenshot shows as a thumbnail, uploads, and is described by
-  the model. It survives reload, retry, and fork.
+Issue #935 (the capability, closed by `prompt-import-images`):
+
+- An owner message carrying an uploaded image reaches a vision model as a labelled image part before
+  the text, and survives reload, retry, and fork. A message with only images is accepted.
 - `read` of a PNG on the host, in Knowledge, behind an `https://` URL, and at `media://<id>` returns the
   image to a vision model on each provider wire. On Chat Completions wires the image arrives as an image
   part, not base64 text.
-- With a text-only model selected, the composer blocks attaching. The same chat's earlier images replay
-  as placeholders, and the model can name their `media://` ids.
+- A text-only model receives every earlier image as its `omitted` placeholder, and the model can name
+  their `media://` ids.
 - A prompt import of `@/path/to/shot.png` delivers the image inside the `prompt-imports` item.
-- Clicking any thumbnail opens the lightbox. Wheel and pinch zoom work, arrow keys move across every
-  image in the chat, and the toggle shows the model variant.
 - Another owner's media id is `404` on every route, `not_found` through `read`, and rejected in a
   message, enforced by RLS with a negative isolation test.
 - An SVG, an HTML file renamed `.png`, a 41-megapixel image, and a 21 MiB file are refused at upload. At
   read, the first two return text and the last two fail with `image_too_large`.
 - A Run that reads more images than the image window sends the oldest as placeholders on its next
   step, and one maximum-size screenshot is admitted on a 200k-token model without compaction.
+
+Issue [#1166](https://github.com/leon0399/llame/issues/1166) (the web UI, closed by `previews-lightbox`):
+
+- With a vision model selected, a pasted screenshot shows as a thumbnail, uploads, and is described by
+  the model.
+- With a text-only model selected, the composer blocks attaching.
+- Clicking any thumbnail opens the lightbox. Wheel and pinch zoom work, arrow keys move across every
+  image in the chat, and the toggle shows the model variant.
