@@ -17,7 +17,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   for admitted targets, 128 KiB, and 30 s bound the work, while a denied host or
   Knowledge target within the marker cap is audited without a read and does not
   count; a retry reuses the stored item, and an attempt that detaches the
-  Workspace imports nothing. See
+  Workspace imports nothing. An admitted host or Knowledge import also loads its
+  directory's instruction chain on the same turn, before the first model
+  request, with or without a bound Workspace and whatever its read outcome;
+  denied, missing, web, and skill targets and detaching attempts load none. See
   [prompt imports](docs/product/reference/prompt-imports.md).
 
 - Instruction files now expand same-store `@path`, `@[label](path)`, and

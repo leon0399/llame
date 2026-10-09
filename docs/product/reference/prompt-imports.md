@@ -140,6 +140,13 @@ Imports run after the attempt's Workspace binding re-check. An attempt that
 detaches the Workspace imports nothing and its markers stay prose; an item an
 earlier attempt stored still replays unchanged.
 
+An admitted host or Knowledge import also loads its directory's
+[instruction files](instruction-files.md#host-triggers) on the same turn, before
+the first model request, whether or not a Workspace is bound, and whatever its
+read outcome; denied, missing, web, and skill targets load none, and a detaching
+attempt loads none. Importing an instruction file itself does not load it. A
+retry stages the same load.
+
 ## Configured by
 
 - [Native files](../operator/native-files.md) enables the host executor and the

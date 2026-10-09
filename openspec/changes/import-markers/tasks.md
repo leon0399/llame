@@ -197,27 +197,27 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 6. `import-markers/prompt-import-triggers`: instruction loads from prompt imports
 
-- [ ] 6.1 Widen the accepted-turn instruction load: the Workspace root becomes optional, the
+- [x] 6.1 Widen the accepted-turn instruction load: the Workspace root becomes optional, the
       turn context gains the Knowledge world, and the root load stays conditional on a
       binding, while prompt-import triggers are gated like in-Run triggers (design D4).
       Verify that a `kb://` prompt import loads its Space chain on a process with a Knowledge
       root and no native executor, and that an unbound Chat importing an absolute host file
       loads that directory's chain.
-- [ ] 6.2 Derive prompt-import triggers from the persisted item's admitted targets and their
+- [x] 6.2 Derive prompt-import triggers from the persisted item's admitted targets and their
       resolved paths and pass them to the accepted-turn load (design D4). Verify that a
       prompt import under `apps/api` stages `apps/api/AGENTS.md` before the first model
-      request, that an admitted import whose read failed still triggers, that a non-detaching
+      request, that a prompt import of an existing directory loads that directory's own
+      chain, that an admitted import whose read failed still triggers, that a non-detaching
       retry stages the same load after the binding switched, that a detaching retry stages
-      none, that denied, missing, web, and
-      `skill://` targets stage none, and that a prompt import of an instruction file does
-      not by itself load it.
-- [ ] 6.3 Update `docs/product/reference/instruction-files.md` and
+      none, that denied, missing, web, and `skill://` targets stage none, and that a prompt
+      import of an instruction file does not by itself load it.
+- [x] 6.3 Update `docs/product/reference/instruction-files.md` and
       `docs/product/reference/prompt-imports.md` for prompt-import triggers and
       add a dated `CHANGELOG.md` entry. Run `pnpm --filter api lint`, `typecheck`, and
       `test:coverage`, the focused integration files touched above, `pnpm format:check`,
       `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR body.
-- [ ] 6.4 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 6.4 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 6.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `prompt-import-chip`.

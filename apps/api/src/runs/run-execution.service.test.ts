@@ -9532,6 +9532,63 @@ describe('RunExecutionService instruction files', () => {
     }
   });
 
+  it('admits each instruction page using its concrete path', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    const imported = path.join(root, 'apps/api/imported.md');
+    writeFileSync(imported, 'imported rules\n');
+    writeFileSync(path.join(root, 'AGENTS.md'), '@apps/api/imported.md\n');
+    const permissionPolicy = compileToolPermissionMap(
+      {
+        enter_workspace: { allow: true },
+        read: {
+          allow: [
+            { field: 'path', literal: path.join(root, 'AGENTS.md') },
+            { field: 'path', literal: imported },
+            { field: 'path', literal: path.join(root, 'apps/api/AGENTS.md') },
+            { field: 'path', literal: touch },
+          ],
+        },
+      },
+      'instruction-path-policy',
+    );
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const { client } = readThenAnswerClient(touch);
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        'host-a',
+        executionOptions(permissionPolicy),
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+      await vi.waitFor(() =>
+        expect(repositories.recordContextItems).toHaveBeenCalled(),
+      );
+      expect(
+        instructionItems(repositories)
+          .map((item) => item.text)
+          .join('\n'),
+      ).toContain('imported rules');
+
+      const requests = eventsWithOrigin(append, 'instructions').filter(
+        (record) => record.type === 'tool.requested',
+      );
+      expect(requests).toHaveLength(3);
+      for (const request of requests) {
+        expect(request.payload).toMatchObject({
+          permission: { decision: 'allow' },
+        });
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('records canonical decisions on accepted-turn import reads', async () => {
     const root = instructionsRoot();
     const imported = path.join(root, 'imported.md');
@@ -9796,13 +9853,15 @@ describe('RunExecutionService instruction files', () => {
     try {
       const repositories = mockNormalExecutionRepositories();
       const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const findPromptImports = vi
+        .spyOn(PromptImportPartsRepository.prototype, 'findForRun')
+        .mockResolvedValue(undefined);
       const { client } = readThenAnswerClient(touch);
-      const execution = makeExecutionService(
-        client,
-        undefined,
-        undefined,
-        executionOptions(),
-      );
+      const execution = makeExecutionService(client, undefined, undefined, {
+        allowed: ['read'],
+        permissionPolicy: compileTestPermissionPolicy(['read']),
+        inRunProducer: createInstructionsProducer(),
+      });
 
       const result = await execution.service.executeRun(executionInput(client));
       await expect(result.text).resolves.toBe('answer');
@@ -9815,8 +9874,61 @@ describe('RunExecutionService instruction files', () => {
       expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
       expect(instructionItems(repositories)).toEqual([]);
       expect(storedInstructionPart(repositories)).toBeUndefined();
+      expect(findPromptImports).toHaveBeenCalledTimes(1);
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('does not prepare a bound turn when the read gate is closed', async () => {
+    const root = instructionsRoot();
+    const producer = createInstructionsProducer();
+    const prepareTurn = vi.spyOn(producer, 'prepareTurn');
+    try {
+      mockNormalExecutionRepositories();
+      bindChatTo(root);
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        {
+          allowed: ['enter_workspace'],
+          permissionPolicy: compileTestPermissionPolicy(['enter_workspace']),
+          inRunProducer: producer,
+        },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      expect(prepareTurn).not.toHaveBeenCalled();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('does not prepare an unbound turn with no instruction triggers', async () => {
+    const producer = createInstructionsProducer();
+    const prepareTurn = vi.spyOn(producer, 'prepareTurn');
+    try {
+      mockNormalExecutionRepositories();
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        {
+          allowed: ['read'],
+          permissionPolicy: compileTestPermissionPolicy(['read']),
+          inRunProducer: producer,
+        },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      expect(prepareTurn).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
     }
   });
 
@@ -10677,6 +10789,279 @@ describe('RunExecutionService instruction files', () => {
       expect(items[0]?.text).toContain('local overrides');
     } finally {
       rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  type ImportOutcomes = Parameters<
+    typeof createPromptImportsItem
+  >[0]['outcomes'];
+
+  /** Serves the `prompt-imports` item an earlier pass persisted for this Run. */
+  function servePromptImports(
+    outcomes: ImportOutcomes,
+    options: { readonly payload?: 'missing' } = {},
+  ): void {
+    const item = createPromptImportsItem({ runId, outcomes, omitted: [] });
+    const payload = item.data.payload;
+    if (!isPromptImportsPayload(payload)) {
+      throw new Error('the stored item must carry a valid payload');
+    }
+    vi.spyOn(
+      PromptImportPartsRepository.prototype,
+      'findForRun',
+    ).mockResolvedValue({
+      ...item,
+      data: {
+        ...item.data,
+        payload: options.payload === 'missing' ? undefined : payload,
+      },
+    });
+  }
+
+  /**
+   * Runs one turn and returns its repositories; the Chat is unbound unless
+   * `setup` binds it.
+   */
+  async function runPlainTurn(
+    outcomes: ImportOutcomes,
+    setup?: () => void,
+    options: { readonly payload?: 'missing' } = {},
+  ) {
+    const repositories = mockNormalExecutionRepositories();
+    setup?.();
+    servePromptImports(outcomes, options);
+    serveNativeReads();
+    const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      'host-a',
+      executionOptions(),
+    );
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+    await expect(result.text).resolves.toBe('answer');
+    return { repositories, append };
+  }
+
+  it.each([
+    ['an imported target', 'imported'],
+    ['a target whose read failed', 'failed'],
+  ] as const)(
+    'stages the nested chain of %s before the first request',
+    async (_label, outcome) => {
+      const { root, touch } = nestedInstructionsRoot();
+      try {
+        const { repositories } = await runPlainTurn(
+          [
+            {
+              locator: 'apps/api/main.ts',
+              resolved: touch,
+              ...(outcome === 'imported'
+                ? { outcome, body: 'export const main = 1;' }
+                : { outcome }),
+            },
+          ],
+          () => bindChatTo(root),
+        );
+
+        // The root load alone could not stage `apps/api/AGENTS.md`.
+        const text = stagedInstructionPart(repositories)?.data.text ?? '';
+        expect(text).toContain('run the tests');
+        expect(text).toContain('api rules');
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('stages no prompt-import chain when the stored item has no payload', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    try {
+      const { repositories, append } = await runPlainTurn(
+        [
+          {
+            locator: touch,
+            resolved: touch,
+            outcome: 'imported',
+            body: 'export const main = 1;',
+          },
+        ],
+        undefined,
+        { payload: 'missing' },
+      );
+
+      expect(stagedProducers(repositories)).not.toContain('instructions');
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stages the same load on a retry after the binding switched', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    const other = instructionsRoot();
+    try {
+      const { repositories } = await runPlainTurn(
+        [
+          {
+            locator: 'apps/api/main.ts',
+            resolved: touch,
+            outcome: 'imported',
+            body: 'export const main = 1;',
+          },
+        ],
+        () => bindChatTo(other),
+      );
+
+      // The resolved path is absolute, so the new binding does not re-project
+      // it: both the new root's chain and the imported directory's load.
+      const text = stagedInstructionPart(repositories)?.data.text ?? '';
+      expect(text).toContain(path.join(other, 'AGENTS.md'));
+      expect(text).toContain('api rules');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('loads the directory chain of an absolute host import on an unbound Chat', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    try {
+      const { repositories } = await runPlainTurn([
+        {
+          locator: touch,
+          resolved: touch,
+          outcome: 'imported',
+          body: 'export const main = 1;',
+        },
+      ]);
+
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
+        'api rules',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stages no prompt-import chain on a detaching attempt', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    try {
+      const { repositories, append } = await runPlainTurn(
+        [
+          {
+            locator: 'apps/api/main.ts',
+            resolved: touch,
+            outcome: 'imported',
+            body: 'export const main = 1;',
+          },
+        ],
+        () => {
+          bindChatTo(root);
+          vi.spyOn(
+            WorkspaceBindingRepository.prototype,
+            'detach',
+          ).mockResolvedValue('detached');
+          vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+            ...chat,
+            workspaceRoot: root,
+            workspaceExecutorId: 'gone-host',
+            workspaceGeneration: 2,
+          });
+        },
+      );
+
+      expect(stagedProducers(repositories)).not.toContain('instructions');
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stages nothing for denied, web, and skill targets', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    try {
+      const { repositories, append } = await runPlainTurn([
+        { locator: touch, outcome: 'denied' },
+        {
+          locator: 'https://example.test/page',
+          outcome: 'imported',
+          body: 'web body',
+        },
+        {
+          locator: 'skill://pdf/SKILL.md',
+          outcome: 'imported',
+          body: 'skill body',
+        },
+      ]);
+
+      expect(stagedProducers(repositories)).not.toContain('instructions');
+      expect(eventsWithOrigin(append, 'instructions')).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not load an instruction file merely because a prompt imported it', async () => {
+    const root = instructionsRoot();
+    try {
+      const file = path.join(root, 'AGENTS.md');
+      const { repositories } = await runPlainTurn([
+        {
+          locator: file,
+          resolved: file,
+          outcome: 'imported',
+          body: 'run the tests',
+        },
+      ]);
+
+      expect(stagedProducers(repositories)).not.toContain('instructions');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('loads the Space chain of a kb:// prompt import with no native executor', async () => {
+    const spaceId = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+    const space = knowledgeRootWith(spaceId);
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      servePromptImports([
+        {
+          locator: `kb://${spaceId}/main.ts`,
+          resolved: `kb://${spaceId}/main.ts`,
+          outcome: 'imported',
+          body: 'export const main = 1;',
+        },
+      ]);
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        undefined,
+        {
+          allowed: ['enter_workspace', 'read'],
+          knowledgeRoot: space.knowledgeRoot,
+          knowledgeResolver: space.resolver,
+          inRunProducer: createInstructionsProducer(),
+        },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(stagedInstructionPart(repositories)?.data.text).toContain(
+        'space rules',
+      );
+      expect(
+        JSON.stringify(eventsWithOrigin(append, 'instructions')),
+      ).toContain(`kb://${spaceId}/AGENTS.md`);
+    } finally {
+      space.remove();
     }
   });
 });

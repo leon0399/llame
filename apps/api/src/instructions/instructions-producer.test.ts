@@ -948,6 +948,17 @@ describe('instructions producer triggers', () => {
       join(root, 'apps/web/AGENTS.md'),
     ]);
   });
+  it('lets a non-reading touch reopen a candidate excluded by a read', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    await write(candidate, 'root rules\n');
+    const { producer, staged, prepare } = attemptOf();
+
+    producer.observeToolCall?.(readCall(candidate));
+    producer.observeToolCall?.(readCall(join(root, 'new.ts'), 'write'));
+    await prepare();
+
+    expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([candidate]);
+  });
 
   it('marks nothing for exit_workspace, or for another tool reporting a binding', async () => {
     await write(join(root, 'AGENTS.md'), 'root rules\n');
@@ -972,6 +983,34 @@ describe('instructions producer triggers', () => {
       // as one.
       expect(staged).toEqual([]);
     }
+  });
+  it('keeps a candidate excluded when two native reads disclose different files', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    const other = join(root, 'other.md');
+    await write(candidate, 'root rules\n');
+    await write(other, 'other content\n');
+    const { producer, staged, prepare } = attemptOf();
+
+    producer.observeToolCall?.(readCall(candidate));
+    producer.observeToolCall?.(readCall(other));
+    await prepare();
+
+    expect(staged).toEqual([]);
+  });
+
+  it('keeps a natively read candidate excluded when another read walks through its directory', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    const nested = join(root, 'sub/x.md');
+    await write(candidate, 'root rules\n');
+    await mkdir(join(root, 'sub'), { recursive: true });
+    await write(nested, 'nested content\n');
+    const { producer, staged, prepare } = attemptOf();
+
+    producer.observeToolCall?.(readCall(candidate));
+    producer.observeToolCall?.(readCall(nested));
+    await prepare();
+
+    expect(staged).toEqual([]);
   });
 
   it('stays silent for a symlink whose target an earlier trigger loaded', async () => {
@@ -1803,5 +1842,229 @@ describe('instructions producer accepted turn', () => {
     });
 
     expect(part).toBeUndefined();
+  });
+});
+
+describe('instructions producer accepted-turn prompt-import triggers', () => {
+  function turn(input: {
+    readonly workspaceRoot?: string;
+    readonly hostPage?: ReadPage;
+    readonly space?: {
+      readonly readPage: ReadPage;
+      readonly knowledge: KnowledgeInstructionProbe;
+    };
+    readonly triggers: ReadonlyArray<{
+      readonly key: string;
+      readonly space?: { readonly id: string };
+    }>;
+  }) {
+    const { workspaceRoot, hostPage, space } = input;
+    return createInstructionsProducer().prepareTurn?.({
+      runId: RUN_ID,
+      admitsRead: () => true,
+      seenKeys: new Set(),
+      promptImportTriggers: input.triggers,
+      ...(workspaceRoot !== undefined && { workspaceRoot }),
+      ...(hostPage !== undefined && { readPage: hostPage }),
+      ...(space !== undefined && {
+        knowledge: { readPage: space.readPage, probe: space.knowledge },
+      }),
+    });
+  }
+
+  it('loads a host import directory chain on an unbound turn', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+    await write(join(root, 'apps/api/doc.md'), 'doc\n');
+    await write(join(root, 'apps/web/AGENTS.md'), 'web rules\n');
+
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'apps/api/doc.md') }],
+    });
+    if (part === undefined) throw new Error('the unbound turn loaded nothing');
+
+    expect(withinRoot(blockPaths(part))).toEqual([
+      join(root, 'AGENTS.md'),
+      join(root, 'apps/api/AGENTS.md'),
+    ]);
+  });
+  it('loads an existing prompt-import directory and its ancestor chain', async () => {
+    await write(join(root, 'apps/AGENTS.md'), 'apps rules\n');
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'apps/api') }],
+    });
+    if (part === undefined)
+      throw new Error('the directory trigger loaded nothing');
+
+    expect(withinRoot(blockPaths(part))).toEqual([
+      join(root, 'apps/AGENTS.md'),
+      join(root, 'apps/api/AGENTS.md'),
+    ]);
+  });
+
+  it('loads a Space chain on an unbound turn with only a Knowledge world', async () => {
+    await write(join(root, 'AGENTS.md'), 'host rules\n');
+    const space = spaceOf({
+      'CLAUDE.md': 'space rules\n',
+      'notes/AGENTS.md': 'note rules\n',
+      'notes/doc.md': 'doc\n',
+    });
+
+    const part = await turn({
+      space,
+      triggers: [
+        { key: 'notes/doc.md', space: { id: SPACE } },
+        { key: join(root, 'AGENTS.md') },
+      ],
+    });
+    if (part === undefined) throw new Error('the unbound turn loaded nothing');
+
+    expect(blockPaths(part)).toEqual([
+      `kb://${SPACE}/CLAUDE.md`,
+      `kb://${SPACE}/notes/AGENTS.md`,
+    ]);
+  });
+
+  it('ignores a host trigger without a page reader and a Space trigger without Knowledge', async () => {
+    await write(join(root, 'AGENTS.md'), 'host rules\n');
+    const hostTrigger = { key: join(root, 'doc.md') };
+    const spaceTrigger = { key: 'doc.md', space: { id: SPACE } };
+
+    expect(
+      await turn({ triggers: [hostTrigger, spaceTrigger] }),
+    ).toBeUndefined();
+    expect(
+      await turn({
+        hostPage: pageReader().readPage,
+        triggers: [spaceTrigger],
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not load an instruction file its own import names', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'AGENTS.md') }],
+    });
+
+    expect(part).toBeUndefined();
+  });
+
+  it('loads a candidate selected by another same-directory import', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    await write(candidate, 'root rules\n');
+    await write(join(root, 'other.md'), 'other\n');
+
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: candidate }, { key: join(root, 'other.md') }],
+    });
+    if (part === undefined) throw new Error('the imports loaded nothing');
+
+    expect(blockPaths(part)).toEqual([candidate]);
+  });
+  it('keeps a nested prompt-import candidate excluded from an unrelated root touch', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    const nested = join(root, 'apps/api');
+    await write(join(nested, 'AGENTS.md'), 'api rules\n');
+
+    const part = await turn({
+      workspaceRoot: root,
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(nested, 'AGENTS.md') }],
+    });
+    if (part === undefined) throw new Error('the root touch loaded nothing');
+
+    expect(withinRoot(blockPaths(part))).toEqual([join(root, 'AGENTS.md')]);
+  });
+
+  it('keeps the sole prompt-import read excluded from its candidate directory', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    await write(candidate, 'root rules\n');
+
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: candidate }],
+    });
+
+    expect(part).toBeUndefined();
+  });
+  it('keeps same-canonical prompt imports from disclosing their candidate', async () => {
+    const candidate = join(root, 'AGENTS.md');
+    await write(candidate, 'root rules\n');
+    const first = join(root, 'first.md');
+    const second = join(root, 'second.md');
+    await symlink(candidate, first);
+    await symlink(candidate, second);
+
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [{ key: first }, { key: second }],
+    });
+
+    expect(part).toBeUndefined();
+  });
+
+  it('still loads the imported instruction file from the same turn root load', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    const part = await turn({
+      workspaceRoot: root,
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'AGENTS.md') }],
+    });
+    if (part === undefined) throw new Error('the bound turn loaded nothing');
+
+    expect(blockPaths(part)).toEqual([join(root, 'AGENTS.md')]);
+  });
+
+  it('loads the imported instruction file for a root below its directory', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await mkdir(join(root, 'apps/api'), { recursive: true });
+    const part = await turn({
+      workspaceRoot: join(root, 'apps/api'),
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'AGENTS.md') }],
+    });
+    if (part === undefined) throw new Error('the bound turn loaded nothing');
+
+    expect(blockPaths(part)).toEqual([join(root, 'AGENTS.md')]);
+  });
+
+  it('loads the imported instruction file for another import below its directory', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await write(join(root, 'apps/api/doc.md'), 'doc\n');
+    const part = await turn({
+      hostPage: pageReader().readPage,
+      triggers: [
+        { key: join(root, 'AGENTS.md') },
+        { key: join(root, 'apps/api/doc.md') },
+      ],
+    });
+    if (part === undefined) throw new Error('the unbound turn loaded nothing');
+
+    expect(withinRoot(blockPaths(part))).toEqual([join(root, 'AGENTS.md')]);
+  });
+
+  it('loads the root chain and a nested import chain once each, in order', async () => {
+    await write(join(root, 'AGENTS.md'), 'root rules\n');
+    await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
+    await write(join(root, 'apps/api/doc.md'), 'doc\n');
+
+    const part = await turn({
+      workspaceRoot: root,
+      hostPage: pageReader().readPage,
+      triggers: [{ key: join(root, 'apps/api/doc.md') }],
+    });
+    if (part === undefined) throw new Error('the bound turn loaded nothing');
+
+    expect(withinRoot(blockPaths(part))).toEqual([
+      join(root, 'AGENTS.md'),
+      join(root, 'apps/api/AGENTS.md'),
+    ]);
   });
 });

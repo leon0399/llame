@@ -52,12 +52,25 @@ selector or representation suffix (`:40-80`, `:outline`) does not change the
 trigger directory, while a `file://` alias triggers as the path it decodes to.
 Each accepted turn on a Chat with a live binding re-stages the bound root's chain
 before the first model request when any file of it is not already in effective
-context; a Chat without a binding stages nothing. `bash`, `skill://`, `http://`,
+context; a Chat without a binding stages no root load. `bash`, `skill://`, `http://`,
 and `https://` never trigger a load, and a model read of a candidate file itself
 neither loads nor marks that file.
 
 Loading requires `read` to be allowlisted and a configured native executor for
 host triggers, and does not require `enter_workspace`.
+
+An admitted host or Knowledge [prompt import](prompt-imports.md) triggers the
+same way, as a native `read` of its path, on the accepted turn and before the
+first model request. It does so whether or not a Workspace is bound: a host
+import needs the native executor and a `kb://` import needs the Knowledge root,
+and both need `read` allowlisted. The import's read outcome does not matter, so
+a failed read still loads its directory's chain. A denied, missing, web, or
+`skill://` target loads nothing, and importing an instruction file itself
+neither loads nor marks it. Another prompt import in the same directory, or
+one whose chain walks through it, still selects that file even when no Workspace
+is bound; a bound-root load can also select it. An attempt that detaches the
+Workspace stages no import load, and a retry stages the same load again from the
+stored item.
 
 ## Knowledge Space triggers
 
@@ -76,9 +89,11 @@ pages exactly as it is for the model's own read of that Space.
 the same step, they resolve into one item with the host files first, each group
 broadest directory first. A Space that is missing, belongs to another owner, or
 is unavailable loads nothing and reveals nothing, and a locator whose own path
-the Knowledge resolver refuses names no candidate either. There is no
-accepted-turn load for Spaces: a Chat has no Space binding, and a Space chain
-returns on the next `kb://` touch after a compaction.
+the Knowledge resolver refuses names no candidate either. A model `kb://` touch
+has no accepted-turn load, since a Chat has no Space binding; its Space chain
+returns on the next `kb://` touch after a compaction. An admitted `kb://` prompt
+import does load its Space chain on its accepted turn (see
+[Host triggers](#host-triggers)).
 
 Loading a Space chain needs `read` to be allowlisted and a configured Knowledge
 root; it binds no executor identity.
@@ -95,9 +110,10 @@ re-announced; denied, failed, and empty candidates are not seen. All triggers
 pending at one model step, or one accepted turn, resolve together into at most one
 item.
 
-After a compaction absorbs loaded items, only the bound root's chain is restaged
-on the next accepted turn; a nested chain returns on the next `read`, `edit`, or
-`write` in its directory.
+After a compaction absorbs loaded items, the next accepted turn restages the
+bound root's chain and the chains of the turn's admitted prompt imports; any
+other nested chain returns on the next `read`, `edit`, or `write` in its
+directory.
 
 ## Page reads and bounds
 
