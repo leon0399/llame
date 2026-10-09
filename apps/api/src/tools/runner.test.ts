@@ -726,6 +726,137 @@ describe('runTool permission gate', () => {
     inputSchema: z.strictObject({ path: z.string() }),
     execute: (_ctx, { path }) => ({ status: 'success', path }),
   };
+  describe('canonical read permission', () => {
+    async function runCanonicalRead(
+      input: {
+        readonly path?: string;
+        readonly canonicalPath?: string;
+        readonly permissionMap?: ToolPermissionMap;
+        readonly permissionMode?: ToolContext['permissionMode'];
+      } = {},
+    ) {
+      const execute = vi.fn(
+        (_context: ToolContext, { path }: { path: string }) => ({
+          status: 'success' as const,
+          path,
+        }),
+      );
+      const decisions: Array<unknown> = [];
+      const onDerivedDecision: NonNullable<ToolContext['onDerivedDecision']> = (
+        decision,
+      ) => decisions.push(decision);
+      const context = {
+        ...contextWith(input.permissionMap ?? { read: { allow: true } }),
+        onDerivedDecision,
+      };
+      if (input.canonicalPath !== undefined) {
+        context.canonicalReadPath = input.canonicalPath;
+      }
+      if (input.permissionMode !== undefined) {
+        context.permissionMode = input.permissionMode;
+      }
+      const result = await runTool(
+        { ...pathTool, execute },
+        { path: input.path ?? '/tmp/submitted.md:raw:1-2' },
+        context,
+        5,
+      );
+      return { result, execute, decisions };
+    }
+
+    it('rejects an allowed submitted path when the canonical path is rejected', async () => {
+      const canonicalPath = '/tmp/canonical.md';
+      const { result, execute, decisions } = await runCanonicalRead({
+        canonicalPath,
+        permissionMap: {
+          read: {
+            allow: true,
+            reject: [{ field: 'path', literal: canonicalPath }],
+          },
+        },
+      });
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'permission_denied',
+      });
+      expect(execute).not.toHaveBeenCalled();
+      expect(decisions).toHaveLength(1);
+      expect(decisions[0]).toMatchObject({
+        kind: 'canonical',
+        url: canonicalPath,
+        decision: { decision: 'reject', reason: 'explicit_reject' },
+      });
+    });
+
+    it('reports a canonical allow and proceeds', async () => {
+      const canonicalPath = '/tmp/canonical.md';
+      const { result, execute, decisions } = await runCanonicalRead({
+        canonicalPath,
+      });
+
+      expect(result).toMatchObject({ status: 'success' });
+      expect(execute).toHaveBeenCalledOnce();
+      expect(decisions).toHaveLength(1);
+      expect(decisions[0]).toMatchObject({
+        kind: 'canonical',
+        url: canonicalPath,
+        decision: { decision: 'allow', reason: 'matched_allow' },
+      });
+    });
+
+    it('does not report an equal canonical path', async () => {
+      const canonicalPath = '/tmp/canonical.md';
+      const { result, execute, decisions } = await runCanonicalRead({
+        path: `${canonicalPath}:raw:1-2`,
+        canonicalPath,
+      });
+
+      expect(result).toMatchObject({ status: 'success' });
+      expect(execute).toHaveBeenCalledOnce();
+      expect(decisions).toEqual([]);
+    });
+
+    it('reports a bypassed canonical path and proceeds', async () => {
+      const canonicalPath = '/tmp/canonical.md';
+      const { result, execute, decisions } = await runCanonicalRead({
+        canonicalPath,
+        permissionMap: {
+          read: {
+            allow: true,
+            reject: true,
+          },
+        },
+        permissionMode: 'bypass',
+      });
+
+      expect(result).toMatchObject({ status: 'success' });
+      expect(execute).toHaveBeenCalledOnce();
+      expect(decisions).toEqual([
+        {
+          kind: 'canonical',
+          url: canonicalPath,
+          decision: {
+            policyId: 'test-policy',
+            decision: 'allow',
+            reason: 'permission_mode_bypass',
+            reference: null,
+          },
+        },
+      ]);
+    });
+
+    it('keeps behavior unchanged without a canonical path', async () => {
+      const { result, execute, decisions } = await runCanonicalRead({
+        path: '/tmp/submitted.md',
+      });
+
+      expect(result).toMatchObject({ status: 'success' });
+      expect(execute).toHaveBeenCalledOnce();
+      expect(decisions).toEqual([]);
+    });
+  });
+
   describe('previewToolPermission', () => {
     it.each([
       {

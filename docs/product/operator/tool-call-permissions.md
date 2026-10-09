@@ -109,8 +109,10 @@ while the parsed/requested web projection drops it. A clause therefore names
 the resource, not the window into it, so `^/srv/docs/guide\.md$` admits
 `/srv/docs/guide.md:10-20`, and a clause written against the selector spelling
 such as `:raw` matches no split-off read selector; it can still match ordinary
-URL text such as `#x:raw` or `?x=:raw`, which is not a selector. Three
-consequences are worth knowing:
+URL text such as `#x:raw` or `?x=:raw`, which is not a selector. An
+instruction import whose canonical path differs is also evaluated against
+`read` on its first page, and a reject denies the import. Three consequences
+are worth knowing:
 
 - Admission is text-only, so an exact allow for `/srv/docs/README` also admits
   a read of a literal file named `README:raw` when one exists.
@@ -133,6 +135,13 @@ the read selector grammar, such as `/home/u/.ssh:old`, keeps its suffix in a
 `read`'s matched text, so F1 still catches it. F4 keeps catching a credential
 file a read selects into, because the selector is gone before the clause sees
 the text: `read /srv/.env:raw` is matched as `/srv/.env`.
+
+## Bypass
+
+An effective `bypass` mode also admits an instruction import's canonical-path
+`read` evaluation when it differs from the resolved path. The first page read
+records the resulting derived `canonical` decision. See [permission
+modes](../reference/permission-modes.md) for the mode's full scope.
 
 ## Limits
 

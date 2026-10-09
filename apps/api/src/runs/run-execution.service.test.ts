@@ -9511,6 +9511,52 @@ describe('RunExecutionService instruction files', () => {
     }
   });
 
+  it('records canonical decisions on accepted-turn import reads', async () => {
+    const root = instructionsRoot();
+    const imported = path.join(root, 'imported.md');
+    const canonical = path.join(root, 'canonical.md');
+    writeFileSync(canonical, 'imported rules\n');
+    rmSync(path.join(root, 'AGENTS.md'));
+    symlinkSync(canonical, imported);
+    writeFileSync(
+      path.join(root, 'AGENTS.md'),
+      'run the tests\n@imported.md\n',
+    );
+    const touch = touchFile(root);
+    try {
+      mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const { client } = readThenAnswerClient(touch);
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        'host-a',
+        executionOptions(),
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+
+      const completions = eventsWithOrigin(append, 'instructions').filter(
+        (record) => record.type === 'tool.completed',
+      );
+      expect(completions).toHaveLength(2);
+      expect(completions[1]?.payload).toMatchObject({
+        derivedDecisions: [
+          {
+            kind: 'canonical',
+            decision: 'allow',
+            reason: 'matched_allow',
+          },
+        ],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('publishes no instructions item when the model call fails after the load', async () => {
     const root = instructionsRoot();
     try {
@@ -9605,6 +9651,78 @@ describe('RunExecutionService instruction files', () => {
         isRecord(part) && part['type'] === 'tool-read' ? [part] : [],
       );
       expect(toolReads).toHaveLength(1);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('records rejected canonical decisions on in-Run import reads', async () => {
+    const { root, touch } = nestedInstructionsRoot();
+    const nested = path.join(root, 'apps/api');
+    const imported = path.join(nested, 'imported.md');
+    const canonical = path.join(nested, 'canonical.md');
+    writeFileSync(canonical, 'imported rules\n');
+    symlinkSync(canonical, imported);
+    writeFileSync(path.join(nested, 'AGENTS.md'), 'api rules\n@imported.md\n');
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      bindChatTo(root);
+      serveNativeReads();
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const { client } = readThenAnswerClient(touch);
+      const permissionPolicy = compileToolPermissionMap(
+        {
+          enter_workspace: { allow: true },
+          read: {
+            allow: true,
+            reject: [{ field: 'path', literal: canonical }],
+          },
+        },
+        'test-policy',
+      );
+      const execution = makeExecutionService(
+        client,
+        undefined,
+        'host-a',
+        executionOptions(permissionPolicy),
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('answer');
+
+      const reads = eventsWithOrigin(append, 'instructions');
+      const importedRequest = reads.find(
+        (record) =>
+          record.type === 'tool.requested' &&
+          JSON.stringify(record.payload).includes(`${imported}:raw:1-2000`),
+      );
+      expect(importedRequest?.payload).toMatchObject({
+        permission: { decision: 'reject', reason: 'explicit_reject' },
+      });
+      const importedCallId = callIdOf(importedRequest?.payload);
+      expect(eventsForCall(append, importedCallId)).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+      const importedCompletion = reads.find(
+        (record) =>
+          record.type === 'tool.completed' &&
+          callIdOf(record.payload) === importedCallId,
+      );
+      expect(importedCompletion?.payload).toMatchObject({
+        derivedDecisions: [
+          {
+            kind: 'canonical',
+            decision: 'reject',
+            reason: 'explicit_reject',
+          },
+        ],
+      });
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+      expect(storedInstructionPart(repositories)?.data.payload).toMatchObject({
+        denied: [imported],
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -108,7 +108,27 @@ function candidateDirectory(
     : parentKey(parsed.relativePath, group.scope.root);
 }
 
+/**
+ * A disclosed file is excluded only when the import's lexical parent or its
+ * canonical file's parent is the directory named by the read. A disclosure
+ * filed under a symlinked directory the import does not traverse (for example,
+ * a read through a link followed by an import through the real path or another
+ * link) is not matched, so the file may load as a separate block.
+ */
 function disclosedForImport(
+  state: InstructionImportState,
+  path: string,
+  canonicalPath: string,
+): ReadonlySet<string> {
+  const lexical = disclosedIn(state, path);
+  if (canonicalPath === path) return lexical;
+  const canonical = disclosedIn(state, canonicalPath);
+  if (lexical.size === 0) return canonical;
+  if (canonical.size === 0) return lexical;
+  return new Set([...lexical, ...canonical]);
+}
+
+function disclosedIn(
   state: InstructionImportState,
   path: string,
 ): ReadonlySet<string> {
@@ -118,19 +138,40 @@ function disclosedForImport(
     : (state.disclosed.get(directory) ?? EMPTY_DISCLOSED);
 }
 
+function createLoadedInstructionFile(
+  candidate: InstructionCandidate,
+  read: Pick<LoadedInstructionFile, 'content' | 'truncated' | 'omittedBytes'>,
+  knowledge: boolean,
+  importedBy?: string,
+): LoadedInstructionFile {
+  const file = {
+    path: candidate.path,
+    canonicalPath: candidate.canonicalPath,
+    content: read.content,
+    truncated: read.truncated,
+    omittedBytes: read.omittedBytes,
+    knowledge,
+  };
+  return importedBy === undefined ? file : { ...file, importedBy };
+}
+
 /** Reads one candidate into the collector, unless it is disclosed or seen. */
 export async function collectInstructionCandidate(
   state: InstructionImportState,
   candidate: InstructionCandidate,
   disclosed: ReadonlySet<string>,
-  origin: { hop: number; importedBy?: string },
+  origin: { hop: number; importedBy?: string; canonicalPath?: string },
 ): Promise<void> {
   const { collector, group } = state;
   if (collector.keys.has(candidate.canonicalPath)) return;
   if (disclosed.has(candidate.canonicalPath)) return;
   if (collector.attempted.has(candidate.path)) return;
   collector.attempted.add(candidate.path);
-  const read = await readInstructionFile(candidate, group.page);
+  const read = await readInstructionFile(
+    candidate,
+    group.page,
+    origin.canonicalPath,
+  );
   if (read.kind === 'denied') {
     collector.denied.push(candidate.path);
     return;
@@ -138,18 +179,13 @@ export async function collectInstructionCandidate(
   if (read.kind === 'failed') return;
   if (read.content.length === 0) return;
   collector.keys.add(candidate.canonicalPath);
-  const file = {
-    path: candidate.path,
-    canonicalPath: candidate.canonicalPath,
-    content: read.content,
-    truncated: read.truncated,
-    omittedBytes: read.omittedBytes,
-    knowledge: group.knowledge,
-  };
   collector.files.push(
-    origin.importedBy === undefined
-      ? file
-      : { ...file, importedBy: origin.importedBy },
+    createLoadedInstructionFile(
+      candidate,
+      read,
+      group.knowledge,
+      origin.importedBy,
+    ),
   );
   if (origin.importedBy !== undefined) {
     const directory = candidateDirectory(group, candidate.path);
@@ -178,23 +214,22 @@ async function loadResolvedImport(
     collector.attempted.add(resolved.path);
     return;
   }
-  if (
-    probe.canonicalPath !== resolved.path &&
-    !collector.keys.has(probe.canonicalPath)
-  ) {
-    collector.attempted.add(resolved.path);
-    collector.denied.push(resolved.path);
-    return;
-  }
+  const canonicalPath =
+    probe.canonicalPath !== resolved.path ? probe.canonicalPath : undefined;
   const candidate: InstructionCandidate = {
     path: resolved.path,
     canonicalPath: probe.canonicalPath,
     size: probe.size,
   };
-  const disclosed = disclosedForImport(state, resolved.path);
+  const disclosed = disclosedForImport(
+    state,
+    resolved.path,
+    probe.canonicalPath,
+  );
   await collectInstructionCandidate(state, candidate, disclosed, {
     hop: hop + 1,
     importedBy: importer,
+    canonicalPath,
   });
   collector.attempted.add(resolved.path);
 }

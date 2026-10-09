@@ -22,8 +22,9 @@ list omits `bypass` executes that attempt in `default` under its startup policy.
 For an attempt whose effective mode is `bypass`, every permission evaluation is
 admitted without evaluating the policy: the per-call gate, web-read derived
 locators and resolved addresses, both submitted and canonical `enter_workspace`
-paths, and the per-attempt Workspace re-check. This includes paths and addresses
-that the configured rejects would otherwise refuse.
+paths, the per-attempt Workspace re-check, and an instruction import's canonical
+path evaluation when it differs from its resolved path. This includes paths and
+addresses that the configured rejects would otherwise refuse.
 
 ## Unchanged by bypass
 
@@ -39,10 +40,10 @@ still apply.
 
 Each bypass admission still writes an owner-private allow decision with reason
 `permission_mode_bypass`, the executing process's policy-instance id, and no
-clause reference. This covers the call, web-read derived-locator, and canonical
-Workspace records; bypassed address checks do not create address records because
-those are recorded only for refused addresses. The decision metadata is not
-model-visible.
+clause reference. This covers the call, web-read derived-locator, canonical
+Workspace, and instruction-import canonical-path records; bypassed address checks
+do not create address records because those are recorded only for refused
+addresses. The decision metadata is not model-visible.
 
 ## Configured by
 

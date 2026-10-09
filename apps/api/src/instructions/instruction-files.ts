@@ -195,7 +195,10 @@ export async function selectCandidates(
   return candidates;
 }
 
-export type ReadPage = (selectorPath: string) => Promise<ToolResult>;
+export type ReadPage = (
+  selectorPath: string,
+  canonicalPath?: string,
+) => Promise<ToolResult>;
 
 export type InstructionFileRead =
   | {
@@ -238,13 +241,15 @@ function loaded(
 export async function readInstructionFile(
   candidate: InstructionCandidate,
   readPage: ReadPage,
+  canonicalPath?: string,
 ): Promise<InstructionFileRead> {
   let content = '';
   let lines = 0;
   for (;;) {
-    const from = lines + 1;
+    const selectorPath = `${candidate.path}:raw:${lines + 1}-${lines + MAX_READ_LINES}`;
     const result = await readPage(
-      `${candidate.path}:raw:${from}-${from + MAX_READ_LINES - 1}`,
+      selectorPath,
+      lines === 0 ? canonicalPath : undefined,
     );
     if (result.status === 'error') {
       if (result.type === 'permission_denied') return { kind: 'denied' };
@@ -270,9 +275,8 @@ export async function readInstructionFile(
         ),
       };
     }
-    if (!isNumber(result.nextOffset)) break;
     const added = result.content.split('\n').length - 1;
-    if (added === 0) break;
+    if (!isNumber(result.nextOffset) || added === 0) break;
     lines += added;
   }
   return loaded(candidate, content);

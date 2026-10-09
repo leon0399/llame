@@ -133,10 +133,13 @@ interpreted: an import names a whole file.
 Each resolved target is silently pre-evaluated against the `read` group before
 probing. An admitted existing regular target is read as a separate system-origin
 `read` with origin `instructions`; a missing or non-regular target stays literal
-without an audit. A denied target takes the audited `read` path without a probe and
-is reported as denied/not imported whether or not it exists. A denied or failed
-import is not added to the seen set. A symlinked host import whose canonical path
-differs from its resolved path is currently skipped as denied.
+without an audit. A denied target takes the audited `read` path without a probe
+and is reported as denied/not imported whether or not it exists. A denied or
+failed import is not added to the seen set. When an import's canonical path
+differs from its resolved path (for example, a symlink), its first page read
+also evaluates that canonical path against `read` and records a derived
+`canonical` decision; a reject denies the import, while `bypass` admits and
+records it.
 
 An imported file is a separate block immediately after its importer, marked
 `imported-by="…"` and inheriting the importer's scope and precedence. Its directory

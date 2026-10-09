@@ -106,7 +106,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 3. `import-markers/import-admission`: canonical-path admission of instruction imports
 
-- [ ] 3.1 Add an `admitCanonical` capability to the in-Run attempt and accepted-turn contexts
+- [x] 3.1 Add an `admitCanonical` capability to the in-Run attempt and accepted-turn contexts
       that evaluates the `read` group against an import's canonical path and records the
       result as a derived `canonical` decision on the import's first page call, replacing the
       fail-closed skip from 2.1; add a per-call derived-decision sink and a `derivedDecisions`
@@ -115,7 +115,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       (requested and completed, no started, chip marks it denied), that `bypass` admits and
       records both decisions, that an import whose canonical path equals its resolved path
       gets no extra decision, and that chain candidates keep their single evaluation.
-- [ ] 3.2 Update `docs/product/reference/instruction-files.md`,
+- [x] 3.2 Update `docs/product/reference/instruction-files.md`,
       `docs/product/operator/native-files.md`, `docs/product/reference/permission-modes.md`
       (bypass admits and records the new evaluation), and the bypass section of
       `docs/product/operator/tool-call-permissions.md` for the canonical rule and add a dated
@@ -123,7 +123,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       the focused integration files touched above, `pnpm format:check`, `pnpm lint:markdown`,
       `git diff --check`, and `pnpm exec openspec validate import-markers --strict`; record
       the commands in the PR body.
-- [ ] 3.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 3.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 3.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `skill-imports`.
