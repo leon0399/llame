@@ -1,4 +1,4 @@
-Track [#1029](https://github.com/leon0399/llame/issues/1029) (instruction and skill imports) and [#1142](https://github.com/leon0399/llame/issues/1142) (prompt imports) through the delivery Project under [CONTRIBUTING.md](../../../CONTRIBUTING.md). Local drafting or commits do not change Project status. Follow-ups [#1143](https://github.com/leon0399/llame/issues/1143) (paste confirmation) and [#1144](https://github.com/leon0399/llame/issues/1144) (aggregate cap) are separate work, not native blockers.
+Track [#1029](https://github.com/leon0399/llame/issues/1029) (instruction and skill imports) and [#1142](https://github.com/leon0399/llame/issues/1142) (prompt imports) through the delivery Project under [CONTRIBUTING.md](../../../../CONTRIBUTING.md). Local drafting or commits do not change Project status. Follow-ups [#1143](https://github.com/leon0399/llame/issues/1143) (paste confirmation) and [#1144](https://github.com/leon0399/llame/issues/1144) (aggregate cap) are separate work, not native blockers.
 
 Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation. Create the next layer only after the approved proposal revision is carried forward and the previous layer passed its gates. Publication and merge each require separate permission.
 
@@ -56,7 +56,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR body.
 - [x] 1.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 1.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 1.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `instruction-imports`.
 - [x] 1.5 Implement the delimited bare markers of the `import-markers` requirement "Delimited bare markers carry the whole locator" in the parser with unit tests for every new
       scenario plus pathological unterminated quotes at 64 KiB in linear time.
@@ -101,7 +101,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR body.
 - [x] 2.5 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 2.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 2.6 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `import-admission`.
 
 ## 3. `import-markers/import-admission`: canonical-path admission of instruction imports
@@ -125,7 +125,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       the commands in the PR body.
 - [x] 3.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 3.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 3.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `skill-imports`.
 
 ## 4. `import-markers/skill-imports`: imports in activated skills
@@ -146,7 +146,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       body, which uses `Closes #1029`.
 - [x] 4.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 4.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 4.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `prompt-imports`.
 
 ## 5. `import-markers/prompt-imports`: imports in the owner prompt
@@ -192,7 +192,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       body.
 - [x] 5.6 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 5.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 5.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `prompt-import-triggers`.
 
 ## 6. `import-markers/prompt-import-triggers`: instruction loads from prompt imports
@@ -219,7 +219,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR body.
 - [x] 6.4 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 6.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 6.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `prompt-import-chip`.
 
 ## 7. `import-markers/prompt-import-chip`: owner disclosure
@@ -240,7 +240,7 @@ Re-estimate authored size at each layer boundary and before publication; split a
       body, which uses `Closes #1142`.
 - [x] 7.4 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
-- [ ] 7.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
+- [x] 7.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `finalize`.
 - [x] 7.6 Document the delimited forms in docs/product/reference/prompt-imports.md,
       docs/product/reference/instruction-files.md, docs/product/reference/locators/skill.md,
@@ -249,12 +249,12 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 8. `import-markers/finalize`: spec sync and archive
 
-- [ ] 8.1 After every implementation layer is published, verified, and checked, create only the
+- [x] 8.1 After every implementation layer is published, verified, and checked, create only the
       finalize layer with `$gh-stack`, then run `$openspec-sync-specs`. Verify
       `pnpm exec openspec validate --specs --strict` and
       `pnpm exec openspec validate --all --strict`; this layer contains no application fix and
       no shipping record.
-- [ ] 8.2 Inspect `pnpm exec openspec status --change import-markers --json` and this task
+- [x] 8.2 Inspect `pnpm exec openspec status --change import-markers --json` and this task
       list; stop if an artifact or earlier task is incomplete. Complete this task as part of
       `$openspec-archive-change`, preserving checked history, and verify strict specs/all
       validation, Markdown lint, formatting, and `git diff --check` on the archived result.
