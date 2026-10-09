@@ -117,7 +117,7 @@ export class CanonicalSearchCoverageService {
       )),
     ];
     for (const row of stale) {
-      await this.reindexDispatch.enqueueChatReindex(
+      await this.reindexDispatch.enqueueChatReindexStrict(
         row.chat_id,
         row.owner_user_id,
       );

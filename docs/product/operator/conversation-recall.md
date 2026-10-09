@@ -31,12 +31,13 @@ consumption, it requires complete current locator coverage, as reported by
 `pnpm --filter api search:projection-coverage`. When coverage is incomplete,
 such as after a process stop interrupted a Run, the check enqueues up to 500
 stale Chats on the reindex queue and waits up to 2 minutes for reindex workers
-to complete coverage, then fails startup. A process whose worker profile omits
+to complete coverage. Startup fails if an enqueue fails or coverage is still
+incomplete at that deadline. A process whose worker profile omits
 `search-reindex` therefore needs a reindex worker running elsewhere. Workers
 gate even when their local allowlist omits search because accepted Runs carry
 immutable declarations. Processes that neither accept nor consume Runs skip the
-gate. Incomplete coverage exposes counts only; provisioning and query failures
-report the operational error.
+gate. Incomplete coverage exposes counts only; provisioning, query, and enqueue
+failures report the operational error.
 
 The behavior of each tool is documented in
 [search_conversations](../reference/tools/search-conversations.md) and

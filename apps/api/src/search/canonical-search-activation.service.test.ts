@@ -42,6 +42,7 @@ async function buildService(
   searchAllowed: boolean,
   provisioned: boolean,
   queries: Array<Array<FakeRow>> = [[COVERAGE_ROW]],
+  enqueueChatReindex = vi.fn(() => Promise.resolve()),
 ) {
   const results: Array<Array<FakeRow>> = [
     provisioned ? [{ bypass: true }] : [{ bypass: false }],
@@ -60,7 +61,6 @@ async function buildService(
       }) => Promise<Iterable<FakeRow>>,
     ) => fn({ execute }),
   );
-  const enqueueChatReindex = vi.fn(() => Promise.resolve());
   const moduleRef: TestingModule = await Test.createTestingModule({
     providers: [
       CanonicalSearchActivationService,
@@ -72,7 +72,7 @@ async function buildService(
       { provide: TenantDbService, useValue: { runAsPublic } },
       {
         provide: SearchReindexDispatchService,
-        useValue: { enqueueChatReindex },
+        useValue: { enqueueChatReindexStrict: enqueueChatReindex },
       },
     ],
   }).compile();
@@ -153,6 +153,20 @@ describe('CanonicalSearchActivationService', () => {
       'Enqueued 1 stale chat reindex job(s); waiting for projection coverage',
     );
     log.mockRestore();
+    await moduleRef.close();
+  });
+
+  it('fails startup immediately when a stale chat cannot be enqueued', async () => {
+    const { moduleRef, service } = await buildService(
+      true,
+      true,
+      [[ONE_STALE], [STALE_ROW]],
+      vi.fn(() => Promise.reject(new Error('queue unavailable'))),
+    );
+
+    await expect(service.onApplicationBootstrap()).rejects.toThrow(
+      'canonical conversation search cannot start: queue unavailable',
+    );
     await moduleRef.close();
   });
 
