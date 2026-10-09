@@ -49,8 +49,8 @@ An image in a tool result SHALL be stored in the tool part as the native image r
 it, which names the image by its `media://` locator in `media`, and never as the `media-store` media
 descriptor, image bytes, or base64. On replay, the result's text SHALL follow
 the projection above, and the image SHALL become provider image content, built at request time from
-the stored model variant, only when the image window defined by `media-attachments` admits that
-reference for the request's model. Otherwise the replayed result SHALL carry the image placeholder
+the stored model variant, only when the request's model declares `image` input and the epoch image
+window defined by `media-attachments` attaches that reference. Otherwise the replayed result SHALL carry the image placeholder
 defined by `media-attachments` in its text, and a reference that does not resolve to the Run owner's
 media SHALL replay as the unavailable placeholder without failing the request. Image content SHALL
 NOT count toward the UTF-16 budgets, and an image SHALL replay only together with its retained result
@@ -209,18 +209,18 @@ that produced them.
 - **AND** it carries no `provenance`, `byteSize`, or `model` descriptor field, no image bytes, and no
   base64 data
 
-#### Scenario: An image result inside the image window replays as image content
+#### Scenario: An attached image result replays as image content
 
 - **WHEN** a later request on a model that declares `image` input replays a stored image result whose
-  reference the image window admits
+  reference the epoch image window attaches
 - **THEN** the replayed result carries its text and the image as provider image content built from
   the stored model variant
 - **AND** the call remains immediately paired with its result
 
-#### Scenario: An image result outside the image window replays as a placeholder
+#### Scenario: An unattached image result replays as a placeholder
 
-- **WHEN** a later request replays a stored image result whose reference falls outside the image
-  window, or the request's model does not declare `image` input
+- **WHEN** a later request replays a stored image result whose reference is beyond the epoch image
+  window's bounds, or the request's model does not declare `image` input
 - **THEN** the replayed result's text carries the image placeholder with the image's `media://`
   locator
 - **AND** the request carries no image content for that result

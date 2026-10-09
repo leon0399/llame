@@ -4,7 +4,7 @@
 
 An admitted prompt-import target whose native `read` returns an image SHALL become an image entry of
 the same `prompt-imports` item, whose body SHALL be exactly the image result `read` returns for that
-locator. The request SHALL carry that image's part or placeholder, as the image window selects,
+locator. The request SHALL carry that image's part or placeholder, as the epoch window selects,
 after the item's text. Image entries SHALL count toward the 8-target bound; image bytes SHALL NOT count toward the 128 KiB output
 bound. Recovery SHALL reuse the persisted media id without rereading.
 
@@ -20,8 +20,8 @@ bound. Recovery SHALL reuse the persisted media id without rereading.
 
 #### Scenario: A vision model receives the imported image after the item text
 
-- **WHEN** the Run's model declares `image` input and the imported image falls inside the request's
-  image window
+- **WHEN** the Run's model declares `image` input and the request's epoch image window attaches the
+  imported image
 - **THEN** the request carries the `prompt-imports` item's text followed immediately by an image part
   built from that media object's model variant
 

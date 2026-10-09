@@ -1,7 +1,7 @@
 ## Purpose
 
 Lets an owner attach stored images to a chat message, defines how every media reference in a chat's
-history reaches a model as an image or as a re-readable placeholder, keeps text-only surfaces free of
+history reaches a model as an image or as a placeholder, keeps text-only surfaces free of
 image content, and gives the web client composer thumbnails, sent-message thumbnails, and a chat-wide
 lightbox.
 
@@ -108,40 +108,60 @@ after the item's text. Each image SHALL be the model variant, read from storage 
   input on a Responses or Messages wire
 - **THEN** that tool result's output carries the result's text and the image of `media://<id>`
 
-### Requirement: A bounded image window selects which images are sent
+### Requirement: An epoch image window selects which images are attached
 
-Every model request, including each step of a Run, SHALL apply the window to all its resolvable media
-references (owner file parts, tool results, and prompt-imports items), newest first in request order;
-a repeated id counts again. A reference SHALL be inside the window while, after adding it, there are
-at most 20 images and at most 24 MiB (25,165,824 bytes) of summed base64 model variants. The first
-reference that would exceed either bound, and every older one, SHALL be outside the window.
+Within one compaction epoch, the rows after the active checkpoint plus the current attempt, requests
+SHALL admit resolvable media references (owner file parts, tool results, and prompt-imports items)
+oldest first in request order, a repeated id counting again, while at most 100 images and at most
+24 MiB (25,165,824 bytes) of summed base64 model variants hold. The first reference that would
+exceed either bound, and every later one in that epoch, SHALL NOT be attached.
 
-#### Scenario: The oldest of 21 images becomes a placeholder
+#### Scenario: The 101st image in an epoch is not attached
 
-- **WHEN** a vision-model request's history carries 21 small image references
-- **THEN** the 20 newest are sent as images
-- **AND** the oldest is sent as its placeholder
+- **WHEN** a vision-model request's epoch carries 101 small image references
+- **THEN** the 100 oldest are sent as images
+- **AND** the 101st reaches the model as the limit placeholder
 
 #### Scenario: The byte bound stops the window
 
-- **WHEN** the newest five references each have a 5 MiB base64 model variant and older references are
-  small
-- **THEN** the four newest are sent as images
-- **AND** the fifth and every older reference are sent as placeholders
+- **WHEN** the oldest five references of an epoch each have a 5 MiB base64 model variant and later
+  references are small
+- **THEN** the four oldest are sent as images
+- **AND** the fifth and every later reference in the epoch reach the model as the limit placeholder
 
-#### Scenario: The window is re-applied to each step of a Run
+#### Scenario: The window holds across the steps of a Run
 
-- **WHEN** a Run on a vision model whose history carries no images `read`s one image per step for 21
+- **WHEN** a Run on a vision model whose epoch carries no images `read`s one image per step for 101
   steps
-- **THEN** the request for the next step sends the 20 newest `read` results as images
-- **AND** the first `read` result is sent as its placeholder
+- **THEN** every later step's request sends the first 100 `read` results as images
+- **AND** the 101st `read` result reaches the next step as the limit placeholder
 
 #### Scenario: The byte bound applies within a Run
 
-- **WHEN** a Run on a vision model whose history carries no images `read`s five images in successive
+- **WHEN** a Run on a vision model whose epoch carries no images `read`s five images in successive
   steps, each with a 5 MiB base64 model variant
-- **THEN** the request for the next step sends the four newest `read` results as images
-- **AND** the first `read` result is sent as its placeholder
+- **THEN** the request for the next step sends the first four `read` results as images
+- **AND** the fifth `read` result is sent as the limit placeholder
+
+### Requirement: Adding an image never changes an earlier attachment
+
+Because admission is append-only within an epoch, adding a turn, a step, or an image reference SHALL
+NOT change whether an earlier reference in that epoch is attached, so the request prefix stays
+unchanged for prompt caching. The attached set SHALL NOT depend on which vision model the request
+targets.
+
+#### Scenario: Adding an image never changes an earlier image's attachment
+
+- **WHEN** a vision-model request's epoch carries 100 attached image references and the next turn
+  attaches one more image
+- **THEN** the next request sends the same 100 references as images in the same positions
+- **AND** only the new reference reaches the model as the limit placeholder
+
+#### Scenario: Switching between vision models keeps the attached set
+
+- **WHEN** a turn switches from one vision model to another within the same epoch
+- **THEN** the new model's request attaches exactly the references the previous request attached
+- **AND** every reference beyond the epoch's bounds keeps the limit placeholder
 
 ### Requirement: A text-only model receives an omitted placeholder for every image
 
@@ -157,43 +177,64 @@ the model, in the image's position and after any `Image n (media://<id>):` label
   `[image media://<id> shot.png 1600×900, omitted: this model has no image input]`
 - **AND** the request contains no image part
 
-#### Scenario: A text-only model is never told to read an image
+#### Scenario: A text-only model is never told about the image limit
 
-- **WHEN** a text-only model's request carries more image references than the image window admits
-- **THEN** every resolvable reference, inside or outside the window, uses the `omitted: this model has
-no image input` form, and an unresolvable one keeps `[image media://<id> unavailable]`
-- **AND** no placeholder in the request contains `read the locator`
+- **WHEN** a text-only model's request carries more image references than the epoch's bounds admit
+- **THEN** every resolvable reference, including those beyond the bounds, uses the `omitted: this
+model has no image input` form, and an unresolvable one keeps `[image media://<id> unavailable]`
+- **AND** no placeholder in the request contains `image limit is reached`
 
-### Requirement: An image outside the window tells a vision model to read it
+### Requirement: An image beyond the epoch's bounds is not attached
 
-For a model that declares `image`, a reference outside the image window SHALL reach the model, in
-the image's position and after any label, as
-`[image media://<id> <name> <width>×<height>, not attached; read the locator to view it]` when the
-step offers `read`, and as `[image media://<id> <name> <width>×<height>, not attached]` otherwise. A
-step offers `read` only when `read` is among that step's active tools and its tool choice is not
-`none`.
+For a model that declares `image`, a resolvable reference the epoch image window does not attach
+SHALL reach the model, in the image's position and after any label, as
+`[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`.
+No placeholder SHALL direct the model to read the image again, because a re-read would meet the same
+limit.
 
-#### Scenario: An out-of-window image tells a vision model to read it
+#### Scenario: A vision model receives the limit placeholder
 
-- **WHEN** a vision-model request carries 21 image references and the oldest is `shot.png` at
-  1600×900
-- **THEN** the oldest reaches the model as
-  `[image media://<id> shot.png 1600×900, not attached; read the locator to view it]`
+- **WHEN** a vision-model request's epoch carries 101 image references and the 101st is `shot.png`
+  at 1600×900
+- **THEN** the 101st reaches the model as
+  `[image media://<id> shot.png 1600×900, not attached: this context's image limit is reached]`
+- **AND** the 100 earlier references are sent as images
 
-#### Scenario: A request without read is not told to read
+### Requirement: Image overflow compacts at the start of the next Run
 
-- **WHEN** a vision-model step that offers no `read`, such as a compaction request (which declares
-  tools with tool choice `none`), a Run under an empty `tools.allowed`, or a Run's final step at the
-  step cap, carries an image reference outside the window
-- **THEN** that reference reaches the model as `[image media://<id> <name> <width>×<height>, not
-attached]`
-- **AND** no placeholder in the request contains `read the locator`
+Before a Run's first model step, a prepared request on a model that declares `image` input SHALL
+trigger the window-triggered compaction that `model-system-prompts` defines when it carries a
+reference not attached because the epoch's bounds are reached and an image reference in a row before
+the triggering user message. The new epoch SHALL admit images oldest first again. A Run SHALL NOT
+compact after its first model step.
+
+#### Scenario: Image overflow triggers compaction at the next Run
+
+- **WHEN** a vision-model chat's epoch carries 100 attached images in earlier turns and the owner
+  sends a message attaching one more image
+- **THEN** the window-triggered compaction runs before the Run's first model step
+- **AND** the Run's request admits the triggering message's image under the new epoch and sends it as
+  an image
+
+#### Scenario: Overflow in the triggering message alone does not compact
+
+- **WHEN** a vision-model chat's epoch carries no image before the triggering user message and that
+  message attaches 10 images whose 5 MiB base64 model variants exceed the byte bound
+- **THEN** no compaction runs
+- **AND** the four oldest images are sent as images and the rest reach the model as the limit
+  placeholder
+
+#### Scenario: An image read beyond the bounds inside a Run does not compact
+
+- **WHEN** a Run on a vision model reads an image after its epoch's bounds are reached
+- **THEN** that `read` result reaches the next step as the limit placeholder
+- **AND** no compaction runs before the Run ends
 
 ### Requirement: Unresolvable media references never fail a request
 
 A reference the chat owner's store cannot resolve, because the id is unknown or belongs to another
 owner, SHALL reach the model as `[image media://<id> unavailable]` in its position. It SHALL NOT count
-toward the image window, SHALL NOT fail the request, and SHALL put no bytes or descriptor field of
+toward the epoch's image bounds, SHALL NOT fail the request, and SHALL put no bytes or descriptor field of
 any object into the request.
 
 #### Scenario: An unresolvable reference becomes an unavailable placeholder
@@ -211,7 +252,7 @@ any object into the request.
 ### Requirement: Chat Completions wires carry tool-result images in a following user message
 
 On `openai-completions` and `opencode-go`, a tool message SHALL NOT carry image content. A tool
-result whose image is sent as an image part SHALL carry its text and the line
+result whose image is attached SHALL carry its text and the line
 `(image attached below)`; any other keeps its placeholder. The images of consecutive tool messages
 SHALL follow them in one user message starting `Images from tool results:`, in tool-result order.
 Other wires keep images inside the tool output.
@@ -225,14 +266,14 @@ Other wires keep images inside the tool output.
 
 #### Scenario: A tool-result placeholder stays in the tool message
 
-- **WHEN** a tool result's image is outside the window on an `openai-completions` request
+- **WHEN** a tool result's image is beyond the epoch's bounds on an `openai-completions` request
 - **THEN** the tool message carries the placeholder
 - **AND** no user-role image message is added for it
 
 #### Scenario: A text-only Chat Completions model gets no image message
 
 - **WHEN** an `openai-completions` model that does not declare `image` has a `read` image result
-  inside the window
+  within the epoch's bounds
 - **THEN** its tool message carries the result text and the `omitted: this model has no image input`
   placeholder, without `(image attached below)`
 - **AND** no `Images from tool results:` message and no image part is sent
@@ -255,7 +296,7 @@ Persisted message parts, including user file parts, tool results, and context it
 images only by `media://` locator. Image bytes, base64 strings, and `data:` URLs built for a request
 SHALL NOT be persisted to any message part. A Run's live tool outputs SHALL likewise carry `media://`
 references, not image bytes, until a step's request is composed; that request SHALL load bytes only
-for references inside its window, never for an out-of-window reference.
+for the references its epoch image window attaches, never for any other reference.
 
 #### Scenario: A completed vision Run stores references only
 
@@ -263,12 +304,12 @@ for references inside its window, never for an out-of-window reference.
 - **THEN** the stored user and assistant message parts contain the `media://` locators
 - **AND** they contain no base64 image data and no `data:` URL
 
-#### Scenario: Only in-window references are loaded for a step
+#### Scenario: Only attached references are loaded for a step
 
-- **WHEN** a Run on a vision model whose history carries no images `read`s one image per step for 21
+- **WHEN** a Run on a vision model whose epoch carries no images `read`s one image per step for 101
   steps
-- **THEN** the request for the next step carries image parts for the 20 newest `read` results only
-- **AND** the first `read` result's model variant bytes are not loaded for that request
+- **THEN** the request for the next step carries image parts for the first 100 `read` results only
+- **AND** the 101st `read` result's model variant bytes are not loaded for that request
 
 ### Requirement: Title generation receives image placeholders
 
@@ -286,20 +327,20 @@ title input made of those lines.
 
 ### Requirement: Compaction keeps images re-readable
 
-A compaction request SHALL carry the compactable prefix's images exactly as a Run request on the
-summarizing model would carry them: image parts for references inside the image window when that
-model declares `image` input, and placeholders for every other reference. The summarization
-instruction SHALL direct the model to keep verbatim the `media://` locator of every image the
-summary mentions, so a later turn can read that image again after its message is absorbed.
+A compaction request SHALL carry the compactable prefix's images as a Run request on the summarizing
+model would under the same epoch window: image parts for the references it attaches when that model
+declares `image` input, and placeholders otherwise. The summarization instruction SHALL direct the
+model to keep verbatim the `media://` locator of every image the summary mentions; a later `read` of
+that locator returns a fresh image result in the new epoch.
 
-#### Scenario: A vision summarizer receives the prefix's windowed images
+#### Scenario: A vision summarizer receives the prefix's attached images
 
-- **WHEN** a threshold-triggered compaction runs on a model that declares `image` input and the
-  compactable prefix carries more image references than the image window admits
-- **THEN** the summary request carries the references inside the window as image parts built from
-  their model variants, in the positions the Run's own request would use
-- **AND** every older reference appears as `[image media://<id> <name> <width>×<height>, not
-attached]`, because the summary request offers no `read`
+- **WHEN** a window-triggered compaction runs on a previous completed Run's model that declares
+  `image` input and the compactable prefix carries more image references than the epoch's bounds
+  admit
+- **THEN** the summary request carries the attached references as image parts built from their model
+  variants, in the positions the Run's own request would use
+- **AND** every later reference appears as the limit placeholder
 
 #### Scenario: A text-only summarizer receives placeholders
 
@@ -316,6 +357,13 @@ attached]`, because the summary request offers no `read`
   mentions
 - **AND** the instruction remains only in the trailing user message, leaving the bound prompt and
   compactable prefix unchanged
+
+#### Scenario: A kept locator is re-read into the new epoch
+
+- **WHEN** a checkpoint absorbed an image whose `media://` locator its summary kept, and a later Run on
+  a vision model `read`s that locator
+- **THEN** the `read` returns a fresh image result
+- **AND** that result is sent as an image when the new epoch's bounds admit it
 
 ### Requirement: Image parts are sized by dimensions, not bytes
 
