@@ -5,15 +5,15 @@
 An admitted prompt-import target whose native `read` returns an image SHALL become an image entry of
 the same `prompt-imports` item, whose body SHALL be exactly the image result `read` returns for that
 locator. The request SHALL carry that image's part or placeholder, as the image window selects,
-after the item's text. Image entries SHALL count toward the 8-target bound; image bytes SHALL NOT
-count toward the 128 KiB output bound. Recovery SHALL reuse the persisted media id without rereading.
+after the item's text. Image entries SHALL count toward the 8-target bound; image bytes SHALL NOT count toward the 128 KiB output
+bound. Recovery SHALL reuse the persisted media id without rereading.
 
 #### Scenario: An image target becomes an image entry
 
 - **WHEN** a Chat bound to `/repo` sends a prompt containing `@shot.png`, the target is admitted, and
   native `read` of `/repo/shot.png` returns a PNG image result for `media://<id>` at 1600×900
 - **THEN** the `prompt-imports` item holds an image entry whose body is exactly the image result that
-  `read("/repo/shot.png")` returns: `status: "ok"`, `kind: "image"`, `media` `media://<id>`,
+  `read("/repo/shot.png")` returns: `status: "success"`, `kind: "image"`, `media` `media://<id>`,
   `mediaType` `image/png`, `width` 1600, `height` 900, and `path` `/repo/shot.png`
 - **AND** the item's persisted text contains no image bytes or encoded image data, and the stored
   user text is unchanged
@@ -71,11 +71,24 @@ count toward the 128 KiB output bound. Recovery SHALL reuse the persisted media 
 - **THEN** that media object is owned by owner A
 - **AND** owner B resolves nothing for that id through the media routes or a `media://` read
 
+### Requirement: Image entries record their media locator privately
+
+Each image entry's private payload entry SHALL record `media: "media://<id>"` with outcome
+`imported`. The conversion boundary SHALL take the image part or placeholder from that locator, and
+the owner chip SHALL open the image from it, never from the item's text.
+
+#### Scenario: The payload records the image's media locator
+
+- **WHEN** an image target is imported as `media://<id>`
+- **THEN** its private payload entry records outcome `imported` and `media` `media://<id>`
+- **AND** the owner chip opens that image from the payload, not from the item's text
+
 ### Requirement: Media locators are prompt-import targets
 
 A `media://` target SHALL resolve as native `read` resolves it and SHALL be silently pre-evaluated
 and probed like a `kb://` target, the probe being a lookup of the Run owner's media. An unknown id or
-another owner's id SHALL remain prose. A `media://` target SHALL trigger no instruction-file load.
+another owner's id SHALL remain prose. A `media://` target SHALL trigger no instruction-file load,
+and the denial, output-bound, and work-bound rules for host and Knowledge targets SHALL apply to it.
 
 #### Scenario: A typed media locator imports a stored image
 
@@ -89,3 +102,9 @@ another owner's id SHALL remain prose. A `media://` target SHALL trigger no inst
 - **WHEN** owner A's prompt contains `@media://<id>` naming an image owner B stored
 - **THEN** the marker remains prose and nothing is imported
 - **AND** no read, audit event, or owner disclosure concerning owner B's object is produced
+
+#### Scenario: A denied media target is audited and never counted
+
+- **WHEN** the silent `read` pre-evaluation rejects `@media://<id>`
+- **THEN** the normal audited `read` path records it as denied without a lookup
+- **AND** it is neither counted toward the 8-target bound nor listed as omitted

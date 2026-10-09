@@ -30,7 +30,7 @@ handed most often ([#935](https://github.com/leon0399/llame/issues/935)).
   - The result is a typed image envelope, and the image reaches the model as tool-result content.
   - On Chat Completions wires, tool-result images move into a following user message.
   - Web reads accept those four image types and still refuse PDF and other binary types.
-- **Prompt imports.** An image target of a prompt import marker (`import-markers`, #1146) becomes an
+- **Prompt imports.** An image target of a prompt import marker becomes an
   image entry in the `prompt-imports` item.
 - **Text projections.**
   - `conversation_read` and title generation append image placeholders.
@@ -158,14 +158,17 @@ until the library ships a delete action.
   conversion boundary.
 - `owner-chat-forks`: "A shared or public fork receives no checkpoint row" omits file parts from shared
   and public forks.
-- `prompt-imports` (introduced by `import-markers`, #1146): ADDED "Image targets import as image
-  entries" and "Media locators are prompt-import targets".
+- `prompt-imports`: ADDED "Image targets import as image entries", "Image entries record their media
+  locator privately", and "Media locators are prompt-import targets".
 
 Deliberately unchanged:
 
 - `chat-recency-digest`: a first message without text still renders no excerpt.
 - `instruction-files`: image reads trigger chains like any host or `kb://` read; `media://` triggers
-  none.
+  none. An instruction import of an image is read with `:raw:N-M`, so it is refused by the image
+  selector rule and reported `failed` without ingest.
+- `agent-skills`: a package-local import of an image is read with `:raw` and likewise reported
+  `failed`; skill imports stay text-only.
 - `tool-call-permissions` "Match submitted string values without serialization artifacts": its list of
   locators unchanged by Workspace projection is not exhaustive, and the modified matching requirement
   covers `media://`.
