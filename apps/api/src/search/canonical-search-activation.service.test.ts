@@ -3,6 +3,7 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { TenantDbService } from '../db/tenant-db.service';
+import { SearchIndexService } from './search-index.service';
 import {
   CanonicalSearchActivationService,
   CanonicalSearchCoverageService,
@@ -18,7 +19,8 @@ const COVERAGE_ROW = {
 };
 
 type CoverageRow = typeof COVERAGE_ROW;
-type FakeRow = CoverageRow | { bypass: boolean };
+type StaleRow = { chat_id: string; owner_user_id: string };
+type FakeRow = CoverageRow | StaleRow | { bypass: boolean };
 
 function config(searchAllowed: boolean) {
   return {
@@ -30,14 +32,17 @@ function config(searchAllowed: boolean) {
   };
 }
 
+/** Rows after the provisioning check, in query order: coverage, then (when
+ *  incomplete) the stale-chat list and the post-repair coverage. */
 async function buildService(
   searchAllowed: boolean,
   provisioned: boolean,
-  coverage: Array<CoverageRow> = [COVERAGE_ROW],
+  queries: Array<Array<FakeRow>> = [[COVERAGE_ROW]],
+  reindexChat = vi.fn(() => Promise.resolve()),
 ) {
   const results: Array<Array<FakeRow>> = [
     provisioned ? [{ bypass: true }] : [{ bypass: false }],
-    coverage,
+    ...queries,
   ];
   const execute = vi.fn(
     (): Promise<Iterable<FakeRow>> => Promise.resolve(results.shift() ?? []),
@@ -58,15 +63,24 @@ async function buildService(
         useValue: { config: config(searchAllowed) },
       },
       { provide: TenantDbService, useValue: { runAsPublic } },
+      { provide: SearchIndexService, useValue: { reindexChat } },
     ],
   }).compile();
   return {
     moduleRef,
     runAsPublic,
+    reindexChat,
     service: moduleRef.get(CanonicalSearchActivationService),
     coverage: moduleRef.get(CanonicalSearchCoverageService),
   };
 }
+
+const STALE_ROW: StaleRow = { chat_id: 'chat-1', owner_user_id: 'owner-1' };
+const ONE_STALE = {
+  ...COVERAGE_ROW,
+  ready_chat_count: 11,
+  stale_chat_count: 1,
+};
 
 describe('CanonicalSearchActivationService', () => {
   it('skips readiness when the HTTP process cannot bind search_conversations', async () => {
@@ -101,12 +115,41 @@ describe('CanonicalSearchActivationService', () => {
     await moduleRef.close();
   });
 
+  it('rebuilds stale chats before the gate and admits once coverage is complete', async () => {
+    const { moduleRef, reindexChat, service } = await buildService(true, true, [
+      [ONE_STALE],
+      [STALE_ROW],
+      [COVERAGE_ROW],
+    ]);
+
+    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    expect(reindexChat).toHaveBeenCalledExactlyOnceWith('chat-1', 'owner-1');
+    await moduleRef.close();
+  });
+
+  it('fails closed when a stale chat rebuild fails', async () => {
+    const { moduleRef, service } = await buildService(
+      true,
+      true,
+      [[ONE_STALE], [STALE_ROW]],
+      vi.fn(() => Promise.reject(new Error('rebuild failed'))),
+    );
+
+    await expect(service.onModuleInit()).rejects.toThrow(
+      'canonical conversation search cannot start: rebuild failed',
+    );
+    await moduleRef.close();
+  });
+
   it.each([
     ['stale chats', { ready_chat_count: 11, stale_chat_count: 1 }],
     ['offsetless or legacy documents', { complete_document_count: 56 }],
-  ])('refuses activation for %s', async (_name, fields) => {
+  ])('refuses activation for %s left after repair', async (_name, fields) => {
+    const incomplete = { ...COVERAGE_ROW, ...fields };
     const { moduleRef, service } = await buildService(true, true, [
-      { ...COVERAGE_ROW, ...fields },
+      [incomplete],
+      [],
+      [incomplete],
     ]);
 
     await expect(service.onModuleInit()).rejects.toThrow(
@@ -116,13 +159,16 @@ describe('CanonicalSearchActivationService', () => {
   });
 
   it('reports only aggregate readiness counts for incomplete coverage', async () => {
+    const incomplete = {
+      ...COVERAGE_ROW,
+      ready_chat_count: 10,
+      stale_chat_count: 2,
+      complete_document_count: 54,
+    };
     const { moduleRef, service } = await buildService(true, true, [
-      {
-        ...COVERAGE_ROW,
-        ready_chat_count: 10,
-        stale_chat_count: 2,
-        complete_document_count: 54,
-      },
+      [incomplete],
+      [],
+      [incomplete],
     ]);
 
     await expect(service.onModuleInit()).rejects.toThrow(
