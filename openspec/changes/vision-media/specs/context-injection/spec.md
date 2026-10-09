@@ -11,7 +11,7 @@ returns to the provider for the Chat that stores them, and map each surviving
 ordinary SDK text part containing `data.text`, followed, for each image entry
 that `prompt-imports` attaches to that item, by either one image part built from
 the referenced object's model variant or the image placeholder text part, chosen
-by the image window and the request model's declared input as `media-attachments`
+by the epoch image window and the request model's declared input as `media-attachments`
 requires. A `data-context`
 part stored on an
 assistant message SHALL be mapped to one user-role message containing one text
@@ -36,7 +36,7 @@ the message's first text part, in the file parts' stored order, while every othe
 part keeps its stored relative order. Each file part SHALL map to one text part
 `Image n (media://<id>):`, with `n` counting that message's file parts from 1,
 followed by either one image part built from the object's model variant or the
-image placeholder text part, chosen by the image window and the request model's
+image placeholder text part, chosen by the epoch image window and the request model's
 declared input as `media-attachments` requires.
 
 A stored tool part whose result is an image result (`kind: "image"`) SHALL map to
@@ -102,8 +102,8 @@ no other stored form of superseded history is replayed.
 #### Scenario: Owner attachments are placed after context items and before text
 
 - **WHEN** a stored user message holds an activation item, its temporal row, one text part, and two
-  file parts stored after the text, the request model declares `image` input, and both references
-  fall inside the image window
+  file parts stored after the text, the request model declares `image` input, and the epoch image
+  window attaches both references
 - **THEN** the request supplies, in order, the activation text, the temporal row text,
   `Image 1 (media://<first id>):`, the first object's image part, `Image 2 (media://<second id>):`,
   the second object's image part, and then the owner's text
@@ -121,7 +121,7 @@ no other stored form of superseded history is replayed.
 #### Scenario: An image read result crosses as tool content
 
 - **WHEN** a stored assistant message holds a `read` tool part whose result is an image result, the
-  request model declares `image` input, and the reference falls inside the image window
+  request model declares `image` input, and the epoch image window attaches the reference
 - **THEN** the tool-result message carries an output of type `content` holding the result's text
   followed by one image part built from the referenced object's model variant
 
@@ -135,7 +135,7 @@ no other stored form of superseded history is replayed.
 
 - **WHEN** a stored user message holds a `data-context` item to which `prompt-imports` attaches one
   image entry, and the request is replayed once to a model declaring `image` input with the
-  reference inside the image window and once to a model whose `input` lacks `image`
+  reference attached by the epoch image window and once to a model whose `input` lacks `image`
 - **THEN** the first request supplies the item's text followed by one image part built from the
   referenced object's model variant
 - **AND** the second supplies the item's text followed by the image placeholder text part and no

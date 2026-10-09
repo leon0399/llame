@@ -161,7 +161,7 @@ live tool outputs both carry media references only: a `read` image result's `toM
 text envelope, never bytes. `ai@6.0.256` `streamText` pushes each tool output permanently into its
 response messages and rebuilds every step as initial plus response messages
 (`ai/dist/index.mjs:7723-7741`, `responseMessages.push` at `:8191`), so bytes returned there would
-stay in worker memory for the whole Run while only 20 images are ever sent.
+stay in worker memory for the whole Run while only the attached images are ever sent.
 
 The composer runs on every model request, whether or not it offers tools, as an always-installed
 `prepareStep`: `ai@6.0.256` awaits `prepareStep` on every step with or without tools
@@ -180,23 +180,19 @@ dimensions) and loads variant bytes on demand. For each step:
   plus an image part.
 - **Prompt imports.** An image entry in a `prompt-imports` item becomes an image part after the item's
   text.
-- **Window.** Only image references inside the image window (below) become image parts, and only their
-  bytes are loaded. Every resolvable image sent to a model that does not declare `image` becomes
-  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`; for a vision model, an image outside the window becomes
-  `[image media://<id> <name> <width>×<height>, not attached; read the locator to view it]` when the
-  step offers `read`, and `[image media://<id> <name> <width>×<height>, not attached]` when it
-  does not. A step offers `read` only when `read` is among that step's active tools and its tool
-  choice is not `none`, so compaction (declared tools, `toolChoice: 'none'`,
-  `compaction.service.ts:385-393`), an empty `tools.allowed`, and the step-cap final step
-  (`activeTools: []`, `openai-model-client.ts:178-183`) all get the no-read form. The composer decides
-  the form after the cap check. `name` is the neutralized source label and
-  the dimensions are the original's. The forms name the cause, as Codex, pi, OpenClaw, and OMP do, so
-  no model is told to re-read an image it cannot see or cannot read. Unresolvable references keep
-  `[image media://<id> unavailable]`. `conversation_read` and title lines keep the bare
-  `[image media://<id> <name> <width>×<height>]` form, which states no cause.
+- **Attachment.** Only image references the epoch window (below) attaches become image parts, and only
+  their bytes are loaded. Every resolvable image sent to a model that does not declare `image` becomes
+  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`. For a vision
+  model, an image the window does not attach becomes
+  `[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`.
+  Neither form invites a re-read: re-reading would hit the same limit or the same model. `name` is
+  the neutralized source label and the dimensions are the original's. The forms name the cause, as
+  Codex, pi, OpenClaw, and OMP do. Unresolvable references keep `[image media://<id> unavailable]`.
+  `conversation_read` and title lines keep the bare `[image media://<id> <name> <width>×<height>]`
+  form, which states no cause.
 - **Chat Completions wires.** On `openai-completions` and `opencode-go`, a tool output's image cannot
   travel in the tool message: the adapter would serialize it as text. A tool message whose image is
-  sent as an image part (in window, vision model) carries its text and the line
+  sent as an image part (attached, vision model) carries its text and the line
   `(image attached below)`, and the images of consecutive tool results follow in one synthetic user
   message `Images from tool results:`, as OMP does. Every other tool message keeps its placeholder.
 
@@ -212,12 +208,43 @@ map, because stored file parts and image envelopes do not carry variant dimensio
 
 Stored parts never contain base64. The 8,000/32,000 code-unit budgets measure a tool pair's text
 only; a `read` image result's text envelope fits well inside them, and its image falls under the
-image window.
+epoch window.
 
-The window takes image references newest first while both bounds hold: at most 20 images, matching
-Anthropic's tighter-dimension threshold, and at most 24 MiB of summed base64 model variants, leaving
-headroom under Anthropic's 32 MB request limit for text. The first reference that would exceed either
-bound, and every older one, is a placeholder. Both bounds are code constants (Q14).
+**Epoch window (Q22).** The window follows the rule llame already applies to frozen prompt state
+("Compaction is the rail's re-baseline boundary", `context-injection`): it changes only when a
+checkpoint is published. Within one compaction epoch (the rows after the active checkpoint, plus the
+current attempt), image references are attached oldest first in request order while both bounds
+hold: at most 100 images and at most 24 MiB of summed base64 model variants. The first reference that
+would exceed either bound, and every newer one in that epoch, is not attached. Admission is
+append-only, so a new turn or a new step never changes whether an earlier image is attached, and
+the request prefix stays byte-identical for provider prompt caching. Anthropic invalidates cached
+message blocks when images are added or removed anywhere in the prompt
+([prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)).
+
+Before a Run's first model step, a vision-model request with an unattached image and at least one
+image in a row before the triggering user message compacts as if it did not fit the model's window.
+Image overflow alone never fails an attempt: when the window variant cannot run (no previous completed
+Run, or its model or receipt cannot execute or fit), the attempt proceeds without compaction and the
+overflowing images keep the limit placeholder.
+Absorbed images survive as the `media://` locators the summary keeps, and the model re-reads them
+into the new epoch with `read`. Compaction never runs inside a Run, so an image read past the bounds
+mid-Run stays unattached until the next turn compacts. Overflow inside the triggering message alone
+(ten maximum-size images exceed 24 MiB) does not compact, because compaction cannot absorb that
+message.
+
+The count bound is 100, Anthropic's per-request limit for 200k-context models. Anthropic's
+2000×2000 limit above 20 images per request is already met, because every model variant is at most
+2000 px on its long edge. Both bounds are code constants (Q14).
+
+Prior art: OMP drops the oldest images on every request (`clampProviderContextImages` in
+`packages/coding-agent/src/session/provider-image-budget.ts` at `5aafbec7`), which misses the cache
+on every request once over budget. Claude Code fixed the same symptom ("prompt-cache misses on every
+turn in long screenshot-heavy sessions once images exceeded the per-request size cap", CHANGELOG
+2.1.257). OpenClaw advances its image cut only at user-turn boundaries, in batches of 8 turns, "to
+stop repeated image payloads ... busting prompt caches" (`docs/concepts/session-pruning.md` at
+`23b8ffe5`). pi and Codex never evict mid-session and leave images to compaction. A cut at compaction
+is the limit case of OpenClaw's batching: one rewrite per checkpoint, at a point that already
+invalidates the cache.
 
 ### D7: Native `read` of images (Q5, Q8)
 

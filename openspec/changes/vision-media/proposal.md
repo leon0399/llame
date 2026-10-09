@@ -20,15 +20,15 @@ handed most often ([#935](https://github.com/leon0399/llame/issues/935); web UI 
 - **Model input declaration.** `models[].input` (`["text"]` or `["text", "image"]`, default text-only)
   is published by `GET /api/v1/models`.
 - **Image window and placeholders.**
-  - The newest images in the request, up to 20 and 24 MiB of base64, are sent as provider image
-    parts. The window applies to history and is re-applied at every step of a Run.
+  - Within one compaction epoch, images are attached oldest first up to 100 images and 24 MiB of
+    base64. Admission is append-only, so an earlier image never changes state and the provider prompt
+    cache survives every image turn.
+  - An image past the bounds becomes
+    `[image media://<id> <name> <w>×<h>, not attached: this context's image limit is reached]`, and
+    the next Run with such overflow compacts. Absorbed images survive as `media://` locators the model
+    can re-read.
   - Every image sent to a model without `image` input becomes
     `[image media://<id> <name> <w>×<h>, omitted: this model has no image input]`.
-  - For a vision model, older images outside the window become
-    `[image media://<id> <name> <w>×<h>, not attached; read the locator to view it]` when the step
-    offers `read`, and the model can re-read them. Steps without `read` (compaction, an empty
-    `tools.allowed`, the step-cap final step) get `[image media://<id> <name> <w>×<h>, not
-attached]`.
   - Admission and compaction estimates charge each image `ceil(width × height / 750)` tokens on its
     model variant instead of counting its base64.
 - **Native `read` of images.** Host paths, `file:`, `kb://`, `skill://`, `http(s)://`, and the new
@@ -62,7 +62,8 @@ From the 2026-10-08 design session, Q1–Q21, recorded on
 - Placeholders for non-vision models; the composer blocks attaching (Q5).
 - Upload first, then reference the id (Q6).
 - Media is owned by the owner, and forks reuse ids (Q7).
-- A bounded image window with re-readable placeholders (Q8).
+- A bounded image window with re-readable placeholders (Q8), frozen per compaction epoch and admitted
+  oldest first so it never invalidates the prompt cache between checkpoints (Q22).
 - Image entries inside the `prompt-imports` item (Q9).
 - A chat-wide lightbox that includes images the model read (Q10).
 - A flat `media://<uuidv7>` locator (Q11).
@@ -82,9 +83,9 @@ Not asked directly, and following from those decisions:
 - The original keeps its EXIF because only its owner can fetch it; the model variant is stripped (D2).
 - `skill://` images are readable like any other read locator. A `media://` read takes no selector, and
   any selector on an image is `invalid_selector` (D4, D7).
-- The image window also stops at 24 MiB of base64 so 20 large images stay under Anthropic's 32 MB
-  request limit, and it is re-applied to every step's messages, because live tool results never cross
-  the history conversion boundary (D6).
+- The image window also stops at 24 MiB of base64, leaving headroom under Anthropic's 32 MB request
+  limit, and its count bound is 100 because model variants already meet Anthropic's 2000 px rule
+  above 20 images (D6).
 - Request-size estimates use Anthropic's `width × height / 750` image formula for every wire, because
   the current characters/4 estimate would count one screenshot's base64 as hundreds of thousands of
   tokens (D6).
@@ -158,10 +159,11 @@ until the library ships a delete action.
 - `model-system-prompts`:
   - "A model switch replaces the top-level prompt and preserves portable history" carries images and
     placeholders across switches.
-- `media-attachments` also owns an ADDED compaction rule: the compaction request carries images as the
-  summarizing model's projection would, and the instruction keeps `media://` locators. The compaction
-  requirement in `model-system-prompts` stays unchanged, because its prefix already follows the
-  conversion boundary.
+  - "Compaction publishes a summary-only checkpoint before the Run's first model step" adds image
+    overflow as a window-variant trigger for vision models when an earlier row carries an image; if
+    the window variant cannot run, the attempt proceeds and overflow keeps the limit placeholder.
+- `media-attachments` also owns an ADDED compaction rule: the compaction request carries images under
+  the same epoch window, and the instruction keeps `media://` locators.
 - `owner-chat-forks`: "A shared or public fork receives no checkpoint row" omits file parts from shared
   and public forks.
 - `prompt-imports`: ADDED "Image targets import as image entries", "Image entries record their media
@@ -232,8 +234,9 @@ Issue #935 (the capability, closed by `prompt-import-images`):
   message, enforced by RLS with a negative isolation test.
 - An SVG, an HTML file renamed `.png`, a 41-megapixel image, and a 21 MiB file are refused at upload. At
   read, the first two return text and the last two fail with `image_too_large`.
-- A Run that reads more images than the image window sends the oldest as placeholders on its next
-  step, and one maximum-size screenshot is admitted on a 200k-token model without compaction.
+- Adding an image never changes whether an earlier image is attached. A Run that reads past the
+  bounds gets the limit placeholder for the newest images, and the next Run compacts. One maximum-size
+  screenshot is admitted on a 200k-token model without compaction.
 
 Issue [#1166](https://github.com/leon0399/llame/issues/1166) (the web UI, closed by `previews-lightbox`):
 
