@@ -180,6 +180,36 @@ describe('createRunEventTranslator', () => {
     ).toEqual([]);
   });
 
+  it('emits no UI chunk for a prompt-import-origin system read', () => {
+    const t = createRunEventTranslator('run-prompt-import');
+
+    // The owner's `@path` imports are llame's own reads; the model never asked
+    // for them, so the live stream shows no tool part for either event.
+    expect(
+      t.translate({
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'prompt-import-1',
+          toolName: 'read',
+          input: { path: '/repo/README.md:30-35' },
+          origin: 'prompt-import',
+        },
+      }),
+    ).toEqual([]);
+    expect(
+      t.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'prompt-import-1',
+          toolName: 'read',
+          status: 'success',
+          output: { status: 'success', content: 'readme' },
+          origin: 'prompt-import',
+        },
+      }),
+    ).toEqual([]);
+  });
+
   it('a run that fails before any delta emits start + error only', () => {
     const t = createRunEventTranslator('run-2');
 

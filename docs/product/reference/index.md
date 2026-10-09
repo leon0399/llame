@@ -16,6 +16,8 @@ read_when:
   ancestors, and the result bound every read shares.
 - [Instruction files](instruction-files.md): which project instruction files a
   touch loads into context, and when.
+- [Prompt imports](prompt-imports.md): which markers in a prompt import a
+  `read` locator before the first model request, and the bounds that apply.
 - [Permission modes](permission-modes.md): what `default` and `bypass` change
   for one Run.
 - [Mutation recovery](mutation-recovery.md): how `edit`, `write`, and `bash`

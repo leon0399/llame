@@ -64,11 +64,21 @@ import type {
   ToolContext,
   ToolResult,
 } from '../tools/types';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { serializeNativeModelOutput } from '@workspace/native-file-tools';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type CheckpointMessage } from '../chats/messages-repository';
 import { ActivationPartsRepository } from '../chats/activation-parts.repository';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
+import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
+import {
+  createPromptImportsItem,
+  isPromptImportsPayload,
+} from '../chats/prompt-imports-item';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import {
   createContextItemPart,
@@ -131,7 +141,10 @@ import {
 } from './run-execution.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
-import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
+import {
+  KnowledgeFilesystemAdapter,
+  KnowledgeFilesystemError,
+} from '../knowledge/knowledge-filesystem';
 import {
   TOOL_REGISTRY,
   registerTestOnlyTool,
@@ -542,6 +555,14 @@ function mockNormalExecutionRepositories() {
   const hasMutation = vi
     .spyOn(NativeFilesRepository.prototype, 'hasMutation')
     .mockResolvedValue(false);
+  vi.spyOn(
+    PromptImportPartsRepository.prototype,
+    'findForRun',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(
+    PromptImportPartsRepository.prototype,
+    'appendForRun',
+  ).mockResolvedValue({ applied: true });
   return {
     markStarted,
     markFinished,
@@ -10654,6 +10675,696 @@ describe('RunExecutionService instruction files', () => {
       expect(items).toHaveLength(1);
       expect(items[0]?.text).toContain('run the tests');
       expect(items[0]?.text).toContain('local overrides');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('RunExecutionService prompt imports', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A canonical temp repo whose README has forty numbered lines. */
+  function repoRoot(): string {
+    const root = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'prompt-imports-')),
+    );
+    const lines = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`);
+    writeFileSync(path.join(root, 'README.md'), `${lines.join('\n')}\n`);
+    return root;
+  }
+
+  function bindChat(root: string, executorId = 'host-a'): void {
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: root,
+      workspaceExecutorId: executorId,
+      workspaceGeneration: 4,
+    });
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
+      undefined,
+    );
+  }
+
+  /** The Run's repositories plus spies on the prompt-import item's storage. */
+  function serveRepositories() {
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    const find = vi
+      .spyOn(PromptImportPartsRepository.prototype, 'findForRun')
+      .mockResolvedValue(undefined);
+    const append = vi
+      .spyOn(PromptImportPartsRepository.prototype, 'appendForRun')
+      .mockResolvedValue({ applied: true });
+    const events = recordAppendedEvents();
+    replayAppendedEvents(events);
+    return { repositories, find, append, events };
+  }
+
+  function serviceFor(
+    allowed: ReadonlyArray<string>,
+    permissionPolicy: CompiledPolicy = compileTestPermissionPolicy(),
+    nativeExecutorId: string | undefined = 'host-a',
+    permissionModes?: ExecutionServiceOptions['permissionModes'],
+  ) {
+    return makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      nativeExecutorId,
+      { allowed, permissionPolicy, permissionModes },
+    );
+  }
+
+  function promptInput(client: ModelClient, text: string) {
+    const input = executionInput(client);
+    return {
+      ...input,
+      userMessage: {
+        ...input.userMessage,
+        parts: [{ type: 'text' as const, text }],
+      },
+    };
+  }
+
+  type RecordedEvent = { type: string; payload: unknown };
+  type ImportEvent = { type: string; payload: UnknownRecord };
+
+  /** The events recorded under the prompt-import origin, in append order. */
+  function importEvents(events: ReadonlyArray<RecordedEvent>) {
+    return events.flatMap(
+      ({ type, payload }): Array<ImportEvent> =>
+        isRecord(payload) && payload['origin'] === 'prompt-import'
+          ? [{ type, payload }]
+          : [],
+    );
+  }
+
+  function callIdOf(payload: UnknownRecord | undefined): string | undefined {
+    const toolCallId = payload?.['toolCallId'];
+    return isString(toolCallId) ? toolCallId : undefined;
+  }
+
+  /** Every event type recorded under one tool-call id, `tool.started` included. */
+  function typesForCall(
+    events: ReadonlyArray<RecordedEvent>,
+    toolCallId: string | undefined,
+  ): Array<string> {
+    return events.flatMap(({ type, payload }) =>
+      isRecord(payload) && payload['toolCallId'] === toolCallId ? [type] : [],
+    );
+  }
+
+  function requestFor(events: ReadonlyArray<RecordedEvent>, toolPath: string) {
+    return importEvents(events).find(
+      ({ type, payload }) =>
+        type === 'tool.requested' &&
+        isRecord(payload['input']) &&
+        payload['input']['path'] === toolPath,
+    )?.payload;
+  }
+
+  it('persists one item with the native read output before the first model request', async () => {
+    const root = repoRoot();
+    try {
+      const { find, append, events } = serveRepositories();
+      bindChat(root);
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const execution = serviceFor(['enter_workspace', 'read']);
+      const stream = vi.spyOn(execution.client, 'streamText');
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md:30-35 please'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(find).toHaveBeenCalledOnce();
+      expect(read).toHaveBeenCalledOnce();
+      expect(read.mock.calls[0]?.[1]).toEqual({
+        path: `${root}/README.md:30-35`,
+      });
+      expect(importEvents(events)[1]?.payload['output']).toMatchObject({
+        status: 'success',
+      });
+      expect(append).toHaveBeenCalledOnce();
+      const resolvedPath: unknown = expect.stringContaining(
+        `${root}/README.md`,
+      );
+      const item = append.mock.calls[0]?.[0].item;
+      expect(item?.data.producer).toBe('prompt-imports');
+      expect(item?.data.form).toBe('notice');
+      expect(item?.data.payload).toMatchObject({
+        imports: [
+          {
+            locator: 'README.md:30-35',
+            resolved: resolvedPath,
+            outcome: 'imported',
+          },
+        ],
+      });
+      expect(item?.data.text).toContain('<file path="README.md:30-35">');
+      // The body is exactly what the model would receive for the read result
+      // the completion audit recorded.
+      const output = importEvents(events).find(
+        ({ type }) => type === 'tool.completed',
+      )?.payload['output'];
+      expect(item?.data.text).toContain(serializeNativeModelOutput(output));
+      expect(item?.data.text).toContain('line 29');
+      expect(item?.data.text).toContain('line 36');
+      // Persisted before the model was asked anything.
+      expect(append.mock.invocationCallOrder[0]).toBeLessThan(
+        stream.mock.invocationCallOrder[0] ?? 0,
+      );
+
+      const audit = importEvents(events);
+      expect(audit.map(({ type }) => type)).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+      expect(audit[0]?.payload).toMatchObject({
+        toolName: 'read',
+        input: { path: `${root}/README.md:30-35` },
+        permission: { decision: 'allow' },
+      });
+      expect(audit[1]?.payload).toMatchObject({
+        toolName: 'read',
+        status: 'success',
+      });
+      const callId = callIdOf(audit[0]?.payload);
+      expect(callId).toEqual(
+        expect.stringMatching(
+          new RegExp(`^prompt-import-${runId}-${testAttemptId}-\\d+$`),
+        ),
+      );
+      expect(typesForCall(events, callId)).toEqual([
+        'tool.requested',
+        'tool.started',
+        'tool.completed',
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('audits a denied target without a start and names it as not imported', async () => {
+    const root = repoRoot();
+    try {
+      const { append, events } = serveRepositories();
+      bindChat(root);
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const permissionPolicy = compileToolPermissionMap(
+        {
+          enter_workspace: { allow: true },
+          read: {
+            allow: true,
+            reject: [{ field: 'path', literal: `${root}/secret.md` }],
+          },
+        },
+        'test-policy',
+      );
+      const execution = serviceFor(
+        ['enter_workspace', 'read'],
+        permissionPolicy,
+      );
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'see @secret.md and @README.md'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      // Only the admitted target reached the read tool; the denied one is
+      // refused by the runner before any dispatch.
+      expect(read).toHaveBeenCalledOnce();
+      const item = append.mock.calls[0]?.[0].item;
+      expect(item?.data.payload).toMatchObject({
+        imports: [
+          { locator: 'secret.md', outcome: 'denied' },
+          { locator: 'README.md', outcome: 'imported' },
+        ],
+      });
+      expect(item?.data.text).toContain(
+        'The prompt target `secret.md` was not imported.',
+      );
+
+      const denied = requestFor(events, `${root}/secret.md`);
+      expect(denied).toMatchObject({
+        permission: { decision: 'reject', reason: 'explicit_reject' },
+      });
+      expect(typesForCall(events, callIdOf(denied))).toEqual([
+        'tool.requested',
+        'tool.completed',
+      ]);
+      const admitted = requestFor(events, `${root}/README.md`);
+      expect(typesForCall(events, callIdOf(admitted))).toEqual([
+        'tool.requested',
+        'tool.started',
+        'tool.completed',
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('imports nothing on a detaching attempt', async () => {
+    const root = repoRoot();
+    try {
+      const { find, append, events } = serveRepositories();
+      bindChat(root, 'gone-host');
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'detach',
+      ).mockResolvedValue('detached');
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const execution = serviceFor(['enter_workspace', 'read']);
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(find).not.toHaveBeenCalled();
+      expect(append).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+      expect(importEvents(events)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does nothing when read is not allowlisted', async () => {
+    const root = repoRoot();
+    try {
+      const { find, append, events } = serveRepositories();
+      bindChat(root);
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const execution = serviceFor(['enter_workspace']);
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(find).not.toHaveBeenCalled();
+      expect(append).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+      expect(importEvents(events)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  /** The item a prior attempt of this Run persisted for `README.md`. */
+  function storedImportItem(root: string) {
+    return createPromptImportsItem({
+      runId,
+      outcomes: [
+        {
+          locator: 'README.md',
+          resolved: `${root}/README.md`,
+          outcome: 'imported',
+          body: 'stored body',
+        },
+      ],
+      omitted: [],
+    });
+  }
+
+  it('does not read again when a prior attempt already persisted the item', async () => {
+    const root = repoRoot();
+    try {
+      const { find, append, events } = serveRepositories();
+      bindChat(root);
+      const stored = storedImportItem(root);
+      const payload = stored.data.payload;
+      if (!isPromptImportsPayload(payload)) {
+        throw new Error('the stored item must carry a valid payload');
+      }
+      find.mockResolvedValue({ ...stored, data: { ...stored.data, payload } });
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const execution = serviceFor(['enter_workspace', 'read']);
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(find).toHaveBeenCalledOnce();
+      expect(read).not.toHaveBeenCalled();
+      expect(append).not.toHaveBeenCalled();
+      expect(importEvents(events)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not read again when the stored item payload is unreadable', async () => {
+    const root = repoRoot();
+    try {
+      const { find, append, events } = serveRepositories();
+      bindChat(root);
+      const stored = storedImportItem(root);
+      find.mockResolvedValue({
+        ...stored,
+        data: { ...stored.data, payload: undefined },
+      });
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const execution = serviceFor(['enter_workspace', 'read']);
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(find).toHaveBeenCalledOnce();
+      expect(read).not.toHaveBeenCalled();
+      expect(append).not.toHaveBeenCalled();
+      expect(importEvents(events)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('never turns prompt-import activity into an assistant tool part', async () => {
+    const root = repoRoot();
+    try {
+      const { repositories, events } = serveRepositories();
+      bindChat(root);
+      const execution = serviceFor(['enter_workspace', 'read']);
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md:1-2'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(importEvents(events).length).toBeGreaterThan(0);
+      await vi.waitFor(() =>
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
+      );
+      // The finishing transaction rebuilds the turn from the recorded event
+      // log, so this proves the durable path as well as the live one.
+      const turn = repositories.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+      const types = (turn?.parts ?? []).map((part) =>
+        isRecord(part) ? part['type'] : undefined,
+      );
+      expect(types).toEqual(['text']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  const bypassDecision: PermissionDecision = {
+    policyId: 'test-policy',
+    decision: 'allow' as const,
+    reason: 'permission_mode_bypass' as const,
+    reference: null,
+  };
+
+  /** A stubbed web `read` that reports one derived hop decision. */
+  function stubWebRead(
+    page: string,
+    options: {
+      readonly hop?: PermissionDecision;
+      readonly representation?: 'raw' | 'outline';
+      readonly content: string;
+    },
+  ) {
+    return vi.spyOn(nativeReadTool, 'execute').mockImplementation((context) => {
+      if (options.hop !== undefined) {
+        context.onDerivedDecision?.({
+          kind: 'hop',
+          url: 'https://example.test/final',
+          decision: options.hop,
+        });
+      }
+      return Promise.resolve({
+        status: 'success' as const,
+        kind: 'file' as const,
+        path: page,
+        representation: options.representation ?? ('raw' as const),
+        content: options.content,
+        requestedRange: null,
+        shownRange: { startLine: 1, endLine: 1 },
+        truncated: false,
+      });
+    });
+  }
+
+  it.each([
+    ['default', allowDecision('read'), 'matched_allow'],
+    ['bypass', bypassDecision, 'permission_mode_bypass'],
+  ] as const)(
+    'records the derived decisions of a web import on its completion in %s mode',
+    async (mode, hop, reason) => {
+      const { repositories, append, events } = serveRepositories();
+      repositories.markStarted.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+        permissionMode: mode,
+      });
+      const read = stubWebRead('https://example.test/page', {
+        hop,
+        content: 'web body',
+      });
+      const execution = serviceFor(['read'], undefined, undefined, [
+        'default',
+        'bypass',
+      ]);
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'see @https://example.test/page'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(read).toHaveBeenCalledOnce();
+      const completion = importEvents(events).find(
+        ({ type }) => type === 'tool.completed',
+      );
+      expect(completion?.payload).toMatchObject({
+        origin: 'prompt-import',
+        status: 'success',
+        derivedDecisions: [{ kind: 'hop', decision: 'allow', reason }],
+      });
+      expect(append.mock.calls[0]?.[0].item.data.payload).toMatchObject({
+        imports: [
+          { locator: 'https://example.test/page', outcome: 'imported' },
+        ],
+      });
+    },
+  );
+
+  it('imports the outline of a web page for an :outline marker', async () => {
+    const { append } = serveRepositories();
+    const locator = 'https://github.com/leon0399/llame/issues/1029:outline';
+    const read = stubWebRead(locator, {
+      representation: 'outline',
+      content: '# Import markers\n## Targets\n## Bounds',
+    });
+    const execution = serviceFor(['read'], undefined, undefined);
+
+    const result = await execution.service.executeRun(
+      promptInput(execution.client, `see @${locator}`),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(read).toHaveBeenCalledOnce();
+    expect(read.mock.calls[0]?.[1]).toEqual({ path: locator });
+    const item = append.mock.calls[0]?.[0].item;
+    expect(item?.data.payload).toMatchObject({
+      imports: [{ locator, outcome: 'imported' }],
+    });
+    expect(item?.data.text).toContain(`<file path="${locator}">`);
+    expect(item?.data.text).toContain('# Import markers');
+    expect(item?.data.text).toContain('## Bounds');
+  });
+
+  it('records the bypass decision on a prompt import', async () => {
+    const root = repoRoot();
+    try {
+      const { repositories, events } = serveRepositories();
+      repositories.markStarted.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+        permissionMode: 'bypass',
+      });
+      bindChat(root);
+      const execution = serviceFor(
+        ['enter_workspace', 'read'],
+        undefined,
+        undefined,
+        ['default', 'bypass'],
+      );
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(requestFor(events, `${root}/README.md`)).toMatchObject({
+        permission: { decision: 'allow', reason: 'permission_mode_bypass' },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reads again with a fresh admission when an earlier attempt persisted no item', async () => {
+    const root = repoRoot();
+    try {
+      const { repositories, find, append, events } = serveRepositories();
+      bindChat(root);
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const attemptIds = [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ];
+      // The first attempt read the target, but its item never reached the
+      // message, so `find` still reports nothing for the retry.
+      for (const attemptId of attemptIds) {
+        repositories.markStarted.mockResolvedValue({
+          ...run,
+          activeAttemptId: attemptId,
+        });
+        const execution = serviceFor(['enter_workspace', 'read']);
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, 'check @README.md'),
+        );
+        await expect(result.text).resolves.toBe('answer');
+      }
+
+      expect(find).toHaveBeenCalledTimes(2);
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(append).toHaveBeenCalledTimes(2);
+      const requests = importEvents(events).filter(
+        ({ type }) => type === 'tool.requested',
+      );
+      expect(requests.map(({ payload }) => callIdOf(payload))).toEqual(
+        attemptIds.map((attemptId) => `prompt-import-${runId}-${attemptId}-0`),
+      );
+      for (const request of requests) {
+        expect(request.payload).toMatchObject({
+          permission: { decision: 'allow' },
+        });
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('runs each import read under the Run abort and the work budget', async () => {
+    const { append } = serveRepositories();
+    const signals: Array<AbortSignal | undefined> = [];
+    vi.spyOn(nativeReadTool, 'execute').mockImplementation((context) => {
+      signals.push(context.abortSignal);
+      return Promise.resolve({
+        status: 'success' as const,
+        kind: 'file' as const,
+        path: 'https://example.test/page',
+        representation: 'raw' as const,
+        content: 'web body',
+        requestedRange: null,
+        shownRange: { startLine: 1, endLine: 1 },
+        truncated: false,
+      });
+    });
+    const execution = serviceFor(['read'], undefined, undefined);
+    const controller = new AbortController();
+
+    const result = await execution.service.executeRun({
+      ...promptInput(execution.client, 'see @https://example.test/page'),
+      abortSignal: controller.signal,
+    });
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(append).toHaveBeenCalledOnce();
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(false);
+    controller.abort();
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it('cuts off prompt imports when the Knowledge probe is cancelled', async () => {
+    const { append } = serveRepositories();
+    const spaceId = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
+    const resolver: KnowledgeToolResolver = {
+      listForOwnerPage: () => Promise.resolve({ spaces: [] }),
+      resolveBindingForOwnerById: () =>
+        Promise.resolve({
+          id: spaceId,
+          root: '/knowledge',
+          directory: `/knowledge/${spaceId}`,
+        }),
+      createAdapter: () => ({
+        search: () => Promise.resolve([]),
+        resolveHostPath: () =>
+          Promise.reject(new KnowledgeFilesystemError('knowledge_cancelled')),
+        isInsideSpace: () => Promise.resolve(true),
+      }),
+    };
+    const read = vi.spyOn(nativeReadTool, 'execute');
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        allowed: ['read'],
+        knowledgeRoot: '/knowledge',
+        knowledgeResolver: resolver,
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      promptInput(
+        execution.client,
+        `see @kb://${spaceId}/cancel.md @kb://${spaceId}/later.md @https://example.test/after`,
+      ),
+    );
+    await expect(result.text).resolves.toBe('answer');
+
+    expect(read).not.toHaveBeenCalled();
+    expect(append).toHaveBeenCalledOnce();
+    expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+      imports: [],
+      omitted: ['https://example.test/after'],
+    });
+  });
+
+  it('replays a stored item on a detaching retry without reading again', async () => {
+    const root = repoRoot();
+    try {
+      const { find, append, events } = serveRepositories();
+      bindChat(root, 'gone-host');
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'detach',
+      ).mockResolvedValue('detached');
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        {
+          ...userMessage,
+          parts: [
+            storedImportItem(root),
+            { type: 'text', text: 'check @README.md' },
+          ],
+        },
+      ]);
+      const read = vi.spyOn(nativeReadTool, 'execute');
+      const execution = serviceFor(['enter_workspace', 'read']);
+      const stream = vi.spyOn(execution.client, 'streamText');
+
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'check @README.md'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+
+      expect(find).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+      expect(append).not.toHaveBeenCalled();
+      expect(importEvents(events)).toEqual([]);
+      expect(JSON.stringify(stream.mock.calls[0]?.[0].messages)).toContain(
+        'stored body',
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

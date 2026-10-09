@@ -102,7 +102,7 @@ export class ActivationPartsRepository {
     items: ReadonlyArray<AuthoredContextItemPart>;
   }): Promise<{ readonly applied: boolean }> {
     if (input.items.length === 0) return { applied: false };
-    const parts = await this.lockParts(input);
+    const parts = await lockParts(this.db, input);
     if (parts === undefined) return { applied: false };
 
     // Per-ITEM idempotence, not per-Run. A retry legitimately produces items the
@@ -141,7 +141,7 @@ export class ActivationPartsRepository {
     );
     if (insert.length === 0 && rewritten === parts) return { applied: false };
 
-    const index = railInsertionIndex(rewritten);
+    const index = railInsertionIndex(rewritten, ACTIVATION_RANK);
     const [updated] = await this.db
       .update(messages)
       .set({
@@ -155,24 +155,24 @@ export class ActivationPartsRepository {
       .returning({ id: messages.id });
     return { applied: updated !== undefined };
   }
+}
 
-  /** The message's stored parts, with the row locked for this read and write. */
-  private async lockParts(input: {
-    id: string;
-    chatId: string;
-  }): Promise<ReadonlyArray<unknown> | undefined> {
-    const [row] = await this.db
-      .select({ parts: messages.parts })
-      .from(messages)
-      .where(messageOwner(input))
-      .for('update');
-    if (row === undefined) return undefined;
-    return Array.isArray(row.parts) ? row.parts : [];
-  }
+/** The message's stored parts, with the row locked for this read and write. */
+export async function lockParts(
+  db: Db,
+  input: { id: string; chatId: string },
+): Promise<ReadonlyArray<unknown> | undefined> {
+  const [row] = await db
+    .select({ parts: messages.parts })
+    .from(messages)
+    .where(messageOwner(input))
+    .for('update');
+  if (row === undefined) return undefined;
+  return Array.isArray(row.parts) ? row.parts : [];
 }
 
 /** The owner-scoped predicate every read and write here shares. */
-function messageOwner(input: { id: string; chatId: string }) {
+export function messageOwner(input: { id: string; chatId: string }) {
   return and(
     eq(messages.id, input.id),
     eq(messages.chatId, input.chatId),
@@ -310,11 +310,19 @@ function storedIdentities(
   return identities;
 }
 
-function railInsertionIndex(parts: ReadonlyArray<unknown>): number {
+/**
+ * The first position whose part is user text, an unrecognized producer (kept
+ * "after ours" so a newer revision's items keep the position it chose), or a
+ * producer ranked after `rank` — where an item of that rank belongs.
+ */
+export function railInsertionIndex(
+  parts: ReadonlyArray<unknown>,
+  rank: number,
+): number {
   for (const [index, part] of parts.entries()) {
     if (!isContextItemPart(part)) return index;
-    const rank = producerRank(part.data.producer);
-    if (rank === -1 || rank > ACTIVATION_RANK) return index;
+    const partRank = producerRank(part.data.producer);
+    if (partRank === -1 || partRank > rank) return index;
   }
   return parts.length;
 }

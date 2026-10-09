@@ -151,12 +151,12 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 5. `import-markers/prompt-imports`: imports in the owner prompt
 
-- [ ] 5.1 Add origin `prompt-import` to the system-origin union and validator and
+- [x] 5.1 Add origin `prompt-import` to the system-origin union and validator and
       `prompt-imports` to the producer order after `skill-activation` (design D6, D8). Verify
       that system-origin `prompt-import` activity never becomes an assistant tool part live,
       after reconstruction from the event log, or after recovery, and the producer-order
       scenario of `context-injection`.
-- [ ] 5.2 Add the prompt-import stage after the binding re-check and explicit activation,
+- [x] 5.2 Add the prompt-import stage after the binding re-check and explicit activation,
       skipped on a detaching attempt through a new `detaching` flag on the Workspace
       preparation result: resolution against the bound Workspace, the 64-marker
       probe cap, silent `read`-group pre-evaluation before probing, the literal-path-first
@@ -175,22 +175,22 @@ Re-estimate authored size at each layer boundary and before publication; split a
       prose with no audit, a denied read named as not imported, a detaching attempt importing
       nothing, and a detaching retry replaying an earlier attempt's persisted item without
       new reads.
-- [ ] 5.3 Route `prompt-import` web reads through the system-read derived-decision sink added
+- [x] 5.3 Route `prompt-import` web reads through the system-read derived-decision sink added
       in 3.1, so every derived web decision is recorded in its completion audit (design D6). Verify a
       redirected web import records each hop decision, in `default` and in `bypass`.
-- [ ] 5.4 Persist and recover through a repository mirroring the activation parts
+- [x] 5.4 Persist and recover through a repository mirroring the activation parts
       repository, so a retry or worker resumption reuses completed results and gives
       unfinished targets a fresh admission and read (design D6). Verify with an integration
       test that fails an attempt after persistence and observes no second read on retry, and
       one that resumes a started but unfinished read.
-- [ ] 5.5 Add `docs/product/reference/prompt-imports.md`, link it from
+- [x] 5.5 Add `docs/product/reference/prompt-imports.md`, link it from
       `docs/product/reference/index.md` and `docs/product/reference/tools/read.md`, update the
       `SPEC.md` context-rail lines, and add a dated `CHANGELOG.md` entry. Run
       `pnpm --filter api lint`, `typecheck`, and `test:coverage`, the focused integration
       files touched above, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR
       body.
-- [ ] 5.6 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 5.6 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 5.7 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `prompt-import-triggers`.

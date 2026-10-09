@@ -19,13 +19,19 @@
 import { isRecord } from '@workspace/runtime-safety';
 
 /** The trusted origin of one tool call. Absent means model-origin. */
-export type ToolActivityOrigin = 'skill-activation' | 'instructions';
+export type ToolActivityOrigin =
+  | 'skill-activation'
+  | 'instructions'
+  | 'prompt-import';
 
 /** The run loop reading a package the user named with `$name`. */
 export const ORIGIN_SKILL_ACTIVATION: ToolActivityOrigin = 'skill-activation';
 
 /** The run loop reading a candidate instruction file a trigger named. */
 export const ORIGIN_INSTRUCTIONS: ToolActivityOrigin = 'instructions';
+
+/** The run loop reading a prompt marker through the native `read` tool. */
+export const ORIGIN_PROMPT_IMPORT: ToolActivityOrigin = 'prompt-import';
 
 /**
  * Whether a durable event payload records a system-origin call.
@@ -38,6 +44,7 @@ export function isSystemOriginPayload(payload: unknown): boolean {
   if (!isRecord(payload)) return false;
   return (
     payload['origin'] === ORIGIN_SKILL_ACTIVATION ||
-    payload['origin'] === ORIGIN_INSTRUCTIONS
+    payload['origin'] === ORIGIN_INSTRUCTIONS ||
+    payload['origin'] === ORIGIN_PROMPT_IMPORT
   );
 }

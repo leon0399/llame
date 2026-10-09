@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  CONTEXT_ITEM_PRODUCERS,
   CONTEXT_ITEM_PROVENANCE,
   createContextItemPart,
   isContextItemPart,
@@ -154,6 +155,15 @@ describe('vocabulary tolerance', () => {
     expect(isContextItemPart(part)).toBe(true);
     expect(isRecognizedProducer('from-a-newer-api')).toBe(false);
     expect(isRecognizedProducer('tool-availability')).toBe(true);
+  });
+});
+
+describe('producer precedence', () => {
+  it('places prompt imports immediately after skill activation', () => {
+    const activation = CONTEXT_ITEM_PRODUCERS.indexOf('skill-activation');
+    const promptImports = CONTEXT_ITEM_PRODUCERS.indexOf('prompt-imports');
+
+    expect(promptImports).toBe(activation + 1);
   });
 });
 
