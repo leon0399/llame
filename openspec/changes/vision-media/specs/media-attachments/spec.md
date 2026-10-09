@@ -145,7 +145,7 @@ reference that would exceed either bound, and every older one, SHALL be outside 
 
 ### Requirement: A text-only model receives an omitted placeholder for every image
 
-When the request's model does not declare `image` in its `input`, every media reference SHALL reach
+When the request's model does not declare `image` in its `input`, every resolvable media reference SHALL reach
 the model, in the image's position and after any `Image n (media://<id>):` label, as
 `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`, where `<name>` is the media's stored, neutralized name and the dimensions are the original's.
 
@@ -160,15 +160,16 @@ the model, in the image's position and after any `Image n (media://<id>):` label
 #### Scenario: A text-only model is never told to read an image
 
 - **WHEN** a text-only model's request carries more image references than the image window admits
-- **THEN** every reference, inside or outside the window, uses the `omitted: this model has no image
-input` form
+- **THEN** every resolvable reference, inside or outside the window, uses the `omitted: this model has
+no image input` form, and an unresolvable one keeps `[image media://<id> unavailable]`
 - **AND** no placeholder in the request contains `read the locator`
 
 ### Requirement: An image outside the window tells a vision model to read it
 
 For a model that declares `image`, a reference outside the image window SHALL reach the model, in
 the image's position and after any label, as
-`[image media://<id> <name> <width>×<height>, not attached; read the locator to view it]`, with the same name and dimensions.
+`[image media://<id> <name> <width>×<height>, not attached; read the locator to view it]` when the
+request offers `read`, and as `[image media://<id> <name> <width>×<height>, not attached]` otherwise, with the same name and dimensions.
 
 #### Scenario: An out-of-window image tells a vision model to read it
 
@@ -176,6 +177,14 @@ the image's position and after any label, as
   1600×900
 - **THEN** the oldest reaches the model as
   `[image media://<id> shot.png 1600×900, not attached; read the locator to view it]`
+
+#### Scenario: A request without read is not told to read
+
+- **WHEN** a vision-model request that offers no `read` tool, such as a compaction request or a Run
+  under an empty `tools.allowed`, carries an image reference outside the window
+- **THEN** that reference reaches the model as `[image media://<id> <name> <width>×<height>, not
+attached]`
+- **AND** no placeholder in the request contains `read the locator`
 
 ### Requirement: Unresolvable media references never fail a request
 
@@ -252,15 +261,15 @@ for references inside its window, never for an out-of-window reference.
 
 ### Requirement: Title generation receives image placeholders
 
-The title-generation input SHALL be the first message's text followed by one line per file part of
-that message, in stored order, of the form `[image media://<id> <name> <width>×<height>]`. Title
-generation SHALL receive no image bytes. A first message carrying only file parts SHALL produce a
+The title-generation input SHALL be the titled turn's user message text followed by one line per file
+part of that message, in stored order, of the form `[image media://<id> <name> <width>×<height>]`.
+Title generation SHALL receive no image bytes. A message carrying only file parts SHALL produce a
 title input made of those lines.
 
 #### Scenario: An image-only first message can be titled
 
-- **WHEN** the first message of a chat carries one file part for a 1600×900 PNG named `shot.png` and no
-  text
+- **WHEN** an untitled chat's turn is triggered by a user message carrying one file part for a
+  1600×900 PNG named `shot.png` and no text
 - **THEN** the title-generation input is `[image media://<id> shot.png 1600×900]`
 - **AND** the title request contains no image part
 
@@ -278,7 +287,8 @@ summary mentions, so a later turn can read that image again after its message is
   compactable prefix carries more image references than the image window admits
 - **THEN** the summary request carries the references inside the window as image parts built from
   their model variants, in the positions the Run's own request would use
-- **AND** every older reference appears as its placeholder text
+- **AND** every older reference appears as `[image media://<id> <name> <width>×<height>, not
+attached]`, because the summary request offers no `read`
 
 #### Scenario: A text-only summarizer receives placeholders
 

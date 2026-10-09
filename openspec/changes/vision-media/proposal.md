@@ -180,7 +180,7 @@ Deliberately unchanged:
 
 ## Impact
 
-- `apps/api/src/db`: `media_objects` and `media_blobs` schema, one migration, RLS provisioning.
+- `apps/api/src/db`: `media_objects` and `media_blobs` schema and one migration with owner RLS policies.
 - `apps/api/src/media` (new): ingest, routes, and the `media://` resolver.
 - `apps/api/src/chats`: DTO, loop validation, conversion boundary, tool observation replay.
 - `apps/api/src/tools`: native read, web read, and `media://` dispatch.
