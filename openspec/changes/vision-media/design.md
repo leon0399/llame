@@ -166,6 +166,14 @@ web chat preserves paste position, and a plain `<textarea>` cannot keep a placeh
 `models[].input` is an optional array over the closed set `text`, `image`; it must contain `text` and no
 duplicates. Absent means `["text"]`. `GET /api/v1/models` always publishes `input`.
 
+One pure admission function decides the epoch window: given the request's media references in order
+and their descriptors, it returns which are attached. Request preparation calls it before the
+pre-step compaction trigger (`evaluateCompactionTrigger`), so the trigger sees the same
+not-attached result the request will carry; the step composer calls the same function on each step's
+references. Because admission is oldest first and append-only, both calls agree on every reference
+the earlier call saw. The conversion boundary (`buildContext`) keeps media references as stored and
+maps none of them to bytes; the composer is the only place that emits image parts or placeholders.
+
 One step composer builds every Run request and compaction request, including each step of a Run.
 Title generation calls `generateText` directly (`generateToolBoundObject`,
 `openai-model-client.ts:706-717`) and never reaches the composer; it receives the placeholder lines of
