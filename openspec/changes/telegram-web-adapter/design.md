@@ -173,7 +173,7 @@ Rejected:
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
 | `/c/…` locator, `?q=`, conflicting or malformed cursor                                                                                                     | `address`, before any request     |
 | widget error element ("Post not found", unknown name), or a widget service message                                                                         | `empty`                           |
-| preview `finalUrl` path is not `/s/{name}` (user, bot, group, unknown name)                                                                                | `status`                          |
+| preview `finalUrl` path is not `/s/{name}` (user, bot, group, unknown name), or either final URL is not on `https://t.me`                                  | `status`                          |
 | widget 200 without a message or error element; preview 200 without the channel header, or with neither a post element nor the "No posts found" placeholder | `parse`                           |
 | transport, status, rate limit, size                                                                                                                        | existing `primaryFailure` mapping |
 
@@ -290,6 +290,9 @@ restores generic-ladder behavior. No data or API changes.
 
 ## Revision history
 
+- **r5 (2026-10-09):** GitHub review. A post or channel response whose final
+  URL left `https://t.me` after an admitted redirect falls through as
+  `status`, so another host's body is never rendered as Telegram content.
 - **r4 (2026-10-08):** GitHub review. A preview with a header but neither a
   post element nor the "No posts found" placeholder is `parse`, so markup
   drift falls through instead of rendering a header-only page.
