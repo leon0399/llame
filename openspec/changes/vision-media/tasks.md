@@ -36,12 +36,6 @@ it is marked ready, and monitored per [CONTRIBUTING.md](../../../CONTRIBUTING.md
 
 Dependencies and budget:
 
-- `prompt-import-images` needs the `import-markers` implementation (#1146 and its layers) on `master`.
-  If that has not merged when `vision-read-web` is ready, move `prompt-import-images` to the top of
-  the stack, below `finalize`. `Closes #935` then moves with it, because that layer completes the
-  acceptance.
-- `finalize` runs after `import-markers/finalize`, so `prompt-imports` exists when this change's
-  ADDED requirements sync.
 - `vision-read-local` fails closed on the Chat Completions wires: until `vision-read-completions`
   lands, a tool-result image reaches an `openai-completions` or `opencode-go` model as its
   placeholder, never as base64 text. Comparable shipped layers ran above estimate (#1134, GitHub read
@@ -58,8 +52,10 @@ Each layer leaves the repository shippable:
 - After `media-store`, media can be uploaded and fetched, but nothing references it.
 - After `attachments-api`, the API accepts and replays attachments.
 - After `vision-read-local`, `read` returns images on every non-web locator.
-- The web client gains attachments in `composer`.
-- The web client renders them in history in `previews-lightbox`.
+- From `attachments-api` until `composer`, the web transcript withholds `file` parts rather than
+  printing its "unsupported part type" fallback.
+- The web client gains attachments and read-only sent-message thumbnails in `composer`.
+- `previews-lightbox` adds the lightbox and the read-tool and prompt-import thumbnails.
 
 Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
@@ -84,7 +80,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 ## 2. `vision-media/model-input` — input declaration and owner-attachment projections (design D6, D9)
 
 - [ ] 2.1 Add `models[].input` to the raw and resolved config, the published schema, the loader (closed set, must contain `text`, no duplicates, default `["text"]`), and `llame.config.jsonc.example`; publish `input` on every `GET /api/v1/models` entry; verify by loader tests for each `instance-config` scenario and an API test for the `available-models` scenarios
-- [ ] 2.2 Add the step composer in the clients' shared `prepareStep` composition, fed by a per-Run media resolver loaded under the Run owner's identity, and map stored owner `file` parts through it: labels and image parts after rail items and the temporal row and before the text, model variants loaded under the Run owner's identity, the image window (20 images, 24 MiB base64, newest first), placeholders for out-of-window images, non-vision models, and unresolvable ids; verify by unit tests seeding stored owner `file` parts for the `media-attachments` projection, window, placeholder, and unresolvable-reference scenarios and the `context-injection` conversion scenarios that involve owner `file` parts
+- [ ] 2.2 Add the step composer, run on every model request: in the clients' shared `prepareStep` composition when tools exist, and once on the initial messages before `streamText` when they do not (including compaction without tool declarations); feed it a per-Run media resolver passed on `ModelStreamInput` and loaded under the Run owner's identity, and map stored owner `file` parts through it: labels and image parts after rail items and the temporal row and before the text, model variants loaded under the Run owner's identity, the image window (20 images, 24 MiB base64, newest first), placeholders for out-of-window images, non-vision models, and unresolvable ids; verify by unit tests seeding stored owner `file` parts for the `media-attachments` projection, window, placeholder, and unresolvable-reference scenarios and the `context-injection` conversion scenarios that involve owner `file` parts; also verify that a tool-less Run and a compaction without tool declarations both carry an owner attachment as an image part
 - [ ] 2.3 Size image references by `ceil(width × height / 750)` on the model variant in every admission and compaction estimate, excluding image bytes, with `estimateProjectionTokens`, `estimateContinuationTokens`, and the context-window fit check taking the per-Run resolver's descriptor map; verify by unit tests for the `media-attachments` sizing scenarios, including one maximum-size screenshot admitted on a 200,000-token model
 - [ ] 2.4 Carry owner attachments through model switches, append placeholder lines in `conversation_read`, give title generation the placeholder lines, add the `media://` retention line to the summarization instruction, carry attachments into compaction requests, and omit `file` parts from shared and public forks; verify by unit tests for the `conversation-reads` and `owner-chat-forks` scenarios, the owner-attachment scenarios of the `model-system-prompts` model-switch requirement and the `media-attachments` compaction requirement, a test that search chunking ignores placeholder lines, and a test for the `media-attachments` scenario "An image-only first message can be titled"
 - [ ] 2.5 Document `models[].input` in `README.md` and the operator media runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
@@ -94,7 +90,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
 ## 3. `vision-media/attachments-api` — owner file parts (design D5)
 
-- [ ] 3.1 Accept up to 10 `file` parts with `media://` URLs on the owner send DTO, verify ownership under the sender's identity, rewrite `mediaType` and `filename` from the descriptor, allow a message with file parts and no text, and apply the same rule to the `context-injection` and `temporal-anchor` service-level checks; regenerate the OpenAPI document and client; verify by API integration tests for an image-only message, 11 parts refused, another owner's id refused before any message row, and a mislabelled `mediaType` rewritten, and by unit tests for the image-only scenarios of the `context-injection` metadata requirement and the `temporal-anchor` forged-row requirement
+- [ ] 3.1 Accept up to 10 `file` parts with `media://` URLs on the owner send DTO, verify ownership under the sender's identity, rewrite `mediaType` and `filename` from the descriptor, allow a message with file parts and no text, and apply the same rule to the `context-injection` and `temporal-anchor` service-level checks; make the web transcript withhold `file` parts (no "unsupported part type" fallback); regenerate the OpenAPI document and client; verify by API integration tests for an image-only message, 11 parts refused, another owner's id refused before any message row, and a mislabelled `mediaType` rewritten, and by unit tests for the image-only scenarios of the `context-injection` metadata requirement and the `temporal-anchor` forged-row requirement
 - [ ] 3.2 Prove the end-to-end path with the scripted model client: an uploaded image sent in a message reaches the model request as a labelled image part before the text, survives retry and fork, and becomes a placeholder for a text-only model; verify by an integration test
 - [ ] 3.3 Document the message `file` part and image-only messages in `docs/product/operator/media.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [ ] 3.4 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, the touched integration suites, and a clean second OpenAPI generation
@@ -129,8 +125,8 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
 ## 7. `vision-media/prompt-import-images` — image entries (design D8)
 
-- [ ] 7.1 Turn an admitted prompt-import image result into an image entry whose body is the native image result envelope, accept `media://` targets, of the `prompt-imports` item, counted toward the 8-target bound and outside the 128 KiB text bound, emitted as an image part after the item text, and reused on recovery; record provenance `prompt-import` for images ingested by a read with that system origin; verify by tests for every scenario of both `prompt-imports` requirements this change adds and the `native-file-tools` scenario "A prompt-import read records prompt-import provenance"
-- [ ] 7.2 Update the prompt-imports reference page shipped by `import-markers`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [ ] 7.1 Turn an admitted prompt-import image result into an image entry of the `prompt-imports` item whose body is the native image result envelope, counted toward the 8-target bound and outside the 128 KiB text bound, emitted as an image part or placeholder after the item text, and reused on recovery; accept `media://` targets under the host and Knowledge denial and bound rules; record the entry's `media` locator in the payload and accept that key in the exact-key payload validator; add the system-read origin to `ToolContext` so ingest can record provenance `prompt-import`; verify by tests for every scenario of both `prompt-imports` requirements this change adds and the `native-file-tools` scenario "A prompt-import read records prompt-import provenance"
+- [ ] 7.2 Update `docs/product/reference/prompt-imports.md` or the page that documents prompt imports; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [ ] 7.3 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites
 - [ ] 7.4 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 7.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
@@ -138,7 +134,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 ## 8. `vision-media/composer` — attaching images (design D10)
 
 - [ ] 8.1 Add the thumbnail component to `packages/ui` (square `rounded-xl`, remove on hover and focus, progress and error overlays with retry, drag and `Alt+←/→` reorder) with stories for each state; verify with Storybook MCP story tests and return preview URLs, or the Storybook CLI fallback when MCP is unavailable
-- [ ] 8.2 Wire paste, the file picker, and drag-and-drop into the composer with immediate upload, the 10-image cap, send disabled while uploading, `file` parts sent in thumbnail order, and the text-only-model block from the published `input`; leave the existing composer, toolbar, and bubble designs unchanged; verify by component tests and by exercising paste, pick, drop, reorder, retry, and the model block in a browser against a local API
+- [ ] 8.2 Wire paste, the file picker, and drag-and-drop into the composer with immediate upload, the 10-image cap, send disabled while uploading, `file` parts sent in thumbnail order, and the text-only-model block from the published `input`; render read-only thumbnails above sent user bubbles (rewriting `media://<id>` to the `/model` route); leave the existing composer, toolbar, and bubble designs unchanged; verify by component tests and by exercising paste, pick, drop, reorder, retry, and the model block in a browser against a local API
 - [ ] 8.3 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [ ] 8.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, and the `packages/ui` checks
 - [ ] 8.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
@@ -147,7 +143,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 ## 9. `vision-media/previews-lightbox` — history thumbnails and viewer (design D10, D11)
 
 - [ ] 9.1 Add `yet-another-react-lightbox` with the Zoom plugin to `packages/ui`, wrapped once with `scrollToZoom: true` and `maxZoomPixelRatio: 8`, themed with semantic tokens, with the original/model toggle and caption; add stories; verify with Storybook story tests that plain wheel zoom (also on an image smaller than the viewport), arrow navigation, `Escape`, and the toggle work and focus returns to the opener
-- [ ] 9.2 Render read-only thumbnails above sent user bubbles and in the `read` tool card and prompt-import chip, and open the lightbox over every image of the chat in transcript order (composer-only when opened from the composer); verify by component tests and in a browser across reload, a fork, and an image-only message
+- [ ] 9.2 Render thumbnails in the `read` tool card and the prompt-import chip, and open the lightbox over every image of the chat in transcript order (composer-only when opened from the composer); verify by component tests and in a browser across reload, a fork, and an image-only message
 - [ ] 9.3 Add a focused product E2E test: paste an image, send it to a scripted vision model, reload, open the lightbox, and switch variants; update the user-facing reference; add the dated `CHANGELOG.md` entry; this layer's PR carries `Closes #935`; verify `pnpm lint:markdown` and `pnpm format:check`
 - [ ] 9.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, the `packages/ui` checks, and the focused E2E spec
 - [ ] 9.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
@@ -155,8 +151,8 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
 ## 10. `vision-media/finalize` — spec sync and archive
 
-Enter this layer with `$gh-stack` from the implementation top, after `import-markers/finalize` has
-merged, and before `$openspec-sync-specs` writes. Its self-review and GitHub review are post-archive
+Enter this layer with `$gh-stack` from the implementation top, before `$openspec-sync-specs`
+writes. Its self-review and GitHub review are post-archive
 gates, not tasks here.
 
 - [ ] 10.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass

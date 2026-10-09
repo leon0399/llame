@@ -179,7 +179,9 @@ carry the complete final canonical envelope beneath `data.text` like every
 other persisted item. It SHALL NOT need a second storage shape to preserve its
 semantic form.
 
-`data.text` SHALL be the sole replay authority. Producer, form, Run linkage,
+`data.text` SHALL be the sole replay authority, except that the conversion
+boundary emits the image parts or placeholders of a `prompt-imports` item from
+the `media` locators in its payload, after `data.text`. Producer, form, Run linkage,
 and payload SHALL remain non-rendering metadata for validated machine behavior,
 owner UI, provenance, and inspection. A metadata/text disagreement SHALL NOT
 cause text to be regenerated: text wins for model replay, while metadata

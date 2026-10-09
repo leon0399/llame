@@ -11,22 +11,24 @@ See proposal.md (Why). State at `fc06bdba` (master):
   length / 4 (`apps/api/src/compaction/compaction.ts:112-135`), already excluding replayed reasoning
   metadata. Base64 image data counted that way would make one 1 MiB screenshot about 350k tokens.
 - Web reads accept text media types only and reject `image/png` as `unsupported_content_type` before
-  reading the body (`apps/api/src/tools/web-read/http-client.ts:96-151,278-296`), pinned by
+  reading the body (`TEXT_MEDIA_TYPE` and `unsupportedContentType` in
+  `apps/api/src/tools/web-read/http-client.ts:113-115,286-297`), pinned by
   `native-file-tools` "Web reads accept text bodies only".
 - Tool results replay as `{ type: 'text' }` outputs (`apps/api/src/chats/tool-observation-part.ts:220-265`),
   bounded in UTF-16 code units (`tool-calling` "Tool observations survive into later turns as stored UI
   parts": 8,000 per pair, 32,000 per stored turn).
 - The owner send DTO accepts 1–50 text parts of at most 20,000 characters
-  (`apps/api/src/chats/dto/chats.dto.ts:146-249`), and the loop rejects a message with no text part
-  (`apps/api/src/chats/chat-loop.service.ts:199-210`). No spec states these limits.
+  (`apps/api/src/chats/dto/chats.dto.ts:165-235`), and the loop rejects a message with no text part
+  (`apps/api/src/chats/chat-loop.service.ts:200-212`). No spec states these limits.
 - `models[]` declares no input modality (`apps/api/src/instance-config/llame.config.schema.json:434-531`).
 - No blob, upload, or object-storage code exists; `messages.attachments` is an unused JSONB column
   (`apps/api/src/db/schema/chats.ts:237-241`). The API and a dedicated worker share Postgres and no
-  filesystem except Knowledge mounts (`docs/product/operator/scaling.md:10-21,83-93`).
+  filesystem except Knowledge mounts (`docs/product/operator/scaling.md:10-21,121-127`).
 - The web client sends `sendMessage({ text })` through AI SDK `useChat`
   (`apps/web/app/(chat)/components/use-chat-conversation.ts:27-66`) with cookie credentials; the session
   cookie is `SameSite=Lax` (`apps/api/src/auth/auth.controller.ts:246`). `packages/ui` has a
-  `MessageAttachment` primitive with 24 px image thumbnails (`ai-elements/message.tsx:351-473`) and no
+  `MessageAttachment` primitive with 96 px image thumbnails that render `<img src={data.url}>`
+  (`ai-elements/message.tsx:358-383`) and no
   lightbox.
 - Installed adapters: `ai@6.0.256`, `@ai-sdk/openai@3.0.97`, `@ai-sdk/anthropic@3.0.118`,
   `@ai-sdk/openai-compatible@2.0.75`. The Responses and Messages adapters convert a tool output of
@@ -144,7 +146,7 @@ An owner message may carry up to 10 AI SDK `file` parts `{ type: 'file', mediaTy
 sender, then rewrites `mediaType` and `filename` from the stored descriptor, so the client cannot
 mislabel an object. A message needs at least one text part or one file part; text bounds are
 unchanged. File parts are stored in thumbnail order. Using the AI SDK part shape lets `useChat`
-send files and the existing `MessageAttachment` primitive render them.
+send files; the web client rewrites `media://<id>` to the `/model` route before rendering (D10).
 
 Rejected: placeholders in the text (`[Image 1]`) and interleaved parts at the paste position. No shipped
 web chat preserves paste position, and a plain `<textarea>` cannot keep a placeholder token whole.
@@ -161,11 +163,15 @@ response messages and rebuilds every step as initial plus response messages
 (`ai/dist/index.mjs:7723-7741`, `responseMessages.push` at `:8191`), so bytes returned there would
 stay in worker memory for the whole Run while only 20 images are ever sent.
 
-The composer runs in the clients' shared `prepareStep` composition (`applyToolCallingOptions`), on
-the final messages after the `onStepStart` override that in-Run context items use, so that splice's
-recorded prefix index (`in-run-context-items.ts:154`) is computed before any transform. It takes a
-per-Run media resolver, loaded under the Run owner's identity, that returns each reference's
-descriptor (name, original and variant dimensions) and loads variant bytes on demand. For each step:
+The composer runs on every model request, whether or not it offers tools. With tools, it runs in the
+clients' shared `prepareStep` composition, on the final messages after the `onStepStart` override
+that in-Run context items use, so that splice's recorded prefix index (`in-run-context-items.ts:154`)
+is computed before any transform. Without tools (the default `tools.allowed: []`, and compaction
+when no tool declarations exist), `applyToolCallingOptions` returns before installing `prepareStep`
+(`openai-model-client.ts:145-149`), so the composer is applied once to the initial messages before
+`streamText`. It takes a per-Run media resolver, passed on `ModelStreamInput` and loaded under the
+Run owner's identity, that returns each reference's descriptor (name, original and variant
+dimensions) and loads variant bytes on demand. For each step:
 
 - **Owner file parts.** Within one user message, after context rail items and the temporal row and
   before the owner's text, each file part becomes a label text part `Image n (media://<id>):` followed
@@ -212,7 +218,7 @@ the file (D2) with provenance `prompt-import` when the read's system origin is `
 
 ```json
 {
-  "status": "ok",
+  "status": "success",
   "kind": "image",
   "media": "media://<id>",
   "mediaType": "image/png",
@@ -243,9 +249,14 @@ An admitted prompt-import target whose native `read` returns an image becomes an
 `prompt-imports` item, followed in the request by the image part or placeholder from D6. Image entries
 count toward the 8-target bound; their bytes do not count toward the
 128 KiB output bound, which measures the item's text. Recovery reuses the persisted media id like a
-persisted text result. The entry body is the image result envelope native `read` returns, so
-"Imported results equal native read output" holds unchanged. This delta ADDs two requirements to the
-`prompt-imports` capability introduced by `import-markers` (#1146): image entries, and `media://` as
+persisted text result. The entry's private payload records `media: "media://<id>"`, which is
+where the conversion boundary and the owner chip find the image; the payload validator
+(`isPromptImportsPayloadEntry` in `apps/api/src/chats/prompt-imports-item.ts`, an exact-key check)
+accepts that key, and a rollback build drops items carrying it from derived state. Provenance
+`prompt-import` needs the system-read origin on `ToolContext`, which today reaches only the audit
+callbacks. The entry body is the image result envelope native `read` returns, so
+"Imported results equal native read output" holds unchanged. This delta ADDs three requirements to the
+`prompt-imports` capability: image entries, their private `media` payload field, and `media://` as
 a prompt-import target. It does not restate that capability's requirements.
 
 ### D9: Text-only projections (Q16)
@@ -315,8 +326,12 @@ navigation, preloading, and zoom reset.
   provider's error → documented in the runbook; the declaration is per entry.
 - [Concurrent changes] `tool-search` and `knowledge-submit` modify `tool-calling` and
   `tool-call-permissions` requirements this change also modifies → whichever finalizes second rebases its
-  MODIFIED blocks onto the synced text; `vision-media/finalize` runs after `import-markers/finalize` so
-  `prompt-imports` exists.
+  MODIFIED blocks onto the synced text.
+- [Instruction and skill imports of images] Instruction-file imports page with `:raw:N-M` and skill
+  package-local imports read with `:raw`, so an `@diagram.png` marker in `AGENTS.md` or `SKILL.md`
+  hits the image selector refusal and is reported `failed` without ingest → recorded as deliberate:
+  those imports stay text-only, and images reach the model through prompt imports, attachments, or
+  `read`.
 
 ## Migration Plan
 

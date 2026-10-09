@@ -4,14 +4,14 @@
 
 A native `read` SHALL return an image result when the bytes it acquires are a PNG, JPEG, GIF, or
 WebP image: a host path, `file:` alias, or Workspace-relative path, `kb://`, `skill://`, a web image
-body, or `media://`. The result SHALL carry `status: "ok"`, `kind: "image"`, `media` (the object's
+body, or `media://`. The result SHALL carry `status: "success"`, `kind: "image"`, `media` (the object's
 `media://` locator), the stored original's `mediaType`, `width`, and `height`, and the source's
 existing attribution fields, and no `content` or image bytes. It SHALL NOT depend on the Run's model.
 
 #### Scenario: A host PNG returns an image result
 
 - **WHEN** the model reads `/work/shot.png`, a regular file whose bytes are a 1600 by 900 PNG image
-- **THEN** the result has `status: "ok"`, `kind: "image"`, a `media` locator `media://<id>`, `mediaType` `image/png`, `width` 1600, `height` 900, and `path` `/work/shot.png`
+- **THEN** the result has `status: "success"`, `kind: "image"`, a `media` locator `media://<id>`, `mediaType` `image/png`, `width` 1600, `height` 900, and `path` `/work/shot.png`
 - **AND** it carries no `content` and no encoding of the image bytes
 
 #### Scenario: A skill image keeps the skill envelope
