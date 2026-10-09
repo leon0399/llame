@@ -43,23 +43,22 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 1. `import-markers/parser`: the marker grammar
 
-- [ ] 1.1 Promote `mdast-util-from-markdown@2.0.2` to an `apps/api` runtime dependency and add
+- [x] 1.1 Promote `mdast-util-from-markdown@2.0.2` to an `apps/api` runtime dependency and add
       a marker module that returns the distinct marker targets of a Markdown string in
       first-occurrence order, implementing the `import-markers` requirements (design D1). Verify with
       unit tests covering every scenario of the `import-markers` spec, plus a CRLF source,
       an angle-bracket destination containing spaces, `@pkg/__init__.py`,
       `@apps/api/__tests__/x.test.ts`, an escaped `\@`, an entity `&#64;`, `**leo**@example.com`, `see <@a.md> now`,
-      `![x](@a.md)`, `[@a.md][r]`, `[r]: @a.md "import"`, a link whose title is `Import`, nested
-      emphasis around a bare marker, an unclosed fence, and pathological inputs (repeated
+      `![x](@a.md)`, `[@a.md][r]`, `[r]: @a.md "import"`, a link whose title is `Import`, an unclosed fence, and pathological inputs (repeated
       `(@`, long punctuation runs, many unbalanced brackets) at 64 KiB complete in linear time.
-- [ ] 1.2 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, `pnpm format:check`,
+- [x] 1.2 Run `pnpm --filter api lint`, `typecheck`, and `test:coverage`, `pnpm format:check`,
       `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR body.
-- [ ] 1.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 1.3 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 1.4 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `instruction-imports`.
-- [ ] 1.5 Implement the delimited bare markers of the `import-markers` requirement "Delimited bare markers carry the whole locator" in the parser with unit tests for every new
+- [x] 1.5 Implement the delimited bare markers of the `import-markers` requirement "Delimited bare markers carry the whole locator" in the parser with unit tests for every new
       scenario plus pathological unterminated quotes at 64 KiB in linear time.
 
 ## 2. `import-markers/instruction-imports`: imports in instruction files
