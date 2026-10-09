@@ -27,11 +27,18 @@ Each tool goes in `tools.allowed` in the instance configuration named in the
 obsolete `search.chats.canonicalModelExcerpts` config is rejected.
 
 Before an HTTP process accepts search Runs or any process registers `runs`
-consumption, `pnpm --filter api search:projection-coverage` must report complete
-current locator coverage. Workers gate even when their local allowlist omits
-search because accepted Runs carry immutable declarations. Processes that
-neither accept nor consume Runs skip the gate. Incomplete coverage exposes
-counts only; provisioning and query failures report the operational error.
+consumption, it requires complete current locator coverage, as reported by
+`pnpm --filter api search:projection-coverage`. When coverage is incomplete,
+such as after a process stop interrupted a Run, the check enqueues up to 500
+stale Chats on the reindex queue and waits up to 2 minutes for reindex workers
+to complete coverage. Startup fails at once if an enqueue fails or no stale
+Chat could be queued, and otherwise if coverage is still incomplete at that
+deadline. A process whose worker profile omits
+`search-reindex` therefore needs a reindex worker running elsewhere. Workers
+gate even when their local allowlist omits search because accepted Runs carry
+immutable declarations. Processes that neither accept nor consume Runs skip the
+gate. Incomplete coverage exposes counts only; provisioning, query, and enqueue
+failures report the operational error.
 
 The behavior of each tool is documented in
 [search_conversations](../reference/tools/search-conversations.md) and

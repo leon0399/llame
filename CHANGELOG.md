@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-09
+
+- Fixed API and Runs-worker boot failing with "canonical conversation search
+  cannot start until projection coverage is complete" after a process stopped
+  during an active Run (#1168). The coverage gate now runs at application
+  bootstrap, enqueues up to 500 stale Chats on the reindex queue, and waits up
+  to 2 minutes for reindex workers to complete coverage; a co-located reindex
+  consumer is already running by then. Startup still fails, with counts only,
+  when coverage is incomplete at the deadline.
+
 # 2026-10-08
 
 - Added a native `telegram` web adapter (#940). With

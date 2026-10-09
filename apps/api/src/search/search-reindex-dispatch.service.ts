@@ -30,12 +30,7 @@ export class SearchReindexDispatchService {
 
   async enqueueChatReindex(chatId: string, ownerUserId: string): Promise<void> {
     try {
-      await this.ensureQueue();
-      await this.queue.enqueue(
-        SEARCH_REINDEX_QUEUE,
-        { chatId, ownerUserId },
-        { singletonKey: chatId },
-      );
+      await this.enqueueChatReindexStrict(chatId, ownerUserId);
     } catch (error) {
       // Swallow: freshness is best-effort, the sweep is the guarantee.
       this.logger.warn(
@@ -43,6 +38,21 @@ export class SearchReindexDispatchService {
         error instanceof Error ? error.stack : String(error),
       );
     }
+  }
+
+  /** Propagates enqueue failures, for the startup coverage gate: it waits on
+   *  these jobs, so a lost enqueue must fail it now rather than at its
+   *  deadline. */
+  async enqueueChatReindexStrict(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<void> {
+    await this.ensureQueue();
+    await this.queue.enqueue(
+      SEARCH_REINDEX_QUEUE,
+      { chatId, ownerUserId },
+      { singletonKey: chatId },
+    );
   }
 
   private ensureQueue(): Promise<void> {
