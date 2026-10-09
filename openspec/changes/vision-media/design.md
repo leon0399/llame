@@ -184,16 +184,21 @@ dimensions) and loads variant bytes on demand. For each step:
   bytes are loaded. Every resolvable image sent to a model that does not declare `image` becomes
   `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`; for a vision model, an image outside the window becomes
   `[image media://<id> <name> <width>×<height>, not attached; read the locator to view it]` when the
-  request offers `read`, and `[image media://<id> <name> <width>×<height>, not attached]` when it
-  does not (compaction, a Run under empty `tools.allowed`). `name` is the neutralized source label and
+  step offers `read`, and `[image media://<id> <name> <width>×<height>, not attached]` when it
+  does not. A step offers `read` only when `read` is among that step's active tools and its tool
+  choice is not `none`, so compaction (declared tools, `toolChoice: 'none'`,
+  `compaction.service.ts:385-393`), an empty `tools.allowed`, and the step-cap final step
+  (`activeTools: []`, `openai-model-client.ts:178-183`) all get the no-read form. The composer decides
+  the form after the cap check. `name` is the neutralized source label and
   the dimensions are the original's. The forms name the cause, as Codex, pi, OpenClaw, and OMP do, so
   no model is told to re-read an image it cannot see or cannot read. Unresolvable references keep
   `[image media://<id> unavailable]`. `conversation_read` and title lines keep the bare
   `[image media://<id> <name> <width>×<height>]` form, which states no cause.
 - **Chat Completions wires.** On `openai-completions` and `opencode-go`, a tool output's image cannot
-  travel in the tool message: the adapter would serialize it as text. The tool message carries its text
-  and the line `(image attached below)`, and the images of consecutive tool results follow in one
-  synthetic user message `Images from tool results:`, as OMP does.
+  travel in the tool message: the adapter would serialize it as text. A tool message whose image is
+  sent as an image part (in window, vision model) carries its text and the line
+  `(image attached below)`, and the images of consecutive tool results follow in one synthetic user
+  message `Images from tool results:`, as OMP does. Every other tool message keeps its placeholder.
 
 Composing from references every step is idempotent: the SDK hands `prepareStep` the untransformed
 messages again on each step.
