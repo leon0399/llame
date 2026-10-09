@@ -40,6 +40,7 @@ import {
 import { InstructionsPart } from "./instructions-part";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
+import { PromptImportsPart } from "./prompt-imports-part";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import {
   useChatMarkdownRenderers,
@@ -49,6 +50,7 @@ import {
 import type { AvailableModel } from "@/lib/services/models/queries";
 import {
   isInstructionsPart,
+  isPromptImportsPart,
   messageSeqFromMetadata,
   modelSwitchPart,
   runIdFromMessageMetadata,
@@ -124,9 +126,9 @@ function ReasoningPanel({
 }
 
 /** Renders one non-reasoning message part — text, a tool call/result, a
- *  step-cap notice, the instructions chip, or a server-authored context item
- *  this build does not render (the walk withholds those before they reach
- *  here). */
+ *  step-cap notice, the instructions or prompt-imports chip, or a
+ *  server-authored context item this build does not render (the walk
+ *  withholds those before they reach here). */
 function MessagePartView({
   part,
   renderers,
@@ -164,6 +166,9 @@ function MessagePartView({
   if (isInstructionsPart(part)) {
     return <InstructionsPart {...part.data.payload} />;
   }
+  if (isPromptImportsPart(part)) {
+    return <PromptImportsPart {...part.data.payload} />;
+  }
   return <span>unsupported part type: {part.type}</span>;
 }
 
@@ -178,8 +183,9 @@ function MessagePartView({
  *  `data-context` covers every server-authored context item, whatever its
  *  producer. They are rendered into the MODEL's prompt by the api's
  *  context-builder and are never visible chat content, except the
- *  `instructions` producer: its chip is the owner's disclosure of the files
- *  a trigger loaded, truncated, or had denied (design D9). The model-change
+ *  `instructions` and `prompt-imports` producers: their chips are the owner's
+ *  disclosure of the files a trigger loaded, truncated, or had denied (design
+ *  D9), and of how a prompt's `@` markers resolved. The model-change
  *  boundary above the message remains the only owner-facing surface for the
  *  other producers. One branch rather than a list of producers, so a
  *  producer this build does not know about cannot fall through to the
@@ -188,7 +194,9 @@ function MessagePartView({
 function isVisibleSegment(segment: GroupedAssistantPart): boolean {
   if (segment.kind === "reasoning") return segment.text.trim() !== "";
   if (segment.part.type === "data-context") {
-    return isInstructionsPart(segment.part);
+    return (
+      isInstructionsPart(segment.part) || isPromptImportsPart(segment.part)
+    );
   }
   return true;
 }

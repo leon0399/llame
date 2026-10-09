@@ -644,6 +644,49 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
     );
   });
 
+  it('strips prompt-imports items, so a share exposes no locator, resolved path, omitted marker, or imported body', () => {
+    // The chip's metadata is owner-only disclosure: a public share keeps the
+    // model-visible text (which carries imported file bodies) out along with
+    // every locator, resolved path, outcome, and omitted marker.
+    const message = fakeMessage({
+      role: 'user',
+      parts: [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'prompt-imports',
+            form: 'notice',
+            runId: '44444444-4444-4444-8444-444444444444',
+            payload: {
+              imports: [
+                {
+                  locator: 'PRIVATE_LOCATOR.md',
+                  resolved: '/srv/PRIVATE_RESOLVED/PRIVATE_LOCATOR.md',
+                  outcome: 'imported',
+                  truncated: true,
+                },
+                { locator: 'PRIVATE_DENIED.md', outcome: 'denied' },
+              ],
+              omitted: ['PRIVATE_OMITTED.md'],
+            },
+            text: '<system-reminder producer="prompt-imports" form="notice">PRIVATE_IMPORTED_BODY</system-reminder>',
+          },
+        },
+        { type: 'text', text: 'the visible question' },
+      ],
+    });
+
+    const dto = toSharedChatResponse(fakeChat, [message]);
+
+    expect(dto.messages[0].parts).toEqual([
+      { type: 'text', text: 'the visible question' },
+    ]);
+    expect(JSON.stringify(dto)).not.toMatch(
+      /PRIVATE_|prompt-imports|imports|resolved|omitted|data-context|system-reminder/i,
+    );
+  });
+
   it('strips model-switch metadata and every effective-context reference from public shares', () => {
     const message = fakeMessage({
       role: 'user',

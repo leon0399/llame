@@ -134,11 +134,12 @@ aggregate cap across files.
 A loaded instruction body can name same-store whole-file imports outside fenced and
 inline code, using these marker shapes:
 
-| Shape                    | Meaning                                     |
-| ------------------------ | ------------------------------------------- |
-| `@path`                  | bare path                                   |
-| `@[label](path)`         | Markdown link preceded by `@`               |
-| `[label](path "import")` | Markdown link with the exact `import` title |
+| Shape                       | Meaning                                     |
+| --------------------------- | ------------------------------------------- |
+| `@path`                     | bare path                                   |
+| `@"…"` / `@'…'` / ``@`…` `` | delimited bare path                         |
+| `@[label](path)`            | Markdown link preceded by `@`               |
+| `[label](path "import")`    | Markdown link with the exact `import` title |
 
 The marker stays literal. Host imports resolve absolute paths as written or relative
 to the importing file's directory. `~/` and any schemed target stay literal. A

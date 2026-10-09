@@ -224,25 +224,25 @@ Re-estimate authored size at each layer boundary and before publication; split a
 
 ## 7. `import-markers/prompt-import-chip`: owner disclosure
 
-- [ ] 7.1 Add the prompt-imports chip on the user message and its web history validation
+- [x] 7.1 Add the prompt-imports chip on the user message and its web history validation
       (design D9). Verify with a story and Storybook tests for imported, truncated, denied,
       failed, and omitted entries.
-- [ ] 7.2 Verify the negative isolation cases with the API integration suite: another owner
+- [x] 7.2 Verify the negative isolation cases with the API integration suite: another owner
       cannot read the item, its metadata, or the `prompt-import` audit events through any
       API; public shares, transcript exports, and search projections expose neither text nor
       metadata; a `kb://` target naming another owner's Space imports nothing and records no
       audit event.
-- [ ] 7.3 Extend `docs/product/reference/prompt-imports.md` with the owner chip and its
+- [x] 7.3 Extend `docs/product/reference/prompt-imports.md` with the owner chip and its
       visibility, and add a dated `CHANGELOG.md` entry. Run
       `pnpm --filter web lint` and `typecheck`, the Storybook tests, the integration files
       touched above, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`, and
       `pnpm exec openspec validate import-markers --strict`; record the commands in the PR
       body, which uses `Closes #1142`.
-- [ ] 7.4 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
+- [x] 7.4 Self-review (SR) the parent-relative draft diff against `REVIEW_GUIDE.md`, fix
       accepted findings, and rerun affected checks before marking ready.
 - [ ] 7.5 GitHub review (GR): complete the ready-PR monitoring loop with terminal current-head
       CI and zero actionable unresolved feedback before creating `finalize`.
-- [ ] 7.6 Document the delimited forms in docs/product/reference/prompt-imports.md,
+- [x] 7.6 Document the delimited forms in docs/product/reference/prompt-imports.md,
       docs/product/reference/instruction-files.md, docs/product/reference/locators/skill.md,
       docs/product/operator/skills.md, docs/product/reference/tools/read.md, SPEC.md, and
       the CHANGELOG entries. That layer closes #1159.

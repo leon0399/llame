@@ -1,32 +1,19 @@
 "use client";
 
-import { BanIcon, BookOpenIcon, FileTextIcon } from "lucide-react";
-
-import { Badge } from "@workspace/ui/components/badge";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip";
+import { BookOpenIcon } from "lucide-react";
 
 import type { InstructionsPayload } from "@/lib/services/chat/history";
 
-/** How one file path figures in the bundle: loaded whole, loaded up to the
- *  per-file cap, or denied by the `read` permission group. */
-type InstructionFileState = "loaded" | "truncated" | "denied";
-
-/** The accessible name per state — the badge truncates the visible path, so
- *  the full selected path lives in the label and the tooltip. */
-const STATE_LABEL: Record<InstructionFileState, string> = {
-  loaded: "Loaded",
-  truncated: "Truncated",
-  denied: "Denied",
-};
+import {
+  ContextChipGroup,
+  ContextFileChip,
+  type ContextFileState,
+} from "./context-file-chip";
 
 type InstructionFileChipEntry = {
   /** Unique within a bundle: a path is either loaded or denied, never both. */
   key: string;
-  state: InstructionFileState;
+  state: ContextFileState;
   path: string;
   canonicalPath: string | null;
   importedBy: string | undefined;
@@ -105,41 +92,6 @@ function chipEntryDepths(
   }));
 }
 
-/** One file entry: its selected path, marked when truncated or denied. A
- *  denied path stays muted — the `secondary` surface, never the destructive
- *  variant — because the `read` group's rejection is a policy state, not an
- *  error the user must act on, and Alert Red is reserved for destructive
- *  states (DESIGN.md §10). */
-function InstructionFileChip({ entry }: { entry: InstructionFileChipEntry }) {
-  const denied = entry.state === "denied";
-  const tooltip =
-    entry.canonicalPath !== null && entry.canonicalPath !== entry.path
-      ? `${entry.path} → ${entry.canonicalPath}`
-      : entry.path;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Badge
-            variant={denied ? "secondary" : "outline"}
-            className="max-w-64"
-            aria-label={`${STATE_LABEL[entry.state]} instruction file: ${entry.path}`}
-            tabIndex={0}
-          />
-        }
-      >
-        {denied ? <BanIcon /> : <FileTextIcon />}
-        <span className="truncate">{entry.path}</span>
-        {entry.state !== "loaded" && (
-          <span className="shrink-0">{entry.state}</span>
-        )}
-      </TooltipTrigger>
-      <TooltipContent>{tooltip}</TooltipContent>
-    </Tooltip>
-  );
-}
-
 /** Import depth is bounded by the 5-hop limit, so a fixed class table covers it. */
 const DEPTH_INDENT = ["", "ps-4", "ps-8", "ps-12", "ps-16", "ps-20"];
 
@@ -152,9 +104,19 @@ function InstructionFileChipRow({
   depth: number;
 }) {
   const indent = DEPTH_INDENT[Math.min(depth, DEPTH_INDENT.length - 1)];
+  const detail =
+    entry.canonicalPath !== null && entry.canonicalPath !== entry.path
+      ? `${entry.path} → ${entry.canonicalPath}`
+      : undefined;
+
   return (
     <div className={`flex items-center gap-1 ${indent}`}>
-      <InstructionFileChip entry={entry} />
+      <ContextFileChip
+        kind="instruction"
+        path={entry.path}
+        detail={detail}
+        state={entry.state}
+      />
     </div>
   );
 }
@@ -175,14 +137,10 @@ export function InstructionsPart(payload: InstructionsPayload) {
   const entries = chipEntryDepths(chipEntries(payload));
 
   return (
-    <div className="my-1 flex flex-wrap items-center gap-1">
-      <Badge variant="outline">
-        <BookOpenIcon />
-        Instructions
-      </Badge>
+    <ContextChipGroup icon={<BookOpenIcon />} label="Instructions">
       {entries.map(({ entry, depth }) => (
         <InstructionFileChipRow key={entry.key} entry={entry} depth={depth} />
       ))}
-    </div>
+    </ContextChipGroup>
   );
 }

@@ -187,6 +187,20 @@ const INSTRUCTIONS_PART: UIMessage["parts"][number] = {
   },
 };
 
+const PROMPT_IMPORTS_PART: UIMessage["parts"][number] = {
+  type: "data-context",
+  data: {
+    v: 1,
+    producer: "prompt-imports",
+    form: "notice",
+    runId: "11111111-1111-1111-1111-111111111111",
+    payload: {
+      imports: [{ locator: "docs/GUIDE.md", outcome: "imported" }],
+      omitted: ["extra.md"],
+    },
+  },
+};
+
 describe("hasVisibleContent", () => {
   it("counts text, tool, and notice parts as visible content", () => {
     expect(hasVisibleContent([{ type: "text", text: "Answer." }])).toBe(true);
@@ -198,6 +212,26 @@ describe("hasVisibleContent", () => {
     // The chip is the owner's only view of which files a trigger loaded,
     // truncated, or had denied (design D9), so a turn carrying it paints.
     expect(hasVisibleContent([INSTRUCTIONS_PART])).toBe(true);
+  });
+
+  it("counts the prompt-imports chip as visible owner disclosure", () => {
+    // The chip is the owner's only view of how a prompt's `@` markers
+    // resolved, so a user turn carrying it paints.
+    expect(hasVisibleContent([PROMPT_IMPORTS_PART])).toBe(true);
+    expect(
+      hasVisibleContent([
+        {
+          type: "data-context",
+          data: {
+            v: 1,
+            producer: "prompt-imports",
+            form: "notice",
+            runId: "11111111-1111-1111-1111-111111111111",
+            payload: { imports: [] },
+          },
+        },
+      ]),
+    ).toBe(false);
   });
 
   it("finds nothing visible in a reasoning run that carries no text", () => {

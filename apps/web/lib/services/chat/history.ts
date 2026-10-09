@@ -130,6 +130,42 @@ export type InstructionsPart = {
 /** The private payload of an instructions item: what the owner chip renders. */
 export type InstructionsPayload = InstructionsPart["data"]["payload"];
 
+/** How one `@` import marker in a user prompt resolved: read, refused by the
+ *  `read` permission group, or failed to read. */
+export type PromptImportOutcome = "imported" | "denied" | "failed";
+
+/**
+ * A server-authored context item on a USER message disclosing how the `@`
+ * import markers in the prompt resolved. `imports` lists each marker's
+ * locator as written with its outcome (`resolved` is the path it resolved
+ * to, `truncated` marks a file cut at the cap); `omitted` lists the locators
+ * past the per-prompt marker cap, present only when non-empty. The model-visible
+ * text names denied/failed targets only as not imported and lists omitted
+ * locators; outcome detail and resolved paths are owner-only metadata.
+ */
+export type PromptImportsPart = {
+  type: "data-context";
+  data: {
+    v: 1;
+    producer: "prompt-imports";
+    form: "notice";
+    runId: string;
+    payload: {
+      imports: ReadonlyArray<{
+        locator: string;
+        resolved?: string;
+        outcome: PromptImportOutcome;
+        truncated?: boolean;
+      }>;
+      omitted?: ReadonlyArray<string>;
+    };
+    text?: string;
+  };
+};
+
+/** The private payload of a prompt-imports item: what the owner chip renders. */
+export type PromptImportsPayload = PromptImportsPart["data"]["payload"];
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -180,7 +216,7 @@ export function isContextItemPart(
  *  validating that payload — or `undefined` when it does not. */
 function noticePayload(
   value: unknown,
-  producer: "effective-context-change" | "instructions",
+  producer: "effective-context-change" | "instructions" | "prompt-imports",
 ) {
   if (!isContextItemPart(value)) return undefined;
   const requiredKeys = ["v", "producer", "form", "runId", "payload"];
@@ -327,24 +363,91 @@ export function isInstructionsPart(value: unknown): value is InstructionsPart {
   return isInstructionsPayload(noticePayload(value, "instructions"));
 }
 
+/** One `payload.imports` entry: a non-empty locator, a known outcome, and the
+ *  optional `resolved` / `truncated` fields only with a valid value. */
+function isPromptImportEntry(
+  value: unknown,
+): value is PromptImportsPayload["imports"][number] {
+  if (!isNonNullObject(value)) return false;
+  const hasResolved = Object.hasOwn(value, "resolved");
+  const hasTruncated = Object.hasOwn(value, "truncated");
+  if (
+    !keysMatch(Object.keys(value), [
+      "locator",
+      "outcome",
+      ...(hasResolved ? ["resolved"] : []),
+      ...(hasTruncated ? ["truncated"] : []),
+    ])
+  ) {
+    return false;
+  }
+  // SAFETY: `keysMatch` above confirmed `value` has exactly the accepted
+  // import-entry shape; each field is validated individually below.
+  const { locator, outcome, resolved, truncated } = value as {
+    locator: unknown;
+    outcome: unknown;
+    resolved?: unknown;
+    truncated?: unknown;
+  };
+  return (
+    isNonEmptyString(locator) &&
+    (outcome === "imported" || outcome === "denied" || outcome === "failed") &&
+    (!hasResolved || isNonEmptyString(resolved)) &&
+    (!hasTruncated || typeof truncated === "boolean")
+  );
+}
+
+/** The `data.payload` shape of a prompt-imports context item, validated on
+ *  its own. `imports` may be empty only beside a non-empty `omitted`: the api
+ *  authors an item only when a marker was resolved or skipped, so an item
+ *  disclosing nothing is a shape this build does not know. */
+function isPromptImportsPayload(value: unknown): value is PromptImportsPayload {
+  if (!isNonNullObject(value)) return false;
+  const hasOmitted = Object.hasOwn(value, "omitted");
+  const expectedKeys = hasOmitted ? ["imports", "omitted"] : ["imports"];
+  if (!keysMatch(Object.keys(value), expectedKeys)) return false;
+  // SAFETY: `keysMatch` above confirmed `value` has exactly the `imports` key
+  // (plus `omitted` when present); both stay `unknown` and are validated
+  // individually below.
+  const { imports, omitted } = value as { imports: unknown; omitted?: unknown };
+  if (!Array.isArray(imports) || !imports.every(isPromptImportEntry)) {
+    return false;
+  }
+  if (!hasOmitted) return imports.length > 0;
+  return (
+    Array.isArray(omitted) &&
+    omitted.length > 0 &&
+    omitted.every(isNonEmptyString)
+  );
+}
+
+export function isPromptImportsPart(
+  value: unknown,
+): value is PromptImportsPart {
+  return isPromptImportsPayload(noticePayload(value, "prompt-imports"));
+}
+
 /** Whether this app renders a server context item on that role: the
- *  model-switch marker the rail stages on a user message, and the
- *  instructions item, which rides either role. A type predicate, so the
- *  caller keeps the narrowed part. */
+ *  model-switch marker and the prompt-imports disclosure the rail stages on a
+ *  user message, and the instructions item, which rides either role. A type
+ *  predicate, so the caller keeps the narrowed part. */
 function isRenderableControlPart(
   role: UIMessage["role"],
   part: unknown,
-): part is ModelSwitchPart | InstructionsPart {
+): part is ModelSwitchPart | InstructionsPart | PromptImportsPart {
   return role === "user"
-    ? isModelSwitchPart(part) || isInstructionsPart(part)
+    ? isModelSwitchPart(part) ||
+        isInstructionsPart(part) ||
+        isPromptImportsPart(part)
     : isInstructionsPart(part);
 }
 
 /**
  * The control parts a server-fetched message is trusted to overlay, each with
  * its stored position: exactly the producers this app renders from stored
- * parts — the model-switch marker the rail stages on a user message, and the
- * instructions item, which rides the assistant turn of an in-Run load and the
+ * parts — the model-switch marker and the prompt-imports disclosure the rail
+ * stages on a user message, and the instructions item, which rides the
+ * assistant turn of an in-Run load and the
  * triggering user turn of the accepted-turn load (design D5, D9). Every other
  * producer stays invisible, and a part no server message vouches for is
  * dropped.
@@ -360,7 +463,7 @@ function trustedContextParts(message: {
   // drops context parts of every other producer, so they occupy no index.
   const placed: Array<{
     index: number;
-    part: ModelSwitchPart | InstructionsPart;
+    part: ModelSwitchPart | InstructionsPart | PromptImportsPart;
   }> = [];
   let index = 0;
   for (const part of message.parts) {

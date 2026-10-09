@@ -58,12 +58,12 @@ writing `$review`. Without that selection its body and resource reads return
 ## Behavior
 
 After an explicit activation reads `SKILL.md`, markers in its frontmatter-free
-body outside fenced and inline code — `@path`, `@[label](path)`, and
-`[label](path "import")` — load package-local files. A relative target resolves
-against the importing file's directory inside the package, including for nested
-imports. Each admitted file is read raw through `skill://<name>/<path>:raw` and
-rendered as a `skill://<name>/<path>` file block after the instructions, in
-depth-first order for at most five import hops.
+body outside fenced and inline code — `@path`, `@"…"`, `@'…'`, ``@`…` ``,
+`@[label](path)`, and `[label](path "import")` — load package-local files. A
+relative target resolves against the importing file's directory inside the
+package, including for nested imports. Each admitted file is read raw through
+`skill://<name>/<path>:raw` and rendered as a `skill://<name>/<path>` file block
+after the instructions, in depth-first order for at most five import hops.
 
 Absolute, `~/`, schemed, selector-bearing, and package-escaping targets stay
 literal. A denied or missing import is skipped and its marker stays literal.

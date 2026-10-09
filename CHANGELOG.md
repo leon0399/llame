@@ -2,10 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-08
 
-- Prompts now expand `@path`, `@[label](path)`, and `[label](path "import")`
-  markers outside code. Before the Run's first model request, each target is
-  read once through native `read`, with its selectors, and the results are
-  persisted as one `prompt-imports` item ahead of the unchanged message text.
+- Prompts now expand `@path`, `@"…"`, `@'…'`, ``@`…` ``,
+  `@[label](path)`, and `[label](path "import")` markers outside code.
+  Before the Run's first model request, each target is read once through native
+  `read`, with its selectors, and the results are persisted as one
+  `prompt-imports` item ahead of the unchanged message text.
   Absolute, `file:`, Workspace-relative, `kb://`, `skill://`, and web targets
   are accepted, so `@README.md:30-35` and
   `@https://github.com/leon0399/llame/issues/1029:outline` import what `read`
@@ -20,11 +21,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Workspace imports nothing. An admitted host or Knowledge import also loads its
   directory's instruction chain on the same turn, before the first model
   request, with or without a bound Workspace and whatever its read outcome;
-  denied, missing, web, and skill targets and detaching attempts load none. See
+  denied, missing, web, and skill targets and detaching attempts load none. The owner sees a chip on the message listing each import as imported, truncated, denied, failed, or omitted; shares, exports, search, and other owners see none of it. See
   [prompt imports](docs/product/reference/prompt-imports.md).
 
-- Instruction files now expand same-store `@path`, `@[label](path)`, and
-  `[label](path "import")` markers outside code into separate depth-first blocks.
+- Instruction files now expand same-store `@path`, `@"…"`, `@'…'`, ``@`…` ``,
+  `@[label](path)`, and `[label](path "import")` markers outside code into
+  separate depth-first blocks.
   Host and Knowledge imports stay in their own store, inherit scope, load their
   directory chains, use system-origin `instructions` reads under the `read` group,
   deduplicate across five hops, and keep each file within its 32 KiB cap. Rejected
@@ -33,8 +35,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   page and recorded as a derived `canonical` decision; a canonical reject denies
   the import, while `bypass` admits and records it.
 
-- Explicit skill activation now expands `@path`, `@[label](path)`, and
-  `[label](path "import")` markers outside code into package-local
+- Explicit skill activation now expands `@path`, `@"…"`, `@'…'`, ``@`…` ``,
+  `@[label](path)`, and `[label](path "import")` markers outside code into package-local
   `skill://<name>/<path>` file blocks after the instructions, depth-first for
   five hops within the activation's 128 KiB output and 30 s work bounds.
   Overflow is named in the omission notice; absolute, `~/`, schemed,
