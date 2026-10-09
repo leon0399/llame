@@ -1,5 +1,5 @@
 Track [#940](https://github.com/leon0399/llame/issues/940) and its PR layers
-through [Project tracking](../../../CONTRIBUTING.md#project-tracking). Carry
+through [Project tracking](../../../../CONTRIBUTING.md#project-tracking). Carry
 forward the recorded proposal approval and recheck native blockers before
 starting; keep live status in the Project.
 
@@ -31,8 +31,8 @@ layer inside the review budget.
 
 - [x] 0.1 Run two adversarial review rounds with two independent reviewers each; verify findings against code, specs, and live Telegram responses; commit each round separately.
 - [x] 0.2 Prove the final revision: `pnpm exec openspec validate telegram-web-adapter --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`, and a script diff of each MODIFIED block against its canonical requirement showing only the Telegram additions and every canonical scenario kept; record Leo's approval of that revision.
-- [ ] 0.3 Self-review the proposal diff before marking the PR ready; record the review rounds in the PR body.
-- [ ] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 0.3 Self-review the proposal diff before marking the PR ready; record the review rounds in the PR body.
+- [x] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
 ## 1. adapter
 
@@ -45,12 +45,12 @@ layer inside the review budget.
 - [x] 1.7 Document the adapter in `docs/product/operator/web-adapters.md` (table row and section), `docs/product/reference/web-adapters.md` (Thread adapters entry, channel page shape, and that cursor pages take no selector), `docs/development/harness-comparison/read.md`, the hand-edited adapter clause in `apps/api/src/prompts/tools/read.md`, and a dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
 - [x] 1.8 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/tools/web-read src/instance-config`, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
 - [x] 1.9 Self-review the parent-relative diff against REVIEW_GUIDE.md and this change's specs before marking the PR ready; fix accepted findings with new commits and rerun affected checks.
-- [ ] 1.10 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #940` in the PR body.
+- [x] 1.10 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #940` in the PR body.
 
 ## 2. finalize
 
-- [ ] 2.1 Enter `telegram-web-adapter/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the synced `native-file-tools` and `instance-config` text matches the deltas word for word, with every canonical scenario kept.
-- [ ] 2.2 Confirm archive readiness: `openspec status --change telegram-web-adapter --json` reports every artifact done and every task above is checked; run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [x] 2.1 Enter `telegram-web-adapter/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the synced `native-file-tools` and `instance-config` text matches the deltas word for word, with every canonical scenario kept.
+- [x] 2.2 Confirm archive readiness: `openspec status --change telegram-web-adapter --json` reports every artifact done and every task above is checked; run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 
 ## Workflow follow-up
 
