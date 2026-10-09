@@ -143,21 +143,39 @@ reference that would exceed either bound, and every older one, SHALL be outside 
 - **THEN** the request for the next step sends the four newest `read` results as images
 - **AND** the first `read` result is sent as its placeholder
 
-### Requirement: Images the model cannot receive become placeholders
+### Requirement: A text-only model receives an omitted placeholder for every image
 
-A reference outside the window, and every reference when the request's model does not declare
-`image` in its `input`, SHALL reach the model as the text
-`[image media://<id> <name> <width>×<height>]`, with the media's stored, neutralized `name` and the
-original's dimensions. A placeholder SHALL take the image's position; an owner file part's
-`Image n (media://<id>):` label SHALL stay in front of it.
+When the request's model does not declare `image` in its `input`, every media reference SHALL reach
+the model, in the image's position and after any `Image n (media://<id>):` label, as
+`[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`, where `<name>` is the media's stored, neutralized name and the dimensions are the original's.
 
 #### Scenario: A text-only model receives placeholders only
 
 - **WHEN** a request's model does not declare `image` input and history carries a file part for a
   1600×900 PNG uploaded as `shot.png`
 - **THEN** the model receives `Image 1 (media://<id>):` followed by
-  `[image media://<id> shot.png 1600×900]`
+  `[image media://<id> shot.png 1600×900, omitted: this model has no image input]`
 - **AND** the request contains no image part
+
+#### Scenario: A text-only model is never told to read an image
+
+- **WHEN** a text-only model's request carries more image references than the image window admits
+- **THEN** every reference, inside or outside the window, uses the `omitted: this model has no image
+input` form
+- **AND** no placeholder in the request contains `read the locator`
+
+### Requirement: An image outside the window tells a vision model to read it
+
+For a model that declares `image`, a reference outside the image window SHALL reach the model, in
+the image's position and after any label, as
+`[image media://<id> <name> <width>×<height>, not attached; read the locator to view it]`, with the same name and dimensions.
+
+#### Scenario: An out-of-window image tells a vision model to read it
+
+- **WHEN** a vision-model request carries 21 image references and the oldest is `shot.png` at
+  1600×900
+- **THEN** the oldest reaches the model as
+  `[image media://<id> shot.png 1600×900, not attached; read the locator to view it]`
 
 ### Requirement: Unresolvable media references never fail a request
 
@@ -267,7 +285,7 @@ summary mentions, so a later turn can read that image again after its message is
 - **WHEN** a window-triggered compaction uses a previous completed Run's model whose declared input
   is text only and the compactable prefix carries owner `file` parts and image `read` results
 - **THEN** every image in the summary request appears as its placeholder
-  `[image media://<id> <name> <width>×<height>]`
+  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`
 - **AND** the request carries no image part
 
 #### Scenario: The instruction keeps media locators

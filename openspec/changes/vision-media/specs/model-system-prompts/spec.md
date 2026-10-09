@@ -78,7 +78,7 @@ Failed-attempt visible output and tool observations SHALL remain part of the com
   received as image parts
 - **AND** the next turn selects a model whose declared input is text only
 - **THEN** that model receives each earlier image as its placeholder
-  `[image media://<id> <name> <width>×<height>]` in the image's original position
+  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]` in the image's original position
 - **AND** the request carries no image part and the stored parts are unchanged
 
 #### Scenario: A switch to a vision model restores image parts
