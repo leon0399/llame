@@ -1,12 +1,15 @@
+import { Logger } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { TenantDbService } from '../db/tenant-db.service';
-import { SearchIndexService } from './search-index.service';
+import { SearchReindexDispatchService } from './search-reindex-dispatch.service';
 import {
   CanonicalSearchActivationService,
   CanonicalSearchCoverageService,
+  COVERAGE_REPAIR_DEADLINE_MS,
+  COVERAGE_REPAIR_POLL_MS,
 } from './canonical-search-activation.service';
 
 const COVERAGE_ROW = {
@@ -33,19 +36,22 @@ function config(searchAllowed: boolean) {
 }
 
 /** Rows after the provisioning check, in query order: coverage, then (when
- *  incomplete) the stale-chat list and the post-repair coverage. */
+ *  incomplete) the stale-chat list and each polled coverage. The last entry
+ *  repeats once the list is exhausted. */
 async function buildService(
   searchAllowed: boolean,
   provisioned: boolean,
   queries: Array<Array<FakeRow>> = [[COVERAGE_ROW]],
-  reindexChat = vi.fn(() => Promise.resolve()),
 ) {
   const results: Array<Array<FakeRow>> = [
     provisioned ? [{ bypass: true }] : [{ bypass: false }],
     ...queries,
   ];
   const execute = vi.fn(
-    (): Promise<Iterable<FakeRow>> => Promise.resolve(results.shift() ?? []),
+    (): Promise<Iterable<FakeRow>> =>
+      Promise.resolve(
+        (results.length > 1 ? results.shift() : results[0]) ?? [],
+      ),
   );
   const runAsPublic = vi.fn(
     (
@@ -54,6 +60,7 @@ async function buildService(
       }) => Promise<Iterable<FakeRow>>,
     ) => fn({ execute }),
   );
+  const enqueueChatReindex = vi.fn(() => Promise.resolve());
   const moduleRef: TestingModule = await Test.createTestingModule({
     providers: [
       CanonicalSearchActivationService,
@@ -63,13 +70,16 @@ async function buildService(
         useValue: { config: config(searchAllowed) },
       },
       { provide: TenantDbService, useValue: { runAsPublic } },
-      { provide: SearchIndexService, useValue: { reindexChat } },
+      {
+        provide: SearchReindexDispatchService,
+        useValue: { enqueueChatReindex },
+      },
     ],
   }).compile();
   return {
     moduleRef,
     runAsPublic,
-    reindexChat,
+    enqueueChatReindex,
     service: moduleRef.get(CanonicalSearchActivationService),
     coverage: moduleRef.get(CanonicalSearchCoverageService),
   };
@@ -83,22 +93,28 @@ const ONE_STALE = {
 };
 
 describe('CanonicalSearchActivationService', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('skips readiness when the HTTP process cannot bind search_conversations', async () => {
     const { moduleRef, runAsPublic, service } = await buildService(
       false,
       false,
     );
 
-    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
     expect(runAsPublic).not.toHaveBeenCalled();
     await moduleRef.close();
   });
 
   it('admits allowlisted search without a separate opt-in after current projection is fully ready', async () => {
-    const { moduleRef, runAsPublic, service } = await buildService(true, true);
+    const { enqueueChatReindex, moduleRef, runAsPublic, service } =
+      await buildService(true, true);
 
-    await expect(service.onModuleInit()).resolves.toBeUndefined();
+    await expect(service.onApplicationBootstrap()).resolves.toBeUndefined();
     expect(runAsPublic).toHaveBeenCalledTimes(2);
+    expect(enqueueChatReindex).not.toHaveBeenCalled();
     await moduleRef.close();
   });
 
@@ -108,57 +124,72 @@ describe('CanonicalSearchActivationService', () => {
       true,
     );
 
-    await service.onModuleInit();
+    await service.onApplicationBootstrap();
     await coverage.assertReady();
 
     expect(runAsPublic).toHaveBeenCalledTimes(2);
     await moduleRef.close();
   });
 
-  it('rebuilds stale chats before the gate and admits once coverage is complete', async () => {
-    const { moduleRef, reindexChat, service } = await buildService(true, true, [
-      [ONE_STALE],
-      [STALE_ROW],
-      [COVERAGE_ROW],
-    ]);
-
-    await expect(service.onModuleInit()).resolves.toBeUndefined();
-    expect(reindexChat).toHaveBeenCalledExactlyOnceWith('chat-1', 'owner-1');
-    await moduleRef.close();
-  });
-
-  it('fails closed when a stale chat rebuild fails', async () => {
-    const { moduleRef, service } = await buildService(
+  it('enqueues stale chats for the reindex workers and admits once they complete coverage', async () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {});
+    const { enqueueChatReindex, moduleRef, service } = await buildService(
       true,
       true,
-      [[ONE_STALE], [STALE_ROW]],
-      vi.fn(() => Promise.reject(new Error('rebuild failed'))),
+      [[ONE_STALE], [STALE_ROW], [ONE_STALE], [COVERAGE_ROW]],
     );
 
-    await expect(service.onModuleInit()).rejects.toThrow(
-      'canonical conversation search cannot start: rebuild failed',
+    const bootstrap = service.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(2 * COVERAGE_REPAIR_POLL_MS);
+
+    await expect(bootstrap).resolves.toBeUndefined();
+    expect(enqueueChatReindex).toHaveBeenCalledExactlyOnceWith(
+      'chat-1',
+      'owner-1',
     );
+    // The operator diagnostic carries the count only, never an identifier.
+    expect(log).toHaveBeenLastCalledWith(
+      'Enqueued 1 stale chat reindex job(s); waiting for projection coverage',
+    );
+    log.mockRestore();
     await moduleRef.close();
   });
 
   it.each([
     ['stale chats', { ready_chat_count: 11, stale_chat_count: 1 }],
     ['offsetless or legacy documents', { complete_document_count: 56 }],
-  ])('refuses activation for %s left after repair', async (_name, fields) => {
-    const incomplete = { ...COVERAGE_ROW, ...fields };
-    const { moduleRef, service } = await buildService(true, true, [
-      [incomplete],
-      [],
-      [incomplete],
-    ]);
+  ])(
+    'refuses activation for %s still incomplete at the deadline',
+    async (_name, fields) => {
+      vi.useFakeTimers();
+      const incomplete = { ...COVERAGE_ROW, ...fields };
+      const { moduleRef, service } = await buildService(true, true, [
+        [incomplete],
+        [],
+        [incomplete],
+      ]);
 
-    await expect(service.onModuleInit()).rejects.toThrow(
-      /canonical conversation search cannot start until projection coverage is complete/,
-    );
-    await moduleRef.close();
-  });
+      let settled = false;
+      const outcome = service.onApplicationBootstrap().then(
+        () => 'admitted',
+        (error: unknown) => String(error),
+      );
+      void outcome.finally(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(
+        COVERAGE_REPAIR_DEADLINE_MS - COVERAGE_REPAIR_POLL_MS,
+      );
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2 * COVERAGE_REPAIR_POLL_MS);
+      expect(await outcome).toMatch(
+        /canonical conversation search cannot start until projection coverage is complete/,
+      );
+      await moduleRef.close();
+    },
+  );
 
   it('reports only aggregate readiness counts for incomplete coverage', async () => {
+    vi.useFakeTimers();
     const incomplete = {
       ...COVERAGE_ROW,
       ready_chat_count: 10,
@@ -171,7 +202,14 @@ describe('CanonicalSearchActivationService', () => {
       [incomplete],
     ]);
 
-    await expect(service.onModuleInit()).rejects.toThrow(
+    const outcome = service.onApplicationBootstrap().then(
+      () => 'admitted',
+      (error: unknown) => String(error),
+    );
+    await vi.advanceTimersByTimeAsync(
+      COVERAGE_REPAIR_DEADLINE_MS + COVERAGE_REPAIR_POLL_MS,
+    );
+    expect(await outcome).toContain(
       'chats=12, ready=10, stale=2, documents=57, complete=54',
     );
     await moduleRef.close();
@@ -180,7 +218,7 @@ describe('CanonicalSearchActivationService', () => {
   it('fails loudly before coverage when the aggregate function is missing or mis-provisioned', async () => {
     const { moduleRef, service } = await buildService(true, false);
 
-    await expect(service.onModuleInit()).rejects.toThrow(
+    await expect(service.onApplicationBootstrap()).rejects.toThrow(
       /llame_search_projection_coverage_v2.*BYPASSRLS/,
     );
     await moduleRef.close();

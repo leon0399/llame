@@ -1,4 +1,9 @@
-import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+} from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 
 import {
@@ -11,7 +16,7 @@ import { assertDiscoveryFunctionProvisioned } from './discovery-provisioning';
 import { getProjectionCoverageReport } from './operations/projection-coverage';
 import type { ProjectionCoverage } from './operations/projection-coverage';
 import { SEARCH_SWEEP_BATCH } from './reindex-queues';
-import { SearchIndexService } from './search-index.service';
+import { SearchReindexDispatchService } from './search-reindex-dispatch.service';
 
 export const CANONICAL_PROJECTION_COVERAGE_FUNCTION =
   'llame_search_projection_coverage_v2';
@@ -29,15 +34,21 @@ export function isProjectionCoverageReady(report: ProjectionCoverage): boolean {
   );
 }
 
+/** How long a gate waits for queued rebuilds to complete coverage, and how
+ *  often it re-reads coverage meanwhile. */
+export const COVERAGE_REPAIR_DEADLINE_MS = 120_000;
+export const COVERAGE_REPAIR_POLL_MS = 1000;
+
 /**
  * Validates canonical projection coverage once per process graph. HTTP Run
  * admission and runs-consumer registration share this memoized gate.
  *
  * A Chat whose Run was interrupted by a process stop is left with messages
- * newer than its projection. The discovery sweep repairs that, but it
- * registers in onApplicationBootstrap, after this gate has already failed.
- * So the gate rebuilds one sweep batch of stale Chats itself before failing,
- * and still fails closed on anything that remains incomplete.
+ * newer than its projection. When coverage is incomplete the gate acts as one
+ * more discovery producer: it enqueues the stale Chats on the coalesced
+ * reindex queue, then waits for reindex workers to complete coverage. Callers
+ * run it in onApplicationBootstrap, after a co-located reindex consumer has
+ * registered; it fails closed when the deadline passes.
  */
 @Injectable()
 export class CanonicalSearchCoverageService {
@@ -46,7 +57,7 @@ export class CanonicalSearchCoverageService {
 
   constructor(
     private readonly tenantDb: TenantDbService,
-    private readonly searchIndex: SearchIndexService,
+    private readonly reindexDispatch: SearchReindexDispatchService,
   ) {}
 
   assertReady(): Promise<void> {
@@ -66,11 +77,17 @@ export class CanonicalSearchCoverageService {
         CHUNKER_VERSION,
       );
       if (!isProjectionCoverageReady(report)) {
-        await this.repairStaleChats();
-        report = await getProjectionCoverageReport(
-          this.tenantDb,
-          CHUNKER_VERSION,
-        );
+        await this.enqueueStaleChats();
+        const deadline = Date.now() + COVERAGE_REPAIR_DEADLINE_MS;
+        while (!isProjectionCoverageReady(report) && Date.now() < deadline) {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, COVERAGE_REPAIR_POLL_MS);
+          });
+          report = await getProjectionCoverageReport(
+            this.tenantDb,
+            CHUNKER_VERSION,
+          );
+        }
       }
     } catch (error) {
       throw new Error(
@@ -88,29 +105,36 @@ export class CanonicalSearchCoverageService {
     }
   }
 
-  private async repairStaleChats(): Promise<void> {
+  private async enqueueStaleChats(): Promise<void> {
     // Same cross-tenant discovery function and batch as the sweep; only
-    // identifiers cross it, and each rebuild runs in its owner's scope.
-    const stale = await this.tenantDb.runAsPublic((tx) =>
-      tx.execute<{ chat_id: string; owner_user_id: string }>(sql`
-        SELECT chat_id, owner_user_id
-        FROM llame_search_projection_stale_chats_v2(${CHUNKER_VERSION}, ${SEARCH_SWEEP_BATCH})
-      `),
-    );
-    let repaired = 0;
+    // identifiers cross it.
+    const stale = [
+      ...(await this.tenantDb.runAsPublic((tx) =>
+        tx.execute<{ chat_id: string; owner_user_id: string }>(sql`
+          SELECT chat_id, owner_user_id
+          FROM llame_search_projection_stale_chats_v2(${CHUNKER_VERSION}, ${SEARCH_SWEEP_BATCH})
+        `),
+      )),
+    ];
     for (const row of stale) {
-      await this.searchIndex.reindexChat(row.chat_id, row.owner_user_id);
-      repaired++;
+      await this.reindexDispatch.enqueueChatReindex(
+        row.chat_id,
+        row.owner_user_id,
+      );
     }
     this.logger.log(
-      `Rebuilt ${repaired} stale chat projection(s) before the coverage check`,
+      `Enqueued ${stale.length} stale chat reindex job(s); waiting for projection coverage`,
     );
   }
 }
 
-/** HTTP-only gate. Worker graphs import SearchModule but do not accept Runs. */
+/** HTTP-only gate. Worker graphs import SearchModule but do not accept Runs.
+ *  Bootstrap, not module init: AppModule bootstraps after SearchModule, so a
+ *  co-located reindex consumer is already draining the queue it waits on. */
 @Injectable()
-export class CanonicalSearchActivationService implements OnModuleInit {
+export class CanonicalSearchActivationService
+  implements OnApplicationBootstrap
+{
   constructor(
     @Inject(InstanceConfigService)
     private readonly instanceConfig: InstanceConfigReader,
@@ -118,7 +142,7 @@ export class CanonicalSearchActivationService implements OnModuleInit {
     private readonly coverage: CanonicalSearchCoverageGate,
   ) {}
 
-  async onModuleInit(): Promise<void> {
+  async onApplicationBootstrap(): Promise<void> {
     if (
       !this.instanceConfig.config.tools.allowed.includes('search_conversations')
     ) {

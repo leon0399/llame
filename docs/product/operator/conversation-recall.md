@@ -28,13 +28,15 @@ obsolete `search.chats.canonicalModelExcerpts` config is rejected.
 
 Before an HTTP process accepts search Runs or any process registers `runs`
 consumption, it requires complete current locator coverage, as reported by
-`pnpm --filter api search:projection-coverage`. The check first rebuilds up to
-500 stale Chats, such as one whose Run was interrupted by a process stop, then
-fails startup if coverage is still incomplete. Workers gate even when their local allowlist omits
-search because accepted Runs carry immutable declarations. Processes that
-neither accept nor consume Runs skip the gate. Incomplete coverage exposes
-counts only; provisioning, query, and rebuild failures report the operational
-error.
+`pnpm --filter api search:projection-coverage`. When coverage is incomplete,
+such as after a process stop interrupted a Run, the check enqueues up to 500
+stale Chats on the reindex queue and waits up to 2 minutes for reindex workers
+to complete coverage, then fails startup. A process whose worker profile omits
+`search-reindex` therefore needs a reindex worker running elsewhere. Workers
+gate even when their local allowlist omits search because accepted Runs carry
+immutable declarations. Processes that neither accept nor consume Runs skip the
+gate. Incomplete coverage exposes counts only; provisioning and query failures
+report the operational error.
 
 The behavior of each tool is documented in
 [search_conversations](../reference/tools/search-conversations.md) and
