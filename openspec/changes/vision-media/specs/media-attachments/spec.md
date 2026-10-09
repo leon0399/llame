@@ -169,7 +169,9 @@ no image input` form, and an unresolvable one keeps `[image media://<id> unavail
 For a model that declares `image`, a reference outside the image window SHALL reach the model, in
 the image's position and after any label, as
 `[image media://<id> <name> <width>×<height>, not attached; read the locator to view it]` when the
-request offers `read`, and as `[image media://<id> <name> <width>×<height>, not attached]` otherwise, with the same name and dimensions.
+step offers `read`, and as `[image media://<id> <name> <width>×<height>, not attached]` otherwise. A
+step offers `read` only when `read` is among that step's active tools and its tool choice is not
+`none`.
 
 #### Scenario: An out-of-window image tells a vision model to read it
 
@@ -180,8 +182,9 @@ request offers `read`, and as `[image media://<id> <name> <width>×<height>, not
 
 #### Scenario: A request without read is not told to read
 
-- **WHEN** a vision-model request that offers no `read` tool, such as a compaction request or a Run
-  under an empty `tools.allowed`, carries an image reference outside the window
+- **WHEN** a vision-model step that offers no `read`, such as a compaction request (which declares
+  tools with tool choice `none`), a Run under an empty `tools.allowed`, or a Run's final step at the
+  step cap, carries an image reference outside the window
 - **THEN** that reference reaches the model as `[image media://<id> <name> <width>×<height>, not
 attached]`
 - **AND** no placeholder in the request contains `read the locator`
@@ -207,11 +210,11 @@ any object into the request.
 
 ### Requirement: Chat Completions wires carry tool-result images in a following user message
 
-On a request to an `openai-completions` or `opencode-go` provider, a tool message SHALL NOT carry
-image content. A tool result whose image is inside the window SHALL carry its text followed by the
-line `(image attached below)`. The images of a run of consecutive tool messages SHALL follow them in
-one user-role message that starts with the text `Images from tool results:` and carries the images in
-tool-result order. Other wires SHALL keep images inside the tool output.
+On `openai-completions` and `opencode-go`, a tool message SHALL NOT carry image content. A tool
+result whose image is sent as an image part SHALL carry its text and the line
+`(image attached below)`; any other keeps its placeholder. The images of consecutive tool messages
+SHALL follow them in one user message starting `Images from tool results:`, in tool-result order.
+Other wires keep images inside the tool output.
 
 #### Scenario: A read image on Chat Completions arrives as an image part
 
@@ -225,6 +228,14 @@ tool-result order. Other wires SHALL keep images inside the tool output.
 - **WHEN** a tool result's image is outside the window on an `openai-completions` request
 - **THEN** the tool message carries the placeholder
 - **AND** no user-role image message is added for it
+
+#### Scenario: A text-only Chat Completions model gets no image message
+
+- **WHEN** an `openai-completions` model that does not declare `image` has a `read` image result
+  inside the window
+- **THEN** its tool message carries the result text and the `omitted: this model has no image input`
+  placeholder, without `(image attached below)`
+- **AND** no `Images from tool results:` message and no image part is sent
 
 ### Requirement: The Chat Completions image transform applies within a Run
 

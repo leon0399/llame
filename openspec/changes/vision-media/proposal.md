@@ -24,8 +24,10 @@ handed most often ([#935](https://github.com/leon0399/llame/issues/935)).
   - Every image sent to a model without `image` input becomes
     `[image media://<id> <name> <w>×<h>, omitted: this model has no image input]`.
   - For a vision model, older images outside the window become
-    `[image media://<id> <name> <w>×<h>, not attached; read the locator to view it]`, and the model
-    can re-read them with `read`.
+    `[image media://<id> <name> <w>×<h>, not attached; read the locator to view it]` when the step
+    offers `read`, and the model can re-read them. Steps without `read` (compaction, an empty
+    `tools.allowed`, the step-cap final step) get `[image media://<id> <name> <w>×<h>, not
+attached]`.
   - Admission and compaction estimates charge each image `ceil(width × height / 750)` tokens on its
     model variant instead of counting its base64.
 - **Native `read` of images.** Host paths, `file:`, `kb://`, `skill://`, `http(s)://`, and the new
