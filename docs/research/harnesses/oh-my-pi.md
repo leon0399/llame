@@ -166,6 +166,48 @@ sources:
   - id: llame-omp-local-memory
     resource: "../long-term-memory/2026-09-28-omp-memory.md"
     title: "OMP memory: local pipeline, Mnemopi, Hindsight and a live installation"
+  - id: omp-xdev-overview-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/xdev.ts#L1-L31"
+    title: "xd:// device contract"
+  - id: omp-xdev-mount-rule-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/xdev.ts#L42-L82"
+    title: "Top-level pins, transport tools and the mount rule"
+  - id: omp-essential-tools-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/essential-tools.ts#L19-L48"
+    title: "Essential built-ins and default load mode"
+  - id: omp-xdev-session-mount-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/session/session-tools.ts#L1061-L1078"
+    title: "Per-session mount candidates and the Code Mode exclusion"
+  - id: omp-xdev-settings-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/settings.ts#L912-L946"
+    title: "tools.xdev and tools.xdevDocs defaults"
+  - id: omp-xdev-prompt-docs-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/xdev.ts#L243-L353"
+    title: "Prompt-doc budgets and inline-or-catalog placement"
+  - id: omp-xdev-arg-validation-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/xdev.ts#L120-L173"
+    title: "Device argument parsing and schema validation"
+  - id: omp-xdev-dispatch-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/xdev.ts#L417-L496"
+    title: "Device dispatch through the canonical tool map"
+  - id: omp-xd-write-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/internal-urls/xd-protocol.ts#L78-L115"
+    title: "xd:// write handler"
+  - id: omp-xd-approval-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/internal-urls/xd-protocol.ts#L24-L53"
+    title: "Device write approval tier and per-device policy key"
+  - id: omp-xdev-approval-bypass-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/extensibility/extensions/wrapper.ts#L329-L345"
+    title: "Inner-tool prompt suppression after outer device approval"
+  - id: omp-xdev-mount-notice-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/session/session-tools.ts#L1655-L1708"
+    title: "Net-change mount notices"
+  - id: omp-anthropic-tool-controls-20261009
+    resource: "https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/ai/src/providers/anthropic.ts#L4300-L4374"
+    title: "Byte-stable Anthropic tools with deferred additions"
+  - id: llame-tool-search-design
+    resource: "../../../openspec/changes/tool-search/design.md"
+    title: "llame tool-search change design"
 ---
 
 # oh-my-pi
@@ -299,9 +341,105 @@ rank, and mental models re-answered through reflect. It maps the queue,
 lesson-snapshot and scoring ideas to llame and advises against copying the
 extraction window.[^llame-omp-local-memory]
 
+## Tool devices (`xd://`)
+
+**Scoped observation:** 2026-10-09, release `v18.6.1`
+(`2a2c6dcbbb558c0f8145f67f28b3370984f2bf60`); the older whole-document baseline
+is unchanged.
+
+OMP keeps rarely used tools out of the request's `tools` array and exposes them
+as `xd://<tool>` URLs driven through the `read` and `write` tools the model
+already has: `read xd://` lists devices, `read xd://<tool>` returns the
+description and a TypeScript rendering of the JSON schema, and
+`write xd://<tool>` executes with the JSON arguments as `content`. Device and
+direct dispatch share one canonical tool map, so mounting changes presentation
+only.[^omp-xdev-overview-20261009]
+
+- **X1 — Mount rule.** A tool mounts when its `loadMode` is `discoverable`.
+  Essential built-ins (`read`, `write`, `bash`, `edit`, `glob`, `find`,
+  `eval`, `task` and others) never mount, and adapter boundaries default an
+  omitted mode to `discoverable` for every other name, so MCP, extension and SDK
+  tools mount by default. `read` and `write` are pinned because they carry the
+  transport; `todo`, `yield`, `ask`, `grep` and `web_search` are pinned because
+  harness machinery or model habit calls them by name. Code Mode mounts nothing:
+  demoted tools are reached through the eval bridge
+  instead.[^omp-xdev-mount-rule-20261009][^omp-essential-tools-20261009][^omp-xdev-session-mount-20261009]
+- **X2 — No search step.** `tools.xdev` defaults on and `tools.xdevDocs`
+  defaults to `catalog`: the system prompt lists every mounted device with a
+  one-line summary and fetches docs on demand. `builtins` and `inline` inline
+  full docs under a 48,000-character total and 10,000-character per-device
+  budget, and a device over budget falls back to its catalog line. External
+  descriptions are capped at 200 characters in the prompt. The model selects by
+  name from that list; no ranking or query is
+  involved.[^omp-xdev-settings-20261009][^omp-xdev-prompt-docs-20261009]
+- **X3 — Validation after generation.** Device arguments arrive as a JSON
+  string inside `write.content`, so the provider cannot constrain them to the
+  device schema. The host parses them, strips a habitual `i` intent field, and
+  validates with the same `validateToolArguments` used for native calls; a
+  mismatch returns the error with the full docs, costing one more turn. Empty,
+  `?` or `help` content returns docs instead of executing. Any enabled tool,
+  including a top-level one, is dispatchable through
+  `xd://`.[^omp-xdev-arg-validation-20261009][^omp-xdev-dispatch-20261009]
+- **X4 — Approval keyed to the device.** The outer `write` gate takes the
+  wrapped tool's argument-dependent tier and a `policyKey` naming the device, so
+  `tools.approval.<device>` applies before `tools.approval.write`. Unresolved
+  devices, malformed payloads and throwing approval functions fail closed to
+  `exec`. The inner call then skips tier-only prompts for the same argument
+  object but still honors an explicit per-tool policy or safety
+  check.[^omp-xd-approval-20261009][^omp-xd-write-20261009][^omp-xdev-approval-bypass-20261009]
+- **X5 — Cache-stable mount changes.** A mid-session mount or unmount is
+  delivered as a hidden message announcing only net changes against what the
+  model was already told, so a resume that re-mounts the same devices leaves the
+  cached prefix byte-identical.[^omp-xdev-mount-notice-20261009] A separate
+  mechanism on the Anthropic wire handles native tools: the declared `tools`
+  list stays byte-stable, newly active tools are appended with
+  `defer_loading`, and active-set changes replay as `tool_addition`/
+  `tool_removal` controls.[^omp-anthropic-tool-controls-20261009]
+
+llame's pending [tool-search change](../../../openspec/changes/tool-search/design.md)
+surveys Claude Code, Codex, OpenClaw and goose but not this design. The
+transferable part is the inventory: a name catalog with on-demand schemas
+supports the change's conclusion that names alone are enough.
+llame's loaded tools enter the native declaration set, where providers can
+constrain arguments and loads persist through provider history; OMP gives up
+both to keep the wire schema list fixed and provider-neutral. Reusing `write`
+as the transport does not fit llame: its `write` is a permission-admitted host
+file tool, and device dispatch would need its own permission group and
+admission text per device, the role OMP's `policyKey` plays. Moderate
+confidence; no llame prototype or token measurement was
+run.[^llame-tool-search-design]
+
 [^omp-local-memory-20260928]: [Local memory pipeline and injection](https://github.com/can1357/oh-my-pi/blob/da58b16f424273605795435a6753778f422baff3/packages/coding-agent/src/memories/index.ts)
 
 [^llame-omp-local-memory]: [OMP memory: local pipeline, Mnemopi, Hindsight and a live installation](../long-term-memory/2026-09-28-omp-memory.md)
+
+[^omp-xdev-overview-20261009]: [xd:// device contract](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/xdev.ts#L1-L31)
+
+[^omp-xdev-mount-rule-20261009]: [Top-level pins, transport tools and the mount rule](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/xdev.ts#L42-L82)
+
+[^omp-essential-tools-20261009]: [Essential built-ins and default load mode](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/essential-tools.ts#L19-L48)
+
+[^omp-xdev-session-mount-20261009]: [Per-session mount candidates and the Code Mode exclusion](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/session/session-tools.ts#L1061-L1078)
+
+[^omp-xdev-settings-20261009]: [tools.xdev and tools.xdevDocs defaults](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/settings.ts#L912-L946)
+
+[^omp-xdev-prompt-docs-20261009]: [Prompt-doc budgets and inline-or-catalog placement](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/xdev.ts#L243-L353)
+
+[^omp-xdev-arg-validation-20261009]: [Device argument parsing and schema validation](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/xdev.ts#L120-L173)
+
+[^omp-xdev-dispatch-20261009]: [Device dispatch through the canonical tool map](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/tools/xdev.ts#L417-L496)
+
+[^omp-xd-write-20261009]: [xd:// write handler](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/internal-urls/xd-protocol.ts#L78-L115)
+
+[^omp-xd-approval-20261009]: [Device write approval tier and per-device policy key](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/internal-urls/xd-protocol.ts#L24-L53)
+
+[^omp-xdev-approval-bypass-20261009]: [Inner-tool prompt suppression after outer device approval](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/extensibility/extensions/wrapper.ts#L329-L345)
+
+[^omp-xdev-mount-notice-20261009]: [Net-change mount notices](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/coding-agent/src/session/session-tools.ts#L1655-L1708)
+
+[^omp-anthropic-tool-controls-20261009]: [Byte-stable Anthropic tools with deferred additions](https://github.com/can1357/oh-my-pi/blob/2a2c6dcbbb558c0f8145f67f28b3370984f2bf60/packages/ai/src/providers/anthropic.ts#L4300-L4374)
+
+[^llame-tool-search-design]: [llame tool-search change design](../../../openspec/changes/tool-search/design.md)
 
 [^omp-find-cascade-20260924]: [Semantic find cascade](https://github.com/can1357/oh-my-pi/blob/5fccbd0deee820049afa492dc3112272b163126f/packages/coding-agent/src/tools/jfind/cascade.ts)
 
