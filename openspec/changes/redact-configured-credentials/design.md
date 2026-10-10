@@ -121,6 +121,12 @@ no later step re-cuts or re-scans the result.
   and every other string own property except `name` and `code`, recursing into
   `cause`, `lastError`, and `errors[]`, through a guarded `defineProperty`
   that never throws. `instanceof`, the AI SDK's symbol-marked `isInstance`,
+- If any of those strings cannot be redefined (a non-writable,
+  non-configurable property, or a frozen error), the original object is never
+  forwarded: the wrapper replaces it with a new `Error` carrying the redacted
+  `message` and `stack`, the original `name`, and copies of `code` and
+  `statusCode`, and with the redacted `cause` and `lastError`. Only that case
+  loses class identity, and the wrapper logs that it happened, without values.
   `name`, `code`, `statusCode`, and `lastError` identity are untouched.
 - A non-`Error` value passes through unless it is a string containing a
   member, which is redacted.
