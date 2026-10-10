@@ -35,8 +35,8 @@ message carries no class prefix).
   and say the three attempts are the request plus two retries.
 - No behavior changes. Outside the runbook clause and its scenario, the
   requirement and every other scenario stay word for word; the clause's
-  usage-limit half changes only by the connective `that` the new sentence
-  structure needs.
+  usage-limit half changes only by the `; and that` the new sentence structure
+  needs, where today's text reads `, and`.
 
 ## Capabilities
 
@@ -64,7 +64,7 @@ None.
 
 - The synced canonical requirement carries the reworded runbook clause and
   scenario, and every other sentence and scenario of the requirement is
-  byte-identical to today's except the connective `that`.
+  byte-identical to today's except that `, and` becomes `; and that`.
 - The runbook's "Accepted upstream failures" section names the documented
   format-gate message, the observed failure message exactly as the run records
   it (no class prefix) with its 2026-09-22 date, which one to match, and the
