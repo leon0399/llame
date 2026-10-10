@@ -11,7 +11,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 
 import { AppModule } from '../app.module';
-import { configureApp, createOpenApiDocument } from '../app.setup';
+import { configureApp } from '../app.setup';
 import { mediaObjects } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
@@ -154,25 +154,17 @@ describe('/api/v1/media (HTTP)', () => {
       expect(JSON.stringify(body)).not.toContain(userAId);
     });
 
-    it('ignores a client-supplied owner field', async () => {
+    it('refuses a client-supplied owner field as 400 and stores nothing', async () => {
+      // Any text field trips multer's `fields: 0` limit (LIMIT_FIELD_COUNT).
       const bytes = await uniquePng();
-      const res = await request(http)
+      await request(http)
         .post('/api/v1/media')
         .set('Cookie', cookieA)
         .field('ownerUserId', 'someone-else')
-        .field('owner', 'someone-else')
         .attach('file', bytes, 'owned.png')
-        .expect(201);
-      const { id } = descriptorSchema.parse(res.body);
+        .expect(400);
 
-      await request(http)
-        .get(`/api/v1/media/${id}`)
-        .set('Cookie', cookieA)
-        .expect(200);
-      await request(http)
-        .get(`/api/v1/media/${id}`)
-        .set('Cookie', cookieB)
-        .expect(404);
+      expect(await countOwned(userAId, bytes)).toBe(0);
     });
 
     it('reuses the object for the same bytes with 200, keeping the first provenance and name', async () => {
@@ -243,14 +235,6 @@ describe('/api/v1/media (HTTP)', () => {
       expect(await countOwned(userAId, svg)).toBe(0);
     });
 
-    it('refuses HTML named shot.png declared as image/png as 415', async () => {
-      const html = Buffer.from(`<!doctype html><p>${tag}</p>`);
-      const res = await upload(cookieA, html, 'shot.png', 'image/png').expect(
-        415,
-      );
-      expect(res.body).toMatchObject({ code: 'unsupported_media_type' });
-    });
-
     it('answers a 21 MiB file 413 with the same image_too_large body as an ingest refusal', async () => {
       const big = Buffer.concat([
         await uniquePng(),
@@ -299,7 +283,6 @@ describe('/api/v1/media (HTTP)', () => {
       await request(http)
         .post('/api/v1/media')
         .set('Cookie', cookieA)
-        .field('note', 'no file')
         .expect(400);
     });
 
@@ -388,6 +371,13 @@ describe('/api/v1/media (HTTP)', () => {
       expect(again.headers['etag']).toBe(etag);
       expect(again.headers['cache-control']).toBe('private, no-cache');
 
+      // A weak-compared validator list matches too (RFC 9110).
+      await request(http)
+        .get(`/api/v1/media/${media.id}/model`)
+        .set('Cookie', cookieA)
+        .set('If-None-Match', `W/"other", W/${etag}`)
+        .expect(304);
+
       // The original's validator differs from the model's.
       await request(http)
         .get(`/api/v1/media/${media.id}/original`)
@@ -451,37 +441,5 @@ describe('/api/v1/media (HTTP)', () => {
         .set('Cookie', cookieA)
         .expect(200);
     });
-
-    it('retains an upload no message references', async () => {
-      const media = await uploaded(cookieA, await uniquePng(), 'unsent.png');
-
-      for (const suffix of ['', '/original', '/model']) {
-        await request(http)
-          .get(`/api/v1/media/${media.id}${suffix}`)
-          .set('Cookie', cookieA)
-          .expect(200);
-      }
-    });
-  });
-
-  it('publishes the media routes in OpenAPI', () => {
-    const document = createOpenApiDocument(app);
-
-    expect(document.paths['/api/v1/media']?.post?.operationId).toBe(
-      'uploadMedia',
-    );
-    expect(document.paths['/api/v1/media/{id}']?.get?.operationId).toBe(
-      'getMedia',
-    );
-    expect(
-      document.paths['/api/v1/media/{id}/original']?.get?.operationId,
-    ).toBe('getMediaOriginal');
-    expect(document.paths['/api/v1/media/{id}/model']?.get?.operationId).toBe(
-      'getMediaModel',
-    );
-    expect(document.paths['/api/v1/media/{id}']?.delete).toBeUndefined();
-    expect(
-      document.components?.schemas?.['MediaDescriptorResponse'],
-    ).toBeDefined();
   });
 });

@@ -34,13 +34,16 @@ export class MediaIngestError extends Error {
   }
 }
 
-export type OriginalMediaType =
-  | 'image/png'
-  | 'image/jpeg'
-  | 'image/gif'
-  | 'image/webp';
+export const ORIGINAL_MEDIA_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+] as const;
+export type OriginalMediaType = (typeof ORIGINAL_MEDIA_TYPES)[number];
 
-export type ModelMediaType = 'image/png' | 'image/jpeg';
+export const MODEL_MEDIA_TYPES = ['image/png', 'image/jpeg'] as const;
+export type ModelMediaType = (typeof MODEL_MEDIA_TYPES)[number];
 
 type EncodedImage<TMediaType extends string> = {
   mediaType: TMediaType;
@@ -63,19 +66,12 @@ export type ModelPixels = {
   channels: 1 | 2 | 3 | 4;
 };
 
-const SHARP_FORMAT: Record<OriginalMediaType, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpeg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-};
-
 const PNG_SIGNATURE = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]);
 
 /** The format named by the leading magic bytes, or undefined. */
-export function detectMediaType(bytes: Buffer): OriginalMediaType | undefined {
+function detectMediaType(bytes: Buffer): OriginalMediaType | undefined {
   if (bytes.subarray(0, 8).equals(PNG_SIGNATURE)) return 'image/png';
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return 'image/jpeg';
@@ -105,15 +101,15 @@ export async function prepareMedia(input: Buffer): Promise<PreparedMedia> {
   }
 
   // Header only: libvips reads dimensions without decoding pixel data. For an
-  // animated image `height` is one frame's height.
-  const header = await sharp(input)
+  // animated image `height` is one frame's height. The pixel limit is lifted
+  // here so every oversized header reaches the 40-megapixel check below as
+  // `image_too_large` (sharp's default limit would throw first); the full
+  // decode keeps `limitInputPixels`.
+  const header = await sharp(input, { limitInputPixels: false })
     .metadata()
     .catch(() => {
       throw new MediaIngestError('unsupported_media_type');
     });
-  if (header.format !== SHARP_FORMAT[mediaType]) {
-    throw new MediaIngestError('unsupported_media_type');
-  }
   if (header.width * header.height > MEDIA_MAX_PIXELS) {
     throw new MediaIngestError('image_too_large');
   }

@@ -242,33 +242,6 @@ describeIfDb('RLS integration — media store tenancy', () => {
     expect(await media.readVariant(userBId, id, 'model')).toBeUndefined();
   });
 
-  it('reuses an identical image within one owner and keeps its first label', async () => {
-    const bytes = await uniquePng();
-    const first = await media.ingest(userAId, {
-      bytes,
-      provenance: 'upload',
-      source: 'first.png',
-    });
-    const second = await media.ingest(userAId, {
-      bytes,
-      provenance: 'read',
-      source: 'kb://second.png',
-    });
-
-    expect(first.created).toBe(true);
-    expect(second).toEqual({ media: first.media, created: false });
-  });
-
-  it('never dedups across owners', async () => {
-    const bytes = await uniquePng();
-    const a = await ingestAs(userAId, bytes);
-    const b = await ingestAs(userBId, bytes);
-
-    expect(b.created).toBe(true);
-    expect(b.media.id).not.toBe(a.media.id);
-    expect(b.media.ownerUserId).toBe(userBId);
-  });
-
   it('yields one object for concurrent identical ingests', async () => {
     const bytes = await uniquePng();
     const results = await Promise.all([

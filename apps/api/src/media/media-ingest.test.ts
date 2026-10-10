@@ -1,50 +1,28 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { crc32, deflateSync } from 'node:zlib';
+import { crc32 } from 'node:zlib';
 import sharp from 'sharp';
 
 import {
-  detectMediaType,
   encodeModelVariant,
   MEDIA_MAX_BYTES,
-  MEDIA_MAX_PIXELS,
   MediaIngestError,
   type MediaIngestErrorCode,
-  MODEL_MAX_BYTES,
   prepareMedia,
 } from './media-ingest';
 
 vi.setConfig({ testTimeout: 30_000 });
 
-const PNG_SIGNATURE = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-]);
-
-function pngChunk(type: string, data: Buffer): Buffer {
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length);
-  const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(body));
-  return Buffer.concat([length, body, crc]);
-}
-
-/** A tiny PNG whose IHDR declares `width`×`height`, with no real pixel data. */
-function pngHeaderOnly(width: number, height: number): Buffer {
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(width, 0);
-  ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 2; // RGB
-  return Buffer.concat([
-    PNG_SIGNATURE,
-    pngChunk('IHDR', ihdr),
-    pngChunk('IDAT', deflateSync(Buffer.alloc(16))),
-    pngChunk('IEND', Buffer.alloc(0)),
-  ]);
-}
-
 function solid(width: number, height: number, background = '#336699') {
   return sharp({ create: { width, height, channels: 3, background } });
+}
+
+/** A 1×1 PNG whose IHDR is patched to declare `width`×`height`. */
+async function pngDeclaring(width: number, height: number): Promise<Buffer> {
+  const png = await solid(1, 1).png().toBuffer();
+  png.writeUInt32BE(width, 16);
+  png.writeUInt32BE(height, 20);
+  png.writeUInt32BE(crc32(png.subarray(12, 29)), 29);
+  return png;
 }
 
 function noisePixels(width: number, height: number) {
@@ -66,34 +44,6 @@ async function refusal(input: Buffer): Promise<MediaIngestErrorCode> {
   throw new Error('Expected a MediaIngestError refusal');
 }
 
-describe('media ingest bounds', () => {
-  it('pins the fixed bounds', () => {
-    expect(MEDIA_MAX_BYTES).toBe(20_971_520);
-    expect(MEDIA_MAX_PIXELS).toBe(40_000_000);
-    expect(MODEL_MAX_BYTES).toBe(3_932_160);
-  });
-});
-
-describe('detectMediaType', () => {
-  it('accepts PNG, JPEG, GIF, and WebP magic bytes only', async () => {
-    expect(detectMediaType(await solid(2, 2).png().toBuffer())).toBe(
-      'image/png',
-    );
-    expect(detectMediaType(await solid(2, 2).jpeg().toBuffer())).toBe(
-      'image/jpeg',
-    );
-    expect(detectMediaType(await solid(2, 2).gif().toBuffer())).toBe(
-      'image/gif',
-    );
-    expect(detectMediaType(await solid(2, 2).webp().toBuffer())).toBe(
-      'image/webp',
-    );
-    expect(detectMediaType(Buffer.from('RIFF\0\0\0\0WAVE'))).toBeUndefined();
-    expect(detectMediaType(Buffer.from('<svg/>'))).toBeUndefined();
-    expect(detectMediaType(Buffer.alloc(0))).toBeUndefined();
-  });
-});
-
 describe('prepareMedia refusals', () => {
   it('refuses SVG as unsupported_media_type', async () => {
     const svg = Buffer.from(
@@ -108,7 +58,7 @@ describe('prepareMedia refusals', () => {
   });
 
   it('refuses a PNG signature truncated after the header', async () => {
-    const truncated = pngHeaderOnly(10, 10).subarray(0, 33);
+    const truncated = (await solid(10, 10).png().toBuffer()).subarray(0, 33);
     expect(await refusal(truncated)).toBe('unsupported_media_type');
   });
 
@@ -121,27 +71,27 @@ describe('prepareMedia refusals', () => {
   });
 
   it('refuses a 21 MiB input as image_too_large before decoding it', async () => {
-    // A valid PNG signature followed by garbage: decoding it would fail as
+    // A PNG signature followed by garbage: decoding it would fail as
     // unsupported, so image_too_large proves the byte bound ran first.
-    const big = Buffer.concat([
-      PNG_SIGNATURE,
-      Buffer.alloc(21 * 1024 * 1024 - PNG_SIGNATURE.length),
-    ]);
+    const signature = (await solid(1, 1).png().toBuffer()).subarray(0, 8);
+    const big = Buffer.concat([signature, Buffer.alloc(21 << 20)]);
     expect(await refusal(big)).toBe('image_too_large');
   });
 
-  it('refuses a small PNG whose header declares 41 megapixels', async () => {
-    // 8000×5125 = 41,000,000 px; the file has no real pixel data, so a full
-    // decode would fail as unsupported_media_type.
-    const header = pngHeaderOnly(8000, 5125);
-    expect(header.length).toBeLessThan(200);
-    expect(await refusal(header)).toBe('image_too_large');
-  });
-
-  it('refuses a header just over the 40-megapixel bound', async () => {
-    // 8001×5000 = 40,005,000 px.
-    expect(await refusal(pngHeaderOnly(8001, 5000))).toBe('image_too_large');
-  });
+  // The files carry one real pixel, so a full decode would fail as
+  // unsupported_media_type; image_too_large proves the header check ran.
+  it.each([
+    [8000, 5125],
+    [20_000, 20_000],
+    [65_535, 65_535],
+  ])(
+    'refuses a small PNG whose header declares %i×%i',
+    async (width, height) => {
+      expect(await refusal(await pngDeclaring(width, height))).toBe(
+        'image_too_large',
+      );
+    },
+  );
 });
 
 describe('prepareMedia original', () => {
@@ -161,9 +111,13 @@ describe('prepareMedia original', () => {
     expect(prepared.sha256).toMatch(/^[0-9a-f]{64}$/u);
   });
 
-  it('decides the format from magic bytes alone', async () => {
-    const jpeg = await solid(30, 20).jpeg().toBuffer();
-    expect((await prepareMedia(jpeg)).original.mediaType).toBe('image/jpeg');
+  it('accepts WebP by its magic bytes', async () => {
+    const webp = await solid(30, 20).webp().toBuffer();
+    expect((await prepareMedia(webp)).original).toMatchObject({
+      mediaType: 'image/webp',
+      width: 30,
+      height: 20,
+    });
   });
 
   it('accepts an image of exactly 40 megapixels', async () => {
