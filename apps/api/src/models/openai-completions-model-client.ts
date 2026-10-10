@@ -327,6 +327,13 @@ function reportBoundedFailure(
   };
 }
 
+/**
+ * The adapter serializes tool content as text, so tool-result images move into
+ * a user message here and on opencode-go, which composes over this client
+ * (vision-media D6).
+ */
+const MOVE_TOOL_IMAGES = { moveToolImages: true } as const;
+
 function runOpenAICompatibleStream(
   provider: OpenAICompatibleProvider,
   config: OpenAICompletionsModelClientConfig,
@@ -354,10 +361,7 @@ function runOpenAICompatibleStream(
 
   // The shared tool loop: without it `streamText` stops after one step.
   applyToolCallingOptions(streamOptions, input);
-  // The Chat Completions adapter serializes tool content as text, so an
-  // attached tool-result image travels as the interim placeholder here and on
-  // opencode-go, which composes over this client (vision-media D6).
-  installStepPreparation(streamOptions, input, config.input, 'placeholder');
+  installStepPreparation(streamOptions, input, config.input, MOVE_TOOL_IMAGES);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
   if (input.onTextDelta || input.onReasoningDelta) {

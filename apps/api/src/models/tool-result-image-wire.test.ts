@@ -20,14 +20,18 @@ import { createOpenAIModelClient } from './openai-model-client';
 import { createOpenCodeGoModelClient } from './opencode-go-model-client';
 
 const ID = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+const ID2 = '0192f3a4-5b6c-7d8e-9f01-00000000000b';
 const CHAT = { id: 'chat-test', lane: 'main' } as const;
 const USER_AGENT = 'llame/0.0.0-test';
 const ENVELOPE = `{"status":"success","kind":"image","media":"media://${ID}"}`;
-/** The model variant bytes the fake resolver serves for `ID`. */
+const ENVELOPE2 = `{"status":"success","kind":"image","media":"media://${ID2}"}`;
+/** The model variant bytes the fake resolver serves for `ID` and `ID2`. */
 const VARIANT_BASE64 = Buffer.from([ID.codePointAt(35) ?? 0]).toString(
   'base64',
 );
-const INTERIM = `[image media://${ID} 0a.png 1600×900, omitted: this connection cannot carry tool-result images yet]`;
+const VARIANT2_BASE64 = Buffer.from([ID2.codePointAt(35) ?? 0]).toString(
+  'base64',
+);
 const VISION: ReadonlyArray<ModelInput> = ['text', 'image'];
 
 const messages: Array<ModelMessage> = [
@@ -54,6 +58,38 @@ const messages: Array<ModelMessage> = [
       },
     ],
   },
+];
+
+/** Two consecutive `read` image results, from one step's two calls. */
+const twoReads: Array<ModelMessage> = [
+  { role: 'user', content: 'Compare the screenshots.' },
+  {
+    role: 'assistant',
+    content: ['call-1', 'call-2'].map((toolCallId, at) => ({
+      type: 'tool-call',
+      toolCallId,
+      toolName: 'read',
+      input: { path: `/work/shot-${at + 1}.png` },
+    })),
+  },
+  ...(
+    [
+      ['call-1', ENVELOPE, ID],
+      ['call-2', ENVELOPE2, ID2],
+    ] as const
+  ).map(
+    ([toolCallId, envelope, id]): ModelMessage => ({
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId,
+          toolName: 'read',
+          output: toolResultOutput(envelope, id),
+        },
+      ],
+    }),
+  ),
 ];
 
 const sse = (events: ReadonlyArray<string>) =>
@@ -96,7 +132,7 @@ const base = {
 };
 
 /**
- * Streams `messages` with a vision `input` and the owner's media through a
+ * Streams `history` (by default one read) with `input` and the owner's media through a
  * client built after the transport stub is in place (the fixed transports
  * capture `globalThis.fetch` at construction), and returns the sent body.
  */
@@ -104,6 +140,7 @@ async function sentBody(
   build: (input: ReadonlyArray<ModelInput>) => ModelClient,
   response: () => Response,
   input: ReadonlyArray<ModelInput> = VISION,
+  history: Array<ModelMessage> = messages,
 ): Promise<UnknownRecord> {
   const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
     Promise.resolve(response()),
@@ -111,9 +148,13 @@ async function sentBody(
   const previousFetch = globalThis.fetch;
   globalThis.fetch = fetchMock;
   try {
-    const { resolver } = fakeResolver([descriptor(ID)]);
+    const { resolver } = fakeResolver([descriptor(ID), descriptor(ID2)]);
     await expect(
-      build(input).streamText({ chat: CHAT, messages, media: resolver }).text,
+      build(input).streamText({
+        chat: CHAT,
+        messages: history,
+        media: resolver,
+      }).text,
     ).resolves.toBe('done');
     const [request, init] = fetchMock.mock.calls[0] ?? [];
     if (request === undefined) throw new Error('no request was sent');
@@ -194,7 +235,7 @@ describe('a replayed read image on each wire', () => {
     });
   });
 
-  it.each([
+  describe.each([
     [
       'openai-completions',
       (input: ReadonlyArray<ModelInput>) =>
@@ -209,21 +250,66 @@ describe('a replayed read image on each wire', () => {
       (input: ReadonlyArray<ModelInput>) =>
         createOpenCodeGoModelClient({ ...base, input }),
     ],
-  ])(
-    'sends the interim placeholder and no image in the %s tool message',
-    async (_, build) => {
-      const body = await sentBody(build, COMPLETIONS_STREAM);
+  ])('on the %s wire', (_, build) => {
+    /** The sent `role: tool` messages. */
+    const toolMessages = (body: UnknownRecord): Array<UnknownRecord> => {
+      const sent: unknown = body.messages;
+      return Array.isArray(sent)
+        ? sent.filter(isRecord).filter(({ role }) => role === 'tool')
+        : [];
+    };
 
-      expect(body.messages).toContainEqual({
-        role: 'tool',
-        tool_call_id: 'call-1',
-        content: `${ENVELOPE}\n${INTERIM}`,
-      });
+    it('moves the images of consecutive tool results into one following user message as image_url parts', async () => {
+      const body = await sentBody(build, COMPLETIONS_STREAM, VISION, twoReads);
+
+      expect(Array.isArray(body.messages) && body.messages.slice(2)).toEqual([
+        {
+          role: 'tool',
+          tool_call_id: 'call-1',
+          content: `${ENVELOPE}\n(image attached below)`,
+        },
+        {
+          role: 'tool',
+          tool_call_id: 'call-2',
+          content: `${ENVELOPE2}\n(image attached below)`,
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Images from tool results:' },
+            {
+              type: 'image_url',
+              image_url: { url: `data:image/png;base64,${VARIANT_BASE64}` },
+            },
+            {
+              type: 'image_url',
+              image_url: { url: `data:image/png;base64,${VARIANT2_BASE64}` },
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('gives a text-only model the omitted placeholder and no image message', async () => {
+      const body = await sentBody(build, COMPLETIONS_STREAM, ['text']);
+
+      expect(toolMessages(body)).toEqual([
+        {
+          role: 'tool',
+          tool_call_id: 'call-1',
+          content: `${ENVELOPE}\n[image media://${ID} 0a.png 1600×900, omitted: this model has no image input]`,
+        },
+      ]);
       const serialized = JSON.stringify(body);
-      expect(serialized).not.toContain('image_url');
-      expect(serialized).not.toContain(VARIANT_BASE64 + '"');
-    },
-  );
+      for (const absent of [
+        '(image attached below)',
+        'Images from tool results:',
+        'image_url',
+      ]) {
+        expect(serialized).not.toContain(absent);
+      }
+    });
+  });
 
   it('gives a text-only model the omitted placeholder on a content wire', async () => {
     const body = await sentBody(

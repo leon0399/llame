@@ -113,10 +113,10 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
 ## 5. `vision-media/vision-read-completions` — Chat Completions transport (design D6)
 
-- [ ] 5.1 Remove the interim Chat Completions placeholder from `vision-read-local`; on `openai-completions` and `opencode-go`, move the images of consecutive tool results into one synthetic user message `Images from tool results:` after the tool messages, whose text says `(image attached below)`, live through `prepareStep` and in replay; verify by client tests capturing both wires' request bodies that each image is an `image_url` part and never base64 text, and by unit tests for the `media-attachments` Chat Completions scenarios; also verify the `media-attachments` scenario "A text-only Chat Completions model gets no image message"
-- [ ] 5.2 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 5.3 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
-- [ ] 5.4 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 5.1 Remove the interim Chat Completions placeholder from `vision-read-local`; on `openai-completions` and `opencode-go`, move the images of consecutive tool results into one synthetic user message `Images from tool results:` after the tool messages, whose text says `(image attached below)`, live through `prepareStep` and in replay; verify by client tests capturing both wires' request bodies that each image is an `image_url` part and never base64 text, and by unit tests for the `media-attachments` Chat Completions scenarios; also verify the `media-attachments` scenario "A text-only Chat Completions model gets no image message"
+- [x] 5.2 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 5.3 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
+- [x] 5.4 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 5.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 6. `vision-media/vision-read-web` — web image bodies (design D7)

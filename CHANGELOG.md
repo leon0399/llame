@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Vision models on `openai-completions` and `opencode-go` now receive `read`
+  images (#935). The Chat Completions adapter would send a tool output's image
+  as text, so a tool result whose image is attached carries its text and
+  `(image attached below)`, and the images of consecutive tool results follow
+  them in one user message `Images from tool results:`, as image parts in
+  tool-result order, for reads from earlier turns and from earlier steps of the
+  same Run alike. Images outside the epoch window and text-only models keep
+  their placeholder in the tool message and add no image message.
+
 - Added image reads to the native `read` tool (#935).
   A host, `file://`, Workspace-relative, `kb://`, or `skill://` file whose
   leading bytes are a PNG, JPEG, GIF, or WebP image is ingested into the Run
