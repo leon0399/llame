@@ -45,6 +45,7 @@ import {
 } from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
 import { applyStreamIdleWatchdog } from './stream-idle-watchdog';
+import { createToolCallGate, type ToolCallGate } from './tool-call-gate';
 
 /**
  * Wire identity of this adapter: `@ai-sdk/openai-compatible` is Chat
@@ -324,6 +325,45 @@ function reportBoundedFailure(
   };
 }
 
+/**
+ * Routes text and reasoning off `onChunk`. Reasoning rides `onChunk`, which
+ * the SDK reaches only after it has already repaired (refused) a call, so the
+ * gate holds refusal reports and executions until `onChunk` passes the call's
+ * own part (#1184), and releases whatever it still holds once the stream
+ * finishes, fails, or aborts, so no call outlives its stream.
+ */
+function applyChunkDelivery(
+  streamOptions: StreamOptions,
+  input: ModelStreamInput,
+  gate: ToolCallGate,
+): void {
+  if (!input.onTextDelta && !input.onReasoningDelta) return;
+  streamOptions.onChunk = ({ chunk }) => {
+    if (chunk.type === 'text-delta') {
+      input.onTextDelta?.(chunk.text);
+    } else if (chunk.type === 'reasoning-delta') {
+      input.onReasoningDelta?.(chunk.text, chunk.id);
+    } else if (chunk.type === 'tool-call') {
+      gate.reach(chunk.toolCallId);
+    }
+  };
+  if (!input.onReasoningDelta) return;
+  gate.attach();
+  const { onFinish, onError, onAbort } = streamOptions;
+  streamOptions.onFinish = (event) => {
+    gate.close();
+    return onFinish?.(event);
+  };
+  streamOptions.onError = (event) => {
+    gate.close();
+    return onError?.(event);
+  };
+  streamOptions.onAbort = (event) => {
+    gate.close();
+    return onAbort?.(event);
+  };
+}
+
 function runOpenAICompatibleStream(
   provider: OpenAICompatibleProvider,
   config: OpenAICompletionsModelClientConfig,
@@ -350,18 +390,11 @@ function runOpenAICompatibleStream(
   };
 
   // The shared tool loop: without it `streamText` stops after one step.
-  applyToolCallingOptions(streamOptions, input);
+  const gate = createToolCallGate();
+  applyToolCallingOptions(streamOptions, input, gate);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
-  if (input.onTextDelta || input.onReasoningDelta) {
-    streamOptions.onChunk = ({ chunk }) => {
-      if (chunk.type === 'text-delta') {
-        input.onTextDelta?.(chunk.text);
-      } else if (chunk.type === 'reasoning-delta') {
-        input.onReasoningDelta?.(chunk.text, chunk.id);
-      }
-    };
-  }
+  applyChunkDelivery(streamOptions, input, gate);
   return awaitSettlementAfter(
     dependencies.streamText(streamOptions),
     settlement,

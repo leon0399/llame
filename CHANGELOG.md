@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Fixed a step's reasoning still reaching the Run after its tool call on
+  runtimes that schedule the reasoning stream later, such as Node 24 (#1184).
+  On the Responses and Anthropic wires, reasoning arrives through a separate
+  `fullStream` consumer; on Chat Completions it arrives through `onChunk`,
+  which the SDK reaches only after it has already refused an invalid call. A
+  tool's `execute` now waits until that delivery path reaches the call's own
+  `tool-call` part, and a refused or schema-invalid call is reported when it
+  is reached. Every reasoning delta ahead of a call is therefore delivered
+  before the Run records the call, whatever the runtime. Tools the Run adds
+  mid-turn are held the same way, and a stream that ends, fails, or aborts
+  releases every waiting call.
+
 - Fixed a Run stream occasionally closing without its `finish` frame when the
   Run settled between two of the bridge's reads, for example a queued Run
   cancelled at worker pickup (#1180). The bridge read no events, the terminal
@@ -17,9 +29,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   the stored assistant message kept it ahead, against the durable-runs rule
   that the message projects the event log's order. Both reasoning and text
   buffers now drain before every tool request, including refused and invalid
-  calls. That holds on the pinned Node 22 runtime, where the reasoning
-  consumer has delivered the step's reasoning by then; on Node 24 it can still
-  arrive after the call (#1184).
+  calls.
 
 - Fixed intermittent Storybook failures in the regex tester stories (#353).
   Their play functions checked the tester popup's `Match` and `No match`

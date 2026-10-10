@@ -7,6 +7,7 @@
 import { simulateReadableStream, type TextStreamPart, type ToolSet } from 'ai';
 
 import { consumeReasoningStream } from './reasoning-stream';
+import { createToolCallGate } from './tool-call-gate';
 
 type Delivery = [string, string | undefined, unknown];
 
@@ -17,6 +18,7 @@ async function forward(chunks: Array<TextStreamPart<ToolSet>>) {
     simulateReadableStream<TextStreamPart<ToolSet>>({ chunks }),
     (text, partId, providerMetadata) =>
       deliveries.push([text, partId, providerMetadata]),
+    createToolCallGate(),
   );
   return deliveries;
 }
@@ -122,11 +124,52 @@ describe('consumeReasoningStream', () => {
     const deliveries: Array<Delivery> = [];
 
     await expect(
-      consumeReasoningStream(failing, (text, partId, providerMetadata) =>
-        deliveries.push([text, partId, providerMetadata]),
+      consumeReasoningStream(
+        failing,
+        (text, partId, providerMetadata) =>
+          deliveries.push([text, partId, providerMetadata]),
+        createToolCallGate(),
       ),
     ).resolves.toBeUndefined();
     // What did arrive before the failure was still forwarded.
     expect(deliveries).toEqual([['before the failure', '0:0', undefined]]);
+  });
+
+  it('releases a call when it reaches the call’s part, while the stream stays open', async () => {
+    const order: Array<string> = [];
+    const gate = createToolCallGate();
+    gate.attach();
+    const held = gate.reached('call-1').then(() => order.push('call'));
+    // The stream stays open until the call is released, so only reaching the
+    // part can release it: the release on stream end would come too late.
+    async function* stream(): AsyncIterable<TextStreamPart<ToolSet>> {
+      yield { type: 'reasoning-delta', id: '0', text: 'think' };
+      yield {
+        type: 'tool-call',
+        toolCallId: 'call-1',
+        toolName: 'echo',
+        input: {},
+      };
+      await held;
+    }
+
+    await consumeReasoningStream(stream(), () => order.push('reasoning'), gate);
+
+    expect(order).toEqual(['reasoning', 'call']);
+  });
+
+  it('releases calls it never reached when the stream fails', async () => {
+    const gate = createToolCallGate();
+    gate.attach();
+    const held = gate.reached('never-streamed');
+    const failing: AsyncIterable<TextStreamPart<ToolSet>> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new Error('provider stream died')),
+      }),
+    };
+
+    await consumeReasoningStream(failing, () => undefined, gate);
+
+    await expect(held).resolves.toBeUndefined();
   });
 });

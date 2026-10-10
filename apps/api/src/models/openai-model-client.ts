@@ -1,13 +1,6 @@
 import { createOpenAI, type OpenAIProvider } from '@ai-sdk/openai';
 import type { LanguageModelV3 } from '@ai-sdk/provider';
-import {
-  generateText,
-  NoSuchToolError,
-  stepCountIs,
-  streamText,
-  tool,
-  type ToolSet,
-} from 'ai';
+import { generateText, stepCountIs, streamText, tool, type ToolSet } from 'ai';
 
 import {
   type BillingMode,
@@ -30,6 +23,12 @@ import {
   type ProviderOptionRecord,
 } from './provider-options';
 import { consumeReasoningStream } from './reasoning-stream';
+import {
+  createToolCallGate,
+  gateToolExecution,
+  refuseUnavailableToolCalls,
+  type ToolCallGate,
+} from './tool-call-gate';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 import {
   applyStreamIdleWatchdog,
@@ -64,23 +63,6 @@ export function productUserAgentHeaders(config: {
   return { 'user-agent': config.userAgent };
 }
 
-/**
- * Best-effort parse of a tool call's raw stringified-JSON `input`
- * (`LanguageModelV3ToolCall.input` is always a string at the provider
- * layer). Falls back to the raw string when it isn't valid JSON, rather
- * than throwing — a hallucinating model's malformed arguments are still a
- * recorded observation, not a crash.
- */
-function parseToolCallInput(raw: string) {
-  try {
-    // SAFETY: JSON.parse returns any; asserting unknown forces the caller to
-    // narrow before use (the catch below is this function's own fallback).
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return raw;
-  }
-}
-
 function disableStrictToolSchemas(tools: ToolSet): ToolSet {
   return Object.fromEntries(
     Object.entries(tools).map(([name, definition]) => [
@@ -112,39 +94,15 @@ function streamSanitizer(
  * generation path unchanged. Mutates `streamOptions` in place, matching the
  * incremental build-up style the rest of `streamText` already uses. Shared
  * by every wire's client (exported for `openai-completions-model-client`),
- * so step-cap accounting and refusal reporting stay single-sourced.
+ * so step-cap accounting and refusal reporting stay single-sourced. `gate`
+ * orders execution and refusal reports behind the reasoning channel; a client
+ * with an in-order reasoning consumer attaches it through
+ * `bindReasoningChannel`, and an unattached gate lets calls run as they arrive.
  */
-/**
- * Records a tool call the model requested but that never passed the gate:
- * an undeclared/hallucinated name, or arguments the tool's own schema
- * rejects. The SDK's own non-crashing fallback then synthesizes the
- * model-visible tool error, so the run never crashes.
- */
-function refuseUnavailableToolCalls(
-  toolCall: { toolCallId: string; toolName: string; input: string },
-  error: unknown,
-  report: ModelStreamInput['onUnavailableToolCall'],
-): Promise<null> {
-  report?.({
-    toolCallId: toolCall.toolCallId,
-    toolName: toolCall.toolName,
-    // `LanguageModelV3ToolCall.input` is ALWAYS a stringified JSON object at
-    // this provider-level layer (never pre-parsed — there's no schema to parse
-    // against for a NoSuchToolError, and InvalidToolInputError is exactly
-    // "didn't match one"), so parse it best-effort for a structured,
-    // human-readable persisted/streamed record; a model that sent malformed
-    // JSON gets the raw string instead of a thrown error here.
-    input: parseToolCallInput(toolCall.input),
-    reason: NoSuchToolError.isInstance(error)
-      ? 'not_available'
-      : 'invalid_input',
-  });
-  return Promise.resolve(null);
-}
-
 export function applyToolCallingOptions(
   streamOptions: Parameters<typeof streamText>[0],
   input: ModelStreamInput,
+  gate: ToolCallGate,
 ): void {
   if (!input.tools) return;
 
@@ -152,7 +110,10 @@ export function applyToolCallingOptions(
   const cap = input.maxSteps ?? undefined;
   // Always set strict: false — Responses may rewrite omitted strict into
   // required-nullable optionals; Chat Completions ignores the flag.
-  streamOptions.tools = disableStrictToolSchemas(input.tools);
+  streamOptions.tools = gateToolExecution(
+    disableStrictToolSchemas(input.tools),
+    gate,
+  );
   input.onToolSet?.(streamOptions.tools);
   if (input.toolChoice !== undefined) {
     streamOptions.toolChoice = input.toolChoice;
@@ -183,8 +144,10 @@ export function applyToolCallingOptions(
       ...(capReached && { activeTools: [] }),
     };
   };
-  streamOptions.experimental_repairToolCall = ({ toolCall, error }) =>
-    refuseUnavailableToolCalls(toolCall, error, input.onUnavailableToolCall);
+  streamOptions.experimental_repairToolCall = refuseUnavailableToolCalls(
+    input.onUnavailableToolCall,
+    gate,
+  );
 }
 
 export interface AbortSettlement {
@@ -264,15 +227,18 @@ export function deferTerminalCallbacks(
   return terminals;
 }
 
-/** Binds the queue to the request's one reasoning-stream consumer. */
+/** Binds the queue and the tool-call gate to the request's one reasoning
+ *  consumer. */
 export function bindReasoningChannel(
   terminals: DeferredTerminals,
   result: Pick<ModelStreamResult, 'fullStream'>,
   input: ModelStreamInput,
+  gate: ToolCallGate,
 ): void {
   if (input.onReasoningDelta !== undefined) {
+    gate.attach();
     terminals.bind(
-      consumeReasoningStream(result.fullStream, input.onReasoningDelta),
+      consumeReasoningStream(result.fullStream, input.onReasoningDelta, gate),
     );
   }
 }
@@ -618,6 +584,7 @@ function buildOpenAIStreamOptions(
   openai: OpenAIProvider,
   config: OpenAIModelClientConfig,
   input: ModelStreamInput,
+  gate: ToolCallGate,
 ): Parameters<typeof streamText>[0] & { model: LanguageModelV3 } {
   const sanitize = streamSanitizer(config);
   const streamOptions: Parameters<typeof streamText>[0] & {
@@ -637,7 +604,7 @@ function buildOpenAIStreamOptions(
     }),
   };
   applyRequestOptions(streamOptions, config, input);
-  applyToolCallingOptions(streamOptions, input);
+  applyToolCallingOptions(streamOptions, input, gate);
   applyTextDeltaCallback(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
@@ -650,7 +617,8 @@ function runOpenAIStream(
   dependencies: OpenAIModelClientDependencies,
   input: ModelStreamInput,
 ): ModelStreamResult {
-  const streamOptions = buildOpenAIStreamOptions(openai, config, input);
+  const gate = createToolCallGate();
+  const streamOptions = buildOpenAIStreamOptions(openai, config, input, gate);
   // SDK callbacks return immediately so the `fullStream` reasoning branch can
   // close; the run's callbacks and abort persistence then execute in order
   // behind that branch (D18).
@@ -658,7 +626,7 @@ function runOpenAIStream(
   const settlement = trackAbortSettlement(input, terminals);
   streamOptions.onAbort = settlement.onAbort;
   const result = dependencies.streamText(streamOptions);
-  bindReasoningChannel(terminals, result, input);
+  bindReasoningChannel(terminals, result, input, gate);
 
   return awaitSettlementAfter(
     result,
