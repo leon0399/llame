@@ -62,14 +62,19 @@ its selector attached. Every `read` locator is accepted:
 | `http://…`, `https://…`      | the [web](locators/web.md) read                    |
 | `media://<id>`               | an image you [stored](locators/media.md)           |
 
-Any [selector](selectors.md) rides along, so the imported body is what `read`
-returns for the same locator, context lines and Markdown ancestor headings
-included:
+On a text target any [selector](selectors.md) rides along, so the imported body
+is what `read` returns for the same locator, context lines and Markdown ancestor
+headings included:
 
 | Prompt                                                   | Imports                                                                                              |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `@README.md:30-35`                                       | lines 30-35 of the Workspace's `README.md`, with the context lines and ancestor headings `read` adds |
 | `@https://github.com/leon0399/llame/issues/1029:outline` | the outline representation of that page                                                              |
+
+An image target, `media://<id>` or any locator that reads as an image, accepts
+no selector: `read` refuses a selector on an image with `invalid_selector`
+([read errors](tools/read.md#errors)), so `@media://<id>:1-5` or `@shot.png:raw`
+is reported as failed, not imported.
 
 A regular file literally named with a selector-shaped suffix wins over the
 selector, as for `read`.
