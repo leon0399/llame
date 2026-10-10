@@ -191,6 +191,7 @@ function renderChatPage(
         id: "system:openai:gpt-5.4-mini",
         source: "system",
         name: "GPT-5.4 mini",
+        input: ["text"],
       },
     ],
   });

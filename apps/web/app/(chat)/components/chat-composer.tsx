@@ -14,6 +14,13 @@ import {
   PromptInputTextarea,
   PromptInputToolbar,
 } from "./prompt-input";
+import {
+  AttachImagesButton,
+  ComposerAttachmentRow,
+  dropImagesInto,
+  pasteImagesInto,
+} from "./composer-attachments";
+import type { ComposerAttachments } from "./use-composer-attachments";
 
 type ChatComposerSendButtonProps = {
   status: ChatStatus;
@@ -141,6 +148,7 @@ type ChatComposerFormProps = {
   pendingStop: boolean;
   disabled: boolean;
   chatId: string;
+  attachments: ComposerAttachments;
 };
 
 function preventWhenDisabled(
@@ -156,42 +164,74 @@ function preventWhenDisabled(
   };
 }
 
+type ChatComposerToolbarProps = Pick<
+  ChatComposerFormProps,
+  "status" | "onStop" | "modelReadyForSend" | "pendingStop" | "chatId"
+> & { onAttachFiles: (files: Iterable<File>) => void };
+
+/** The toolbar under the textarea: the image picker and permission mode on
+ *  the left, the model/effort selectors and send/stop on the right. */
+function ChatComposerToolbar({
+  status,
+  onStop,
+  modelReadyForSend,
+  pendingStop,
+  chatId,
+  onAttachFiles,
+}: ChatComposerToolbarProps) {
+  return (
+    <PromptInputToolbar>
+      <div className="flex items-center gap-1">
+        <AttachImagesButton onFiles={onAttachFiles} />
+        <PermissionModeSelector chatId={chatId} />
+      </div>
+      <ChatComposerControls
+        status={status}
+        onStop={onStop}
+        modelReadyForSend={modelReadyForSend}
+        pendingStop={pendingStop}
+      />
+    </PromptInputToolbar>
+  );
+}
+
 /** Prompt chrome locked via fieldset while markdown chunks load. */
 function ChatComposerForm({
   input,
   onInputChange,
   onSubmit,
-  status,
-  onStop,
   modelReadyForSend,
-  pendingStop,
   disabled,
-  chatId,
+  attachments,
+  ...toolbar
 }: ChatComposerFormProps) {
   return (
     <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0">
-      <PromptInput onSubmit={preventWhenDisabled(disabled, onSubmit)}>
+      <PromptInput
+        onSubmit={preventWhenDisabled(disabled, onSubmit)}
+        {...dropImagesInto(attachments.add)}
+      >
+        <ComposerAttachmentRow attachments={attachments} />
         {/* Remount on unlock so autofocus applies (attr updates do not). */}
         <PromptInputTextarea
           key={disabled ? "locked" : "ready"}
           name="message"
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
+          onPaste={pasteImagesInto(attachments.add)}
           placeholder="What would you like to know?"
           disabled={disabled}
           // Deliberate: chat page sole purpose is this composer.
           // oxlint-disable-next-line jsx-a11y/no-autofocus
           autoFocus={!disabled}
         />
-        <PromptInputToolbar>
-          <PermissionModeSelector chatId={chatId} />
-          <ChatComposerControls
-            status={status}
-            onStop={onStop}
-            modelReadyForSend={modelReadyForSend && !disabled}
-            pendingStop={pendingStop}
-          />
-        </PromptInputToolbar>
+        <ChatComposerToolbar
+          {...toolbar}
+          modelReadyForSend={
+            modelReadyForSend && !disabled && !attachments.sendBlocked
+          }
+          onAttachFiles={attachments.add}
+        />
       </PromptInput>
     </fieldset>
   );
@@ -210,6 +250,8 @@ type ChatComposerProps = {
   pendingStop?: boolean;
   /** Whole composer locked (e.g. markdown renderers still loading). */
   disabled?: boolean;
+  /** Images attached to the unsent message. */
+  attachments: ComposerAttachments;
 };
 
 /** The bottom composer bar: the message textarea, model/effort selectors,
@@ -226,14 +268,15 @@ export function ChatComposer({
   modelSendUnavailableReason,
   pendingStop = false,
   disabled = false,
+  attachments,
 }: ChatComposerProps) {
+  const unavailableReason =
+    modelSendUnavailableReason ?? attachments.blockReason;
   return (
     <div className="bg-background z-10 shrink-0 px-3 pb-3 md:px-5 md:pb-5">
       <div className="mx-auto max-w-3xl">
-        {modelSendUnavailableReason && (
-          <p className="mb-2 text-xs text-destructive">
-            {modelSendUnavailableReason}
-          </p>
+        {unavailableReason && (
+          <p className="mb-2 text-xs text-destructive">{unavailableReason}</p>
         )}
         <ChatComposerForm
           chatId={chatId}
@@ -245,6 +288,7 @@ export function ChatComposer({
           modelReadyForSend={modelReadyForSend}
           pendingStop={pendingStop}
           disabled={disabled}
+          attachments={attachments}
         />
       </div>
     </div>

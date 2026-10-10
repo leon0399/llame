@@ -137,11 +137,11 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
 ## 8. `vision-media/composer` — attaching images (design D10)
 
-- [ ] 8.1 Add the thumbnail component to `packages/ui` (square `rounded-xl`, remove on hover and focus, progress and error overlays with retry, drag and `Alt+←/→` reorder) with stories for each state; verify with Storybook MCP story tests and return preview URLs, or the Storybook CLI fallback when MCP is unavailable
-- [ ] 8.2 Wire paste, the file picker, and drag-and-drop into the composer with immediate upload, the 10-image cap, send disabled while uploading, `file` parts sent in thumbnail order, and the text-only-model block from the published `input`; render read-only thumbnails above sent user bubbles (rewriting `media://<id>` to the `/model` route); leave the existing composer, toolbar, and bubble designs unchanged; verify by component tests and by exercising paste, pick, drop, reorder, retry, and the model block in a browser against a local API
-- [ ] 8.3 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 8.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, and the `packages/ui` checks
-- [ ] 8.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 8.1 Add the thumbnail component to `packages/ui` (square `rounded-xl`, remove on hover and focus, progress and error overlays with retry, drag and `Alt+←/→` reorder) with stories for each state; verify with Storybook MCP story tests and return preview URLs, or the Storybook CLI fallback when MCP is unavailable
+- [x] 8.2 Wire paste, the file picker, and drag-and-drop into the composer with immediate upload, the 10-image cap, send disabled while uploading, `file` parts sent in thumbnail order, and the text-only-model block from the published `input`; render read-only thumbnails above sent user bubbles (rewriting `media://<id>` to the `/model` route); leave the existing composer, toolbar, and bubble designs unchanged; verify by component tests and by exercising paste, pick, drop, reorder, retry, and the model block in a browser against a local API
+- [x] 8.3 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 8.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, and the `packages/ui` checks
+- [x] 8.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 8.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 9. `vision-media/previews-lightbox` — history thumbnails and viewer (design D10, D11)

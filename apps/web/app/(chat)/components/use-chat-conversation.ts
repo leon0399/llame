@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { useChat } from "@ai-sdk/react";
-import type { UIMessage } from "ai";
+import type { FileUIPart, UIMessage } from "ai";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatContext } from "@/contexts/chat-context";
@@ -22,6 +22,12 @@ import {
   useTargetScrollEffect,
 } from "./use-chat-engine";
 import { usePendingStop } from "./use-pending-stop";
+import {
+  attachmentFileParts,
+  type ComposerAttachments,
+  revokePreviews,
+  useComposerAttachments,
+} from "./use-composer-attachments";
 
 type ChatSubmitHandlersArgs = {
   sendMessage: ReturnType<typeof useChat>["sendMessage"];
@@ -32,47 +38,68 @@ type ChatSubmitHandlersArgs = {
   input: string;
   setInput: (value: string) => void;
   setSendError: (error: Error | null) => void;
+  attachments: ComposerAttachments;
 };
+
+/** The user message for `sendMessage`: file parts in thumbnail order, and no
+ *  text part for an image-only message (the API rejects blank text). */
+function outgoingMessage(text: string, files: Array<FileUIPart>) {
+  return text ? { text, files } : { files };
+}
+
+/** Clears the composer, sends, and restores the text and images if the send
+ *  throws. */
+async function sendComposed(
+  {
+    setInput,
+    setSendError,
+    sendMessage,
+    onSendStarted,
+    onSendFailed,
+    attachments,
+  }: ChatSubmitHandlersArgs,
+  text: string,
+  files: Array<FileUIPart>,
+) {
+  const sent = attachments.items;
+  setInput("");
+  attachments.replace([]);
+  setSendError(null);
+
+  try {
+    // Mark the canonical URL synchronously before the first request. A hard
+    // reload can then recover this exact identity without sessionStorage.
+    onSendStarted();
+    // First message to a new chat upserts it server-side, then streams (#86). The id is
+    // adopted as active in onFinish, once the chat is known to exist.
+    await sendMessage(outgoingMessage(text, files));
+    revokePreviews(sent);
+  } catch (error) {
+    onSendFailed();
+    setInput(text);
+    attachments.replace(sent);
+    setSendError(error instanceof Error ? error : new Error(String(error)));
+  }
+}
 
 /** The composer's submit handler — split out of `useChatActions` as a
  *  plain factory, it calls no hooks. */
-function createHandleSubmit({
-  input,
-  setInput,
-  setSendError,
-  status,
-  modelReadyForSend,
-  sendMessage,
-  onSendStarted,
-  onSendFailed,
-}: ChatSubmitHandlersArgs) {
+function createHandleSubmit(args: ChatSubmitHandlersArgs) {
+  const { input, status, modelReadyForSend, attachments } = args;
   return async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
+    const files = attachmentFileParts(attachments.items);
     if (
-      !text ||
+      (!text && files.length === 0) ||
       status === "streaming" ||
       status === "submitted" ||
-      !modelReadyForSend
+      !modelReadyForSend ||
+      attachments.sendBlocked
     ) {
       return;
     }
-
-    setInput("");
-    setSendError(null);
-
-    try {
-      // Mark the canonical URL synchronously before the first request. A hard
-      // reload can then recover this exact identity without sessionStorage.
-      onSendStarted();
-      // First message to a new chat upserts it server-side, then streams (#86). The id is
-      // adopted as active in onFinish, once the chat is known to exist.
-      await sendMessage({ text });
-    } catch (error) {
-      onSendFailed();
-      setInput(text);
-      setSendError(error instanceof Error ? error : new Error(String(error)));
-    }
+    await sendComposed(args, text, files);
   };
 }
 
@@ -92,28 +119,24 @@ type UseChatActionsArgs = {
 function useChatActions({
   messages,
   stop,
-  sendMessage,
-  status,
-  modelReadyForSend,
-  onSendStarted,
   onSendFailed,
+  ...submit
 }: UseChatActionsArgs) {
   const [input, setInput] = useState("");
   const [sendError, setSendError] = useState<Error | null>(null);
+  const attachments = useComposerAttachments();
   const { pendingStop, requestStop, clearPendingStop } = usePendingStop({
     messages,
     stop,
-    status,
+    status: submit.status,
   });
 
   const handleSubmit = createHandleSubmit({
+    ...submit,
     input,
     setInput,
     setSendError,
-    status,
-    modelReadyForSend,
-    sendMessage,
-    onSendStarted,
+    attachments,
     onSendFailed: () => {
       clearPendingStop();
       onSendFailed();
@@ -127,6 +150,7 @@ function useChatActions({
     handleStop: requestStop,
     handleSubmit,
     pendingStop,
+    attachments,
   };
 }
 
@@ -306,6 +330,7 @@ function buildComposerState(
     handleSubmit: actions.handleSubmit,
     handleStop: actions.handleStop,
     pendingStop: actions.pendingStop,
+    attachments: actions.attachments,
     modelReadyForSend: setup.modelReadyForSend,
     modelSendUnavailableReason: setup.modelSendUnavailableReason,
   };

@@ -267,8 +267,8 @@ describe("hasVisibleContent", () => {
   });
 
   it("finds nothing visible in an attached image's file part", () => {
-    // The transcript has no image view yet, so a stored `file` part paints
-    // nothing rather than the "unsupported part type" fallback.
+    // A stored `file` part is not a segment: its thumbnail renders above the
+    // bubble, so it never reaches the "unsupported part type" fallback.
     const file: UIMessage["parts"][number] = {
       type: "file",
       mediaType: "image/png",

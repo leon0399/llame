@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, screen, userEvent, waitFor } from "storybook/test";
+import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test";
 import type { UIMessage } from "ai";
 
 import type { AvailableModel } from "@/lib/services/models/queries";
@@ -473,11 +473,20 @@ const IMAGE_PART: UIMessage["parts"][number] = {
 };
 const IMAGE_CAPTION = "What does this diagram show?";
 
+const SECOND_IMAGE_PART: UIMessage["parts"][number] = {
+  type: "file",
+  mediaType: "image/jpeg",
+  url: "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8c",
+  filename: "photo.jpg",
+};
+
 /**
- * An owner message with an attached image and a prompt: the text renders and
- * the `file` part paints nothing — never the "unsupported part type" fallback.
+ * An owner message with two attached images and a prompt: read-only
+ * thumbnails sit above the bubble in stored order, each lazily loading the
+ * image's `/model` route, and the `file` parts never reach the
+ * "unsupported part type" fallback.
  *
- * @summary an attached image is withheld beside its text
+ * @summary attached images render as thumbnails above their text
  */
 export const AttachedImageWithText: Story = {
   tags: ["ai-generated"],
@@ -485,22 +494,51 @@ export const AttachedImageWithText: Story = {
     message: {
       id: "user-image-text",
       role: "user",
-      parts: [IMAGE_PART, { type: "text", text: IMAGE_CAPTION }],
+      parts: [
+        IMAGE_PART,
+        SECOND_IMAGE_PART,
+        { type: "text", text: IMAGE_CAPTION },
+      ],
     },
   },
   play: async ({ canvas }) => {
-    await waitFor(() => expect(canvas.getByText(IMAGE_CAPTION)).toBeVisible(), {
+    const caption = await waitFor(() => canvas.getByText(IMAGE_CAPTION), {
       timeout: 15_000,
     });
     await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
+    const list = canvas.getByRole("list", { name: "Attached images" });
+    const images = within(list).getAllByRole("img");
+    await expect(images.map((image) => image.getAttribute("alt"))).toEqual([
+      "diagram.png",
+      "photo.jpg",
+    ]);
+    await expect(images[0]).toHaveAttribute(
+      "src",
+      expect.stringMatching(
+        /^https?:\/\/[^/]+\/api\/v1\/media\/0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8b\/model$/,
+      ),
+    );
+    await expect(images[1]).toHaveAttribute(
+      "src",
+      expect.stringMatching(
+        /\/api\/v1\/media\/0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8c\/model$/,
+      ),
+    );
+    await expect(images[0]).toHaveAttribute("loading", "lazy");
+    // Read-only: nothing to remove, retry, or reorder.
+    await expect(within(list).queryAllByRole("button")).toHaveLength(0);
+    // The thumbnails come before the bubble.
+    await expect(
+      list.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   },
 };
 
 /**
- * An image-only owner message: no fallback text and no empty bubble — the
- * row keeps only its fork action.
+ * An image-only owner message: its thumbnail and fork action, no fallback
+ * text and no empty bubble between them.
  *
- * @summary an image-only message paints no bubble
+ * @summary an image-only message paints thumbnails and no bubble
  */
 export const ImageOnlyMessage: Story = {
   tags: ["ai-generated"],
@@ -514,11 +552,14 @@ export const ImageOnlyMessage: Story = {
       { timeout: 15_000 },
     );
     await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
-    // The action row is the row's first child: no bubble precedes it.
+    const list = canvas.getByRole("list", { name: "Attached images" });
+    // The thumbnails are the row's first child and the action row its second:
+    // no bubble sits between them.
     const row = canvasElement.querySelector(
       '[data-message-key="user-image-only"]',
     );
-    await expect(row?.firstElementChild).toContainElement(fork);
+    await expect(row?.children[0]).toBe(list);
+    await expect(row?.children[1]).toContainElement(fork);
   },
 };
 
