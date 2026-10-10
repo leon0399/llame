@@ -974,6 +974,35 @@ describe('web fetch client', () => {
     );
   });
 
+  it('keeps the call bound’s name when the header bound fires before the transport settles', async () => {
+    // Both bounds end at 10 s and the call's timer was armed first. This
+    // transport settles an abort a macrotask later, as a socket teardown can,
+    // so the header timer still fires and must not rename the call's abort.
+    vi.useFakeTimers();
+    const lateRejectingFetch = (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          'abort',
+          () => {
+            setTimeout(() => reject(new Error('the request was aborted')), 0);
+          },
+          { once: true },
+        );
+      });
+    const pending = fetchOne(
+      { fetch: lateRejectingFetch },
+      { deadlineMs: 10_000 },
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    // Runs the transport's own delayed rejection, scheduled at the 10 s mark.
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(refusalOf(await pending)).toHaveProperty('type', 'call_timeout');
+  });
+
   it('never lets a caller extend the 30-second call bound', async () => {
     vi.useFakeTimers();
     const settled = vi.fn();
