@@ -877,30 +877,58 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
 
 describe('createOpenAIModelClient — reasoning ahead of tool calls', () => {
   // Reasoning reaches the run through its own `fullStream` consumer, not the
-  // SDK's tool path; the run drains its reasoning buffer when a call starts,
-  // so a step's reasoning must already be delivered by then.
+  // SDK's tool path, and the run drains its reasoning buffer when a call is
+  // executed or refused. A provider can deliver a whole step in one read, so
+  // the coalesced case is the one that decides the order.
+  const step: Array<LanguageModelV3StreamPart> = [
+    { type: 'stream-start', warnings: [] },
+    { type: 'reasoning-start', id: 'r' },
+    { type: 'reasoning-delta', id: 'r', delta: 'think' },
+    { type: 'reasoning-end', id: 'r' },
+  ];
+  const finish: LanguageModelV3StreamPart = {
+    type: 'finish',
+    finishReason: { unified: 'tool-calls', raw: undefined },
+    usage: PROVIDER_USAGE,
+  };
+
   it.each([
-    { name: 'an executed call', toolName: 'echo', expected: 'execute' },
-    { name: 'a refused call', toolName: 'not_a_real_tool', expected: 'refuse' },
+    {
+      call: 'executed',
+      toolName: 'echo',
+      input: '{"value":"x"}',
+      expected: 'execute',
+    },
+    {
+      call: 'undeclared',
+      toolName: 'not_a_real_tool',
+      input: '{"value":"x"}',
+      expected: 'refuse',
+    },
+    {
+      call: 'schema-invalid',
+      toolName: 'echo',
+      input: '{"bad":true}',
+      expected: 'refuse',
+    },
   ] as const)(
-    'delivers the step’s reasoning before $name',
-    async ({ toolName, expected }) => {
+    'delivers the reasoning before a coalesced step’s $call call',
+    async ({ toolName, input, expected }) => {
       const order: Array<string> = [];
+      const chunks: Array<LanguageModelV3StreamPart> = [
+        ...step,
+        { type: 'tool-call', toolCallId: 'call-0', toolName, input },
+        finish,
+      ];
       const model = scriptedModel([
-        providerResponse(
-          [
-            { type: 'reasoning-start', id: 'r' },
-            { type: 'reasoning-delta', id: 'r', delta: 'think' },
-            { type: 'reasoning-end', id: 'r' },
-            {
-              type: 'tool-call',
-              toolCallId: 'call-0',
-              toolName,
-              input: '{"value":"x"}',
+        {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk);
+              controller.close();
             },
-          ],
-          'tool-calls',
-        ),
+          }),
+        },
         textResponse(),
       ]);
 
