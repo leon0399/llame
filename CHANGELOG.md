@@ -4,7 +4,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
   `runs.context_items` column are removed. The transcript's persisted
-  context-item parts record what each request carried (refs #1177).
+  context-item parts record what each request carried (refs #1177). Stop
+  every API and Runs-worker process of the previous revision before running
+  this migration: an older worker still writes the dropped column and would
+  fail its Runs.
 
 # 2026-10-09
 
