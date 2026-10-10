@@ -12,7 +12,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import postgres, { type Sql } from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { eq } from 'drizzle-orm';
+import { z } from 'zod';
 import * as schema from '../db/schema';
+import { randomPng } from '../media/media-fixtures';
+import { MediaService } from '../media/media.service';
+import { createToolMediaStore } from '../media/tool-media-store';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunsRepository, RunEventsRepository } from '../runs/runs-repository';
@@ -672,6 +677,89 @@ describe('native file authority and durable effects', () => {
       ),
     ).toMatchObject({ status: 'error', type: 'outcome_unknown' });
     expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+  });
+
+  it("keeps image reads and media locators inside the reading owner's store", async () => {
+    const media = new MediaService(tenantDb);
+    const ownerContext: ToolContext = {
+      ...context,
+      media: createToolMediaStore(media, owner, 'read'),
+    };
+    const otherContext: ToolContext = {
+      userId: otherOwner,
+      chatId: randomUUID(),
+      tenantDb,
+      permissionPolicy: compileTestPermissionPolicy(),
+      media: createToolMediaStore(media, otherOwner, 'read'),
+    };
+    const image = join(directory, 'shot.png');
+    const bytes = await randomPng();
+    await writeFile(image, bytes);
+
+    const first = await runTool(
+      nativeReadTool,
+      { path: image },
+      ownerContext,
+      5,
+    );
+    expect(first).toMatchObject({
+      status: 'success',
+      kind: 'image',
+      mediaType: 'image/png',
+      width: 8,
+      height: 8,
+      path: image,
+    });
+    const locator = z.object({ media: z.string() }).parse(first).media;
+    const again = await runTool(
+      nativeReadTool,
+      { path: image },
+      { ...ownerContext, toolCallId: randomUUID() },
+      5,
+    );
+    expect(again).toEqual(first);
+    const stored = await tenantDb.runAs(owner, (tx) =>
+      tx
+        .select()
+        .from(schema.mediaObjects)
+        .where(eq(schema.mediaObjects.ownerUserId, owner)),
+    );
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ provenance: 'read', name: image });
+
+    // Owner A's own media locator reads back; owner B's Run cannot see it.
+    expect(
+      await runTool(nativeReadTool, { path: locator }, ownerContext, 5),
+    ).toEqual({ ...first, path: locator });
+    const foreign = await runTool(
+      nativeReadTool,
+      { path: locator },
+      otherContext,
+      5,
+    );
+    expect(foreign).toEqual({
+      status: 'error',
+      type: 'not_found',
+      message: 'Image not found.',
+    });
+    expect(
+      await runTool(
+        nativeReadTool,
+        { path: `media://${randomUUID()}` },
+        otherContext,
+        5,
+      ),
+    ).toEqual(foreign);
+
+    // The same bytes ingested for owner B become B's own object.
+    const otherIngest = await otherContext.media!.ingestImage(image)({
+      byteSize: bytes.length,
+      readBytes: () => Promise.resolve(bytes),
+    });
+    expect(otherIngest).toMatchObject({ status: 'success' });
+    expect(z.object({ media: z.string() }).parse(otherIngest).media).not.toBe(
+      locator,
+    );
   });
 });
 

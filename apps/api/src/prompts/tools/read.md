@@ -1,8 +1,8 @@
-Read a UTF-8 regular file, a directory listing, or a web page; suggests similar names when a local file is missing.
+Read a UTF-8 regular file, an image, a directory listing, or a web page; suggests similar names when a local file is missing.
 
 <instruction>
 - SHOULD parallelize independent reads.
-- path is exactly one target: an absolute path on this native host (host OS user's file authority, configured native executor), a `file:///absolute/path`, `file://localhost/absolute/path`, or `file:/absolute/path` alias with identical behavior; `file://` URLs with other hosts are refused. The result `path` is the decoded host path, not the submitted URL; selectors after the URL (for example, `file:///path:10-20`) work the same as after the host path, `%3A` decodes to `:` and follows host selector rules, and there is no escaped literal-colon form{{#if tools.knowledge_search}}, a kb:// Knowledge locator from knowledge_search{{/if}}, a skill:// locator for an operator-installed skill, or an http:// or https:// web page; skill://{{#if tools.knowledge_search}}, kb://{{/if}} and web locators need no native executor.
+- path is exactly one target: an absolute path on this native host (host OS user's file authority, configured native executor), a `file:///absolute/path`, `file://localhost/absolute/path`, or `file:/absolute/path` alias with identical behavior; `file://` URLs with other hosts are refused. The result `path` is the decoded host path, not the submitted URL; selectors after the URL (for example, `file:///path:10-20`) work the same as after the host path, `%3A` decodes to `:` and follows host selector rules, and there is no escaped literal-colon form{{#if tools.knowledge_search}}, a kb:// Knowledge locator from knowledge_search{{/if}}, a skill:// locator for an operator-installed skill, a media://<id> locator naming an image in this conversation, or an http:// or https:// web page; skill://{{#if tools.knowledge_search}}, kb://{{/if}}, media://, and web locators need no native executor.
 - a relative local path resolves from the entered Workspace root and is refused when none is entered.
 </instruction>
 
@@ -35,8 +35,7 @@ Append `:<sel>` to `path` (e.g. `src/foo.ts:50-200`, `src/foo.ts:raw`{{!, `db.sq
 
 ### Vision Selectors
 
-- Bare image path → sent directly to the active model when it supports image input. TODO(#935)
-- `:img` - Rasterizes a local `.svg`/`.svgz` as a PNG image; use when visual layout matters. TODO(#935)
+- `:img` - Rasterizes a local `.svg`/`.svgz` as a PNG image; use when visual layout matters. TODO(#1160)
 - `?q=<question>` - Requests a vision-model answer as text instead of pixels (works on any model); prefer bare image path when active model supports image input. TODO(#849)
 
 ### Video Selectors
@@ -57,11 +56,12 @@ Append `:<sel>` to `path` (e.g. `src/foo.ts:50-200`, `src/foo.ts:raw`{{!, `db.sq
 {{! - Documents → extracted text. TODO(#1074) }}
 {{!--
 - Jupyter / Python Notebooks → editable cells. TODO(#1073)
-- Images → decoded inline for vision-capable models (prefer bare image path). TODO(#935)
-  `img.png?q=<question>` asks a vision model and returns text (spares context; works on any model). TODO(#849)
+- `img.png?q=<question>` asks a vision model and returns text (spares context; works on any model). TODO(#849)
 - Videos → preview grid plus metadata. TODO(#1072)
-- SVGs read as text unless `:img` is specified; TODO(#935)
+- SVGs read as text unless `:img` is specified; TODO(#1160)
 --}}
+- Image → a local{{#if tools.knowledge_search}}, kb://,{{/if}} or skill:// file whose bytes are a PNG, JPEG, GIF, or WebP image (the bytes decide, never the extension; SVG stays text) is stored once and returned as `kind: image` with its `media` locator (media://<id>), mediaType, width, and height, and no content. A model with image input sees the image with the result; any other model gets a placeholder naming the locator. An image takes no selector, and one over 20 MiB or 40 megapixels fails with image_too_large.
+- media://<id> re-reads an image named in this conversation (an attachment's `Image n (media://<id>):` label or an earlier image result) and returns the same image result; it is read-only, takes no selector, and an id you do not hold is not_found.
 - Directory → depth-2 listing:
     - name/ directories
     - name files

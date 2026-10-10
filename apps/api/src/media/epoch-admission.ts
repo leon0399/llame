@@ -1,8 +1,14 @@
-import { isString } from '@workspace/runtime-safety';
-import type { FilePart, ModelMessage } from 'ai';
+import { isRecord, isString } from '@workspace/runtime-safety';
+import type { FilePart, ModelMessage, ToolResultPart } from 'ai';
 
 import type { MediaDescriptor, RunMediaResolver } from './media-descriptors';
-import { parseMediaLocator } from './media-locator';
+import { mediaLocator, parseMediaLocator } from './media-locator';
+
+export type ToolResultOutput = ToolResultPart['output'];
+export type ToolContentPart = Extract<
+  ToolResultOutput,
+  { type: 'content' }
+>['value'][number];
 
 /** Images one epoch may attach: Anthropic's per-request limit (vision-media D6). */
 export const EPOCH_MAX_IMAGES = 100;
@@ -54,21 +60,78 @@ export function fileMediaRef(part: FilePart): string | undefined {
   return isString(part.data) ? parseMediaLocator(part.data) : undefined;
 }
 
+/** The media id a tool output's `image-url` part references, or undefined. */
+export function toolOutputMediaRef(part: ToolContentPart): string | undefined {
+  return part.type === 'image-url' ? parseMediaLocator(part.url) : undefined;
+}
+
+/**
+ * The media id a native `read` image result names (vision-media D7), or
+ * undefined for every other result.
+ */
+// eslint-disable-next-line anti-slop/no-unknown-parameters -- a stored or live tool result is arbitrary JSON; `isRecord` and the field checks below narrow it.
+export function imageResultMediaId(result: unknown): string | undefined {
+  return isRecord(result) &&
+    result.status === 'success' &&
+    result.kind === 'image' &&
+    isString(result.media)
+    ? parseMediaLocator(result.media)
+    : undefined;
+}
+
+/**
+ * A tool output of `text`, followed for an image result by its `media://`
+ * reference as an `image-url` part. Live and replayed results both carry the
+ * reference only, never bytes: the step composer alone turns it into an image
+ * or a placeholder on every step (vision-media D6).
+ */
+export function toolResultOutput(
+  text: string,
+  imageId: string | undefined,
+): ToolResultOutput {
+  return imageId === undefined
+    ? { type: 'text', value: text }
+    : {
+        type: 'content',
+        value: [
+          { type: 'text', text },
+          { type: 'image-url', url: mediaLocator(imageId) },
+        ],
+      };
+}
+
+/**
+ * One media reference of a request: its id, and whether a tool result rather
+ * than an owner file part carries it.
+ */
+export type MediaRef = { id: string; tool: boolean };
+
 /**
  * Every media reference of a request, in request order: the `media://` file
- * parts of user messages (owner attachments, `buildContext`).
+ * parts of user messages (owner attachments, `buildContext`) and the
+ * `media://` image references of tool results (`read` image results, live or
+ * replayed).
  */
 export function collectMediaRefs(
   messages: ReadonlyArray<ModelMessage>,
-): Array<string> {
-  return messages.flatMap((message) =>
-    message.role === 'user' && Array.isArray(message.content)
-      ? message.content.flatMap((part) => {
-          const id = part.type === 'file' ? fileMediaRef(part) : undefined;
-          return id === undefined ? [] : [id];
-        })
-      : [],
-  );
+): Array<MediaRef> {
+  return messages.flatMap((message): Array<MediaRef> => {
+    if (message.role === 'user' && Array.isArray(message.content)) {
+      return message.content.flatMap((part) => {
+        const id = part.type === 'file' ? fileMediaRef(part) : undefined;
+        return id === undefined ? [] : [{ id, tool: false }];
+      });
+    }
+    if (message.role !== 'tool') return [];
+    return message.content.flatMap((part) =>
+      part.type === 'tool-result' && part.output.type === 'content'
+        ? part.output.value.flatMap((item) => {
+            const id = toolOutputMediaRef(item);
+            return id === undefined ? [] : [{ id, tool: true }];
+          })
+        : [],
+    );
+  });
 }
 
 /**
@@ -94,13 +157,14 @@ export async function loadMediaSizing(
   messages: ReadonlyArray<ModelMessage>,
   resolver: RunMediaResolver,
   imageInput: boolean,
-): Promise<MediaSizing & { refs: ReadonlyArray<string> }> {
+): Promise<MediaSizing & { refs: ReadonlyArray<MediaRef> }> {
   const refs = collectMediaRefs(messages);
-  const descriptors = await resolver.describe(refs);
+  const ids = refs.map((ref) => ref.id);
+  const descriptors = await resolver.describe(ids);
   return {
     refs,
     descriptors,
-    statuses: admitEpochImages(refs, descriptors),
+    statuses: admitEpochImages(ids, descriptors),
     imageInput,
   };
 }

@@ -1,4 +1,6 @@
-const MEDIA_SCHEME = 'media://';
+/** The scheme native `read` routes to the owner's media (vision-media D4). */
+export const MEDIA_LOCATOR_SCHEME = 'media';
+const MEDIA_SCHEME = `${MEDIA_LOCATOR_SCHEME}://`;
 
 // Lower-case canonical UUID only: no braces, no upper-case hex, no suffix.
 const UUID_HEX = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';

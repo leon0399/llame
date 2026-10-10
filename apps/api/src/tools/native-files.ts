@@ -37,6 +37,8 @@ import { type Tool, type ToolContext, type ToolResult } from './types';
 import { isWorkspaceRelative, resolveWorkspacePath } from './workspace-path';
 import { executeWebRead } from './web-read/execute';
 import { isFileAlias, decodeFileAlias } from './permissions/file-alias';
+import { executeMediaRead } from './media-read';
+import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 
 type NativeCall =
   | { operation: 'read'; input: { path: string } }
@@ -64,13 +66,14 @@ let nativeMutations: Promise<void> = Promise.resolve();
  * runs under the trusted host process's OS authority, while `kb://` resolves
  * through the Run owner's current Knowledge access on every call and never
  * binds the Run to an executor. `http://` and `https://` are fetched by the
- * API process's own outbound HTTP and bind no executor either. An
- * unimplemented scheme fails closed.
+ * API process's own outbound HTTP and bind no executor either, and `media://`
+ * reads the Run owner's stored media. An unimplemented scheme fails closed.
  */
 function executeNative(
   context: ToolContext,
   call: NativeCall,
 ): Promise<ToolResult> {
+  let hostCall: NativeCall;
   if (isFileAlias(call.input.path)) {
     const alias = decodeFileAlias(call.input.path);
     if (!alias.ok)
@@ -79,30 +82,45 @@ function executeNative(
         type: 'invalid_path' as const,
         message: alias.message,
       });
-    const hostCall = rewritePath(call, alias.hostPath);
-    if (hostCall.operation === 'read')
-      return executeNativeBound(context, hostCall);
-    return serializeMutation(() => executeNativeBound(context, hostCall));
+    hostCall = rewritePath(call, alias.hostPath);
+  } else {
+    const scheme = parsePathScheme(call.input.path);
+    if (scheme !== undefined) return executeLocator(context, call, scheme);
+    hostCall = projectNativeCall(context, call);
   }
-  const scheme = parsePathScheme(call.input.path);
-  if (scheme !== undefined) {
-    if (scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME) {
-      return executeKnowledge(context, call, scheme.rest);
-    }
-    if (scheme.scheme === SKILL_LOCATOR_SCHEME) {
-      return executeSkill(context, call, scheme.rest);
-    }
-    if (scheme.scheme === 'http' || scheme.scheme === 'https') {
-      // The lower-cased scheme selects the branch; the branch re-parses the
-      // submitted text, which policy matched, and requests its canonical form.
-      return executeWebRead(context, call);
-    }
-    return Promise.resolve(unknownSchemeResult());
+  // The image source label is the path as submitted, not the host path.
+  if (hostCall.operation === 'read')
+    return executeNativeBound(context, hostCall, call.input.path);
+  return serializeMutation(() =>
+    executeNativeBound(context, hostCall, call.input.path),
+  );
+}
+
+function executeLocator(
+  context: ToolContext,
+  call: NativeCall,
+  { scheme, rest }: { scheme: string; rest: string },
+): Promise<ToolResult> {
+  if (scheme === KNOWLEDGE_LOCATOR_SCHEME) {
+    return executeKnowledge(context, call, rest);
   }
-  const projectedCall = projectNativeCall(context, call);
-  if (projectedCall.operation === 'read')
-    return executeNativeBound(context, projectedCall);
-  return serializeMutation(() => executeNativeBound(context, projectedCall));
+  if (scheme === SKILL_LOCATOR_SCHEME) {
+    return executeSkill(context, call, rest);
+  }
+  if (scheme === MEDIA_LOCATOR_SCHEME && context.media !== undefined) {
+    return executeMediaRead(
+      context.media,
+      call.operation,
+      call.input.path,
+      context.abortSignal,
+    );
+  }
+  if (scheme === 'http' || scheme === 'https') {
+    // The lower-cased scheme selects the branch; the branch re-parses the
+    // submitted text, which policy matched, and requests its canonical form.
+    return executeWebRead(context, call);
+  }
+  return Promise.resolve(unknownSchemeResult());
 }
 
 function projectNativeCall(context: ToolContext, call: NativeCall): NativeCall {
@@ -149,7 +167,8 @@ async function executeKnowledge(
     return replacing(call) && target.type === 'not_found'
       ? { ...target, message: REPLACE_TARGET_MISSING_MESSAGE }
       : target;
-  if (call.operation === 'read') return readKnowledge(context, target);
+  if (call.operation === 'read')
+    return readKnowledge(context, target, call.input.path);
   // A `const` keeps the narrowing across the closure the queue runs later.
   const mutation = call;
   return serializeMutation(() => mutateKnowledge(context, mutation, target));
@@ -191,6 +210,7 @@ async function executeSkill(
     reserveCodeUnits: serializeNativeModelOutput(envelope).length,
     followSymlinks: true,
     signal: context.abortSignal,
+    image: context.media?.ingestImage(call.input.path),
   };
   const result = await readResolvedFile(
     resolved.hostPath,
@@ -266,6 +286,7 @@ function skillCatalogUnavailableResult(): ToolResult {
 async function readKnowledge(
   context: ToolContext,
   target: ResolvedKnowledgeTarget,
+  submitted: string,
 ): Promise<ToolResult> {
   const escaped = await target.assertInsideSpace();
   if (escaped) return escaped;
@@ -277,6 +298,7 @@ async function readKnowledge(
     // renders without its target.
     linkTargets: false,
     signal: context.abortSignal,
+    image: context.media?.ingestImage(submitted),
   };
   const result = await readResolvedFile(
     target.hostPath,
@@ -353,9 +375,15 @@ async function settleKnowledgeMutation(
   return result.status === 'success' ? { ...result, ...envelope } : result;
 }
 
+/**
+ * `submitted` is the path as the model wrote it, before a `file:` alias is
+ * decoded or a Workspace-relative path projected; a read labels an image it
+ * ingests with it.
+ */
 async function executeNativeBound(
   context: ToolContext,
   call: NativeCall,
+  submitted: string,
 ): Promise<ToolResult> {
   const { runId, nativeExecutorId, toolCallId, userId } = context;
   const nativeDeliverySequence = context.nativeDeliverySequence;
@@ -379,7 +407,7 @@ async function executeNativeBound(
   );
   if (prior) return prior;
   context.abortSignal?.throwIfAborted();
-  const result = await performNative(call, context.abortSignal);
+  const result = await performNative(call, context, submitted);
   if (call.operation !== 'read') {
     await context.tenantDb.runAs(userId, async (db) => {
       await new RunEventsRepository(db).append(runId, 'native.result', {
@@ -393,11 +421,16 @@ async function executeNativeBound(
 
 function performNative(
   call: NativeCall,
-  signal?: AbortSignal,
+  context: ToolContext,
+  submitted: string,
 ): Promise<ToolResult> {
   return call.operation === 'read'
-    ? readFile(call.input, signal)
-    : performMutation(call, call.input.path, { signal });
+    ? readFile(
+        call.input,
+        context.abortSignal,
+        context.media?.ingestImage(submitted),
+      )
+    : performMutation(call, call.input.path, { signal: context.abortSignal });
 }
 
 /** The host path is the argument for an absolute path and the resolved target

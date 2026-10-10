@@ -225,3 +225,12 @@ export function omittedPlaceholder(d: MediaDescriptor): string {
 export function limitPlaceholder(d: MediaDescriptor): string {
   return `[${describe(d)}, not attached: this context's image limit is reached]`;
 }
+
+/**
+ * An attached tool-result image on a Chat Completions wire, which cannot carry
+ * tool-result images yet (vision-media D6, interim until
+ * `vision-read-completions`). Like the other causes it invites no re-read.
+ */
+export function completionsToolImagePlaceholder(d: MediaDescriptor): string {
+  return `[${describe(d)}, omitted: this connection cannot carry tool-result images yet]`;
+}

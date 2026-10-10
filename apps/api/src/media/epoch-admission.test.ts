@@ -5,7 +5,9 @@ import {
   collectMediaRefs,
   EPOCH_MAX_BASE64_BYTES,
   EPOCH_MAX_IMAGES,
+  imageResultMediaId,
   loadMediaSizing,
+  toolResultOutput,
 } from './epoch-admission';
 import { descriptor, fakeResolver } from './media-fixtures';
 import type { MediaDescriptor } from './media-descriptors';
@@ -121,7 +123,7 @@ describe('admitEpochImages', () => {
 });
 
 describe('collectMediaRefs', () => {
-  it('lists user file references in request order and skips everything else', () => {
+  it('lists user file and tool-result references in request order and skips everything else', () => {
     const messages: Array<ModelMessage> = [
       {
         role: 'user',
@@ -166,13 +168,67 @@ describe('collectMediaRefs', () => {
           },
         ],
       },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', toolCallId: 'c1', toolName: 'read', input: {} },
+          { type: 'tool-call', toolCallId: 'c2', toolName: 'read', input: {} },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'c1',
+            toolName: 'read',
+            output: toolResultOutput('envelope', mediaId(3)),
+          },
+          {
+            type: 'tool-result',
+            toolCallId: 'c2',
+            toolName: 'read',
+            output: {
+              type: 'content',
+              value: [
+                { type: 'text', text: 'text' },
+                { type: 'image-url', url: 'https://example.test/y.png' },
+              ],
+            },
+          },
+        ],
+      },
     ];
 
     expect(collectMediaRefs(messages)).toEqual([
-      mediaId(1),
-      mediaId(2),
-      mediaId(1),
+      { id: mediaId(1), tool: false },
+      { id: mediaId(2), tool: false },
+      { id: mediaId(1), tool: false },
+      { id: mediaId(3), tool: true },
     ]);
+  });
+});
+
+describe('imageResultMediaId', () => {
+  it('names the media of a successful image result only', () => {
+    const media = `media://${mediaId(4)}`;
+    expect(
+      imageResultMediaId({ status: 'success', kind: 'image', media }),
+    ).toBe(mediaId(4));
+    expect(
+      imageResultMediaId({ status: 'success', kind: 'file', media }),
+    ).toBeUndefined();
+    expect(
+      imageResultMediaId({ status: 'error', kind: 'image', media }),
+    ).toBeUndefined();
+    expect(
+      imageResultMediaId({
+        status: 'success',
+        kind: 'image',
+        media: `MEDIA://${mediaId(4)}`,
+      }),
+    ).toBeUndefined();
+    expect(imageResultMediaId('media')).toBeUndefined();
   });
 });
 
@@ -205,7 +261,10 @@ describe('loadMediaSizing', () => {
 
     expect(describeSpy).toHaveBeenCalledWith([mediaId(1), mediaId(2)]);
     expect(sizing).toMatchObject({
-      refs: [mediaId(1), mediaId(2)],
+      refs: [
+        { id: mediaId(1), tool: false },
+        { id: mediaId(2), tool: false },
+      ],
       statuses: ['attached', 'unavailable'],
       imageInput: true,
     });

@@ -259,7 +259,11 @@ describe("native source reads", () => {
     expect(measureNativeModelOutput(result)).toBeLessThanOrEqual(
       MAX_RESULT_CODE_UNITS,
     );
-    if (result.status !== "success" || result.nextOffset === undefined) {
+    if (
+      result.status !== "success" ||
+      result.kind !== "file" ||
+      result.nextOffset === undefined
+    ) {
       throw new Error("Expected a continued native read");
     }
     expect(result.content.endsWith("\n")).toBe(true);

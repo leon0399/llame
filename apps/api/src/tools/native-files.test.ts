@@ -682,6 +682,44 @@ describe('file: alias dispatch', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('hands the Run signal to a host mutation, so an abort during it publishes nothing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'native-write-abort-'));
+    const file = join(root, 'new.md');
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(() =>
+      Promise.resolve({
+        runId: 'run',
+        sequence: 1,
+        eventType: 'native.result' as const,
+        payload: null,
+        createdAt: new Date(),
+      }),
+    );
+    const abort = new AbortController();
+    let checks = 0;
+    // The executor's own two checks pass; the abort lands inside the write.
+    vi.spyOn(abort.signal, 'throwIfAborted').mockImplementation(() => {
+      checks += 1;
+      if (checks === 3) abort.abort();
+      AbortSignal.prototype.throwIfAborted.call(abort.signal);
+    });
+
+    try {
+      const result = await nativeWriteTool.execute(
+        { ...trustedContext(), abortSignal: abort.signal },
+        { path: file, content: 'created' },
+      );
+      expect(result).toMatchObject({ status: 'error' });
+      await expect(readFile(file, 'utf8')).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('knowledge locator resolution', () => {
