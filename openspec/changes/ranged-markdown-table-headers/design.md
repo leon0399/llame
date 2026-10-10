@@ -56,9 +56,10 @@ lines in order:
 - the table stays open through each following line until a blank line or a
   line that starts an ATX heading, fence, thematic break, blockquote, list
   item, HTML block, or indented code, the oracle's ending set rather than the
-  narrower paragraph-interruption set; that ending line and the lines after it
-  up to the next blank line cannot open a table, because GFM continues the
-  list item or HTML block there;
+  narrower paragraph-interruption set; when the ending line is root paragraph
+  text to CommonMark and starts a non-empty list item or an HTML block, it and
+  the lines after it up to the next blank line cannot open a table, because
+  GFM continues that list item or HTML block there;
 - a line decided as part of a heading closes the table and belongs to none of
   it.
 
@@ -71,7 +72,7 @@ end, the existing rule treats an undecided line as not a heading.
 Where GFM and this overlay differ, the overlay keeps CommonMark's heading
 decision (proposal T4): table lines followed by `===` or `---` are a setext
 heading here and a table plus a body row or thematic break under GFM. A round-2 comparison of
-this definition with the oracle on 177 adversarial inputs left exactly those
+this definition with the oracle on 229 adversarial inputs left exactly those
 setext cases as disagreements.
 
 - Alternative: let tables win over setext headings as GFM does. Rejected: it
