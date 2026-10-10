@@ -44,7 +44,7 @@ contributor process in `docs/development/`. The spec wins any disagreement.
 
 ## Repository
 
-pnpm 11 + Turborepo; TypeScript throughout; Node >=22.19 (`.node-version` pins
+pnpm 12 + Turborepo; TypeScript throughout; Node >=22.19 (`.node-version` pins
 22.23.1).
 
 | Path                         | Owner                                                     |
