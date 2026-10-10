@@ -125,7 +125,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 6.2 Update the web-read operator runbook and `docs/product/reference/tools/read.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 6.3 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
 - [x] 6.4 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 6.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 6.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 7. `vision-media/prompt-import-images` — image entries (design D8)
 
