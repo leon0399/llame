@@ -961,3 +961,79 @@ describe('createOpenAICompletionsModelClient — reasoning deltas and the tool l
     expect(onReasoningDelta).not.toHaveBeenCalled();
   });
 });
+
+describe('createOpenAICompletionsModelClient — reasoning ahead of tool calls', () => {
+  // Reasoning rides `onChunk`, which the SDK reaches only after it has
+  // repaired a refused call; the tool-call gate holds the report until
+  // `onChunk` passes the call's part (#1184). Without it, Node 24 reports the
+  // undeclared and schema-invalid calls before the step's reasoning.
+  it.each([
+    {
+      call: 'executed',
+      toolName: 'echo',
+      input: '{"value":"x"}',
+      expected: 'execute',
+    },
+    {
+      call: 'undeclared',
+      toolName: 'not_a_real_tool',
+      input: '{"value":"x"}',
+      expected: 'refuse',
+    },
+    {
+      call: 'schema-invalid',
+      toolName: 'echo',
+      input: '{"bad":true}',
+      expected: 'refuse',
+    },
+  ] as const)(
+    'delivers the reasoning before a coalesced step’s $call call',
+    async ({ toolName, input, expected }) => {
+      const order: Array<string> = [];
+      const chunks: Array<LanguageModelV3StreamPart> = [
+        { type: 'stream-start', warnings: [] },
+        { type: 'reasoning-start', id: 'r' },
+        { type: 'reasoning-delta', id: 'r', delta: 'think' },
+        { type: 'reasoning-end', id: 'r' },
+        { type: 'tool-call', toolCallId: 'call-0', toolName, input },
+        {
+          type: 'finish',
+          finishReason: { unified: 'tool-calls', raw: undefined },
+          usage: PROVIDER_USAGE,
+        },
+      ];
+      const model = scriptedModel([
+        {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+        },
+        textResponse(),
+      ]);
+
+      await buildClient(model).client.streamText({
+        chat: CHAT,
+        messages,
+        tools: {
+          echo: tool({
+            inputSchema: z.strictObject({ value: z.string() }),
+            execute: ({ value }) => {
+              order.push('execute');
+              return value;
+            },
+          }),
+        },
+        maxSteps: 4,
+        onUnavailableToolCall: () => order.push('refuse'),
+        onReasoningDelta: (text) => {
+          if (text.length > 0) order.push('reasoning');
+        },
+      }).text;
+
+      expect(order).toEqual(['reasoning', expected]);
+    },
+  );
+});

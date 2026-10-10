@@ -14,6 +14,7 @@ import {
 import { applyRequestUsageCallback } from './request-usage';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 import { applyToolCallingOptions } from './openai-model-client';
+import { createToolCallGate } from './tool-call-gate';
 
 /** Default for `resolveCompletion`/`rejectCompletion` before the completion Promise executor below replaces them. */
 function noop(): void {}
@@ -125,7 +126,7 @@ function streamFakeResponse(response: string, input: ModelStreamInput) {
     abortSignal: input.abortSignal,
     ...handlers,
   };
-  applyToolCallingOptions(streamOptions, input);
+  applyToolCallingOptions(streamOptions, input, createToolCallGate());
   applyRequestUsageCallback(streamOptions, input);
   const result = streamText(streamOptions);
   return wrapStreamTextResult(result, {

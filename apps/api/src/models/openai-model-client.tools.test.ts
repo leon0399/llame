@@ -878,10 +878,10 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
 describe('createOpenAIModelClient — reasoning ahead of tool calls', () => {
   // Reasoning reaches the run through its own `fullStream` consumer, not the
   // SDK's tool path, and the run drains its reasoning buffer when a call is
-  // executed or refused. This pins that, on the pinned Node runtime and the
-  // SDK's current yield points, the consumer delivers a step's reasoning first
-  // even when the provider hands over the whole step in one read. Node 24
-  // inverts it; the runtime-independent ordering is #1184.
+  // executed or refused. The tool-call gate holds each call until that
+  // consumer reaches it (#1184), so the step's reasoning comes first even when
+  // the provider hands over the whole step in one read. Without the gate,
+  // Node 24 inverts every case here.
   const step: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'reasoning-start', id: 'r' },
