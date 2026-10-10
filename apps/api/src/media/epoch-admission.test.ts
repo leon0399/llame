@@ -201,10 +201,10 @@ describe('collectMediaRefs', () => {
     ];
 
     expect(collectMediaRefs(messages)).toEqual([
-      { id: mediaId(1), tool: false },
-      { id: mediaId(2), tool: false },
-      { id: mediaId(1), tool: false },
-      { id: mediaId(3), tool: true },
+      mediaId(1),
+      mediaId(2),
+      mediaId(1),
+      mediaId(3),
     ]);
   });
 });
@@ -261,10 +261,7 @@ describe('loadMediaSizing', () => {
 
     expect(describeSpy).toHaveBeenCalledWith([mediaId(1), mediaId(2)]);
     expect(sizing).toMatchObject({
-      refs: [
-        { id: mediaId(1), tool: false },
-        { id: mediaId(2), tool: false },
-      ],
+      refs: [mediaId(1), mediaId(2)],
       statuses: ['attached', 'unavailable'],
       imageInput: true,
     });

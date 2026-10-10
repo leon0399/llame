@@ -101,12 +101,6 @@ export function toolResultOutput(
 }
 
 /**
- * One media reference of a request: its id, and whether a tool result rather
- * than an owner file part carries it.
- */
-export type MediaRef = { id: string; tool: boolean };
-
-/**
  * Every media reference of a request, in request order: the `media://` file
  * parts of user messages (owner attachments, `buildContext`) and the
  * `media://` image references of tool results (`read` image results, live or
@@ -114,12 +108,12 @@ export type MediaRef = { id: string; tool: boolean };
  */
 export function collectMediaRefs(
   messages: ReadonlyArray<ModelMessage>,
-): Array<MediaRef> {
-  return messages.flatMap((message): Array<MediaRef> => {
+): Array<string> {
+  return messages.flatMap((message): Array<string> => {
     if (message.role === 'user' && Array.isArray(message.content)) {
       return message.content.flatMap((part) => {
         const id = part.type === 'file' ? fileMediaRef(part) : undefined;
-        return id === undefined ? [] : [{ id, tool: false }];
+        return id === undefined ? [] : [id];
       });
     }
     if (message.role !== 'tool') return [];
@@ -127,7 +121,7 @@ export function collectMediaRefs(
       part.type === 'tool-result' && part.output.type === 'content'
         ? part.output.value.flatMap((item) => {
             const id = toolOutputMediaRef(item);
-            return id === undefined ? [] : [{ id, tool: true }];
+            return id === undefined ? [] : [id];
           })
         : [],
     );
@@ -157,14 +151,13 @@ export async function loadMediaSizing(
   messages: ReadonlyArray<ModelMessage>,
   resolver: RunMediaResolver,
   imageInput: boolean,
-): Promise<MediaSizing & { refs: ReadonlyArray<MediaRef> }> {
+): Promise<MediaSizing & { refs: ReadonlyArray<string> }> {
   const refs = collectMediaRefs(messages);
-  const ids = refs.map((ref) => ref.id);
-  const descriptors = await resolver.describe(ids);
+  const descriptors = await resolver.describe(refs);
   return {
     refs,
     descriptors,
-    statuses: admitEpochImages(ids, descriptors),
+    statuses: admitEpochImages(refs, descriptors),
     imageInput,
   };
 }

@@ -51,11 +51,7 @@ describe('composeStepMessages', () => {
     ];
 
     expect(
-      await composeStepMessages(messages, {
-        resolver,
-        imageInput: true,
-        toolResultImages: 'content',
-      }),
+      await composeStepMessages(messages, { resolver, imageInput: true }),
     ).toEqual([
       {
         role: 'user',
@@ -88,7 +84,7 @@ describe('composeStepMessages', () => {
         { role: 'assistant', content: [{ type: 'text', text: 'seen' }] },
         { role: 'user', content: [fileRef(B)] },
       ],
-      { resolver, imageInput: true, toolResultImages: 'content' },
+      { resolver, imageInput: true },
     );
 
     expect(composed[0]?.content).toContainEqual({
@@ -111,7 +107,7 @@ describe('composeStepMessages', () => {
           content: [fileRef(A), { type: 'text', text: 'what?' }],
         },
       ],
-      { resolver, imageInput: false, toolResultImages: 'content' },
+      { resolver, imageInput: false },
     );
 
     expect(composed).toEqual([
@@ -134,7 +130,7 @@ describe('composeStepMessages', () => {
     const { resolver, loads } = fakeResolver([]);
     const composed = await composeStepMessages(
       [{ role: 'user', content: [fileRef(MISSING)] }],
-      { resolver, imageInput: true, toolResultImages: 'content' },
+      { resolver, imageInput: true },
     );
 
     expect(composed).toEqual([
@@ -159,7 +155,6 @@ describe('composeStepMessages', () => {
           loadModelBytes: () => Promise.resolve(new Map()),
         },
         imageInput: true,
-        toolResultImages: 'content',
       },
     );
 
@@ -185,7 +180,7 @@ describe('composeStepMessages', () => {
       [A, B].map(
         (id): ModelMessage => ({ role: 'user', content: [fileRef(id)] }),
       ),
-      { resolver, imageInput: true, toolResultImages: 'content' },
+      { resolver, imageInput: true },
     );
 
     expect(loads).toEqual([A]);
@@ -207,23 +202,15 @@ describe('composeStepMessages', () => {
     const { resolver } = fakeResolver([descriptor(A)]);
     const plain: Array<ModelMessage> = [{ role: 'user', content: 'hello' }];
     expect(
-      await composeStepMessages(plain, {
-        resolver,
-        imageInput: true,
-        toolResultImages: 'content',
-      }),
+      await composeStepMessages(plain, { resolver, imageInput: true }),
     ).toBe(plain);
 
     const once = await composeStepMessages(
       [{ role: 'user', content: [fileRef(A)] }],
-      { resolver, imageInput: true, toolResultImages: 'content' },
+      { resolver, imageInput: true },
     );
     expect(
-      await composeStepMessages(once, {
-        resolver,
-        imageInput: true,
-        toolResultImages: 'content',
-      }),
+      await composeStepMessages(once, { resolver, imageInput: true }),
     ).toBe(once);
   });
 
@@ -249,7 +236,7 @@ describe('composeStepMessages', () => {
       const { resolver, loads } = fakeResolver([descriptor(A), descriptor(B)]);
       const composed = await composeStepMessages(
         [{ role: 'user', content: [fileRef(A)] }, readResult('call-1', B)],
-        { resolver, imageInput: true, toolResultImages: 'content' },
+        { resolver, imageInput: true },
       );
 
       expect(loads).toEqual([A, B]);
@@ -264,27 +251,6 @@ describe('composeStepMessages', () => {
           },
         ],
       });
-    });
-
-    it('sends an attached read image as the interim placeholder on a Chat Completions wire and loads no bytes for it', async () => {
-      const { resolver, loads } = fakeResolver([
-        descriptor(A, { name: 'shot.png' }),
-        descriptor(B),
-      ]);
-      const composed = await composeStepMessages(
-        [readResult('call-1', A), { role: 'user', content: [fileRef(B)] }],
-        { resolver, imageInput: true, toolResultImages: 'placeholder' },
-      );
-
-      expect(loads).toEqual([B]);
-      expect(outputOf(composed[0])).toEqual({
-        type: 'text',
-        value: `${ENVELOPE}\n[image media://${A} shot.png 1600×900, omitted: this connection cannot carry tool-result images yet]`,
-      });
-      // Owner attachments are still sent as images on that wire.
-      expect(composed[1]?.content).toContainEqual(
-        expect.objectContaining({ type: 'image' }),
-      );
     });
 
     it.each([
@@ -304,11 +270,12 @@ describe('composeStepMessages', () => {
       'gives %s a text output with the placeholder and no image',
       async (_, descriptors, imageInput, placeholder) => {
         const { resolver, loads } = fakeResolver(descriptors);
-        for (const toolResultImages of ['content', 'placeholder'] as const) {
+        for (const moveToolImages of [false, true]) {
           const composed = await composeStepMessages(
             [readResult('call-1', A)],
-            { resolver, imageInput, toolResultImages },
+            { resolver, imageInput, moveToolImages },
           );
+          expect(composed).toHaveLength(1);
           expect(outputOf(composed[0])).toEqual({
             type: 'text',
             value: `${ENVELOPE}\n${placeholder}`,
@@ -318,6 +285,156 @@ describe('composeStepMessages', () => {
       },
     );
 
+    describe('on a Chat Completions wire', () => {
+      const image = (byte: number) => ({
+        type: 'image',
+        image: Buffer.from([byte]).toString('base64'),
+        mediaType: 'image/png',
+      });
+      const moved = {
+        type: 'text',
+        value: `${ENVELOPE}\n(image attached below)`,
+      };
+      const call = (toolCallId: string): ModelMessage => ({
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', toolCallId, toolName: 'read', input: {} },
+        ],
+      });
+
+      it('moves the images of consecutive tool results into one following user message', async () => {
+        const { resolver, loads } = fakeResolver([
+          descriptor(A),
+          descriptor(B),
+        ]);
+        const composed = await composeStepMessages(
+          [
+            call('call-1'),
+            readResult('call-1', A),
+            readResult('call-2', B),
+            call('call-3'),
+            readResult('call-3', A),
+          ],
+          { resolver, imageInput: true, moveToolImages: true },
+        );
+
+        expect(loads).toEqual([A, B]);
+        expect(composed).toHaveLength(7);
+        expect(outputOf(composed[1])).toEqual(moved);
+        expect(outputOf(composed[2])).toEqual(moved);
+        expect(composed[3]).toEqual({
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Images from tool results:' },
+            image(0x61),
+            image(0x62),
+          ],
+        });
+        expect(composed[4]).toEqual(call('call-3'));
+        expect(outputOf(composed[5])).toEqual(moved);
+        expect(composed[6]).toEqual({
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Images from tool results:' },
+            image(0x61),
+          ],
+        });
+      });
+
+      it('moves the images of the results in one tool message, in result order', async () => {
+        const { resolver } = fakeResolver([descriptor(A), descriptor(B)]);
+        const [first, second] = [
+          readResult('call-1', B),
+          readResult('call-2', A),
+        ];
+        if (first?.role !== 'tool' || second?.role !== 'tool') {
+          throw new Error('expected tool messages');
+        }
+        const composed = await composeStepMessages(
+          [{ role: 'tool', content: [...first.content, ...second.content] }],
+          { resolver, imageInput: true, moveToolImages: true },
+        );
+
+        expect(composed).toEqual([
+          {
+            role: 'tool',
+            content: [
+              expect.objectContaining({ toolCallId: 'call-1', output: moved }),
+              expect.objectContaining({ toolCallId: 'call-2', output: moved }),
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Images from tool results:' },
+              image(0x62),
+              image(0x61),
+            ],
+          },
+        ]);
+      });
+
+      it('leaves a content result without images beside one whose images move', async () => {
+        const { resolver } = fakeResolver([descriptor(A)]);
+        const plain: ToolResultPart = {
+          type: 'tool-result',
+          toolCallId: 'call-0',
+          toolName: 'read',
+          output: {
+            type: 'content',
+            value: [{ type: 'text', text: 'plain' }],
+          },
+        };
+        const read = readResult('call-1', A);
+        if (read.role !== 'tool') throw new Error('expected a tool message');
+
+        const composed = await composeStepMessages(
+          [{ role: 'tool', content: [plain, ...read.content] }],
+          { resolver, imageInput: true, moveToolImages: true },
+        );
+
+        expect(composed).toEqual([
+          {
+            role: 'tool',
+            content: [
+              plain,
+              expect.objectContaining({ toolCallId: 'call-1', output: moved }),
+            ],
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Images from tool results:' },
+              image(0x61),
+            ],
+          },
+        ]);
+      });
+
+      it('keeps the limit placeholder in the tool message and adds no image message for it', async () => {
+        const modelByteSize = EPOCH_MAX_BASE64_BYTES / 2;
+        const { resolver, loads } = fakeResolver([
+          descriptor(A, { modelByteSize }),
+          descriptor(B, { modelByteSize }),
+        ]);
+        const composed = await composeStepMessages(
+          [{ role: 'user', content: [fileRef(A)] }, readResult('call-1', B)],
+          { resolver, imageInput: true, moveToolImages: true },
+        );
+
+        expect(loads).toEqual([A]);
+        expect(composed).toHaveLength(2);
+        expect(outputOf(composed[1])).toEqual({
+          type: 'text',
+          value: `${ENVELOPE}\n[image media://${B} 0b.png 1600×900, not attached: this context's image limit is reached]`,
+        });
+        // The owner attachment is still sent as an image on that wire.
+        expect(composed[0]?.content).toContainEqual(
+          expect.objectContaining({ type: 'image' }),
+        );
+      });
+    });
+
     it('admits read images into the same window as attachments, oldest first', async () => {
       const modelByteSize = EPOCH_MAX_BASE64_BYTES / 2;
       const { resolver, loads } = fakeResolver([
@@ -326,7 +443,7 @@ describe('composeStepMessages', () => {
       ]);
       const composed = await composeStepMessages(
         [readResult('call-1', A), readResult('call-2', B)],
-        { resolver, imageInput: true, toolResultImages: 'content' },
+        { resolver, imageInput: true },
       );
 
       expect(loads).toEqual([A]);
@@ -372,7 +489,6 @@ describe('composeStepMessages', () => {
       const composed = await composeStepMessages(messages, {
         resolver: fakeResolver([descriptor(A)]).resolver,
         imageInput: true,
-        toolResultImages: 'content',
       });
 
       expect(
@@ -396,11 +512,7 @@ describe('composeStepMessages', () => {
           },
         ],
       };
-      const options = {
-        resolver,
-        imageInput: true,
-        toolResultImages: 'content',
-      } as const;
+      const options = { resolver, imageInput: true } as const;
       const once = await composeStepMessages(
         [textResult, readResult('call-1', A)],
         options,
@@ -422,7 +534,7 @@ describe('composeStepMessages', () => {
 
       const [composed] = await composeStepMessages(
         [{ role: 'tool', content: [plain, ...image.content] }],
-        { resolver, imageInput: true, toolResultImages: 'content' },
+        { resolver, imageInput: true },
       );
 
       expect(composed?.content[0]).toBe(plain);
@@ -575,7 +687,7 @@ describe('installStepPreparation', () => {
     const modelByteSize = (5 * 2 ** 20 * 3) / 4;
 
     /** A Run that reads `IDS` one per step and then answers. */
-    async function readFive() {
+    async function readFive(moveToolImages?: boolean) {
       const { resolver } = fakeResolver(
         IDS.map((id) => descriptor(id, { modelByteSize })),
       );
@@ -606,7 +718,9 @@ describe('installStepPreparation', () => {
         tools: input.tools,
         stopWhen: stepCountIs(6),
       };
-      installStepPreparation(streamOptions, input, ['text', 'image']);
+      installStepPreparation(streamOptions, input, ['text', 'image'], {
+        moveToolImages,
+      });
       await expect(streamText(streamOptions).text).resolves.toBe('ok');
       return prompts;
     }
@@ -646,6 +760,48 @@ describe('installStepPreparation', () => {
       });
       // Each step projects the same prefix: earlier steps attached the same reads.
       expect(toolOutputs(prompts[4] ?? [])).toEqual(last.slice(0, 4));
+    });
+
+    it('sends each read in the window in one image message after its tool message on a Chat Completions wire', async () => {
+      const prompts = await readFive(true);
+
+      expect(prompts).toHaveLength(6);
+      const imageMessage = (id: string) => ({
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Images from tool results:' },
+          expect.objectContaining({
+            type: 'file',
+            data: Buffer.from([id.codePointAt(35) ?? 0]).toString('base64'),
+            mediaType: 'image/png',
+          }),
+        ],
+      });
+      /** What follows each tool message of a provider prompt, in order. */
+      const afterTools = (prompt: LanguageModelV3CallOptions['prompt']) =>
+        prompt.flatMap((message, at) =>
+          message.role === 'tool' ? [prompt[at + 1]] : [],
+        );
+      // Every step after a read carries exactly one image message per read.
+      for (const [step, prompt] of prompts.slice(1, 5).entries()) {
+        expect(afterTools(prompt)).toEqual(
+          IDS.slice(0, step + 1).map((id) => imageMessage(id)),
+        );
+      }
+      const last = prompts[5] ?? [];
+      expect(afterTools(last)).toEqual([
+        ...IDS.slice(0, 4).map((id) => imageMessage(id)),
+        undefined,
+      ]);
+      expect(toolOutputs(last)).toEqual(
+        IDS.map((id, index) => ({
+          type: 'text',
+          value:
+            index < 4
+              ? 'envelope\n(image attached below)'
+              : `envelope\n[image media://${id} a5.png 1600×900, not attached: this context's image limit is reached]`,
+        })),
+      );
     });
   });
 

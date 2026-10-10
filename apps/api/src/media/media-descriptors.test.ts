@@ -171,7 +171,6 @@ describe('createRunMediaResolver loadModelBytes', () => {
       const composed = await composeStepMessages(messages, {
         resolver,
         imageInput: true,
-        toolResultImages: 'content',
       });
       expect(composed[0]?.content).toEqual([
         { type: 'text', text: `Image 1 (media://${ID}):` },
