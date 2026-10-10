@@ -418,14 +418,25 @@ function reasoningThenToolCallResponse(
 }
 
 /** A step that requests a tool NOT in the advertised toolSet (unlisted or
- * hallucinated) — the AI SDK raises NoSuchToolError, routed through
- * experimental_repairToolCall to onUnavailableToolCall. */
+ * hallucinated), optionally reasoning first — the AI SDK raises
+ * NoSuchToolError, routed through experimental_repairToolCall to
+ * onUnavailableToolCall. */
 function unlistedToolCallResponse(
   toolName: string,
   query: string,
+  reasoning?: string,
 ): LanguageModelV3StreamResult {
+  const thinking: Array<LanguageModelV3StreamPart> =
+    reasoning === undefined
+      ? []
+      : [
+          { type: 'reasoning-start', id: 'r' },
+          { type: 'reasoning-delta', id: 'r', delta: reasoning },
+          { type: 'reasoning-end', id: 'r' },
+        ];
   const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
+    ...thinking,
     {
       type: 'tool-call',
       toolCallId: 'call-bad',
@@ -3931,7 +3942,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
         turn += 1;
         return Promise.resolve(
           turn === 1
-            ? unlistedToolCallResponse('not_a_real_tool', 'budget')
+            ? unlistedToolCallResponse(
+                'not_a_real_tool',
+                'budget',
+                'I will try a tool. ',
+              )
             : textResponse('I could not use that tool, but here is an answer.'),
         );
       },
@@ -3968,6 +3983,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
     expect(idx('tool.requested')).toBeGreaterThan(-1);
     expect(types.filter((t) => t === 'tool.started')).toHaveLength(0);
     expect(idx('tool.completed')).toBeGreaterThan(idx('tool.requested'));
+    // Reasoning streamed right before the refused call is durable ahead of it.
+    expect(idx('reasoning.delta')).toBeGreaterThan(-1);
+    expect(idx('reasoning.delta')).toBeLessThan(idx('tool.requested'));
 
     const requested = events.find((e) => e.eventType === 'tool.requested')!;
     expect(requested.payload).toMatchObject({

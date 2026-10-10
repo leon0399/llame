@@ -875,6 +875,59 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
   );
 });
 
+describe('createOpenAIModelClient — reasoning ahead of tool calls', () => {
+  // Reasoning reaches the run through its own `fullStream` consumer, not the
+  // SDK's tool path; the run drains its reasoning buffer when a call starts,
+  // so a step's reasoning must already be delivered by then.
+  it.each([
+    { name: 'an executed call', toolName: 'echo', expected: 'execute' },
+    { name: 'a refused call', toolName: 'not_a_real_tool', expected: 'refuse' },
+  ] as const)(
+    'delivers the step’s reasoning before $name',
+    async ({ toolName, expected }) => {
+      const order: Array<string> = [];
+      const model = scriptedModel([
+        providerResponse(
+          [
+            { type: 'reasoning-start', id: 'r' },
+            { type: 'reasoning-delta', id: 'r', delta: 'think' },
+            { type: 'reasoning-end', id: 'r' },
+            {
+              type: 'tool-call',
+              toolCallId: 'call-0',
+              toolName,
+              input: '{"value":"x"}',
+            },
+          ],
+          'tool-calls',
+        ),
+        textResponse(),
+      ]);
+
+      await buildClient(model).streamText({
+        chat: CHAT,
+        messages,
+        tools: {
+          echo: tool({
+            inputSchema: z.strictObject({ value: z.string() }),
+            execute: ({ value }) => {
+              order.push('execute');
+              return value;
+            },
+          }),
+        },
+        maxSteps: 4,
+        onUnavailableToolCall: () => order.push('refuse'),
+        onReasoningDelta: (text) => {
+          if (text.length > 0) order.push('reasoning');
+        },
+      }).text;
+
+      expect(order).toEqual(['reasoning', expected]);
+    },
+  );
+});
+
 describe('createOpenAIModelClient — capability surface', () => {
   it('omits optional pricing and compaction keys the operator did not configure', () => {
     const client = buildClient(scriptedModel([textResponse()]));
