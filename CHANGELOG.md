@@ -9,7 +9,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   the stored assistant message kept it ahead, against the durable-runs rule
   that the message projects the event log's order. Both reasoning and text
   buffers now drain before every tool request, including refused and invalid
-  calls.
+  calls. That holds on the pinned Node 22 runtime, where the reasoning
+  consumer has delivered the step's reasoning by then; on Node 24 it can still
+  arrive after the call (#1184).
 
 - Fixed intermittent Storybook failures in the regex tester stories (#353).
   Their play functions checked the tester popup's `Match` and `No match`
