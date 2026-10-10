@@ -15,6 +15,7 @@
 
 import type { Locator } from "@playwright/test";
 
+import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 import { seedCheckpoint } from "./seed-compaction";
 
@@ -57,7 +58,7 @@ test.describe("compaction checkpoint (worker execution mode)", () => {
     // Create a chat with a couple of real turns through the app, same as
     // chat-flow.spec.ts — this is the "the checkpoint feature must sit
     // alongside real, already-rendering messages" scenario Leo tested.
-    const input = page.getByPlaceholder("What would you like to know?");
+    const input = await readyComposer(page);
     await input.fill("Tell me about the roadmap");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByRole("log").getByText(ANSWER)).toBeVisible({

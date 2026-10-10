@@ -2,14 +2,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
-- Changed a web `read`'s `network_error` message to name the failure's kind
-  instead of forwarding the platform's `fetch failed` (part of #930): the server
-  refused the connection, the connection was reset, timed out, or the host is
-  unreachable, read from the socket error's code beneath undici's wrapper. A
-  TLS failure carries its code, for example
-  `The TLS handshake failed (CERT_HAS_EXPIRED).`. No address or locator is
-  echoed. A code with no known kind keeps the previous bounded message. Status
-  error bodies are still not returned; that decision stays open on #930.
+- Fixed load-dependent product E2E flakes where a chat spec typed into the
+  server-rendered composer before React hydrated, so the typed prompt was
+  discarded and the click sent nothing (#350). A shared `readyComposer`
+  helper in `e2e/support/composer.ts` now waits until the model selector
+  names its selection, which happens only after hydration and the models
+  query. Every chat spec that fills the composer right after navigation uses
+  it.
 
 - **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
   `runs.context_items` column are removed. The transcript's persisted
@@ -33,6 +32,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   model of the latest earlier reply in the Chat, whatever its outcome and
   even when a checkpoint absorbed it, so a failed Run's switch is not
   announced twice. Closes #1177.
+
+- Changed a web `read`'s `network_error` message to name the failure's kind
+  instead of forwarding the platform's `fetch failed` (part of #930): the server
+  refused the connection, the connection was reset, timed out, or the host is
+  unreachable, read from the socket error's code beneath undici's wrapper. A
+  TLS failure carries its code, for example
+  `The TLS handshake failed (CERT_HAS_EXPIRED).`. No address or locator is
+  echoed. A code with no known kind keeps the previous bounded message. Status
+  error bodies are still not returned; that decision stays open on #930.
 
 - Fixed a step's reasoning still reaching the Run after its tool call on
   runtimes that schedule the reasoning stream later, such as Node 24 (#1184).

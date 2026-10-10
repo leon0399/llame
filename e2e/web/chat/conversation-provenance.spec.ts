@@ -9,6 +9,7 @@
  * surface, generic tool chips, replay, and pasted owner links.
  */
 
+import { readyComposer } from "../../support/composer";
 import {
   expect,
   hasStableId,
@@ -94,8 +95,7 @@ async function messageContaining(
 }
 
 async function send(page: Page, text: string): Promise<void> {
-  const composer = page.getByPlaceholder("What would you like to know?");
-  await expect(composer).toBeEditable();
+  const composer = await readyComposer(page);
   await composer.fill(text);
   await page.getByRole("button", { name: "Send message" }).click();
 }
