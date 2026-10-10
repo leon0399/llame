@@ -78,8 +78,8 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 1.3 Add `POST /api/v1/media` (one multipart file through `FileInterceptor` with `limits.fileSize`; add `@types/multer` as a dev dependency; map multer's `LIMIT_FILE_SIZE` to `413` with `image_too_large`) and `GET /api/v1/media/:id`, `/original`, and `/model` with the stored type, `nosniff`, `Content-Disposition: inline`, `Content-Security-Policy: sandbox`, a strong content-hash `ETag`, and `Cache-Control: private, no-cache`; regenerate the OpenAPI document and web client; verify by API integration tests for upload, dedup, fetch headers, a matching `If-None-Match` answered `304`, unauthenticated `401`, a 21 MiB upload answered `413` with `image_too_large`, another owner's id as `404` on every route, and every scenario of "Media is retained without deletion" (chat deletion keeps media, no delete route, an unsent upload retained)
 - [x] 1.4 Write `docs/product/operator/media.md` (storage in Postgres, growth and backup cost, bounds, formats, `sharp` platform support, the no-deletion gap) and link it from the operator index; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 1.5 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites
-- [ ] 1.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
-- [ ] 1.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 1.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
+- [x] 1.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 2. `vision-media/model-input` — input declaration and owner-attachment projections (design D6, D9)
 
