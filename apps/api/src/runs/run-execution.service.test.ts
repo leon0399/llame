@@ -8521,6 +8521,105 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       });
     });
 
+    it('compares each retry against the record the attempt before it advanced', async () => {
+      const repositories = mockNormalExecutionRepositories();
+      // `toolDeclaration` is the same `contextToolId`, now connected and bound
+      // to an executor through the dynamic-resolver seam.
+      const reconnected = {
+        options: withDeclaredTool(),
+        resolver: makeDynamicResolver({
+          id: toolDeclaration.id,
+          description: toolDeclaration.description,
+          classification: 'unverified',
+          inputSchema: toolDeclaration.inputSchema,
+          execute: () => ({ status: 'success' as const }),
+        }),
+      };
+      const disconnected = {
+        options: availabilityOptions,
+        resolver: undefined,
+      };
+      // The trigger's stored parts and the Run's availability record as each
+      // dispatch leaves them for the next attempt to read.
+      let storedParts: ReadonlyArray<unknown> = userMessage.parts;
+      let record: Run['turnToolAvailability'] = null;
+      const attempts: Array<{
+        placement: string | undefined;
+        reminders: Array<ContextItemPart>;
+      }> = [];
+      for (const attempt of [disconnected, reconnected, disconnected]) {
+        const base = storedParts;
+        repositories.findById.mockResolvedValue({
+          ...run,
+          turnToolAvailability: record,
+        });
+        vi.spyOn(
+          MessagesRepository.prototype,
+          'findByChatId',
+        ).mockResolvedValue([{ ...userMessage, parts: [...base] }]);
+        const execution = makeExecutionService(
+          createFakeModelClient(['answer']),
+          attempt.resolver,
+          undefined,
+          attempt.options,
+        );
+
+        const result = await execution.service.executeRun(
+          executionInput(execution.client),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        const write = repositories.storeAtDispatch.mock.calls.at(-1)?.[0];
+        attempts.push({
+          placement: write?.placement,
+          reminders: (write?.items ?? []).filter(
+            (item) => item.data.producer === 'tool-availability',
+          ),
+        });
+        storedParts = stagedPartsOf(repositories.storeAtDispatch, base);
+        const fence = repositories.updateForAttempt.mock.calls
+          .map(([, , , patch]) => patch.turnToolAvailability)
+          .filter((entry) => entry !== undefined)
+          .at(-1);
+        record = fence ?? null;
+      }
+
+      const [first, second, third] = attempts;
+      expect(first?.placement).toBe('rank');
+      expect(first?.reminders.map((item) => item.data.payload)).toEqual([
+        expect.objectContaining(initialAvailability),
+      ]);
+      // Attempt 2 reads attempt 1's record: the tool came back.
+      expect(second?.placement).toBe('append');
+      expect(second?.reminders.map((item) => item.data.payload)).toEqual([
+        expect.objectContaining({
+          kind: 'delta',
+          becameUnavailable: [],
+          nowAvailable: [expect.objectContaining({ id: contextToolId })],
+        }),
+      ]);
+      expect(second?.reminders[0]?.data.text).toContain('Now available:');
+      // Attempt 3 reads the record attempt 2 advanced, not attempt 1's, so the
+      // tool's loss is told again rather than deduplicated.
+      expect(third?.placement).toBe('append');
+      expect(third?.reminders.map((item) => item.data.payload)).toEqual([
+        expect.objectContaining(deltaAvailability),
+      ]);
+      expect(third?.reminders[0]?.data.text).toContain('Became unavailable:');
+      // Each retry appended after what the earlier dispatches stored; none
+      // replaced or dropped an earlier reminder.
+      expect(
+        storedParts
+          .filter(isContextItemPart)
+          .filter((part) => part.data.producer === 'tool-availability')
+          .map((part) => part.data.payload),
+      ).toEqual(
+        attempts.flatMap(({ reminders }) =>
+          reminders.map((item) => item.data.payload),
+        ),
+      );
+    });
+
     it('appends the detach notice after the stored items', async () => {
       const repositories = mockNormalExecutionRepositories();
       retryAgainstStoredTrigger(repositories, []);

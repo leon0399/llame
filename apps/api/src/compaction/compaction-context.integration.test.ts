@@ -1643,6 +1643,97 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     );
   });
 
+  describe('dispatch transaction', () => {
+    it('stores no item, told state or model.requested when a write after the user row fails', async () => {
+      // A continuing catalog epoch told about `stale-skill`, against a live
+      // catalog that now advertises `live-skill`: the turn stages a catalog
+      // notice, and its dispatch advances the told column with it.
+      const seeded = await seedSwitch({ switchMarker: false });
+      await tenantDb.runAs(userId, (tx) =>
+        new ChatsRepository(tx).setSkillCatalogBaseline({
+          chatId: seeded.chat.id,
+          ownerUserId: userId,
+          baseline: STALE_SKILLS,
+          rebakedFrom: null,
+        }),
+      );
+      const turn = turnOf(seeded);
+      const service = runService(createCompactionService(unexercisedModels), {
+        config: {
+          skills: { directories: ['/opt/skills'] },
+          skillCatalog: LIVE_CATALOG,
+        },
+        models: epochModels,
+      });
+      const calls: Array<ModelStreamInput> = [];
+      const recording = (): ModelClient => {
+        const delegate = createFakeModelClient(['answer']);
+        return {
+          ...delegate,
+          model: TARGET_MODEL,
+          streamText(input) {
+            calls.push(input);
+            return delegate.streamText(input);
+          },
+        };
+      };
+      const before = await readTurnState(turn);
+
+      // The told-state write runs after the trigger's items are stored, inside
+      // the same dispatch transaction.
+      const toldWrite = vi
+        .spyOn(ChatsRepository.prototype, 'updateSkillCatalogTold')
+        .mockRejectedValueOnce(new Error('told write failed'));
+      try {
+        await expect(
+          service.executeRun(requestFor(turn, recording())),
+        ).rejects.toThrow('told write failed');
+      } finally {
+        toldWrite.mockRestore();
+      }
+
+      const failed = await readTurnState(turn);
+      const triggerOf = async () =>
+        (
+          await tenantDb.runAs(userId, (tx) =>
+            new MessagesRepository(tx).findByChatId(turn.chatId, userId),
+          )
+        ).find((row) => row.id === turn.user.id);
+      expect((await triggerOf())?.parts).toEqual(seeded.targetUserParts);
+      expect(failed.contextParts).toEqual([]);
+      expect(failed.chat?.skillCatalogTold).toEqual(
+        before.chat?.skillCatalogTold,
+      );
+      expect(failed.chat?.skillCatalogTold).toBeNull();
+      // The run fence's availability record rolled back with the rest.
+      expect(failed.run?.turnToolAvailability).toBeNull();
+      expect(
+        failed.events.filter(
+          ({ eventType }) => eventType === 'model.requested',
+        ),
+      ).toEqual([]);
+      expect(calls).toEqual([]);
+
+      // The same fixture without the failure dispatches exactly those writes.
+      const retried = await service.executeRun(requestFor(turn, recording()));
+      await retried.consumeStream?.();
+      const dispatched = await readTurnState(turn);
+      expect(dispatched.contextParts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ producer: 'skill-catalog' }),
+          expect.objectContaining({ producer: 'temporal' }),
+        ]),
+      );
+      expect(dispatched.chat?.skillCatalogTold).toEqual(['live-skill']);
+      expect(
+        dispatched.events.filter(
+          ({ eventType }) => eventType === 'model.requested',
+        ),
+      ).toHaveLength(1);
+      expect(calls).toHaveLength(1);
+    });
+  });
+
   describe('window trigger', () => {
     // A9: the window variant reuses the SOURCE model and the SOURCE receipt's
     // system prompt, so the source run's effort is the one whose cache is at
