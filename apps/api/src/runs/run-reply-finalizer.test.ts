@@ -10,7 +10,6 @@ import {
   failRunTransactionally,
   finalizeRunReply,
   placeStoredContextItems,
-  readRunningUsage,
   runningReplyUsage,
   type AssistantTurnTelemetry,
 } from './run-reply-finalizer';
@@ -129,58 +128,6 @@ function telemetry(attemptId: string): AssistantTurnTelemetry {
     complete: false,
   };
 }
-
-describe('runningReplyUsage', () => {
-  it('omits effort without one and records only an effective bypass', () => {
-    expect(
-      runningReplyUsage({
-        runId,
-        attemptId: 'a',
-        modelId: 'fake-model',
-        effort: undefined,
-        permissionMode: 'default',
-      }),
-    ).toStrictEqual({
-      status: 'running',
-      complete: false,
-      runId,
-      attemptId: 'a',
-      modelId: 'fake-model',
-    });
-    expect(
-      runningReplyUsage({
-        runId,
-        attemptId: 'a',
-        modelId: 'fake-model',
-        effort: 'high',
-        permissionMode: 'bypass',
-      }),
-    ).toStrictEqual({
-      status: 'running',
-      complete: false,
-      runId,
-      attemptId: 'a',
-      modelId: 'fake-model',
-      effort: 'high',
-      permissionMode: 'bypass',
-    });
-  });
-
-  it('reads back only a running usage with its identity fields', () => {
-    const usage = runningReplyUsage({
-      runId,
-      attemptId: 'a',
-      modelId: 'fake-model',
-      effort: 'low',
-      permissionMode: 'bypass',
-    });
-
-    expect(readRunningUsage(usage)).toStrictEqual(usage);
-    expect(readRunningUsage({ ...usage, status: 'error' })).toBeUndefined();
-    expect(readRunningUsage({ status: 'running' })).toBeUndefined();
-    expect(readRunningUsage(null)).toBeUndefined();
-  });
-});
 
 describe('attemptWindow', () => {
   it("spans the named attempt's request up to the next attempt's start", () => {

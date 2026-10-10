@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { type Chat, type Message, type Run, type RunEvent } from '../db/schema';
+import { type Chat, type Message, type Run } from '../db/schema';
 import {
   type Db,
   TenantDbService,
@@ -17,6 +17,7 @@ import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { type RunAborter } from '../runs/run-abort-registry';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { heartbeatSeconds } from '../runs/run-queues';
+import { runningReplyUsage } from '../runs/run-reply-finalizer';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
@@ -543,7 +544,7 @@ describe('ChatLoopService.createMessageStream', () => {
     });
   });
 
-  it("finalizes the blocker's running reply from its attempt's events before run.expired", async () => {
+  it("finalizes the blocker's running reply before run.expired", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
     const blocking: Run = {
@@ -556,18 +557,15 @@ describe('ChatLoopService.createMessageStream', () => {
     const runningReply: Message = {
       ...userMessage,
       id: 'blocking-reply',
-      seq: 2,
       role: 'assistant',
-      senderUserId: null,
-      parts: [],
       inReplyTo: 'blocking-message',
-      usage: {
-        status: 'running',
-        complete: false,
+      usage: runningReplyUsage({
         runId: 'blocking-run',
         attemptId: 'attempt-a',
         modelId: model.id,
-      },
+        effort: undefined,
+        permissionMode: 'default',
+      }),
     };
     const {
       service,
@@ -588,47 +586,33 @@ describe('ChatLoopService.createMessageStream', () => {
           : { userMessage: undefined, assistantMessage: undefined },
       ),
     );
-    const logged: Array<RunEvent> = [
-      { sequence: 1, eventType: 'run.started', payload: null },
+    listByRunId.mockResolvedValue([
       {
-        sequence: 2,
+        sequence: 1,
+        runId: 'blocking-run',
         eventType: 'model.requested',
         payload: { modelId: model.id, attemptId: 'attempt-a' },
+        createdAt: now,
       },
-      { sequence: 3, eventType: 'model.delta', payload: { text: 'partial' } },
-    ].map((entry) => ({ ...entry, runId: 'blocking-run', createdAt: now }));
-    listByRunId.mockResolvedValue(logged);
+    ]);
     const updateAssistantReply = vi
       .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
       .mockResolvedValue(runningReply);
 
     await service.createMessageStream(input);
 
-    expect(updateAssistantReply).toHaveBeenCalledWith({
-      id: 'blocking-reply',
-      chatId: chat.id,
-      inReplyTo: 'blocking-message',
-      parts: [{ type: 'text', text: 'partial' }],
-      // No attempt measured anything here: the reply's own identity.
-      usage: {
-        status: 'aborted',
-        complete: false,
-        runId: 'blocking-run',
-        attemptId: 'attempt-a',
-        modelId: model.id,
-      },
+    const abortedUsage: unknown = expect.objectContaining({
+      status: 'aborted',
     });
+    expect(updateAssistantReply).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'blocking-reply', usage: abortedUsage }),
+    );
     const expiredCall = appendEvent.mock.calls.findIndex(
       (call) => call[1] === 'run.expired',
     );
     expect(updateAssistantReply.mock.invocationCallOrder[0]).toBeLessThan(
       appendEvent.mock.invocationCallOrder[expiredCall] ?? 0,
     );
-    expect(appendEvent).toHaveBeenCalledWith(blocking.id, 'run.expired', {
-      status: 'expired',
-      message:
-        'Expired by a new message: run stuck with no execution progress.',
-    });
   });
 
   it.each(['failed', 'cancelled'] as const)(

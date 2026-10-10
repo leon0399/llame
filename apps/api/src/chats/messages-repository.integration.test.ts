@@ -13,7 +13,9 @@ import postgres, { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
+import { runningReplyUsage } from '../runs/run-reply-finalizer';
 import { ChatsRepository } from './chats-repository';
+import { createCompactionCheckpointPart } from './context-item-producers';
 import { MessagesRepository } from './messages-repository';
 import { RunningReplyRepository } from './running-reply-repository';
 
@@ -22,13 +24,14 @@ const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 const RUN_ID = '88888888-8888-4888-8888-888888888888';
 
-const runningUsage = (attemptId: string, modelId = 'model-a') => ({
-  status: 'running',
-  complete: false,
-  runId: RUN_ID,
-  attemptId,
-  modelId,
-});
+const runningUsage = (attemptId: string, modelId = 'model-a') =>
+  runningReplyUsage({
+    runId: RUN_ID,
+    attemptId,
+    modelId,
+    effort: undefined,
+    permissionMode: 'default',
+  });
 
 describeIfDb('MessagesRepository running replies', () => {
   let sql: Sql;
@@ -174,20 +177,6 @@ describeIfDb('MessagesRepository running replies', () => {
     await expect(replyTo(turn.chatId, turn.userId)).resolves.toEqual(completed);
   });
 
-  it('reports no reply when the user turn is missing', async () => {
-    const turn = await seedTurn();
-
-    await expect(
-      withReplies((replies) =>
-        replies.upsertRunningReply({
-          chatId: turn.chatId,
-          inReplyTo: crypto.randomUUID(),
-          usage: runningUsage('attempt-a'),
-        }),
-      ),
-    ).resolves.toBeUndefined();
-  });
-
   it('writes parts through only to the running reply of the same attempt', async () => {
     const turn = await seedTurn();
     await withReplies((replies) =>
@@ -254,16 +243,22 @@ describeIfDb('MessagesRepository running replies', () => {
           inReplyTo: user.id,
         });
       }
+      await messages.createCheckpoint({
+        chatId: chat.id,
+        absorbedThroughSeq: 8,
+        part: createCompactionCheckpointPart('Earlier turns.'),
+      });
       return chat.id;
     });
     // seq: 1 U, 2 completed/model-old, 3 U, 4 failed/model-failed,
-    //      5 U, 6 bare (no modelId), 7 U, 8 running/model-running.
+    //      5 U, 6 bare (no modelId), 7 U, 8 running/model-running,
+    //      9 checkpoint absorbing 1-8.
     const before = (seq: number) =>
       withMessages((messages) =>
         messages.findLatestReplyModelIdBefore(chatId, owner, seq),
       );
 
-    await expect(before(9)).resolves.toBe('model-running');
+    await expect(before(10)).resolves.toBe('model-running');
     await expect(before(7)).resolves.toBe('model-failed');
     await expect(before(4)).resolves.toBe('model-old');
     await expect(before(2)).resolves.toBeUndefined();

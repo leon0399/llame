@@ -57,19 +57,20 @@ export type RunningReplyUsage = {
   readonly permissionMode?: 'bypass';
 };
 
+/** The identity fields a reply's usage carries for its Run and attempt. */
+type ReplyIdentity = Pick<
+  RunningReplyUsage,
+  'runId' | 'modelId' | 'effort' | 'permissionMode'
+> & { readonly attemptId?: string };
+
 /**
  * Terminal usage written by a finalizer that measured nothing for the reply:
  * the reply's identity fields with no tokens, latency, or measured size.
  * `attemptId` is absent only on a legacy reply created from the full log.
  */
-type TokenlessReplyUsage = {
+type TokenlessReplyUsage = ReplyIdentity & {
   readonly status: TurnStatus;
   readonly complete: false;
-  readonly runId: string;
-  readonly attemptId?: string;
-  readonly modelId: string;
-  readonly effort?: string;
-  readonly permissionMode?: 'bypass';
   readonly billing?: BillingMode;
 };
 
@@ -129,62 +130,54 @@ export function runningReplyUsage(input: {
   };
 }
 
-/** The stored usage of a reply whose attempt has not settled it. */
-export function readRunningUsage(
-  usage: unknown,
-): RunningReplyUsage | undefined {
-  if (!isRecord(usage)) return undefined;
-  const { status, runId, attemptId, modelId, effort } = usage;
-  if (
-    status !== 'running' ||
-    !isString(runId) ||
-    !isString(attemptId) ||
-    !isString(modelId)
-  ) {
-    return undefined;
-  }
-  return {
-    status: 'running',
-    complete: false,
-    runId,
-    attemptId,
-    modelId,
-    ...(isString(effort) && { effort }),
-    ...(usage['permissionMode'] === 'bypass' && {
-      permissionMode: 'bypass' as const,
-    }),
-  };
+/** Whether a reply's stored usage is still `running` under its attempt. */
+export function isRunningUsage(usage: unknown): usage is RunningReplyUsage {
+  return (
+    isRecord(usage) &&
+    usage['status'] === 'running' &&
+    isString(usage['runId']) &&
+    isString(usage['attemptId']) &&
+    isString(usage['modelId'])
+  );
 }
 
-/** The attempt a reply's usage names, whatever its status. */
-export function replyAttemptId(usage: unknown): string | undefined {
-  if (!isRecord(usage)) return undefined;
-  const attemptId = usage['attemptId'];
-  return isString(attemptId) ? attemptId : undefined;
+/** `value[key]` when `value` is a record holding a string there. */
+function stringField(value: unknown, key: string): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const field = value[key];
+  return isString(field) ? field : undefined;
+}
+
+/**
+ * Whether an attempt's live turn may be written over `reply`. A reply still
+ * `running` under that attempt always may; `widened` also admits a missing
+ * reply and a non-completed one that attempt dispatched and another writer
+ * settled. A completed reply or another attempt's never may, so a stale
+ * attempt cannot clobber the reply a later attempt is producing.
+ */
+export function ownsLiveReply(
+  reply: Message | undefined,
+  attemptId: string | undefined,
+  widened: boolean,
+): boolean {
+  if (reply === undefined) return widened;
+  return (
+    !isCompletedAssistantTurn(reply) &&
+    (widened || isRunningUsage(reply.usage)) &&
+    stringField(reply.usage, 'attemptId') === attemptId
+  );
 }
 
 function tokenlessUsage(
-  identity: {
-    runId: string;
-    attemptId?: string;
-    modelId: string;
-    effort?: string;
-    permissionMode?: 'bypass';
-  },
+  identity: ReplyIdentity,
   status: TerminalRunStatus,
   models: BillingCatalog,
 ): TokenlessReplyUsage {
   const billing = models.find(({ id }) => id === identity.modelId)?.billing;
   return {
+    ...identity,
     status: turnStatusForTerminalRun(status),
     complete: false,
-    runId: identity.runId,
-    ...(identity.attemptId !== undefined && { attemptId: identity.attemptId }),
-    modelId: identity.modelId,
-    ...(identity.effort !== undefined && { effort: identity.effort }),
-    ...(identity.permissionMode !== undefined && {
-      permissionMode: identity.permissionMode,
-    }),
     ...(billing !== undefined && { billing }),
   };
 }
@@ -201,19 +194,13 @@ export function attemptWindow(
   const start = events.findIndex(
     (event) =>
       event.eventType === 'model.requested' &&
-      replyAttemptId(event.payload) === attemptId,
+      stringField(event.payload, 'attemptId') === attemptId,
   );
   if (start === -1) return [];
   const end = events.findIndex(
     (event, index) => index > start && event.eventType === 'run.started',
   );
   return events.slice(start, end === -1 ? undefined : end);
-}
-
-function toolCallIdOf(part: unknown): string | undefined {
-  if (!isRecord(part)) return undefined;
-  const toolCallId = part['toolCallId'];
-  return isString(toolCallId) ? toolCallId : undefined;
 }
 
 /**
@@ -230,13 +217,13 @@ export function placeStoredContextItems(
   const earlierToolCallIds = new Set<string>();
   for (const part of snapshot) {
     if (!isContextItemPart(part)) {
-      const toolCallId = toolCallIdOf(part);
+      const toolCallId = stringField(part, 'toolCallId');
       if (toolCallId !== undefined) earlierToolCallIds.add(toolCallId);
       continue;
     }
     let index =
       placed.findLastIndex((candidate) => {
-        const toolCallId = toolCallIdOf(candidate);
+        const toolCallId = stringField(candidate, 'toolCallId');
         return toolCallId !== undefined && earlierToolCallIds.has(toolCallId);
       }) + 1;
     while (index < placed.length && isContextItemPart(placed[index])) {
@@ -287,20 +274,6 @@ async function settleOpenToolCalls(
   return appended;
 }
 
-/** The reply write for a settler holding its attempt's live collector. */
-function liveReplyWrite(
-  input: RunReplyFinalization,
-  live: AssistantTurnWrite,
-  reply: Message | undefined,
-): ReplyWrite | undefined {
-  if (reply !== undefined) {
-    const running = readRunningUsage(reply.usage);
-    // Another attempt's reply, or one another writer already settled.
-    if (running?.attemptId !== input.attemptId) return undefined;
-  }
-  return { parts: live.parts, usage: live.telemetry };
-}
-
 /**
  * The reply write for a settler without the attempt's collector. `settled`
  * completes calls the log left open; a window ignores those it never opened.
@@ -312,8 +285,8 @@ function rebuiltReplyWrite(
   settled: Array<RunEvent>,
 ): ReplyWrite | undefined {
   if (reply !== undefined) {
-    const running = readRunningUsage(reply.usage);
-    if (running === undefined) return undefined;
+    const running = reply.usage;
+    if (!isRunningUsage(running)) return undefined;
     const rebuilt = reconstructDurableAssistant([
       ...attemptWindow(log, running.attemptId),
       ...settled,
@@ -401,11 +374,17 @@ export async function finalizeRunReply(
   const messagesRepo = new MessagesRepository(tx);
   const turn = await messagesRepo.findTurnState(chatId, run.userId, inReplyTo);
   const reply = turn.assistantMessage;
-  if (reply !== undefined && isCompletedAssistantTurn(reply)) return undefined;
-  const write =
-    input.live !== undefined
-      ? liveReplyWrite(input, input.live, reply)
-      : rebuiltReplyWrite(input, reply, log, settled);
+  const { live } = input;
+  if (live !== undefined) {
+    if (!ownsLiveReply(reply, input.attemptId, true)) return undefined;
+    return persistReply(messagesRepo, turn, {
+      chatId,
+      inReplyTo,
+      parts: live.parts,
+      usage: live.telemetry,
+    });
+  }
+  const write = rebuiltReplyWrite(input, reply, log, settled);
   if (write === undefined) return undefined;
   return persistReply(messagesRepo, turn, { chatId, inReplyTo, ...write });
 }

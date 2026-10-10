@@ -294,6 +294,21 @@ const assistantMessage: Message = {
   inReplyTo: messageId,
 };
 
+/** The reply as the dispatch transaction left it for `attemptId`. */
+function runningReply(input: { runId: string; attemptId: string }): Message {
+  return {
+    ...assistantMessage,
+    parts: [],
+    usage: {
+      status: 'running',
+      complete: false,
+      runId: input.runId,
+      attemptId: input.attemptId,
+      modelId: 'fake-model',
+    },
+  };
+}
+
 const event: RunEvent = {
   runId,
   sequence: 1,
@@ -5917,6 +5932,41 @@ describe('RunExecutionService executeRun — context preparation', () => {
     expect(spies.markFinished).not.toHaveBeenCalled();
   });
 
+  it('settles the Run completed instead of streaming when a salvaged answer completed its reply', async () => {
+    const spies = mockNormalExecutionRepositories();
+    // The upsert's guard refused the completed reply the salvage stored.
+    spies.upsertRunningReply.mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage,
+    });
+    const updateAssistantReply = vi.spyOn(
+      MessagesRepository.prototype,
+      'updateAssistantReply',
+    );
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+    expect(() => capturing.streamOptions()).toThrow('streamText was never');
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'completed',
+      { error: undefined, attemptId: testAttemptId },
+    );
+    // The completed reply stays as the salvage stored it.
+    expect(updateAssistantReply).not.toHaveBeenCalled();
+    expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).toEqual([
+      'run.started',
+      'run.completed',
+    ]);
+  });
+
   it('fails a request that does not fit with no committed turn left to summarize', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -7860,21 +7910,6 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     expect(execution.titles.maybeGenerateTitle).not.toHaveBeenCalled();
   });
 
-  /** The reply as the dispatch transaction left it for `attemptId`. */
-  function runningReply(input: { runId: string; attemptId: string }): Message {
-    return {
-      ...assistantMessage,
-      parts: [],
-      usage: {
-        status: 'running',
-        complete: false,
-        runId: input.runId,
-        attemptId: input.attemptId,
-        modelId: 'fake-model',
-      },
-    };
-  }
-
   it('finalizes its own running reply in place without counting it as replaced', async () => {
     mockNormalExecutionRepositories();
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
@@ -7983,6 +8018,40 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     await execution.service.executeRun(executionInput(capturing.client));
     await capturing.streamOptions().onFinish?.({
       text: 'stale answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(updateAssistantReply).not.toHaveBeenCalled();
+    expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when a finish loses to a newer attempt holding the live Run', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.markFinished.mockResolvedValue(undefined);
+    // A redelivery reclaimed the Run and has not dispatched yet, so the reply
+    // is still `running` under this attempt.
+    spies.findById.mockResolvedValue({
+      ...run,
+      status: 'running_model',
+      activeAttemptId: '6a6a6a6a-6a6a-4a6a-8a6a-6a6a6a6a6a6a',
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: runningReply({ runId, attemptId: testAttemptId }),
+    });
+    const updateAssistantReply = vi.spyOn(
+      MessagesRepository.prototype,
+      'updateAssistantReply',
+    );
+    recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'paused answer',
       usage: ZERO_USAGE,
       finishReason: 'stop',
       stepCount: 1,
@@ -9541,17 +9610,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
       userMessage,
-      assistantMessage: {
-        ...assistantMessage,
-        parts: [],
-        usage: {
-          status: 'running',
-          complete: false,
-          runId,
-          attemptId: testAttemptId,
-          modelId: 'fake-model',
-        },
-      },
+      assistantMessage: runningReply({ runId, attemptId: testAttemptId }),
     });
     vi.spyOn(
       SystemPromptReceiptsRepository.prototype,
@@ -9578,78 +9637,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         usage: telemetry,
       }),
     );
-  });
-
-  it("finalizes a dead-lettered Run's running reply from its attempt's events", async () => {
-    vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
-      ...run,
-      status: 'expired',
-    });
-    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
-      { ...event, sequence: 1, eventType: 'run.started' },
-      {
-        ...event,
-        sequence: 2,
-        eventType: 'model.requested',
-        payload: { modelId: 'fake-model', attemptId: testAttemptId },
-      },
-      {
-        ...event,
-        sequence: 3,
-        eventType: 'model.delta',
-        payload: { text: 'before the crash' },
-      },
-      // A redelivery claimed the Run and died before its own dispatch.
-      { ...event, sequence: 4, eventType: 'run.started' },
-    ]);
-    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
-    const notice = createContextItemPart({
-      producer: 'workspace',
-      form: 'notice',
-      runId,
-      payload: {},
-      text: '<system-reminder producer="workspace" form="notice">x</system-reminder>',
-    });
-    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
-      userMessage,
-      assistantMessage: {
-        ...assistantMessage,
-        parts: [notice],
-        usage: {
-          status: 'running',
-          complete: false,
-          runId,
-          attemptId: testAttemptId,
-          modelId: 'fake-model',
-        },
-      },
-    });
-    const updateAssistantReply = vi
-      .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
-      .mockResolvedValue(assistantMessage);
-    const appended = recordAppendedEvents();
-    const execution = makeExecutionService();
-
-    await execution.service.settleTerminalRun({
-      userId,
-      runId,
-      status: 'expired',
-      runPayload: { status: 'expired', message: 'retries exhausted' },
-    });
-
-    expect(updateAssistantReply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        parts: [notice, { type: 'text', text: 'before the crash' }],
-        usage: {
-          status: 'aborted',
-          complete: false,
-          runId,
-          attemptId: testAttemptId,
-          modelId: 'fake-model',
-        },
-      }),
-    );
-    expect(appended.map((entry) => entry.type)).toEqual(['run.expired']);
   });
 
   it('fails the attempt when its chat vanished before context preparation', async () => {

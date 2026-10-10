@@ -1034,42 +1034,49 @@ describe('MessagesRepository checkpoint query shapes', () => {
 });
 
 /**
- * The statements `upsertRunningReply` issues: the sequence and user-row reads
- * answer from `selects`, and the upsert itself is rendered by the mock driver.
+ * The upsert `upsertRunningReply` issues, rendered as Postgres SQL by the mock
+ * driver after the sequence read answers 1, and what it returns when the
+ * upsert yields `returned`.
  */
-async function renderedUpsert(selects: Array<QueryValue>) {
+async function renderedUpsert(returned: QueryValue) {
   const statements: Array<{ sql: string; params: ReadonlyArray<unknown> }> = [];
-  const db: Db = drizzle.mock({
-    schema,
-    logger: { logQuery: (sql, params) => statements.push({ sql, params }) },
-  });
-  const queue = [...selects];
-  const insert = vi.spyOn(db, 'insert');
+  const db: Db = drizzle.mock({ schema });
   vi.spyOn(db, 'transaction').mockImplementation(async (callback) =>
-    // SAFETY: insertWithChatSequence uses only select/insert on its tx; the
-    // insert is the mock driver's own, so the upsert renders as Postgres SQL.
+    // SAFETY: insertWithChatSequence uses only select/insert on its tx, and
+    // the upsert chain below is exactly the one the repository builds.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     callback({
-      select: () => asQuery(queryResult(queue.shift() ?? [])),
-      insert: (...args: Parameters<Db['insert']>) => db.insert(...args),
+      select: () => asQuery(queryResult([{ value: 1 }])),
+      insert: (table: typeof schema.messages) => ({
+        values: (row: MessageInsert) => ({
+          onConflictDoUpdate: (config: never) => ({
+            returning: () => {
+              statements.push(
+                db
+                  .insert(table)
+                  .values(row)
+                  .onConflictDoUpdate(config)
+                  .returning()
+                  .toSQL(),
+              );
+              return Promise.resolve(returned);
+            },
+          }),
+        }),
+      }),
     } as never),
   );
-  const result = await new RunningReplyRepository(db)
-    .upsertRunningReply({
-      chatId: chat.id,
-      inReplyTo: 'user-message',
-      usage: RUNNING_USAGE,
-    })
-    .catch(() => undefined);
-  return { statements, insert, result };
+  const result = await new RunningReplyRepository(db).upsertRunningReply({
+    chatId: chat.id,
+    inReplyTo: 'user-message',
+    usage: RUNNING_USAGE,
+  });
+  return { statements, result };
 }
 
 describe('Running replies', () => {
   it('inserts an empty running reply and resets only a reply that is not completed', async () => {
-    const { statements } = await renderedUpsert([
-      [{ value: 1 }],
-      [{ id: 'user-message' }],
-    ]);
+    const { statements } = await renderedUpsert([]);
 
     expect(statements).toHaveLength(1);
     expect(statements[0]?.sql).toContain(
@@ -1088,42 +1095,11 @@ describe('Running replies', () => {
     ]);
   });
 
-  it('writes nothing and reports no reply when the user row is missing', async () => {
-    const { insert, result } = await renderedUpsert([[{ value: 1 }], []]);
-
-    expect(insert).not.toHaveBeenCalled();
-    expect(result).toBeUndefined();
-  });
-
   it('returns the upserted reply, or nothing when a completed reply refused the reset', async () => {
     const reply = { ...message(2, 'assistant'), inReplyTo: 'user-message' };
-    for (const [returned, expected] of [
-      [[reply], reply],
-      [[], undefined],
-    ] as const) {
-      const db = makeDb({});
-      vi.spyOn(db, 'transaction').mockImplementation(async (callback) =>
-        // SAFETY: insertWithChatSequence uses only select/insert on its tx.
-        // eslint-disable-next-line typescript/no-unsafe-type-assertion
-        callback({
-          select: vi
-            .fn()
-            .mockReturnValueOnce(asQuery(queryResult([{ value: 1 }])))
-            .mockReturnValueOnce(
-              asQuery(queryResult([{ id: 'user-message' }])),
-            ),
-          insert: () => asQuery(queryResult(returned)),
-        } as never),
-      );
 
-      await expect(
-        new RunningReplyRepository(db).upsertRunningReply({
-          chatId: chat.id,
-          inReplyTo: 'user-message',
-          usage: RUNNING_USAGE,
-        }),
-      ).resolves.toBe(expected);
-    }
+    expect((await renderedUpsert([reply])).result).toBe(reply);
+    expect((await renderedUpsert([])).result).toBeUndefined();
   });
 
   it('writes parts through only to the running reply of that attempt', async () => {

@@ -101,9 +101,9 @@ import {
 } from './assistant-transcript';
 import {
   finalizeRunReply,
+  isRunningUsage,
+  ownsLiveReply,
   persistReply,
-  readRunningUsage,
-  replyAttemptId,
   runningReplyUsage,
   turnStatusForTerminalRun,
   type AssistantTurnTelemetry,
@@ -499,6 +499,17 @@ export class RunNotRunnableError extends Error {
   constructor(readonly runId: string) {
     super(`Run ${runId} is no longer runnable (already terminal).`);
     this.name = 'RunNotRunnableError';
+  }
+}
+
+/**
+ * The dispatch found the reply already completed: a salvaged answer stored it
+ * while the Run stayed live. The dispatch transaction rolls back on it.
+ */
+class ReplyAlreadyCompletedError extends Error {
+  constructor(readonly runId: string) {
+    super(`Run ${runId} already has a completed reply.`);
+    this.name = 'ReplyAlreadyCompletedError';
   }
 }
 
@@ -1048,16 +1059,30 @@ export class RunExecutionService {
     // before the target call (design D1). The request already carries the
     // trigger's history row with the same items placed by the same placement,
     // so it equals the parts the trigger stores.
-    await this.tenantDb.runAs(input.userId, (tx) =>
-      this.dispatchAttempt(tx, {
-        run: input,
-        attemptId,
-        context: attemptContext,
-        modelId: client.model,
-        effort,
-        permissionMode: effectivePermissionMode,
-      }),
-    );
+    await this.tenantDb
+      .runAs(input.userId, (tx) =>
+        this.dispatchAttempt(tx, {
+          run: input,
+          attemptId,
+          context: attemptContext,
+          modelId: client.model,
+          effort,
+          permissionMode: effectivePermissionMode,
+        }),
+      )
+      .catch(async (error: unknown) => {
+        if (!(error instanceof ReplyAlreadyCompletedError)) throw error;
+        // A salvaged answer completed the reply while the Run stayed live:
+        // this attempt settles the Run completed (the finalizer leaves that
+        // reply untouched) instead of dispatching a second answer.
+        await this.settleTerminalRun({
+          userId: input.userId,
+          runId: input.runId,
+          status: 'completed',
+          attemptId,
+        });
+        throw new RunNotRunnableError(input.runId);
+      });
 
     // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
     // position matters for replay — model.delta, reasoning.delta, AND
@@ -3141,7 +3166,8 @@ export class RunExecutionService {
     }
     // The Run's own `running` reply is its turn in progress, not an earlier
     // reply it replaces (design D3).
-    return readRunningUsage(assistantMessage.usage)?.runId !== runId;
+    const usage = assistantMessage.usage;
+    return !isRunningUsage(usage) || usage.runId !== runId;
   }
 
   /** Finalizes usage completeness against owner-scoped Run and reply state. */
@@ -3181,10 +3207,11 @@ export class RunExecutionService {
   }
 
   /**
-   * Another writer won the terminal transition. The attempt's live turn still
-   * finalizes a reply left `running` under this attempt, and after an expiry
-   * salvages what streamed; a cancellation or an already-recorded answer
-   * intentionally does not.
+   * Another writer won the terminal transition. While the Run is terminal or
+   * still names this attempt, the attempt's live turn finalizes a reply left
+   * `running` under it, and after an expiry salvages what streamed; a newer
+   * attempt holding the live Run owns the reply, and a cancellation or an
+   * already-recorded answer intentionally gets nothing.
    */
   private async handleLostFinish(
     tx: Db,
@@ -3194,7 +3221,12 @@ export class RunExecutionService {
     const current = await runsRepo.findById(input.runId, input.userId);
     const turn = input.assistantTurn;
     const assistantMessage =
-      turn === undefined || current === undefined
+      turn === undefined ||
+      current === undefined ||
+      (current.activeAttemptId !== input.attemptId &&
+        !['completed', 'failed', 'cancelled', 'expired'].includes(
+          current.status,
+        ))
         ? undefined
         : await this.persistAttemptTurn(
             tx,
@@ -3211,11 +3243,10 @@ export class RunExecutionService {
   }
 
   /**
-   * Writes an attempt's live turn outside its own terminal transition: onto a
-   * reply still `running` under this attempt, and when `salvage` also onto a
-   * missing reply or one this attempt dispatched that another writer settled.
-   * Never over a completed reply or one another attempt dispatched, so a stale
-   * attempt cannot clobber the reply a later attempt is producing.
+   * Writes an attempt's live turn outside its own terminal transition, where
+   * `ownsLiveReply` admits it: onto a reply still `running` under this
+   * attempt, and when `salvage` also onto a missing reply or one this attempt
+   * dispatched that another writer settled.
    */
   private async persistAttemptTurn(
     tx: Db,
@@ -3233,14 +3264,9 @@ export class RunExecutionService {
       input.userId,
       turn.inReplyTo,
     );
-    const reply = state.assistantMessage;
-    const own =
-      reply === undefined
-        ? salvage
-        : !isCompletedAssistantTurn(reply) &&
-          (readRunningUsage(reply.usage)?.attemptId === input.attemptId ||
-            (salvage && replyAttemptId(reply.usage) === input.attemptId));
-    if (!own) return undefined;
+    if (!ownsLiveReply(state.assistantMessage, input.attemptId, salvage)) {
+      return undefined;
+    }
     await this.finalizeAssistantTurnTelemetry(tx, input, run, turn);
     return persistReply(messagesRepo, state, {
       chatId: turn.chatId,
@@ -4432,8 +4458,8 @@ export class RunExecutionService {
    * accepted-turn items on the triggering user row, the reply created or reset
    * as `running` for this attempt (design D3/D7), the told state those items
    * account for on the chat, then `model.requested` naming the attempt. A lost
-   * fence, a missing user row, or a completed reply stores nothing and
-   * dispatches nothing.
+   * fence or a missing user row stores nothing and dispatches nothing; a
+   * completed reply rolls the transaction back with ReplyAlreadyCompletedError.
    */
   private async dispatchAttempt(
     tx: Db,
@@ -4483,7 +4509,7 @@ export class RunExecutionService {
         permissionMode: input.permissionMode,
       }),
     });
-    if (!reply) throw new RunNotRunnableError(run.runId);
+    if (!reply) throw new ReplyAlreadyCompletedError(run.runId);
     const chatsRepo = new ChatsRepository(tx);
     if (context.recencyDigestTold !== undefined) {
       await chatsRepo.updateRecencyDigestTold(

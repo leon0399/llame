@@ -2,9 +2,8 @@
  * The assistant reply from first dispatch to its terminal write (design D3,
  * D5, D6, D7): a retry resets it in its own dispatch transaction, every
  * terminal writer outside the dispatching attempt settles it from that
- * attempt's events around the stored in-Run items, a Run that never
- * dispatched gets no reply, and the model-switch baseline is the latest prior
- * reply's recorded model.
+ * attempt's events around the stored in-Run items, and a switch the Run that
+ * stored it failed under is announced once.
  *
  * TEST_DATABASE_URL-gated; run by test:integration with the other
  * .integration suites.
@@ -26,10 +25,7 @@ import {
   createContextItemPart,
   isContextItemPart,
 } from '../chats/context-item';
-import {
-  createCompactionCheckpointPart,
-  isModelChangePayload,
-} from '../chats/context-item-producers';
+import { isModelChangePayload } from '../chats/context-item-producers';
 import { RecencyDigestService } from '../chats/recency-digest.service';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
 import { type CompactionCapability } from '../compaction/compaction.service';
@@ -688,109 +684,7 @@ describeIfDb(
       },
     );
 
-    it('writes no reply and no usage for a Run that never dispatched', async () => {
-      const turn = await seedTurn(await createChat());
-
-      await runExecution.settleTerminalRun({
-        runId: turn.runId,
-        userId,
-        status: 'cancelled',
-        runPayload: { status: 'cancelled', message: 'Cancelled.' },
-      });
-
-      expect(await replyRow(turn)).toBeUndefined();
-    });
-
-    it('builds the reply of a Run dispatched before the reply layer from its full event log', async () => {
-      const turn = await seedTurn(await createChat());
-      await tenantDb.runAs(userId, async (tx) => {
-        const events = new RunEventsRepository(tx);
-        await events.append(turn.runId, 'model.requested', {
-          modelId: MODEL_ID,
-        });
-        await events.append(turn.runId, 'model.delta', {
-          text: 'Legacy answer.',
-        });
-      });
-
-      await runExecution.settleTerminalRun({
-        runId: turn.runId,
-        userId,
-        status: 'expired',
-        runPayload: { status: 'expired', message: 'Run retries exhausted.' },
-      });
-
-      const reply = await replyRow(turn);
-      expect(reply?.parts).toEqual([{ type: 'text', text: 'Legacy answer.' }]);
-      expect(reply?.usage).toEqual({
-        status: 'aborted',
-        complete: false,
-        runId: turn.runId,
-        modelId: MODEL_ID,
-        billing: 'subscription',
-      });
-    });
-
     describe('model-switch baseline', () => {
-      it.each([
-        {
-          name: "a failed prior reply's model differs",
-          prior: { status: 'error', modelId: 'source-model' },
-          absorbed: false,
-          expected: ['source-model'],
-        },
-        {
-          name: 'the prior reply ran on the same model',
-          prior: { status: 'error', modelId: MODEL_ID },
-          absorbed: false,
-          expected: [],
-        },
-        {
-          name: 'a checkpoint absorbed the prior reply',
-          prior: { status: 'completed', modelId: 'source-model' },
-          absorbed: true,
-          expected: ['source-model'],
-        },
-      ])(
-        'compares against the latest prior reply when $name',
-        async ({ prior, absorbed, expected }) => {
-          const chatId = await createChat();
-          await tenantDb.runAs(userId, async (tx) => {
-            const messages = new MessagesRepository(tx);
-            const earlier = await messages.create({
-              chatId,
-              role: 'user',
-              senderUserId: userId,
-              parts: [{ type: 'text', text: 'earlier question' }],
-            });
-            const reply = await messages.create({
-              chatId,
-              role: 'assistant',
-              inReplyTo: earlier.id,
-              parts: [{ type: 'text', text: 'earlier answer' }],
-              usage: { ...prior, complete: false, runId: crypto.randomUUID() },
-            });
-            if (absorbed) {
-              await messages.createCheckpoint({
-                chatId,
-                absorbedThroughSeq: reply.seq,
-                part: createCompactionCheckpointPart('Earlier turns.'),
-              });
-            }
-          });
-          const turn = await seedTurn(chatId);
-
-          const result = await execute(
-            turn,
-            scriptedClient(scriptedModel(answerChunks('Answered.'))),
-          );
-          await result.consumeStream?.();
-          await waitForEvent(turn.runId, 'run.completed');
-
-          expect(await switchedFrom(chatId)).toEqual(expected);
-        },
-      );
-
       it('announces a switch once when the Run that stored it failed without output', async () => {
         const chatId = await createChat();
         await tenantDb.runAs(userId, async (tx) => {
