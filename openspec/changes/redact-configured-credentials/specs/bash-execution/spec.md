@@ -8,9 +8,11 @@ output, and truncation metadata when output is limited. The executor SHALL
 return output as the command produced it, cut at the bound, without rewriting,
 reordering, or deleting lines, except that every member of the instance's
 configured credential set (`instance-config`) SHALL be replaced with
-`[REDACTED]` before the output bound is applied, so a member that crosses the
-bound is replaced whole, and before the result leaves the executor. Secrets a
-bound Workspace's own MCP configuration resolves are not members. The delimiter neutralization
+`[REDACTED]` before the result leaves the executor. The bound SHALL be
+applied to the raw output's positions without splitting a member match, and
+a fragment at a truncation point that is a prefix of a member SHALL be
+dropped. Secrets a bound Workspace's own MCP configuration resolves are not
+members. The delimiter neutralization
 every model-facing tool result receives SHALL still apply to the copy the model
 reads. After timeout settlement proves the process group stopped, the watcher
 SHALL drain output for at most 50 ms; a stream still open at that bound SHALL be
@@ -46,6 +48,11 @@ marked truncated and destroyed.
 - **WHEN** a command prints output whose configured credential begins a few characters before the stdout bound
 - **THEN** the result contains no prefix of the credential
 - **AND** the result is still bounded and marked truncated
+
+#### Scenario: An earlier redaction does not expose a later credential
+
+- **WHEN** a command prints a configured credential near the start of stdout and a second, longer than `[REDACTED]`, just past the stdout bound
+- **THEN** the result contains `[REDACTED]` for the first and no prefix of the second
 
 #### Scenario: Non-credential configuration survives
 
