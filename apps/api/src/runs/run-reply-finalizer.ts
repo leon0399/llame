@@ -19,7 +19,10 @@ import {
   type RunStatus,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
-import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import {
+  type SystemModelCatalogEntry,
+  toTokenPrice,
+} from '../models/model-catalog';
 import { type BillingMode } from '../models/model-client';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { reconstructDurableAssistant } from './assistant-transcript';
@@ -178,14 +181,16 @@ function tokenlessUsage(
 ): TokenlessReplyUsage {
   const model = models.find(({ id }) => id === identity.modelId);
   // No request of that attempt reported counts, so a priced model omits
-  // `costUsd` and an unpriced (or no longer configured) one records it as
-  // unknown, as run-usage-accounting requires of any usage.
+  // `costUsd` and an unpriced, incompletely priced, or no longer configured
+  // one records it as unknown, matching the executing attempt's usage.
   return {
     ...identity,
     status: turnStatusForTerminalRun(status),
     complete: false,
     ...(model?.billing !== undefined && { billing: model.billing }),
-    ...(model?.pricingUsdPer1M === undefined && { costUsd: null }),
+    ...(toTokenPrice(model?.pricingUsdPer1M) === undefined && {
+      costUsd: null,
+    }),
   };
 }
 

@@ -317,6 +317,33 @@ describe('finalizeRunReply', () => {
     });
   });
 
+  it('records unknown cost for a model whose pricing is incomplete', async () => {
+    const { create } = serve({
+      log: [requested(1), event(2, 'model.delta', { text: 'partial price' })],
+    });
+
+    await finalizeRunReply(tx, {
+      run,
+      status: 'failed',
+      models: [
+        { id: 'fake-model', billing: 'usage', pricingUsdPer1M: { input: 1 } },
+      ],
+    });
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        usage: {
+          status: 'error',
+          complete: false,
+          runId,
+          modelId: 'fake-model',
+          billing: 'usage',
+          costUsd: null,
+        },
+      }),
+    );
+  });
+
   it("rebuilds the named attempt's reply around its stored items with that attempt's identity", async () => {
     const item = contextItem('rules');
     const running = runningReplyUsage({
