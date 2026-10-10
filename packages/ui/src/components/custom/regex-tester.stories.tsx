@@ -426,12 +426,15 @@ export const TestRegexFlow: Story = {
     await userEvent.clear(input);
     await userEvent.type(input, "my-slug");
 
-    const matchLabel = await body.findByText("Match");
-    // SAFETY: `parentElement` is only null for a detached/root node; this
-    // label is always rendered inside the tester's match-list container.
-    const results = within(matchLabel.parentElement as HTMLElement);
-    await expect(await results.findByText("my-slug")).toBeVisible();
+    // The popup fades in from opacity 0, so retry the visibility check itself,
+    // re-resolving the results each attempt in case the subtree remounted.
     await waitFor(() => {
+      // SAFETY: `parentElement` is only null for a detached/root node; this
+      // label is always rendered inside the tester's match-list container.
+      const results = within(
+        body.getByText("Match").parentElement as HTMLElement,
+      );
+      expect(results.getByText("my-slug")).toBeVisible();
       const highlight = document.querySelector("mark");
       expect(highlight).not.toBeNull();
       expect(highlight).toHaveTextContent("my-slug");
@@ -468,15 +471,16 @@ export const GlobalFlagMatches: Story = {
     const input = await body.findByRole("textbox", { name: "Text to match" });
     await userEvent.type(input, "a1 b22");
 
-    const matchLabel = await body.findByText("Match");
-    // SAFETY: `parentElement` is only null for a detached/root node; this
-    // label is always rendered inside the tester's match-list container.
-    const results = within(matchLabel.parentElement as HTMLElement);
-    // The label renders before the results derived from the typed text, so
-    // wait for each value rather than asserting on the first frame.
-    await expect(await results.findByText("1")).toBeVisible();
-    await expect(await results.findByText("22")).toBeVisible();
+    // The popup fades in from opacity 0, so retry the visibility check itself,
+    // re-resolving the results each attempt in case the subtree remounted.
     await waitFor(() => {
+      // SAFETY: `parentElement` is only null for a detached/root node; this
+      // label is always rendered inside the tester's match-list container.
+      const results = within(
+        body.getByText("Match").parentElement as HTMLElement,
+      );
+      expect(results.getByText("1")).toBeVisible();
+      expect(results.getByText("22")).toBeVisible();
       expect(document.querySelectorAll("mark").length).toBe(2);
     });
   },
