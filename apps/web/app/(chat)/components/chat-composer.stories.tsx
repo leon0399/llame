@@ -462,3 +462,62 @@ export const SwitchingToTextOnlyBlocksSend: Story = {
     await expect(canvas.queryByText("Model One has no image input")).toBeNull();
   },
 };
+
+/** Media ids for `a.png` and `b.png`, so each composer image is its own
+ *  lightbox slide. */
+const A_MEDIA_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01";
+const B_MEDIA_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02";
+
+/**
+ * Activating an unsent thumbnail opens the lightbox over the composer's
+ * uploaded images only, on that image, captioned from its upload
+ * descriptor; `Escape` closes it and returns focus to the thumbnail.
+ *
+ * @summary a composer thumbnail opens a composer-only lightbox
+ */
+export const ComposerThumbnailOpensLightbox: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    uploadImage.mockImplementation((file: File) => {
+      const id = file.name === "a.png" ? A_MEDIA_ID : B_MEDIA_ID;
+      return Promise.resolve({
+        ...descriptorFor(file),
+        id,
+        locator: `media://${id}`,
+      });
+    });
+  },
+  render: attachingStory(VISION_MODEL_ID),
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
+    await userEvent.paste(filesTransfer([pngFile("a.png"), pngFile("b.png")]));
+    const send = canvas.getByRole("button", { name: "Send message" });
+    await waitFor(() => expect(send).toBeEnabled());
+
+    const opener = canvas.getByRole("button", { name: "b.png" });
+    await userEvent.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    // The lightbox fades in from opacity 0; wait until it is shown.
+    await waitFor(() => expect(dialog).toBeVisible());
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "1×1 PNG · upload · media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02",
+        ),
+      ).toBeVisible(),
+    );
+
+    await userEvent.keyboard("{ArrowLeft}");
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "1×1 PNG · upload · media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01",
+        ),
+      ).toBeVisible(),
+    );
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(opener).toHaveFocus());
+  },
+};

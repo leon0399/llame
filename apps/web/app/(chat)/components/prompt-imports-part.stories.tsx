@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, fn, waitFor, within } from "storybook/test";
 
 import {
   Message,
@@ -103,29 +103,46 @@ export const ImportedDeniedFailedOmitted: Story = {
 };
 
 /**
- * A prompt that imported an image beside the other outcomes. The image
- * entry's private `media://` locator changes nothing in the chip: every
- * outcome is still listed, the image as an imported prompt file.
+ * A prompt that imported an image beside the other outcomes. Every outcome is
+ * still listed as a chip, the image as an imported prompt file, and the image
+ * also shows its thumbnail (the `/model` route), which opens the chat
+ * lightbox.
  *
- * @summary an image entry beside denied, failed, and omitted prompt files
+ * @summary an image entry with its thumbnail beside denied, failed, and omitted prompt files
  */
 export const WithImageEntry: Story = {
   tags: ["ai-generated"],
   args: {
     imports: [
+      { locator: "docs/GUIDE.md", outcome: "imported" },
       {
         locator: "shot.png",
         resolved: "/home/operator/repo/shot.png",
         outcome: "imported",
         media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
       },
-      { locator: "docs/GUIDE.md", outcome: "imported" },
       { locator: "/srv/secret.png", outcome: "denied" },
       { locator: "missing.png", outcome: "failed" },
     ],
     omitted: ["extra.png"],
+    onOpenImage: fn(),
   },
-  play: async ({ canvas }) => {
+  play: async ({ args, canvas, userEvent }) => {
+    const thumbnails = canvas.getByRole("list", { name: "Imported images" });
+    const image = within(thumbnails).getByRole("img", { name: "shot.png" });
+    await expect(image).toHaveAttribute(
+      "src",
+      expect.stringMatching(
+        /\/api\/v1\/media\/0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f\/model$/,
+      ),
+    );
+    await expect(within(thumbnails).getAllByRole("img")).toHaveLength(1);
+    await userEvent.click(
+      within(thumbnails).getByRole("button", { name: "shot.png" }),
+    );
+    // The image is the payload's second entry.
+    await expect(args.onOpenImage).toHaveBeenCalledWith(1);
+
     await expect(
       canvas.getByLabelText("Imported prompt file: shot.png"),
     ).toBeVisible();

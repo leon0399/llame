@@ -10,6 +10,12 @@ const MEDIA_LOCATOR_PATTERN =
 
 export type MediaVariant = "original" | "model";
 
+/** The media id a `media://<id>` locator names, or `null` for any other
+ *  string. */
+export function mediaIdFromLocator(locator: string): string | null {
+  return MEDIA_LOCATOR_PATTERN.exec(locator)?.[1] ?? null;
+}
+
 /** The absolute API URL serving one variant of a stored image, or `null`
  *  when `locator` is not a `media://` locator. The image element loads it
  *  with the session cookie (same-site), so no token is embedded. */
@@ -17,8 +23,8 @@ export function mediaVariantUrl(
   locator: string,
   variant: MediaVariant,
 ): string | null {
-  const id = MEDIA_LOCATOR_PATTERN.exec(locator)?.[1];
-  if (id === undefined) return null;
+  const id = mediaIdFromLocator(locator);
+  if (id === null) return null;
   const path =
     variant === "model" ? getGetMediaModelUrl(id) : getGetMediaOriginalUrl(id);
   return `${getApiUrl()}${path}`;

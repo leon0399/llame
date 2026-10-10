@@ -3,6 +3,7 @@ summary: "The media:// locator: a read-only handle on one image the Run owner ho
 read_when:
   - you see a media://<id> locator in a result or an attachment label
   - you need to know what a media:// read returns or why it failed
+  - you want to know what a chat thumbnail or the image lightbox shows
 spec: native-file-tools
 configured_by:
   - ../../operator/media.md
@@ -35,6 +36,22 @@ the locator without its selector. A domain-restricted `read` group admits it
 only with a `^media://` allow; see
 [tool-call permissions](../../operator/tool-call-permissions.md). The locator is
 never projected from an entered Workspace root.
+
+## Behavior
+
+The web chat shows each stored image as a thumbnail of its
+[model variant](../../operator/media.md#model-variant): an image attached to
+your message above its bubble, a `read` image result in its tool card, and an
+image a [prompt import](../prompt-imports.md) read. A fork of your chat
+references the same images, so its thumbnails show them too.
+
+Activating a thumbnail opens a lightbox over every image of the loaded
+transcript, in transcript order, starting at the activated one. Opened from
+the composer, it shows only the images not yet sent. Each slide names the
+shown image's dimensions and format, the image's provenance (`upload`, `read`,
+or `prompt-import`), and its locator. A toggle switches the shown image
+between the model variant and the stored original; the lightbox opens on the
+model variant.
 
 ## Errors
 
