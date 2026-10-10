@@ -74,9 +74,15 @@ The final assistant message written for a run SHALL be an ordered projection of 
 - **THEN** its partial assistant message stores that context part directly after that tool part
 - **AND** later replay supplies it at that position
 
+#### Scenario: An expired stuck Run keeps its in-Run context items
+
+- **WHEN** the admission path expires a stuck Run whose event log holds a `context.item` event after a tool result
+- **THEN** the assistant message it writes stores that context part directly after that tool part
+- **AND** the next turn replays it like a failed Run's item
+
 The prospective cutover boundary in `context-injection` SHALL govern these publication rules; existing conversation state SHALL not be retrospectively filtered or rebuilt.
 
-Operational and UI replay SHALL retain a failed attempt's observed part order, and that persisted record SHALL become model history. A failed, cancelled, expired, or superseded attempt keeps the partial assistant turn the user saw, entering later model context, model-facing recall, and compaction like any other committed turn. The rail context such an attempt dispatched stays in history with that turn under `context-injection`; a superseded attempt's in-Run context items do not enter the winning attempt's projection. Within a successful attempt, an individually failed tool call remains a normal paired observation.
+Operational and UI replay SHALL retain a failed attempt's observed part order, and that persisted record SHALL become model history. A failed, cancelled, expired, or superseded attempt keeps the partial assistant turn the user saw, entering later model context, model-facing recall, and compaction like any other committed turn. The rail context such an attempt dispatched stays in history with that turn under `context-injection`, and the projection keeps the `context.item` events of exactly the attempts whose model output it projects, under the rule `context-injection` states. Every settlement that writes the assistant message, including completion, failure, cancellation, `outcome_unknown`, in-process or dead-letter expiry, and the admission path's expiry of a stuck Run, SHALL use this same projection, so its in-Run context items persist. `context.item` events are projection input only and are not forwarded to stream subscribers. Within a successful attempt, an individually failed tool call remains a normal paired observation.
 
 A Run's first model request MAY be preceded by a compaction checkpoint that publishes before that request. The checkpoint row and the re-baked epoch state it names SHALL commit in one transaction before the model request, and SHALL be retained when that attempt later fails, cancelled, or expires: a checkpoint describes committed history only, so it is correct regardless of the attempt's outcome. A checkpoint row is committed history, not attempt-owned staged rail context, and SHALL NOT be withheld or retracted on the attempt's outcome. A later attempt of the same Run SHALL reuse the published checkpoint rather than pay a second summary call.
 
@@ -95,5 +101,5 @@ A Run's first model request MAY be preceded by a compaction checkpoint that publ
 #### Scenario: Fresh retry succeeds after an earlier failure
 
 - **WHEN** attempt B succeeds after attempt A failed
-- **THEN** the committed assistant turn derives only from B, while B reuses the turn-attached items and availability record that A's dispatch transaction committed
-- **AND** A's events, including its in-Run context items, cannot be merged into B's assistant projection
+- **THEN** the committed assistant turn derives only from B, while B reuses the turn-attached items and availability record that A's dispatch transaction committed, if A dispatched
+- **AND** A's events cannot be merged into B's assistant projection, so A's in-Run context items are absent from it

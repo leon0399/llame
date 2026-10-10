@@ -29,11 +29,12 @@ spec says "most recent successfully committed".
   set, the Workspace told set and detach-reason clear, and the turn's tool
   availability record are written in the same transaction as the accepted-turn
   items, before the first request.
-- **A retried attempt reuses its Run's persisted items** instead of authoring
-  new ones, as prompt imports and skill activations already do.
-- **The model-switch baseline is the model of the most recent prior assistant
-  reply, whatever its status**, because that reply and its switch item are in
-  history.
+- **A retry of a dispatched Run reuses its persisted items** instead of
+  authoring new ones. A new `runs.dispatched_at` marks that the Run's context
+  reached the model.
+- **Every comparison baseline follows dispatch, not success.** The model-switch,
+  tool-availability, and epoch baselines read the most recent prior Run that
+  dispatched, whatever its outcome, because its items are in history.
 - **`runs.context_items` and `GET /api/v1/runs/:id/context-items` are
   removed.** The transcript records what the model saw; the column copied
   every rail item since the last checkpoint on every Run, and no UI calls the
@@ -69,7 +70,7 @@ None.
   reconstruction, repository), `apps/api/src/chats` (context builder), the
   skill, digest, and Workspace state writers, and `apps/api/src/compaction`
   comments.
-- A migration dropping `runs.context_items`; OpenAPI and the generated web
+- A migration dropping `runs.context_items` and adding `runs.dispatched_at`; OpenAPI and the generated web
   client lose the endpoint and its DTOs.
 - Operator and reference docs that mention the context-item record;
   `CHANGELOG.md`.
@@ -97,9 +98,15 @@ None.
   created at settlement, and durable reconstruction already rebuilds the
   assistant turn from `run_events`; creating the row at dispatch would add a
   second write path for a partial reply.
-- **P3 The switch baseline follows history, not success.** A failed reply that
-  used model `A` is in history with its switch item, so a next turn on `A`
-  needs no item and a turn on `B` compares against `A`.
+- **P3 Baselines follow dispatch, not success or reply.** A failed Run on
+  model `A` is in history with its switch item, so a next turn on `A` needs no
+  item and a turn on `B` compares against `A`. The issue suggested the latest
+  assistant reply, but a Run that dispatches and fails before any output has
+  no reply yet did put its switch item in history, so `dispatched_at` is the
+  marker.
+- **P5 A retry of a dispatched Run neither re-authors nor compacts.** It
+  reuses the dispatched items verbatim; only a Workspace detach is narrated
+  again. If its request no longer fits, it fails `context_incompatible`.
 - **P4 The per-Run record is deleted, not repaired.** Every entry is
   byte-identical to a persisted part, and nothing reads it.
 

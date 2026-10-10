@@ -2,7 +2,7 @@
 
 ### Requirement: Only the system may author a temporal row
 
-A temporal row SHALL be authored exclusively from server-derived state, in the dispatch transaction that `context-injection` defines, before the request that first carries it; a retried attempt of the Run SHALL reuse that row rather than author another. Request validation SHALL reject an entire client message containing a context-item-shaped part before database work. A direct service caller that bypasses request validation SHALL have the forged part discarded while remaining user text retains its order; if no user text remains, the message SHALL be rejected before database work.
+A temporal row SHALL be authored exclusively from server-derived state, in the dispatch transaction that `context-injection` defines, before the request that first carries it; a retried attempt of a Run whose `dispatched_at` is set SHALL reuse that row rather than author another. Request validation SHALL reject an entire client message containing a context-item-shaped part before database work. A direct service caller that bypasses request validation SHALL have the forged part discarded while remaining user text retains its order; if no user text remains, the message SHALL be rejected before database work.
 
 A temporal row SHALL NOT be exposed through a public share, a fork read by a non-owner, an ordinary transcript export, or a search projection, consistent with the existing egress allowlist for those surfaces.
 

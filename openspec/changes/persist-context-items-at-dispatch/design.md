@@ -33,47 +33,63 @@
 ### D1. One pre-dispatch transaction for accepted-turn context
 
 After preparation and any compaction checkpoint, and before the first model
-request, one fenced tenant transaction prepends the staged parts to the user
-message and writes the digest initialization and told set, the skill-catalog
-freeze and told set, the Workspace told set and detach clear, and the Run's
-`turn_tool_availability`. It is fenced by the attempt id like
-`updateForAttempt`, so a superseded attempt writes nothing. The settlement
-transaction no longer writes any of these.
+request, one tenant transaction fenced by the attempt id, like
+`updateForAttempt`, prepends the staged parts to the user message and writes
+the digest initialization and told set, the skill-catalog freeze and told set,
+the Workspace told set and detach clear, the Run's `turn_tool_availability`,
+and a new `runs.dispatched_at`. A superseded attempt writes nothing. The
+settlement transaction no longer writes any of these.
 
-The availability comparison reads the most recent prior Run that recorded
-`turn_tool_availability`, rather than the most recent completed Run, so a
-failed Run's announcement is not repeated.
+`dispatched_at` is the one marker of "this Run's context reached the model":
+the availability, epoch, and model-switch baselines all read the most recent
+prior Run with `dispatched_at` set, whatever its outcome, and retry reuse
+(D2) keys on it.
 
-### D2. A retried attempt reuses its Run's items
+### D2. A retry of a dispatched Run reuses its items
 
-Each persisted accepted-turn part carries the Run id, as prompt-import and
-activation parts already do. Preparation looks for parts of the current Run on
-the user message first; when present they are the attempt's accepted-turn
-items and every producer skips authoring. Their text is reused verbatim, which
-keeps the cached prefix stable.
+When the current Run has `dispatched_at`, preparation takes the Run's
+accepted-turn parts from the user message as the attempt's items and no
+producer authors another item, told-state update, or comparison record. The
+text is reused verbatim, which keeps the cached prefix stable. Prompt-import
+and skill-activation parts, persisted earlier in their own transactions, never
+trigger reuse, so a crash before the dispatch transaction leaves a retry that
+re-derives everything, as today.
 
-### D3. In-Run items are Run events
+Two producers act on a retry anyway. A retry whose Workspace binding changed
+since the dispatched attempt (a detach) appends the detach notice and a
+no-Workspace snapshot and clears the detach reason in its own attempt-fenced
+write, so the model is told. A retry of a dispatched Run does not publish a
+pre-step checkpoint; if its request no longer fits, it fails
+`context_incompatible`, because a checkpoint would reset told state the reused
+items already carry.
 
-`onStepStart` appends a `context.item` Run event carrying the part, through the
-same ordered event writer as `tool.requested`, before the step request. The
-durable reconstructor replays it into the collector at its position, and
-settlement keeps rail parts for every outcome, so `withoutContextItems` is
-deleted. The stream bridge does not forward the event; the owner sees the part
-when the assistant message settles, as today.
+### D3. In-Run items are Run events carrying their attempt
 
-### D4. The switch baseline is the latest prior reply's model
+`onStepStart` appends a `context.item` Run event carrying the part and the
+attempt id, through the ordered event writer used for `tool.requested`, before
+the step request. Settlement projects the `context.item` events of exactly the
+attempts whose model output it projects; when two projected attempts carry an
+item from the same producer for the same key, such as one instruction
+canonical path, only the first is kept. `withoutContextItems` is deleted. The
+chat stream bridge and the owner raw event stream do not forward the event;
+the owner sees the part when the assistant message settles. The wedged-Run
+expiry on admission (`ChatLoopService.clearActiveRunSlot`) settles through
+the same projection instead of marking the Run expired without one.
 
-The baseline is the model id recorded on the most recent prior Run whose
-assistant message exists, whatever its status, which equals today's
-any-status lookup restricted to Runs that produced a reply. A Run that never
-dispatched has no reply and does not move the baseline.
+### D4. The switch baseline is the latest dispatched Run's model
+
+The baseline is the model id of the most recent prior Run with
+`dispatched_at`, whatever its outcome. A Run that dispatched and failed before
+any output has no assistant message but did put its switch item in history,
+so it moves the baseline; a Run that never dispatched does not.
 
 ### D5. The per-Run record is removed
 
-A migration drops `runs.context_items`. `recordContextItems`, the
-`updateForAttempt` field, the controller route, the DTOs, and the OpenAPI
-operation are deleted, and the web client is regenerated. `BuiltContext`
-keeps its in-memory item list only where request assembly needs it.
+A migration drops `runs.context_items` and adds `runs.dispatched_at`.
+`recordContextItems`, the `updateForAttempt` field, the controller route, the
+DTOs, and the OpenAPI operation are deleted, and the web client is
+regenerated. `BuiltContext` keeps its in-memory item list only where request
+assembly needs it.
 
 ## Risks / Trade-offs
 
@@ -84,6 +100,10 @@ keeps its in-memory item list only where request assembly needs it.
   history though no request carried them. A retry reuses them (D2) and sends
   them; an `outcome_unknown` Run keeps them as context the model may have
   seen, which is the conservative reading.
+- [A retry of a dispatched Run cannot compact] → Its window was fit before
+  the first dispatch; it can only stop fitting if tool declarations grew
+  between attempts, and then it fails `context_incompatible` rather than
+  resetting state the reused items depend on.
 - [Breaking API change] → The endpoint has no UI consumer; the changelog marks
   it breaking.
 - [Larger replays after failures] → A failed Run's context now replays like a

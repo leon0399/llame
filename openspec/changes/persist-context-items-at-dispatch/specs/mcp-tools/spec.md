@@ -1,5 +1,49 @@
 ## MODIFIED Requirements
 
+### Requirement: MCP tool ids are stable, provider-safe, and collision-free
+
+Every admitted MCP tool SHALL have an id produced by the provider-independent `mcp-tool-id-v1` algorithm; provider selection SHALL NOT affect the mapping. The configured ASCII server id SHALL be preserved byte-for-byte. The discovered tool name SHALL be Unicode-NFKC-normalized, each maximal run outside ASCII `[A-Za-z0-9_-]` SHALL be replaced with `_`, leading and trailing `_` SHALL be removed, and ASCII letter case SHALL be preserved. The final id SHALL be `mcp__<server>__<tool>` and at most 64 ASCII characters; 64 SHALL be the fixed provider-independent executable limit for this capability. Empty or overlength results SHALL be refused rather than truncated or suffixed. Collisions SHALL be detected under ASCII case-folding across the composed catalog, and every member of a colliding set SHALL be refused before advertisement. `mcp-tool-id-v1` SHALL govern runtime identities and the exact ids in minimal committed-turn availability records. A future mapping change requires an explicit identity/migration contract without rewriting historical call identities.
+
+Startup allowlist parsing SHALL enforce that exact entries use the same grammar, length, and canonical tool-segment rules, but SHALL NOT require the server id to match a currently configured server. It SHALL recognize only `mcp__<server>__*` as a namespace wildcard, where `<server>` is any canonical server id valid under the `mcp-tool-id-v1` server-id grammar and `*` is the complete permission-only tool segment. A valid server id SHALL be accepted whether or not a server with that id is currently configured or discovered. Wildcards SHALL NOT change `mcp-tool-id-v1` or become executable tool ids. A future provider adapter with a stricter limit SHALL add an explicit provider capability/validation path and SHALL NOT silently change `mcp-tool-id-v1`.
+
+#### Scenario: Tool receives a namespaced id
+
+- **WHEN** server `web` declares tool `search`
+- **THEN** the admitted llame tool id is `mcp__web__search`
+
+#### Scenario: Normalization collision is refused
+
+- **WHEN** two discovered source names would normalize to the same llame tool id
+- **THEN** neither ambiguous declaration is advertised or executable
+- **AND** valid non-colliding siblings remain eligible
+
+#### Scenario: Provider-incompatible id is refused
+
+- **WHEN** a generated id violates an executable provider's tool-name constraints
+- **THEN** that tool is refused before worker attempt advertisement or a committed availability-state record
+
+#### Scenario: A failed Run's committed record holds no refused id
+
+- **WHEN** a Run whose catalog refused a provider-incompatible id commits its dispatch transaction and then fails
+- **THEN** its committed id/state record does not contain the refused id
+
+#### Scenario: Public normalization mapping is deterministic
+
+- **WHEN** server `web` declares tool `Find／Docs` using the full-width slash code point
+- **THEN** `mcp-tool-id-v1` maps it to `mcp__web__Find_Docs`
+- **AND** every provider and startup allowlist parser observes that same id
+
+#### Scenario: Case-folded collision is refused
+
+- **WHEN** admitted source names would produce ids differing only by ASCII letter case
+- **THEN** every member of that colliding set is refused without a suffix
+
+#### Scenario: Allowlist does not require a configured server
+
+- **WHEN** an exact MCP id or namespace wildcard uses a grammar-valid server id with no currently configured server
+- **THEN** startup allowlist validation succeeds
+- **AND** the rule creates no tool identity or unavailable declaration by itself
+
 ### Requirement: MCP namespace filtering remains exact and lifecycle-safe
 
 A namespace wildcard SHALL match safely admitted canonical exact tool ids by removing the terminal `*` from the boot-validated `mcp__<server>__*` rule, whose server id SHALL satisfy the MCP server-id grammar, and comparing the remaining literal, case-sensitive prefix against only `tool.id`. The complete trailing separator SHALL prevent crossing into a similarly prefixed server id, and the globally reserved `mcp__` prefix SHALL prevent selecting code-owned tools. Matching SHALL NOT reparse ids or inspect source metadata at turn time. Exact and namespace allowlist entries SHALL act only as boolean eligibility predicates over source inventory. Matching SHALL retain or reject each existing candidate once; it SHALL NOT create identities, bypass declaration admission, expand rules into candidates, or deduplicate distinct inventory candidates before existing collision checks. `tools.permissions` SHALL remain the independent authorization check for each call.

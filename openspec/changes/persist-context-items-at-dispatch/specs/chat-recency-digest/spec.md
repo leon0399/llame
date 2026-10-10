@@ -19,7 +19,7 @@ The told-set SHALL identify chats by their chat id. Storing an identifier for bo
 
 The worker SHALL recheck the owner setting and chat digest epoch under tenant scope immediately before preparing the final request and system-only receipt, after candidate resolution. If sharing was disabled during resolution, discard the new baseline/append candidate and proceed without newly produced digest content. This check SHALL occur before target-model I/O, not after disclosure. A checkpoint's re-resolved baseline commits in the checkpoint's own fenced transaction, which precedes the final request, so for that candidate the recheck SHALL run inside that transaction, after candidate resolution and before the refreshed baseline is written; a withdrawal before that point discards the candidate and the checkpoint publishes without the digest refresh. Existing baseline retention on withdrawal remains unchanged.
 
-Baseline/told-set initialization and append advancement SHALL be staged for the attempt and committed atomically with its persisted context text in the attempt's dispatch transaction that `context-injection` defines, before the request that carries them. A checkpoint SHALL publish its refreshed baseline and reset told-set in its own fenced atomic transaction under `model-system-prompts`, before the model step it precedes. A superseded attempt, or an attempt that fails before its dispatch transaction, SHALL leave the committed digest state unchanged. A later failure, cancellation, or expiry of the Run SHALL NOT retract what that transaction committed, and a retried attempt of the Run SHALL reuse it rather than resolve or append again. A checkpoint already published with its refreshed baseline likewise survives the failure of the attempt it preceded, because the checkpoint and its epoch state describe committed history only and a retry reuses them rather than re-resolving. At most one baseline epoch SHALL exist per chat; existing single-flight and attempt/epoch fencing SHALL prevent competing initialization or a stale compaction candidate from overwriting current state.
+Baseline/told-set initialization and append advancement SHALL be staged for the attempt and committed atomically with its persisted context text in the attempt's dispatch transaction that `context-injection` defines, before the request that carries them. A checkpoint SHALL publish its refreshed baseline and reset told-set in its own fenced atomic transaction under `model-system-prompts`, before the model step it precedes. A superseded attempt, or an attempt that fails before its dispatch transaction, SHALL leave the committed digest state unchanged. A later failure, cancellation, or expiry of the Run SHALL NOT retract what that transaction committed, and a retried attempt of the Run, whose `dispatched_at` is then set, SHALL reuse it rather than resolve or append again. A checkpoint already published with its refreshed baseline likewise survives the failure of the attempt it preceded, because the checkpoint and its epoch state describe committed history only and a retry reuses them rather than re-resolving. At most one baseline epoch SHALL exist per chat; existing single-flight and attempt/epoch fencing SHALL prevent competing initialization or a stale compaction candidate from overwriting current state.
 
 A setting change after request preparation applies to later attempts; it cannot undo content already sent. The dispatch transaction SHALL record the actual prepared disclosure rather than pretending a later withdrawal prevented it. Receipts and committed content retain the existing non-erasure contract.
 
@@ -184,6 +184,56 @@ No digest content SHALL be exposed to any identity other than the owner, or writ
 - **WHEN** a Run commits a digest append and then fails
 - **THEN** the append is visible as a part of the owner's user message
 - **AND** no other identity can read it
+
+### Requirement: The digest is owner-scoped, and the setting gates production of digest state
+
+The digest SHALL read only the requesting owner's own chats, under that owner's tenant scope, with row-level security as the enforcing boundary and application-level owner filters retained as defense-in-depth. It SHALL be unreachable through the public or shared-chat path, which carries no owner identity, and SHALL fail closed when identity is absent.
+
+The setting gates the **production** of digest state, not the rendering of state already bound to a chat. While `shareRecentChats` is disabled: no baseline SHALL be resolved for a new chat, no baseline SHALL be re-resolved at compaction, and no appends SHALL be emitted. A chat that already carries a baseline SHALL continue to render it unchanged, because withdrawal is not retroactive — see the withdrawal requirement below, which this clause must be read with rather than against.
+
+For a chat that carries **no** baseline — every chat of an owner who has never enabled the setting, and every chat first run after they disabled it — omission SHALL be complete at every level: no digest content, no framing prose, no empty block, so the rendered prompt is byte-identical to the same template with the digest section removed.
+
+Compaction of a chat whose owner has since disabled the setting SHALL leave the existing baseline and told-set untouched rather than re-resolving or clearing them, so the chat continues to send exactly what it was already sending.
+
+Re-enabling SHALL be defined rather than left to interpretation. For a chat that **already has** a baseline, re-enabling resumes appends and compaction re-bakes against the existing epoch. For a chat that has **no** baseline — one whose runs all happened while the setting was off — the next attempt that prepares a baseline with sharing enabled SHALL initialize the baseline and told-set atomically in its dispatch transaction, exactly as an ordinary initializing run does. Appends SHALL NOT be emitted for a chat with no baseline, since there is no told-set to diff against; the gate on appends is therefore the setting **and** the existence of a baseline, not the setting alone.
+
+Appends SHALL be gated by the setting together with the existence of a baseline, and by nothing else. The system SHALL NOT gate appends on whether either prompt surface rendered the digest; operator templates that omit the block from both surfaces while the setting is enabled SHALL still receive appends, and this consequence SHALL be documented rather than mitigated, consistent with the existing rule that a prompt referencing no per-user path silently forgoes that content.
+
+#### Scenario: Setting is disabled and the chat has no baseline
+
+- **WHEN** a chat's first run happens while its owner's `shareRecentChats` setting is off
+- **THEN** no baseline is resolved, and no digest content, framing prose, or delimiter appears in the effective prompt
+- **AND** no digest append is emitted on any turn of that chat
+
+#### Scenario: Setting is disabled after a chat already carries a baseline
+
+- **WHEN** an owner disables `shareRecentChats` while a chat that already carries a baseline remains open
+- **THEN** that chat continues to render its bound baseline unchanged
+- **AND** no further appends are emitted, and compaction neither re-resolves nor clears it
+
+#### Scenario: Public read of a shared chat
+
+- **WHEN** an unauthenticated caller views a chat whose visibility is public
+- **THEN** no digest content is reachable through that path
+- **AND** the owner's other chat titles and excerpts are not disclosed
+
+#### Scenario: One owner's digest never contains another owner's chats
+
+- **WHEN** the row-level-security suite resolves a digest with another user's identity set, and again with the empty identity
+- **THEN** no other owner's chats are readable
+- **AND** no title or excerpt is disclosed
+
+#### Scenario: Operator template omits the block
+
+- **WHEN** an owner with the setting enabled uses system and tool templates that reference no digest path
+- **THEN** the run executes normally with no digest in the prompt
+- **AND** appends are still emitted, and nothing reports the mismatch
+
+#### Scenario: A re-enabled chat keeps the baseline of a failed Run
+
+- **WHEN** an owner re-enables `shareRecentChats` for a chat with no baseline and that chat's next Run commits its dispatch transaction and then fails
+- **THEN** the baseline and told-set stay initialized
+- **AND** the following Run renders that baseline and may emit appends
 
 ## RENAMED Requirements
 

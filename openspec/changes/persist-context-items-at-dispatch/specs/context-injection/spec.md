@@ -8,7 +8,7 @@ A compaction checkpoint SHALL remain a rail context item with producer `compacti
 
 The wire role SHALL remain `user`. A provider-level role for injected context SHALL NOT be invented, and items SHALL NOT be emitted as additional conversation messages of their own where a message already exists to carry them: items attached to a turn SHALL be carried inside that turn's triggering user message.
 
-An item authored **between the model steps of one Run** — an in-Run item — has no user message to carry it. It SHALL be stored as a `data-context` part on that Run's assistant message, immediately after the last tool part of the step whose results triggered it, and SHALL be supplied to the model as a user-role text message placed after that step's last tool result on the step that follows the trigger and on every later step of the same Run at the same position. Within a Run, that placement SHALL be computed from the step's live model messages by removing any earlier copy of the item and inserting it after the tool-result message that carries the matching tool call, so that the result is identical whether or not the model client retains an earlier step's message override. It SHALL use the same envelope, framing, and vocabulary as an attached item. Before the step request that first carries an in-Run item, the item SHALL be recorded as an ordered `context.item` Run event of its attempt, and the Run's assistant message SHALL keep it at that position when the Run settles, whatever its outcome; a superseded attempt's in-Run items SHALL NOT enter the assistant message, like the rest of its output.
+An item authored **between the model steps of one Run** — an in-Run item — has no user message to carry it. It SHALL be stored as a `data-context` part on that Run's assistant message, immediately after the last tool part of the step whose results triggered it, and SHALL be supplied to the model as a user-role text message placed after that step's last tool result on the step that follows the trigger and on every later step of the same Run at the same position. Within a Run, that placement SHALL be computed from the step's live model messages by removing any earlier copy of the item and inserting it after the tool-result message that carries the matching tool call, so that the result is identical whether or not the model client retains an earlier step's message override. It SHALL use the same envelope, framing, and vocabulary as an attached item. Before the step request that first carries an in-Run item, the item SHALL be recorded as an ordered `context.item` Run event carrying its attempt id. Settlement SHALL project, at their positions, the `context.item` events of exactly the attempts whose model output it projects, whatever the Run's outcome, including an `outcome_unknown` settlement that projects an earlier attempt's events; when two projected attempts carry items from the same producer for the same key, such as the same canonical instruction path, only the first SHALL be kept. The chat stream and the owner's raw Run event stream (`GET /api/v1/runs/:id/events`) SHALL NOT forward `context.item` events; the owner sees the part when the assistant message settles.
 
 Each item SHALL occupy its **own text content block** within that message rather than being concatenated with another item or with the user's text. The separation between server-authored content and user-authored content SHALL therefore be structural rather than a textual convention that user input can imitate.
 
@@ -47,7 +47,7 @@ Each item SHALL occupy its **own text content block** within that message rather
   `checkpoint`, and replay uses that stored text without metadata
   reconstruction
 
-Worker-attempt contributions intended for conversation history SHALL be staged in memory and committed before the model request that first carries them, whatever the Run's outcome: turn-attached items in the triggering message, in-Run items as Run events that the Run's assistant message keeps. An attempt's turn-attached items, together with the seen and told state and the comparison records that account for them, SHALL commit in one **dispatch transaction**, fenced by the attempt identity and committed after request preparation and any pre-step checkpoint and before the attempt's first model request; a superseded attempt SHALL commit nothing, and an attempt that fails before that transaction SHALL commit no staged item. Each committed turn-attached part SHALL carry its Run id; a later attempt of the same Run SHALL reuse those parts verbatim as its turn-attached items, and no producer SHALL author another item, told-state update, or comparison record for that Run. The attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal. Committed parts retain the exact prepared text and existing envelope/order. A compaction checkpoint row and the epoch state published with it are not staged contributions: they commit in their own transaction before the model step they precede, and a later failure of that attempt SHALL NOT retract them.
+Worker-attempt contributions intended for conversation history SHALL be staged in memory and committed before the model request that first carries them, whatever the Run's outcome: turn-attached items in the triggering message, in-Run items as Run events that the Run's assistant message keeps. An attempt's turn-attached items, together with the seen and told state and the comparison records that account for them, SHALL commit in one **dispatch transaction**, fenced by the attempt identity and committed after request preparation and any pre-step checkpoint and before the attempt's first model request; a superseded attempt SHALL commit nothing, and an attempt that fails before that transaction SHALL commit no staged item. The dispatch transaction SHALL also set the Run's `dispatched_at`; a Run has **dispatched** when `dispatched_at` is set. Each committed turn-attached part SHALL carry its Run id. A later attempt of a dispatched Run SHALL reuse those parts verbatim as its turn-attached items, and no producer SHALL author another item, told-state update, or comparison record for that Run, except the Workspace detach narration that `Workspace binding changes are rail-resident context items` defines. A retry of a Run that has not dispatched SHALL re-derive every item; prompt-import and skill-activation parts, which their producers persist earlier and separately, SHALL NOT trigger reuse. The attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal. Committed parts retain the exact prepared text and existing envelope/order. A compaction checkpoint row and the epoch state published with it are not staged contributions: they commit in their own transaction before the model step they precede, and a later failure of that attempt SHALL NOT retract them.
 
 #### Scenario: A failed Run keeps the items it dispatched
 
@@ -57,14 +57,32 @@ Worker-attempt contributions intended for conversation history SHALL be staged i
 
 #### Scenario: A retried attempt reuses its Run's items
 
-- **WHEN** an attempt commits its dispatch transaction and the Run is then retried in a new attempt
+- **WHEN** an attempt commits its dispatch transaction, setting `dispatched_at`, and the Run is then retried in a new attempt
 - **THEN** the retry sends the turn-attached parts that carry its Run id unchanged
 - **AND** no producer authors a second item, told-state update, or comparison record for that Run
 
 #### Scenario: Preparation fails before dispatch
 
 - **WHEN** request preparation fails before the attempt's dispatch transaction commits
-- **THEN** no staged item, told state, or comparison record from that attempt is committed
+- **THEN** no staged item, told state, or comparison record from that attempt is committed and `dispatched_at` stays unset
+- **AND** a retry re-derives every item, even though the user message already carries the Run's prompt-import or skill-activation parts
+
+#### Scenario: In-Run items follow the projected output
+
+- **WHEN** attempt A records a `context.item` event and a retry B of the same Run records an item from the same producer for the same key
+- **THEN** a settlement that projects both attempts' output keeps A's item and drops B's
+- **AND** a settlement that projects only B's output keeps only B's in-Run items
+
+#### Scenario: An unknown-outcome settlement keeps the earlier attempt's items
+
+- **WHEN** a Run settles `outcome_unknown` by projecting an earlier attempt's events
+- **THEN** that attempt's in-Run items stay on the assistant message at their positions
+
+#### Scenario: In-Run items are not streamed
+
+- **WHEN** an attempt records a `context.item` event while the owner subscribes to the chat stream or `GET /api/v1/runs/:id/events`
+- **THEN** neither stream forwards the event
+- **AND** the owner sees the part when the assistant message settles
 
 ### Requirement: Co-occurring items have a total author-time order
 
@@ -135,6 +153,91 @@ When worker preparation adds attempt-owned items beside already persisted messag
 - **THEN** the three items remain on that message in author-time order
 - **AND** a retried attempt of that Run sends them in the same stored order without re-sorting
 
+### Requirement: Residency determines whether a change re-renders the prompt or appends an item
+
+Every context contribution SHALL be classified by **residency**:
+
+- **prefix-resident** — re-supplied in full on every request as part of the system prompt. Updating it means re-rendering the prompt. It is cheap to read on every turn and expensive to change, because a change invalidates the cached prefix for the whole conversation.
+- **rail-resident** — appended once as a context item and never re-sent. Updating it means appending another item. It is cheap to add and paid for in every later turn until a checkpoint absorbs it.
+- **rail-only** — a small complete statement of current state whose re-statement after each checkpoint is cheaper than a prefix baseline. It MAY be kept only on the rail: a `snapshot` is emitted when the state changes and re-emitted after a checkpoint, rather than adding it to the system prompt. The Workspace producer uses this class.
+
+A new context surface SHALL be classified by this procedure:
+
+1. A contribution that is an **account of something that happened** SHALL be rail-resident.
+2. A contribution that is a **complete statement of current state** which changes **less often than a checkpoint** SHALL be prefix-resident.
+3. A complete statement of current state which changes **more often than a checkpoint** SHALL be a frozen prefix-resident baseline plus rail-resident deltas, re-baked when a checkpoint is published, unless it qualifies as rail-only under step 4. A frequently-changing complete statement SHALL NOT be placed in the prefix, because that forfeits prefix caching for the whole conversation on every change.
+4. A small complete statement of current state whose re-statement after each checkpoint is cheaper than a prefix baseline MAY be rail-only, emitted as a `snapshot` on change and re-emitted after a checkpoint.
+
+A re-bake or re-emission at a checkpoint SHALL take effect for the very request that checkpoint precedes, and SHALL survive a failure of that attempt.
+
+Residency SHALL be readable for every contribution from where it is stored: every persisted context part is rail-resident, and prefix-resident content is carried by the attempt's system-prompt receipt, so that a later audit needs no separate per-Run list.
+
+#### Scenario: A new surface reports an event
+
+- **WHEN** a new context surface reports that something occurred
+- **THEN** it is rail-resident
+- **AND** it is not added to the system prompt
+
+#### Scenario: A new surface states rarely-changing state
+
+- **WHEN** a new context surface states current state that changes less often than the chat publishes checkpoints
+- **THEN** it is prefix-resident
+- **AND** a change to it re-renders the prompt rather than appending an item
+
+#### Scenario: A new surface states frequently-changing state
+
+- **WHEN** a new context surface states current state that changes more often than the chat publishes checkpoints
+- **THEN** it is a frozen prefix baseline with rail-resident deltas
+- **AND** the baseline is re-resolved when a checkpoint is published rather than on every change
+
+#### Scenario: A new surface states compact current state
+
+- **WHEN** a new context surface states a small complete statement of current state whose re-statement after each checkpoint is cheaper than a prefix baseline
+- **THEN** it MAY be rail-only, with a `snapshot` emitted when the state changes
+- **AND** the snapshot is re-emitted after a checkpoint rather than changing the system prompt
+
+#### Scenario: A failed Run's rail items remain auditable
+
+- **WHEN** an audit reads a Run that failed after its first model request
+- **THEN** the context parts on its messages are its rail-resident contributions
+- **AND** its system-prompt receipt carries its prefix-resident content
+
+### Requirement: A prefix change is announced only when history was conditioned on the old value
+
+A change to prefix-resident content SHALL be **silent to the model by default**: the model reads the re-rendered prompt, so its content needs no announcement.
+
+An announcement SHALL be injected as a rail item when the changed content is **assertional** — a fact the model may previously have denied, lacked, or answered around — because the conversation then contains turns that contradict the new prefix and the contradiction would otherwise be unexplained. An announcement SHALL NOT be injected when the changed content is **behavioral** — tone, format, working style, or comparable guidance — because the only history conditioned on it is the model's own prior output, which is not authoritative.
+
+An announcement SHALL state that earlier turns predate the changed content and that they are not to be treated as contradicting it.
+
+Disclosure to the **owner** SHALL be unconditional and independent of this rule: every change to the effective context SHALL be recorded for the owner in that Run's persisted rail or system-prompt receipt whether or not it is announced to the model.
+
+**This requirement is not yet satisfied for every prefix contribution, and the gap SHALL be stated rather than implied.** Only the model cause of an effective-context change is detected today; a personalization edit or an operator prompt reload changes prefix-resident content without producing an announcement, so an owner who supplies a fact the assistant previously said it lacked still leaves the conversation carrying an unexplained contradiction. Detecting the remaining causes requires the binder to record why it minted a new snapshot, which no shipped path does, and is owned separately. Likewise, the owner-disclosure clause is satisfied today only for changes that produce a rail item: a behavioral change renders nothing, and the persisted rail holds rendered items only, so it currently carries no entry for one. Both gaps are deferred rather than descoped — the rule stands as the contract the deferred work is written against, and a reader of this capability SHALL NOT infer that the assertional-announce branch is implemented.
+
+#### Scenario: Assertional prefix content changes mid-conversation
+
+- **WHEN** prefix-resident content gains a fact the assistant previously stated it did not have
+- **THEN** an item announces that earlier turns predate the information
+- **AND** it states that earlier answers are not to be treated as contradicting it
+
+#### Scenario: Behavioral prefix content changes mid-conversation
+
+- **WHEN** prefix-resident content changes only how the assistant should express itself
+- **THEN** no item is injected
+- **AND** the change is still recorded for the owner
+
+#### Scenario: A routine re-resolution changes the prompt
+
+- **WHEN** the prompt changes only because standing context was re-resolved at compaction
+- **THEN** no announcement is injected
+- **AND** the change is still recorded for the owner
+
+#### Scenario: A failed Run's announcement stays recorded
+
+- **WHEN** a Run commits an item announcing an effective-context change and then fails
+- **THEN** the item stays on that Run's user message for the owner
+- **AND** no separate per-Run record is needed to find it
+
 ### Requirement: Compaction is the rail's re-baseline boundary
 
 A published compaction checkpoint SHALL be the single boundary at which rail state is re-established. A producer whose items express deltas against a baseline SHALL treat a newly published checkpoint as starting a fresh baseline, rather than comparing across it. A producer whose contribution is a frozen prefix baseline SHALL re-resolve it when a checkpoint is published and at no other time.
@@ -157,7 +260,7 @@ Standing context that is re-supplied on every request SHALL be excluded from the
 - **THEN** the baseline is re-resolved in the same transaction, before the model step that follows
 - **AND** it is not re-resolved by any other event
 
-Frozen per-chat digest and temporal baselines retain their owning lifecycles. This requirement SHALL not freeze owner-variable resolution, runtime tool catalogs, or descriptions across attempts. Availability comparisons use the minimal id/state record of the most recent prior Run that committed one within the current epoch, whatever that Run's outcome; a Run none of whose attempts committed a dispatch transaction never establishes such a comparison baseline, and the epoch state a checkpoint publishes with itself survives the failure of the attempt it preceded. A new rail epoch SHALL begin when the active checkpoint's absorbed-through sequence is at or above the sequence of that baseline Run's triggering user message. That boundary SHALL NOT be decided by comparing checkpoint creation times, and SHALL NOT be read off the sequence of an assistant row, because a retried assistant row keeps its sequence below a checkpoint published between its attempts.
+Frozen per-chat digest and temporal baselines retain their owning lifecycles. This requirement SHALL not freeze owner-variable resolution, runtime tool catalogs, or descriptions across attempts. Availability comparisons use the minimal id/state record of the most recent prior Run whose `dispatched_at` is set, whatever that Run's outcome, within the current epoch; a Run without `dispatched_at` never establishes such a comparison baseline, and the epoch state a checkpoint publishes with itself survives the failure of the attempt it preceded. A new rail epoch SHALL begin when the active checkpoint's absorbed-through sequence is at or above the sequence of that baseline Run's triggering user message. That boundary SHALL NOT be decided by comparing checkpoint creation times, and SHALL NOT be read off the sequence of an assistant row, because a retried assistant row keeps its sequence below a checkpoint published between its attempts.
 
 #### Scenario: A failed Run's availability record is the next baseline
 
@@ -332,7 +435,7 @@ Activation items SHALL use the existing canonical envelope, provenance, owner vi
 
 ### Requirement: Catalog notices announce added and removed skills on the next user turn
 
-At each accepted user turn that continues a compaction epoch and whose bound model's template references the `skills` namespace, the current proactively eligible catalog from that Chat's effective skill sources, bounded as for the baseline, SHALL be compared with the Chat's told state by name only; descriptions SHALL NOT participate in the comparison and an addition SHALL render the entry's current description. A turn bound to a model whose template does not reference `skills` SHALL emit no catalog notice and SHALL leave the told state unchanged. When entries were added or removed, one `skill-catalog` item with form `notice` SHALL be persisted listing added entries with name and description and removed entries by name, telling the model to read an added skill before applying it and not to apply a removed skill's earlier instructions, and carrying a precedence statement whenever a description is present. An eligibility flip or a promotion from the omitted portion SHALL render as an add or a remove. A changed description or changed instruction content of an entry that stays advertised SHALL NOT produce a notice in this change. Notices SHALL carry only bounded metadata, never instruction bodies. The notice and the told state SHALL be written in the attempt's dispatch transaction; a retried attempt of the Run SHALL reuse its persisted notice and state, and a rollback SHALL expose none of those writes.
+At each accepted user turn that continues a compaction epoch and whose bound model's template references the `skills` namespace, the current proactively eligible catalog from that Chat's effective skill sources, bounded as for the baseline, SHALL be compared with the Chat's told state by name only; descriptions SHALL NOT participate in the comparison and an addition SHALL render the entry's current description. A turn bound to a model whose template does not reference `skills` SHALL emit no catalog notice and SHALL leave the told state unchanged. When entries were added or removed, one `skill-catalog` item with form `notice` SHALL be persisted listing added entries with name and description and removed entries by name, telling the model to read an added skill before applying it and not to apply a removed skill's earlier instructions, and carrying a precedence statement whenever a description is present. An eligibility flip or a promotion from the omitted portion SHALL render as an add or a remove. A changed description or changed instruction content of an entry that stays advertised SHALL NOT produce a notice in this change. Notices SHALL carry only bounded metadata, never instruction bodies. The notice and the told state SHALL be written in the attempt's dispatch transaction; a retried attempt of a dispatched Run SHALL reuse its persisted notice and state, and a rollback SHALL expose none of those writes.
 
 When a delta would exceed the baseline bound, one `skill-catalog` item with form `snapshot` SHALL instead state that the catalog was refreshed and earlier updates are superseded, listing the bounded current set with its omitted count; the told state SHALL then equal that snapshot. No notice SHALL be injected between model requests inside an existing Run; a removed package fails its next read under current availability and its removal is announced on the next user turn.
 
@@ -424,8 +527,8 @@ inferred from the current unbound state, by emitting a separate rail-resident it
 `notice` in the same turn. The notice SHALL name that reason, and the persisted reason SHALL be cleared in the
 dispatch transaction that commits that notice. The producer SHALL stage the narrated root,
 or its absence, and the latest checkpoint message as `workspace_told` and `workspace_told_from`;
-the attempt's dispatch transaction SHALL write both values, and the only other writer SHALL be a checkpoint's publication
-transaction, which advances `workspace_told_from` to name its own row and resets
+the attempt's dispatch transaction SHALL write both values, and the only other writers SHALL be the
+retry detach write below and a checkpoint's publication transaction, which advances `workspace_told_from` to name its own row and resets
 the told root, so the state is not left suppressed by a narration the checkpoint
 superseded. The `workspace` producer re-derives its snapshot after that
 transaction commits and before the model step the checkpoint precedes, so the
@@ -436,8 +539,14 @@ so the next turn finds the root already told within the epoch whatever that Run'
 outcome, and an attempt that fails before that transaction records neither value,
 leaving its retry to re-derive the same snapshot.
 Workspace state SHALL NOT be placed in the system prompt. A Workspace snapshot or notice SHALL persist its
-exact item text, producer, form, and rail residency on the triggering user message under the
+exact item text, producer, and form on the triggering user message as a rail-resident part under the
 ordinary owner-isolation rules.
+
+A retry of a dispatched Run SHALL reuse its persisted `workspace` items. When that retry's binding
+re-check detaches a binding, the retry SHALL still narrate the detach: it SHALL append the detach
+notice, and the snapshot stating that no Workspace is entered when `workspace_told` names a root,
+after the reused items on the triggering user message, and SHALL write `workspace_told` and clear
+the detach reason in the same attempt-fenced write before its first model request.
 
 #### Scenario: Changed binding is narrated on the rail
 
@@ -476,6 +585,12 @@ ordinary owner-isolation rules.
 - **WHEN** attempt preparation persists a detach reason and that attempt fails before its dispatch transaction commits
 - **THEN** a retry consumes the reason from persisted Chat state and emits it as a separate `workspace` notice
 - **AND** the reason remains persisted until a dispatch transaction commits the narrating notice, and is cleared there, while the Chat remains unbound
+
+#### Scenario: A retry of a dispatched Run narrates a new detach
+
+- **WHEN** a dispatched Run narrated a bound root, and its retry's binding re-check detaches that binding
+- **THEN** the retry reuses the dispatched `workspace` items and appends the detach notice and the no-Workspace snapshot after them
+- **AND** it clears the detach reason and writes the told state in one attempt-fenced write before its first model request
 
 #### Scenario: A failed Run's Workspace narration is not repeated
 
