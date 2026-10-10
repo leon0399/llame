@@ -19,7 +19,7 @@ master
 
 | Layer                                 | Parent         | Ownership                                                                                                                                 | Authored estimate        | Closes |
 | ------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ------ |
-| `dispatch-context-items/proposal`     | `master`       | The approved proposal, design, deltas, and this task list.                                                                                | ~2,400 (exception below) | none   |
+| `dispatch-context-items/proposal`     | `master`       | The approved proposal, design, deltas, and this task list.                                                                                | ~2,800 (exception below) | none   |
 | `dispatch-context-items/turn-items`   | `proposal`     | `dispatched_at`, accepted-turn items, told sets, baselines, and availability in one pre-dispatch transaction; retry reuse; the baselines. | ~1,400                   | none   |
 | `dispatch-context-items/in-run-items` | `turn-items`   | In-Run items as attempt-tagged `context.item` Run events kept on every settlement, including wedged-Run expiry.                           | ~700                     | none   |
 | `dispatch-context-items/drop-record`  | `in-run-items` | Removal of `runs.context_items`, its endpoint, DTOs, and generated client.                                                                | ~500 plus generated      | #1177  |
@@ -30,9 +30,9 @@ the record; the earlier layers reference it.
 
 **Review-budget exception for the proposal layer.** OpenSpec requires each
 MODIFIED block to restate its whole canonical requirement, so the 30-odd
-blocks across nine capabilities copy about 1,500 canonical lines verbatim. A
+blocks across nine capabilities copy about 1,800 canonical lines verbatim. A
 whitespace-normalized diff against canonical measures the authored spec change
-at about 440 changed lines, plus about 600 lines of proposal, design, and
+at about 570 changed lines, plus about 650 lines of proposal, design, and
 tasks. Splitting the delta across layers would leave the canonical specs
 contradicting each other between them, so the layer is published whole.
 
