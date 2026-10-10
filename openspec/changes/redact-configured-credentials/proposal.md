@@ -59,8 +59,9 @@ None.
 
 ## Impact
 
-- `apps/api/src/instance-config` (building the set), `apps/api/src/tools/bash.ts`
-  and `packages/bash-executor` (redact before the bound),
+- `apps/api/src/instance-config` and `packages/config-interpolation` (building
+  the set from one read of each selected document), `apps/api/src/tools/bash.ts`
+  and `packages/bash-executor` (cutting on raw positions),
   `packages/runtime-safety` (one redaction routine),
   `apps/api/src/models/model-client-factory.ts` (wrapping every client's
   failures), and the title path's logging.
@@ -94,22 +95,29 @@ permission policy and a future Sandbox.
 
 ## Decisions for approval
 
-- **D1 Membership by field.** Redacting every interpolation would corrupt
+- **A1 Membership by field.** Redacting every interpolation would corrupt
   ordinary output (`knowledge.root`, ports, home paths). Membership is an
   explicit list of credential fields, the documents they select from,
   `POSTGRES_URL`, and substitutions in credential-bearing values. Stdio MCP
   `command` and `args` substitutions are left out because they routinely hold
   paths; they stay protected inside their own server's traffic.
-- **D2 Bash covers instance credentials only.** A bound Workspace's own
+- **A2 Bash covers instance credentials only.** A bound Workspace's own
   `.mcp.json` secrets are not added.
-- **D3 Selected JSON documents contribute every string leaf.** A Codex auth
-  file's refresh token is more valuable than the access token it sits beside.
-  Over-redaction of a short or common leaf is accepted and documented.
+- **A3 Selected JSON documents contribute their credential-shaped leaves.** A
+  Codex auth file's refresh token is more valuable than the access token it
+  sits beside; its timestamps and modes are not added.
+- **A4 An 8-character floor and one credential-shaped name rule.** Without
+  them the shipped development password `app` would turn `apps/api` into
+  `[REDACTED]s/api`, and a literal `Accept: application/json` header would be
+  redacted everywhere. The name rule (`authorization`, `cookie`, `token`,
+  `key`, `secret`, `password`) decides which literal header values and which
+  document leaves are members.
 
 ## Non-goals
 
 - Redacting native `read`/`grep`, MCP tool results beyond each server's own
   set, or web reads with this set.
 - Redacting a Workspace's own `.mcp.json` secrets.
+- Picking up a credential file rotated after startup; the set is built at boot.
 - Redacting encoded or partial forms of a credential.
 - Preventing bash from reading credential files.
