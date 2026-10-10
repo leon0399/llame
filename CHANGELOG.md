@@ -3,9 +3,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 # 2026-10-10
 
 - Fixed an intermittent Storybook failure in the regex tester's "Test regex"
-  and global-flag stories (#353). They asserted the match values
-  synchronously after waiting only for the static `Match` label, so a slow
-  runner saw an empty result span; each value is now awaited with `findByText`.
+  and global-flag stories (#353). They checked each match value's visibility
+  once, while the popup can still be fading in from `opacity: 0` or its
+  subtree can be replaced; the visibility checks now retry inside `waitFor`
+  and re-resolve the results on every attempt.
 
 - **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
   `runs.context_items` column are removed. The transcript's persisted
