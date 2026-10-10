@@ -66,26 +66,18 @@ export type ModelPixels = {
   channels: 1 | 2 | 3 | 4;
 };
 
-const PNG_SIGNATURE = Buffer.from([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-]);
-
-/** The format named by the leading magic bytes, or undefined. */
-function detectMediaType(bytes: Buffer): OriginalMediaType | undefined {
-  if (bytes.subarray(0, 8).equals(PNG_SIGNATURE)) return 'image/png';
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return 'image/jpeg';
-  }
-  const gif = bytes.toString('latin1', 0, 6);
-  if (gif === 'GIF87a' || gif === 'GIF89a') return 'image/gif';
-  if (
-    bytes.toString('latin1', 0, 4) === 'RIFF' &&
-    bytes.toString('latin1', 8, 12) === 'WEBP'
-  ) {
-    return 'image/webp';
-  }
-  return undefined;
-}
+/**
+ * The accepted original formats, keyed by the decoder libvips picked from the
+ * leading magic bytes. Every other decoder (SVG, TIFF, HEIF, ...) is refused.
+ */
+const MEDIA_TYPE_BY_FORMAT: Partial<
+  Record<keyof sharp.FormatEnum, OriginalMediaType>
+> = {
+  png: 'image/png',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+};
 
 /**
  * Validate an input and build its model variant. Throws `MediaIngestError`
@@ -95,21 +87,21 @@ export async function prepareMedia(input: Buffer): Promise<PreparedMedia> {
   if (input.length > MEDIA_MAX_BYTES) {
     throw new MediaIngestError('image_too_large');
   }
-  const mediaType = detectMediaType(input);
-  if (mediaType === undefined) {
-    throw new MediaIngestError('unsupported_media_type');
-  }
 
-  // Header only: libvips reads dimensions without decoding pixel data. For an
-  // animated image `height` is one frame's height. The pixel limit is lifted
-  // here so every oversized header reaches the 40-megapixel check below as
-  // `image_too_large` (sharp's default limit would throw first); the full
-  // decode keeps `limitInputPixels`.
+  // Header only: libvips detects the format from the magic bytes and reads
+  // dimensions without decoding pixel data. For an animated image `height` is
+  // one frame's height. The pixel limit is lifted here so every oversized
+  // header reaches the 40-megapixel check below as `image_too_large` (sharp's
+  // default limit would throw first).
   const header = await sharp(input, { limitInputPixels: false })
     .metadata()
     .catch(() => {
       throw new MediaIngestError('unsupported_media_type');
     });
+  const mediaType = MEDIA_TYPE_BY_FORMAT[header.format];
+  if (mediaType === undefined) {
+    throw new MediaIngestError('unsupported_media_type');
+  }
   if (header.width * header.height > MEDIA_MAX_PIXELS) {
     throw new MediaIngestError('image_too_large');
   }
@@ -132,13 +124,12 @@ export async function prepareMedia(input: Buffer): Promise<PreparedMedia> {
 
 /**
  * Full decode of the first frame, oriented, scaled to the long-edge bound
- * without upscaling. Raw output carries no metadata.
+ * without upscaling. Raw output carries no metadata. sharp's defaults already
+ * load one page and keep its pixel limit far above the header bound checked
+ * before this decode; the sRGB conversion yields 8-bit samples.
  */
 async function decodeModelPixels(input: Buffer): Promise<ModelPixels> {
-  const { data, info } = await sharp(input, {
-    limitInputPixels: MEDIA_MAX_PIXELS,
-    pages: 1,
-  })
+  const { data, info } = await sharp(input)
     .autoOrient()
     .resize({
       width: MODEL_MAX_EDGE,
@@ -147,7 +138,7 @@ async function decodeModelPixels(input: Buffer): Promise<ModelPixels> {
       withoutEnlargement: true,
     })
     .toColourspace('srgb')
-    .raw({ depth: 'uchar' })
+    .raw()
     .toBuffer({ resolveWithObject: true });
   return {
     data,

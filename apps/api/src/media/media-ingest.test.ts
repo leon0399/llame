@@ -34,6 +34,14 @@ function noisePixels(width: number, height: number) {
   };
 }
 
+/** The DC quantizer of the first (luminance) JPEG quantization table. */
+function luminanceDcQuantizer(jpeg: Buffer): number {
+  const dqt = jpeg.indexOf(Buffer.from([0xff, 0xdb]));
+  if (dqt === -1) throw new Error('JPEG has no quantization table');
+  // Marker (2), segment length (2), precision/table id (1), then the table.
+  return jpeg[dqt + 5];
+}
+
 async function refusal(input: Buffer): Promise<MediaIngestErrorCode> {
   try {
     await prepareMedia(input);
@@ -43,6 +51,19 @@ async function refusal(input: Buffer): Promise<MediaIngestErrorCode> {
   }
   throw new Error('Expected a MediaIngestError refusal');
 }
+
+describe('MediaIngestError', () => {
+  it.each([
+    ['image_too_large', 'Image exceeds 20 MiB or 40 megapixels'],
+    [
+      'unsupported_media_type',
+      'Only PNG, JPEG, GIF, and WebP images are accepted',
+    ],
+  ] as const)('explains %s', (code, message) => {
+    const error = new MediaIngestError(code);
+    expect(error).toMatchObject({ name: 'MediaIngestError', code, message });
+  });
+});
 
 describe('prepareMedia refusals', () => {
   it('refuses SVG as unsupported_media_type', async () => {
@@ -76,6 +97,27 @@ describe('prepareMedia refusals', () => {
     const signature = (await solid(1, 1).png().toBuffer()).subarray(0, 8);
     const big = Buffer.concat([signature, Buffer.alloc(21 << 20)]);
     expect(await refusal(big)).toBe('image_too_large');
+  });
+
+  it('admits an input of exactly 20 MiB past the byte bound', async () => {
+    const signature = (await solid(1, 1).png().toBuffer()).subarray(0, 8);
+    const atBound = Buffer.concat([
+      signature,
+      Buffer.alloc(MEDIA_MAX_BYTES - signature.length),
+    ]);
+    expect(await refusal(atBound)).toBe('unsupported_media_type');
+  });
+
+  it('refuses a TIFF whose bytes 8-11 happen to read WEBP', async () => {
+    const pixels = Buffer.alloc(4 * 4 * 3);
+    pixels.write('WEBP', 0, 'latin1');
+    const tiff = await sharp(pixels, {
+      raw: { width: 4, height: 4, channels: 3 },
+    })
+      .tiff({ compression: 'none' })
+      .toBuffer();
+    expect(tiff.toString('latin1', 8, 12)).toBe('WEBP');
+    expect(await refusal(tiff)).toBe('unsupported_media_type');
   });
 
   // The files carry one real pixel, so a full decode would fail as
@@ -120,6 +162,16 @@ describe('prepareMedia original', () => {
     });
   });
 
+  it('accepts a GIF87a by its magic bytes', async () => {
+    const gif = await solid(5, 4).gif().toBuffer();
+    gif.write('GIF87a', 0, 'latin1');
+    expect((await prepareMedia(gif)).original).toMatchObject({
+      mediaType: 'image/gif',
+      width: 5,
+      height: 4,
+    });
+  });
+
   it('accepts an image of exactly 40 megapixels', async () => {
     const input = await solid(8000, 5000)
       .png({ compressionLevel: 9 })
@@ -147,7 +199,11 @@ describe('prepareMedia original', () => {
     const prepared = await prepareMedia(input);
 
     expect(prepared.original.bytes.equals(input)).toBe(true);
-    expect(prepared.original).toMatchObject({ width: 1200, height: 800 });
+    expect(prepared.original).toMatchObject({
+      mediaType: 'image/jpeg',
+      width: 1200,
+      height: 800,
+    });
     expect(prepared.model).toMatchObject({
       mediaType: 'image/png',
       width: 800,
@@ -263,4 +319,34 @@ describe('encodeModelVariant', () => {
     const { channels } = await sharp(model.bytes).stats();
     expect(channels[0]?.mean).toBeGreaterThan(250);
   });
+
+  it('keeps a PNG or a quality-85 JPEG that lands exactly on the bound', async () => {
+    const pixels = noisePixels(64, 64);
+    const png = await encodeModelVariant(pixels);
+    expect(png.mediaType).toBe('image/png');
+
+    expect(await encodeModelVariant(pixels, png.bytes.length)).toEqual(png);
+
+    const jpeg = await encodeModelVariant(pixels, png.bytes.length - 1);
+    expect(jpeg).toMatchObject({ mediaType: 'image/jpeg', width: 64 });
+    // libjpeg scales the standard luminance DC quantizer (16) to 5 at
+    // quality 85; the encoder default, quality 80, gives 6.
+    expect(luminanceDcQuantizer(jpeg.bytes)).toBe(5);
+    expect(await encodeModelVariant(pixels, jpeg.bytes.length)).toEqual(jpeg);
+  });
+
+  it.each([
+    [4, 1],
+    [1, 4],
+  ])(
+    'keeps shrinking a %i×%i image until both edges reach 1',
+    async (width, height) => {
+      const pixels = noisePixels(width, height);
+      expect(await encodeModelVariant(pixels, 1)).toMatchObject({
+        mediaType: 'image/jpeg',
+        width: 1,
+        height: 1,
+      });
+    },
+  );
 });
