@@ -5,7 +5,6 @@ import {
   type OnApplicationBootstrap,
 } from '@nestjs/common';
 
-import { type Run } from '../db/schema';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
   InstanceConfigService,
@@ -39,19 +38,13 @@ import {
   type RunJob,
 } from './run-queues';
 import { RunsRepository, failRunTransactionally } from './runs-repository';
+import { isTerminalRunStatus } from './run-status';
 import {
   CanonicalSearchCoverageService,
   type CanonicalSearchCoverageGate,
 } from '../search/canonical-search-activation.service';
 
 const RUNS_DEAD_QUEUE = deadLetterQueue(RUNS_QUEUE);
-
-const TERMINAL_RUN_STATUSES: ReadonlySet<Run['status']> = new Set([
-  'completed',
-  'failed',
-  'cancelled',
-  'expired',
-]);
 
 /**
  * RunsWorkerService (#48/#50) — consumes the `runs` queue and drives
@@ -164,7 +157,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // also rejects cancellation that wins this pickup/claim TOCTOU.
     const pickup = await this.tenantDb.runAs(job.userId, async (tx) => {
       const run = await new RunsRepository(tx).findById(job.runId, job.userId);
-      if (!run || TERMINAL_RUN_STATUSES.has(run.status)) {
+      if (!run || isTerminalRunStatus(run.status)) {
         return { skip: true as const, settleCancellation: false as const };
       }
       if (run.cancelRequestedAt === null) {
@@ -261,7 +254,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       const persisted = await this.tenantDb.runAs(job.userId, (tx) =>
         new RunsRepository(tx).findById(job.runId, job.userId),
       );
-      if (persisted && !TERMINAL_RUN_STATUSES.has(persisted.status)) {
+      if (persisted && !isTerminalRunStatus(persisted.status)) {
         throw new Error(
           `Run ${job.runId} stream drained without a durable terminal state.`,
         );
@@ -299,9 +292,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     const persisted = await this.tenantDb.runAs(job.userId, (tx) =>
       new RunsRepository(tx).findById(job.runId, job.userId),
     );
-    return (
-      persisted !== undefined && TERMINAL_RUN_STATUSES.has(persisted.status)
-    );
+    return persisted !== undefined && isTerminalRunStatus(persisted.status);
   }
 
   private async settleCancelledBeforeStart(job: RunJob): Promise<void> {

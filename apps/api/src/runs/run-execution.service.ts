@@ -23,7 +23,6 @@ import {
   type ModelToolDeclaration,
   type Run,
   type RunContextItem,
-  type RunStatus,
   type SkillCatalogBaseline,
   type TurnToolAvailabilityEntry,
 } from '../db/schema';
@@ -267,6 +266,7 @@ import {
 } from '../tools/workspace-path';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import { evaluatePermission } from '../tools/permissions/evaluator';
+import { isTerminalRunStatus, type TerminalRunStatus } from './run-status';
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
@@ -560,11 +560,6 @@ export type RunUserMessage = {
   seq: number;
   parts: Array<MessagePart>;
 };
-
-type TerminalRunStatus = Extract<
-  RunStatus,
-  'completed' | 'failed' | 'cancelled' | 'expired'
->;
 
 function turnStatusForTerminalRun(
   status: TerminalRunStatus,
@@ -869,9 +864,7 @@ export class RunExecutionService {
         const current = await runs.findById(input.runId, input.userId);
         if (
           current?.cancelRequestedAt != null &&
-          !['completed', 'failed', 'cancelled', 'expired'].includes(
-            current.status,
-          )
+          !isTerminalRunStatus(current.status)
         ) {
           const cancelled = await runs.markFinished(
             input.runId,

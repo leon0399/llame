@@ -13,6 +13,7 @@ import {
   PERMISSION_MODES,
   type PermissionMode,
 } from '../../tools/permissions/permission-mode';
+import { isTerminalRunStatus } from '../run-status';
 
 /** Query for the run-event replay cursor (SPEC §9.4). */
 export class ListRunEventsQuery {
@@ -245,9 +246,7 @@ export function toContextReceiptResponse(
     createdAt: Date;
   }>,
 ): ContextReceiptResponse {
-  const isTerminal = ['completed', 'failed', 'cancelled', 'expired'].includes(
-    run.status,
-  );
+  const isTerminal = isTerminalRunStatus(run.status);
   const state =
     receipts.length > 0 ? 'prepared' : isTerminal ? 'not_produced' : 'pending';
 
