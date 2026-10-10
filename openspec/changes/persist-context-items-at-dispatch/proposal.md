@@ -24,13 +24,16 @@ only reader is an endpoint no client calls.
     assistant reply at their step position, with the reply's part snapshot.
 - The assistant reply row exists from the first model request with a
   non-completed `running` status whose usage records the Run, attempt, model,
-  and effort. One finalizer, shared by the chat module and the run worker,
-  ends every terminal path (completion, failure, cancellation, worker expiry,
-  retry exhaustion, cancellation before start, native recovery, pickup
-  failure, the claim-time finish paths, expiry by a new message, supersession,
-  lost settlement). It rebuilds the reply from the event log of the attempt
-  that last dispatched, around the stored items, and always writes terminal
-  usage. A retry resets the reply in its own dispatch transaction, which
+  effort, and a bypass permission mode. One finalizer, shared by the chat
+  module and the run worker, ends every terminal path (completion, failure,
+  cancellation, worker expiry, retry exhaustion, cancellation before start,
+  native recovery, pickup failure, the claim-time finish paths, expiry by a
+  new message, lost settlement) and always writes terminal usage. A settler
+  that holds the attempt's live output persists it with its in-Run items in
+  place, so a completing turn is stored as today; any other settler rebuilds
+  the reply from the event log of the attempt that last dispatched, around
+  the stored items, or creates it from the Run's full log when no reply row
+  exists. A retry resets the reply in its own dispatch transaction, which
   removes a dead attempt's output and in-Run items together; a retry that
   fails before dispatching leaves the earlier reply untouched.
 - History, public shares, forks, and the chat-list preview skip a `running`
@@ -51,11 +54,14 @@ only reader is an endpoint no client calls.
   assistant reply in the Chat below the triggering message, whatever its
   status and whether or not a checkpoint absorbed it, so a switch the model
   was already told about is not announced again.
-- A retry keeps every accepted-turn item an earlier attempt of the Run stored,
-  derives each producer again against those items and the state their
-  dispatch advanced, and appends only what is new (for example a detach
-  notice or a correcting availability reminder), generalizing the existing
-  `prompt-imports` and skill-activation precedent.
+- Accepted-turn items are inserted with a per-item identity, at producer rank
+  on a Run's first dispatch. A retry after an earlier attempt dispatched
+  keeps the items that dispatch stored, derives each producer again against
+  those items and the state their dispatch advanced, and appends only what is
+  new (for example a detach notice or a correcting availability reminder)
+  after them, generalizing the existing `prompt-imports` and skill-activation
+  precedent. A retry of a Run with no dispatched attempt stores everything as
+  a first attempt does.
 - **BREAKING (API)**: `runs.context_items` and
   `GET /api/v1/runs/{id}/context-items` are removed. The transcript is the
   record of what the model saw.
@@ -112,7 +118,8 @@ None.
   boundary", "An item is either persisted-literal or bind-time", "Worker-attempt
   cutover preserves existing conversation state", "Explicit activations are
   rail items carrying current instructions", "Catalog notices announce added
-  and removed skills on the next user turn", "Skill activations remain
+  and removed skills on the next user turn" (the told set commits in the
+  dispatch transaction that persists the notice), "Skill activations remain
   separate from immutable enqueue receipts", and "Workspace binding changes
   are rail-resident context items". "Successful Runs record the winning
   attempt's injected items" is removed.
@@ -136,8 +143,10 @@ None.
 - `durable-runs`: "Run claiming and completion are crash-safe" creates or
   resets the reply in the dispatch transaction and finalizes it on every
   terminal path; "Final assistant-message projection preserves replay order"
-  rebuilds the reply from the last dispatching attempt's events around its
-  stored items and keeps a `running` reply out of owner-facing reads.
+  keeps the live collector's parts for settlers that hold it, rebuilds the
+  reply from the last dispatching attempt's events around its stored items
+  for settlers that do not, and keeps a `running` reply out of owner-facing
+  reads.
 - `tool-calling`: "Attempt availability is disclosed against the preceding
   successful turn" is renamed to "Attempt availability is disclosed against
   the preceding dispatched turn" and, with "Availability comparison retains
@@ -161,10 +170,11 @@ None.
 - `tool-prompt-templates`: "Packaged cross-tool guidance follows membership"
   replays stored reminders on a retry.
 - `run-usage-accounting`: "Usage records whether it is complete" defines the
-  `running` usage and ignores the current Run's own `running` row when
-  deciding replacement; "Every terminal assistant turn keeps its known usage"
-  makes every finalizer write terminal status and identity fields, with
-  `complete: false` and no token counts outside an executing attempt.
+  `running` usage and does not count the Run's own `running` usage as an
+  earlier reply; "Every terminal assistant turn keeps its known usage" makes
+  every finalizer write terminal status and identity fields, with
+  `complete: false` and no token counts when the finalizer's own attempt is
+  not the one named in the reply usage.
 
 Deliberately unchanged: `prompt-imports` and `agent-skills` (already persisted
 before the first request), `temporal-anchor`, `search-projection`,
@@ -181,8 +191,8 @@ completed), `run-cancellation`, `available-models`, and `permission-modes`.
   `runs-repository.ts`, `apps/api/src/chats/context-builder.ts`,
   `assistant-transcript.ts`, `assistant-completion.ts`,
   `messages-repository.ts` (the shared reply finalizer), the
-  prompt-import/activation part repositories, `chat-loop.service.ts` (expiry
-  and supersession paths), the history, share, and chat-list reads, and
+  prompt-import/activation part repositories, `chat-loop.service.ts` (the
+  admission expiry path), the history, share, and chat-list reads, and
   `fork-copy.ts`.
 - No `apps/web` change; its history tests and the chat-flow, tool-loop, and
   stop-from-submission e2e specs run as a regression check.
@@ -190,7 +200,10 @@ completed), `run-cancellation`, `available-models`, and `permission-modes`.
   part when the attempt fails", "leaves nothing seen when an attempt fails
   after loading", record-assertion, and "does not use a failed prior run as
   the availability baseline" cases (tasks.md lists them per layer).
-- `SPEC.md` §9.3 and §9.8, `docs/product/reference/instruction-files.md`,
+- `SPEC.md` §9.3, §9.7 (the availability baseline becomes the most recent
+  prior dispatched Run), and §9.8; the `model-system-prompts` Purpose
+  sentence, rewritten at finalize to persistence at dispatch;
+  `docs/product/reference/instruction-files.md`,
   `docs/product/reference/prompt-imports.md`, and `CHANGELOG.md`.
 
 ## Non-Goals

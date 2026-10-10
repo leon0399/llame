@@ -28,15 +28,20 @@ See proposal.md (Why). Line references are to master `72add0f6`.
   `run.started` carries no payload (L897), and the rebuild replays every event
   of the Run (`assistant-transcript.ts:672-679`).
 - Several terminal writers never touch `messages`: the admission expiry in
-  `chat-loop.service.ts:514-551`, `cancelSupersededRuns`
-  (`chat-loop.service.ts` around L425-439), `failRunTransactionally`
+  `chat-loop.service.ts:514-551`, `failRunTransactionally`
   (`runs-repository.ts:557-576`, called at pickup from
   `runs-worker.service.ts:183-191`), the claim-time `markFinished` calls
   (L847-864, L869-886), and `handleLostFinish` without an assistant turn
   (L3248-3275). Settlements that rebuild no parts write nothing
   (`buildAssistantTurnForFinish`, L3436-3443), and an update without telemetry
   leaves the stored usage as it was. `ChatLoopService` cannot call
-  `RunExecutionService` (`run-worker.module.ts:57`).
+  `RunExecutionService` (`run-worker.module.ts:57`). `cancelSupersededRuns`
+  (`chat-loop.service.ts` around L425-439) is defensive cleanup on a fresh
+  message: a message id maps to exactly one Run (L293-297, L354-361), so it
+  never meets a reply.
+- Settlers that hold the attempt (completion, failure, cancellation) persist
+  the live collector's parts verbatim (L3437-3442); only settlers without it
+  rebuild from events.
 - Told and baseline state advances only on completion:
   `chats.workspace_told/_from` and the detach-reason clear, the
   recency-digest baseline and told set, the skill-catalog told set
@@ -92,11 +97,12 @@ keeps a separate per-run copy of it.
 The first model request of an attempt is dispatched only after one
 transaction, fenced by `activeAttemptId`, has:
 
-1. locked the triggering user row (lock order runs, chats, messages, as
-   today);
-2. stored the attempt's accepted-turn items on it; on a retry, kept the items
-   an earlier attempt stored and appended only what D2's comparison newly
-   yields;
+1. locked in the worker's existing completion order: the run, then
+   `messages` (the triggering user row, then the reply), then `chats` (the
+   told columns);
+2. stored the attempt's accepted-turn items on the user row; on a retry
+   after an earlier attempt dispatched, kept the items that dispatch stored
+   and appended only what D2's comparison newly yields;
 3. advanced the told and baseline state those items account for, including
    `runs.turn_tool_availability`, written even when it is `[]` (D4, D11);
 4. created or reset the assistant reply in the `running` state for this
@@ -116,18 +122,28 @@ Rejected:
 - Staging in `runs.context_items`: a second authority beside
   `messages.parts`.
 
-### D2: Accepted-turn items reuse the prompt-import pattern
+### D2: Accepted-turn items use a per-item idempotent insert
 
-The runId-keyed, idempotent insert at producer rank already used for
-`prompt-imports` and `skill-activation` is generalized to every accepted-turn
-item.
+Every accepted-turn item is inserted with a per-item identity: producer, form,
+and text, or a producer-specific identity where one exists, as
+`skill-activation` already uses. A producer + runId key would suppress a
+retry's second `workspace`, `tool-availability`, or `recency-digest` item.
+The insert is idempotent per identity.
 
-A same-Run retry keeps every item an earlier attempt of the Run stored,
+The first dispatch of a Run inserts at producer rank around the facts stored
+before dispatch (`prompt-imports`, `skill-activation`), so a turn that
+completes on its first attempt carries the same bytes as today. A retry of a
+Run whose earlier attempts dispatched nothing stores everything at producer
+rank, as a first attempt does.
+
+Only items an earlier attempt's dispatch transaction stored are kept and
+appended after. A same-Run retry after such a dispatch keeps those items,
 unchanged and in place. It then derives each accepted-turn producer again,
 treating the items already stored on the triggering user message, and the
 told, seen, and baseline state their dispatch advanced, as already told. It
-stores only the items that comparison newly yields, after the stored ones, in
-producer order, in its own dispatch transaction. Consequences:
+stores only the items that comparison newly yields, after the last stored
+context item and before the user text, in producer order, in its own dispatch
+transaction. Consequences:
 
 - no second `temporal` or model-switch item for the same turn;
 - a detaching retry appends its detach notice and snapshot after the stored
@@ -135,7 +151,9 @@ producer order, in its own dispatch transaction. Consequences:
   requires;
 - an availability change since the stored record yields one new reminder
   compared against that record, so current callability stays correct:
-  `Added tools` lists only tools callable now.
+  `Added tools` lists only tools callable now. The stored reminders stay; the
+  Run's single id/state record advances to the observation of the last
+  attempt that dispatched.
 
 Because the seen set is derived from `messages.parts` and the stored items
 carry this runId, a retry's instruction load finds every stored file already
@@ -150,48 +168,64 @@ retry would have nowhere to narrate the detach.
 
 The reply is created at D1 with empty parts and usage
 `{ status: 'running', complete: false, runId, attemptId, modelId, effort }`,
-with `effort` omitted when the Run has none. `running` is a non-completed
-status everywhere:
+with `effort` omitted when the Run has none and `permissionMode: 'bypass'`
+added when the dispatching attempt's effective mode is bypass. `running` is a
+non-completed status everywhere:
 
 - `isCompletedAssistantTurn` and the replace guard in `updateAssistantReply`
   treat it as replaceable;
 - search, conversation reads, and chat search keep excluding it, as they
   already exclude every non-completed reply;
 - owner-facing reads skip it (D10);
-- usage completeness ("replaces an earlier reply") ignores the current Run's
-  own `running` row; because the reset row no longer carries an earlier Run's
-  usage, a reply counts as replaced when another Run on the same triggering
-  user message dispatched before this one (a `runs` lookup by `message_id`
-  using D11's dispatched rule).
+- usage completeness ("replaces an earlier reply") does not count the Run's
+  own `running` usage as an earlier reply. A message id maps to exactly one
+  Run, so no other Run's reply can be replaced, and a same-Run retry is
+  already incomplete through the receipts clause.
 
-Attempt-scoped finalization: D1 records the dispatching attempt id on the
+Finalization by source: D1 records the dispatching attempt id on the
 `model.requested` payload, and the reply's `usage.attemptId` names the attempt
-that last dispatched. Finalization rebuilds text, reasoning, and tool parts
-only from that attempt's events, from its `model.requested` up to the next
-attempt's `run.started`, whichever attempt or process performs the
-settlement. A settler that never dispatched (native recovery
-`outcome_unknown`, dead-letter exhaustion, admission expiry, a cancel or
-failure before dispatch) finalizes the reply of the attempt named in the reply
-usage. An earlier attempt's events therefore never merge into a later
-attempt's reply, and the #1177 crash path keeps the output with the items it
-was produced under.
+that last dispatched.
+
+- A settler that holds the attempt's live part collector (completion,
+  in-process failure, cancellation, in-process worker expiry, lost
+  settlement) persists the collector's parts, which already hold the in-Run
+  items in position. A turn that completes is stored as it is today.
+- A settler without the collector (dead-letter retry exhaustion,
+  native-recovery settlement, claim-time terminal transitions, pickup
+  failure, admission expiry, and a later attempt that fails, is cancelled, or
+  expires before its own dispatch) rebuilds text, reasoning, and tool parts
+  only from the named attempt's events, from its `model.requested` up to the
+  next attempt's `run.started`, and places the stored in-Run items among
+  them.
+
+An earlier attempt's events therefore never merge into a later attempt's
+reply, and the #1177 crash path keeps the output with the items it was
+produced under. When a finalizer finds no reply row (a Run dispatched before
+the reply layer, or under master), it creates the reply from the Run's full
+event log as today, with no in-Run items, and writes terminal usage per
+`run-usage-accounting`.
 
 In-Run item position: each in-Run item write stores, in one fenced
 transaction, the reply's current part snapshot: the attempt's text,
 reasoning, and tool parts so far plus the new item, as the live collector
-holds them. Finalization replaces the non-item parts with the attempt's event
-rebuild and keeps each stored item immediately after the tool part whose
-`toolCallId` precedes it in the stored snapshot, or at the start if none
-does. No envelope field is added. `withoutContextItems` and the
-live-collector-only rule are deleted.
+holds them. A rebuilding settler places each stored item after the last
+rebuilt part whose `toolCallId` appears anywhere before that item in the
+stored snapshot, and at the start only when none of those ids survive in the
+rebuild. The intent is "after the last tool part of the triggering step";
+anchoring on every earlier id keeps the rule defined when the rebuild orders
+a step's tool parts by admission rather than reservation, or lacks one. No
+envelope field is added. `withoutContextItems` is deleted; the live collector
+stays the source for settlers that hold it.
 
 Terminal usage: every finalizer writes an explicit terminal usage object with
 status (`completed`, `error`, or `aborted`, per `run-usage-accounting`),
-`complete`, `runId`, `attemptId`, `modelId`, and `effort`, even when it has no
-parts and no telemetry. Finalizers outside an executing attempt (dead-letter
-expiry, native-recovery settlement, cancellation before start, admission
-expiry, supersession, pickup failure) write the status and identity fields
-with `complete: false` and no token counts. A usage object without a status
+`complete`, `runId`, `attemptId`, `modelId`, `effort`, and `permissionMode`
+when present, even when it has no parts and no telemetry. A finalizer whose
+own attempt is not the attempt named in the reply usage (any settler outside
+an executing attempt, and a later attempt that ends before its own dispatch)
+writes the terminal status, `complete: false`, and the running usage's
+`runId`, `attemptId`, `modelId`, `effort`, and `permissionMode` when present,
+with no tokens, latency, or measured size. A usage object without a status
 would otherwise read as completed (`assistant-completion.ts:16-18`).
 
 Rejected:
@@ -200,6 +234,9 @@ Rejected:
   retry-in-place, per-reply usage, and one-reply rendering).
 - An anchor field on the item envelope or a per-step event: the snapshot
   already records the order the live collector produced.
+- Rebuilding a completing turn from events: the rebuild orders tool parts by
+  admission rather than by the slots the user saw, and an unreadable output
+  left pending would roll a streamed answer back into salvage.
 
 ### D4: Told and baseline state advances with the item
 
@@ -213,9 +250,12 @@ in D1's transaction, beside the item it accounts for:
   request carries a digest item; only initializing a chat's first digest
   baseline stays with the winning turn, because that baseline lives only in
   the system prompt and no history item accompanies it;
-- the skill-catalog told set, with the catalog notice; the first-epoch
-  catalog baseline freeze stays with the winning turn, like the first digest
-  baseline, because it too lives only in the system prompt;
+- the skill-catalog told set, with the catalog notice, in the dispatch
+  transaction that persists the notice, whatever the Run's outcome; when that
+  transaction fails before commit, neither the notice nor the updated told
+  state is visible, and a retry produces one consistent notice. The
+  first-epoch catalog baseline freeze stays with the winning turn, like the
+  first digest baseline, because it too lives only in the system prompt;
 - `runs.turn_tool_availability`, with the availability comparison, including
   `[]` and a comparison that emits no reminder; the next turn compares against
   the most recent prior dispatched Run (D11).
@@ -244,9 +284,11 @@ previous completed Run's receipt through `completed_attempt_id`.
 
 One repository-level reply finalizer, callable from both the chat module and
 the run worker, ends every terminal path with the reply in a terminal status:
-parts rebuilt from the named attempt's events around the stored items (D3) and
-terminal usage written even when the parts are empty. The event rebuild and
-the open-tool settlement move with it, because `ChatLoopService` cannot call
+the live collector's parts when the settler holds them, otherwise parts
+rebuilt from the named attempt's events around the stored items, or a reply
+created from the Run's full event log when none exists (D3), and terminal
+usage written even when the parts are empty. The event rebuild and the
+open-tool settlement move with it, because `ChatLoopService` cannot call
 `RunExecutionService`. Its callers:
 
 - completion, failure, cancellation, and expiry by the worker;
@@ -254,9 +296,9 @@ the open-tool settlement move with it, because `ChatLoopService` cannot call
 - native-recovery `outcome_unknown`;
 - pickup failure (`failRunTransactionally`);
 - the claim-time `markFinished` paths;
-- expiry by a new message (admission expiry) and supersession;
-- lost settlement, which finalizes the reply from the log instead of writing
-  nothing.
+- expiry by a new message (admission expiry);
+- lost settlement, which finalizes a reply still `running` with the
+  collector's parts instead of writing nothing.
 
 Each caller gets a focused test asserting the final status.
 
@@ -401,3 +443,27 @@ None.
     (D10).
   - Rollback finalizes leftover `running` replies; Context citations fixed;
     layer sizes re-estimated.
+- v3 (2026-10-10), round 2:
+  - Settlers holding the attempt's live collector persist its parts; only
+    settlers without it rebuild from the attempt's events, so a completing
+    turn is stored as today (D3, D6).
+  - Rebuilt replies anchor each in-Run item after the last rebuilt part
+    whose `toolCallId` appears anywhere before it in the snapshot (D3).
+  - Accepted-turn items use a per-item identity; the first dispatch inserts
+    at producer rank, and keep-and-append applies only after an earlier
+    attempt dispatched (D1, D2).
+  - The `runs` lookup for replaced replies and the supersession finalizer
+    caller are dropped: a message id maps to exactly one Run (D3, D6).
+  - A finalizer that finds no reply row creates it from the Run's full event
+    log (D3, D6).
+  - D1's lock order follows the worker's completion order: run, messages,
+    chats.
+  - Token-less terminal usage is defined by relation to the attempt named in
+    the reply usage; running and terminal usage carry `permissionMode` when
+    present (D3).
+  - The skill-catalog told set commits in the dispatch transaction that
+    persists the notice, whatever the Run's outcome (D4).
+  - A retry's dispatch advances the Run's availability record to its own
+    observation (D2).
+  - Tasks: the reply PR body carries `Closes #1177`; SPEC.md §9.7 and the
+    `model-system-prompts` Purpose sentence get update tasks.
