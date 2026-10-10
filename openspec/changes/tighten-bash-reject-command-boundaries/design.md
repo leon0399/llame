@@ -90,3 +90,9 @@ does. All 29 cases decided as expected:
   `rg sudo src` and `git commit -m "fix: reboot loop"`, which the old B1
   already rejects; it is the price of catching `sudo|tee` and `(halt)`. A
   probe of 84 ordinary agent commands found no new B2 or B8 false positive.
+- [The in-flight `tool-search` change carries the old rows] → Its delta
+  repeats the whole `tool-call-permissions` requirement with the old B1, B2,
+  and B8 values, and a sync merges every value a delta states, so a
+  `tool-search` sync after this one would restore the bypassable patterns in
+  canonical with no validation failure. Whichever change syncs second rebuilds
+  its delta from the new canonical text first; task 2.1 covers both orders.

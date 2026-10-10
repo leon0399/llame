@@ -39,7 +39,7 @@ master
 
 ## 2. finalize
 
-- [ ] 2.1 Enter `bash-reject-boundaries/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the synced `tool-call-permissions` requirement matches the delta word for word, with every canonical scenario kept. The in-flight `tool-search` change also modifies this requirement; if it syncs first, rebuild this delta from the new canonical text before syncing.
+- [ ] 2.1 Enter `bash-reject-boundaries/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the synced `tool-call-permissions` requirement matches the delta word for word, with every canonical scenario kept. The in-flight `tool-search` change also modifies this requirement and its delta carries the old B1, B2, and B8 rows. If it syncs first, rebuild this delta from the new canonical text before syncing. If this change syncs first, record on [#338](https://github.com/leon0399/llame/issues/338) and its Project item that `tool-search/finalize` must rebuild its delta from the new canonical B1, B2, and B8 rows before `$openspec-sync-specs`; verify the note is visible there.
 - [ ] 2.2 Confirm archive readiness: `openspec status --change tighten-bash-reject-command-boundaries --json` reports every artifact done and every task above is checked; run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 
 ## Workflow follow-up
