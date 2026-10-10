@@ -27,8 +27,9 @@ message carries no class prefix).
 - Reword the runbook clause of "Upstream failures are mirrored under the
   existing contract" so that, for a model the route does not serve, the
   runbook records the gateway's documented format-gate message, the failure
-  message the run was observed to record with its observation date, which one
-  to match, and the remedy.
+  message the run was observed to record with its observation date, that
+  operators match the observed message rather than the format-gate text, and
+  the remedy.
 - Reword the scenario "The runbook names the accepted upstream shapes" to
   match.
 - Correct the runbook's string to match: drop the `RetryError` class prefix,
@@ -67,8 +68,8 @@ None.
   byte-identical to today's except that `, and` becomes `; and that`.
 - The runbook's "Accepted upstream failures" section names the documented
   format-gate message, the observed failure message exactly as the run records
-  it (no class prefix) with its 2026-09-22 date, which one to match, and the
-  remedy.
+  it (no class prefix) with its 2026-09-22 date, an instruction to match the
+  observed message rather than the format-gate text, and the remedy.
 
 ## Assumptions
 

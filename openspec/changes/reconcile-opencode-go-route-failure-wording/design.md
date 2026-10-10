@@ -12,7 +12,8 @@ as a prefix the run does not record. See proposal.md for the evidence.
 **Goals:**
 
 - One formulation, shared by the requirement and the runbook, that names the
-  documented text and the observed text and says which to match.
+  documented text and the observed text and says operators match the observed
+  text.
 - The string operators are told to match is exactly the recorded failure
   message.
 

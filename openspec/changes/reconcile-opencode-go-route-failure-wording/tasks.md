@@ -33,7 +33,7 @@ requirement, so it carries `Closes #919` and the `CHANGELOG.md` entry.
 
 ## 1. runbook
 
-- [ ] 1.1 In `docs/product/operator/providers/opencode-go.md`, "Accepted upstream failures", replace the string to match with the failure message exactly as the live proof records it, `Failed after 3 attempts. Last error: Upstream request failed: Endpoint is unavailable.`, name `RetryError` as its class rather than part of the message, and describe the three attempts as the request plus two retries; verify the section names the documented format-gate message, the observed message with its 2026-09-22 date, which one to match, and the remedy, as the reworded scenario requires.
+- [ ] 1.1 In `docs/product/operator/providers/opencode-go.md`, "Accepted upstream failures", replace the string to match with the failure message exactly as the live proof records it, `Failed after 3 attempts. Last error: Upstream request failed: Endpoint is unavailable.`, name `RetryError` as its class rather than part of the message, and describe the three attempts as the request plus two retries; verify the section names the documented format-gate message, the observed message with its 2026-09-22 date, an instruction to match the observed message rather than the format-gate text, and the remedy, as the reworded scenario requires.
 - [ ] 1.2 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 - [ ] 1.3 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
 - [ ] 1.4 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #919` in the PR body.

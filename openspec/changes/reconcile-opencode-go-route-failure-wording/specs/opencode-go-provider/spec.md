@@ -27,9 +27,9 @@ runbook SHALL record the accepted upstream shapes: for a model the route llame
 uses does not serve, the message the gateway documents for a format-gate
 rejection ("not supported for format"), the failure message the run was
 observed to record when the deployed gateway rejected a model on that route,
-with its observation date, which of the two to match, and the remedy; and that
-a usage-limit rejection fails with the gateway's message after the SDK's
-retries.
+with its observation date, that operators match the observed message rather
+than the format-gate text, and the remedy; and that a usage-limit rejection
+fails with the gateway's message after the SDK's retries.
 
 #### Scenario: A rejected model surfaces at request time
 
@@ -60,5 +60,5 @@ retries.
 #### Scenario: The runbook names the accepted upstream shapes
 
 - **WHEN** the operator runbook for this provider is read
-- **THEN** for a model the route does not serve, it states the gateway's documented "not supported for format" message, the failure message the run was observed to record with its observation date, which of the two to match, and the remedy
+- **THEN** for a model the route does not serve, it states the gateway's documented "not supported for format" message, the failure message the run was observed to record with its observation date, that operators match the observed message rather than the format-gate text, and the remedy
 - **AND** it states that a usage-limit rejection surfaces after the SDK's retries and that llame tracks no quota
