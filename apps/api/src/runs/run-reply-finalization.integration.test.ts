@@ -73,6 +73,7 @@ const MODEL_ENTRY: SystemModelCatalogEntry = {
   systemPromptTemplate: 'Test prompt',
   systemPromptSource: 'model_override',
   referencesSkills: false,
+  input: ['text'],
 };
 
 const knowledgeResolver: KnowledgeToolResolver = {

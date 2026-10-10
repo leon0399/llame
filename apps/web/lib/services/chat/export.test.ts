@@ -131,6 +131,7 @@ describe("exportChatAsMarkdown", () => {
               source: "system",
               name: "GPT-4o",
               contextWindowTokens: 128_000,
+              input: ["text"],
             },
           ],
         },

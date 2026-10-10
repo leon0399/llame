@@ -15,8 +15,15 @@
  *   threshold — lineage-less memory loss.
  */
 
-import type { AssistantContent, ModelMessage, ProviderMetadata } from 'ai';
+import type {
+  AssistantContent,
+  FilePart,
+  ModelMessage,
+  ProviderMetadata,
+} from 'ai';
 
+import { storedFilePartSchema } from '../media/media-descriptors';
+import { parseMediaLocator } from '../media/media-locator';
 import { isContextItemPart, type ContextItemPart } from './context-item';
 import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
@@ -180,23 +187,47 @@ export interface ModelRequestContext {
 }
 
 /**
- * A user turn's model-facing content: its text and the text of its context
- * items, in stored order. Exported for the run worker, which sets the
- * triggering message's content from the parts its dispatch stored.
+ * One stored user message's model content (`context-injection`): context
+ * items and text keep their stored relative order, and the owner `file` parts,
+ * in their stored order, follow every context item (the temporal row
+ * included) and so precede the owner's text, wherever they were stored.
+ * References stay `media://` references here; only the step composer turns
+ * them into image parts or placeholders (vision-media D6). Exported for the
+ * run worker, which sets the triggering message's content from the parts its
+ * dispatch stored.
  */
 export function userPartsToModelContent(
   parts: ReadonlyArray<unknown>,
-): Array<TextPart> {
-  return parts.flatMap((part) => {
+): Array<TextPart | FilePart> {
+  const content: Array<TextPart | FilePart> = [];
+  const files: Array<FilePart> = [];
+  let afterLastItem = 0;
+  for (const part of parts) {
     if (isTextPart(part)) {
-      return [{ type: 'text' as const, text: part.text }];
+      content.push({ type: 'text', text: part.text });
+      continue;
     }
-    if (!isContextItemPart(part)) return [];
-    const text = part.data.text;
-    return text === undefined || text.length === 0
-      ? []
-      : [{ type: 'text' as const, text }];
-  });
+    if (isContextItemPart(part)) {
+      const text = part.data.text;
+      if (text !== undefined && text.length > 0) {
+        content.push({ type: 'text', text });
+      }
+      afterLastItem = content.length;
+      continue;
+    }
+    const file = storedFilePartSchema.safeParse(part);
+    if (file.success && parseMediaLocator(file.data.url) !== undefined) {
+      const { url, mediaType, filename } = file.data;
+      files.push({
+        type: 'file',
+        data: url,
+        mediaType,
+        ...(filename !== undefined && { filename }),
+      });
+    }
+  }
+  content.splice(afterLastItem, 0, ...files);
+  return content;
 }
 
 /**

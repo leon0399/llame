@@ -52,6 +52,7 @@ function configuredCodexModels(): ModelsService {
           providerModelId: 'gpt-test',
           name: 'Configured Codex model',
           contextWindowTokens: 128_000,
+          input: ['text'],
           systemPromptTemplate: 'Use only authorized tools.',
           systemPromptSource: 'project_default',
           referencesSkills: false,

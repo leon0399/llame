@@ -81,6 +81,7 @@ const MODELS_RESPONSE: ModelsResponse = {
       source: "system",
       name: "GPT-5.4 mini",
       contextWindowTokens: 400_000,
+      input: ["text"],
     },
   ],
 };

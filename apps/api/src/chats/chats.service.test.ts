@@ -682,6 +682,101 @@ describe('ChatsService message windows, updates and forks', () => {
       expect(copied[1].inReplyTo).toBe(copied[0].id);
     });
 
+    it('copies text parts only, skips an image-only user row, and drops a reply target it did not copy', async () => {
+      const file = (id: string) => ({
+        type: 'file',
+        mediaType: 'image/png',
+        url: `media://01920000-0000-7000-8000-00000000000${id}`,
+      });
+      const u1 = message(1, {
+        parts: [{ type: 'text', text: 'see this' }, file('a')],
+      });
+      const a1 = message(2, {
+        role: 'assistant',
+        senderUserId: null,
+        inReplyTo: u1.id,
+      });
+      const u2 = message(3, { parts: [file('b')] });
+      const a2 = message(4, {
+        role: 'assistant',
+        senderUserId: null,
+        inReplyTo: u2.id,
+      });
+      vi.spyOn(ChatsRepository.prototype, 'findPublicById').mockResolvedValue(
+        chat,
+      );
+      vi.spyOn(
+        MessagesRepository.prototype,
+        'listPublicByChatId',
+      ).mockResolvedValue([u1, a1, u2, a2]);
+      vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
+        ...chat,
+        id: 'chat-fork',
+      });
+      const createMany = vi
+        .spyOn(MessagesRepository.prototype, 'createMany')
+        .mockResolvedValue(undefined);
+
+      await makeService().service.forkSharedChat(chat.id, 'visitor-9');
+
+      const copied = createMany.mock.calls[0][0];
+      const projected = copied.map(({ seq, role, parts }) => ({
+        seq,
+        role,
+        parts,
+      }));
+      expect(projected).toEqual([
+        { seq: 1, role: 'user', parts: [{ type: 'text', text: 'see this' }] },
+        { seq: 2, role: 'assistant', parts: a1.parts },
+        { seq: 3, role: 'assistant', parts: a2.parts },
+      ]);
+      expect(copied[1].inReplyTo).toBe(copied[0].id);
+      expect(copied[2].inReplyTo).toBeNull();
+      expect(JSON.stringify(copied)).not.toContain('media://');
+    });
+
+    it('skips only user rows whose projection emptied of file parts', async () => {
+      const u1 = message(1, { parts: [{ type: 'data-context', data: {} }] });
+      const a1 = message(2, {
+        role: 'assistant',
+        senderUserId: null,
+        parts: [
+          {
+            type: 'file',
+            mediaType: 'image/png',
+            url: 'media://01920000-0000-7000-8000-00000000000c',
+          },
+        ],
+      });
+      vi.spyOn(ChatsRepository.prototype, 'findPublicById').mockResolvedValue(
+        chat,
+      );
+      vi.spyOn(
+        MessagesRepository.prototype,
+        'listPublicByChatId',
+      ).mockResolvedValue([u1, a1]);
+      vi.spyOn(ChatsRepository.prototype, 'create').mockResolvedValue({
+        ...chat,
+        id: 'chat-fork',
+      });
+      const createMany = vi
+        .spyOn(MessagesRepository.prototype, 'createMany')
+        .mockResolvedValue(undefined);
+
+      await makeService().service.forkSharedChat(chat.id, 'visitor-9');
+
+      expect(
+        createMany.mock.calls[0][0].map(({ seq, role, parts }) => ({
+          seq,
+          role,
+          parts,
+        })),
+      ).toEqual([
+        { seq: 1, role: 'user', parts: [] },
+        { seq: 2, role: 'assistant', parts: [] },
+      ]);
+    });
+
     it('returns not-found for a chat that is not publicly shared', async () => {
       vi.spyOn(ChatsRepository.prototype, 'findPublicById').mockResolvedValue(
         undefined,

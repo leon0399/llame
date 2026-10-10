@@ -446,6 +446,11 @@ export type RawModelEntry = {
   icon?: string;
   knowledgeCutoff?: string;
   /**
+   * The declared input modalities. The schema guarantees the closed set,
+   * `text` membership, and no repeats; absent resolves to `['text']`.
+   */
+  input?: SystemModelCatalogEntry['input'];
+  /**
    * The shape an operator WRITES, declared plainly rather than derived from the
    * resolved `ModelReasoning`: the two are deliberately independent, since a
    * resolved-only computed field would have no business in the config file.

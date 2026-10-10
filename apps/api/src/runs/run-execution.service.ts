@@ -55,11 +55,20 @@ import {
   countedContextTokens,
   estimateContinuationTokens,
   estimateModelRequestTokens,
+  imageOverflowCompacts,
   planCompactionCheckpoint,
   requestFitsContextWindow,
   resolveCompactionThreshold,
   type CompactionPlan,
 } from '../compaction/compaction';
+import { loadMediaSizing, type MediaSizing } from '../media/epoch-admission';
+import {
+  createRunMediaResolver,
+  fileMediaIds,
+  filePlaceholder,
+  loadMediaDescriptors,
+  type RunMediaResolver,
+} from '../media/media-descriptors';
 import { SearchIndexService } from '../search/search-index.service';
 import {
   ChatSearchQueryEmbedder,
@@ -206,6 +215,7 @@ import type { ReadPage } from '../instructions/instruction-files';
 import { instructionsSeenPaths } from '../chats/instructions-item';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { TitleService, type TitleCapability } from '../titles/title.service';
+import { titleInputWithLines } from '../titles/title';
 import {
   aggregateTurnTelemetry,
   emitCompletedTurnTelemetryLog,
@@ -397,6 +407,8 @@ type CompactionTriggerInput = {
   stagedParts: ReadonlyArray<MessagePart>;
   historyRows: ReadonlyArray<Message>;
   boundarySeq: number;
+  /** The prepared request's media sizing for the attempt model (vision-media D6). */
+  media: MediaSizing | undefined;
 };
 
 /**
@@ -959,6 +971,10 @@ export class RunExecutionService {
       skillSelection,
       detaching: workspacePreparation.detaching,
     });
+    // The attempt's view of its owner's media: admission, compaction, and the
+    // step composer all read descriptors and bytes through it, each read in
+    // its own short owner-scoped transaction (vision-media D6).
+    const media = createRunMediaResolver(this.tenantDb, input.userId);
     // Prompt/catalog resolution, the single pre-step compaction trigger, and the
     // request this Run actually sends (design D4/D5): both prompt surfaces come
     // from the current owner state, admitted catalog, and boot-loaded
@@ -977,6 +993,7 @@ export class RunExecutionService {
         nativeDeliverySequence: claim.nativeDeliverySequence,
         workspaceRootCell: workspaceRoot,
         effort,
+        media,
       });
       prepared = firstStep.request;
       attemptContext = firstStep.context;
@@ -1685,6 +1702,7 @@ export class RunExecutionService {
         messages,
         chat: { id: input.chatId, lane: 'main' },
         abortSignal: input.abortSignal,
+        media,
         // Absent → no provider option at all, leaving the provider default.
         ...(effort !== undefined && { effort }),
         // Tool loop: pass the pre-filtered set + the operator step cap.
@@ -2847,7 +2865,9 @@ export class RunExecutionService {
 
   /**
    * Window precedence is fixed; empty ranges are no-ops unless the request
-   * does not fit.
+   * does not fit. A fitting request whose epoch image window overflowed with
+   * an image in an earlier row counts as reaching the threshold (vision-media
+   * D6): compaction can absorb those rows and start a new epoch.
    */
   private async evaluateCompactionTrigger(
     input: CompactionTriggerInput,
@@ -2869,6 +2889,7 @@ export class RunExecutionService {
       toolDeclarations: input.prepared.toolDeclarations,
       contextWindowTokens: input.run.client.contextWindowTokens,
       reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
+      media: input.media,
     });
     if (!fits) {
       if (plan === null) {
@@ -2877,6 +2898,16 @@ export class RunExecutionService {
         );
       }
       return { variant: 'window', plan };
+    }
+    if (
+      plan !== null &&
+      input.media !== undefined &&
+      imageOverflowCompacts(
+        input.media,
+        fileMediaIds(input.run.userMessage.parts).length,
+      )
+    ) {
+      return { variant: 'threshold', plan };
     }
     const measured = await this.measureAttemptContextTokens(input);
     if (
@@ -2922,6 +2953,7 @@ export class RunExecutionService {
         system: input.prepared.system,
         messages: input.prepared.messages,
         toolDeclarations: input.prepared.toolDeclarations,
+        media: input.media,
       });
     }
     return (
@@ -2933,6 +2965,7 @@ export class RunExecutionService {
         railText: stagedContextTexts(input.stagedParts)
           .map((part) => part.text)
           .join(''),
+        media: input.media,
       })
     );
   }
@@ -3516,9 +3549,29 @@ export class RunExecutionService {
       await this.titles.maybeGenerateTitle({
         chatId: input.chatId,
         userId: input.userId,
-        userText: partsToText(input.userMessage.parts),
+        userText: await this.titleInputText(input.userId, input.userMessage),
       });
     }
+  }
+
+  /**
+   * The titled turn's text followed by one bare placeholder line per file part
+   * (vision-media D9), so an image-only message can still be titled.
+   */
+  private async titleInputText(
+    userId: string,
+    userMessage: RunUserMessage,
+  ): Promise<string> {
+    const text = partsToText(userMessage.parts).trim();
+    const ids = fileMediaIds(userMessage.parts);
+    if (ids.length === 0) return text;
+    const descriptors = await this.tenantDb.runAs(userId, (tx) =>
+      loadMediaDescriptors(tx, userId, ids),
+    );
+    return titleInputWithLines(
+      text,
+      ids.map((id) => filePlaceholder(id, descriptors)),
+    );
   }
 
   /**
@@ -3667,6 +3720,8 @@ export class RunExecutionService {
     nativeDeliverySequence: number;
     workspaceRootCell: WorkspaceRootCell;
     effort: string | undefined;
+    /** The attempt's owner-scoped media resolver (vision-media D6). */
+    media: RunMediaResolver;
   }): Promise<PreparedFirstStep> {
     const estimatePass = await this.prepareAttemptContext(
       input.run,
@@ -3690,12 +3745,21 @@ export class RunExecutionService {
       estimatePass,
       input.dynamicResolver,
     );
+    // The same admission the step composer will make on this request, so the
+    // trigger sees the not-attached result the request will carry.
     const trigger = await this.evaluateCompactionTrigger({
       run: input.run,
       prepared: estimated,
       stagedParts: estimatePass.stagedParts,
       historyRows: estimatePass.historyRows,
       boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
+      media:
+        input.media &&
+        (await loadMediaSizing(
+          estimated.messages,
+          input.media,
+          input.run.client.input?.includes('image') ?? false,
+        )),
     });
     const summary =
       trigger === undefined
@@ -3711,6 +3775,7 @@ export class RunExecutionService {
                   reservedOutputTokens:
                     this.instanceConfig.config.runs.maxOutputTokens,
                   abortSignal: input.run.abortSignal,
+                  media: input.media,
                 }
               : {
                   variant: 'threshold',
@@ -3725,6 +3790,7 @@ export class RunExecutionService {
                   toolDeclarations: estimated.toolDeclarations,
                   ...(input.effort !== undefined && { effort: input.effort }),
                   abortSignal: input.run.abortSignal,
+                  media: input.media,
                 },
           );
     let context = estimatePass;
@@ -3781,6 +3847,13 @@ export class RunExecutionService {
         toolDeclarations: request.toolDeclarations,
         contextWindowTokens: input.run.client.contextWindowTokens,
         reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
+        media:
+          input.media &&
+          (await loadMediaSizing(
+            request.messages,
+            input.media,
+            input.run.client.input?.includes('image') ?? false,
+          )),
       })
     ) {
       throw new ContextIncompatibleError(

@@ -18,6 +18,7 @@ const titleModel = {
   provider: 'openai',
   providerModelId: 'title-model',
   contextWindowTokens: 128_000,
+  input: ['text'] as const,
   systemPromptTemplate: 'title prompt',
   systemPromptSource: 'project_default' as const,
   referencesSkills: false,

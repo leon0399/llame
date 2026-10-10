@@ -80,6 +80,7 @@ class FakeModelsService implements ModelSelectionValidator {
       id: modelId,
       source: 'system' as const,
       contextWindowTokens: 128_000,
+      input: ['text'] as const,
       provider: 'openai',
       providerModelId: 'test-provider-model',
       systemPromptTemplate: `Worker-mode prompt for ${modelId}`,

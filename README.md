@@ -226,6 +226,10 @@ the top-level `runs.maxOutputTokens` remains an admission reserve and does not.
 Like `providerOptions`, it is server-only and never returned by
 `GET /api/v1/models`.
 
+`models[].input` declares whether a model accepts images (`["text"]` by
+default, or `["text", "image"]`); see
+[model image input](docs/product/operator/media.md#model-image-input).
+
 The `anthropic-messages` wire owns thinking and caching defaults, and both are
 `providerOptions` defaults rather than fixed behavior. When a model entry
 declares `reasoning`, the client asks for adaptive thinking with summarized

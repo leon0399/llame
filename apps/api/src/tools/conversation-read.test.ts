@@ -7,6 +7,11 @@ import {
 } from '../chats/chats-repository';
 import { visibleMessageText } from '../chats/conversation-evidence';
 import * as schema from '../db/schema';
+import {
+  barePlaceholder,
+  type MediaDescriptor,
+} from '../media/media-descriptors';
+import { descriptor } from '../media/media-fixtures';
 import { truncateOversizedResult } from '@workspace/runtime-safety';
 import {
   CONVERSATION_HISTORY_NOTICE,
@@ -513,5 +518,223 @@ describe('conversation_read execution', () => {
       type: 'conversation_range_invalid',
       message: 'The conversation line range is invalid.',
     });
+  });
+});
+
+// The owner-scoped descriptor lookup runs against real Postgres in
+// conversation-read-repository.integration.test.ts; these tests pin what
+// `renderConversationRead` makes of the descriptors that lookup returned.
+describe('conversation_read image placeholders', () => {
+  const MEDIA_A = '01920000-0000-7000-8000-00000000000a';
+  const MEDIA_B = '01920000-0000-7000-8000-00000000000b';
+  const ARGS = { chatId: CHAT_ID, messageSeq: 7, offset: 0 };
+
+  function filePart(id: string, filename?: string) {
+    return {
+      type: 'file',
+      mediaType: 'image/png',
+      url: `media://${id}`,
+      ...(filename !== undefined && { filename }),
+    };
+  }
+
+  function owned(
+    ...descriptors: ReadonlyArray<MediaDescriptor>
+  ): ReadonlyMap<string, MediaDescriptor> {
+    return new Map(descriptors.map((d) => [d.id, d]));
+  }
+
+  const SHOT = descriptor(MEDIA_A, { name: 'shot.png' });
+  const PLAN = descriptor(MEDIA_B, {
+    name: 'plan.jpg',
+    width: 800,
+    height: 600,
+  });
+
+  it('follows the visible text with one placeholder line per file part in stored order', () => {
+    const parts = [
+      { type: 'text', text: 'look at these' },
+      filePart(MEDIA_A, 'shot.png'),
+      filePart(MEDIA_B, 'plan.jpg'),
+    ];
+
+    const result = renderConversationRead(
+      lookup('unused', { role: 'user', parts }),
+      ARGS,
+      owned(SHOT, PLAN),
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      offset: 0,
+      lineCount: 1,
+      content: `1: look at these\n[image media://${MEDIA_A} shot.png 1600×900]\n[image media://${MEDIA_B} plan.jpg 800×600]\n`,
+    });
+    expect(result).not.toHaveProperty('nextOffset');
+    expect(result).not.toHaveProperty('cutReason');
+    // The shared visible-text view stays text-only: search reads it too.
+    expect(visibleMessageText(parts)).toBe('look at these');
+  });
+
+  it('adds no LF before the placeholders when the last line is terminated', () => {
+    const result = renderConversationRead(
+      lookup('unused', {
+        role: 'user',
+        parts: [{ type: 'text', text: 'done\n' }, filePart(MEDIA_A)],
+      }),
+      ARGS,
+      owned(SHOT),
+    );
+
+    expect(result).toMatchObject({
+      lineCount: 1,
+      content: `1: done\n[image media://${MEDIA_A} shot.png 1600×900]\n`,
+    });
+  });
+
+  it('reads an image-only message as its placeholder line with zero lines', () => {
+    const source = lookup('unused', {
+      role: 'user',
+      parts: [filePart(MEDIA_A)],
+    });
+
+    expect(renderConversationRead(source, ARGS, owned(SHOT))).toEqual({
+      status: 'success',
+      chatId: CHAT_ID,
+      messageSeq: 7,
+      role: 'user',
+      timestamp: CREATED_AT.toISOString(),
+      offset: 0,
+      lineCount: 0,
+      content: `[image media://${MEDIA_A} shot.png 1600×900]\n`,
+      notice: CONVERSATION_HISTORY_NOTICE,
+    });
+    expect(
+      renderConversationRead(source, { ...ARGS, offset: 1 }, owned(SHOT)),
+    ).toEqual({
+      status: 'error',
+      type: 'conversation_range_invalid',
+      message: 'The conversation line range is invalid.',
+    });
+  });
+
+  it('carries the placeholders only on the read that reaches the end of the text', () => {
+    const source = lookup('unused', {
+      role: 'user',
+      parts: [{ type: 'text', text: 'one\ntwo\nthree' }, filePart(MEDIA_A)],
+    });
+
+    const partial = renderConversationRead(
+      source,
+      { ...ARGS, limit: 2 },
+      owned(SHOT),
+    );
+    expect(partial).toMatchObject({
+      lineCount: 2,
+      content: '1: one\n2: two\n',
+      nextOffset: 2,
+    });
+    expect(JSON.stringify(partial)).not.toContain('media://');
+
+    const rest = renderConversationRead(
+      source,
+      { ...ARGS, offset: 2 },
+      owned(SHOT),
+    );
+    // The unterminated last line gets one LF before the placeholder line.
+    expect(rest).toMatchObject({
+      offset: 2,
+      lineCount: 1,
+      content: `3: three\n[image media://${MEDIA_A} shot.png 1600×900]\n`,
+    });
+    expect(rest).not.toHaveProperty('nextOffset');
+  });
+
+  it('renders a media id the owner lookup does not resolve as unavailable', () => {
+    // Another owner's id is absent from the owner-scoped descriptor map.
+    const result = renderConversationRead(
+      lookup('unused', {
+        role: 'user',
+        parts: [{ type: 'text', text: 'see' }, filePart(MEDIA_A, 'shot.png')],
+      }),
+      ARGS,
+      owned(),
+    );
+
+    expect(result).toMatchObject({
+      lineCount: 1,
+      content: `1: see\n[image media://${MEDIA_A} unavailable]\n`,
+    });
+    expect(JSON.stringify(result)).not.toContain('shot.png');
+    expect(JSON.stringify(result)).not.toContain('1600');
+  });
+
+  it('reserves the placeholder lines inside the structured-result bound', () => {
+    const rows = Array.from(
+      { length: 400 },
+      (_, index) => `${index.toString().padStart(3, '0')} ${'x'.repeat(70)}`,
+    );
+    const baseline = renderConversationRead(lookup(rows.join('\n')), ARGS);
+    if (baseline.status !== 'success') expect.unreachable('expected success');
+    expect(baseline.cutReason).toBe('output_limit');
+
+    // Exactly as many lines as one complete text-only result can hold.
+    const text = rows.slice(0, baseline.lineCount).join('\n');
+    const textOnly = renderConversationRead(lookup(text), ARGS);
+    expect(textOnly).toMatchObject({ lineCount: baseline.lineCount });
+    expect(textOnly).not.toHaveProperty('nextOffset');
+
+    const images = Array.from({ length: 10 }, (_, index) =>
+      descriptor(
+        `01920000-0000-7000-8000-${index.toString(16).padStart(12, '0')}`,
+        { name: `${'n'.repeat(200)}-${index}.png` },
+      ),
+    );
+    const source = lookup('unused', {
+      role: 'user',
+      parts: [{ type: 'text', text }, ...images.map((d) => filePart(d.id))],
+    });
+    const descriptors = owned(...images);
+
+    const readAt = (offset: number): ConversationReadSuccess => {
+      const read = renderConversationRead(
+        source,
+        { ...ARGS, offset },
+        descriptors,
+      );
+      if (read.status !== 'success') expect.unreachable('expected success');
+      return read;
+    };
+    const reads = [readAt(0)];
+    let nextOffset = reads[0].nextOffset;
+    while (nextOffset !== undefined) {
+      const read = readAt(nextOffset);
+      reads.push(read);
+      nextOffset = read.nextOffset;
+    }
+
+    const first = reads[0];
+    const last = reads.at(-1)!;
+    expect(reads.length).toBeGreaterThan(1);
+    expect(first.lineCount).toBeLessThan(baseline.lineCount);
+    expect(first.nextOffset).toBe(first.lineCount);
+    expect(first.cutReason).toBe('output_limit');
+    for (const read of reads.slice(0, -1)) {
+      expect(read.content).not.toContain('[image');
+    }
+    expect(
+      last.content.endsWith(
+        images.map((d) => `${barePlaceholder(d)}\n`).join(''),
+      ),
+    ).toBe(true);
+    for (const read of reads) {
+      expect(JSON.stringify(read).length).toBeLessThanOrEqual(
+        CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
+      );
+      expect(
+        JSON.stringify(neutralizeToolResult(read)).length,
+      ).toBeLessThanOrEqual(CONVERSATION_READ_RESULT_MAX_CODE_UNITS);
+      expect(truncateOversizedResult(read)).toEqual(read);
+    }
   });
 });

@@ -35,11 +35,48 @@ import { pgErrorCode } from '../db/pg-error';
 import {
   toSharedChatResponse,
   type ChatMessageResponseRow,
+  type SharedChatMessageResponse,
 } from './dto/chats.dto';
+import { fileMediaIds } from '../media/media-descriptors';
 
 /** Title for a forked chat. */
 export function forkTitle(title: string): string {
   return `${title} (fork)`;
+}
+
+/**
+ * The rows a shared fork copies: the public projection's text-only messages,
+ * minus each user row whose only content was owner `file` parts. `inReplyTo`
+ * is structural threading looked up from the source rows; a reply target that
+ * is not copied resolves to none in `copiedMessageRows`.
+ */
+function sharedForkRows(
+  projected: ReadonlyArray<SharedChatMessageResponse>,
+  source: ReadonlyArray<Message>,
+  callerId: string,
+): Array<CopyableMessage> {
+  const sourceById = new Map(source.map((m) => [m.id, m]));
+  return projected.flatMap((message) => {
+    const row = sourceById.get(message.id);
+    const imageOnly =
+      message.role === 'user' &&
+      message.parts.length === 0 &&
+      row !== undefined &&
+      fileMediaIds(row.parts).length > 0;
+    if (imageOnly) return [];
+    return [
+      {
+        id: message.id,
+        role: message.role,
+        parts: message.parts,
+        senderUserId: message.role === 'user' ? callerId : null,
+        // Not part of the public contract — never copied, so a fork can
+        // never disclose more than the shared view it was made from.
+        attachments: [],
+        inReplyTo: row?.inReplyTo ?? null,
+      },
+    ];
+  });
 }
 
 @Injectable()
@@ -356,9 +393,11 @@ export class ChatsService {
    * mapping `GET /shared/chats/:id` returns — never a second,
    * independently-maintained filter that could drift from it. `inReplyTo` is
    * the one thing looked up from the raw rows, but it is pure structural
-   * threading between messages that are ALREADY in the shared set (every id
-   * also appears in the DTO) — not additional content — so preserving it
-   * doesn't weaken the invariant. Sender identity is never copied from the
+   * threading between copied messages — a reply target that was not copied
+   * is dropped — not additional content, so preserving it doesn't weaken the
+   * invariant. A user row whose only content was owner `file` parts is not
+   * copied: the projection drops those parts, and the fork creates, copies,
+   * and references no media object. Sender identity is never copied from the
    * source (the public DTO carries none): copied "user" turns are attributed
    * to the caller (the new owner), "assistant" turns to null, matching how
    * every other assistant message in this schema is stored.
@@ -373,25 +412,12 @@ export class ChatsService {
     }
 
     const dto = toSharedChatResponse(shared.chat, shared.messages);
-    const inReplyToById = new Map(
-      shared.messages.map((m) => [m.id, m.inReplyTo]),
-    );
-
     const forked = await this.tenantDb.runAs(callerId, (tx) =>
       this.copyMessagesIntoNewChat(
         tx,
         callerId,
         dto.title,
-        dto.messages.map((message) => ({
-          id: message.id,
-          role: message.role,
-          parts: message.parts,
-          senderUserId: message.role === 'user' ? callerId : null,
-          // Not part of the public contract — never copied, so a fork can
-          // never disclose more than the shared view it was made from.
-          attachments: [],
-          inReplyTo: inReplyToById.get(message.id) ?? null,
-        })),
+        sharedForkRows(dto.messages, shared.messages, callerId),
       ),
     );
 

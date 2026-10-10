@@ -747,6 +747,24 @@ describe('createOpenAICodexModelClient', () => {
       );
     });
   });
+
+  it('carries the declared input on the client, and no key without one', () => {
+    const config = {
+      credential: 'access-token',
+      accountId: 'account-id',
+      providerModelId: 'gpt-test',
+      modelId: 'system:codex:gpt-test',
+      contextWindowTokens: 128_000,
+      userAgent: USER_AGENT,
+      requestHeaders: {},
+    };
+
+    expect(
+      createOpenAICodexModelClient({ ...config, input: ['text', 'image'] })
+        .input,
+    ).toEqual(['text', 'image']);
+    expect(createOpenAICodexModelClient(config)).not.toHaveProperty('input');
+  });
 });
 
 /** A Responses stream that delivers one delta, then never sends again. */
