@@ -31,8 +31,9 @@ import {
 } from '../testing/support';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 
-const hasDb = !!process.env.POSTGRES_URL;
-const d = hasDb ? describe : describe.skip;
+if (!process.env.POSTGRES_URL) {
+  throw new Error('POSTGRES_URL is required for chat attachment tests');
+}
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -70,7 +71,7 @@ function textOf(part: PromptPart | undefined): string | undefined {
   return part?.type === 'text' ? part.text : undefined;
 }
 
-d('owner image attachments (HTTP)', () => {
+describe('owner image attachments (HTTP)', () => {
   let app: INestApplication<Server>;
   let http: Server;
   let tenantDb: TenantDbService;
