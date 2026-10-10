@@ -57,9 +57,12 @@ export interface ComposerAttachments {
   /** Uploads a failed image's same file again. */
   retry: (key: string) => void;
   reorder: (from: number, to: number) => void;
-  /** Swaps the whole list: the submit path takes the images for a send and
-   *  puts them back when it fails. Clears a refused-attach message. */
-  replace: (next: AttachmentList) => void;
+  /** Empties the composer for a send, leaving the taken images' previews
+   *  live until the send settles. Clears a refused-attach message. */
+  clear: () => void;
+  /** Puts a failed send's images back ahead of any attached while it was
+   *  pending, up to the cap; revokes the previews the cap drops. */
+  restore: (sent: AttachmentList) => void;
   /** `<model label> has no image input` while the selected model refuses
    *  images and some are attached, or an attach was refused under the
    *  current selection since the last send. */
@@ -145,7 +148,7 @@ function useAttachmentEdits(
   itemsRef: RefObject<AttachmentList>,
   update: UpdateAttachments,
   upload: UploadAttachment,
-): Pick<ComposerAttachments, "remove" | "retry" | "reorder" | "replace"> {
+): Pick<ComposerAttachments, "remove" | "retry" | "reorder" | "restore"> {
   return {
     remove: (key) => {
       revokePreviews(itemsRef.current.filter((item) => item.key === key));
@@ -162,7 +165,11 @@ function useAttachmentEdits(
         if (moved) next.splice(to, 0, moved);
         return next;
       }),
-    replace: (next) => update(() => next),
+    restore: (sent) => {
+      const merged = [...sent, ...itemsRef.current];
+      revokePreviews(merged.slice(MAX_COMPOSER_ATTACHMENTS));
+      update(() => merged.slice(0, MAX_COMPOSER_ATTACHMENTS));
+    },
   };
 }
 
@@ -221,9 +228,9 @@ export function useComposerAttachments(): ComposerAttachments {
     items,
     add,
     ...edits,
-    replace: (next) => {
+    clear: () => {
       refusal.clear();
-      edits.replace(next);
+      update(() => []);
     },
     blockReason: blocked ? `${support.label} has no image input` : null,
     sendBlocked: imagesRefused || items.some((item) => item.status !== "ready"),

@@ -289,6 +289,25 @@ export interface ImageThumbnailRowProps {
   className?: string;
 }
 
+/** The row's drag and keyboard reorder, and its focus-keeping edits. */
+function useRowHandlers(
+  items: ReadonlyArray<ImageThumbnailItem>,
+  {
+    onRemove,
+    onRetry,
+    onReorder,
+  }: Pick<ImageThumbnailRowProps, "onRemove" | "onRetry" | "onReorder">,
+) {
+  const dragProps = useDragReorder(onReorder);
+  const { refFor, focusAfterCommit } = useRowFocus();
+  return {
+    dragProps,
+    refFor,
+    keyDownFor: keyboardReorder(items, onReorder, focusAfterCommit),
+    editsFor: focusKeepingEdits(items, { onRemove, onRetry }, focusAfterCommit),
+  };
+}
+
 /**
  * A wrapping row of {@link ImageThumbnail}s. With `onReorder`, tiles reorder
  * by drag and by `Alt+ArrowLeft`/`Alt+ArrowRight` on the focused tile, which
@@ -307,16 +326,15 @@ export function ImageThumbnailRow({
   "aria-label": ariaLabel,
   className,
 }: ImageThumbnailRowProps) {
-  const dragProps = useDragReorder(onReorder);
-  const { refFor, focusAfterCommit } = useRowFocus();
-  const keyDownFor = keyboardReorder(items, onReorder, focusAfterCommit);
-  const editsFor = focusKeepingEdits(
-    items,
-    { onRemove, onRetry },
-    focusAfterCommit,
-  );
+  const { dragProps, refFor, keyDownFor, editsFor } = useRowHandlers(items, {
+    onRemove,
+    onRetry,
+    onReorder,
+  });
   return (
     <ul
+      // oxlint-disable-next-line jsx-a11y/no-redundant-roles -- WebKit drops the list role from a `list-style: none` list.
+      role="list"
       aria-label={ariaLabel}
       className={cn("flex flex-wrap gap-2", className)}
     >
