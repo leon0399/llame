@@ -10,8 +10,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Fixed intermittent `ECONNRESET` failures in API integration suites. They
   handed supertest a server that was not listening, so each request started
   its own listener and closed it on completion, resetting any request still
-  connecting; every supertest-driven suite now listens once in setup, recorded
-  as rule 12 in `docs/development/testing.md`.
+  connecting; every supertest-driven integration suite now listens once in
+  setup, recorded as rule 12 in `docs/development/testing.md`.
 
 - The product E2E model mock now answers structured title generation with a
   non-streaming tool-call completion, so the structured title path runs end to
