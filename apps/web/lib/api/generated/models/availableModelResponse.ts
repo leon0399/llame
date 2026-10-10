@@ -5,6 +5,7 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
+import type { AvailableModelResponseInputItem } from "./availableModelResponseInputItem";
 import type { AvailableModelResponseSource } from "./availableModelResponseSource";
 import type { ModelPricingResponse } from "./modelPricingResponse";
 import type { ModelReasoningResponse } from "./modelReasoningResponse";
@@ -17,6 +18,8 @@ export interface AvailableModelResponse {
   tags?: string[];
   icon?: string;
   contextWindowTokens: number;
+  /** Input modalities this model accepts, in the operator-declared order. Always present and always contains `text`; `["text"]` when the operator declared none. Never inferred from the model id or provider. */
+  input: AvailableModelResponseInputItem[];
   pricingUsdPer1M?: ModelPricingResponse;
   knowledgeCutoff?: string;
   /** Present only when the operator declared an effort vocabulary for this model. Absent means the model accepts no `effort` on a chat send. */

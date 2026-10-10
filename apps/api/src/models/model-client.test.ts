@@ -271,6 +271,39 @@ describe('ModelClient', () => {
     });
   });
 
+  describe('declared input (vision-media)', () => {
+    const build = (input?: ReadonlyArray<'text' | 'image'>) => {
+      createOpenAIMock.mockReturnValue(
+        responsesProviderMock(
+          new MockLanguageModelV3({
+            provider: 'openai.responses',
+            modelId: 'gpt-test',
+          }),
+        ),
+      );
+      return createOpenAIModelClient(
+        {
+          credential: 'sk-user-supplied',
+          providerModelId: 'gpt-test',
+          modelId: 'system:openai:gpt-test',
+          contextWindowTokens: 128_000,
+          userAgent: USER_AGENT,
+          requestHeaders: {},
+          ...(input !== undefined && { input }),
+        },
+        { createOpenAI: createOpenAIMock, streamText: streamTextMock },
+      );
+    };
+
+    it('carries the declared input on the client', () => {
+      expect(build(['text', 'image']).input).toEqual(['text', 'image']);
+    });
+
+    it('leaves no input key when the entry declares none', () => {
+      expect(build()).not.toHaveProperty('input');
+    });
+  });
+
   it('uses the Responses wire with an automatic displayable reasoning summary', () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',

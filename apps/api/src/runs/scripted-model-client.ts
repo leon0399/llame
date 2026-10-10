@@ -18,7 +18,8 @@ import { stepCountIs, streamText as sdkStreamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
-import type { ModelReasoning } from '../models/model-catalog';
+import type { ModelInput, ModelReasoning } from '../models/model-catalog';
+import { installStepPreparation } from '../models/step-composer';
 import { applyRequestUsageCallback } from '../models/request-usage';
 import {
   resolveEffortSelection,
@@ -438,12 +439,19 @@ class HarnessModelClient implements ModelClient {
   constructor(
     readonly model: string,
     private readonly behavior: HarnessBehavior,
-    /** Shared with the owning ScriptedModelsService so a test can assert what execution actually requested. */
-    private readonly streamCalls: Array<StreamCallRecord> = [],
+    /**
+     * Shared with the owning ScriptedModelsService so a test can assert what
+     * execution actually requested and which provider prompts it sent.
+     */
+    private readonly recorded: {
+      streamCalls: Array<StreamCallRecord>;
+      prompts: Array<LanguageModelV3CallOptions['prompt']>;
+    },
+    readonly input: ReadonlyArray<ModelInput>,
   ) {}
 
   streamText(input: ModelStreamInput): ReturnType<typeof sdkStreamText> {
-    this.streamCalls.push({
+    this.recorded.streamCalls.push({
       modelId: this.model,
       effort: input.effort,
       chat: input.chat,
@@ -457,6 +465,7 @@ class HarnessModelClient implements ModelClient {
       provider: 'fake',
       modelId: this.model,
       doStream: ({ abortSignal, prompt }) => {
+        this.recorded.prompts.push(prompt);
         if (behavior.kind === 'provider-error') {
           return Promise.reject(
             new Error(behavior.message ?? 'simulated provider failure'),
@@ -493,6 +502,9 @@ class HarnessModelClient implements ModelClient {
       ...scriptedStreamHandlers(input, settlement),
     };
     applyRequestUsageCallback(streamOptions, input);
+    // The same step preparation every production client installs: the
+    // composer on every step, `onStepStart` and the cap only with tools.
+    installStepPreparation(streamOptions, input, this.input);
     return awaitSettlementAfter(sdkStreamText(streamOptions), settlement);
   }
 }
@@ -527,12 +539,23 @@ export class ScriptedModelsService implements ModelSelectionValidator {
     this.reasoning.set(modelId, reasoning);
   }
 
+  /** Per-model declared input a test sets before sending; default `['text']`. */
+  private readonly inputs = new Map<string, ReadonlyArray<ModelInput>>();
+
+  registerInput(modelId: string, input: ReadonlyArray<ModelInput>): void {
+    this.inputs.set(modelId, input);
+  }
+
+  /** Every provider prompt the scripted clients sent, in order. */
+  readonly prompts: Array<LanguageModelV3CallOptions['prompt']> = [];
+
   validateModelSelection(modelId: string) {
     const reasoning = this.reasoning.get(modelId);
     return {
       id: modelId,
       source: 'system' as const,
       contextWindowTokens: 128_000,
+      input: this.inputs.get(modelId) ?? (['text'] as const),
       provider: 'openai',
       providerModelId: modelId,
       systemPromptTemplate: `Harness prompt for ${modelId}`,
@@ -576,6 +599,11 @@ export class ScriptedModelsService implements ModelSelectionValidator {
         behavior.message ?? `simulated infra failure for ${modelId}`,
       );
     }
-    return new HarnessModelClient(modelId, behavior, this.streamCalls);
+    return new HarnessModelClient(
+      modelId,
+      behavior,
+      { streamCalls: this.streamCalls, prompts: this.prompts },
+      this.inputs.get(modelId) ?? ['text'],
+    );
   }
 }

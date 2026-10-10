@@ -474,10 +474,12 @@ describe('ScriptedModelsService observable contract', () => {
     expect(client.provider).toBe('fake');
     expect(client.model).toBe('gpt-fixture');
     expect(client.contextWindowTokens).toBe(128_000);
+    expect(client.input).toEqual(['text']);
     expect(service.validateModelSelection('gpt-fixture')).toStrictEqual({
       id: 'gpt-fixture',
       source: 'system',
       contextWindowTokens: 128_000,
+      input: ['text'],
       provider: 'openai',
       providerModelId: 'gpt-fixture',
       systemPromptTemplate: 'Harness prompt for gpt-fixture',
@@ -490,6 +492,18 @@ describe('ScriptedModelsService observable contract', () => {
       provider: 'openai',
       providerModelId: 'gpt-5.4-nano',
     });
+  });
+
+  it('gives the client and its catalog entry the registered input', () => {
+    const service = new ScriptedModelsService();
+    service.register('vision', { kind: 'complete' });
+    service.registerInput('vision', ['text', 'image']);
+
+    expect(service.createClient('vision').input).toEqual(['text', 'image']);
+    expect(service.validateModelSelection('vision').input).toEqual([
+      'text',
+      'image',
+    ]);
   });
 
   it('uses the packaged provider-error text when no message is configured', async () => {

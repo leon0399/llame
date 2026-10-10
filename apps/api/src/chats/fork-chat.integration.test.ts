@@ -16,10 +16,11 @@ import { NotFoundException } from '@nestjs/common';
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-import { sql as dsql } from 'drizzle-orm';
+import { eq, sql as dsql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { type Sql } from 'postgres';
+import { randomPng } from '../media/media-fixtures';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -45,6 +46,8 @@ import {
   DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
   renderSystemPromptTemplate,
 } from '../instance-config/prompt-loader';
+import { loadMediaDescriptors } from '../media/media-descriptors';
+import { MediaService } from '../media/media.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -986,5 +989,143 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     expect(forked.createdAt.getTime()).toBeGreaterThan(
       source.chat.createdAt.getTime(),
     );
+  });
+
+  describe('owner file parts', () => {
+    const mediaIdsOf = async (owner: string) => {
+      const rows = await tenantDb.runAs(owner, (tx) =>
+        tx
+          .select({ id: schema.mediaObjects.id })
+          .from(schema.mediaObjects)
+          .where(eq(schema.mediaObjects.ownerUserId, owner)),
+      );
+      return rows.map(({ id }) => id).sort();
+    };
+
+    const ingestTwo = async () => {
+      const media = new MediaService(tenantDb);
+      const ingest = async (source: string) =>
+        (
+          await media.ingest(a, {
+            bytes: await randomPng(),
+            provenance: 'upload',
+            source,
+          })
+        ).media.id;
+      return [await ingest('shot.png'), await ingest('plan.png')] as const;
+    };
+
+    const filePart = (id: string, filename?: string) => ({
+      type: 'file',
+      mediaType: 'image/png',
+      url: `media://${id}`,
+      ...(filename !== undefined && { filename }),
+    });
+
+    it('an owner fork copies file parts verbatim and creates no media object', async () => {
+      const [shot, plan] = await ingestTwo();
+      const userParts = [
+        { type: 'text', text: 'compare these' },
+        filePart(shot, 'shot.png'),
+        filePart(plan),
+      ];
+      const chatId = await tenantDb.runAs(a, async (tx) => {
+        const chat = await new ChatsRepository(tx).create({
+          ownerUserId: a,
+          title: 'Attachments',
+        });
+        await new MessagesRepository(tx).create({
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: a,
+          parts: userParts,
+        });
+        return chat.id;
+      });
+      const mediaBefore = await mediaIdsOf(a);
+
+      const forked = await service.forkChat(chatId, a);
+
+      const copied = await readMessages(forked.id);
+      expect(copied.map(({ parts }) => parts)).toEqual([userParts]);
+      expect(await mediaIdsOf(a)).toEqual(mediaBefore);
+    });
+
+    it('a shared fork copies text parts only, drops image-only rows, and confers no media access', async () => {
+      const [shot, plan] = await ingestTwo();
+      const chatId = await tenantDb.runAs(a, async (tx) => {
+        const messages = new MessagesRepository(tx);
+        const chat = await new ChatsRepository(tx).create({
+          ownerUserId: a,
+          title: 'Public attachments',
+          visibility: 'public',
+        });
+        const u1 = await messages.create({
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: a,
+          parts: [
+            { type: 'text', text: 'see this' },
+            filePart(shot, 'shot.png'),
+          ],
+        });
+        await messages.create({
+          chatId: chat.id,
+          role: 'assistant',
+          senderUserId: null,
+          parts: [{ type: 'text', text: 'a1' }],
+          inReplyTo: u1.id,
+        });
+        const u2 = await messages.create({
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: a,
+          parts: [filePart(plan)],
+        });
+        await messages.create({
+          chatId: chat.id,
+          role: 'assistant',
+          senderUserId: null,
+          parts: [{ type: 'text', text: 'a2' }],
+          inReplyTo: u2.id,
+        });
+        return chat.id;
+      });
+      const sourceMediaBefore = await mediaIdsOf(a);
+
+      const forked = await service.forkSharedChat(chatId, b);
+      if (forked === undefined) expect.unreachable('expected a public fork');
+
+      const copied = await readMessages(forked.id, b);
+      const projected = copied.map(({ seq, role, parts }) => ({
+        seq,
+        role,
+        parts,
+      }));
+      expect(projected).toEqual([
+        { seq: 1, role: 'user', parts: [{ type: 'text', text: 'see this' }] },
+        { seq: 2, role: 'assistant', parts: [{ type: 'text', text: 'a1' }] },
+        { seq: 3, role: 'assistant', parts: [{ type: 'text', text: 'a2' }] },
+      ]);
+      // A1 still answers its copied question; A2's question was not copied.
+      expect(copied[1].inReplyTo).toBe(copied[0].id);
+      expect(copied[2].inReplyTo).toBeNull();
+      const serialized = JSON.stringify(copied);
+      expect(serialized).not.toContain('media://');
+      expect(serialized).not.toContain('"file"');
+
+      // No media object was created for, or copied to, either owner, and the
+      // fork owner's lookups of the source ids find nothing.
+      expect(await mediaIdsOf(b)).toEqual([]);
+      expect(await mediaIdsOf(a)).toEqual(sourceMediaBefore);
+      const media = new MediaService(tenantDb);
+      for (const id of [shot, plan]) {
+        await expect(media.findOwned(b, id)).resolves.toBeUndefined();
+      }
+      const descriptors = await tenantDb.runAs(b, (tx) =>
+        loadMediaDescriptors(tx, b, [shot, plan]),
+      );
+      expect(descriptors.size).toBe(0);
+    });
   });
 });

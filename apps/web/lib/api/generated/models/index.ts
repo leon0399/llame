@@ -12,6 +12,7 @@ export * from "./attemptReceiptResponse";
 export * from "./attemptReceiptResponsePromptSource";
 export * from "./authTokenResponse";
 export * from "./availableModelResponse";
+export * from "./availableModelResponseInputItem";
 export * from "./availableModelResponseSource";
 export * from "./changeMembershipRoleDto";
 export * from "./changeMembershipRoleDtoRole";

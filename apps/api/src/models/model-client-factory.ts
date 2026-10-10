@@ -208,6 +208,8 @@ function assignModelMetadata(
   if (model.compactionThresholdTokens !== undefined) {
     config.compactionThresholdTokens = model.compactionThresholdTokens;
   }
+  // Every client's step composer decides image parts from this (vision-media D6).
+  config.input = model.input;
   // The operator's provider-options object and the catalog output limit ride
   // the model entry, not the provider entry (provider-api-selection): every
   // client unwraps them from its own config at request time. Copied by

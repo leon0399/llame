@@ -118,6 +118,7 @@ beforeEach(() => {
             source: "system",
             name: "GPT-5.4 mini",
             contextWindowTokens: 400_000,
+            input: ["text"],
           },
         ],
       });
@@ -151,6 +152,7 @@ function renderSeededChat(messages: Array<ChatMessageResponse>) {
         source: "system",
         name: "GPT-5.4 mini",
         contextWindowTokens: 400_000,
+        input: ["text"],
       },
     ],
   });
@@ -258,6 +260,7 @@ describe("ChatPage markdown loading shell", () => {
           source: "system",
           name: "GPT-5.4 mini",
           contextWindowTokens: 400_000,
+          input: ["text"],
         },
       ],
     });

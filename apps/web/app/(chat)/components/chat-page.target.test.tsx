@@ -114,6 +114,7 @@ const MODELS_RESPONSE: ModelsResponse = {
       source: "system",
       name: "GPT-5.4 mini",
       contextWindowTokens: 400_000,
+      input: ["text"],
     },
     // A real but non-default choice, so a test can tell a restore from a
     // stale history snapshot apart from the composer's current selection.
@@ -122,6 +123,7 @@ const MODELS_RESPONSE: ModelsResponse = {
       source: "system",
       name: "GPT-5.4",
       contextWindowTokens: 400_000,
+      input: ["text"],
     },
   ],
 };

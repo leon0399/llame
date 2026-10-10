@@ -23,12 +23,14 @@ const CATALOG = {
       source: "system",
       name: "Model One",
       contextWindowTokens: 128_000,
+      input: ["text"],
     },
     {
       id: "system:openai:model-two",
       source: "system",
       name: "Model Two",
       contextWindowTokens: 400_000,
+      input: ["text"],
     },
   ],
 } satisfies { defaultModelId: string; models: Array<AvailableModel> };

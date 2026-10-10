@@ -11,6 +11,7 @@ const fullModel: AvailableModel = {
   name: "Claude Opus 5",
   description: "Anthropic's most capable model, tuned for complex reasoning.",
   contextWindowTokens: 1_000_000,
+  input: ["text"],
   pricingUsdPer1M: { input: 15, cachedInput: 1.5, output: 75 },
   knowledgeCutoff: "2026-05-01",
   releasedAt: "2026-06-15",
@@ -76,6 +77,7 @@ export const MinimalModel: Story = {
       id: "local/tiny-model",
       source: AvailableModelResponseSource.system,
       contextWindowTokens: 8192,
+      input: ["text"],
     },
   },
   play: async ({ canvasElement }) => {

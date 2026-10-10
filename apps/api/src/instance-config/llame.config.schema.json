@@ -524,6 +524,13 @@
         "tags": { "type": "array", "items": { "type": "string" } },
         "icon": { "type": "string" },
         "knowledgeCutoff": { "type": "string" },
+        "input": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["text", "image"] },
+          "uniqueItems": true,
+          "contains": { "const": "text" },
+          "description": "Optional input modalities this model accepts, from the closed set text and image. Must contain text and must not repeat an item; declared order is kept. Absent: [\"text\"]. Not verified against the provider: a model declared with image that rejects images surfaces the provider's error when a Run sends it one. Returned on every GET /api/v1/models entry."
+        },
         "reasoning": { "$ref": "#/$defs/modelReasoning" },
         "website": { "type": "string" },
         "apiDocs": { "type": "string" },

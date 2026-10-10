@@ -159,6 +159,7 @@ const testModelEntry: SystemModelCatalogEntry = {
   id: 'mock',
   source: 'system',
   contextWindowTokens: 100_000,
+  input: ['text'],
   provider: 'mock',
   providerModelId: 'mock',
   systemPromptTemplate: 'Test prompt',

@@ -25,6 +25,8 @@ import {
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import type { Message, ModelToolDeclaration } from '../db/schema';
+import type { MediaSizing } from '../media/epoch-admission';
+import { projectMediaRefs } from '../models/step-composer';
 
 /**
  * When the model's context window is known (MODEL_CONTEXT_WINDOW_TOKENS),
@@ -102,19 +104,55 @@ export function normalizeCompactionSummary(value: unknown): string | null {
 }
 
 /**
+ * Whether a prepared request's image overflow counts as reaching the
+ * compaction threshold (vision-media D6): its model declares `image` input,
+ * some reference is not attached because the epoch window is full, and a
+ * resolvable image sits in a row before the triggering user message. Overflow
+ * inside that message alone does not count: compaction cannot absorb it.
+ * `triggerRefCount` is how many references the triggering message carries,
+ * which are the request's last ones.
+ */
+export function imageOverflowCompacts(
+  media: MediaSizing,
+  triggerRefCount: number,
+): boolean {
+  if (!media.imageInput || !media.statuses.includes('limit')) return false;
+  return media.statuses
+    .slice(0, Math.max(0, media.statuses.length - triggerRefCount))
+    .some((status) => status !== 'unavailable');
+}
+
+/**
  * Chars/4 over a built request projection, with each replayed reasoning part's
  * opaque `providerOptions` left out (D15): that value is provider metadata
  * llame never interprets, and on the Responses wire it is a base64 blob of the
  * provider's own reasoning — potentially far larger than the prompt — so it
  * must not size the continuation estimate (D16). Reasoning TEXT still counts:
- * the model re-reads it on that continuation.
+ * the model re-reads it on that continuation. Media references are sized by
+ * `media` (vision-media D6), never by image bytes: each image an image-input
+ * model receives is charged `ceil(w × h / 750)` tokens on its model variant,
+ * every other reference counts as its placeholder text, and every reference
+ * as its label.
  */
-function estimateProjectionTokens(projection: {
-  system: string;
-  messages: Array<ModelMessage>;
-  tools: ReadonlyArray<ModelToolDeclaration>;
-}): number {
-  const sized = projection.messages.map((message) => {
+function estimateProjectionTokens(
+  projection: {
+    system: string;
+    messages: Array<ModelMessage>;
+    tools: ReadonlyArray<ModelToolDeclaration>;
+  },
+  media: MediaSizing | undefined,
+): number {
+  let imageTokens = 0;
+  const messages =
+    media === undefined
+      ? projection.messages
+      : projectMediaRefs(projection.messages, media, (_id, descriptor) => {
+          imageTokens += Math.ceil(
+            (descriptor.modelWidth * descriptor.modelHeight) / 750,
+          );
+          return [];
+        });
+  const sized = messages.map((message) => {
     if (message.role !== 'assistant' || !Array.isArray(message.content)) {
       return message;
     }
@@ -125,12 +163,14 @@ function estimateProjectionTokens(projection: {
       ),
     };
   });
-  return Math.ceil(
-    JSON.stringify({
-      system: projection.system,
-      messages: sized,
-      tools: projection.tools,
-    }).length / 4,
+  return (
+    Math.ceil(
+      JSON.stringify({
+        system: projection.system,
+        messages: sized,
+        tools: projection.tools,
+      }).length / 4,
+    ) + imageTokens
   );
 }
 
@@ -145,13 +185,14 @@ function estimateProjectionTokens(projection: {
 export function estimateContinuationTokens(input: {
   rows: Array<StoredMessage>;
   railText: string;
+  media?: MediaSizing;
 }): number {
   const { messages } = buildContext(input.rows, {
     systemPrompt: '',
     requestKind: 'continuation',
   });
   return (
-    estimateProjectionTokens({ system: '', messages, tools: [] }) +
+    estimateProjectionTokens({ system: '', messages, tools: [] }, input.media) +
     Math.ceil(input.railText.length / 4)
   );
 }
@@ -215,12 +256,16 @@ export function estimateModelRequestTokens(input: {
   system: string;
   messages: Array<ModelMessage>;
   toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+  media?: MediaSizing;
 }): number {
-  return estimateProjectionTokens({
-    system: input.system,
-    messages: input.messages,
-    tools: input.toolDeclarations,
-  });
+  return estimateProjectionTokens(
+    {
+      system: input.system,
+      messages: input.messages,
+      tools: input.toolDeclarations,
+    },
+    input.media,
+  );
 }
 
 export function requestFitsContextWindow(input: {
@@ -229,6 +274,7 @@ export function requestFitsContextWindow(input: {
   toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
   contextWindowTokens: number;
   reservedOutputTokens: number | null;
+  media?: MediaSizing;
 }): boolean {
   return (
     estimateModelRequestTokens(input) + (input.reservedOutputTokens ?? 0) <=

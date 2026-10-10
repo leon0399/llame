@@ -2,7 +2,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { streamText } from 'ai';
 
 import type { BillingMode, ModelClient } from './model-client';
-import type { TokenPrice } from './model-catalog';
+import type { ModelInput, TokenPrice } from './model-catalog';
 import { rejectRedirects } from './openai-codex-model-client';
 import {
   createOpenAICompletionsModelClient,
@@ -63,6 +63,7 @@ type OpenCodeGoModelClientConfig = {
   pricing?: TokenPrice;
   billing?: BillingMode;
   compactionThresholdTokens?: number;
+  input?: ReadonlyArray<ModelInput>;
 };
 
 /**
@@ -119,6 +120,8 @@ export function createOpenCodeGoModelClient(
       ...(config.compactionThresholdTokens !== undefined && {
         compactionThresholdTokens: config.compactionThresholdTokens,
       }),
+      // The wrapped client omits an undeclared input from its own shape.
+      input: config.input,
     },
     dependencies,
   );

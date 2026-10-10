@@ -118,6 +118,7 @@ const MODELS_RESPONSE: ModelsResponse = {
       source: "system",
       name: "GPT-5.4 mini",
       contextWindowTokens: 400_000,
+      input: ["text"],
     },
   ],
 };
@@ -492,12 +493,14 @@ describe("resolveLastTurnModelEffort", () => {
         source: "system",
         name: "Default",
         contextWindowTokens: 400_000,
+        input: ["text"],
       },
       {
         id: "model:recorded",
         source: "system",
         name: "Recorded",
         contextWindowTokens: 200_000,
+        input: ["text"],
       },
     ],
   };

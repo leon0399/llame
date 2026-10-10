@@ -16,6 +16,9 @@ import { eq } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { MediaService } from '../media/media.service';
+import { randomPng } from '../media/media-fixtures';
+import { executeConversationRead } from '../tools/conversation-read';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { createCompactionCheckpointPart } from './context-item-producers';
 
@@ -369,6 +372,68 @@ describe('conversation source repository lookup', () => {
       );
       await tenantDb.runAs(ownerB, (tx) =>
         new ChatsRepository(tx).deleteById(otherChat.id, ownerB),
+      );
+    }
+  });
+
+  it('renders file-part placeholders only from media the reading owner owns', async () => {
+    const media = new MediaService(tenantDb);
+    const { media: own } = await media.ingest(ownerA, {
+      bytes: await randomPng(16, 9),
+      provenance: 'upload',
+      source: 'shot.png',
+    });
+    const { media: foreign } = await media.ingest(ownerB, {
+      bytes: await randomPng(12, 12),
+      provenance: 'upload',
+      source: 'private-other-owner.png',
+    });
+    const chat = await createChat(ownerA, 'Attachments');
+
+    try {
+      const message = await tenantDb.runAs(ownerA, (tx) =>
+        new MessagesRepository(tx).create({
+          chatId: chat.id,
+          role: 'user',
+          senderUserId: ownerA,
+          parts: [
+            { type: 'text', text: 'compare' },
+            { type: 'file', mediaType: 'image/png', url: `media://${own.id}` },
+            {
+              type: 'file',
+              mediaType: 'image/png',
+              url: `media://${foreign.id}`,
+            },
+          ],
+        }),
+      );
+      const coordinates = { chatId: chat.id, messageSeq: message.seq };
+
+      const read = await tenantDb.runAs(ownerA, (tx) =>
+        executeConversationRead(tx, ownerA, coordinates),
+      );
+      expect(read).toMatchObject({
+        status: 'success',
+        lineCount: 1,
+        content: `1: compare\n[image media://${own.id} ${own.name} 16×9]\n[image media://${foreign.id} unavailable]\n`,
+      });
+      expect(JSON.stringify(read)).not.toContain('private-other-owner');
+      expect(JSON.stringify(read)).not.toContain('12×12');
+
+      // Another owner naming this message gets the closed miss and nothing of
+      // its attachments.
+      const crossOwner = await tenantDb.runAs(ownerB, (tx) =>
+        executeConversationRead(tx, ownerB, coordinates),
+      );
+      expect(crossOwner).toMatchObject({
+        status: 'error',
+        type: 'conversation_source_not_found',
+      });
+      expect(JSON.stringify(crossOwner)).not.toContain('media://');
+      expect(JSON.stringify(crossOwner)).not.toContain('shot.png');
+    } finally {
+      await tenantDb.runAs(ownerA, (tx) =>
+        new ChatsRepository(tx).deleteById(chat.id, ownerA),
       );
     }
   });

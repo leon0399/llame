@@ -2,6 +2,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Added `models[].input` (#935), which declares whether a model accepts
+  images: `["text"]` by default, `["text", "image"]` for a vision model.
+  Startup rejects an item outside that set, a list without `text`, or a
+  repeated item, and `GET /api/v1/models` publishes the resolved `input` on
+  every entry. Model requests carry stored images to a vision model as
+  labelled image parts, oldest first within 100 images and 24 MiB per
+  compaction epoch, and as `[image media://<id> …]` placeholders otherwise;
+  images are sized by their dimensions in context estimates. `conversation_read`
+  lists a message's images after its text, compaction summaries keep their
+  `media://` locators, and public shares and shared forks omit them. Messages
+  cannot carry images until a later release. See
+  [media store](docs/product/operator/media.md#model-image-input).
+
 - Added the media store for owner images (#935). `POST /api/v1/media` uploads
   one PNG, JPEG, GIF, or WebP image, detected by magic bytes, of at most
   20 MiB and 40 megapixels; SVG and other formats are refused. The original is

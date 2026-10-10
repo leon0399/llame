@@ -589,6 +589,44 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
     expect(JSON.stringify(dto)).not.toContain('Europe/Madrid');
   });
 
+  it('carries only text parts of a message with owner file parts', () => {
+    const message = fakeMessage({
+      role: 'user',
+      parts: [
+        { type: 'text', text: 'see this' },
+        {
+          type: 'file',
+          mediaType: 'image/png',
+          url: 'media://01920000-0000-7000-8000-00000000000a',
+          filename: 'shot.png',
+        },
+      ],
+    });
+    const imageOnly = fakeMessage({
+      id: 'm-2',
+      seq: 2,
+      role: 'user',
+      parts: [
+        {
+          type: 'file',
+          mediaType: 'image/png',
+          url: 'media://01920000-0000-7000-8000-00000000000b',
+        },
+      ],
+    });
+
+    const dto = toSharedChatResponse(fakeChat, [message, imageOnly]);
+
+    expect(dto.messages.map(({ parts }) => parts)).toEqual([
+      [{ type: 'text', text: 'see this' }],
+      [],
+    ]);
+    const serialized = JSON.stringify(dto);
+    expect(serialized).not.toContain('media://');
+    expect(serialized).not.toContain('[image');
+    expect(serialized).not.toContain('shot.png');
+  });
+
   it('strips the data-cap-notice step-cap marker part from the public payload', () => {
     const message = fakeMessage({
       parts: [

@@ -4,6 +4,8 @@ import { tool, type ToolSet } from 'ai';
 import { TenantDbService } from '../db/tenant-db.service';
 import { toFlexibleSchema } from '../tools/schema-utils';
 import { type ModelClient } from '../models/model-client';
+import type { RunMediaResolver } from '../media/media-descriptors';
+import { loadMediaSizing } from '../media/epoch-admission';
 import {
   ModelsService,
   type ModelClientFactory,
@@ -113,6 +115,11 @@ export type CompactionSummaryRequest =
       readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
       readonly effort?: string;
       readonly abortSignal?: AbortSignal;
+      /**
+       * The Run owner's media, so the summary request projects the prefix's
+       * images for the summarizing client's own `input` (vision-media D9).
+       */
+      readonly media?: RunMediaResolver;
     }
   | {
       readonly variant: Extract<CompactionVariant, 'window'>;
@@ -122,6 +129,7 @@ export type CompactionSummaryRequest =
       readonly plan: CompactionPlan;
       readonly reservedOutputTokens: number | null;
       readonly abortSignal?: AbortSignal;
+      readonly media?: RunMediaResolver;
     };
 
 /**
@@ -197,6 +205,7 @@ export class CompactionService {
         toolDeclarations: input.toolDeclarations,
         ...(input.effort !== undefined && { effort: input.effort }),
         abortSignal: input.abortSignal,
+        media: input.media,
       });
     } catch (error) {
       if (input.abortSignal?.aborted) {
@@ -286,6 +295,13 @@ export class CompactionService {
         toolDeclarations: [],
         contextWindowTokens: client.contextWindowTokens,
         reservedOutputTokens: input.reservedOutputTokens,
+        media:
+          input.media &&
+          (await loadMediaSizing(
+            request.messages,
+            input.media,
+            client.input?.includes('image') ?? false,
+          )),
       })
     ) {
       throw new ContextIncompatibleError(
@@ -303,6 +319,7 @@ export class CompactionService {
         toolDeclarations: [],
         ...(effort !== undefined && { effort }),
         abortSignal: input.abortSignal,
+        media: input.media,
       });
     } catch (error) {
       if (input.abortSignal?.aborted) {
@@ -371,6 +388,7 @@ export class CompactionService {
      */
     effort?: string;
     abortSignal?: AbortSignal;
+    media: RunMediaResolver | undefined;
   }): Promise<SummaryInference> {
     const tools = schemaOnlyTools(input.toolDeclarations);
     const startedAt = Date.now();
@@ -387,6 +405,7 @@ export class CompactionService {
       messages: input.messages,
       chat: { id: input.chatId, lane: 'main' },
       abortSignal: input.abortSignal,
+      ...(input.media !== undefined && { media: input.media }),
       ...(input.effort !== undefined && { effort: input.effort }),
       ...(input.toolDeclarations.length > 0 && { tools }),
       toolChoice: 'none',

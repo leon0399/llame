@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import type {
+  ModelInput,
   ModelPricingUsdPer1M,
   ModelSource,
   PublicModelCatalogEntry,
@@ -93,6 +94,16 @@ export class AvailableModelResponse {
   @ApiProperty({ type: 'integer' })
   contextWindowTokens!: number;
 
+  @ApiProperty({
+    enum: ['text', 'image'],
+    isArray: true,
+    description:
+      'Input modalities this model accepts, in the operator-declared order. ' +
+      'Always present and always contains `text`; `["text"]` when the ' +
+      'operator declared none. Never inferred from the model id or provider.',
+  })
+  input!: Array<ModelInput>;
+
   @ApiPropertyOptional({ type: () => ModelPricingResponse })
   pricingUsdPer1M?: ModelPricingUsdPer1M;
 
@@ -149,6 +160,8 @@ export function toAvailableModelResponse(
     id: model.id,
     source: model.source,
     contextWindowTokens: model.contextWindowTokens,
+    // Copied for the same singleton reason as `tags` and `reasoning` below.
+    input: [...model.input],
   };
   if (model.name !== undefined) response.name = model.name;
   if (model.description !== undefined) response.description = model.description;

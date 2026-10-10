@@ -30,6 +30,7 @@ const MODELS = [
     source: "system" as const,
     name: "GPT-4o",
     contextWindowTokens: 128_000,
+    input: ["text" as const],
   },
 ];
 

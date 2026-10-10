@@ -10,6 +10,7 @@ describe('ModelsController', () => {
   // Held by reference so the copy assertion below has the catalog's own array
   // to compare against.
   const catalogTags: Array<string> = ['flagship'];
+  const catalogInput = ['text', 'image'] as const;
   const catalogReasoning = {
     effortLevels: [{ value: 'low', label: 'Low' }],
     defaultEffort: 'low',
@@ -26,6 +27,7 @@ describe('ModelsController', () => {
             source: 'system',
             name: 'GPT-5.5',
             contextWindowTokens: 400_000,
+            input: catalogInput,
             tags: catalogTags,
             reasoning: catalogReasoning,
           },
@@ -33,6 +35,7 @@ describe('ModelsController', () => {
             id: 'system:openai:gpt-5.4-mini',
             source: 'system',
             name: 'GPT-5.4 Mini',
+            input: ['text'],
           },
         ],
       }),
@@ -58,6 +61,7 @@ describe('ModelsController', () => {
           source: 'system',
           name: 'GPT-5.5',
           contextWindowTokens: 400_000,
+          input: ['text', 'image'],
           tags: ['flagship'],
           reasoning: {
             effortLevels: [{ value: 'low', label: 'Low' }],
@@ -69,6 +73,7 @@ describe('ModelsController', () => {
           id: 'system:openai:gpt-5.4-mini',
           source: 'system',
           name: 'GPT-5.4 Mini',
+          input: ['text'],
         },
       ],
     });
@@ -90,6 +95,7 @@ describe('ModelsController', () => {
         id: 'system:provider-with-headers:model',
         source: 'system' as const,
         contextWindowTokens: 128_000,
+        input: ['text'] as const,
       },
       {
         provider: provider.id,
@@ -114,6 +120,7 @@ describe('ModelsController', () => {
           id: internalModel.id,
           source: 'system',
           contextWindowTokens: 128_000,
+          input: ['text'],
         },
       ],
     });
@@ -133,6 +140,8 @@ describe('ModelsController', () => {
 
     expect(response.models[0]?.tags).toEqual(['flagship']);
     expect(response.models[0]?.tags).not.toBe(catalogTags);
+    expect(response.models[0]?.input).toEqual(['text', 'image']);
+    expect(response.models[0]?.input).not.toBe(catalogInput);
     expect(response.models[0]?.reasoning).toEqual(catalogReasoning);
     expect(response.models[0]?.reasoning).not.toBe(catalogReasoning);
     expect(response.models[0]?.reasoning?.effortLevels).not.toBe(
@@ -178,6 +187,7 @@ describe('ModelsController', () => {
       tags: ['one', 'two'],
       icon: 'icon.svg',
       contextWindowTokens: 128_000,
+      input: ['text', 'image'],
       pricingUsdPer1M: {
         input: 1,
         cachedInput: 0.2,
@@ -220,6 +230,7 @@ describe('ModelsController', () => {
       id: 'system:openai:no-cache-write-rate',
       source: 'system',
       contextWindowTokens: 128_000,
+      input: ['text'],
       pricingUsdPer1M: { input: 1, output: 4 },
     });
 

@@ -18,6 +18,7 @@ const model = (overrides?: Partial<SystemModelCatalogEntry>) =>
     source: 'system',
     name: 'Public Model',
     contextWindowTokens: 128_000,
+    input: ['text'],
     provider: 'private-provider',
     providerModelId: 'private-provider-id',
     systemPromptTemplate: 'Use the configured prompt.\n',

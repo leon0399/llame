@@ -286,6 +286,16 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
     expect(client).not.toHaveProperty('compactionThresholdTokens');
     expect(client).not.toHaveProperty('billing');
   });
+
+  it('carries the declared input on the client, and no key without one', () => {
+    const harness = buildHarness();
+
+    expect(buildClient(harness, { input: ['text', 'image'] }).input).toEqual([
+      'text',
+      'image',
+    ]);
+    expect(buildClient(harness)).not.toHaveProperty('input');
+  });
 });
 
 describe('createAnthropicModelClient — effort and thinking defaults (3.5)', () => {

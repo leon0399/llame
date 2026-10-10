@@ -49,6 +49,7 @@ describe("chatToMarkdown", () => {
           source: "system",
           name: "GPT-4o",
           contextWindowTokens: 128_000,
+          input: ["text"],
         },
       ],
     );
@@ -85,6 +86,7 @@ describe("chatToMarkdown", () => {
           source: "system",
           name: "GPT-4o",
           contextWindowTokens: 128_000,
+          input: ["text"],
         },
       ],
     );

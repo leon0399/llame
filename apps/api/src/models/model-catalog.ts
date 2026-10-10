@@ -65,6 +65,9 @@ export type ModelReasoning = {
   readonly cacheInvalidatedByEffortChange: boolean;
 };
 
+/** One input modality a model accepts (vision-media D9). */
+export type ModelInput = 'text' | 'image';
+
 export interface PublicModelCatalogEntry {
   id: string;
   source: ModelSource;
@@ -77,6 +80,12 @@ export interface PublicModelCatalogEntry {
   // the context-compaction trigger (× COMPACTION_WINDOW_RATIO); without it, long
   // chats on a small-window model would overflow before compaction ever fires.
   contextWindowTokens: number;
+  /**
+   * Required: the input modalities the model accepts, in the operator's
+   * declared order. Resolved to `['text']` when the config omits it, so it is
+   * never absent; it always contains `text`.
+   */
+  input: ReadonlyArray<ModelInput>;
   pricingUsdPer1M?: ModelPricingUsdPer1M;
   knowledgeCutoff?: string;
   /** Absent when the operator declared no effort vocabulary for this model. */
