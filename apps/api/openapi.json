@@ -720,7 +720,7 @@
             }
           },
           "400": {
-            "description": "Malformed chat id or invalid message body"
+            "description": "Malformed chat id or invalid message body, including a file part naming media the sender does not own"
           },
           "401": {
             "description": ""
@@ -3373,6 +3373,29 @@
         },
         "required": ["type", "text"]
       },
+      "CreateFileMessagePartDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["file"]
+          },
+          "mediaType": {
+            "type": "string",
+            "description": "Ignored: the stored part carries the media's own type."
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^media:\\/\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "A `media://<id>` locator of media the sender owns."
+          },
+          "filename": {
+            "type": "string",
+            "description": "Ignored: the stored part carries the media's own name."
+          }
+        },
+        "required": ["type", "mediaType", "url"]
+      },
       "CreateMessageBodyDto": {
         "type": "object",
         "properties": {
@@ -3381,12 +3404,20 @@
             "format": "uuid"
           },
           "parts": {
-            "minItems": 1,
-            "maxItems": 50,
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/CreateTextMessagePartDto"
-            }
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CreateTextMessagePartDto"
+                },
+                {
+                  "$ref": "#/components/schemas/CreateFileMessagePartDto"
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 60,
+            "description": "At most 50 text parts and 10 file parts, in order; at least one part."
           }
         },
         "required": ["id", "parts"]

@@ -14,6 +14,10 @@ import {
   type Db,
   type TenantRunner,
 } from '../db/tenant-db.service';
+import {
+  loadMediaDescriptors,
+  type MediaDescriptor,
+} from './media-descriptors';
 import { prepareMedia, type PreparedMedia } from './media-ingest';
 import { isCanonicalMediaId } from './media-locator';
 import { mediaSourceLabel } from './media-source-label';
@@ -171,4 +175,22 @@ export class MediaService {
       return row?.data;
     });
   }
+
+  /**
+   * The descriptors of the given ids that the owner owns, read in the owner's
+   * own short transaction. Unknown, foreign, and non-canonical ids are absent;
+   * with no canonical id among `ids` no transaction is opened.
+   */
+  async describeOwned(
+    ownerUserId: string,
+    ids: ReadonlyArray<string>,
+  ): Promise<ReadonlyMap<string, MediaDescriptor>> {
+    if (!ids.some(isCanonicalMediaId)) return new Map();
+    return this.tenantDb.runAs(ownerUserId, (tx) =>
+      loadMediaDescriptors(tx, ownerUserId, ids),
+    );
+  }
 }
+
+/** The one MediaService capability a send needs: the sender's ownership read. */
+export type MediaDescriber = Pick<MediaService, 'describeOwned'>;

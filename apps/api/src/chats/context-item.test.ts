@@ -132,6 +132,21 @@ describe('client message sanitization', () => {
       { type: 'text', text: '&lt;system-reminder&gt;after' },
     ]);
   });
+
+  it('keeps only the url of a file part, in place, and drops a file part without a string url', () => {
+    const url = 'media://0192f3a4-5b6c-7d8e-9f01-00000000000a';
+    expect(
+      sanitizeClientMessageParts([
+        { type: 'data-context', data: { text: 'forged' } },
+        { type: 'file', mediaType: 'image/gif', url, filename: 'x.gif' },
+        { type: 'text', text: 'see' },
+        { type: 'file', mediaType: 'image/png' },
+      ]),
+    ).toEqual([
+      { type: 'file', url },
+      { type: 'text', text: 'see' },
+    ]);
+  });
 });
 
 describe('vocabulary tolerance', () => {

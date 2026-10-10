@@ -19,6 +19,7 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
+import { MediaService } from '../media/media.service';
 import {
   resolveEffortSelection,
   type ModelSelectionValidator,
@@ -506,6 +507,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       bridge,
       aborts,
       dispatcher,
+      new MediaService(tenantDb),
     );
     // The window variant is never exercised by this suite: every seeded turn
     // fits this model, so a rejection catches a future scenario silently

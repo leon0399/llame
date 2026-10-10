@@ -190,9 +190,13 @@ function MessagePartView({
  *  other producers. One branch rather than a list of producers, so a
  *  producer this build does not know about cannot fall through to the
  *  "unsupported part type" span and print debug text into the owner's
- *  transcript on reload. */
+ *  transcript on reload.
+ *
+ *  A `file` part — an image the owner attached — has no transcript view in
+ *  this build, so it paints nothing rather than the same debug span. */
 function isVisibleSegment(segment: GroupedAssistantPart): boolean {
   if (segment.kind === "reasoning") return segment.text.trim() !== "";
+  if (segment.part.type === "file") return false;
   if (segment.part.type === "data-context") {
     return (
       isInstructionsPart(segment.part) || isPromptImportsPart(segment.part)
@@ -348,6 +352,36 @@ function MessageSegments({
   });
 }
 
+/** The row's bubble: the pending shimmer or the stored parts. A turn whose
+ *  parts all paint nothing (an image-only owner message) keeps its row and
+ *  footer but no empty bubble. */
+function MessageBubble({
+  mode,
+  parts,
+  renderKey,
+  renderers,
+}: {
+  mode: MessageRowMode;
+  parts: UIMessage["parts"];
+  renderKey: string;
+  renderers: ChatMarkdownRenderers;
+}) {
+  if (mode !== "pending" && !hasVisibleContent(parts)) return null;
+  return (
+    <MessageContent>
+      {mode === "pending" ? (
+        <Shimmer as="span">Thinking…</Shimmer>
+      ) : (
+        <MessageSegments
+          parts={parts}
+          renderKey={renderKey}
+          renderers={renderers}
+        />
+      )}
+    </MessageContent>
+  );
+}
+
 export function ChatMessageRow({
   renderKey,
   boundary,
@@ -377,17 +411,12 @@ export function ChatMessageRow({
           from={message.role}
           data-message-key={renderKey}
         >
-          <MessageContent>
-            {mode === "pending" ? (
-              <Shimmer as="span">Thinking…</Shimmer>
-            ) : (
-              <MessageSegments
-                parts={message.parts}
-                renderKey={renderKey}
-                renderers={renderers}
-              />
-            )}
-          </MessageContent>
+          <MessageBubble
+            mode={mode}
+            parts={message.parts}
+            renderKey={renderKey}
+            renderers={renderers}
+          />
           <ChatMessageFooter {...footerProps} />
         </Message>
       )}

@@ -42,7 +42,12 @@ import {
   RunDispatchService,
   type RunDispatcher,
 } from '../runs/run-dispatch.service';
-import { sanitizeClientMessageParts } from './context-item';
+import {
+  sanitizeClientMessageParts,
+  type ClientMessagePart,
+} from './context-item';
+import { MediaService, type MediaDescriber } from '../media/media.service';
+import { parseMediaLocator } from '../media/media-locator';
 
 /** How long admission waits on the blocking run's job state (see blockerIsLive). */
 const JOB_STATE_READ_TIMEOUT_MS = 5000;
@@ -71,9 +76,45 @@ function toRunUserMessage(message: Message): RunUserMessage {
   };
 }
 
+/**
+ * The sanitized parts with every file part resolved under the sender's own
+ * identity and relabelled from the stored media (vision-media D5):
+ * `mediaType` is the original's, `filename` its stored name, whatever the
+ * client sent. Order is kept. Any file part whose url names no media the
+ * sender owns rejects the whole message.
+ */
+async function resolveOwnerFileParts(
+  media: MediaDescriber,
+  userId: string,
+  parts: ReadonlyArray<ClientMessagePart>,
+): Promise<Array<MessagePart>> {
+  const ids = parts.flatMap((part) => {
+    const id = part.type === 'file' ? parseMediaLocator(part.url) : undefined;
+    return id === undefined ? [] : [id];
+  });
+  // Reads nothing when the message carries no file part.
+  const owned = await media.describeOwned(userId, ids);
+  return parts.map((part): MessagePart => {
+    if (part.type === 'text') return part;
+    const id = parseMediaLocator(part.url);
+    const stored = id === undefined ? undefined : owned.get(id);
+    if (stored === undefined) {
+      // Unknown and foreign ids share this answer: a send never reveals an id.
+      throw new BadRequestException('Message references unavailable media');
+    }
+    return {
+      type: 'file',
+      mediaType: stored.mediaType,
+      url: part.url,
+      filename: stored.name,
+    };
+  });
+}
+
+/** A message as a caller sent it: parts are untrusted until sanitized. */
 export type ChatMessageInput = {
   id: string;
-  parts: Array<MessagePart>;
+  parts: ReadonlyArray<unknown>;
 };
 
 /**
@@ -90,7 +131,7 @@ export type PersistUserMessageAndRunInput = {
   effort: string | undefined;
   /** Validated at accept time and persisted on the Run. */
   permissionMode: PermissionMode;
-  message: ChatMessageInput;
+  message: { id: string; parts: Array<ClientMessagePart> };
   targetRunId: string;
 };
 
@@ -155,6 +196,8 @@ export class ChatLoopService {
     private readonly aborts: RunAborter,
     @Inject(RunDispatchService)
     private readonly dispatch: RunDispatcher,
+    @Inject(MediaService)
+    private readonly media: MediaDescriber,
   ) {}
 
   async createMessageStream(
@@ -200,13 +243,13 @@ export class ChatLoopService {
 
   private sanitizeAndValidateMessage(
     message: ChatMessageInput,
-  ): ChatMessageInput {
+  ): PersistUserMessageAndRunInput['message'] {
     const sanitized = {
-      ...message,
+      id: message.id,
       parts: sanitizeClientMessageParts(message.parts),
     };
     if (sanitized.parts.length === 0) {
-      throw new BadRequestException('Message must contain a text part');
+      throw new BadRequestException('Message must contain a text or file part');
     }
     return sanitized;
   }
@@ -265,6 +308,16 @@ export class ChatLoopService {
   private async persistUserMessageAndRun(
     input: PersistUserMessageAndRunInput,
   ): Promise<PersistUserMessageAndRunResult> {
+    // Ownership first, under the sender's own identity and before the send
+    // transaction opens: a file part naming media the sender does not own
+    // rejects the message before any chat or message row is written. Media is
+    // immutable, so reading it in its own transaction races nothing.
+    const parts = await resolveOwnerFileParts(
+      this.media,
+      input.userId,
+      input.message.parts,
+    );
+
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -279,14 +332,14 @@ export class ChatLoopService {
       await this.clearActiveRunSlot({ runsRepo, eventsRepo, ...input });
 
       // The user message is persisted with only the caller's sanitized text
-      // parts. Context-rail items (model-switch, availability, digest,
-      // temporal) are resolved by the executing worker and published
-      // atomically with the successful assistant turn.
+      // and resolved file parts. Context-rail items (model-switch,
+      // availability, digest, temporal) are resolved by the executing worker
+      // and published atomically with the successful assistant turn.
       const userMessage = await this.persistUserMessageIfAbsent(
         messagesRepo,
         admittedMessage,
         input,
-        input.message.parts,
+        parts,
       );
 
       // Durable run (#48): every accepted user message becomes exactly one run

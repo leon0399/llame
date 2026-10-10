@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Added image attachments to owner messages (#935).
+  `POST /api/v1/chats/:id/messages` accepts up to 10 `file` parts whose `url`
+  is a `media://<id>` locator of an image the sender uploaded, alongside the
+  text parts, and a message may now carry images and no text. Any other URL,
+  an 11th file part, or an id the sender does not own rejects the whole
+  message with `400` before anything is stored, and another owner's id gets
+  the same answer as an unknown one. The stored part takes its `mediaType` and
+  `filename` from the stored image and keeps the sent order, and vision models
+  receive the images labelled before the message text. See
+  [media store](docs/product/operator/media.md#message-attachments).
+
 - Added `models[].input` (#935), which declares whether a model accepts
   images: `["text"]` by default, `["text", "image"]` for a vision model.
   Startup rejects an item outside that set, a list without `text`, or a

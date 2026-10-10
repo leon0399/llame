@@ -1,10 +1,11 @@
 ---
-summary: "Media store: owner images in Postgres, ingest bounds, upload and fetch routes, models[].input, sharp, growth, and the no-deletion gap"
+summary: "Media store: owner images in Postgres, ingest bounds, upload and fetch routes, message file parts, models[].input, sharp, growth, and the no-deletion gap"
 read_when:
   - you are deploying a release that ships the media store or building its production image
   - you are sizing the database or backups for stored images
   - you are declaring which models accept images
   - you are troubleshooting an image upload or fetch
+  - you are sending images in a chat message through the API
 ---
 
 # Media store
@@ -12,9 +13,9 @@ read_when:
 The media store keeps images that chat owners upload. Each image is one media
 object owned by exactly one owner, addressed as `media://<id>`, and kept in the
 same Postgres database as the rest of the application state. This release
-ships the store, its upload and fetch routes, and the per-model image input
-declaration; attaching images to messages and reading images through `read`
-arrive in later releases.
+ships the store, its upload and fetch routes, image attachments on owner
+messages, and the per-model image input declaration; reading images through
+`read` arrives in a later release.
 
 There is nothing to enable: the store has no configuration keys, and its bounds
 are fixed by the application. Models opt into receiving images with
@@ -168,6 +169,46 @@ canonical UUID, for example
 digits and bare `media://` do not resolve. A locator resolves only for the
 owner who owns the object; for anyone else it is indistinguishable from an id
 that does not exist.
+
+## Message attachments
+
+An owner message sent to `POST /api/v1/chats/:id/messages` may carry, beside
+its text parts, up to 10 `file` parts that each reference an uploaded image:
+
+```json
+{
+  "modelId": "vision-model",
+  "message": {
+    "id": "0192a5c4-7b1e-7c3d-9f00-1a2b3c4d5e70",
+    "parts": [
+      {
+        "type": "file",
+        "mediaType": "image/png",
+        "url": "media://0192a5c4-7b1e-7c3d-9f00-1a2b3c4d5e6f",
+        "filename": "shot.png"
+      },
+      { "type": "text", "text": "What does this error mean?" }
+    ]
+  }
+}
+```
+
+- A message needs at least one text part or one file part, so a message
+  carrying only images is accepted. Text parts keep their bounds: at most 50,
+  each nonblank and at most 20,000 characters.
+- `url` must be a [`media://` locator](#media-locators). A `data:` URL, an
+  `http(s)` URL, bare `media://`, or 11 or more file parts reject the whole
+  message with `400`.
+- Every id must belong to the sender. The check runs under the sender's own
+  identity before anything is written; an id owned by another owner and an id
+  that does not exist both get the same `400`, and nothing is stored.
+- The stored part's `mediaType` is the original's detected format and its
+  `filename` is the object's stored name, whatever the client sent. File parts
+  are stored in the order they were sent.
+
+Each message's images reach the model after its context items and before its
+text, as described under [model image input](#model-image-input). Owner forks
+copy file parts unchanged and reference the same objects.
 
 ## Model image input
 
