@@ -16,6 +16,7 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { isSystemOriginPayload } from './tool-activity-origin';
+import { isTerminalRunStatus } from './run-status';
 
 /** UI-message stream chunk subset the bridge emits (AI SDK v1 protocol). */
 export type UiChunk =
@@ -588,10 +589,6 @@ export class RunStreamBridgeService {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isTerminalRunStatus(status: string): boolean {
-  return ['completed', 'failed', 'cancelled', 'expired'].includes(status);
 }
 
 /**

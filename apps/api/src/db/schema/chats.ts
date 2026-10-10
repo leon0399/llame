@@ -417,7 +417,9 @@ export const runs = pgTable(
     // Per-chat single-flight (#48): at most one non-terminal run per chat —
     // the DB-level guarantee against concurrent double model calls (#73).
     // Safe now that heartbeat + the deadman (and retry-supersede in the loop)
-    // guarantee every run eventually reaches a terminal status.
+    // guarantee every run eventually reaches a terminal status. The predicate
+    // spells `TERMINAL_RUN_STATUSES` (runs/run-status.ts) as SQL, because an
+    // index predicate cannot reference the constant; change both together.
     uniqueIndex('runs_chat_inflight_unique')
       .on(t.chatId)
       .where(

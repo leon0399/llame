@@ -32,6 +32,7 @@ import { isRecord } from '@workspace/runtime-safety';
 import { RunAbortRegistry } from './run-abort-registry';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
+import { isTerminalRunStatus } from './run-status';
 import {
   ContextReceiptResponse,
   ListRunEventsQuery,
@@ -47,13 +48,6 @@ import {
 const EVENT_POLL_MS = 500;
 /** Hard cap on one SSE connection — clients reconnect with their cursor. */
 const MAX_STREAM_MS = 5 * 60 * 1000;
-
-const TERMINAL_STATUSES: ReadonlySet<Run['status']> = new Set([
-  'completed',
-  'failed',
-  'cancelled',
-  'expired',
-]);
 
 type RunEventRequest = Pick<Request, 'headers' | 'destroyed'>;
 
@@ -177,7 +171,7 @@ export class RunsController {
     // The atomic guard missed: missing/cross-tenant (404), already terminal
     // (409), or already cancel-requested (idempotent 200).
     const run = await this.findOwnedRun(id, userId);
-    if (TERMINAL_STATUSES.has(run.status)) {
+    if (isTerminalRunStatus(run.status)) {
       throw new ConflictException('Run already finished');
     }
     return toRunResponse(run);
@@ -254,7 +248,7 @@ export class RunsController {
     const current = await this.tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).findById(runId, userId),
     );
-    return current ? TERMINAL_STATUSES.has(current.status) : undefined;
+    return current ? isTerminalRunStatus(current.status) : undefined;
   }
 
   /** Fetches events past `cursor` and writes each as an SSE frame. */
@@ -292,7 +286,7 @@ export class RunsController {
     const { run, userId, request, response } = options;
     const startedAt = Date.now();
     let cursor = options.cursor;
-    let terminalSeen = TERMINAL_STATUSES.has(run.status);
+    let terminalSeen = isTerminalRunStatus(run.status);
     let sendDone = false;
     const clientGone = () => response.writableEnded || request.destroyed;
     const deadlineExceeded = () => Date.now() - startedAt > MAX_STREAM_MS;

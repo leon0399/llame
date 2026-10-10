@@ -18,7 +18,6 @@ import {
   isNotNull,
   isNull,
   lt,
-  notInArray,
   type SQL,
 } from 'drizzle-orm';
 import {
@@ -33,6 +32,7 @@ import {
   type TurnToolAvailabilityEntry,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { nonTerminalRun, type TerminalRunStatus } from './run-status';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 
 /** A completed run paired with the sequence of its triggering user message. */
@@ -40,11 +40,6 @@ export type CompletedRunWithTrigger = {
   readonly run: Run;
   readonly triggeringUserSeq: number;
 };
-
-type TerminalRunStatus = Extract<
-  RunStatus,
-  'completed' | 'failed' | 'cancelled' | 'expired'
->;
 
 type MarkFinishedOptions = {
   error?: unknown;
@@ -90,7 +85,7 @@ function markFinishedPredicate(
     eq(runs.id, runId),
     eq(runs.userId, userId),
     isNull(runs.finishedAt),
-    notInArray(runs.status, ['completed', 'failed', 'cancelled', 'expired']),
+    nonTerminalRun(),
     ...(attemptId === undefined ? [] : [eq(runs.activeAttemptId, attemptId)]),
   );
 }
@@ -211,16 +206,7 @@ export class RunsRepository {
       .select()
       .from(runs)
       .where(
-        and(
-          eq(runs.chatId, chatId),
-          eq(runs.userId, userId),
-          notInArray(runs.status, [
-            'completed',
-            'failed',
-            'cancelled',
-            'expired',
-          ]),
-        ),
+        and(eq(runs.chatId, chatId), eq(runs.userId, userId), nonTerminalRun()),
       )
       .limit(1);
 
@@ -254,17 +240,7 @@ export class RunsRepository {
       })
       .from(runs)
       .innerJoin(chats, eq(runs.chatId, chats.id))
-      .where(
-        and(
-          eq(runs.userId, userId),
-          notInArray(runs.status, [
-            'completed',
-            'failed',
-            'cancelled',
-            'expired',
-          ]),
-        ),
-      )
+      .where(and(eq(runs.userId, userId), nonTerminalRun()))
       .orderBy(asc(runs.createdAt));
   }
 
@@ -316,12 +292,7 @@ export class RunsRepository {
           eq(runs.id, runId),
           eq(runs.userId, userId),
           isNull(runs.cancelRequestedAt),
-          notInArray(runs.status, [
-            'completed',
-            'failed',
-            'cancelled',
-            'expired',
-          ]),
+          nonTerminalRun(),
         ),
       )
       .returning();
@@ -346,12 +317,7 @@ export class RunsRepository {
         and(
           eq(runs.messageId, messageId),
           eq(runs.userId, userId),
-          notInArray(runs.status, [
-            'completed',
-            'failed',
-            'cancelled',
-            'expired',
-          ]),
+          nonTerminalRun(),
         ),
       )
       .returning();
@@ -397,12 +363,7 @@ export class RunsRepository {
           eq(runs.id, runId),
           eq(runs.userId, userId),
           isNull(runs.cancelRequestedAt),
-          notInArray(runs.status, [
-            'completed',
-            'failed',
-            'cancelled',
-            'expired',
-          ]),
+          nonTerminalRun(),
         ),
       )
       .returning();
@@ -449,12 +410,7 @@ export class RunsRepository {
           eq(runs.id, runId),
           eq(runs.userId, userId),
           eq(runs.activeAttemptId, attemptId),
-          notInArray(runs.status, [
-            'completed',
-            'failed',
-            'cancelled',
-            'expired',
-          ]),
+          nonTerminalRun(),
         ),
       )
       .returning();

@@ -1,8 +1,9 @@
 import { RunEventsRepository } from './runs-repository';
-import { and, desc, eq, isNull, notInArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import { isRecord, isString, type ToolResult } from '@workspace/runtime-safety';
 import { runEvents, runs } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { nonTerminalRun } from './run-status';
 
 /** Absolute paths bind the Run to one host; a resolved locator binds nothing. */
 export type NativeFenceMode =
@@ -107,12 +108,7 @@ export class NativeFilesRepository {
           eq(runs.id, runId),
           eq(runs.userId, userId),
           isNull(runs.cancelRequestedAt),
-          notInArray(runs.status, [
-            'completed',
-            'failed',
-            'cancelled',
-            'expired',
-          ]),
+          nonTerminalRun(),
           or(isNull(runs.workerId), eq(runs.workerId, executorId)),
         ),
       )
