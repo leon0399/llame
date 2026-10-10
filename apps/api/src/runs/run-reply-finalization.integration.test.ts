@@ -2,8 +2,9 @@
  * The assistant reply from first dispatch to its terminal write (design D3,
  * D5, D6, D7): a retry resets it in its own dispatch transaction, every
  * terminal writer outside the dispatching attempt settles it from that
- * attempt's events around the stored in-Run items, and a switch the Run that
- * stored it failed under is announced once.
+ * attempt's events around the stored in-Run items and leaves the chat stale
+ * for search, and a switch the Run that stored it failed under is announced
+ * once.
  *
  * TEST_DATABASE_URL-gated; run by test:integration with the other
  * .integration suites.
@@ -46,11 +47,11 @@ import { type KnowledgeToolResolver } from '../tools/types';
 import { reconstructDurableAssistant } from './assistant-transcript';
 import { RunAbortRegistry } from './run-abort-registry';
 import { type RunDispatcher } from './run-dispatch.service';
-import { RunExecutionService } from './run-execution.service';
 import {
-  failRunTransactionally,
-  runningReplyUsage,
-} from './run-reply-finalizer';
+  RunExecutionService,
+  type ChatSearchIndexer,
+} from './run-execution.service';
+import { runningReplyUsage } from './run-reply-finalizer';
 import { type RunStreamResponder } from './run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
@@ -166,6 +167,8 @@ type TerminalWriter = {
   readonly replyStatus: 'error' | 'aborted';
   /** Leave a dispatched host mutation open, as native recovery needs. */
   readonly openMutation?: boolean;
+  /** The expiring send leaves the reindex to the Run it creates. */
+  readonly reindexedByNextRun?: boolean;
   readonly settle: (died: DiedAttempt) => Promise<void>;
 };
 
@@ -179,6 +182,9 @@ describeIfDb(
     let chatLoop: ChatLoopService;
     const jobState = vi.fn<RunDispatcher['jobState']>(() =>
       Promise.resolve('active'),
+    );
+    const reindexChat = vi.fn<ChatSearchIndexer['reindexChat']>(() =>
+      Promise.resolve(),
     );
 
     const instanceConfig: InstanceConfigReader = {
@@ -231,7 +237,7 @@ describeIfDb(
         noopCompaction,
         { maybeGenerateTitle: async () => {} },
         instanceConfig,
-        { reindexChat: async () => {} },
+        { reindexChat },
         noopReindexDispatch(),
         knowledgeResolver,
         noopSkillCatalog(),
@@ -251,6 +257,7 @@ describeIfDb(
     afterEach(() => {
       jobState.mockReset();
       jobState.mockResolvedValue('active');
+      reindexChat.mockClear();
     });
 
     afterAll(async () => {
@@ -544,13 +551,15 @@ describeIfDb(
         name: 'pickup failure',
         runStatus: 'failed',
         replyStatus: 'error',
-        settle: (died) =>
-          failRunTransactionally(
-            tenantDb,
-            { runId: died.runId, userId },
-            'Run pickup failed.',
-            instanceConfig.config.models,
-          ),
+        settle: async (died) => {
+          await runExecution.settleTerminalRun({
+            runId: died.runId,
+            userId,
+            status: 'failed',
+            runPayload: { status: 'failed', message: 'Run pickup failed.' },
+            error: { message: 'Run pickup failed.' },
+          });
+        },
       },
       {
         name: 'an abort observed at claim',
@@ -582,6 +591,7 @@ describeIfDb(
         name: 'admission expiry by a new message',
         runStatus: 'expired',
         replyStatus: 'aborted',
+        reindexedByNextRun: true,
         settle: async (died) => {
           jobState.mockResolvedValue('failed');
           await chatLoop.createMessageStream({
@@ -619,10 +629,32 @@ describeIfDb(
 
     it.each(writers)(
       "settles the dead attempt's reply from its own events with the stored item in place: $name",
-      async ({ runStatus, replyStatus, openMutation, settle }) => {
+      async ({
+        runStatus,
+        replyStatus,
+        openMutation,
+        reindexedByNextRun,
+        settle,
+      }) => {
         const died = await seedDiedAttempt({ openMutation });
+        // A sweep indexed the chat after its last activity, while the reply
+        // was `running` and so hidden from the index.
+        await sql`UPDATE chats SET updated_at = updated_at - interval '1 hour' WHERE id = ${died.chatId}`;
+        const indexedAt = new Date(Date.now() - 30 * 60 * 1000);
 
         await settle(died);
+
+        // The settled reply keeps its creation time, so only a chat newer than
+        // that index lets the sweep find it; the settler also reindexes inline.
+        const chat = await tenantDb.runAs(userId, (tx) =>
+          new ChatsRepository(tx).findById(died.chatId, userId),
+        );
+        expect(chat?.updatedAt.getTime()).toBeGreaterThan(indexedAt.getTime());
+        if (reindexedByNextRun) {
+          expect(reindexChat).not.toHaveBeenCalled();
+        } else {
+          expect(reindexChat).toHaveBeenCalledWith(died.chatId, userId);
+        }
 
         const run = await tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(died.runId, userId),

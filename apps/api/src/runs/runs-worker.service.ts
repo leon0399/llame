@@ -39,7 +39,6 @@ import {
   type RunJob,
 } from './run-queues';
 import { RunsRepository } from './runs-repository';
-import { failRunTransactionally } from './run-reply-finalizer';
 import {
   CanonicalSearchCoverageService,
   type CanonicalSearchCoverageGate,
@@ -188,12 +187,15 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         error instanceof ModelNotAvailableError ||
         error instanceof ModelConfigurationError
       ) {
-        await failRunTransactionally(
-          this.tenantDb,
-          job,
-          error.message,
-          this.instanceConfig.config.models,
-        );
+        // Settled like retry exhaustion: a redelivered Run's reply is
+        // finalized in place, then the chat is touched and reindexed.
+        await this.runExecution.settleTerminalRun({
+          runId: job.runId,
+          userId: job.userId,
+          status: 'failed',
+          runPayload: { status: 'failed', message: error.message },
+          error: { message: error.message },
+        });
         return;
       }
       throw error;

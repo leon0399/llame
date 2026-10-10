@@ -835,55 +835,42 @@ export class RunExecutionService {
       const events = new RunEventsRepository(tx);
       if (input.abortSignal?.aborted) {
         const status = classifyAbortedRun(input.abortSignal);
+        const message = this.abortedRunMessage(status, input.abortSignal);
         const finished = await runs.markFinished(
           input.runId,
           input.userId,
           status,
-          {
-            error: {
-              message: this.abortedRunMessage(status, input.abortSignal),
-            },
-          },
+          { error: { message } },
         );
-        if (finished) {
-          await finalizeRunReply(tx, {
-            run: finished,
-            status,
-            models: this.instanceConfig.config.models,
-          });
-          await events.append(input.runId, `run.${status}`, {
-            message: this.abortedRunMessage(status, input.abortSignal),
-          });
-        }
-        return false;
+        return {
+          settledReply: await this.settleAtClaim(tx, finished, status, message),
+        };
       }
 
       const started = await runs.markStarted(input.runId, input.userId);
       if (!started) {
         const current = await runs.findById(input.runId, input.userId);
         if (
-          current?.cancelRequestedAt != null &&
-          !['completed', 'failed', 'cancelled', 'expired'].includes(
+          current?.cancelRequestedAt == null ||
+          ['completed', 'failed', 'cancelled', 'expired'].includes(
             current.status,
           )
         ) {
-          const cancelled = await runs.markFinished(
-            input.runId,
-            input.userId,
-            'cancelled',
-          );
-          if (cancelled) {
-            await finalizeRunReply(tx, {
-              run: cancelled,
-              status: 'cancelled',
-              models: this.instanceConfig.config.models,
-            });
-            await events.append(input.runId, 'run.cancelled', {
-              message: this.abortedRunMessage('cancelled', input.abortSignal),
-            });
-          }
+          return { settledReply: undefined };
         }
-        return false;
+        const cancelled = await runs.markFinished(
+          input.runId,
+          input.userId,
+          'cancelled',
+        );
+        return {
+          settledReply: await this.settleAtClaim(
+            tx,
+            cancelled,
+            'cancelled',
+            this.abortedRunMessage('cancelled', input.abortSignal),
+          ),
+        };
       }
 
       if (await new NativeFilesRepository(tx).hasMutation(input.runId)) {
@@ -908,7 +895,10 @@ export class RunExecutionService {
         nativeDeliverySequence: startedEvent.sequence,
       };
     });
-    if (!claim) {
+    if ('settledReply' in claim) {
+      // A reply finalized in place keeps its creation time, so only the
+      // post-commit touch and reindex make its settled content searchable.
+      await this.afterAssistantTurn(claim.settledReply, input.userId);
       throw new RunNotRunnableError(input.runId);
     }
     if ('nativeRecovery' in claim) {
@@ -1003,7 +993,7 @@ export class RunExecutionService {
         // reclaim (`persistAttemptPromptReceipt` refuses a stale attempt), and
         // an unfenced write here would let that stale attempt mark a run
         // another attempt is actively executing as failed.
-        await this.finishRun({
+        await this.finishRunWithoutCollector({
           userId: input.userId,
           runId: input.runId,
           status: 'failed',
@@ -2064,7 +2054,7 @@ export class RunExecutionService {
       const message = error instanceof Error ? error.message : String(error);
       // This attempt holds the claim; a reclaim during the synchronous throw
       // must reject this write rather than let the superseded attempt publish.
-      await this.finishRun({
+      await this.finishRunWithoutCollector({
         userId: input.userId,
         runId: input.runId,
         status: 'failed',
@@ -2956,6 +2946,43 @@ export class RunExecutionService {
       : 'Run was cancelled before model inference.';
   }
 
+  /**
+   * Finalizes the reply of a Run the claim transaction just ended, and
+   * records its terminal event. Returns the reply it wrote, so the caller
+   * touches and reindexes the chat once the claim commits.
+   */
+  private async settleAtClaim(
+    tx: Db,
+    finished: Run | undefined,
+    status: TerminalRunStatus,
+    message: string,
+  ): Promise<Message | undefined> {
+    if (!finished) return undefined;
+    const reply = await finalizeRunReply(tx, {
+      run: finished,
+      status,
+      models: this.instanceConfig.config.models,
+    });
+    await new RunEventsRepository(tx).append(finished.id, `run.${status}`, {
+      message,
+    });
+    return reply;
+  }
+
+  /**
+   * Settles a Run from an attempt that does not hold its live collector: the
+   * reply is rebuilt in place from the log and keeps its creation time, so
+   * only the chat touch and reindex after the commit make its settled content
+   * searchable.
+   */
+  private async finishRunWithoutCollector(
+    input: FinishRunInput,
+  ): Promise<FinishRunResult> {
+    const finish = await this.finishRun(input);
+    await this.afterAssistantTurn(finish.assistantMessage, input.userId);
+    return finish;
+  }
+
   /** Settle an observed abort before streaming and suppress queue retries only
    * after the terminal state + matching event are durably visible. Fenced by
    * `attemptId`: only the attempt that observed the abort may settle it, so a
@@ -2970,7 +2997,7 @@ export class RunExecutionService {
   ): Promise<never> {
     const status = classifyAbortedRun(input.abortSignal);
     const message = this.abortedRunMessage(status, input.abortSignal);
-    const finish = await this.finishRun({
+    const finish = await this.finishRunWithoutCollector({
       userId: input.userId,
       runId: input.runId,
       status,

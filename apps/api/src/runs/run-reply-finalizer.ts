@@ -359,22 +359,27 @@ export async function persistReply(
  * holds them; otherwise the reply is rebuilt from the events of the attempt
  * its usage names, around the context items stored on it. Without a reply
  * row, a Run whose log has a `model.requested` gets one from its full log;
- * one that never dispatched gets nothing. A completed reply is never touched.
+ * one that never dispatched gets nothing. A completed reply already holds the
+ * Run's answer: nothing is settled or written over it, so a Run whose salvaged
+ * answer completed the reply can settle completed with calls its log left open.
  */
 export async function finalizeRunReply(
   tx: Db,
   input: RunReplyFinalization,
 ): Promise<Message | undefined> {
-  const { run } = input;
+  const { run, live } = input;
+  const chatId = live?.chatId ?? run.chatId;
+  const inReplyTo = live?.inReplyTo ?? run.messageId;
+  const messagesRepo = new MessagesRepository(tx);
+  const turn =
+    inReplyTo === null
+      ? undefined
+      : await messagesRepo.findTurnState(chatId, run.userId, inReplyTo);
+  const reply = turn?.assistantMessage;
+  if (reply !== undefined && isCompletedAssistantTurn(reply)) return undefined;
   const log = await new RunEventsRepository(tx).listByRunId(run.id, run.userId);
   const settled = await settleOpenToolCalls(tx, run, input.status, log);
-  const chatId = input.live?.chatId ?? run.chatId;
-  const inReplyTo = input.live?.inReplyTo ?? run.messageId;
-  if (inReplyTo === null) return undefined;
-  const messagesRepo = new MessagesRepository(tx);
-  const turn = await messagesRepo.findTurnState(chatId, run.userId, inReplyTo);
-  const reply = turn.assistantMessage;
-  const { live } = input;
+  if (inReplyTo === null || turn === undefined) return undefined;
   if (live !== undefined) {
     if (!ownsLiveReply(reply, input.attemptId, true)) return undefined;
     return persistReply(messagesRepo, turn, {
@@ -391,10 +396,12 @@ export async function finalizeRunReply(
 
 /**
  * Mark a run failed, finalize its reply, and append its `run.failed` event, in
- * one tenant-scoped transaction. Shared by every failure origin that must
- * produce the same outcome — enqueue failure (RunDispatchService) and pickup
- * failure (RunsWorkerService) — so the run row, its reply, and its event log
- * can never disagree about why a run ended.
+ * one tenant-scoped transaction, so the run row, its reply, and its event log
+ * can never disagree about why a run ended. For enqueue failure
+ * (RunDispatchService): a Run that never reached the queue dispatched no
+ * attempt, so no reply changes and no chat touch or reindex follows. A failure
+ * that can settle a dispatched reply settles through
+ * `RunExecutionService.settleTerminalRun`, which also refreshes search.
  */
 export async function failRunTransactionally(
   tenantDb: TenantRunner,

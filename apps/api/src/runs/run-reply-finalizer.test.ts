@@ -392,6 +392,27 @@ describe('finalizeRunReply', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('completes a Run over a completed reply without settling the calls its log left open', async () => {
+    const { append, update, create } = serve({
+      log: [
+        requested(1, 'a'),
+        event(2, 'tool.requested', {
+          toolCallId: 'open',
+          toolName: 'search',
+          input: {},
+        }),
+      ],
+      reply: reply({ usage: { status: 'completed' } }),
+    });
+
+    await expect(
+      finalizeRunReply(tx, { run, status: 'completed', models }),
+    ).resolves.toBeUndefined();
+    expect(append).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("never writes a live turn over another attempt's running reply", async () => {
     const { update } = serve({
       log: [requested(1, 'b')],
