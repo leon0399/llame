@@ -57,6 +57,13 @@ runs:
     - run: pnpm install --frozen-lockfile
       shell: bash
 
+    # A restore by prefix brings the previous master store, and install only
+    # adds to it; prune what this lockfile no longer references, as the
+    # action's own `cache: true` did, so the saved store does not grow forever.
+    - if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: pnpm store prune
+      shell: bash
+
     - if: github.event_name == 'push' && github.ref == 'refs/heads/master'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
