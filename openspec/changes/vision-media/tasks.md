@@ -144,7 +144,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 8.3 Document attaching images, including the text-only-model block, in `docs/product/reference/locators/media.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 8.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, and the `packages/ui` checks
 - [x] 8.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 8.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 8.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 9. `vision-media/previews-lightbox` — history thumbnails and viewer (design D10, D11)
 
