@@ -208,8 +208,18 @@ describe('ModelClient', () => {
       provider: 'openai.responses',
       modelId: 'gpt-test',
     });
-    // The Responses wire is served at the entry's baseUrl (design D1).
-    const openaiProvider = responsesProviderMock(providerModel);
+    // The Responses wire is served at the entry's baseUrl (design D1). The
+    // Chat Completions entry point returns its own model, so a request
+    // rerouted through it is observable in what `streamText` receives.
+    const openaiProvider = Object.assign(responsesProviderMock(providerModel), {
+      chat: vi.fn(
+        () =>
+          new MockLanguageModelV3({
+            provider: 'openai.chat',
+            modelId: 'gpt-test',
+          }),
+      ),
+    });
     createOpenAIMock.mockReturnValue(openaiProvider);
     streamTextMock.mockReturnValue({});
 
@@ -237,7 +247,6 @@ describe('ModelClient', () => {
     });
     // A non-OpenAI endpoint still speaks the Responses wire the entry's type
     // selects; a base URL never moves the request to Chat Completions.
-    expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
     expect(streamTextMock.mock.calls[0]?.[0]).toMatchObject({
       model: { provider: 'openai.responses', modelId: 'gpt-test' },
     });
