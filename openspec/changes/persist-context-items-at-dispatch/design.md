@@ -9,9 +9,10 @@ See proposal.md (Why). Line references are to master `72add0f6`.
   part repository). Every other accepted-turn item (`temporal`, model switch,
   availability, Workspace, digest, catalog notice, accepted-turn
   `instructions`) is staged in memory
-  (`deriveAttemptStagedContext` around L4393-4537, `placeInstructionsPart`
-  around L2700-2740) and prepended to the user message only by
-  `persistFinishedContext` on completion (L3324-3401).
+  (`deriveAttemptStagedContext` around L4393-4537, and `placeInstructionsPart`
+  at L612, called from `refreshTurnInstructions` around L2699-2740) and
+  prepended to the user message only by `persistFinishedContext` on
+  completion (L3324-3401).
 - In-Run items: `onStepStart` stages an in-Run `instructions` bundle into the
   live collector (L1720-1733). Only a completed settlement publishes it;
   `withoutContextItems` strips it from every other outcome, and the comment at
@@ -122,13 +123,20 @@ Rejected:
 - Staging in `runs.context_items`: a second authority beside
   `messages.parts`.
 
-### D2: Accepted-turn items use a per-item idempotent insert
+### D2: Each dispatch inserts its own accepted-turn items once
 
-Every accepted-turn item is inserted with a per-item identity: producer, form,
-and text, or a producer-specific identity where one exists, as
-`skill-activation` already uses. A producer + runId key would suppress a
-retry's second `workspace`, `tool-availability`, or `recency-digest` item.
-The insert is idempotent per identity.
+Accepted-turn items carry no per-item identity, and no insert dedupes by
+text. Each dispatch transaction inserts the items it derived exactly once,
+and the attempt fence (D1) lets that transaction commit at most once per
+attempt. A producer + runId key, as the pre-dispatch `prompt-imports` and
+`skill-activation` repositories use, would suppress a retry's second
+`workspace`, `tool-availability`, or `recency-digest` item; a key on producer,
+form, and text would suppress a legitimate repeated transition, such as a
+tool going unavailable, then available, then unavailable again across
+retries, which is stored again. The retry rule below derives only items new
+relative to the stored state, so no dedupe is needed. `prompt-imports` and
+`skill-activation` keep their own per-Run identity: they are facts stored
+before dispatch, not dispatch items.
 
 The first dispatch of a Run inserts at producer rank around the facts stored
 before dispatch (`prompt-imports`, `skill-activation`), so a turn that
@@ -200,10 +208,15 @@ that last dispatched.
 
 An earlier attempt's events therefore never merge into a later attempt's
 reply, and the #1177 crash path keeps the output with the items it was
-produced under. When a finalizer finds no reply row (a Run dispatched before
-the reply layer, or under master), it creates the reply from the Run's full
-event log as today, with no in-Run items, and writes terminal usage per
-`run-usage-accounting`.
+produced under. When a finalizer finds no reply row, the Run's event log
+decides. A Run whose log has a `model.requested` event dispatched before the
+reply layer existed (under master, or accepted before this layer); the
+finalizer creates its reply from the Run's full event log as today, with no
+in-Run items, and writes terminal usage per `run-usage-accounting`. A Run
+whose log has no `model.requested` never dispatched (cancellation before
+start, a pickup or claim failure before dispatch); the finalizer writes no
+reply and no usage, as `run-usage-accounting` requires for a Run with no
+dispatched attempt.
 
 In-Run item position: each in-Run item write stores, in one fenced
 transaction, the reply's current part snapshot: the attempt's text,
@@ -217,16 +230,18 @@ a step's tool parts by admission rather than reservation, or lacks one. No
 envelope field is added. `withoutContextItems` is deleted; the live collector
 stays the source for settlers that hold it.
 
-Terminal usage: every finalizer writes an explicit terminal usage object with
-status (`completed`, `error`, or `aborted`, per `run-usage-accounting`),
-`complete`, `runId`, `attemptId`, `modelId`, `effort`, and `permissionMode`
-when present, even when it has no parts and no telemetry. A finalizer whose
-own attempt is not the attempt named in the reply usage (any settler outside
-an executing attempt, and a later attempt that ends before its own dispatch)
-writes the terminal status, `complete: false`, and the running usage's
-`runId`, `attemptId`, `modelId`, `effort`, and `permissionMode` when present,
-with no tokens, latency, or measured size. A usage object without a status
-would otherwise read as completed (`assistant-completion.ts:16-18`).
+Terminal usage: every finalizer that finds or creates a reply writes an
+explicit terminal usage object with status (`completed`, `error`, or
+`aborted`, per `run-usage-accounting`), `complete`, `runId`, `attemptId`,
+`modelId`, `effort`, and `permissionMode` when present, even when it has no
+parts and no telemetry; its `billing` is resolved then, since the `running`
+usage carries none. A finalizer whose own attempt is not the attempt named in
+the reply usage (any settler outside an executing attempt, and a later
+attempt that ends before its own dispatch) writes the terminal status,
+`complete: false`, and the running usage's `runId`, `attemptId`, `modelId`,
+`effort`, and `permissionMode` when present, with no tokens, latency, or
+measured size. A usage object without a status would otherwise read as
+completed (`assistant-completion.ts:16-18`).
 
 Rejected:
 
@@ -285,11 +300,12 @@ previous completed Run's receipt through `completed_attempt_id`.
 One repository-level reply finalizer, callable from both the chat module and
 the run worker, ends every terminal path with the reply in a terminal status:
 the live collector's parts when the settler holds them, otherwise parts
-rebuilt from the named attempt's events around the stored items, or a reply
-created from the Run's full event log when none exists (D3), and terminal
-usage written even when the parts are empty. The event rebuild and the
-open-tool settlement move with it, because `ChatLoopService` cannot call
-`RunExecutionService`. Its callers:
+rebuilt from the named attempt's events around the stored items, or, when no
+reply row exists, a reply created from the Run's full event log only if that
+log has a `model.requested` event (D3); terminal usage is written even when
+the parts are empty. A Run that never dispatched gets no reply and no usage.
+The event rebuild and the open-tool settlement move with it, because
+`ChatLoopService` cannot call `RunExecutionService`. Its callers:
 
 - completion, failure, cancellation, and expiry by the worker;
 - retry exhaustion (dead letter) and cancellation before start;
@@ -467,3 +483,16 @@ None.
     observation (D2).
   - Tasks: the reply PR body carries `Closes #1177`; SPEC.md §9.7 and the
     `model-system-prompts` Purpose sentence get update tasks.
+- v4 (2026-10-10), GitHub review:
+  - A finalizer that finds no reply row creates one from the Run's full event
+    log only when that log has a `model.requested` event; a Run that never
+    dispatched gets no reply and no usage (D3, D6).
+  - Accepted-turn items carry no per-item identity or text dedupe: each
+    dispatch transaction inserts its own items once under the attempt fence,
+    so a repeated availability transition across retries is stored again
+    (D2).
+  - `run-usage-accounting` "Usage records its billing mode" is modified: the
+    `running` usage carries no `billing`, and the terminal usage that
+    replaces it does.
+  - Context: `placeInstructionsPart` is cited at L612 and its caller
+    `refreshTurnInstructions` at L2699-2740.

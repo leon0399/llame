@@ -68,7 +68,7 @@ A model request reports its usage when the provider delivers that request's usag
 
 ### Requirement: Every terminal assistant turn keeps its known usage
 
-When a Run ends failed, cancelled, or expired after its executing attempt started at least one model request, including a cancellation that settles while a tool call is still open, the persisted assistant message usage SHALL contain the aggregate of that attempt's requests that reported before the Run ended, with `complete: false`, and SHALL carry the executing `modelId`, the recorded effort when present, the attempt's latency, and a non-completed turn status (`error` for a failed Run, `aborted` for a cancelled or expired one). The one exception is an attempt that completed after another writer had already expired the Run: its salvaged usage keeps the attempt's own `completed` status, as today, and records `complete: false`. It SHALL NOT record zero tokens or zero cost for requests that did not report. A Run that ends before any of its attempts dispatched a model request has no reply of its own and records no usage, as today. A finalizer whose own attempt is not the attempt named in the reply's `running` usage, whether a settlement performed outside an executing attempt (dead-letter expiry, settlement after recovery from an unsettled native effect, cancellation before an attempt starts, admission expiry, or failure at pickup) or a later attempt that fails, is cancelled, or expires before its own dispatch, SHALL replace that `running` usage with the turn status (`error` for a failed Run, `aborted` for a cancelled or expired one), `complete: false`, the `runId`, `attemptId`, `modelId`, effort, and `permissionMode` recorded on the `running` usage when present, and `billing`, and SHALL record no token counts, no latency, and no measured context size, with `costUsd` as for usage on which no request reported. A cancelled turn settled with an open tool call SHALL therefore carry the same non-completed status as any other cancelled turn, and SHALL be retryable and excluded from conversation evidence exactly as those turns are.
+When a Run ends failed, cancelled, or expired after its executing attempt started at least one model request, including a cancellation that settles while a tool call is still open, the persisted assistant message usage SHALL contain the aggregate of that attempt's requests that reported before the Run ended, with `complete: false`, and SHALL carry the executing `modelId`, the recorded effort when present, the attempt's latency, and a non-completed turn status (`error` for a failed Run, `aborted` for a cancelled or expired one). The one exception is an attempt that completed after another writer had already expired the Run: its salvaged usage keeps the attempt's own `completed` status, as today, and records `complete: false`. It SHALL NOT record zero tokens or zero cost for requests that did not report. A Run that ends before any of its attempts dispatched a model request, so its event log has no `model.requested` event, has no reply of its own and records no usage, as today: its finalizer creates no reply and writes no usage. A finalizer whose own attempt is not the attempt named in the reply's `running` usage, whether a settlement performed outside an executing attempt (dead-letter expiry, settlement after recovery from an unsettled native effect, cancellation before an attempt starts, admission expiry, or failure at pickup) or a later attempt that fails, is cancelled, or expires before its own dispatch, SHALL replace that `running` usage with the turn status (`error` for a failed Run, `aborted` for a cancelled or expired one), `complete: false`, the `runId`, `attemptId`, `modelId`, effort, and `permissionMode` recorded on the `running` usage when present, and `billing`, and SHALL record no token counts, no latency, and no measured context size, with `costUsd` as for usage on which no request reported. A cancelled turn settled with an open tool call SHALL therefore carry the same non-completed status as any other cancelled turn, and SHALL be retryable and excluded from conversation evidence exactly as those turns are.
 
 #### Scenario: A failure after a completed tool request
 
@@ -100,3 +100,42 @@ When a Run ends failed, cancelled, or expired after its executing attempt starte
 - **THEN** the reply usage records status `error` or `aborted` as the Run's terminal status requires, `complete: false`, and the `runId`, `attemptId`, `modelId`, effort, and `permissionMode` of the `running` usage it replaces, each when present
 - **AND** it records no token counts, no latency, and no measured context size
 - **AND** no reply of that Run keeps status `running`
+
+### Requirement: Usage records its billing mode
+
+Every newly persisted assistant message usage other than the `running` usage a dispatch transaction writes on a Run's reply, and every newly published compaction usage, SHALL carry `billing`, with the value `usage` when the executing model is billed per token and `subscription` when it runs under a flat plan. The value SHALL be resolved when the record is written, in this order: the model entry's `billing` when declared, otherwise the provider entry's `billing` when declared, otherwise `subscription` for `openai-codex` and `opencode-go` providers and `usage` for every other provider type. A persisted `billing` value SHALL NOT be recomputed when configuration later changes. Billing mode SHALL NOT change how tokens or `costUsd` are computed. The `running` usage SHALL carry no `billing`; this rule SHALL apply to the terminal usage that replaces it, which resolves `billing` when it is written, including a terminal usage that records no token counts.
+
+#### Scenario: A subscription provider defaults to subscription
+
+- **WHEN** a Run completes on an `openai-codex` or `opencode-go` model that declares no `billing` and whose provider declares none
+- **THEN** the assistant message usage records `billing: "subscription"`
+
+#### Scenario: A metered provider defaults to usage
+
+- **WHEN** a Run completes on an `openai-responses`, `openai-completions`, or `anthropic-messages` model with no `billing` declared on the model or its provider
+- **THEN** the assistant message usage records `billing: "usage"`
+
+#### Scenario: The provider declaration overrides the type default
+
+- **WHEN** an `openai-completions` provider serving a subscription gateway declares `billing: "subscription"` and its model declares none
+- **THEN** the assistant message usage records `billing: "subscription"`
+
+#### Scenario: The model declaration overrides the provider
+
+- **WHEN** a model declares `billing: "usage"` under a provider that declares or defaults to `subscription`
+- **THEN** the assistant message usage records `billing: "usage"`
+
+#### Scenario: A priced subscription model still records its cost
+
+- **WHEN** a subscription model declares `pricingUsdPer1M` and a Run completes on it
+- **THEN** the assistant message usage records `billing: "subscription"` and the same `costUsd` a metered model at those rates would record
+
+#### Scenario: A configuration change does not relabel history
+
+- **WHEN** an operator changes a provider's `billing` after Runs completed on it
+- **THEN** those Runs' persisted usage keeps the `billing` value recorded when it was written
+
+#### Scenario: A compaction records the billing mode of its model
+
+- **WHEN** a compaction publishes using a model whose resolved billing mode is `subscription`
+- **THEN** the compaction's usage records `billing: "subscription"`

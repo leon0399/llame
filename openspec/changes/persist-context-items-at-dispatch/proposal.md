@@ -32,10 +32,12 @@ only reader is an endpoint no client calls.
   that holds the attempt's live output persists it with its in-Run items in
   place, so a completing turn is stored as today; any other settler rebuilds
   the reply from the event log of the attempt that last dispatched, around
-  the stored items, or creates it from the Run's full log when no reply row
-  exists. A retry resets the reply in its own dispatch transaction, which
-  removes a dead attempt's output and in-Run items together; a retry that
-  fails before dispatching leaves the earlier reply untouched.
+  the stored items. When no reply row exists, it creates the reply from the
+  Run's full log only if that log records a dispatched model request (a Run
+  dispatched before this change); a Run that never dispatched gets no reply
+  and no usage. A retry resets the reply in its own dispatch transaction,
+  which removes a dead attempt's output and in-Run items together; a retry
+  that fails before dispatching leaves the earlier reply untouched.
 - History, public shares, forks, and the chat-list preview skip a `running`
   reply; the live stream renders it, and it appears in history once it is
   finalized. A fork anchored on a `running` reply is not found.
@@ -54,14 +56,16 @@ only reader is an endpoint no client calls.
   assistant reply in the Chat below the triggering message, whatever its
   status and whether or not a checkpoint absorbed it, so a switch the model
   was already told about is not announced again.
-- Accepted-turn items are inserted with a per-item identity, at producer rank
-  on a Run's first dispatch. A retry after an earlier attempt dispatched
-  keeps the items that dispatch stored, derives each producer again against
-  those items and the state their dispatch advanced, and appends only what is
-  new (for example a detach notice or a correcting availability reminder)
-  after them, generalizing the existing `prompt-imports` and skill-activation
-  precedent. A retry of a Run with no dispatched attempt stores everything as
-  a first attempt does.
+- Each dispatch transaction inserts its own accepted-turn items once, under
+  the attempt fence, with no per-item identity or text dedupe; on a Run's
+  first dispatch they go at producer rank around the `prompt-imports` and
+  skill-activation facts stored before dispatch. A retry after an earlier
+  attempt dispatched keeps the items that dispatch stored, derives each
+  producer again against those items and the state their dispatch advanced,
+  and appends only what is new (for example a detach notice or a correcting
+  availability reminder) after them, so a transition that repeats across
+  retries is stored again. A retry of a Run with no dispatched attempt stores
+  everything as a first attempt does.
 - **BREAKING (API)**: `runs.context_items` and
   `GET /api/v1/runs/{id}/context-items` are removed. The transcript is the
   record of what the model saw.
@@ -174,7 +178,9 @@ None.
   earlier reply; "Every terminal assistant turn keeps its known usage" makes
   every finalizer write terminal status and identity fields, with
   `complete: false` and no token counts when the finalizer's own attempt is
-  not the one named in the reply usage.
+  not the one named in the reply usage; "Usage records its billing mode"
+  exempts the `running` usage from `billing`, which the terminal usage that
+  replaces it carries.
 
 Deliberately unchanged: `prompt-imports` and `agent-skills` (already persisted
 before the first request), `temporal-anchor`, `search-projection`,
