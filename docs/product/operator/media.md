@@ -124,13 +124,10 @@ that is not a canonical UUID all return the same `404`.
 | `GET /api/v1/media/:id/original` | the original bytes, unchanged        |
 | `GET /api/v1/media/:id/model`    | the model variant bytes              |
 
-The web client loads every chat thumbnail (an owner attachment, a `read` image
-result in its tool card, a prompt-import image) from `/model`. Activating a
-thumbnail opens a lightbox over every image of the loaded transcript in
-transcript order (only the unsent images when opened from the composer). Each
-slide's sizes, formats, provenance, and locator come from
-`GET /api/v1/media/:id`, and a toggle switches the shown image between
-`/model` and `/original`.
+The web client loads every chat thumbnail from `/model`, builds each lightbox
+slide from `GET /api/v1/media/:id`, and loads `/original` only when the owner
+switches a slide to it. What the owner sees is described under
+[`media://` behavior](../reference/locators/media.md#behavior).
 
 ### Upload
 
