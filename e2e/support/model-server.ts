@@ -1190,6 +1190,67 @@ async function respondToChatCompletion(
 
 const HOLD_CONTROL_RE = /^\/hold\/([A-Za-z0-9_-]+)(\/release)?$/;
 
+/** The title the mock returns for a structured title request. */
+const E2E_GENERATED_TITLE = "E2E Generated Title";
+
+/**
+ * Title generation forces the `generate_title` tool on a non-streaming
+ * request. Every other branch of this mock streams SSE, which the client
+ * rejects as "Invalid JSON response" and falls back to text titles, so the
+ * structured path would otherwise never run end to end.
+ */
+function respondToStructuredTitle(res: ServerResponse, raw: string): boolean {
+  let body: {
+    stream?: boolean;
+    tool_choice?: { function?: { name?: string } };
+  };
+  try {
+    // SAFETY: raw is this fixture's own /chat/completions request body from
+    // the api's OpenAI-compatible client; only the optional `stream` flag and
+    // the forced tool name are read, and both are checked before use.
+    body = JSON.parse(raw) as typeof body;
+  } catch {
+    return false;
+  }
+  if (
+    body.stream === true ||
+    body.tool_choice?.function?.name !== "generate_title"
+  ) {
+    return false;
+  }
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(
+    JSON.stringify({
+      id: "chatcmpl-e2e-title",
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: "e2e-model",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call_e2e_title",
+                type: "function",
+                function: {
+                  name: "generate_title",
+                  arguments: JSON.stringify({ title: E2E_GENERATED_TITLE }),
+                },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+    }),
+  );
+  return true;
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/ready") {
     res.writeHead(200).end("ok");
@@ -1229,6 +1290,7 @@ const server = http.createServer((req, res) => {
       raw += part.toString();
     });
     req.on("end", () => {
+      if (respondToStructuredTitle(res, raw)) return;
       void respondToChatCompletion(res, raw);
     });
     return;
