@@ -761,7 +761,7 @@ describe('media sizing (vision-media D6)', () => {
     });
   });
 
-  describe('a tool-result image on a wire that moves it out of the tool message', () => {
+  describe('a tool-result image', () => {
     const call: ModelMessage = {
       role: 'assistant',
       content: [
@@ -779,28 +779,27 @@ describe('media sizing (vision-media D6)', () => {
         { type: 'tool-result', toolCallId: 'call-1', toolName: 'read', output },
       ],
     });
-    const estimateOn = (moveToolImages: boolean) =>
-      estimateModelRequestTokens({
-        ...request([
-          call,
-          result({
-            type: 'content',
-            value: [
-              { type: 'text', text: 'envelope' },
-              { type: 'image-url', url: `media://${A}` },
-            ],
-          }),
-        ]),
-        media: {
-          descriptors: new Map([[A, screenshot(1000)]]),
-          statuses: ['attached'],
-          imageInput: true,
-          moveToolImages,
-        },
-      });
 
-    it('counts the moved-image lines the Chat Completions wires send', () => {
-      expect(estimateOn(true)).toBe(
+    it('is sized in the form the Chat Completions wires move it to, on every wire', () => {
+      expect(
+        estimateModelRequestTokens({
+          ...request([
+            call,
+            result({
+              type: 'content',
+              value: [
+                { type: 'text', text: 'envelope' },
+                { type: 'image-url', url: `media://${A}` },
+              ],
+            }),
+          ]),
+          media: {
+            descriptors: new Map([[A, screenshot(1000)]]),
+            statuses: ['attached'],
+            imageInput: true,
+          },
+        }),
+      ).toBe(
         estimateModelRequestTokens(
           request([
             call,
@@ -812,15 +811,6 @@ describe('media sizing (vision-media D6)', () => {
           ]),
         ) + 3000,
       );
-    });
-
-    it('counts no moved-image lines on the Responses wire', () => {
-      expect(estimateOn(false)).toBe(
-        estimateModelRequestTokens(
-          request([call, result({ type: 'text', value: 'envelope' })]),
-        ) + 3000,
-      );
-      expect(estimateOn(false)).toBeLessThan(estimateOn(true));
     });
   });
 

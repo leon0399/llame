@@ -132,8 +132,8 @@ export function imageOverflowCompacts(
  * `media` (vision-media D6), never by image bytes: each image an image-input
  * model receives is charged `ceil(w × h / 750)` tokens on its model variant,
  * every other reference counts as its placeholder text, every reference as
- * its label, and a wire that moves tool-result images out of the tool
- * messages counts the lines that move adds.
+ * its label, and tool-result images are sized in their moved form (see
+ * `projectSizedText`).
  */
 function estimateProjectionTokens(
   projection: {
