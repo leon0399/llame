@@ -56,10 +56,16 @@ lines in order:
 - the table stays open through each following line until a blank line or a
   line that starts an ATX heading, fence, thematic break, blockquote, list
   item, HTML block, or indented code, the oracle's ending set rather than the
-  narrower paragraph-interruption set; when the ending line is root paragraph
-  text to CommonMark and starts a non-empty list item or an HTML block, it and
-  the lines after it up to the next blank line cannot open a table, because
-  GFM continues that list item or HTML block there;
+  narrower paragraph-interruption set; a type-7 HTML line such as `<span>`
+  alone ends a table, while `<span>x</span>` is a body row;
+- when the ending line is root paragraph text to CommonMark and starts a list
+  item, the tracker follows that GFM-only list with the scanner's own list item
+  and laziness rules, applied from that line, and no line before the list ends
+  can open a table: lazy lines, lines indented to an item's content column, and
+  blank lines inside the list stay in it, while `# H`, `***`, a fence, or `>`
+  ends it as GFM does; when the ending line starts an HTML block, no line up to
+  the next blank line can open a table, since a type-7 block ignores headings;
+  this following never changes a heading decision;
 - a line decided as part of a heading closes the table and belongs to none of
   it.
 
@@ -70,10 +76,18 @@ table lines into heading text before the tracker sees them; past the window
 end, the existing rule treats an undecided line as not a heading.
 
 Where GFM and this overlay differ, the overlay keeps CommonMark's heading
-decision (proposal T4): table lines followed by `===` or `---` are a setext
-heading here and a table plus a body row or thematic break under GFM. A round-2 comparison of
-this definition with the oracle on 229 adversarial inputs left exactly those
-setext cases as disagreements.
+decision (proposal T4). Lines that already form a table, header and delimiter
+rows included, followed by `===` or `---` are a setext heading here and a table
+plus a body row or thematic break under GFM. An underline in the delimiter
+row's place, as in `a | b` then `---`, or one after paragraph lines with no
+delimiter row, is a setext heading under both, so those cases match the
+oracle. A heading line inside a GFM-only list item or HTML block, such as
+`# H` indented three columns after `2. item` or `# H` after `<span>`, is a root
+heading here and container content under GFM. The round-3 comparison of this
+definition with the oracle on 229 adversarial inputs left only the 15 setext
+cases as disagreements; round 4 found that ending the list rule at the next
+blank line misread lists that end at a heading or continue past a blank line,
+now fixed.
 
 - Alternative: let tables win over setext headings as GFM does. Rejected: it
   changes shipped heading sections, `:outline` entries, and ancestor chains

@@ -45,10 +45,11 @@ SHALL have the same cell count.
 
 ### Requirement: Root GFM table cells
 
-Cells SHALL be counted by splitting a row on every pipe not escaped by an odd
-number of backslashes, including pipes inside code spans, after removing one
-leading and one trailing pipe and, on line 1, one leading U+FEFF. A row that
-is a single pipe SHALL have no cells.
+Cells SHALL be counted by removing, on line 1, one leading U+FEFF, splitting
+the row at every pipe not escaped by an odd number of backslashes, including
+pipes inside code spans, and then dropping the first field and the last field
+when each contains only spaces or tabs. A row that is a single pipe therefore
+has no cells, and `| a | b` has two.
 
 #### Scenario: A pipe in a code span splits a cell
 
@@ -76,9 +77,10 @@ without a pipe or a link reference definition, SHALL be a body row.
 
 A line the CommonMark heading rules decide is part of a heading SHALL end the
 table before it and belong to no table. When a table is ended by a line that
-CommonMark decides is root paragraph text and that starts a non-empty list
-item or an HTML block, that line and each line after it up to the next blank
-line SHALL NOT start a table.
+CommonMark decides is root paragraph text, no table SHALL start on that line
+or on a following line that GFM keeps in the block it starts: for a list item,
+until its list ends under the CommonMark list item and laziness rules; for an
+HTML block, up to the next blank line.
 
 #### Scenario: Rows after a list item that ended a table are not a new table
 
@@ -89,6 +91,16 @@ line SHALL NOT start a table.
 
 - **WHEN** a table is ended by `# H`, which is followed by another header row, delimiter row, and body row, and a range starts at that body row
 - **THEN** the second table's header pair is emitted before the window
+
+#### Scenario: A table after the end of a list that ended a table has a header
+
+- **WHEN** a table is ended by `2. item`, which is followed without a blank line by `# H` and then another header row, delimiter row, and body row, and a range starts at that body row
+- **THEN** the second table's header pair is emitted before the window
+
+#### Scenario: A table that GFM keeps in a list that ended a table gets no header
+
+- **WHEN** a table is ended by `2. item`, which is followed by a blank line and then a header row, delimiter row, and body row each indented three spaces, and a range starts at that body row
+- **THEN** no header pair is emitted, because GFM keeps those rows in the list item
 
 #### Scenario: A setext heading over table lines takes precedence
 
