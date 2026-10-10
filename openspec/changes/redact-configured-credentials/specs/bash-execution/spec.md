@@ -10,9 +10,10 @@ reordering, or deleting lines, except that every member of the instance's
 configured credential set (`instance-config`) SHALL be replaced with
 `[REDACTED]` before the result leaves the executor. The bound SHALL be
 applied to the raw output's positions without splitting a member match, and
-a fragment at a truncation point that is a prefix of a member SHALL be
-dropped. Secrets a bound Workspace's own MCP configuration resolves are not
-members. The delimiter neutralization
+a fragment at a forced stream close that is a prefix of a member SHALL be
+dropped; no cut or drop SHALL expose any part of a member match. Secrets a
+bound Workspace's own MCP configuration resolves are not members. The
+delimiter neutralization
 every model-facing tool result receives SHALL still apply to the copy the model
 reads. After timeout settlement proves the process group stopped, the watcher
 SHALL drain output for at most 50 ms; a stream still open at that bound SHALL be
@@ -51,8 +52,13 @@ marked truncated and destroyed.
 
 #### Scenario: An earlier redaction does not expose a later credential
 
-- **WHEN** a command prints a configured credential near the start of stdout and a second, longer than `[REDACTED]`, just past the stdout bound
+- **WHEN** a command prints a configured credential longer than `[REDACTED]` near the start of stdout and a second, the longest member, beginning just past the stdout bound
 - **THEN** the result contains `[REDACTED]` for the first and no prefix of the second
+
+#### Scenario: A credential ending at the cut is redacted whole
+
+- **WHEN** a configured credential crosses the stdout bound and its last character is the first character of another member
+- **THEN** the result contains `[REDACTED]` for it and no part of it
 
 #### Scenario: Non-credential configuration survives
 

@@ -46,9 +46,9 @@ None.
 
 ### Modified Capabilities
 
-- `instance-config`: four new requirements defining the set.
+- `instance-config`: five new requirements defining the set.
 - `bash-execution`: "Command results are bounded and explicit" names the set
-  and the redact-before-bound rule.
+  and the raw-position cut that never splits a member.
 - `provider-api-selection`: a new requirement for failures on every wire, and
   "Chat Completions failures reach the run as bounded messages" qualified with
   redaction.

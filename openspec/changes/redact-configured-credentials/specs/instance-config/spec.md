@@ -7,7 +7,7 @@ held only in process memory and never serialized to an API, an event, a log,
 or model context. It SHALL NOT narrow "Resolved secret values are never
 exposed". A value shorter than 8 characters SHALL NOT be a member. A name is
 credential-shaped when it contains, ignoring case, `authorization`, `cookie`,
-`token`, `key`, `secret`, or `password`.
+`credential`, `token`, `key`, `secret`, `passw`, or `signature`.
 
 #### Scenario: The set is never serialized
 
@@ -24,41 +24,53 @@ credential-shaped when it contains, ignoring case, `authorization`, `cookie`,
 
 The set SHALL contain each provider `key` and `openai-codex` `accountId`, each
 `brave`, `exa`, `perplexity`, and `exa-mcp` engine `key`, and the `github`
-adapter `token`, written literally or interpolated; the `POSTGRES_URL`
-connection string and its password, and `PGPASSWORD` when set; and, for every
-`{path:…|json:…}` substitution that is a member, each string leaf of the
-selected document whose property name is credential-shaped.
+adapter `token`, written literally or interpolated; and the `POSTGRES_URL`
+connection string, its password percent-encoded and decoded, and
+`PGPASSWORD` when set.
 
 #### Scenario: Credential fields are members
 
 - **WHEN** a provider declares `key: "{env:OPENAI_KEY}"`, a `brave` engine declares a literal `key`, and the `github` adapter declares `token: "{env:GH_TOKEN}"`
 - **THEN** the set contains each of those resolved values
 
-#### Scenario: A selected JSON document contributes its other secrets
-
-- **WHEN** an `openai-codex` provider's `key` is `{path:/run/secrets/codex-auth.json|json:/tokens/access_token}` and that file also holds `tokens.refresh_token`, `tokens.id_token`, and a `last_refresh` timestamp
-- **THEN** the set contains the access token, the refresh token, and the id token
-- **AND** it does not contain the timestamp
-
 #### Scenario: The database password is a member
 
 - **WHEN** `POSTGRES_URL` is `postgres://app:pw-canary-1065@db:5432/llame`
 - **THEN** the set contains the whole connection string and `pw-canary-1065`
 
+### Requirement: A selected JSON document contributes its credential leaves
+
+For every `{path:…|json:…}` substitution that is a member, the set SHALL also
+contain each string leaf of the selected document whose own property name is
+credential-shaped, or that is an element of an array under such a name, read
+in the same file read that selects the value.
+
+#### Scenario: A Codex auth document contributes its tokens
+
+- **WHEN** an `openai-codex` provider's `key` is `{path:/run/secrets/codex-auth.json|json:/tokens/access_token}` and that file also holds `tokens.refresh_token`, `tokens.id_token`, and a `last_refresh` timestamp
+- **THEN** the set contains the access token, the refresh token, and the id token
+- **AND** it does not contain the timestamp
+
 ### Requirement: Substitutions in credential-bearing values are members
 
 The set SHALL contain each resolved `{env:…}` or `{path:…}` substitution
-inside a provider entry's `headers` or `baseUrl`, a remote MCP server's `url`
-or `headers`, a `searxng` engine's `baseUrl`, and a stdio MCP server's `env`
-values; and each literal header value, provider or remote MCP, whose header
-name is credential-shaped. It SHALL NOT contain the literal text around a
-substitution.
+inside a provider entry's or remote MCP server's `headers`, or a stdio MCP
+server's `env` values; each such substitution that resolves within the
+userinfo or query of a provider or `searxng` `baseUrl` or a remote MCP `url`;
+and each literal header value whose header name is credential-shaped. It SHALL
+NOT contain the literal text around a substitution or a `:-` fallback written
+in the file.
 
 #### Scenario: Header and URL substitutions are members
 
 - **WHEN** a provider header is `"Authorization": "Bearer {path:/run/secrets/gw}"` and a remote MCP `url` is `https://mcp.example/mcp?apiKey={env:MCP_KEY}`
 - **THEN** the set contains the resolved file contents and the resolved `MCP_KEY`
 - **AND** it does not contain `Bearer`, a header name, or `https://mcp.example/mcp?apiKey=`
+
+#### Scenario: An endpoint is not a member
+
+- **WHEN** a provider `baseUrl` is `{env:OPENAI_BASE_URL:-http://localhost:11434/v1}` and `OPENAI_BASE_URL` is set to `https://gateway.example/v1` or unset
+- **THEN** neither URL is in the set
 
 #### Scenario: Only credential-shaped literal headers are members
 

@@ -48,9 +48,11 @@
 `loadInstanceConfig` collects members as it resolves each field, rather than
 re-deriving them afterwards: whole values for credential fields; the
 `substituted` values from `interpolateStringWithSubstitutions` for provider and
-remote MCP headers, provider and SearXNG base URLs, the remote MCP `url`, and
-stdio `env`; literal header values under a credential-shaped name; and
-`POSTGRES_URL`, its parsed password, and `PGPASSWORD`. A `{path:…|json:…}`
+remote MCP headers and stdio `env`, excluding `:-` fallback text; for provider
+and SearXNG base URLs and the remote MCP `url`, only substitutions whose
+resolved span lies in the parsed URL's userinfo or query; literal header values
+under a credential-shaped name; and `POSTGRES_URL`, its parsed password in both
+percent-encoded and decoded spellings, and `PGPASSWORD`. A `{path:…|json:…}`
 substitution that is a member also contributes the credential-shaped string
 leaves of its document, together with each leaf's JSON-escaped spelling when
 that differs. `@workspace/config-interpolation` reports those leaves from the
