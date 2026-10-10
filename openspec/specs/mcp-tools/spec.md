@@ -174,11 +174,11 @@ For disconnect and reconnect disclosure, a process SHALL retain the exact identi
 #### Scenario: Refused declaration remains invisible
 
 - **WHEN** a declaration from an allowlisted namespace fails schema, collision, secret, or other admission checks
-- **THEN** its id and declaration enter neither the executable catalog nor the current runtime availability state used for successful-turn comparison
+- **THEN** its id and declaration enter neither the executable catalog nor the current runtime availability state used for comparison against the most recent prior dispatched Run's id/state record
 
 #### Scenario: Exact permission does not manufacture identity
 
-- **WHEN** an exact MCP `tools.allowed` entry names an id absent from both the fresh process's admitted or remembered source inventory and the previous successful turn's comparison record
+- **WHEN** an exact MCP `tools.allowed` entry names an id absent from both the fresh process's admitted or remembered source inventory and the comparison record of the most recent prior Run that dispatched a model request
 - **THEN** that id enters neither the executable catalog nor the current runtime availability comparison input
 
 #### Scenario: Disconnect retains identity but not authority to call
@@ -191,7 +191,7 @@ For disconnect and reconnect disclosure, a process SHALL retain the exact identi
 
 - **WHEN** fresh complete rediscovery succeeds after a disconnect
 - **THEN** the newly admitted exact ids replace the server's remembered set atomically
-- **AND** later attempts compare their runtime state with the previous successful turn to disclose added, recovered, removed, or still-unavailable identities using the existing exact-id availability semantics
+- **AND** later attempts compare their runtime state with the most recent prior dispatched Run's id/state record to disclose added, recovered, removed, or still-unavailable identities using the existing exact-id availability semantics
 
 #### Scenario: Offline first start invents nothing
 
@@ -204,7 +204,7 @@ For disconnect and reconnect disclosure, a process SHALL retain the exact identi
 - **THEN** every such surface contains only its exact canonical tool id and exact admitted declaration where applicable
 - **AND** the wildcard remains only in restart-applied instance configuration
 
-This requirement SHALL not authorize persistence of tool definitions. MCP schemas and descriptions remain in worker memory; only the minimal successful-turn id/state record and ordinary call/result/reminder history may persist.
+This requirement SHALL not authorize persistence of tool definitions. MCP schemas and descriptions remain in worker memory; only the minimal id/state record written when a Run dispatches a model request and ordinary call/result/reminder history may persist.
 
 ### Requirement: MCP calls use bounded non-retrying execution and portable results
 
@@ -339,7 +339,7 @@ While ready, each instance-managed server SHALL undergo complete discovery perio
 - **THEN** reconnect work is cancelled, catalogs are withdrawn, and every live MCP client is closed within a bounded shutdown path
 - **AND** late callbacks release only captured resources and cannot publish, change state, or schedule work
 
-Within an attempt, source-declaration equality and executor/lifecycle checks SHALL remain in memory. A new queue attempt SHALL resolve fresh rather than restore a declaration from the database. Failed attempts SHALL not create model-visible history or availability comparison baselines.
+Within an attempt, source-declaration equality and executor/lifecycle checks SHALL remain in memory. A new queue attempt SHALL resolve fresh rather than restore a declaration from the database. An attempt that fails before dispatching a model request SHALL not create an availability comparison baseline.
 
 ### Requirement: MCP credentials and secret-bearing payloads never escape
 

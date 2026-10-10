@@ -145,4 +145,5 @@ This SHALL include Bash-to-edit and search-to-conversation-read advice.
 
 - **WHEN** a fresh retry admits edit alongside Bash
 - **THEN** that retry's Bash description includes the edit recommendation
-- **AND** the failed attempt supplies no earlier description or reminder to its model context
+- **AND** the failed attempt supplies no earlier description to its model context; descriptions are rendered per attempt
+- **AND** the retry keeps the accepted-turn reminders already stored on the triggering user message unchanged and in place, and may store after them a reminder newly derived against the stored availability record
