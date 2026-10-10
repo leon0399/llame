@@ -560,12 +560,21 @@ export class RunStreamBridgeService {
       }
 
       // Defensive: if the run row reached terminal without a terminal
-      // event (or was deleted), close instead of spinning.
+      // event (or was deleted), close instead of spinning. The terminal event
+      // commits with the status, so it can land between this pass's drain and
+      // the row read: drain once more before closing without it.
       if (drained.count === 0) {
         const run = await this.tenantDb.runAs(input.userId, (tx) =>
           new RunsRepository(tx).findById(input.runId, input.userId),
         );
         if (!run || isTerminalRunStatus(run.status)) {
+          await this.drainAndTranslate({
+            runId: input.runId,
+            userId: input.userId,
+            cursor,
+            translator,
+            emit,
+          });
           break;
         }
       }

@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Fixed a Run stream occasionally closing without its `finish` frame when the
+  Run settled between two of the bridge's reads, for example a queued Run
+  cancelled at worker pickup (#1180). The bridge read no events, the terminal
+  status and its event then committed together, and the following row read
+  saw the terminal status and closed the stream. The bridge now drains the
+  event log once more before closing on a terminal row, so the client receives
+  the terminal event's `finish` and `[DONE]`.
+
 - Fixed reasoning that a model emits directly before a tool call, with no text
   between them, being written to the Run's event log after that call's
   `tool.requested`, `tool.started`, and `tool.completed` events (#191). Live
