@@ -878,8 +878,10 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
 describe('createOpenAIModelClient — reasoning ahead of tool calls', () => {
   // Reasoning reaches the run through its own `fullStream` consumer, not the
   // SDK's tool path, and the run drains its reasoning buffer when a call is
-  // executed or refused. A provider can deliver a whole step in one read, so
-  // the coalesced case is the one that decides the order.
+  // executed or refused. This pins that, under the SDK's current yield points,
+  // the consumer delivers a step's reasoning first even when the provider
+  // hands over the whole step in one read, so an SDK change that reorders
+  // them fails here.
   const step: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'reasoning-start', id: 'r' },
