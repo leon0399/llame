@@ -31,8 +31,8 @@ nothing builds one for the instance.
   stdio MCP `command`, `args`, and `env` values; the userinfo and
   credential-shaped query values of provider and remote MCP URLs, however
   written; and literal header values under a credential-shaped name. An
-  8-character floor applies to every member except provider, engine, and
-  adapter credential fields.
+  8-character floor applies only to the database password, `PGPASSWORD`, and
+  a URL userinfo username; every other member counts at any nonblank length.
 - Every host `bash` result replaces each member with `[REDACTED]`. The output
   bound is applied on raw positions without splitting a member, so a
   credential crossing the bound is redacted whole. This needs an executor
@@ -51,7 +51,7 @@ None.
 
 ### Modified Capabilities
 
-- `instance-config`: six new requirements defining the set.
+- `instance-config`: seven new requirements defining the set.
 - `bash-execution`: "Command results are bounded and explicit" names the set
   and the raw-position cut that never splits a member.
 - `provider-api-selection`: a new requirement for failures on every wire, and
@@ -118,17 +118,28 @@ permission policy and a future Sandbox.
 - **A3 Selected JSON documents contribute their credential-shaped leaves.** A
   Codex auth file's refresh token is more valuable than the access token it
   sits beside; its timestamps and modes are not added.
-- **A4 An 8-character floor and one credential-shaped name rule.** Without
-  them the shipped development password `app` would turn `apps/api` into
-  `[REDACTED]s/api`, and a literal `Accept: application/json` header would be
-  redacted everywhere. The floor does not apply to provider, engine, and
-  adapter credential fields, which only need to be nonblank: a valid short
-  key would otherwise leak. The cost is that a short or common key
-  over-redacts; a keyless provider omits its key instead. A short database
-  password stays out, so it is redacted only inside the whole `POSTGRES_URL`.
-  The name rule (`authorization`, `cookie`, `credential`, `token`, `key`,
-  `secret`, `passw`, `signature`) decides which literal header values, URL
-  query values, and document leaves are members.
+- **A4 An 8-character floor for inferred values only, and one
+  credential-shaped name rule.** _Revised after review:_ the floor now
+  follows how a value became a member, not which field holds it. A value is
+  a credential by construction when it sits in a credential field, is an
+  interpolation in a credential-bearing value (a provider or MCP header, a
+  stdio `command`, `args`, or `env` value, a URL's userinfo password or
+  query), is a URL userinfo password, or sits under a credential-shaped name
+  (a literal header, a query value, a document leaf); such a value counts at
+  any nonblank length, because a valid short token would otherwise be printed
+  verbatim. The floor stays only where membership is inferred and short
+  non-secret values are common: the database password and `PGPASSWORD`
+  (the shipped development password `app` would otherwise turn `apps/api`
+  into `[REDACTED]s/api`) and a URL userinfo username (`svc`). Accepted
+  leak: such a value under 8 characters printed on its own is not redacted;
+  the database password is redacted only inside the whole `POSTGRES_URL`.
+  Accepted cost: a short or common value in any other position, including a
+  non-secret interpolated into stdio `command` or `args`, over-redacts; as
+  `mcp-tools` already says, the remedy is to write a non-secret literally,
+  and a keyless provider omits its key. The name rule (`authorization`,
+  `cookie`, `credential`, `token`, `key`, `secret`, `passw`, `signature`)
+  decides which literal header values, URL query values, and document leaves
+  are members, so `Accept: application/json` stays out.
 
 ## Non-goals
 
