@@ -98,8 +98,8 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 3.2 Prove the end-to-end path with the scripted model client, whose models declare `input` so both branches run: an uploaded image sent in a message reaches the model request as a labelled image part before the text, survives retry and fork, and becomes a placeholder for a text-only model; verify by an integration test
 - [x] 3.3 Document the message `file` part and image-only messages in `docs/product/operator/media.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 3.4 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, the touched integration suites, and a clean second OpenAPI generation
-- [ ] 3.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 3.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 3.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 3.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 4. `vision-media/vision-read-local` — images through local and media reads (design D4, D6, D7)
 
