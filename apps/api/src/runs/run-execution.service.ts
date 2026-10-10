@@ -3765,6 +3765,7 @@ export class RunExecutionService {
           estimated.messages,
           input.media,
           input.run.client.input?.includes('image') ?? false,
+          { moveToolImages: input.run.client.moveToolImages },
         )),
     });
     const summary =
@@ -3859,6 +3860,7 @@ export class RunExecutionService {
             request.messages,
             input.media,
             input.run.client.input?.includes('image') ?? false,
+            { moveToolImages: input.run.client.moveToolImages },
           )),
       })
     ) {

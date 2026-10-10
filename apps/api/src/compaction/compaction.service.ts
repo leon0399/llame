@@ -301,6 +301,7 @@ export class CompactionService {
             request.messages,
             input.media,
             client.input?.includes('image') ?? false,
+            { moveToolImages: client.moveToolImages },
           )),
       })
     ) {

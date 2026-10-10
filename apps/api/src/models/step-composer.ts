@@ -87,7 +87,9 @@ export async function composeStepMessages(
   messages: Array<ModelMessage>,
   { resolver, imageInput, moveToolImages = false }: ComposeStepOptions,
 ): Promise<Array<ModelMessage>> {
-  const sizing = await loadMediaSizing(messages, resolver, imageInput);
+  const sizing = await loadMediaSizing(messages, resolver, imageInput, {
+    moveToolImages,
+  });
   if (sizing.refs.length === 0) return messages;
   sizing.refs.forEach((ref, index) => {
     if (!isString(ref) && sizing.statuses[index] !== 'attached') {
@@ -107,10 +109,9 @@ export async function composeStepMessages(
       ? new Map<string, Uint8Array>()
       : await resolver.loadModelBytes([...new Set(sent)]);
 
-  const projected = projectMediaRefs(messages, sizing, (image) =>
+  return projectMediaRefs(messages, sizing, (image) =>
     attachedVariant(image, bytes),
   );
-  return moveToolImages ? moveToolResultImages(projected) : projected;
 }
 
 /**
@@ -198,8 +199,10 @@ function moveResultImages(
  * unavailable placeholder for an unresolvable `media://` reference; the
  * omitted one on a text-only model; the not-retained one for an unstored
  * image the attempt holds no entry for; `attach(image)` when the window
- * attaches it; and the limit one otherwise. `sizing.statuses` is aligned to
- * the end of `messages`' references, so a continuation's trailing rows project
+ * attaches it; and the limit one otherwise. With `sizing.moveToolImages`,
+ * tool-result images then move out of the tool messages (see
+ * `moveToolResultImages`). `sizing.statuses` is aligned to the end of
+ * `messages`' references, so a continuation's trailing rows project
  * with the whole request's admission.
  */
 export function projectMediaRefs(
@@ -223,7 +226,7 @@ export function projectMediaRefs(
     }
     return textOf(limitPlaceholder(subject));
   };
-  return mapMediaRefs(messages, (ref, index) => {
+  const projected = mapMediaRefs(messages, (ref, index) => {
     const status = sizing.statuses[offset + index];
     if (!isString(ref)) {
       return project(unstoredImage(ref, sizing.held), status);
@@ -233,6 +236,62 @@ export function projectMediaRefs(
       ? textOf(unavailablePlaceholder(ref))
       : project(storedImage(ref, descriptor), status);
   });
+  return sizing.moveToolImages ? moveToolResultImages(projected) : projected;
+}
+
+/** The bytes a sized projection gives each attached image (see `projectSizedText`). */
+const UNSIZED = new Uint8Array(0);
+
+/**
+ * `messages` as the composer sends them under `sizing` (see
+ * `projectMediaRefs`), with every attached image passed to `charge` and then
+ * left out: the text an estimate counts, including the lines a wire that
+ * moves tool-result images adds, while the image itself is charged by its
+ * dimensions (vision-media D6).
+ */
+export function projectSizedText(
+  messages: Array<ModelMessage>,
+  sizing: MediaSizing,
+  charge: (image: AttachedImage) => void,
+): Array<ModelMessage> {
+  const projected = projectMediaRefs(messages, sizing, (image) => {
+    charge(image);
+    return [{ type: 'image', image: UNSIZED, mediaType: image.modelMediaType }];
+  });
+  // An attached image is UNSIZED in a user message and, as `image-data`,
+  // empty base64 in a tool output or once moved out of one.
+  return projected.map((message): ModelMessage => {
+    if (message.role === 'tool') {
+      return { ...message, content: message.content.map(withoutSizedImages) };
+    }
+    if (message.role !== 'user' || !Array.isArray(message.content)) {
+      return message;
+    }
+    return {
+      ...message,
+      content: message.content.filter(
+        (part) =>
+          part.type !== 'image' ||
+          (part.image !== UNSIZED && part.image !== ''),
+      ),
+    };
+  });
+}
+
+/**
+ * `part` without the empty `image-data` items `projectSizedText` attaches;
+ * a result left with text alone is sized as a text output (see `toolOutput`).
+ */
+function withoutSizedImages(part: ToolMessagePart): ToolMessagePart {
+  if (part.type !== 'tool-result' || part.output.type !== 'content') {
+    return part;
+  }
+  const value = part.output.value.filter(
+    (item) => item.type !== 'image-data' || item.data !== '',
+  );
+  return value.length === part.output.value.length
+    ? part
+    : { ...part, output: toolOutput(value) };
 }
 
 /** A placeholder as a reference's projection. */
