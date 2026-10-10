@@ -22,7 +22,6 @@ import {
   type Message,
   type ModelToolDeclaration,
   type Run,
-  type RunContextItem,
   type RunStatus,
   type SkillCatalogBaseline,
   type TurnToolAvailabilityEntry,
@@ -89,7 +88,6 @@ import {
 import {
   CONTEXT_ITEM_PRODUCERS,
   isContextItemPart,
-  resolveForm,
   type AuthoredContextItemPart,
 } from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
@@ -397,7 +395,6 @@ type CompactionTriggerInput = {
 type PreparedFirstStep = {
   readonly request: {
     readonly prepared: PreparedExecutionContext;
-    readonly contextItems: Array<RunContextItem>;
   };
   readonly context: PreparedAttemptContext;
   readonly turnInstructions: TurnInstructions;
@@ -446,14 +443,6 @@ type FinishRunInput = {
   assistantTurn?: AssistantTurnWrite;
   synthesizedTurnTelemetry?: AssistantTurnTelemetry;
   attemptContextParts?: ReadonlyArray<MessagePart>;
-  /**
-   * The completed Run's rail record: the dispatched request's items followed
-   * by the attempt's in-Run items in emission order. Supplied only for a
-   * completed outcome, because only a completed attempt publishes an in-Run
-   * item; every other settlement keeps whatever the pre-dispatch write
-   * recorded.
-   */
-  runContextItems?: Array<RunContextItem>;
   recencyDigestInitialization?: RecencyDigestInitialization;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
   skillCatalogWrites?: SkillCatalogWrites;
@@ -578,23 +567,6 @@ type RecencyDigestInitialization = {
   baseline: NonNullable<Chat['recencyDigestBaseline']>;
   told: NonNullable<Chat['recencyDigestTold']>;
 };
-
-function toRunContextItems(
-  parts: ReadonlyArray<MessagePart>,
-): Array<RunContextItem> {
-  return parts.flatMap((part) => {
-    if (!isContextItemPart(part)) return [];
-    const form = resolveForm(part);
-    return [
-      {
-        producer: part.data.producer,
-        ...(form !== undefined && { form }),
-        residency: 'rail' as const,
-        text: part.data.text ?? '',
-      },
-    ];
-  });
-}
 
 function toTurnToolAvailability(
   manifest: AttemptToolCatalog['availabilityManifest'],
@@ -978,9 +950,6 @@ export class RunExecutionService {
     // templates, and the receipt binds last, after any checkpoint published.
     let prepared: PreparedExecutionContext;
     let attemptStagedParts: Array<MessagePart>;
-    // The request's rail record as dispatched, kept for the completed
-    // outcome's finish-time write (extended there with the in-Run items).
-    let attemptContextItems: Array<RunContextItem>;
     let attemptRecencyDigestTold:
       | NonNullable<Chat['recencyDigestTold']>
       | undefined;
@@ -1004,7 +973,6 @@ export class RunExecutionService {
         effort,
       });
       prepared = firstStep.request.prepared;
-      attemptContextItems = firstStep.request.contextItems;
       attemptStagedParts = firstStep.context.stagedParts;
       attemptRecencyDigestTold = firstStep.context.recencyDigestTold;
       attemptRecencyDigestInitialization =
@@ -1015,22 +983,20 @@ export class RunExecutionService {
         firstStep.context.toolCatalog.availabilityManifest,
       );
       turnInstructions = firstStep.turnInstructions;
-      // Recorded only once the request is final: a preparation failure means no
-      // request was ever made, and recording earlier would durably assert a
-      // request the model never received. Fenced by activeAttemptId.
-      const recorded = await this.tenantDb.runAs(input.userId, (tx) =>
+      // Fenced by activeAttemptId: reassigning the identical UUID is a
+      // deliberate no-op update that still makes a stale attempt return no row.
+      const fenced = await this.tenantDb.runAs(input.userId, (tx) =>
         new RunsRepository(tx).updateForAttempt(
           input.runId,
           input.userId,
           attemptId,
-          { contextItems: attemptContextItems },
+          { activeAttemptId: attemptId },
         ),
       );
       // A miss means the owner-scoped row is gone — the chat was deleted out
       // from under a claimed run. Executing past that would send a request on
-      // behalf of a run nobody can see, and would leave the authority record
-      // empty for it; both are worse than stopping here.
-      if (!recorded) {
+      // behalf of a run nobody can see.
+      if (!fenced) {
         throw new RunNotRunnableError(input.runId);
       }
     } catch (error) {
@@ -2012,12 +1978,6 @@ export class RunExecutionService {
             assistantTurn: turn,
             ...(status === 'completed' && {
               attemptContextParts: attemptStagedParts,
-              // The dispatched request's items, then this attempt's in-Run
-              // items in emission order (D1/publication requirement).
-              runContextItems: [
-                ...attemptContextItems,
-                ...toRunContextItems(inRunItems.parts()),
-              ],
               ...(attemptRecencyDigestInitialization !== undefined && {
                 recencyDigestInitialization: attemptRecencyDigestInitialization,
               }),
@@ -3162,17 +3122,6 @@ export class RunExecutionService {
       await events.append(input.runId, 'model.completed', input.modelCompleted);
     }
     await this.persistFinishedContext(tx, input, finished);
-    // The completed attempt appends its in-Run items to the request's record
-    // in the same transaction that publishes them on the assistant message, so
-    // the record can never list an item the model never received — or miss one
-    // it did.
-    if (input.status === 'completed' && input.runContextItems !== undefined) {
-      await runsRepo.recordContextItems(
-        input.runId,
-        input.userId,
-        input.runContextItems,
-      );
-    }
 
     const assistantMessage = await this.persistAssistantMessage(
       tx,
@@ -3479,8 +3428,7 @@ export class RunExecutionService {
           input.assistantTurn,
         );
         // The terminal transaction rolled back, so no in-Run item was
-        // published or recorded; the salvage adds back only what the user
-        // saw (design D1).
+        // published; the salvage adds back only what the user saw (design D1).
         return this.persistAssistantMessage(
           tx,
           input.userId,
@@ -3939,10 +3887,6 @@ export class RunExecutionService {
           ),
         ),
       },
-      contextItems: [
-        ...context.contextItems,
-        ...toRunContextItems(context.stagedParts),
-      ],
     };
   }
 

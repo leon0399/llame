@@ -50,7 +50,10 @@ import {
   RecencyDigestService,
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
-import { type AuthoredContextItemPart } from '../chats/context-item';
+import {
+  type AuthoredContextItemPart,
+  isContextItemPart,
+} from '../chats/context-item';
 import {
   checkpointSummary,
   createCompactionCheckpointPart,
@@ -789,18 +792,33 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
   /** Everything a turn's attempts leave behind, read at one point in time. */
   const readTurnState = (turn: Turn) =>
-    tenantDb.runAs(userId, async (tx: Db) => ({
-      run: await new RunsRepository(tx).findById(turn.runId, userId),
-      chat: await new ChatsRepository(tx).findById(turn.chatId, userId),
-      checkpoints: (
-        await new MessagesRepository(tx).findByChatId(turn.chatId, userId)
-      ).filter((row) => row.role === 'checkpoint'),
-      receipts: await new SystemPromptReceiptsRepository(tx).findByOwnedRun(
-        turn.runId,
+    tenantDb.runAs(userId, async (tx: Db) => {
+      const messages = await new MessagesRepository(tx).findByChatId(
+        turn.chatId,
         userId,
-      ),
-      events: await new RunEventsRepository(tx).listByRunId(turn.runId, userId),
-    }));
+      );
+      return {
+        run: await new RunsRepository(tx).findById(turn.runId, userId),
+        chat: await new ChatsRepository(tx).findById(turn.chatId, userId),
+        checkpoints: messages.filter((row) => row.role === 'checkpoint'),
+        /** The context-item data this turn's Run persisted on its messages. */
+        contextParts: messages.flatMap((row) =>
+          row.parts.flatMap((part) =>
+            isContextItemPart(part) && part.data.runId === turn.runId
+              ? [part.data]
+              : [],
+          ),
+        ),
+        receipts: await new SystemPromptReceiptsRepository(tx).findByOwnedRun(
+          turn.runId,
+          userId,
+        ),
+        events: await new RunEventsRepository(tx).listByRunId(
+          turn.runId,
+          userId,
+        ),
+      };
+    });
 
   describe('threshold trigger', () => {
     it('summarizes with the attempt model, its pre-re-bake prompt, schema-only declarations and effort, then sends and binds the re-baked prompt', async () => {
@@ -913,7 +931,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(railText).toContain('The chat list was refreshed.');
       expect(railText).toContain('CURRENT TRIGGER');
       expect(state.run?.status).toBe('completed');
-      expect(state.run?.contextItems).toEqual(
+      expect(state.contextParts).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             producer: 'workspace',
@@ -927,7 +945,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         ]),
       );
       // The catalog told state restarted with the baseline, so no notice rides.
-      expect(state.run?.contextItems).not.toContainEqual(
+      expect(state.contextParts).not.toContainEqual(
         expect.objectContaining({ producer: 'skill-catalog' }),
       );
       expect(state.chat).toMatchObject({
@@ -1054,7 +1072,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       );
       await first.consumeStream?.();
       const published = await readTurnState(publishing);
-      expect(published.run?.contextItems).toEqual(
+      expect(published.run?.status).toBe('completed');
+      expect(published.contextParts).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ producer: 'workspace', form: 'snapshot' }),
           expect.objectContaining({
@@ -1078,15 +1097,17 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(settled.checkpoints).toHaveLength(1);
       // Neither the Workspace snapshot nor the digest supersession re-announce
       // themselves: the checkpoint's boundary sits below the publishing turn,
-      // so each appears once, replayed from the publishing turn's own items.
-      expect(settled.run?.contextItems).toContainEqual(
+      // so each appears once in history, on the publishing turn's own items.
+      expect(settled.contextParts).toContainEqual(
         expect.objectContaining({ producer: 'temporal' }),
       );
+      const replayed = await readTurnState(publishing);
       for (const producer of ['workspace', 'recency-digest']) {
         expect(
-          settled.run?.contextItems?.filter(
-            (item) => item.producer === producer,
-          ),
+          settled.contextParts.filter((item) => item.producer === producer),
+        ).toEqual([]);
+        expect(
+          replayed.contextParts.filter((item) => item.producer === producer),
         ).toHaveLength(1);
       }
       const nextRequest = sole(nextCalls);

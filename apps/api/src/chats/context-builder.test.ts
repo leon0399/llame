@@ -341,15 +341,6 @@ describe('buildContext', () => {
           ],
         },
       ]);
-      expect(
-        result.contextItems.map(({ producer, text }) => ({ producer, text })),
-      ).toEqual([
-        { producer: 'from-a-newer-api', text: 'unknown metadata text' },
-        { producer: 'temporal', text: '' },
-        { producer: 'recency-digest', text: '' },
-        { producer: 'tool-availability', text: '   ' },
-        { producer: 'effective-context-change', text: 'stored text wins' },
-      ]);
     });
 
     it('does not sanitize or join stored user text during replay', () => {
@@ -554,7 +545,7 @@ describe('buildContext', () => {
       ]);
     });
 
-    it('emits nothing for an empty item but still records it', () => {
+    it('emits nothing for an empty item', () => {
       const assistant = msg({
         role: 'assistant',
         parts: [contextPart('')],
@@ -566,49 +557,6 @@ describe('buildContext', () => {
       });
 
       expect(result.messages).toEqual([]);
-      expect(result.contextItems).toEqual([
-        { producer: 'instructions', residency: 'rail', text: '' },
-      ]);
-    });
-
-    it('records user and assistant items in stored order', () => {
-      const turn1 = msg({
-        role: 'user',
-        senderUserId: 'user-alice',
-        parts: [
-          contextPart('turn 1 item', 'workspace'),
-          { type: 'text', text: 'hi' },
-        ],
-      });
-      const assistant = msg({
-        role: 'assistant',
-        parts: [
-          toolPart('call-1'),
-          contextPart(itemText),
-          { type: 'text', text: 'done' },
-        ],
-      });
-      const turn2 = msg({
-        role: 'user',
-        senderUserId: 'user-alice',
-        parts: [
-          contextPart('turn 2 item', 'temporal'),
-          { type: 'text', text: 'again' },
-        ],
-      });
-
-      const { contextItems } = buildContext([turn1, assistant, turn2], {
-        systemPrompt,
-        requestKind: 'continuation',
-      });
-
-      expect(
-        contextItems.map(({ producer, text }) => ({ producer, text })),
-      ).toEqual([
-        { producer: 'workspace', text: 'turn 1 item' },
-        { producer: 'instructions', text: itemText },
-        { producer: 'temporal', text: 'turn 2 item' },
-      ]);
     });
   });
 
@@ -1192,72 +1140,8 @@ describe('buildContext', () => {
     });
   });
 
-  describe('per-run record of injected items', () => {
-    const switchItem = createModelChangeItem({
-      runId: '11111111-1111-4111-8111-111111111111',
-      oldModel: { id: 'system:openai:old' },
-      newModel: { id: 'system:openai:new' },
-    });
-
-    it('records each rendered item with its producer, form, and residency', () => {
-      const triggering = msg({
-        seq: 1,
-        role: 'user',
-        senderUserId: 'user-alice',
-        parts: [switchItem, { type: 'text', text: 'Continue.' }],
-      });
-
-      const result = buildContext([triggering], {
-        systemPrompt,
-        requestKind: 'continuation',
-      });
-
-      expect(result.contextItems).toHaveLength(1);
-      expect(result.contextItems[0]).toMatchObject({
-        producer: 'effective-context-change',
-        form: 'notice',
-        residency: 'rail',
-      });
-      expect(result.contextItems[0].text).toContain('The active model changed');
-      // What was recorded is exactly what the model was sent, not a
-      // reconstruction: an item's wording is not reproducible from its part
-      // once a renderer changes.
-      expect(result.contextItems[0].text).toBe(
-        contentText(result.messages[0].content).split('\n\n')[0],
-      );
-    });
-
-    it('records the compaction checkpoint, which nothing else can reconstruct', () => {
-      const later = msg({
-        seq: 9,
-        role: 'user',
-        senderUserId: 'user-alice',
-        parts: [{ type: 'text', text: 'after the checkpoint' }],
-      });
-
-      const result = buildContext([later], {
-        systemPrompt,
-        requestKind: 'continuation',
-        checkpoint: {
-          text: 'stored checkpoint',
-          absorbedThroughSeq: 8,
-        },
-      });
-
-      // Bind-time: unlike a persisted-derived item it cannot be rebuilt from
-      // anything later, so omitting it would leave every compacted run with a
-      // permanently incomplete record.
-      expect(result.contextItems[0]).toMatchObject({
-        producer: 'compaction',
-        form: 'checkpoint',
-        residency: 'rail',
-      });
-      expect(result.contextItems[0].text).toBe(
-        contentText(result.messages[0].content),
-      );
-    });
-
-    it('records an item it cannot interpret, with empty text marking the omission', () => {
+  describe('items the builder cannot interpret', () => {
+    it('renders an item it cannot interpret as nothing', () => {
       const unknown = msg({
         seq: 2,
         role: 'user',
@@ -1282,32 +1166,7 @@ describe('buildContext', () => {
         requestKind: 'continuation',
       });
 
-      // Renders as nothing to the model, but is still recorded: dropping it
-      // would turn a declared fail-closed omission into an undetectable
-      // version-skew loss, which is the opposite of what the record is for.
-      expect(result.contextItems).toEqual([
-        {
-          producer: 'from-a-newer-api',
-          form: 'notice',
-          residency: 'rail',
-          text: '',
-        },
-      ]);
       expect(contentText(result.messages[0].content)).toBe('Continue.');
-    });
-
-    it('records an empty list for a turn that injected nothing', () => {
-      const plain = msg({
-        seq: 3,
-        role: 'user',
-        senderUserId: 'user-alice',
-        parts: [{ type: 'text', text: 'Just a question.' }],
-      });
-
-      expect(
-        buildContext([plain], { systemPrompt, requestKind: 'continuation' })
-          .contextItems,
-      ).toEqual([]);
     });
   });
 
@@ -1637,11 +1496,6 @@ describe('buildContext', () => {
         },
         { role: 'user', content: [{ type: 'text', text: 'How are you?' }] },
       ]);
-      expect(result.contextItems[0]).toMatchObject({
-        producer: 'compaction',
-        form: 'checkpoint',
-        text: '<system-reminder producer="compaction" form="checkpoint">stored wording</system-reminder>',
-      });
     });
 
     it('never replays checkpoint rows as ordinary assistant content', () => {

@@ -357,7 +357,6 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     startedAt: null,
     finishedAt: null,
     error: null,
-    contextItems: null,
     workerId: null,
     createdAt: new Date(),
   };
@@ -501,7 +500,6 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
     startedAt: new Date(),
     finishedAt: null,
     error: null,
-    contextItems: null,
     workerId: null,
     createdAt: new Date(),
   };
@@ -597,7 +595,6 @@ describe('RunsWorkerService — durable run-level failures', () => {
       startedAt: null,
       finishedAt: null,
       error: null,
-      contextItems: null,
       workerId: null,
       createdAt: new Date(),
     } as const;
@@ -651,7 +648,6 @@ describe('RunsWorkerService — durable run-level failures', () => {
       startedAt: null,
       finishedAt: null,
       error: null,
-      contextItems: null,
       workerId: null,
       createdAt: new Date(),
     };

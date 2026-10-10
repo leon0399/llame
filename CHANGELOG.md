@@ -1,5 +1,11 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-10
+
+- **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
+  `runs.context_items` column are removed. The transcript's persisted
+  context-item parts record what each request carried (refs #1177).
+
 # 2026-10-09
 
 - Fixed API and Runs-worker boot failing with "canonical conversation search

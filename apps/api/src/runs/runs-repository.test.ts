@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
-import { type Run, type RunContextItem, type RunEvent } from '../db/schema';
+import { type Run, type RunEvent } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import {
   failRunTransactionally,
@@ -32,7 +32,6 @@ type QueryInput =
   | typeof schema.runEvents.$inferInsert
   | { status: Run['status']; startedAt: Date; workerId?: string }
   | { status: Run['status']; finishedAt: Date; error?: unknown }
-  | { contextItems: Array<RunContextItem> }
   | { cancelRequestedAt: Date };
 
 /** A Promise fluent query double with the small surface these repositories use. */
@@ -120,7 +119,6 @@ const run: Run = {
   workerId: null,
   cancelRequestedAt: null,
   error: null,
-  contextItems: null,
   createdAt: now,
   startedAt: null,
   finishedAt: null,
@@ -263,25 +261,15 @@ describe('RunsRepository', () => {
     expect(sets[1]).not.toHaveProperty('workerId');
   });
 
-  it('updates cancellation, context, and terminal state with the requested fields', async () => {
-    const contextItems = [
-      {
-        producer: 'test',
-        residency: 'rail' as const,
-        text: 'Injected context',
-      },
-    ];
+  it('updates cancellation and terminal state with the requested fields', async () => {
     const { db, calls } = makeDb({
-      update: [[run], [run], [run], [run], [run]],
+      update: [[run], [run], [run], [run]],
     });
     const repository = new RunsRepository(db);
 
     await expect(
       repository.cancelActiveRunsForMessage(run.messageId!, run.userId),
     ).resolves.toEqual([run]);
-    await expect(
-      repository.recordContextItems(run.id, run.userId, contextItems),
-    ).resolves.toBe(run);
     await expect(repository.requestCancel(run.id, run.userId)).resolves.toBe(
       run,
     );
@@ -298,14 +286,13 @@ describe('RunsRepository', () => {
       .filter(({ method }) => method === 'set')
       .map(({ args }) => args[0]);
     expect(sets[0]).toMatchObject({ status: 'cancelled' });
-    expect(sets[1]).toEqual({ contextItems });
-    expect(sets[2]).toHaveProperty('cancelRequestedAt');
-    expect(sets[3]).toMatchObject({
+    expect(sets[1]).toHaveProperty('cancelRequestedAt');
+    expect(sets[2]).toMatchObject({
       status: 'failed',
       error: { message: 'boom' },
     });
-    expect(sets[4]).toMatchObject({ status: 'completed' });
-    expect(sets[4]).not.toHaveProperty('error');
+    expect(sets[3]).toMatchObject({ status: 'completed' });
+    expect(sets[3]).not.toHaveProperty('error');
   });
 
   it('records the completed attempt and availability only for a completed run', async () => {

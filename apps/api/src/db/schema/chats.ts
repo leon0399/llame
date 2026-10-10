@@ -307,14 +307,6 @@ export const runStatus = pgEnum('run_status', [
 // A durable run (#48, SPEC §9.3): every user message becomes a worker-processed
 // run. One message may have several runs across retries; the run row is the
 // unit of execution state, the run_events log is the source of truth.
-/** One context item a run injected, as the model received it. */
-export type RunContextItem = {
-  readonly producer: string;
-  readonly form?: string;
-  readonly residency: 'prefix' | 'rail';
-  readonly text: string;
-};
-
 export const runs = pgTable(
   'runs',
   {
@@ -345,20 +337,6 @@ export const runs = pgTable(
     cancelRequestedAt: timestamptz('cancel_requested_at'),
     // Terminal failure detail ({ message, ... }); null unless status is failed.
     error: jsonb('error'),
-    // What this run actually injected on the context rail, AS RENDERED.
-    //
-    // Not derivable after the fact: an item's rendered wording is not
-    // reproducible from its durable part once a renderer changes, and a
-    // bind-time item is not reproducible at all. This column is therefore the
-    // authority for what a past run injected.
-    //
-    // Owner-only by construction — `runs` carries `runs_owner` and no
-    // public-read policy.
-    //
-    // An item whose content originates outside this chat is not erasable
-    // through that content's own source: deleting the source, or withdrawing
-    // consent for it, does not reach a record already written.
-    contextItems: jsonb('context_items').$type<Array<RunContextItem>>(),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     startedAt: timestamptz('started_at'),
     finishedAt: timestamptz('finished_at'),

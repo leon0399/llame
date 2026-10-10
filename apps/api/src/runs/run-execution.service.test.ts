@@ -262,7 +262,6 @@ const run: Run = {
   workerId: null,
   cancelRequestedAt: null,
   error: null,
-  contextItems: null,
   createdAt: now,
   startedAt: now,
   finishedAt: null,
@@ -498,9 +497,6 @@ function mockNormalExecutionRepositories() {
   const updateForAttempt = vi
     .spyOn(RunsRepository.prototype, 'updateForAttempt')
     .mockResolvedValue({ ...run });
-  const recordContextItems = vi
-    .spyOn(RunsRepository.prototype, 'recordContextItems')
-    .mockResolvedValue({ ...run, status: 'completed' });
   const createReceipt = vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'create')
     .mockResolvedValue({
@@ -570,7 +566,6 @@ function mockNormalExecutionRepositories() {
     updateUserMessageParts,
     touch,
     updateForAttempt,
-    recordContextItems,
     createReceipt,
     findById,
     hasMutation,
@@ -1618,7 +1613,7 @@ describe('RunExecutionService executeRun', () => {
       return { spies, options: capturing.streamOptions() };
     }
 
-    it('publishes a staged in-Run item after the step tool part and records it on completion', async () => {
+    it('publishes a staged in-Run item after the step tool part on completion', async () => {
       const notice = workspaceNotice(runId);
       const { spies, options } = await runWithInRunProducer((step) => {
         if (step.stepNumber !== 1) return;
@@ -1682,25 +1677,6 @@ describe('RunExecutionService executeRun', () => {
           },
         },
       ]);
-      // The pre-dispatch write keeps the request's own items; the finish-time
-      // write appends the in-Run item in emission order.
-      expect(spies.updateForAttempt).toHaveBeenCalledWith(
-        runId,
-        userId,
-        testAttemptId,
-        {
-          contextItems: [expect.objectContaining({ producer: 'temporal' })],
-        },
-      );
-      expect(spies.recordContextItems).toHaveBeenCalledWith(runId, userId, [
-        expect.objectContaining({ producer: 'temporal', residency: 'rail' }),
-        {
-          producer: 'workspace',
-          form: 'notice',
-          residency: 'rail',
-          text: notice.data.text,
-        },
-      ]);
     });
 
     it('publishes no staged rail part when the attempt fails after staging', async () => {
@@ -1723,7 +1699,6 @@ describe('RunExecutionService executeRun', () => {
           toolCallId: 'in-run-call',
         }),
       ]);
-      expect(spies.recordContextItems).not.toHaveBeenCalled();
     });
 
     it('fails the step when an in-Run producer throws after staging', async () => {
@@ -1746,7 +1721,6 @@ describe('RunExecutionService executeRun', () => {
       const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
       if (!turn) throw new Error('Expected persisted assistant turn');
       expect(turn.parts.some(isContextItemPart)).toBe(false);
-      expect(spies.recordContextItems).not.toHaveBeenCalled();
     });
 
     it('publishes no in-Run item when a lost finish keeps the streamed turn for an expired run', async () => {
@@ -1757,7 +1731,7 @@ describe('RunExecutionService executeRun', () => {
       });
       // Another writer expired the run before this finish landed: the
       // streamed turn is kept, but nothing the attempt staged may be
-      // published or recorded.
+      // published.
       spies.markFinished.mockResolvedValue(undefined);
       spies.findById.mockResolvedValue({ ...run, status: 'expired' });
 
@@ -1785,7 +1759,6 @@ describe('RunExecutionService executeRun', () => {
           state: 'output-available',
         }),
       ]);
-      expect(spies.recordContextItems).not.toHaveBeenCalled();
     });
 
     it('salvages the answer without the in-Run item when the terminal write rolls back', async () => {
@@ -2108,7 +2081,7 @@ describe('RunExecutionService executeRun', () => {
     });
   });
 
-  it('claims, records context, streams, persists, and runs post-turn hooks', async () => {
+  it('claims, fences dispatch, streams, persists, and runs post-turn hooks', async () => {
     const repositorySpies = mockNormalExecutionRepositories();
     const execution = makeExecutionService();
 
@@ -2130,14 +2103,7 @@ describe('RunExecutionService executeRun', () => {
       runId,
       userId,
       testAttemptId,
-      {
-        contextItems: [
-          expect.objectContaining({
-            producer: 'temporal',
-            residency: 'rail',
-          }),
-        ],
-      },
+      { activeAttemptId: testAttemptId },
     );
     expect(repositorySpies.markFinished).toHaveBeenCalledWith(
       runId,
@@ -5833,7 +5799,7 @@ describe('RunExecutionService executeRun — context preparation', () => {
     );
   });
 
-  it('summarizes a request that does not fit, then records the rebuilt context items', async () => {
+  it('summarizes a request that does not fit, then dispatches the rebuilt request', async () => {
     mockNormalExecutionRepositories();
     const triggering: Message = {
       ...userMessage,
@@ -5850,9 +5816,6 @@ describe('RunExecutionService executeRun — context preparation', () => {
     vi.spyOn(MessagesRepository.prototype, 'findByChatId')
       .mockResolvedValueOnce([...committedTurn(), { ...userMessage, seq: 3 }])
       .mockResolvedValue([triggering]);
-    const updateForAttempt = vi
-      .spyOn(RunsRepository.prototype, 'updateForAttempt')
-      .mockResolvedValue(run);
     recordAppendedEvents();
     serveCheckpointPublication();
     const widen = makeWideningClient();
@@ -5886,21 +5849,9 @@ describe('RunExecutionService executeRun — context preparation', () => {
         reservedOutputTokens: BUILT_IN_DEFAULTS.runs.maxOutputTokens,
       }),
     );
-    // The request that reaches the model is the rebuilt one, and the recorded
-    // authority record describes that same request.
+    // The request that reaches the model is the rebuilt one.
     expect(JSON.stringify(widen.captured.options?.messages)).toContain(
       'rebuilt turn',
-    );
-    const effectiveContextItems: unknown = expect.arrayContaining([
-      expect.objectContaining({ producer: 'effective-context-change' }),
-    ]);
-    expect(updateForAttempt).toHaveBeenCalledWith(
-      runId,
-      userId,
-      testAttemptId,
-      {
-        contextItems: effectiveContextItems,
-      },
     );
   });
 
@@ -8246,7 +8197,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     vi.restoreAllMocks();
   });
 
-  it('records the staged items with their form and commits the observed availability', async () => {
+  it('stages the items with their form and commits the observed availability', async () => {
     const repositories = mockNormalExecutionRepositories();
     const updateRecencyDigestTold = vi
       .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
@@ -8263,21 +8214,18 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     );
     await expect(result.text).resolves.toBe('answer');
 
-    // The authority record is what a later reader replays, so both staged
-    // items land there under the form the rail renders them with.
-    const attemptWrite = repositories.updateForAttempt.mock.calls.at(-1);
-    expect(attemptWrite?.slice(0, 3)).toEqual([runId, userId, testAttemptId]);
-    const recordedItems = attemptWrite?.[3].contextItems ?? [];
-    expect(recordedItems).toContainEqual(
-      expect.objectContaining({
-        producer: 'tool-availability',
-        form: 'notice',
-        residency: 'rail',
-      }),
+    // Both staged items reach the user message under the form the rail
+    // renders them with.
+    const [availability] = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'tool-availability',
     );
-    expect(recordedItems).toContainEqual(
-      expect.objectContaining({ producer: 'temporal', form: 'snapshot' }),
+    expect(availability?.data.form).toBe('notice');
+    const [temporal] = stagedItemsOf(
+      repositories.updateUserMessageParts,
+      'temporal',
     );
+    expect(temporal?.data.form).toBe('snapshot');
     // The availability the turn observed becomes the next turn's baseline.
     expect(repositories.markFinished).toHaveBeenCalledWith(
       runId,
@@ -8289,10 +8237,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     );
     // And the model is told what changed: no completed predecessor, so this
     // is the epoch's initial disclosure.
-    const [availability] = stagedItemsOf(
-      repositories.updateUserMessageParts,
-      'tool-availability',
-    );
     expect(availability?.data.payload).toMatchObject(initialAvailability);
     // A turn that disclosed no digest advances no told state.
     expect(updateRecencyDigestTold).not.toHaveBeenCalled();
@@ -9125,9 +9069,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     vi.spyOn(RunsRepository.prototype, 'updateForAttempt').mockImplementation(
       (_runId, _userId, attemptId, set) =>
         Promise.resolve(
-          set.activeAttemptId === attemptId || 'contextItems' in set
-            ? { ...run }
-            : undefined,
+          set.activeAttemptId === attemptId ? { ...run } : undefined,
         ),
     );
     const createReceipt = vi
@@ -9357,22 +9299,19 @@ describe('RunExecutionService instruction files', () => {
     ]);
   }
 
-  /** The `instructions` items the completed Run record carries, in order. */
+  /**
+   * The `instructions` items the completed Run published, in order: those on
+   * its user message, then its in-Run items on the assistant reply.
+   */
   function instructionItems(
     repositories: ReturnType<typeof mockNormalExecutionRepositories>,
-  ) {
-    const items = repositories.recordContextItems.mock.calls.at(-1)?.[2] ?? [];
-    return items.flatMap((item) =>
-      item.producer === 'instructions' ? [item] : [],
+  ): Array<AuthoredContextItemPart> {
+    const turn =
+      repositories.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0];
+    return [...stagedParts(repositories), ...(turn?.parts ?? [])].filter(
+      (part): part is AuthoredContextItemPart =>
+        isContextItemPart(part) && part.data.producer === 'instructions',
     );
-  }
-
-  /** The producer of every item the completed Run record lists, in order. */
-  function recordedProducers(
-    repositories: ReturnType<typeof mockNormalExecutionRepositories>,
-  ): Array<string> {
-    const items = repositories.recordContextItems.mock.calls.at(-1)?.[2] ?? [];
-    return items.map((item) => item.producer);
   }
 
   /** The instructions part the completed assistant turn persisted. */
@@ -9470,8 +9409,8 @@ describe('RunExecutionService instruction files', () => {
         'tool.started',
         'tool.completed',
       ]);
-      // The staged bundle is the Run's own record and the user message — and
-      // the system read fabricates no tool part of its own.
+      // The staged bundle is published on the user message — and the system
+      // read fabricates no tool part of its own.
       await vi.waitFor(() =>
         expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
@@ -9519,14 +9458,16 @@ describe('RunExecutionService instruction files', () => {
       const result = await execution.service.executeRun(executionInput(client));
       await expect(result.text).resolves.toBe('answer');
       await vi.waitFor(() =>
-        expect(repositories.recordContextItems).toHaveBeenCalled(),
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
       const items = instructionItems(repositories);
       expect(items).toHaveLength(2);
-      expect(items.map((item) => item.text).join('\n')).toContain(
+      expect(items.map((item) => item.data.text).join('\n')).toContain(
         'run the tests',
       );
-      expect(items.map((item) => item.text).join('\n')).toContain('api rules');
+      expect(items.map((item) => item.data.text).join('\n')).toContain(
+        'api rules',
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -9567,11 +9508,11 @@ describe('RunExecutionService instruction files', () => {
       const result = await execution.service.executeRun(executionInput(client));
       await expect(result.text).resolves.toBe('answer');
       await vi.waitFor(() =>
-        expect(repositories.recordContextItems).toHaveBeenCalled(),
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
       expect(
         instructionItems(repositories)
-          .map((item) => item.text)
+          .map((item) => item.data.text)
           .join('\n'),
       ).toContain('imported rules');
 
@@ -9666,9 +9607,8 @@ describe('RunExecutionService instruction files', () => {
         eventsWithOrigin(append, 'instructions').map((record) => record.type),
       ).toEqual(['tool.requested', 'tool.completed']);
       // ...but a Run the model never received publishes nothing: the item
-      // never reaches the user message, and there is no Run record listing it.
+      // never reaches the user message.
       expect(repositories.updateUserMessageParts).not.toHaveBeenCalled();
-      expect(repositories.recordContextItems).not.toHaveBeenCalled();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -10452,12 +10392,12 @@ describe('RunExecutionService instruction files', () => {
         ]),
       );
 
-      // The completed Run's own record lists the item in rail position: after
-      // the workspace snapshot and before the skill notice.
+      // The completed Run publishes the item in rail position on the user
+      // message: after the workspace snapshot and before the skill notice.
       await vi.waitFor(() =>
-        expect(repositories.recordContextItems).toHaveBeenCalled(),
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
-      const producers = recordedProducers(repositories);
+      const producers = stagedProducers(repositories);
       const workspace = producers.indexOf('workspace');
       expect(workspace).toBeGreaterThanOrEqual(0);
       expect(producers.indexOf('instructions')).toBe(workspace + 1);
@@ -10557,7 +10497,7 @@ describe('RunExecutionService instruction files', () => {
 
       await expect(result.text).resolves.toBe('answer');
       await vi.waitFor(() =>
-        expect(repositories.recordContextItems).toHaveBeenCalled(),
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
       // The load reads effective history, never a told column: the snapshot is
       // not due, yet the chain the history does not name still loads.
@@ -10622,10 +10562,10 @@ describe('RunExecutionService instruction files', () => {
       const rootFile = path.join(root, 'AGENTS.md');
       const prompt = JSON.stringify(captured.options?.messages);
       expect(prompt.split(rootFile)).toHaveLength(2);
-      // The recomputed item is what the turn publishes: one item on the user
-      // message, and one in the Run record that mirrors the request.
+      // The recomputed item is what the turn publishes: one item, on the user
+      // message.
       await vi.waitFor(() =>
-        expect(repositories.recordContextItems).toHaveBeenCalled(),
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
       expect(stagedInstructionPart(repositories)?.data.text).toContain(
         'run the tests',
@@ -10700,11 +10640,11 @@ describe('RunExecutionService instruction files', () => {
       expect(stagedProducers(repositories)).toEqual(['temporal']);
       expect(stagedInstructionPart(repositories)).toBeUndefined();
       await vi.waitFor(() =>
-        expect(repositories.recordContextItems).toHaveBeenCalled(),
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
-      // The rebuilt history's own item is the only one the Run record carries:
-      // the stale first-build item did not ride along.
-      expect(instructionItems(repositories)).toHaveLength(1);
+      // The rebuilt history already carries the item, so the turn publishes
+      // no second copy: the stale first-build item did not ride along.
+      expect(instructionItems(repositories)).toEqual([]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -10779,14 +10719,14 @@ describe('RunExecutionService instruction files', () => {
       const staged = stagedInstructionPart(repositories);
       expect(staged?.data.text).toContain('run the tests');
       expect(staged?.data.text).toContain('local overrides');
-      // The Run record mirrors the request: one item, the recomputed one.
+      // The turn publishes one item, the recomputed one.
       await vi.waitFor(() =>
-        expect(repositories.recordContextItems).toHaveBeenCalled(),
+        expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
       const items = instructionItems(repositories);
       expect(items).toHaveLength(1);
-      expect(items[0]?.text).toContain('run the tests');
-      expect(items[0]?.text).toContain('local overrides');
+      expect(items[0]?.data.text).toContain('run the tests');
+      expect(items[0]?.data.text).toContain('local overrides');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

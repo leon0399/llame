@@ -58,7 +58,6 @@ const run: Run = {
   workerId: null,
   cancelRequestedAt: null,
   error: null,
-  contextItems: null,
   createdAt: now,
   startedAt: null,
   finishedAt: null,

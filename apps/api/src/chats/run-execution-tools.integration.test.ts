@@ -833,6 +833,26 @@ describeIfDb('executeRun tool-loop persistence', () => {
     });
   }
 
+  /** Every context-item part persisted on a Chat's messages, in stored order. */
+  async function storedContextParts(chatId: string) {
+    const messages = await tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(chatId, userId),
+    );
+    return messages.flatMap((message) =>
+      message.parts.flatMap((part) => (isContextItemPart(part) ? [part] : [])),
+    );
+  }
+
+  /** The context-item parts persisted on one stored message. */
+  async function messageContextParts(chatId: string, messageId: string) {
+    const turn = await tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findTurnState(chatId, userId, messageId),
+    );
+    return (turn.userMessage?.parts ?? []).flatMap((part) =>
+      isContextItemPart(part) ? [part] : [],
+    );
+  }
+
   it('enters a Workspace and reads a relative file on the next model step', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'workspace-loop-'));
     writeFileSync(path.join(root, 'file.txt'), 'workspace-content\n');
@@ -1020,16 +1040,23 @@ describeIfDb('executeRun tool-loop persistence', () => {
       );
       await nextExecution.consumeStream?.();
 
-      const nextRun = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(next.run.id, userId),
-      );
-      expect(nextRun?.contextItems).toContainEqual(
+      await waitFor(async () => {
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(next.run.id, userId),
+        );
+        return events.some((event) => event.eventType === 'run.completed');
+      });
+      expect(
+        await messageContextParts(seeded.chatId, next.messageId),
+      ).toContainEqual(
         expect.objectContaining({
-          producer: 'skill-catalog',
-          form: 'notice',
-          text: expect.stringContaining(
-            `\`${skillName}\`: ${skillDescription}`,
-          ),
+          data: expect.objectContaining({
+            producer: 'skill-catalog',
+            form: 'notice',
+            text: expect.stringContaining(
+              `\`${skillName}\`: ${skillDescription}`,
+            ),
+          }),
         }),
       );
     } finally {
@@ -2813,24 +2840,28 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ],
       },
     ]);
-    // Task 4.2: the record is what was SENT, asserted end to end rather than
-    // at the buildContext boundary — an item's wording is not reproducible
-    // from its part once a renderer changes, so a reconstruction would not
-    // catch a drift between the two.
-    const recorded = await tenantDb.runAs(userId, async (tx) =>
-      new RunsRepository(tx).findById(seeded.targetRun.id, userId),
-    );
-    expect(recorded?.contextItems).toEqual([
+    // Task 4.2: the persisted items are what was SENT, asserted end to end
+    // rather than at the buildContext boundary — an item's wording is not
+    // reproducible from its part once a renderer changes, so a reconstruction
+    // would not catch a drift between the two. The turn's staged items are
+    // stored ahead of the item the message already carried.
+    await waitFor(async () => {
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.targetRun.id, userId),
+      );
+      return events.some((event) => event.eventType === 'run.completed');
+    });
+    const persisted = await messageContextParts(chatId, seeded.targetUser.id);
+    expect(
+      persisted.map(({ data }) => ({
+        producer: data.producer,
+        form: data.form,
+        text: data.text,
+      })),
+    ).toEqual([
       {
         producer: 'effective-context-change',
         form: 'notice',
-        residency: 'rail',
-        text: switchPart.data.text,
-      },
-      {
-        producer: 'effective-context-change',
-        form: 'notice',
-        residency: 'rail',
         text: expect.stringContaining(
           'You are now mock (internal ID `mock`, provider ID `mock`).',
         ),
@@ -2838,7 +2869,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
       {
         producer: 'tool-availability',
         form: 'notice',
-        residency: 'rail',
         text: expect.stringContaining(
           'The available tools were changed since the last turn:',
         ),
@@ -2846,15 +2876,18 @@ describeIfDb('executeRun tool-loop persistence', () => {
       {
         producer: 'temporal',
         form: 'snapshot',
-        residency: 'rail',
         text: expect.any(String),
+      },
+      {
+        producer: 'effective-context-change',
+        form: 'notice',
+        text: switchPart.data.text,
       },
     ]);
     const sentBlocks = calls[0].messages.at(-1)?.content;
-    expect(Array.isArray(sentBlocks) && sentBlocks[3]).toMatchObject({
-      type: 'text',
-      text: recorded?.contextItems?.[0].text,
-    });
+    expect(Array.isArray(sentBlocks) && sentBlocks.slice(0, 4)).toEqual(
+      persisted.map(({ data }) => ({ type: 'text', text: data.text })),
+    );
 
     const providerInput = JSON.stringify(calls[0]);
     expect(providerInput).not.toContain(seeded.sourceReceipt.systemPrompt);
@@ -4071,17 +4104,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
         model.doStreamCalls[0]?.prompt,
       );
 
-      const [defaultReceipts, bypassReceipts, defaultRun, bypassRun] =
-        await tenantDb.runAs(userId, async (tx) => {
+      const [defaultReceipts, bypassReceipts] = await tenantDb.runAs(
+        userId,
+        async (tx) => {
           const receipts = new SystemPromptReceiptsRepository(tx);
-          const runs = new RunsRepository(tx);
           return [
             await receipts.findByOwnedRun(defaultSeeded.run.id, userId),
             await receipts.findByOwnedRun(bypassSeeded.run.id, userId),
-            await runs.findById(defaultSeeded.run.id, userId),
-            await runs.findById(bypassSeeded.run.id, userId),
           ] as const;
-        });
+        },
+      );
       expect(defaultReceipts).toHaveLength(1);
       expect(bypassReceipts).toHaveLength(1);
       expect(
@@ -4097,26 +4129,36 @@ describeIfDb('executeRun tool-loop persistence', () => {
           promptHash,
         })),
       );
-      if (
-        defaultRun === undefined ||
-        bypassRun === undefined ||
-        defaultRun.contextItems === null ||
-        defaultRun.contextItems === undefined ||
-        bypassRun.contextItems === null ||
-        bypassRun.contextItems === undefined
-      ) {
-        throw new Error('Expected both Runs to persist context items');
+      for (const runId of [defaultSeeded.run.id, bypassSeeded.run.id]) {
+        await waitFor(async () => {
+          const events = await tenantDb.runAs(userId, (tx) =>
+            new RunEventsRepository(tx).listByRunId(runId, userId),
+          );
+          return events.some((event) => event.eventType === 'run.completed');
+        });
       }
-      expect(bypassRun.contextItems).toEqual(defaultRun.contextItems);
+      const defaultParts = await storedContextParts(defaultSeeded.chatId);
+      const bypassParts = await storedContextParts(bypassSeeded.chatId);
+      expect(defaultParts.length).toBeGreaterThan(0);
+      expect(
+        bypassParts.map(({ data }) => ({
+          producer: data.producer,
+          form: data.form,
+          text: data.text,
+        })),
+      ).toEqual(
+        defaultParts.map(({ data }) => ({
+          producer: data.producer,
+          form: data.form,
+          text: data.text,
+        })),
+      );
 
       for (const request of calls) {
         expect(JSON.stringify(request)).not.toContain('bypass');
       }
-      for (const item of [
-        ...defaultRun.contextItems,
-        ...bypassRun.contextItems,
-      ]) {
-        expect(item.text).not.toContain('bypass');
+      for (const part of [...defaultParts, ...bypassParts]) {
+        expect(JSON.stringify(part)).not.toContain('bypass');
       }
     } finally {
       await sql`DELETE FROM chats WHERE id = ${defaultSeeded.chatId}`;
@@ -4451,14 +4493,15 @@ describeIfDb('executeRun tool-loop persistence', () => {
         workspaceRoot: null,
         workspaceExecutorId: null,
       });
-      const nextRun = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(next.run.id, userId),
-      );
-      expect(nextRun?.contextItems).toContainEqual(
+      expect(
+        await messageContextParts(seeded.chatId, next.userMessage.id),
+      ).toContainEqual(
         expect.objectContaining({
-          producer: 'workspace',
-          form: 'notice',
-          text: expect.stringContaining('permission_rejected'),
+          data: expect.objectContaining({
+            producer: 'workspace',
+            form: 'notice',
+            text: expect.stringContaining('permission_rejected'),
+          }),
         }),
       );
     } finally {
@@ -4552,15 +4595,13 @@ describeIfDb('executeRun tool-loop persistence', () => {
         workspaceRoot: root,
         workspaceExecutorId: 'permission-mode-test-host',
       });
-      const nextRun = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(next.run.id, userId),
-      );
-      expect(nextRun).toBeDefined();
-      expect(nextRun?.contextItems ?? []).not.toContainEqual(
+      expect(await storedContextParts(seeded.chatId)).not.toContainEqual(
         expect.objectContaining({
-          producer: 'workspace',
-          form: 'notice',
-          text: expect.stringContaining('permission_rejected'),
+          data: expect.objectContaining({
+            producer: 'workspace',
+            form: 'notice',
+            text: expect.stringContaining('permission_rejected'),
+          }),
         }),
       );
     } finally {
@@ -4665,15 +4706,15 @@ describeIfDb('executeRun tool-loop persistence', () => {
         workspaceRoot: null,
         workspaceExecutorId: null,
       });
-      const nextRun = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(next.run.id, userId),
-      );
-      expect(nextRun).toBeDefined();
-      expect(nextRun?.contextItems).toContainEqual(
+      expect(
+        await messageContextParts(seeded.chatId, next.userMessage.id),
+      ).toContainEqual(
         expect.objectContaining({
-          producer: 'workspace',
-          form: 'notice',
-          text: expect.stringContaining('tool_not_allowed'),
+          data: expect.objectContaining({
+            producer: 'workspace',
+            form: 'notice',
+            text: expect.stringContaining('tool_not_allowed'),
+          }),
         }),
       );
     } finally {
@@ -4880,107 +4921,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
-  it('replays a stored metadata-only context item into the Run record with empty text in stored order', async () => {
-    // A rail row on a persisted message is a receipt even when it never
-    // carried text: `text` is absent on metadata-only rows and explicitly
-    // empty on others, and neither form may be dropped on the way into the
-    // Run record. Seeded by hand because seedBoundRun always creates the
-    // triggering message first — this history must precede it in stored order.
-    const metadataOnlyPart = {
-      type: 'data-context',
-      data: {
-        v: 1,
-        producer: 'legacy-history',
-        runId: crypto.randomUUID(),
-        payload: { marker: 'metadata-only' },
-      },
-    };
-    const explicitlyEmptyPart = {
-      type: 'data-context',
-      data: {
-        v: 1,
-        producer: 'legacy-history-empty',
-        runId: crypto.randomUUID(),
-        payload: { marker: 'explicitly-empty' },
-        text: '',
-      },
-    };
-    // Guard the fixture itself: a part the envelope rejects would make the
-    // assertions below vacuous.
-    expect(isContextItemPart(metadataOnlyPart)).toBe(true);
-    expect(isContextItemPart(explicitlyEmptyPart)).toBe(true);
-
-    const key = `replayed-item-${crypto.randomUUID()}`;
-    const chatId = crypto.randomUUID();
-    const messageId = crypto.randomUUID();
-    const seeded = await tenantDb.runAs(userId, async (tx) => {
-      await new ChatsRepository(tx).createIfAbsent({
-        id: chatId,
-        ownerUserId: userId,
-        title: 'Replayed rail receipts',
-      });
-      const messagesRepo = new MessagesRepository(tx);
-      await messagesRepo.create({
-        chatId,
-        role: 'user',
-        senderUserId: userId,
-        parts: [metadataOnlyPart, explicitlyEmptyPart],
-      });
-      const userMessage = await messagesRepo.create({
-        id: messageId,
-        chatId,
-        role: 'user',
-        senderUserId: userId,
-        parts: [{ type: 'text', text: 'use the bound context' }],
-      });
-      const run = await new RunsRepository(tx).create({
-        chatId,
-        messageId,
-        userId,
-        modelId: `test:${key}`,
-        permissionMode: 'default',
-      });
-      return { chatId, messageId, key, userMessage, run };
-    });
-
-    const service = serviceWithTools();
-    const model = new MockLanguageModelV3({
-      doStream: () => Promise.resolve(textResponse('Acknowledged.')),
-    });
-
-    try {
-      const execution = await executeSeeded(
-        seeded,
-        service,
-        createMockModelClient(model),
-      );
-      await execution.consumeStream?.();
-      await waitFor(async () => {
-        const events = await tenantDb.runAs(userId, (tx) =>
-          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
-        );
-        return events.some((event) => event.eventType === 'run.completed');
-      });
-
-      const run = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(seeded.run.id, userId),
-      );
-      // Both inert rows survive into the record as `text: ''` receipts in
-      // stored part order; attempt staging (the temporal receipt) is
-      // appended after the replayed history.
-      expect(
-        (run?.contextItems ?? []).filter((item) =>
-          ['legacy-history', 'legacy-history-empty'].includes(item.producer),
-        ),
-      ).toEqual([
-        { producer: 'legacy-history', residency: 'rail', text: '' },
-        { producer: 'legacy-history-empty', residency: 'rail', text: '' },
-      ]);
-    } finally {
-      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
-    }
-  });
-
   describe('in-Run context items', () => {
     const IN_RUN_ITEM_TEXT =
       '<system-reminder producer="workspace" form="notice">synthetic item</system-reminder>';
@@ -5127,23 +5067,25 @@ describeIfDb('executeRun tool-loop persistence', () => {
           });
           expect(parts[2]).toMatchObject({ toolCallId: 'call-2' });
 
-          // The Run record ends with the in-Run item, after the pre-dispatch
-          // items, and remains owner-scoped.
-          const run = await tenantDb.runAs(userId, (tx) =>
-            new RunsRepository(tx).findById(seeded.run.id, userId),
-          );
-          expect(run?.contextItems?.at(-1)).toEqual({
+          // The in-Run item is the last context part the Run persisted, after
+          // the accepted-turn items on its user message, and stays
+          // owner-scoped.
+          const stored = await storedContextParts(seeded.chatId);
+          expect(stored.at(-1)?.data).toMatchObject({
             producer: 'workspace',
             form: 'notice',
-            residency: 'rail',
+            runId: seeded.run.id,
             text: IN_RUN_ITEM_TEXT,
           });
           const otherUserId = crypto.randomUUID();
           expect(
             await tenantDb.runAs(otherUserId, (tx) =>
-              new RunsRepository(tx).findById(seeded.run.id, otherUserId),
+              new MessagesRepository(tx).findByChatId(
+                seeded.chatId,
+                otherUserId,
+              ),
             ),
-          ).toBeUndefined();
+          ).toEqual([]);
         } finally {
           await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         }
@@ -5211,8 +5153,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
           'call-1',
         );
 
-        // A failed attempt publishes neither the item nor a Run-record entry:
-        // the persisted transcript keeps only the tool activity that ran.
+        // A failed attempt publishes no item: the persisted transcript keeps
+        // only the tool activity that ran.
         const messages = await tenantDb.runAs(userId, (tx) =>
           new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
         );
@@ -5226,12 +5168,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           'tool-search_conversations',
           'tool-search_conversations',
         ]);
-        const run = await tenantDb.runAs(userId, (tx) =>
-          new RunsRepository(tx).findById(seeded.run.id, userId),
-        );
         expect(
-          (run?.contextItems ?? []).filter(
-            (item) => item.producer === 'workspace',
+          (await storedContextParts(seeded.chatId)).filter(
+            ({ data }) => data.producer === 'workspace',
           ),
         ).toEqual([]);
       } finally {
@@ -5364,8 +5303,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
           permission: { decision: 'allow' },
         });
 
-        // No host Knowledge path reaches the stored part, the Run record, or
-        // the event log: only the locator does.
+        // No host Knowledge path reaches the stored part, the Run row, or the
+        // event log: only the locator does.
         const stored = await storedInstructionPart(seeded.chatId);
         const storedFiles =
           stored !== undefined &&
@@ -5437,7 +5376,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
           output: { status: 'error', type: 'knowledge_space_not_found' },
         });
         expect(await instructionEvents(seeded.run.id)).toEqual([]);
-        expect(await instructionItems(seeded.run.id)).toEqual([]);
+        expect(await instructionItems(seeded)).toEqual([]);
         expect(await storedInstructionPart(seeded.chatId)).toBeUndefined();
         const prompt = model.doStreamCalls[1]?.prompt ?? [];
         // Control: the call really ran and its result reached the next step.
@@ -5497,7 +5436,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         // The link is refused, so no chain in it is walked, probed, or loaded.
         expect(instructionsIndexes(prompt)).toEqual([]);
         expect(await instructionEvents(seeded.run.id)).toEqual([]);
-        expect(await instructionItems(seeded.run.id)).toEqual([]);
+        expect(await instructionItems(seeded)).toEqual([]);
         expect(await storedInstructionPart(seeded.chatId)).toBeUndefined();
         const events = await tenantDb.runAs(userId, (tx) =>
           new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
@@ -5686,13 +5625,17 @@ describeIfDb('executeRun tool-loop persistence', () => {
       );
     }
 
-    /** The `instructions` items one Run's context-item record carries. */
-    async function instructionItems(runId: string) {
-      const run = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(runId, userId),
-      );
-      return (run?.contextItems ?? []).flatMap((item) =>
-        item.producer === 'instructions' ? [item] : [],
+    /**
+     * The `instructions` parts one Run persisted, on its user message or its
+     * reply.
+     */
+    async function instructionItems(seeded: {
+      readonly chatId: string;
+      readonly run: { readonly id: string };
+    }) {
+      return (await storedContextParts(seeded.chatId)).filter(
+        ({ data }) =>
+          data.producer === 'instructions' && data.runId === seeded.run.id,
       );
     }
 
@@ -5969,7 +5912,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
         const staged = await stagedInstructionParts(thirdSeeded);
         expect(staged).toHaveLength(1);
-        expect(await instructionItems(thirdSeeded.run.id)).toHaveLength(1);
+        expect(await instructionItems(thirdSeeded)).toHaveLength(1);
         // The bundle is staged before the first request of that turn.
         expect(JSON.stringify(third.doStreamCalls[0]?.prompt)).toContain(
           path.join(root, 'AGENTS.md'),
@@ -6042,11 +5985,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
           permission: { decision: 'allow' },
         });
         expect(audited[3]?.payload).toMatchObject({ status: 'success' });
-        const items = await instructionItems(seeded.run.id);
+        const items = await instructionItems(seeded);
         expect(items).toHaveLength(1);
-        expect(items[0]?.text).toContain('allowed local rules');
-        expect(items[0]?.text).not.toContain(deniedPath);
-        expect(items[0]?.text).not.toContain('denied rules');
+        expect(items[0]?.data.text).toContain('allowed local rules');
+        expect(items[0]?.data.text).not.toContain(deniedPath);
+        expect(items[0]?.data.text).not.toContain('denied rules');
         // The owner's part still records the denial for the chip.
         expect(await storedInstructionPart(seeded.chatId)).toMatchObject({
           data: { payload: { denied: [deniedPath] } },
@@ -6089,7 +6032,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         );
         await execution.consumeStream?.();
         await waitForCompleted(seeded.run.id);
-        expect(await instructionItems(seeded.run.id)).toHaveLength(1);
+        expect(await instructionItems(seeded)).toHaveLength(1);
         // Control: the owner's own session reads the item back.
         expect(await storedInstructionPart(seeded.chatId)).toBeDefined();
 
@@ -6171,7 +6114,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
         // A denied call is not a trigger: no probe, no audit, no item.
         expect(await instructionEvents(seeded.run.id)).toEqual([]);
-        expect(await instructionItems(seeded.run.id)).toEqual([]);
+        expect(await instructionItems(seeded)).toEqual([]);
         expect(await storedInstructionPart(seeded.chatId)).toBeUndefined();
 
         // Control: the same fixture loads on the next Run's allowed read, so
@@ -6197,7 +6140,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         );
         await retryExecution.consumeStream?.();
         await waitForCompleted(retrySeeded.run.id);
-        expect(await instructionItems(retrySeeded.run.id)).toHaveLength(1);
+        expect(await instructionItems(retrySeeded)).toHaveLength(1);
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         rmSync(root, { recursive: true, force: true });
@@ -6334,9 +6277,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
         const bundle = promptText(prompt[bundles[0] ?? -1]);
         expect(bundle).toContain('FIRST ');
         expect(bundle).toContain('LAST ');
-        const items = await instructionItems(seeded.run.id);
+        const items = await instructionItems(seeded);
         expect(items).toHaveLength(1);
-        expect(items[0]?.text).toContain('LAST ');
+        expect(items[0]?.data.text).toContain('LAST ');
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         rmSync(root, { recursive: true, force: true });
@@ -6391,8 +6334,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
         const forkedHistory = await tenantDb.runAs(userId, (tx) =>
           new MessagesRepository(tx).findByChatId(forked.id, userId),
         );
-        // The copied item is part of the request's own rail record; what the
-        // fork must not do is read the files again.
+        // The copied item replays with the fork's own history; what the fork
+        // must not do is read the files again.
         expect(
           instructionsSeenPaths(
             forkedHistory.flatMap((message) => message.parts),
@@ -6491,7 +6434,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         });
 
         // The failed attempt published nothing: its bundle is not history.
-        expect(await instructionItems(seeded.run.id)).toEqual([]);
+        expect(await instructionItems(seeded)).toEqual([]);
         expect(await storedInstructionPart(seeded.chatId)).toBeUndefined();
 
         // The retry's first trigger loads the same files again.
@@ -6516,7 +6459,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         );
         await retryExecution.consumeStream?.();
         await waitForCompleted(retrySeeded.run.id);
-        expect(await instructionItems(retrySeeded.run.id)).toHaveLength(1);
+        expect(await instructionItems(retrySeeded)).toHaveLength(1);
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         rmSync(root, { recursive: true, force: true });

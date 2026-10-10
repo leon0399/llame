@@ -77,7 +77,6 @@ const sourceRun: Run = {
   workerId: null,
   cancelRequestedAt: null,
   error: null,
-  contextItems: null,
   createdAt: now,
   startedAt: now,
   finishedAt: now,
