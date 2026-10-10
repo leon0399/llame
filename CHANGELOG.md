@@ -2,25 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
-- Fixed a step's reasoning still reaching the Run after its tool call on
-  runtimes that schedule the reasoning stream later, such as Node 24 (#1184).
-  On the Responses and Anthropic wires, reasoning arrives through a separate
-  `fullStream` consumer; on Chat Completions it arrives through `onChunk`,
-  which the SDK reaches only after it has already refused an invalid call. A
-  tool's `execute` now waits until that delivery path reaches the call's own
-  `tool-call` part, and a refused or schema-invalid call is reported when it
-  is reached. Every reasoning delta ahead of a call is therefore delivered
-  before the Run records the call, whatever the runtime. Tools the Run adds
-  mid-turn are held the same way, and a stream that ends, fails, or aborts
-  releases every waiting call.
-
-- Fixed a Run stream occasionally closing without its `finish` frame when the
-  Run settled between two of the bridge's reads, for example a queued Run
-  cancelled at worker pickup (#1180). The bridge read no events, the terminal
-  status and its event then committed together, and the following row read
-  saw the terminal status and closed the stream. The bridge now drains the
-  event log once more before closing on a terminal row, so the client receives
-  the terminal event's `finish` and `[DONE]`.
+- Changed a web `read`'s `network_error` message to name the failure's kind
+  instead of forwarding the platform's `fetch failed` (part of #930): the server
+  refused the connection, the connection was reset, timed out, or the host is
+  unreachable, read from the socket error's code beneath undici's wrapper. A
+  TLS failure carries its code, for example
+  `The TLS handshake failed (CERT_HAS_EXPIRED).`. No address or locator is
+  echoed. A code with no known kind keeps the previous bounded message. Status
+  error bodies are still not returned; that decision stays open on #930.
 
 - **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
   `runs.context_items` column are removed. The transcript's persisted
@@ -44,6 +33,26 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   model of the latest earlier reply in the Chat, whatever its outcome and
   even when a checkpoint absorbed it, so a failed Run's switch is not
   announced twice. Closes #1177.
+
+- Fixed a step's reasoning still reaching the Run after its tool call on
+  runtimes that schedule the reasoning stream later, such as Node 24 (#1184).
+  On the Responses and Anthropic wires, reasoning arrives through a separate
+  `fullStream` consumer; on Chat Completions it arrives through `onChunk`,
+  which the SDK reaches only after it has already refused an invalid call. A
+  tool's `execute` now waits until that delivery path reaches the call's own
+  `tool-call` part, and a refused or schema-invalid call is reported when it
+  is reached. Every reasoning delta ahead of a call is therefore delivered
+  before the Run records the call, whatever the runtime. Tools the Run adds
+  mid-turn are held the same way, and a stream that ends, fails, or aborts
+  releases every waiting call.
+
+- Fixed a Run stream occasionally closing without its `finish` frame when the
+  Run settled between two of the bridge's reads, for example a queued Run
+  cancelled at worker pickup (#1180). The bridge read no events, the terminal
+  status and its event then committed together, and the following row read
+  saw the terminal status and closed the stream. The bridge now drains the
+  event log once more before closing on a terminal row, so the client receives
+  the terminal event's `finish` and `[DONE]`.
 
 - Fixed reasoning that a model emits directly before a tool call, with no text
   between them, being written to the Run's event log after that call's
