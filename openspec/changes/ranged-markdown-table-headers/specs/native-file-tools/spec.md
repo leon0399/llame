@@ -24,8 +24,8 @@ continuation of a container paragraph.
 
 The header row SHALL be indented at most three columns and SHALL NOT be a body
 row of an earlier table. A delimiter row SHALL directly follow it, be indented
-at most three columns, and consist of cells that are each one or more `-` with
-optional edge colons and surrounding spaces. The header and delimiter rows
+at most three columns, and consist of one or more cells that are each one or more `-`
+with optional edge colons and surrounding spaces or tabs. The header and delimiter rows
 SHALL have the same cell count.
 
 #### Scenario: Mismatched cell counts are not a table
@@ -75,13 +75,20 @@ without a pipe or a link reference definition, SHALL be a body row.
 ### Requirement: Headings and ended blocks close root GFM tables
 
 A line the CommonMark heading rules decide is part of a heading SHALL end the
-table before it and belong to no table. The line that ends a table and each
-line after it up to the next blank line SHALL NOT start a table.
+table before it and belong to no table. When a table is ended by a line that
+CommonMark decides is root paragraph text and that starts a non-empty list
+item or an HTML block, that line and each line after it up to the next blank
+line SHALL NOT start a table.
 
 #### Scenario: Rows after a list item that ended a table are not a new table
 
 - **WHEN** a table is ended by `2. item`, which is followed without a blank line by another header row, delimiter row, and body row, and a range starts at that body row
 - **THEN** no header pair is emitted
+
+#### Scenario: A table after an ATX heading that ended a table has a header
+
+- **WHEN** a table is ended by `# H`, which is followed by another header row, delimiter row, and body row, and a range starts at that body row
+- **THEN** the second table's header pair is emitted before the window
 
 #### Scenario: A setext heading over table lines takes precedence
 
