@@ -138,7 +138,8 @@ export type PromptImportOutcome = "imported" | "denied" | "failed";
  * A server-authored context item on a USER message disclosing how the `@`
  * import markers in the prompt resolved. `imports` lists each marker's
  * locator as written with its outcome (`resolved` is the path it resolved
- * to, `truncated` marks a file cut at the cap); `omitted` lists the locators
+ * to, `truncated` marks a file cut at the cap, `media` names an imported
+ * image's `media://` locator); `omitted` lists the locators
  * past the per-prompt marker cap, present only when non-empty. The model-visible
  * text names denied/failed targets only as not imported and lists omitted
  * locators; outcome detail and resolved paths are owner-only metadata.
@@ -156,6 +157,8 @@ export type PromptImportsPart = {
         resolved?: string;
         outcome: PromptImportOutcome;
         truncated?: boolean;
+        /** The `media://` locator of an imported image entry. */
+        media?: string;
       }>;
       omitted?: ReadonlyArray<string>;
     };
@@ -168,6 +171,10 @@ export type PromptImportsPayload = PromptImportsPart["data"]["payload"];
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The api's `media://<id>` grammar: a lower-case canonical UUID only. */
+const MEDIA_LOCATOR_PATTERN =
+  /^media:\/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function isNonNullObject(value: unknown): value is object {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -364,36 +371,44 @@ export function isInstructionsPart(value: unknown): value is InstructionsPart {
 }
 
 /** One `payload.imports` entry: a non-empty locator, a known outcome, and the
- *  optional `resolved` / `truncated` fields only with a valid value. */
+ *  optional `resolved` / `truncated` / `media` fields only with a valid value
+ *  (`media` only on an imported image entry). */
 function isPromptImportEntry(
   value: unknown,
 ): value is PromptImportsPayload["imports"][number] {
   if (!isNonNullObject(value)) return false;
   const hasResolved = Object.hasOwn(value, "resolved");
   const hasTruncated = Object.hasOwn(value, "truncated");
+  const hasMedia = Object.hasOwn(value, "media");
   if (
     !keysMatch(Object.keys(value), [
       "locator",
       "outcome",
       ...(hasResolved ? ["resolved"] : []),
       ...(hasTruncated ? ["truncated"] : []),
+      ...(hasMedia ? ["media"] : []),
     ])
   ) {
     return false;
   }
   // SAFETY: `keysMatch` above confirmed `value` has exactly the accepted
   // import-entry shape; each field is validated individually below.
-  const { locator, outcome, resolved, truncated } = value as {
+  const { locator, outcome, resolved, truncated, media } = value as {
     locator: unknown;
     outcome: unknown;
     resolved?: unknown;
     truncated?: unknown;
+    media?: unknown;
   };
   return (
     isNonEmptyString(locator) &&
     (outcome === "imported" || outcome === "denied" || outcome === "failed") &&
     (!hasResolved || isNonEmptyString(resolved)) &&
-    (!hasTruncated || typeof truncated === "boolean")
+    (!hasTruncated || typeof truncated === "boolean") &&
+    (!hasMedia ||
+      (outcome === "imported" &&
+        typeof media === "string" &&
+        MEDIA_LOCATOR_PATTERN.test(media)))
   );
 }
 

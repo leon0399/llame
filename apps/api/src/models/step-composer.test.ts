@@ -19,6 +19,7 @@ import {
 } from '../media/epoch-admission';
 import { descriptor, fakeResolver } from '../media/media-fixtures';
 import { buildContext, type StoredMessage } from '../chats/context-builder';
+import { createPromptImportsItem } from '../chats/prompt-imports-item';
 import type { ModelStreamInput } from './model-client';
 import { composeStepMessages, installStepPreparation } from './step-composer';
 
@@ -205,6 +206,17 @@ describe('composeStepMessages', () => {
       await composeStepMessages(plain, { resolver, imageInput: true }),
     ).toBe(plain);
 
+    // A message without a reference keeps its identity beside one that has.
+    const unreferenced: ModelMessage = {
+      role: 'user',
+      content: [{ type: 'text', text: 'no reference' }],
+    };
+    const mixed = await composeStepMessages(
+      [{ role: 'user', content: [fileRef(A)] }, unreferenced],
+      { resolver, imageInput: true },
+    );
+    expect(mixed[1]).toBe(unreferenced);
+
     const once = await composeStepMessages(
       [{ role: 'user', content: [fileRef(A)] }],
       { resolver, imageInput: true },
@@ -212,6 +224,118 @@ describe('composeStepMessages', () => {
     expect(
       await composeStepMessages(once, { resolver, imageInput: true }),
     ).toBe(once);
+  });
+
+  describe('prompt-import images', () => {
+    const item = createPromptImportsItem({
+      runId: '11111111-2222-4333-8444-555555555555',
+      outcomes: [
+        {
+          locator: 'shot.png',
+          resolved: '/repo/shot.png',
+          outcome: 'imported',
+          body: '{"status":"success","kind":"image"}',
+          media: `media://${A}`,
+        },
+      ],
+      omitted: [],
+    });
+    /** A stored user message whose prompt imported A beside an owner file B. */
+    const stored: StoredMessage = {
+      id: 'msg-1',
+      chatId: 'chat-1',
+      seq: 1,
+      role: 'user',
+      senderUserId: 'user-1',
+      attachments: [],
+      createdAt: new Date(0),
+      parts: [
+        item,
+        { type: 'file', mediaType: 'image/png', url: `media://${B}` },
+        { type: 'text', text: 'compare' },
+      ],
+    };
+    const replayed = () =>
+      buildContext([stored], {
+        systemPrompt: 'system',
+        requestKind: 'continuation',
+      }).messages;
+    const itemText = { type: 'text', text: item.data.text } as const;
+
+    it('sends the item text followed immediately by the unlabelled image', async () => {
+      const { resolver } = fakeResolver([descriptor(A), descriptor(B)]);
+      const composed = await composeStepMessages(replayed(), {
+        resolver,
+        imageInput: true,
+      });
+
+      expect(composed[0]?.content).toEqual([
+        itemText,
+        {
+          type: 'image',
+          image: new Uint8Array([0x61]),
+          mediaType: 'image/png',
+        },
+        { type: 'text', text: `Image 1 (media://${B}):` },
+        {
+          type: 'image',
+          image: new Uint8Array([0x62]),
+          mediaType: 'image/png',
+        },
+        { type: 'text', text: 'compare' },
+      ]);
+      expect(itemText.text).toContain('<file path="shot.png">');
+      expect(
+        await composeStepMessages(composed, { resolver, imageInput: true }),
+      ).toBe(composed);
+    });
+
+    it('sends a text-only model the placeholder after the item text and no image', async () => {
+      const { resolver, loads } = fakeResolver([
+        descriptor(A, { name: 'shot.png' }),
+        descriptor(B),
+      ]);
+      const composed = await composeStepMessages(replayed(), {
+        resolver,
+        imageInput: false,
+      });
+
+      expect(composed[0]?.content.slice(0, 2)).toEqual([
+        itemText,
+        {
+          type: 'text',
+          text: `[image media://${A} shot.png 1600×900, omitted: this model has no image input]`,
+        },
+      ]);
+      expect(composed[0]?.content).not.toContainEqual(
+        expect.objectContaining({ type: 'image' }),
+      );
+      expect(loads).toEqual([]);
+    });
+
+    it('projects an item image that no attachment accompanies', async () => {
+      const { resolver } = fakeResolver([descriptor(A)]);
+      const composed = await composeStepMessages(
+        buildContext(
+          [{ ...stored, parts: [item, { type: 'text', text: 'look' }] }],
+          {
+            systemPrompt: 'system',
+            requestKind: 'continuation',
+          },
+        ).messages,
+        { resolver, imageInput: true },
+      );
+
+      expect(composed[0]?.content).toEqual([
+        itemText,
+        {
+          type: 'image',
+          image: new Uint8Array([0x61]),
+          mediaType: 'image/png',
+        },
+        { type: 'text', text: 'look' },
+      ]);
+    });
   });
 
   describe('tool results', () => {

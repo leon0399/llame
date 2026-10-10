@@ -28,6 +28,7 @@ import {
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
+import { createPromptImportsItem } from './prompt-imports-item';
 import {
   isRecord,
   isString,
@@ -414,6 +415,48 @@ describe('buildContext', () => {
           role: 'user',
           content: [
             { type: 'file', data: `media://${id}`, mediaType: 'image/png' },
+          ],
+        },
+      ]);
+    });
+
+    it('follows a prompt-imports item text with one image reference per image entry', () => {
+      const imported = '0192f3a4-5b6c-7d8e-9f01-000000000004';
+      const owner = '0192f3a4-5b6c-7d8e-9f01-000000000005';
+      const item = createPromptImportsItem({
+        runId: '11111111-2222-4333-8444-555555555555',
+        outcomes: [
+          {
+            locator: 'shot.png',
+            outcome: 'imported',
+            body: '{"status":"success","kind":"image"}',
+            media: `media://${imported}`,
+          },
+          { locator: 'notes.md', outcome: 'imported', body: 'notes' },
+        ],
+        omitted: [],
+      });
+      const stored = msg({
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          item,
+          { type: 'file', mediaType: 'image/png', url: `media://${owner}` },
+          { type: 'text', text: 'compare' },
+        ],
+      });
+
+      expect(
+        buildContext([stored], { systemPrompt, requestKind: 'continuation' })
+          .messages,
+      ).toEqual([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: item.data.text },
+            { type: 'image', image: `media://${imported}` },
+            { type: 'file', data: `media://${owner}`, mediaType: 'image/png' },
+            { type: 'text', text: 'compare' },
           ],
         },
       ]);

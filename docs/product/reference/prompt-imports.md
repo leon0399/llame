@@ -1,7 +1,7 @@
 ---
 summary: "Import markers in a prompt: which marker shapes and read locators import, how admission and bounds apply, and what the model receives"
 read_when:
-  - you want the assistant to start a turn with a file, range, outline, Knowledge file, skill, or URL already read
+  - you want the assistant to start a turn with a file, range, outline, Knowledge file, skill, URL, or image already read
   - you need to know why a marker in your prompt was or was not imported
   - you are reasoning about the prompt-imports context item, its bounds, or its audit
 spec: prompt-imports
@@ -60,6 +60,7 @@ its selector attached. Every `read` locator is accepted:
 | `kb://<space>/<path>`        | the [Knowledge Space](locators/kb.md) file         |
 | `skill://<name>/<path>`      | a [skill package](locators/skill.md) file, as data |
 | `http://…`, `https://…`      | the [web](locators/web.md) read                    |
+| `media://<id>`               | an image you [stored](locators/media.md)           |
 
 Any [selector](selectors.md) rides along, so the imported body is what `read`
 returns for the same locator, context lines and Markdown ancestor headings
@@ -78,19 +79,23 @@ target in an unbound Chat is imported only when the operator has enabled native
 host reads; a `kb://` target only when the operator has configured Knowledge
 (see [native files](../operator/native-files.md) and
 [Knowledge](../operator/knowledge.md)). A `kb://` Space that is not
-yours is not found, so its marker stays prose.
+yours is not found, so its marker stays prose. A `media://` id that is unknown
+or names another owner's image is not found either, so its marker stays prose
+and nothing about that image is recorded.
 
 ## Admission
 
 Imports use the same authority as a model `read`, not more:
 
-1. The `read` permission group is evaluated silently against each host or
-   Knowledge target, before anything touches the filesystem. A denied target is
-   audited and reported as not imported, without a probe, **whether or not the
-   file exists**, so a denial never reveals a path.
-2. Only an admitted target is probed. An admitted target that does not exist,
-   or a host target on a process with no native executor, stays prose with no
-   audit event, notice, or chip.
+1. The `read` permission group is evaluated silently against each host,
+   Knowledge, or `media://` target, before anything touches the filesystem or
+   the media store. A denied target is audited and reported as not imported,
+   without a probe, **whether or not the file exists**, so a denial never
+   reveals a path.
+2. Only an admitted target is probed; a `media://` probe looks the id up among
+   your own images. An admitted target that does not exist, or a host target
+   on a process with no native executor, stays prose with no audit event,
+   notice, or chip.
 3. Each surviving target is read once through `read`. In `bypass` mode the
    target is admitted without evaluating the group, and the decision is recorded
    as bypass. If `read` is not available at all, nothing is imported.
@@ -119,18 +124,31 @@ below system instructions and your requests and cannot grant tools or relax
 authorization. A denied or failed target is named only as not imported, with no
 content.
 
+A target whose `read` returns an image, such as `@shot.png` or
+`@media://<id>`, becomes an image entry. Its file block holds exactly the image
+result `read` returns: `kind: "image"`, the `media://<id>` locator, format,
+dimensions, and path, never the image bytes. An image the import reads from a
+file or URL is stored in your media under provenance `prompt-import`, and
+identical bytes reuse the image you already hold; an image the store refuses,
+such as one over 40 megapixels, is reported as not imported. Right after the
+notice's text, a
+[vision model](../operator/media.md#model-image-input) receives each imported
+image as an image part, under the same epoch image window as message
+attachments; a text-only model, or an image outside the window, gets the
+matching `[image media://<id> …]` placeholder instead.
+
 Imported files are data. Markers inside them are not followed, so imports do not
 nest. `@skill://review` reads that skill's `SKILL.md` as data and activates
 nothing; activation stays the `$review` form.
 
 ## Bounds
 
-| Bound              | Limit                                                                                                                                                             |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| markers considered | 64, in first-occurrence order; later ones are prose                                                                                                               |
-| reads per message  | 8 admitted targets that survive the probe or need none; a denied host or Knowledge target (within the 64-marker cap) is audited without a read and does not count |
-| output             | 128 KiB for the whole item; each result keeps `read`'s own truncation                                                                                             |
-| work               | 30 s, probes included, or the Run's remaining deadline                                                                                                            |
+| Bound              | Limit                                                                                                                                                                                           |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| markers considered | 64, in first-occurrence order; later ones are prose                                                                                                                                             |
+| reads per message  | 8 admitted targets that survive the probe or need none, images included; a denied host, Knowledge, or `media://` target (within the 64-marker cap) is audited without a read and does not count |
+| output             | 128 KiB for the whole item; each result keeps `read`'s own truncation; an image counts only as its result text, never its bytes                                                                 |
+| work               | 30 s, probes included, or the Run's remaining deadline                                                                                                                                          |
 
 A target past the count or output bound, or one that survived probing when the
 time bound fires, is listed once as omitted and not read. A host or Knowledge
@@ -144,7 +162,7 @@ further read: a target cut off that way is omitted, never reported as failed.
 A retry or worker resumption reuses the stored item and reads nothing that
 completed, in the original order; a target whose read started but did not
 complete is admitted and read afresh. A file edited after the turn is not read
-again.
+again, and an image entry keeps the `media://<id>` it was stored with.
 
 Imports run after the attempt's Workspace binding re-check. An attempt that
 detaches the Workspace imports nothing and its markers stay prose; an item an
@@ -153,16 +171,18 @@ earlier attempt stored still replays unchanged.
 An admitted host or Knowledge import also loads its directory's
 [instruction files](instruction-files.md#host-triggers) on the same turn, before
 the first model request, whether or not a Workspace is bound, and whatever its
-read outcome; denied, missing, web, and skill targets load none, and a detaching
+read outcome; denied, missing, web, skill, and `media://` targets load none, and a detaching
 attempt loads none. Importing an instruction file itself does not load it. A
 retry stages the same load.
 
 ## Disclosure
 
 Your message shows a chip listing each import locator as imported, truncated,
-denied, failed, or omitted; hovering shows the resolved path when it differs.
-The chip reads the item's private metadata. Other owners, public shares,
-transcript exports, and search see neither the item's text nor its metadata.
+denied, failed, or omitted, an image entry among them as imported; hovering
+shows the resolved path when it differs. The chip reads the item's private
+metadata, which also records an image entry's `media://<id>` locator. Other
+owners, public shares, transcript exports, and search see neither the item's
+text nor its metadata.
 
 ## Configured by
 

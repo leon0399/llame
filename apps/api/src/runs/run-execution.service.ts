@@ -67,6 +67,7 @@ import {
   toolResultOutput,
   type MediaSizing,
 } from '../media/epoch-admission';
+import { parseMediaLocator } from '../media/media-locator';
 import { MediaService } from '../media/media.service';
 import { createToolMediaStore } from '../media/tool-media-store';
 import {
@@ -161,7 +162,10 @@ import { activateSkills } from '../skills/skill-activation';
 import { parseSkillMentions } from '../skills/skill-mention';
 import { ActivationPartsRepository } from '../chats/activation-parts.repository';
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
-import { createPromptImportsItem } from '../chats/prompt-imports-item';
+import {
+  createPromptImportsItem,
+  promptImportMediaLocators,
+} from '../chats/prompt-imports-item';
 import {
   PROMPT_IMPORT_KNOWLEDGE_CANCELLED,
   PROMPT_IMPORT_WORK_MS,
@@ -2447,8 +2451,9 @@ export class RunExecutionService {
   /**
    * The ports the resolution module runs against, all built from the system
    * read context: the same silent `read` pre-evaluation the instruction loader
-   * uses, the same native-executor and Knowledge-root gates, and an owner-scoped
-   * Knowledge probe.
+   * uses, the same native-executor and Knowledge-root gates, an owner-scoped
+   * Knowledge probe, and the owner's media under provenance `prompt-import`,
+   * which also answers the `media://` probe (vision-media D8).
    */
   private promptImportRequest(step: PromptImportStep): PromptImportRequest {
     const { input } = step;
@@ -2458,6 +2463,11 @@ export class RunExecutionService {
       ...(input.abortSignal ? [input.abortSignal] : []),
       AbortSignal.timeout(PROMPT_IMPORT_WORK_MS),
     ]);
+    const media = createToolMediaStore(
+      new MediaService(this.tenantDb),
+      input.userId,
+      'prompt-import',
+    );
     const context: ToolContext = {
       ...this.buildSystemReadContext(
         input,
@@ -2467,6 +2477,7 @@ export class RunExecutionService {
       ),
       skillSelection: step.skillSelection,
       abortSignal: signal,
+      media,
     };
     return {
       text: partsToText(input.userMessage.parts),
@@ -2481,6 +2492,12 @@ export class RunExecutionService {
         return kind === 'file' || kind === 'directory';
       },
       probeKnowledge: (locator) => this.probePromptKnowledge(context, locator),
+      probeMedia: async (locator) => {
+        const id = parseMediaLocator(locator);
+        return id === undefined
+          ? undefined
+          : (await media.findImage(id))?.media;
+      },
       readImport: async (path, ordinal) => {
         const { result, admission } = await this.readTurnInstructionPage(
           input,
@@ -2934,12 +2951,20 @@ export class RunExecutionService {
       }
       return { variant: 'window', plan };
     }
+    // The stored triggering row: its prompt-imports item, appended after the
+    // Run was queued, carries references the queued parts do not.
+    const triggerParts =
+      input.historyRows.find((row) => row.seq === input.run.userMessage.seq)
+        ?.parts ?? input.run.userMessage.parts;
     if (
       plan !== null &&
       input.media !== undefined &&
       imageOverflowCompacts(
         input.media,
-        fileMediaIds(input.run.userMessage.parts).length,
+        fileMediaIds(triggerParts).length +
+          triggerParts.flatMap((part) =>
+            isContextItemPart(part) ? promptImportMediaLocators(part) : [],
+          ).length,
       )
     ) {
       return { variant: 'threshold', plan };

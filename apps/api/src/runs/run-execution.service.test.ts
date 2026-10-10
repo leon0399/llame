@@ -40,6 +40,7 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 
 import type {
   Chat,
+  MediaObject,
   Message,
   ModelToolDeclaration,
   Run,
@@ -79,6 +80,7 @@ import {
   createPromptImportsItem,
   isPromptImportsPayload,
 } from '../chats/prompt-imports-item';
+import { MediaService } from '../media/media.service';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import {
   createContextItemPart,
@@ -6691,6 +6693,35 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
     });
 
+    it("counts the triggering message's prompt-import images as its own", async () => {
+      // The item lands on the stored row after the Run was queued, so the
+      // queued parts carry none of its references.
+      const ids = triggerIds(5);
+      const triggerParts = [{ type: 'text', text: 'look at these' }];
+      const item = createPromptImportsItem({
+        runId,
+        outcomes: ids.map((id, n) => ({
+          locator: `shot${n}.png`,
+          outcome: 'imported' as const,
+          body: '{"status":"success","kind":"image"}',
+          media: `media://${id}`,
+        })),
+        omitted: [],
+      });
+
+      const { execution } = await executeTriggerCase({
+        client: visionClient().client,
+        historyRows: [
+          ...committedTurn({ contextTokens: 100 }),
+          { ...triggerTurn(), parts: [item, ...triggerParts] },
+        ],
+        triggerParts,
+        mediaRows: ids.map((id) => image(id, 5)),
+      });
+
+      expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+    });
+
     it('sizes images as placeholders for a model that declares no input', async () => {
       // As an image this one alone is past the window (ceil(w×h/750) tokens).
       const [id = ''] = triggerIds(1);
@@ -11670,6 +11701,209 @@ describe('RunExecutionService prompt imports', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  describe('image targets (vision-media D8)', () => {
+    const IMAGE_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+    const MEDIA = `media://${IMAGE_ID}`;
+    const PNG = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('png body'),
+    ]);
+
+    function mediaObject(ownerUserId: string): MediaObject {
+      return {
+        id: IMAGE_ID,
+        ownerUserId,
+        provenance: 'prompt-import',
+        name: 'shot.png',
+        mediaType: 'image/png',
+        width: 1600,
+        height: 900,
+        byteSize: PNG.length,
+        modelMediaType: 'image/png',
+        modelWidth: 1600,
+        modelHeight: 900,
+        modelByteSize: PNG.length,
+        sha256: 'digest',
+        createdAt: new Date(0),
+      };
+    }
+
+    /** The owner's media: `owner` alone holds IMAGE_ID; every ingest stores it. */
+    function serveMedia(owner: string) {
+      const ingest = vi
+        .spyOn(MediaService.prototype, 'ingest')
+        .mockImplementation((ownerUserId) =>
+          Promise.resolve({ media: mediaObject(ownerUserId), created: true }),
+        );
+      const findOwned = vi
+        .spyOn(MediaService.prototype, 'findOwned')
+        .mockImplementation((ownerUserId, id) =>
+          Promise.resolve(
+            ownerUserId === owner && id === IMAGE_ID
+              ? mediaObject(ownerUserId)
+              : undefined,
+          ),
+        );
+      return { ingest, findOwned };
+    }
+
+    it('imports an image target as an image entry ingested with prompt-import provenance', async () => {
+      const root = repoRoot();
+      try {
+        writeFileSync(path.join(root, 'shot.png'), PNG);
+        const { append, events } = serveRepositories();
+        bindChat(root);
+        const { ingest } = serveMedia(userId);
+        const execution = serviceFor(['enter_workspace', 'read']);
+        const input = promptInput(execution.client, 'see @shot.png');
+
+        const result = await execution.service.executeRun(input);
+        await expect(result.text).resolves.toBe('answer');
+
+        // Owned by the Run owner, labelled with the submitted locator.
+        expect(ingest).toHaveBeenCalledOnce();
+        expect(ingest.mock.calls[0]?.[0]).toBe(userId);
+        expect(ingest.mock.calls[0]?.[1]).toMatchObject({
+          provenance: 'prompt-import',
+          source: `${root}/shot.png`,
+        });
+        const output = importEvents(events).find(
+          ({ type }) => type === 'tool.completed',
+        )?.payload['output'];
+        expect(output).toEqual({
+          status: 'success',
+          kind: 'image',
+          media: MEDIA,
+          mediaType: 'image/png',
+          width: 1600,
+          height: 900,
+          path: `${root}/shot.png`,
+        });
+        const item = append.mock.calls[0]?.[0].item;
+        expect(item?.data.payload).toEqual({
+          imports: [
+            {
+              locator: 'shot.png',
+              resolved: `${root}/shot.png`,
+              outcome: 'imported',
+              media: MEDIA,
+            },
+          ],
+        });
+        expect(item?.data.text).toContain(
+          `<file path="shot.png">\n${serializeNativeModelOutput(output)}\n</file>`,
+        );
+        expect(item?.data.text).not.toContain(PNG.toString('base64'));
+        expect(input.userMessage.parts).toEqual([
+          { type: 'text', text: 'see @shot.png' },
+        ]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('imports an owned media locator without ingesting a new object', async () => {
+      const root = repoRoot();
+      try {
+        const { append } = serveRepositories();
+        bindChat(root);
+        const { ingest, findOwned } = serveMedia(userId);
+        const execution = serviceFor(['enter_workspace', 'read']);
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, `look at @${MEDIA}`),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(findOwned).toHaveBeenCalledWith(userId, IMAGE_ID);
+        expect(ingest).not.toHaveBeenCalled();
+        expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+          imports: [
+            {
+              locator: MEDIA,
+              resolved: MEDIA,
+              outcome: 'imported',
+              media: MEDIA,
+            },
+          ],
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps another owner's media locator prose without a read or audit", async () => {
+      const root = repoRoot();
+      try {
+        const { append, events } = serveRepositories();
+        bindChat(root);
+        const { findOwned } = serveMedia('user-b');
+        const read = vi.spyOn(nativeReadTool, 'execute');
+        const execution = serviceFor(['enter_workspace', 'read']);
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, `look at @${MEDIA}`),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(findOwned).toHaveBeenCalledWith(userId, IMAGE_ID);
+        expect(read).not.toHaveBeenCalled();
+        expect(append).not.toHaveBeenCalled();
+        expect(importEvents(events)).toEqual([]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('reuses the persisted media id on recovery without reading or ingesting', async () => {
+      const root = repoRoot();
+      try {
+        writeFileSync(path.join(root, 'shot.png'), PNG);
+        const { find, append, events } = serveRepositories();
+        bindChat(root);
+        const stored = createPromptImportsItem({
+          runId,
+          outcomes: [
+            {
+              locator: 'shot.png',
+              resolved: `${root}/shot.png`,
+              outcome: 'imported',
+              body: '{"status":"success","kind":"image"}',
+              media: MEDIA,
+            },
+          ],
+          omitted: [],
+        });
+        const payload = stored.data.payload;
+        if (!isPromptImportsPayload(payload)) {
+          throw new Error('the stored item must carry a valid payload');
+        }
+        find.mockResolvedValue({
+          ...stored,
+          data: { ...stored.data, payload },
+        });
+        // The file changed on disk after the import completed.
+        writeFileSync(path.join(root, 'shot.png'), Buffer.concat([PNG, PNG]));
+        const { ingest, findOwned } = serveMedia(userId);
+        const read = vi.spyOn(nativeReadTool, 'execute');
+        const execution = serviceFor(['enter_workspace', 'read']);
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, 'see @shot.png'),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(read).not.toHaveBeenCalled();
+        expect(ingest).not.toHaveBeenCalled();
+        expect(findOwned).not.toHaveBeenCalled();
+        expect(append).not.toHaveBeenCalled();
+        expect(importEvents(events)).toEqual([]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
   });
 
   it('never turns prompt-import activity into an assistant tool part', async () => {
