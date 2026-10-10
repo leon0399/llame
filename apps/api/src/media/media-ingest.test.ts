@@ -78,6 +78,12 @@ describe('prepareMedia refusals', () => {
     expect(await refusal(html)).toBe('unsupported_media_type');
   });
 
+  it('refuses a zero-length buffer as unsupported_media_type', async () => {
+    // sharp's constructor throws synchronously on an empty buffer; the
+    // refusal must still be the structured one, not a generic error.
+    expect(await refusal(Buffer.alloc(0))).toBe('unsupported_media_type');
+  });
+
   it('refuses a PNG signature truncated after the header', async () => {
     const truncated = (await solid(10, 10).png().toBuffer()).subarray(0, 33);
     expect(await refusal(truncated)).toBe('unsupported_media_type');

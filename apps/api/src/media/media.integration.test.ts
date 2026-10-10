@@ -235,6 +235,19 @@ describe('/api/v1/media (HTTP)', () => {
       expect(await countOwned(userAId, svg)).toBe(0);
     });
 
+    it('refuses a zero-byte file as 415 and stores nothing', async () => {
+      const empty = Buffer.alloc(0);
+      const res = await upload(cookieA, empty, 'empty.png').expect(415);
+
+      expect(res.body).toEqual({
+        statusCode: 415,
+        error: 'Unsupported Media Type',
+        message: 'Only PNG, JPEG, GIF, and WebP images are accepted',
+        code: 'unsupported_media_type',
+      });
+      expect(await countOwned(userAId, empty)).toBe(0);
+    });
+
     it('answers a 21 MiB file 413 with the same image_too_large body as an ingest refusal', async () => {
       const big = Buffer.concat([
         await uniquePng(),
