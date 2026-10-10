@@ -7,8 +7,9 @@ const CALL_TIMEOUT_MS = 30_000;
 const ECHO_BOUND = 64;
 const CONTROL_CHARACTERS = /\p{Cc}/gu;
 const URL_IN_MESSAGE = /https?:\/\//iu;
-/** How many `cause` links to follow: undici nests the socket error once or
- *  twice under `fetch failed`. */
+/** How many errors to inspect: the rejection itself and up to three `cause`
+ *  links beneath it — undici nests the socket error once or twice under
+ *  `fetch failed`. */
 const CAUSE_DEPTH = 4;
 /** A platform error code is an identifier, safe to echo; anything else is
  *  not a code. */
