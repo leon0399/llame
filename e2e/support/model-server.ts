@@ -1141,17 +1141,6 @@ async function respondToChatCompletion(
 ): Promise<void> {
   const classification = classify(raw);
 
-  // The api's post-turn title generation hits this mock too — answer it with
-  // a distinct short title so tests can tell title from message.
-  if (raw.includes("Generate a short chat title")) {
-    writeSseHead(res);
-    res.write(chunk("E2E Mock Title", false));
-    res.write(chunk(undefined, true, classification.reportsUsage));
-    res.write("data: [DONE]\n\n");
-    res.end();
-    return;
-  }
-
   const holdToken = HOLD_TOKEN_RE.exec(classification.lastUserContent)?.[1];
   if (holdToken !== undefined) {
     await respondHeld(res, raw, classification, holdToken);

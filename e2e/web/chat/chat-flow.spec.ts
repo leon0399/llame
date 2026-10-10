@@ -11,8 +11,8 @@
 import { expect, test } from "../../support/fixtures";
 
 const ANSWER = "Mocked answer from the e2e model server.";
-// The structured title the model mock returns for `generate_title`; the text
-// fallback would produce "E2E Mock Title" instead.
+// The structured title the model mock returns for `generate_title`; a fallback
+// to text would title the chat with the mock's default streamed answer.
 const GENERATED_TITLE = "E2E Generated Title";
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -47,7 +47,7 @@ test.describe("chat flow (worker execution mode)", () => {
     });
 
     // Title generation took the structured path: a fallback to text would
-    // still title the chat, but with the mock's text answer.
+    // still title the chat, but with the mock's default answer.
     const chatId = new URL(page.url()).pathname.split("/").at(-1);
     await expect
       .poll(
