@@ -3818,6 +3818,8 @@ export class RunExecutionService {
    * The dispatchable request for one pass: the triggering message carries its
    * stored parts with the staged items placed as the dispatch transaction will
    * store them, so items an earlier attempt stored replay once, in place.
+   * History is read through the trigger, and an accepted message always
+   * carries text, so the trigger's message is the request's last one.
    */
   private async assembleAttemptRequest(
     context: PreparedAttemptContext,
@@ -3825,14 +3827,16 @@ export class RunExecutionService {
   ): Promise<PreparedExecutionContext> {
     const messages = context.messages;
     if (context.triggerParts !== undefined) {
-      setTriggerContent(
-        messages,
-        placeAcceptedTurnItems(
-          context.triggerParts,
-          context.stagedParts.filter(isContextItemPart),
-          context.placement,
+      messages[messages.length - 1] = {
+        role: 'user',
+        content: userPartsToModelContent(
+          placeAcceptedTurnItems(
+            context.triggerParts,
+            context.stagedParts.filter(isContextItemPart),
+            context.placement,
+          ),
         ),
-      );
+      };
     }
     return {
       system: context.system,
@@ -4308,14 +4312,21 @@ export class RunExecutionService {
       input.input,
       input.prompt,
     );
+    // The model switch, the digest supersession marker and the temporal anchor
+    // are authored once per accepted turn, by the Run's first dispatch: an
+    // earlier dispatch already stored them on the trigger. A checkpoint this
+    // attempt published re-bakes the digest after that dispatch, so its marker
+    // is still untold.
     const priorDispatch = baseline.ownAvailability !== null;
     const stagedParts: Array<MessagePart> = [];
-    const modelChange = this.deriveModelChangeItem(
-      baseline,
-      input.input,
-      input.prompt,
-    );
-    if (modelChange !== undefined) stagedParts.push(modelChange);
+    if (!priorDispatch) {
+      const modelChange = this.deriveModelChangeItem(
+        baseline,
+        input.input,
+        input.prompt,
+      );
+      if (modelChange !== undefined) stagedParts.push(modelChange);
+    }
     const availability = deriveAttemptAvailabilityItem({
       runId: input.input.runId,
       baseline,
@@ -4337,10 +4348,13 @@ export class RunExecutionService {
       stagedParts.push(skillNotice.item);
     }
     stagedParts.push(
-      ...deriveRecencyDigestItems(baseline, input.input.runId, input.prompt),
+      ...deriveRecencyDigestItems({
+        baseline,
+        runId: input.input.runId,
+        prompt: input.prompt,
+        markerUntold: !priorDispatch || input.afterPublication,
+      }),
     );
-    // One temporal anchor per accepted turn: an earlier dispatch already
-    // stored this Run's.
     if (!priorDispatch) {
       stagedParts.push(
         createTemporalItem({
@@ -4363,7 +4377,6 @@ export class RunExecutionService {
     };
   }
 
-  /** The turns this attempt's staged items are judged against. */
   private async resolveDisclosureBaseline(
     tx: Db,
     run: ExecuteRunInput,
@@ -4414,8 +4427,7 @@ export class RunExecutionService {
   /**
    * Model selection is established by any run (failed runs included), so the
    * switch item reads the immediately preceding run, not the dispatched
-   * baseline the availability/epoch comparison uses. A retry after a dispatch
-   * compares against the same run and finds the switch already stored.
+   * baseline the availability/epoch comparison uses.
    */
   private deriveModelChangeItem(
     baseline: DisclosureBaseline,
@@ -4423,11 +4435,7 @@ export class RunExecutionService {
     prompt: AttemptPromptContext,
   ): MessagePart | undefined {
     const { previousRun } = baseline;
-    if (
-      baseline.ownAvailability !== null ||
-      previousRun === undefined ||
-      previousRun.modelId === run.client.model
-    ) {
+    if (previousRun === undefined || previousRun.modelId === run.client.model) {
       return undefined;
     }
     // The previous run records the selected id alone, and the body names the
@@ -4535,7 +4543,7 @@ export class RunExecutionService {
     });
     // The chat was deleted out from under a claimed run; executing past that
     // would send a request on behalf of a run nobody can see.
-    if (stored === undefined) throw new RunNotRunnableError(run.runId);
+    if (!stored.applied) throw new RunNotRunnableError(run.runId);
     const chatsRepo = new ChatsRepository(tx);
     if (context.recencyDigestTold !== undefined) {
       await chatsRepo.updateRecencyDigestTold(
@@ -4569,21 +4577,6 @@ export class RunExecutionService {
       ...(input.effort !== undefined && { effort: input.effort }),
     });
   }
-}
-
-/**
- * Sets the triggering user message's request content from its parts. History
- * is read through the trigger, and an accepted message always carries text, so
- * the trigger's message is the request's last one.
- */
-function setTriggerContent(
-  messages: ModelRequestContext['messages'],
-  parts: ReadonlyArray<unknown>,
-): void {
-  messages[messages.length - 1] = {
-    role: 'user',
-    content: userPartsToModelContent(parts),
-  };
 }
 
 /**
@@ -4635,20 +4628,22 @@ function deriveAttemptAvailabilityItem(input: {
 
 /**
  * The recency digest items this attempt stages: the supersession marker when
- * the digest was re-baked for the checkpoint opening this epoch, then the
- * delta since the told state.
+ * the digest was re-baked for the checkpoint opening this epoch and no
+ * dispatch of this Run stored a marker for it, then the delta since the told
+ * state.
  */
-function deriveRecencyDigestItems(
-  baseline: DisclosureBaseline,
-  runId: string,
-  prompt: AttemptPromptContext,
-): Array<MessagePart> {
+function deriveRecencyDigestItems(input: {
+  baseline: DisclosureBaseline;
+  runId: string;
+  prompt: AttemptPromptContext;
+  markerUntold: boolean;
+}): Array<MessagePart> {
+  const { baseline, runId, prompt } = input;
   const items: Array<MessagePart> = [];
   // The marker reports the re-bake to the first attempt that can dispatch
   // after it — the new epoch's first turn — so it rides the same boundary.
-  // An earlier dispatch of this Run already stored it on the trigger.
   const digestRebaked =
-    baseline.ownAvailability === null &&
+    input.markerUntold &&
     baseline.startsEpoch &&
     prompt.chat.recencyDigestRebakedFrom === prompt.checkpoint?.id;
   if (

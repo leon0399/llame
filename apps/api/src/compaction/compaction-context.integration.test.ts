@@ -764,20 +764,14 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     );
   }
 
-  function epochService(
-    compaction: CompactionService,
-    degraded?: {
-      allowed: ReadonlyArray<string>;
-      knowledgeCandidates: KnowledgeToolCandidateResolverPort;
-    },
-  ) {
+  function epochService(compaction: CompactionService, degraded = false) {
     return runService(compaction, {
       config: {
         tools: {
           allowed: [
             'search_conversations',
             'enter_workspace',
-            ...(degraded?.allowed ?? []),
+            ...(degraded ? DEGRADED_KNOWLEDGE.allowed : []),
           ],
           nativeExecutorId: EPOCH_EXECUTOR_ID,
         },
@@ -787,8 +781,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         skillCatalog: LIVE_CATALOG,
       },
       models: epochModels,
-      ...(degraded !== undefined && {
-        knowledgeCandidates: degraded.knowledgeCandidates,
+      ...(degraded && {
+        knowledgeCandidates: DEGRADED_KNOWLEDGE.knowledgeCandidates,
       }),
     });
   }
@@ -1135,6 +1129,69 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       ]);
     });
 
+    it('stages the supersession marker on a retry whose own checkpoint re-baked the digest after an earlier dispatch', async () => {
+      const seeded = await seedEpoch();
+      const turn = turnOf(seeded);
+      const service = epochService(createCompactionService(unexercisedModels));
+
+      // The first attempt's summary comes back empty, so it dispatches without
+      // a checkpoint, then its model never answers.
+      await service.executeRun(
+        requestFor(
+          turn,
+          attemptClient({
+            calls: [],
+            summary: { response: '' },
+            answer: null,
+            compactionThresholdTokens: 1,
+          }),
+        ),
+      );
+      const dispatched = await readTurnState(turn);
+      expect(dispatched.checkpoints).toHaveLength(0);
+      expect(dispatched.run?.turnToolAvailability).not.toBeNull();
+      expect(dispatched.contextParts).not.toContainEqual(
+        expect.objectContaining({
+          producer: 'recency-digest',
+          form: 'snapshot',
+        }),
+      );
+
+      // The retry's summary succeeds: its publication re-bakes the digest
+      // after the Run already dispatched, so no stored marker reports it.
+      const retryCalls: Array<ModelStreamInput> = [];
+      const retried = await service.executeRun(
+        requestFor(
+          turn,
+          attemptClient({
+            calls: retryCalls,
+            summary: { response: SUMMARY },
+            compactionThresholdTokens: 1,
+          }),
+        ),
+      );
+      await retried.consumeStream?.();
+
+      const after = await readTurnState(turn);
+      const checkpoint = sole(after.checkpoints);
+      expect(after.run?.status).toBe('completed');
+      expect(after.chat?.recencyDigestRebakedFrom).toBe(checkpoint.id);
+      expect(
+        after.contextParts.filter(
+          (item) =>
+            item.producer === 'recency-digest' && item.form === 'snapshot',
+        ),
+      ).toHaveLength(1);
+      const retryRequest = sole(
+        retryCalls.filter((call) => !isSummaryRequest(call)),
+      );
+      expect(
+        contentText(retryRequest.messages.at(-1)?.content ?? '').split(
+          'The chat list was refreshed.',
+        ),
+      ).toHaveLength(2);
+    });
+
     it('does not start a second epoch for the Run after the one that published', async () => {
       const seeded = await seedEpoch();
       const publishing = turnOf(seeded);
@@ -1212,7 +1269,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const failing = turnOf(seeded);
       const service = epochService(
         createCompactionService(unexercisedModels),
-        DEGRADED_KNOWLEDGE,
+        true,
       );
 
       // The Run publishes a checkpoint and dispatches its first request, then

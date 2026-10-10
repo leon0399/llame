@@ -34,27 +34,26 @@ export class AcceptedTurnPartsRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * Insert one dispatch's items into the locked user row and return the row's
-   * resulting parts, or undefined when the row is gone. Callers run this inside
-   * the attempt-fenced dispatch transaction, after the runs fence and before
-   * any chats write.
+   * Insert one dispatch's items into the locked user row; `applied` is false
+   * when the row is gone. Callers run this inside the attempt-fenced dispatch
+   * transaction, after the runs fence and before any chats write.
    */
   async storeAtDispatch(input: {
     id: string;
     chatId: string;
     items: ReadonlyArray<ContextItemPart>;
     placement: AcceptedTurnPlacement;
-  }): Promise<ReadonlyArray<unknown> | undefined> {
+  }): Promise<{ applied: boolean }> {
     const parts = await lockParts(this.db, input);
-    if (parts === undefined) return undefined;
-    if (input.items.length === 0) return parts;
+    if (parts === undefined) return { applied: false };
+    if (input.items.length === 0) return { applied: true };
     const placed = placeAcceptedTurnItems(parts, input.items, input.placement);
     const [updated] = await this.db
       .update(messages)
       .set({ parts: placed })
       .where(messageOwner(input))
       .returning({ id: messages.id });
-    return updated === undefined ? undefined : placed;
+    return { applied: updated !== undefined };
   }
 }
 
@@ -64,12 +63,12 @@ export class AcceptedTurnPartsRepository {
  * of them, in order, directly after the last context item and before the
  * user's text.
  */
-export function placeAcceptedTurnItems<T>(
-  parts: ReadonlyArray<T>,
+export function placeAcceptedTurnItems(
+  parts: ReadonlyArray<unknown>,
   items: ReadonlyArray<ContextItemPart>,
   placement: AcceptedTurnPlacement,
-): Array<T | ContextItemPart> {
-  const placed: Array<T | ContextItemPart> = [...parts];
+): Array<unknown> {
+  const placed: Array<unknown> = [...parts];
   if (placement === 'append') {
     placed.splice(placed.findLastIndex(isContextItemPart) + 1, 0, ...items);
     return placed;

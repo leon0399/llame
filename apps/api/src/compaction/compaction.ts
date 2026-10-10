@@ -137,8 +137,8 @@ function estimateProjectionTokens(projection: {
 /**
  * The estimate of everything a prepared request adds on top of a counted
  * measurement: the stored rows after the counted reply, plus the attempt's
- * staged rail text (which the persisted rows do not carry — rail items are
- * published onto the user message only with a completed turn). The counted
+ * staged rail text (which the persisted rows do not carry yet — rail items are
+ * stored on the user message when the request dispatches). The counted
  * reply's own request is already measured by the provider's number, so the
  * system prompt and tool declarations are deliberately left out here.
  */

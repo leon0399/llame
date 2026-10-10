@@ -540,15 +540,10 @@ function mockNormalExecutionRepositories() {
   const createAssistantReplyIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createAssistantReplyIfAbsent')
     .mockResolvedValue(assistantMessage);
-  // The dispatch write: answers with the trigger's parts after placement, as
-  // the repository does against the stored row.
+  // The dispatch write; stagedPartsOf places its items on the trigger's parts.
   const storeAtDispatch = vi
     .spyOn(AcceptedTurnPartsRepository.prototype, 'storeAtDispatch')
-    .mockImplementation(({ items, placement }) =>
-      Promise.resolve(
-        placeAcceptedTurnItems(userMessage.parts, items, placement),
-      ),
-    );
+    .mockResolvedValue({ applied: true });
   const findMostRecent = vi
     .spyOn(RunsRepository.prototype, 'findMostRecentByMessageSequence')
     .mockResolvedValue(undefined);
@@ -717,9 +712,6 @@ describe('RunExecutionService executeRun', () => {
   });
   it('advertises and executes a bound Workspace MCP tool in the first step', async () => {
     mockNormalExecutionRepositories();
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
     const root = mkdtempSync(path.join(tmpdir(), 'workspace-bound-tool-'));
     const observed = vi.fn(() => ({ status: 'success' as const }));
     const workspaceTool: Tool = {
@@ -927,9 +919,6 @@ describe('RunExecutionService executeRun', () => {
   });
 
   it('passes WorkspaceMcpClients through the production ToolContext', async () => {
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
     mockNormalExecutionRepositories();
     const root = mkdtempSync(
       path.join(tmpdir(), 'workspace-context-provider-'),
@@ -1309,9 +1298,6 @@ describe('RunExecutionService executeRun', () => {
     const detach = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'detach')
       .mockResolvedValue('stale');
-    const setTold = vi
-      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
-      .mockResolvedValue(undefined);
     const root = path.join(
       tmpdir(),
       'workspace-entry-stale-transition-does-not-exist',
@@ -1381,7 +1367,7 @@ describe('RunExecutionService executeRun', () => {
     expect(workspaceItems).toHaveLength(1);
     expect(workspaceItems[0]?.data.form).toBe('snapshot');
     expect(workspaceItems[0]?.data.payload).toEqual({ root });
-    expect(setTold).toHaveBeenCalledWith({
+    expect(repositories.setTold).toHaveBeenCalledWith({
       chatId,
       ownerUserId: userId,
       told: root,
@@ -1395,9 +1381,6 @@ describe('RunExecutionService executeRun', () => {
     const detach = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'detach')
       .mockResolvedValue('detached');
-    const setTold = vi
-      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
-      .mockResolvedValue(undefined);
     const root = mkdtempSync(
       path.join(tmpdir(), 'workspace-entry-policy-allow-'),
     );
@@ -1437,7 +1420,7 @@ describe('RunExecutionService executeRun', () => {
         'snapshot',
         'notice',
       ]);
-      expect(setTold).toHaveBeenCalledWith({
+      expect(repositories.setTold).toHaveBeenCalledWith({
         chatId,
         ownerUserId: userId,
         told: root,
@@ -1451,9 +1434,6 @@ describe('RunExecutionService executeRun', () => {
 
   it('does not rebind a detached Chat when its executor returns for a retry', async () => {
     const repositories = mockNormalExecutionRepositories();
-    const setTold = vi
-      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
-      .mockResolvedValue(undefined);
     const detachedChat: Chat = {
       ...chat,
       workspaceRoot: null,
@@ -1489,7 +1469,7 @@ describe('RunExecutionService executeRun', () => {
     expect(workspaceItems.some((item) => item.data.form === 'snapshot')).toBe(
       false,
     );
-    expect(setTold).toHaveBeenCalledWith({
+    expect(repositories.setTold).toHaveBeenCalledWith({
       chatId,
       ownerUserId: userId,
       told: null,
@@ -2802,9 +2782,6 @@ async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
   const detach = vi
     .spyOn(WorkspaceBindingRepository.prototype, 'detach')
     .mockResolvedValue('detached');
-  vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-    undefined,
-  );
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
     ...chat,
     workspaceRoot: input.root,
@@ -8129,22 +8106,27 @@ type StoreAtDispatchSpy = MockInstance<
   AcceptedTurnPartsRepository['storeAtDispatch']
 >;
 
-/** The trigger's parts after the last dispatch write placed its items on the
- * accepted text — the id and chatId pin which turn's parts these are. */
-function stagedPartsOf(storeAtDispatch: StoreAtDispatchSpy): Array<unknown> {
+/** The trigger's parts — `base` as the dispatch read them — after the last
+ * dispatch write placed its items on them; the id and chatId pin which turn's
+ * parts these are. */
+function stagedPartsOf(
+  storeAtDispatch: StoreAtDispatchSpy,
+  base: ReadonlyArray<unknown> = userMessage.parts,
+): Array<unknown> {
   const write = storeAtDispatch.mock.calls.at(-1)?.[0];
   expect(write).toMatchObject({ id: messageId, chatId });
   return write === undefined
     ? []
-    : placeAcceptedTurnItems(userMessage.parts, write.items, write.placement);
+    : placeAcceptedTurnItems(base, write.items, write.placement);
 }
 
 /** The staged envelopes one producer authored this turn, in written order. */
 function stagedItemsOf(
   storeAtDispatch: StoreAtDispatchSpy,
   producer: string,
+  base: ReadonlyArray<unknown> = userMessage.parts,
 ): Array<ContextItemPart> {
-  return stagedPartsOf(storeAtDispatch).filter(
+  return stagedPartsOf(storeAtDispatch, base).filter(
     (part): part is ContextItemPart =>
       isContextItemPart(part) && part.data.producer === producer,
   );
@@ -8390,16 +8372,11 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         return Promise.resolve({ ...run });
       },
     );
-    repositories.storeAtDispatch.mockImplementation(({ items, placement }) => {
+    repositories.storeAtDispatch.mockImplementation(() => {
       order.push('store');
-      return Promise.resolve(
-        placeAcceptedTurnItems(userMessage.parts, items, placement),
-      );
+      return Promise.resolve({ applied: true });
     });
-    vi.spyOn(
-      WorkspaceBindingRepository.prototype,
-      'setTold',
-    ).mockImplementation(() => {
+    repositories.setTold.mockImplementation(() => {
       order.push('told');
       return Promise.resolve(undefined);
     });
@@ -8444,7 +8421,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
           ),
       );
     } else {
-      repositories.storeAtDispatch.mockResolvedValue(undefined);
+      repositories.storeAtDispatch.mockResolvedValue({ applied: false });
     }
     const appended = recordAppendedEvents();
     let requested = false;
@@ -8501,24 +8478,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
         trigger,
       ]);
-      repositories.storeAtDispatch.mockImplementation(({ items, placement }) =>
-        Promise.resolve(
-          placeAcceptedTurnItems(trigger.parts, items, placement),
-        ),
-      );
-    }
-
-    /** The trigger's parts after the retry's dispatch appended its items. */
-    function storedAfterRetry(
-      repositories: ReturnType<typeof mockNormalExecutionRepositories>,
-    ): Array<unknown> {
-      const write = repositories.storeAtDispatch.mock.calls.at(-1)?.[0];
-      expect(write?.placement).toBe('append');
-      return placeAcceptedTurnItems(
-        trigger.parts,
-        write?.items ?? [],
-        'append',
-      );
     }
 
     it('appends an availability reminder against its own record after the stored items', async () => {
@@ -8540,16 +8499,20 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
       await execution.service.executeRun(executionInput(capturing.client));
 
-      const stored = storedAfterRetry(repositories);
+      expect(
+        repositories.storeAtDispatch.mock.calls.at(-1)?.[0].placement,
+      ).toBe('append');
+      const stored = stagedPartsOf(repositories.storeAtDispatch, trigger.parts);
       // No second temporal anchor or model switch for the same turn.
       expect(producersOf(stored)).toEqual([
         'temporal',
         'tool-availability',
         'text',
       ]);
-      const [availability] = stored.filter(
-        (part): part is ContextItemPart =>
-          isContextItemPart(part) && part.data.producer === 'tool-availability',
+      const [availability] = stagedItemsOf(
+        repositories.storeAtDispatch,
+        'tool-availability',
+        trigger.parts,
       );
       expect(availability?.data.payload).toMatchObject(deltaAvailability);
       expect(capturing.streamOptions().messages.at(-1)).toEqual({
@@ -8565,20 +8528,20 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         ...chat,
         workspaceDetachReason: 'root_missing',
       });
-      const setTold = vi
-        .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
-        .mockResolvedValue(undefined);
       const capturing = makeCapturingClient();
       const execution = makeExecutionService(capturing.client);
 
       await execution.service.executeRun(executionInput(capturing.client));
 
-      const stored = storedAfterRetry(repositories);
+      expect(
+        repositories.storeAtDispatch.mock.calls.at(-1)?.[0].placement,
+      ).toBe('append');
+      const stored = stagedPartsOf(repositories.storeAtDispatch, trigger.parts);
       expect(producersOf(stored)).toEqual(['temporal', 'workspace', 'text']);
       expect(stored[1]).toMatchObject({
         data: { form: 'notice', payload: { reason: 'root_missing' } },
       });
-      expect(setTold).toHaveBeenCalledWith({
+      expect(repositories.setTold).toHaveBeenCalledWith({
         chatId,
         ownerUserId: userId,
         told: null,
@@ -8715,9 +8678,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
   it("narrates an owner's copied Workspace root on the first accepted turn", async () => {
     const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       ...chat,
       workspaceRoot: '/workspace/project',
@@ -8747,9 +8707,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
   it('narrates Workspace exit when a named root is no longer bound', async () => {
     const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       ...chat,
       workspaceRoot: null,
@@ -8818,9 +8775,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     repositories.findActiveCheckpoint.mockResolvedValue(
       activeCheckpoint({ uptoSeq: 1, createdAt: now, id: compactionId }),
     );
-    const setTold = vi
-      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
-      .mockResolvedValue(undefined);
     const execution = makeExecutionService(createFakeModelClient(['answer']));
 
     const result = await execution.service.executeRun(
@@ -8837,7 +8791,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     expect(workspaceItems[0]?.data.payload).toEqual({
       root: '/workspace/project',
     });
-    expect(setTold).toHaveBeenCalledWith({
+    expect(repositories.setTold).toHaveBeenCalledWith({
       chatId,
       ownerUserId: userId,
       told: '/workspace/project',
@@ -9463,9 +9417,6 @@ describe('RunExecutionService instruction files', () => {
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
     });
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
   }
 
   /**
@@ -10756,10 +10707,6 @@ describe('RunExecutionService instruction files', () => {
         workspaceTold: root,
         workspaceToldFrom: null,
       });
-      vi.spyOn(
-        WorkspaceBindingRepository.prototype,
-        'setTold',
-      ).mockResolvedValue(undefined);
       const execution = makeExecutionService(
         createFakeModelClient(['answer']),
         undefined,
@@ -10869,10 +10816,6 @@ describe('RunExecutionService instruction files', () => {
         workspaceTold: root,
         workspaceToldFrom: null,
       });
-      vi.spyOn(
-        WorkspaceBindingRepository.prototype,
-        'setTold',
-      ).mockResolvedValue(undefined);
       serveCheckpointPublication();
       serveNativeReads();
       let contextWindowTokens = 1;
@@ -11304,9 +11247,6 @@ describe('RunExecutionService prompt imports', () => {
       workspaceExecutorId: executorId,
       workspaceGeneration: 4,
     });
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
   }
 
   /** The Run's repositories plus spies on the prompt-import item's storage. */

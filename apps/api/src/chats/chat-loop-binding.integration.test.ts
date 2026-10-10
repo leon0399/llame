@@ -316,7 +316,7 @@ describe('ChatLoopService accept/worker context binding', () => {
             placement,
           ),
         };
-        return Promise.resolve(persistedMessage.current.parts);
+        return Promise.resolve({ applied: true });
       });
     vi.spyOn(
       MessagesRepository.prototype,
