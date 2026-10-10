@@ -19,7 +19,7 @@ master
 
 | Layer                                 | Parent         | Ownership                                                                                                                                 | Authored estimate        | Closes |
 | ------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ | ------ |
-| `dispatch-context-items/proposal`     | `master`       | The approved proposal, design, deltas, and this task list.                                                                                | ~2,800 (exception below) | none   |
+| `dispatch-context-items/proposal`     | `master`       | The approved proposal, design, deltas, and this task list.                                                                                | ~3,050 (exception below) | none   |
 | `dispatch-context-items/turn-items`   | `proposal`     | `dispatched_at`, accepted-turn items, told sets, baselines, and availability in one pre-dispatch transaction; retry reuse; the baselines. | ~1,400                   | none   |
 | `dispatch-context-items/in-run-items` | `turn-items`   | In-Run items as attempt-tagged `context.item` Run events kept on every settlement, including wedged-Run expiry.                           | ~700                     | none   |
 | `dispatch-context-items/drop-record`  | `in-run-items` | Removal of `runs.context_items`, its endpoint, DTOs, generated client, and `SPEC.md` record claim.                                        | ~500 plus generated      | #1177  |
@@ -28,13 +28,15 @@ master
 `drop-record` closes #1177 because the issue's acceptance includes removing
 the record; the earlier layers reference it.
 
-**Review-budget exception for the proposal layer.** OpenSpec requires each
-MODIFIED block to restate its whole canonical requirement, so the 30-odd
-blocks across nine capabilities copy about 1,800 canonical lines verbatim. A
-whitespace-normalized diff against canonical measures the authored spec change
-at about 570 changed lines, plus about 650 lines of proposal, design, and
-tasks. Splitting the delta across layers would leave the canonical specs
-contradicting each other between them, so the layer is published whole.
+**Review-budget exception for the proposal layer.** The layer adds 3,055
+lines (`git diff --shortstat master...HEAD`). OpenSpec requires each MODIFIED
+block to restate its whole canonical requirement, so of the 2,705 delta lines
+across nine capabilities (37 MODIFIED and one REMOVED requirement), 2,131 match
+their canonical requirement line for line after whitespace normalization and
+574 are authored, beside 348 lines of proposal, design, and tasks and the
+two-line `.openspec.yaml`. Splitting the delta across layers would leave the
+canonical specs contradicting each other between them, so the layer is
+published whole.
 
 ## 0. proposal
 

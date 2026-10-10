@@ -60,7 +60,8 @@ None.
   and a dispatched Run's retry compares against that Run's own record; one
   requirement renamed to "Attempt availability is disclosed against the
   preceding dispatched turn".
-- `mcp-tools`: namespace filtering compares against that same baseline.
+- `mcp-tools`: namespace filtering compares against that same baseline, and
+  only an attempt that fails before dispatch leaves no history or baseline.
 - `durable-runs`: the final assistant projection keeps rail items, and
   single-flight admission expiry projects the stuck Run's output.
 - `temporal-anchor`: the temporal item is written at dispatch.
