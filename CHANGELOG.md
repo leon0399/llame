@@ -1,5 +1,20 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-10
+
+- Added the media store for owner images (#935). `POST /api/v1/media` uploads
+  one PNG, JPEG, GIF, or WebP image, detected by magic bytes, of at most
+  20 MiB and 40 megapixels; SVG and other formats are refused. The original is
+  stored unchanged next to a model variant (EXIF orientation applied, metadata
+  stripped, first frame only, long edge at most 2,000 px, at most 3.75 MiB),
+  both in Postgres under owner row-level security, and identical bytes from the
+  same owner reuse one `media://<id>` object. `GET /api/v1/media/:id`,
+  `/original`, and `/model` return the descriptor and bytes to their owner
+  only, with `nosniff`, `sandbox`, a strong `ETag`, and
+  `Cache-Control: private, no-cache`. Nothing deletes media yet, and the API
+  image now needs a glibc or musl base for `sharp`. See
+  [media store](docs/product/operator/media.md).
+
 # 2026-10-09
 
 - Fixed API and Runs-worker boot failing with "canonical conversation search

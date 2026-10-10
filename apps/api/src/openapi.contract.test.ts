@@ -84,6 +84,9 @@ const EXPECTED_OPERATION_IDS = [
   'getCurrentUser',
   'getHealth',
   'getKnowledgeSpace',
+  'getMedia',
+  'getMediaModel',
+  'getMediaOriginal',
   'getMemory',
   'getMyOrgUnitEffectiveRole',
   'getOrgUnit',
@@ -124,6 +127,7 @@ const EXPECTED_OPERATION_IDS = [
   'updatePersonalization',
   'updateProject',
   'updateRun',
+  'uploadMedia',
 ] as const;
 
 const EXPECTED_ORG_UNIT_CONFLICT_CODES = [

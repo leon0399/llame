@@ -449,6 +449,13 @@
       "when": 1791312334557,
       "tag": "20261006184534_special_warbound",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1791589937200,
+      "tag": "20261009235217_lowly_loa",
+      "breakpoints": true
     }
   ]
 }
