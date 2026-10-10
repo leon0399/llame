@@ -39,9 +39,11 @@ context. Minimal id/state comparison records SHALL follow
 `tool-calling`. Any permitted retry SHALL resolve and render its system prompt,
 catalog, and receipt again rather than using its predecessor's. A retry of a Run
 whose `dispatched_at` is set SHALL reuse that Run's persisted turn-attached
-items, told state, and comparison records as `context-injection` requires, while
-in-Run producers run normally on the retry's own model steps; any other retry
-SHALL derive its model context afresh.
+items, told state, and comparison records as `context-injection` requires,
+appending only the reconciliation items it defines for Workspace and
+availability changes after dispatch, while in-Run producers run normally on
+the retry's own model steps; any other retry SHALL derive its model context
+afresh.
 
 #### Scenario: Settings change while queued
 

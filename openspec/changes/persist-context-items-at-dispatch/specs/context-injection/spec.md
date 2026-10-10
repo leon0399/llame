@@ -47,7 +47,7 @@ Each item SHALL occupy its **own text content block** within that message rather
   `checkpoint`, and replay uses that stored text without metadata
   reconstruction
 
-Worker-attempt contributions intended for conversation history SHALL be staged in memory and committed before the model request that first carries them, whatever the Run's outcome: turn-attached items in the triggering message, in-Run items as Run events that the Run's assistant message keeps. An attempt's turn-attached items, together with the seen and told state and the comparison records that account for them, SHALL commit in one **dispatch transaction**, fenced by the attempt identity and committed after request preparation and any pre-step checkpoint and before the attempt's first model request; a superseded attempt SHALL commit nothing, and an attempt that fails before that transaction SHALL commit no staged item. The dispatch transaction SHALL also set the Run's `dispatched_at`; a Run has **dispatched** when `dispatched_at` is set. Each committed turn-attached part SHALL carry its Run id. A later attempt of a dispatched Run SHALL reuse those parts verbatim as its turn-attached items, and no producer SHALL author another turn-attached item, accepted-turn told-state update, or comparison record for that Run, except the Workspace detach narration that `Workspace binding changes are rail-resident context items` defines. In-Run producers SHALL run normally on the retry's own model steps. A retry of a Run that has not dispatched SHALL re-derive every item; prompt-import and skill-activation parts, which their producers persist earlier and separately, SHALL NOT trigger reuse. The attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal. Committed parts retain the exact prepared text and existing envelope/order. A compaction checkpoint row and the epoch state published with it are not staged contributions: they commit in their own transaction before the model step they precede, and a later failure of that attempt SHALL NOT retract them.
+Worker-attempt contributions intended for conversation history SHALL be staged in memory and committed before the model request that first carries them, whatever the Run's outcome: turn-attached items in the triggering message, in-Run items as Run events that the Run's assistant message keeps. An attempt's turn-attached items, together with the seen and told state and the comparison records that account for them, SHALL commit in one **dispatch transaction**, fenced by the attempt identity and committed after request preparation and any pre-step checkpoint and before the attempt's first model request; a superseded attempt SHALL commit nothing, and an attempt that fails before that transaction SHALL commit no staged item. The dispatch transaction SHALL also set the Run's `dispatched_at`; a Run has **dispatched** when `dispatched_at` is set. Each committed turn-attached part SHALL carry its Run id. A later attempt of a dispatched Run SHALL reuse those parts verbatim as its turn-attached items, and no producer SHALL author another turn-attached item, accepted-turn told-state update, or comparison record for that Run, except the **reconciliation items** that `Workspace binding changes are rail-resident context items` and `tool-calling`'s `Attempt availability is disclosed against the preceding dispatched turn` define for Workspace and availability state that changed after the Run dispatched. The retry SHALL commit its reconciliation items, with the told state and comparison record that account for them, in one attempt-fenced write before its first model request. In-Run producers SHALL run normally on the retry's own model steps. A retry of a Run that has not dispatched SHALL re-derive every item; prompt-import and skill-activation parts, which their producers persist earlier and separately, SHALL NOT trigger reuse. The attempt's own persisted output remains part of the record as the user saw it and enters later model context like any other committed turn. Legitimate accepted-message facts remain persisted-literal. Committed parts retain the exact prepared text and existing envelope/order. A compaction checkpoint row and the epoch state published with it are not staged contributions: they commit in their own transaction before the model step they precede, and a later failure of that attempt SHALL NOT retract them.
 
 #### Scenario: A failed Run keeps the items it dispatched
 
@@ -57,7 +57,7 @@ Worker-attempt contributions intended for conversation history SHALL be staged i
 
 #### Scenario: A retried attempt reuses its Run's items
 
-- **WHEN** an attempt commits its dispatch transaction, setting `dispatched_at`, and the Run is then retried in a new attempt
+- **WHEN** an attempt commits its dispatch transaction, setting `dispatched_at`, and the Run is then retried in a new attempt whose Workspace binding and tool availability match what the Run dispatched
 - **THEN** the retry sends the turn-attached parts that carry its Run id unchanged
 - **AND** no producer authors a second turn-attached item, accepted-turn told-state update, or comparison record for that Run
 - **AND** a tool result on one of the retry's own steps still triggers in-Run items as usual
@@ -130,7 +130,7 @@ Replay SHALL preserve the stored part order. It SHALL NOT re-sort historical ite
 - **THEN** new items follow the new authoring order
 - **AND** existing messages remain in their original stored order
 
-When worker preparation adds attempt-owned items beside already persisted message facts, the final request SHALL apply this same producer order while preserving each producer's internal order and all user-authored content. The dispatch transaction SHALL store that final ordering atomically before the request that carries it, and the stored ordering SHALL stand whatever the Run's outcome. A retry of a dispatched Run SHALL NOT re-sort its reused items, whose text and order are fixed; the detach notice and no-Workspace snapshot that a dispatched Run's retry adds for a persisted detach reason SHALL be appended immediately after the reused items and ahead of the user text, outside producer order.
+When worker preparation adds attempt-owned items beside already persisted message facts, the final request SHALL apply this same producer order while preserving each producer's internal order and all user-authored content. The dispatch transaction SHALL store that final ordering atomically before the request that carries it, and the stored ordering SHALL stand whatever the Run's outcome. A retry of a dispatched Run SHALL NOT re-sort its reused items, whose text and order are fixed; the reconciliation items that a dispatched Run's retry adds SHALL be appended immediately after the reused items and ahead of the user text, outside producer order relative to the reused items and in producer order among themselves.
 
 #### Scenario: Workspace and skill catalog items share a turn
 
@@ -548,7 +548,7 @@ inferred from the current unbound state, by emitting a separate rail-resident it
 dispatch transaction that commits that notice. The producer SHALL stage the narrated root,
 or its absence, and the latest checkpoint message as `workspace_told` and `workspace_told_from`;
 the attempt's dispatch transaction SHALL write both values, and the only other writers SHALL be the
-retry detach write below and a checkpoint's publication transaction, which advances `workspace_told_from` to name its own row and resets
+retry reconciliation write below and a checkpoint's publication transaction, which advances `workspace_told_from` to name its own row and resets
 the told root, so the state is not left suppressed by a narration the checkpoint
 superseded. The `workspace` producer re-derives its snapshot after that
 transaction commits and before the model step the checkpoint precedes, so the
@@ -562,13 +562,19 @@ Workspace state SHALL NOT be placed in the system prompt. A Workspace snapshot o
 exact item text, producer, and form on the triggering user message as a rail-resident part under the
 ordinary owner-isolation rules.
 
-A retry of a dispatched Run SHALL reuse its persisted `workspace` items. When `workspace_detach_reason`
-is set at that retry, whether its own binding re-check detached the binding or an earlier attempt's
-detach was never narrated, the retry SHALL still narrate the detach: it SHALL append the detach
-notice, and the snapshot stating that no Workspace is entered when `workspace_told` names a root,
-immediately after the reused items and ahead of the user text on the triggering user message, under
-the exception `Co-occurring items have a total author-time order` states, and SHALL write `workspace_told` and consume
-the detach reason in the same attempt-fenced write before its first model request.
+A retry of a dispatched Run SHALL reuse its persisted `workspace` items and SHALL then compare the Chat's
+current Workspace root, or its absence, with the stored `workspace_told`, which that Run's dispatch
+transaction or an earlier retry's reconciliation write set; an earlier attempt's in-Run
+`enter_workspace` or `exit_workspace`, or a detach, changes the binding without changing that value.
+When `workspace_detach_reason` is set at that retry, whether its own binding re-check detached the
+binding or an earlier attempt's detach was never narrated, the retry SHALL append the detach notice.
+When the current state differs from `workspace_told`, the retry SHALL append the snapshot for the
+current root, or the snapshot stating that no Workspace is entered, and, for a bound root on a
+non-detaching attempt, the accepted-turn root `instructions` load that `instruction-files` defines,
+which omits files already seen. These reconciliation items go immediately after the reused items and
+ahead of the user text, under the exception `Co-occurring items have a total author-time order`
+states, and the retry SHALL write `workspace_told` and consume the detach reason in its reconciliation
+write before its first model request.
 
 #### Scenario: Changed binding is narrated on the rail
 
@@ -619,6 +625,12 @@ the detach reason in the same attempt-fenced write before its first model reques
 - **WHEN** a dispatched Run is retried while `workspace_detach_reason` is set and the retry's own binding re-check passes because the Chat is already unbound
 - **THEN** the retry appends the detach notice naming that reason after the reused items
 - **AND** it clears `workspace_detach_reason` in its attempt-fenced write before its first model request
+
+#### Scenario: A retry after an in-Run entry narrates the new root
+
+- **WHEN** a Run dispatches while the Chat is unbound, an attempt's `enter_workspace` binds `/work/app`, and the Run is then retried
+- **THEN** the retry reuses the dispatched items and appends a snapshot naming `/work/app` and the root `instructions` load after them
+- **AND** it writes `/work/app` as `workspace_told` in its reconciliation write before its first model request, so the next accepted turn emits no second snapshot
 
 #### Scenario: A failed Run's Workspace narration is not repeated
 

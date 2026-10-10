@@ -56,13 +56,19 @@ and skill-activation parts, persisted earlier in their own transactions, never
 trigger reuse, so a crash before the dispatch transaction leaves a retry that
 re-derives everything, as today.
 
-Two exceptions apply. A retry of a dispatched Run whose Workspace detach
-reason is set, by its own re-check or an earlier one, appends the detach notice and a
-no-Workspace snapshot and clears the detach reason in its own attempt-fenced
-write, so the model is told. A retry of a dispatched Run does not publish a
-pre-step checkpoint; if its request no longer fits, it fails
-`context_incompatible`, because a checkpoint would reset told state the reused
-items already carry.
+Two exceptions apply. A retry of a dispatched Run reconciles the state that
+can change after dispatch: it compares the current Workspace binding with the
+stored told root, which an earlier attempt's in-Run `enter_workspace` or
+`exit_workspace`, or a detach, leaves stale, and it compares its fresh tool
+catalog's availability with the Run's own record. It appends what differs (a
+detach notice, a snapshot, the root instruction chain for a newly bound root,
+or an availability transition) after the reused items, and writes the told
+root, the consumed detach reason, and the replaced availability record in one
+attempt-fenced write before its first request, so the model is told and the
+next turn compares against what the retry sent. A retry of a dispatched Run
+does not publish a pre-step checkpoint; if its request no longer fits, it
+fails `context_incompatible`, because a checkpoint would reset told state the
+reused items already carry.
 
 ### D3. In-Run items are Run events carrying their attempt
 
@@ -110,7 +116,7 @@ assembly needs it.
   seen, which is the conservative reading.
 - [A retry of a dispatched Run cannot compact] → Its window was fit before
   the first dispatch; it can stop fitting when its re-rendered system prompt,
-  its tool declarations, or a detach narration grew, and then it fails
+  its tool declarations, or its reconciliation items grew, and then it fails
   `context_incompatible` rather than resetting state the reused items depend
   on.
 - [Breaking API change] → The endpoint has no UI consumer; the changelog marks

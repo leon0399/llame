@@ -11,7 +11,7 @@ raw failure detail. This record SHALL NOT be used for tool admission, execution,
 or reconstructing historical tool definitions.
 
 Every attempt SHALL read the record of the most recent prior Run whose
-`dispatched_at` is set within its disclosure epoch, whatever that Run's outcome. No observation SHALL remain distinct from an
+`dispatched_at` is set within its disclosure epoch, whatever that Run's outcome; a retry of a dispatched Run SHALL instead read that Run's own record, and SHALL replace it in the reconciliation write that `context-injection` defines when its state differs. No observation SHALL remain distinct from an
 observed empty record. A superseded attempt, and an attempt that fails before its dispatch transaction,
 SHALL not establish or replace that baseline. The runtime catalog and safe current
 reasons SHALL remain in memory; only actual committed reminder
@@ -51,7 +51,7 @@ On the first turn of a model-facing availability disclosure epoch, the reminder 
 
 When an eligible tool keeps the same id and remains available but its canonical declaration changes, the current attempt SHALL advertise its fresh in-memory declaration through the provider's native tool contract. Declaration-only drift SHALL NOT produce an availability reminder and SHALL NOT be represented as a synthetic Removed-plus-Added transition.
 
-A turn SHALL establish the comparison baseline when its attempt's dispatch transaction commits, whatever the Run's outcome. Its committed reminder text remains model-visible until a context rewrite removes it. A superseded attempt, or an attempt that fails before its dispatch transaction, SHALL commit no availability reminder and SHALL not advance the baseline. A retried attempt of a Run whose `dispatched_at` is set SHALL reuse that Run's reminder and record without comparing again, including after worker handoff. A retry of a Run that has not dispatched compares with the same preceding dispatched turn, unless a checkpoint published before the step started a new epoch, in which case every such retry uses the new epoch's initial semantics.
+A turn SHALL establish the comparison baseline when its attempt's dispatch transaction commits, whatever the Run's outcome. Its committed reminder text remains model-visible until a context rewrite removes it. A superseded attempt, or an attempt that fails before its dispatch transaction, SHALL commit no availability reminder and SHALL not advance the baseline. A retried attempt of a Run whose `dispatched_at` is set SHALL reuse that Run's reminder and SHALL compare its own admitted runtime state with that Run's record, including after worker handoff; when they differ, it SHALL append the transition reminder as a reconciliation item under `context-injection` and replace the Run's record with its own in that write, so the reminders it sends agree with its native declarations and the next turn compares against what it disclosed. A retry of a Run that has not dispatched compares with the same preceding dispatched turn, unless a checkpoint published before the step started a new epoch, in which case every such retry uses the new epoch's initial semantics.
 
 When there is no observed baseline, including migrated non-observation, the attempt SHALL use initial-baseline semantics. The dispatch transaction SHALL store only its sorted exact ids and available/unavailable states; empty observed state is distinct from no observation.
 
@@ -172,15 +172,168 @@ At authoring time, the reminder SHALL instruct the model not to simulate removed
 
 #### Scenario: Failed attempt observes a temporary outage
 
-- **WHEN** the previous committed message had grep available, an attempt sees it unavailable, commits that transition in its dispatch transaction, and fails, and its retry sees grep available again
-- **THEN** the retry reuses the committed `Became unavailable` reminder and record rather than comparing again
-- **AND** the next turn compares against that record and reports grep under `Now available`
+- **WHEN** the previous dispatched turn had grep available, an attempt sees it unavailable, commits that transition in its dispatch transaction, and fails, and its retry sees grep available again
+- **THEN** the retry reuses the committed `Became unavailable` reminder, appends a reminder reporting grep under `Now available` after the reused items, and replaces the Run's record before its first model request
+- **AND** the next turn compares against the replaced record and emits no reminder for grep
+
+#### Scenario: A retry with unchanged availability adds nothing
+
+- **WHEN** a dispatched Run is retried and the retry's admitted runtime state matches that Run's record
+- **THEN** the retry sends the reused reminder, if any, and appends no availability reminder
+- **AND** the Run's record is unchanged
 
 #### Scenario: Baseline publication is atomic and fenced
 
 - **WHEN** the active attempt commits its dispatch transaction
 - **THEN** its exact reminder text and minimal id/state record commit atomically before its first model request
 - **AND** superseded attempts cannot publish competing records
+
+### Requirement: No mid-run tool-state checkpointing (read-only slice; write-tool landmine)
+
+The existing read-only loop may retry a claimable Run from its first step with freshly resolved
+worker context only when that Run has no recorded native attempt or MCP dispatch. A retry SHALL
+re-resolve its own prompt and its own attempt-local catalog rather than reuse the failed attempt's
+preparation. A retry of a Run that has not dispatched SHALL compare availability against the same
+preceding dispatched turn; a retry of a dispatched Run SHALL reuse that Run's turn-attached items
+and compare availability against that Run's own record, as `Attempt availability is disclosed
+against the preceding dispatched turn` defines. The failed
+attempt's persisted output remains part of the committed record that later turns load. A Run that
+has executed an alpha native `edit` or `write` SHALL NOT automatically replay that mutation after a
+worker failure, timeout, or unknown settlement. A Run that has dispatched an MCP operation SHALL
+likewise not automatically replay that operation. The host SHALL stop the affected Run with
+`outcome_unknown` and require a new explicit user/model attempt. Client reconnect SHALL replay
+recorded tool activity without executing the mutation or MCP operation again. A redelivered Run
+carrying any recorded `native.attempt` SHALL fail as `outcome_unknown` without replaying its loop;
+this recovery rule has no native-executor or `workerId` precondition. Before terminal settlement,
+each open call with a matching durable `native.result` SHALL be settled from that result regardless
+of tool source. An open `bash`, native mutation, or MCP call whose `native.attempt` is recorded
+without a matching result SHALL settle as `outcome_unknown`; every other open call settles as the
+termination settlement rules require.
+A future durable effect-dedupe capability may replace this terminal behavior; it is outside this
+change.
+
+#### Scenario: Known native mutation result is replayed without execution
+
+- **WHEN** a native edit or write settled before a client reconnect
+- **THEN** replay returns the recorded tool result
+- **AND** the filesystem mutation is not executed again
+
+#### Scenario: Worker death mid-loop does not resume tool state
+
+- **WHEN** the worker dies after several completed tool steps and the run is expired by the deadman
+- **THEN** the run terminates per existing semantics
+- **AND** no partial tool-loop state is resumed on a new run
+
+#### Scenario: Refresh does not re-execute tools
+
+- **WHEN** a client reconnects to a live run after tool steps have completed
+- **THEN** replay reconstructs those steps from durable events without executing a native mutation again
+
+#### Scenario: Worker failure does not replay a native mutation
+
+- **WHEN** a worker fails after a native mutation or MCP dispatch may have started but before its result is known
+- **THEN** the effect is settled as `outcome_unknown` and the Run stops
+- **AND** a queue retry does not invoke that mutation or MCP operation again
+
+#### Scenario: A queue retry re-executes the loop from the start
+
+- **WHEN** a read-only Run's job is retried by the queue, the Run is still claimable, and no `native.attempt` is recorded
+- **THEN** its tool loop executes from the first step again
+- **AND** it may re-invoke read-only tools already invoked in the previous attempt
+
+#### Scenario: A terminal run is never reopened by a retry
+
+- **WHEN** a job is retried for a Run that has already reached a terminal state
+- **THEN** the Run is not reopened, no tool executes, and its terminal state stands
+
+#### Scenario: Read-only retry remains unchanged
+
+- **WHEN** a claimable Run contains only read-only tools, has no recorded `native.attempt`, and its job retries
+- **THEN** the existing read-only retry behavior remains available
+- **AND** no native mutation is inferred from the read-only result
+
+### Requirement: Code-owned Knowledge tools use the attempt-local read-only loop
+
+The code-owned tool inventory SHALL include `knowledge_search` in addition to `search_conversations`; Knowledge file access is the `kb://` locator of the native file tools. `knowledge_search` SHALL declare `read_only`, require its own exact entry in `tools.allowed`, and participate in the same declaration admission, attempt-local tool catalog, trusted executor binding, timeout, abort, settlement, persistence, replay, compaction, result neutralization, truncation, and browser-rendering contracts as every other code-owned tool. The runtime catalog SHALL describe operation eligibility and declarations, not a Knowledge resource inventory, and SHALL not be persisted.
+
+The operator allowlist controls only whether these fixed operations are eligible. It SHALL NOT choose an owner, configured root, child directory, path root, or execution location. A permitted Knowledge tool MAY accept a stable Knowledge Space selector as defined by its code-owned schema, but current authority for that selector MUST come from the trusted Run owner at execution time. Model input SHALL NOT supply or expand ownership or local filesystem authority.
+
+For each newly prepared execution attempt, the executing worker's candidate resolver SHALL use its source declaration, safety classification, exact allowlist entry, and configured Knowledge root to determine Knowledge tool availability. It SHALL NOT query or snapshot the owner's Knowledge Space inventory. With a configured root, an owner with zero current resources SHALL still receive the callable tool declarations; invocation SHALL return `knowledge_space_not_configured`. Without a configured root, each otherwise-eligible Knowledge tool SHALL retain the closed `knowledge_space_unavailable` manifest state. The API acceptance path SHALL neither resolve the catalog nor probe the filesystem.
+
+Worker execution SHALL receive the private filesystem resolver through trusted dependency injection or tool context and current owner identity through trusted Run context. It SHALL resolve current owner resources under RLS for every invocation and SHALL NOT serialize local binding data into declarations or accept it from model input.
+
+Knowledge results SHALL retain the global execution envelope `status: "success" | "error"`; this change SHALL NOT add a generic `partial` status. A successful `knowledge_search` MAY additionally declare `complete: false` with bounded warnings. While its full payload is present, that structured result remains usable. Whenever a later model-replay projection clears that payload—including ordinary bounded next-turn projection and compaction into the observation ledger—the payload-cleared observation SHALL carry outcome `incomplete`, not `success`; later replay SHALL preserve that outcome. Other successful tool results SHALL continue to project and compact as `success`. General partial-result semantics outside Knowledge are not defined by this requirement.
+
+New Knowledge results SHALL persist and render the current passage/range attribution defined by `knowledge-tools` without requiring a content hash. Historical persisted Knowledge results MAY retain their earlier hash-bearing shape. Execution, persistence, replay, compaction, and browser rendering SHALL preserve either bounded observation as authored and SHALL NOT normalize historical results into the new shape or synthesize removed fields. Existing persisted calls without new optional range or cursor arguments SHALL remain valid observations.
+
+Changing execution semantics or stored Knowledge locator interpretation SHALL remain a coordinated API/worker/data boundary. Description-template edits SHALL be restart-applied and do not create a historical declaration-hash requirement for a scheduled Run. Before replacing binaries for the passage-search declaration, the deployment SHALL quiesce new Run acceptance and drain every accepted Run bound to the prior declaration. It SHALL deploy matching API and worker binaries before resuming acceptance. Rollback SHALL quiesce and drain Runs bound to the newer declaration before restoring older API or worker binaries. No mixed-revision executor fallback or declaration normalization is introduced by this change.
+
+The canonical closed Knowledge reason vocabulary and model-safe label mapping SHALL retain `knowledge_space_not_configured` and `knowledge_space_unavailable`. Because zero inventory no longer changes tool availability, `knowledge_space_not_configured` SHALL be emitted only as a tool-call result, not as a runtime availability state. Current missing process configuration SHALL use the safe `knowledge_space_unavailable` label. Recovery notices SHALL identify the restored tool without asserting a prior cause, because the previous committed record stores only id/state.
+
+#### Scenario: Knowledge tool is not allowlisted
+
+- **WHEN** a Knowledge tool is registered but its exact ID is absent from `tools.allowed`
+- **THEN** it is neither advertised nor executable for a newly prepared execution attempt
+
+#### Scenario: Allowlisted Knowledge tool is admitted at runtime
+
+- **WHEN** an exact Knowledge tool ID is allowlisted for a newly prepared execution attempt with a configured Knowledge root
+- **THEN** its exact declaration is included in that Run's in-memory tool catalog regardless of current owner inventory
+- **AND** execution requires the matching code-owned read-only executor
+
+#### Scenario: Eligible Knowledge tool starts unavailable
+
+- **WHEN** a Knowledge tool is allowlisted but the executing worker has no configured Knowledge root
+- **THEN** the attempt's runtime availability records `knowledge_space_unavailable`
+- **AND** the tool is not advertised as callable for that Run
+
+#### Scenario: Knowledge availability recovery does not infer a prior cause
+
+- **WHEN** an attempt admits a Knowledge tool recorded as unavailable in the availability record it compares against within the disclosure epoch
+- **THEN** its `Now available` transition identifies that exact tool without inferring a stored failure reason
+- **AND** no root, host path, or arbitrary reason text is rendered
+
+#### Scenario: Knowledge observation persists through reload and replay
+
+- **WHEN** an allowlisted Knowledge tool completes with passage/range attribution and no content hash
+- **THEN** its call and structured result persist and render after browser reload
+- **AND** later model replay receives the complete matched pair, a payload-cleared matched pair with honest `success`, `incomplete`, or error outcome, or a bounded omission marker according to the existing pair and turn/ledger budgets
+
+#### Scenario: Historical Knowledge observation is not rewritten
+
+- **WHEN** a persisted Knowledge observation uses the earlier hash-bearing result shape
+- **THEN** reload and replay preserve the bounded observation as authored
+- **AND** no migration or projection invents new range fields or removes its historical fields
+
+#### Scenario: Knowledge declaration cutover drains prior Runs
+
+- **WHEN** a deployment changes the code-owned `knowledge_search` declaration
+- **THEN** it stops accepting new Runs and drains Runs bound to the prior declaration before replacing API or worker binaries
+- **AND** acceptance resumes only after every executing process exposes the matching declaration and executor
+
+#### Scenario: Tool permission cannot alter filesystem authority
+
+- **WHEN** an operator allowlists `knowledge_search`
+- **THEN** the permission makes only that fixed operation eligible
+- **AND** any supplied space selector still resolves solely through current trusted owner authority
+
+#### Scenario: Zero inventory remains model-visible
+
+- **WHEN** a Run owner has no current Knowledge Spaces but `knowledge_search` is otherwise eligible
+- **THEN** the tool is advertised as callable
+- **AND** invocation returns the closed `knowledge_space_not_configured` result
+
+#### Scenario: Removed reader is not recreated from history
+
+- **WHEN** historical tool activity mentions the removed `knowledge_read` id
+- **THEN** a fresh attempt does not reconstruct or execute it from that history
+- **AND** no shim, alias, or redirect to `read` is applied
+
+#### Scenario: Incomplete Knowledge search stays incomplete after payload clearing
+
+- **WHEN** `knowledge_search` returns `status: "success"` with `complete: false` and its payload is later cleared by any model-replay projection
+- **THEN** the payload-cleared observation and subsequent replay carry outcome `incomplete`
+- **AND** the call is not upgraded to complete success
 
 ### Requirement: Tool observations survive into later turns as stored UI parts
 

@@ -30,7 +30,8 @@ spec says "most recent successfully committed".
   availability record are written in the same transaction as the accepted-turn
   items, before the first request.
 - **A retry of a dispatched Run reuses its persisted items** instead of
-  authoring new ones. A new `runs.dispatched_at` marks that the Run's context
+  authoring new ones, appending only Workspace and tool-availability changes
+  made since dispatch. A new `runs.dispatched_at` marks that the Run's context
   reached the model.
 - **Every comparison baseline follows dispatch, not success.** The model-switch,
   tool-availability, and epoch baselines read the most recent prior Run that
@@ -55,8 +56,9 @@ None.
 - `chat-recency-digest`: baseline and told state commit at dispatch; one
   requirement renamed to "Digest baseline and disclosure state commit before
   dispatch".
-- `tool-calling`: the availability baseline is the preceding dispatched turn;
-  one requirement renamed to "Attempt availability is disclosed against the
+- `tool-calling`: the availability baseline is the preceding dispatched turn,
+  and a dispatched Run's retry compares against that Run's own record; one
+  requirement renamed to "Attempt availability is disclosed against the
   preceding dispatched turn".
 - `mcp-tools`: namespace filtering compares against that same baseline.
 - `durable-runs`: the final assistant projection keeps rail items, and
@@ -74,8 +76,9 @@ None.
 - Two migrations: one adds `runs.dispatched_at` and backfills it for completed
   Runs, the other drops `runs.context_items`; OpenAPI and the generated web
   client lose the endpoint and its DTOs.
-- Operator and reference docs that mention the context-item record;
-  `CHANGELOG.md`.
+- `SPEC.md`, whose context-injection paragraph names `runs.context_items` as
+  the record of what a Run injected; operator and reference docs that mention
+  the record; `CHANGELOG.md`.
 
 ## Acceptance
 
@@ -107,8 +110,10 @@ None.
   no reply yet did put its switch item in history, so `dispatched_at` is the
   marker.
 - **P5 A retry of a dispatched Run neither re-authors nor compacts.** It
-  reuses the dispatched items verbatim; only a Workspace detach is narrated
-  again. If its request no longer fits, it fails `context_incompatible`.
+  reuses the dispatched items verbatim and appends only what changed since
+  dispatch: a Workspace detach or binding change, and an availability
+  transition against the Run's own record, since the retry admits a fresh
+  catalog. If its request no longer fits, it fails `context_incompatible`.
 - **P4 The per-Run record is deleted, not repaired.** Every entry is
   byte-identical to a persisted part, and nothing reads it.
 
