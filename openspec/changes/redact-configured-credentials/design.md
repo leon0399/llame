@@ -82,17 +82,19 @@ raw characters. It then works on raw positions only:
 2. Cut at `bound`, extending once to the end of any occurrence that starts
    before it.
 3. At a forced close only (the drain's destroy), drop the longest trailing
-   suffix of the kept text that starts after the end of the last found
-   occurrence and is a proper prefix of a member. At the capture cap no drop
-   is needed: the lookahead already holds any member that starts before the
-   bound.
+   suffix of the kept text that is a proper prefix of a member. At the
+   capture cap no drop is needed: the lookahead already holds any member that
+   starts before the bound.
 4. Replace each merged occurrence interval (D4) that intersects the kept
    range, clipped to it, with `[REDACTED]`, without re-scanning.
 
-No step re-scans altered text, so neither an earlier redaction nor a drop can
-split a complete match. Output can exceed the raw bound by the extended match
-and marker growth; the truncation metadata still reports the cut. The
-executor's own split/join is replaced by the shared intervals routine.
+No step re-scans altered text, and step 4 clips every interval found in step
+1, so a drop or cut through an occurrence still leaves a marker for its kept
+part. A throwaway fuzz of exactly these steps (200k trials of 1-4 members of
+8-200 characters with shared prefixes, suffixes, and containment, bounds
+20-300, natural exit, capture cap, and forced close) emitted no member
+character. Output can exceed the raw bound by the extended match and marker
+growth; the truncation metadata still reports the cut.
 
 ### D3. Model failures keep their identity
 
@@ -123,10 +125,12 @@ error per attempt, so in-place redaction affects no other request.
 
 ### D4. Overlapping members merge into one marker
 
-`redactProtectedString` is extended to replace the union of every member's
-match intervals, merging overlapping or adjacent intervals into one
-`[REDACTED]`, so two members that overlap without containment leave no tail.
-MCP inherits the fix.
+`@workspace/runtime-safety` exports `protectedValueIntervals`, which returns
+the merged union of every member's raw match intervals, overlapping or
+adjacent intervals joined, and `redactProtectedString` is rebuilt on it, so
+two members that overlap without containment leave no tail. Bash uses the
+intervals directly (D2 step 4); MCP inherits the fix through
+`redactProtectedString`.
 
 ## Risks / Trade-offs
 
