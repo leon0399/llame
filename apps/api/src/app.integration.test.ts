@@ -19,7 +19,7 @@ describe('AppController — liveness probe', () => {
       .compile();
     app = mod.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
   });
 
   afterAll(async () => {
