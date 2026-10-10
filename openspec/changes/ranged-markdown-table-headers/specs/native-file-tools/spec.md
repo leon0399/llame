@@ -17,7 +17,7 @@ continuation of a container paragraph.
 
 #### Scenario: A table inside a container or its lazy continuation gets no header
 
-- **WHEN** a range starts at a body row of a table inside a blockquote, or of rows that lazily continue a list item's paragraph
+- **WHEN** a range starts at a body row of a table inside a blockquote, or of rows that lazily continue the paragraph of a list item or blockquote, such as one started by `- sub` or `> q` on the line that ends a list
 - **THEN** no header pair is emitted and the range keeps its existing behavior
 
 ### Requirement: Root GFM table delimiter rows
@@ -79,8 +79,9 @@ A line the CommonMark heading rules decide is part of a heading SHALL end the
 table before it and belong to no table. When a table is ended by a line that
 CommonMark decides is root paragraph text, no table SHALL start on that line
 or on a following line that GFM keeps in the block it starts: for a list item,
-until its list ends under the CommonMark list item and laziness rules; for an
-HTML block, up to the next blank line.
+until its list ends under CommonMark list item and laziness rules, again for
+each list that a root paragraph item line starts where one ends; for an HTML
+block, up to the next blank line.
 
 #### Scenario: Rows after a list item that ended a table are not a new table
 
@@ -101,6 +102,11 @@ HTML block, up to the next blank line.
 
 - **WHEN** a table is ended by `2. item`, which is followed by a blank line and then a header row, delimiter row, and body row each indented three spaces, and a range starts at that body row
 - **THEN** no header pair is emitted, because GFM keeps those rows in the list item
+
+#### Scenario: Rows after a list of another type that ends that list are not a new table
+
+- **WHEN** a table is ended by `2. item`, which is followed by `3) sub` and then, without a blank line, another header row, delimiter row, and body row, and a range starts at that body row
+- **THEN** no header pair is emitted, because GFM keeps those rows in the list that `3) sub` starts
 
 #### Scenario: A setext heading over table lines takes precedence
 
