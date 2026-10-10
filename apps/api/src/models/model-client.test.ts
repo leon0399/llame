@@ -203,7 +203,7 @@ describe('ModelClient', () => {
     expect(streamTextCall?.onAbort).toEqual(expect.any(Function));
   });
 
-  it('targets the configured base URL when one is provided', () => {
+  it('targets the configured base URL on the Responses wire when one is provided', () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',
       modelId: 'gpt-test',
@@ -234,6 +234,12 @@ describe('ModelClient', () => {
     expect(createOpenAIMock).toHaveBeenCalledWith({
       apiKey: 'sk-user-supplied',
       baseURL: 'https://openrouter.ai/api/v1',
+    });
+    // A non-OpenAI endpoint still speaks the Responses wire the entry's type
+    // selects; a base URL never moves the request to Chat Completions.
+    expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
+    expect(streamTextMock.mock.calls[0]?.[0]).toMatchObject({
+      model: { provider: 'openai.responses', modelId: 'gpt-test' },
     });
   });
 
