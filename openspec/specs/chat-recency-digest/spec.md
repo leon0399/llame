@@ -156,13 +156,13 @@ Baseline/told-set initialization SHALL be staged for the attempt and committed a
 
 A setting change after request preparation applies to later attempts; it cannot undo content already sent. The dispatch transaction SHALL record the actual prepared disclosure rather than pretending a later withdrawal prevented it. Receipts and committed content retain the existing non-erasure contract.
 
-Detecting events SHALL NOT require re-reading the chat's persisted message parts to reconstruct what was already announced; the told-set is the record. The told-set SHALL be advanced **in the same transaction as the append it accounts for**, so a run that fails to persist cannot leave the conversation marked as having been told something it never received. Because that transaction is the one that dispatches the request, a Run that fails after dispatch keeps both the append and the advancement, and the next Run does not announce the same event again. A request that carries no append still commits its actual baseline disclosure in that transaction.
+Detecting events SHALL NOT require re-reading the chat's persisted message parts to reconstruct what was already announced; the told-set is the record. The told-set SHALL be advanced **in the same transaction as the append it accounts for**, so a run that fails to persist cannot leave the conversation marked as having been told something it never received. Because that transaction is the one that dispatches the request, a Run that fails after dispatch keeps both the append and the advancement, and the next Run does not announce the same event again. For an epoch whose baseline is already published, a request that carries no append still commits its actual baseline disclosure in that transaction; initializing a baseline and its told-set still commits only with the winning turn.
 
 #### Scenario: Baseline stays fixed while the told-set grows
 
 - **WHEN** several appends are emitted over a chat's life
 - **THEN** the rendered baseline is byte-identical throughout
-- **AND** the told-set contains the baseline's chats plus every appended chat
+- **AND** the told-set contains the baseline chats a request actually disclosed plus every appended chat
 
 #### Scenario: Re-resolution resets both
 
