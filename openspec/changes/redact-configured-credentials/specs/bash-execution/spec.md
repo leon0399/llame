@@ -10,7 +10,7 @@ reordering, or deleting lines, except that every member of the instance's
 configured credential set (`instance-config`) SHALL be replaced with
 `[REDACTED]` before the result leaves the executor. The bound SHALL be
 applied to the raw output's positions without splitting a member match, and
-a fragment at a forced stream close that is a prefix of a member SHALL be
+a fragment at a forced stream close that is a proper prefix of a member SHALL be
 dropped; no cut or drop SHALL expose any part of a member match. Secrets a
 bound Workspace's own MCP configuration resolves are not members. The
 delimiter neutralization
