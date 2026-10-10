@@ -26,8 +26,8 @@ export function descriptor(
 }
 
 /**
- * A resolver over fixed descriptors whose byte loads are recorded in `loads`;
- * an owned id loads one byte, any other id nothing.
+ * A resolver over fixed descriptors whose requested byte loads are recorded in
+ * `loads`; an owned id loads one byte, any other id nothing.
  */
 export function fakeResolver(descriptors: ReadonlyArray<MediaDescriptor>) {
   const known = new Map(descriptors.map((entry) => [entry.id, entry]));
@@ -42,10 +42,16 @@ export function fakeResolver(descriptors: ReadonlyArray<MediaDescriptor>) {
           }),
         ),
       ),
-    loadModelBytes: (id) => {
-      loads.push(id);
+    loadModelBytes: (ids) => {
+      loads.push(...ids);
       return Promise.resolve(
-        known.has(id) ? new Uint8Array([id.codePointAt(35) ?? 0]) : undefined,
+        new Map(
+          ids.flatMap((id) =>
+            known.has(id)
+              ? [[id, new Uint8Array([id.codePointAt(35) ?? 0])] as const]
+              : [],
+          ),
+        ),
       );
     },
   };
