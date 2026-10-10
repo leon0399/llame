@@ -19,6 +19,7 @@ import {
   type RunStatus,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { type BillingMode } from '../models/model-client';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { reconstructDurableAssistant } from './assistant-transcript';
@@ -72,12 +73,14 @@ type TokenlessReplyUsage = ReplyIdentity & {
   readonly status: TurnStatus;
   readonly complete: false;
   readonly billing?: BillingMode;
+  readonly costUsd?: null;
 };
 
-/** The operator catalog entries billing resolves against. */
+/** The operator catalog entries billing and pricing resolve against. */
 export type BillingCatalog = ReadonlyArray<{
   readonly id: string;
   readonly billing?: BillingMode;
+  readonly pricingUsdPer1M?: SystemModelCatalogEntry['pricingUsdPer1M'];
 }>;
 
 export type RunReplyFinalization = {
@@ -173,12 +176,16 @@ function tokenlessUsage(
   status: TerminalRunStatus,
   models: BillingCatalog,
 ): TokenlessReplyUsage {
-  const billing = models.find(({ id }) => id === identity.modelId)?.billing;
+  const model = models.find(({ id }) => id === identity.modelId);
+  // No request of that attempt reported counts, so a priced model omits
+  // `costUsd` and an unpriced (or no longer configured) one records it as
+  // unknown, as run-usage-accounting requires of any usage.
   return {
     ...identity,
     status: turnStatusForTerminalRun(status),
     complete: false,
-    ...(billing !== undefined && { billing }),
+    ...(model?.billing !== undefined && { billing: model.billing }),
+    ...(model?.pricingUsdPer1M === undefined && { costUsd: null }),
   };
 }
 

@@ -677,6 +677,7 @@ describeIfDb(
           attemptId: died.attemptId,
           modelId: MODEL_ID,
           billing: 'subscription',
+          costUsd: null,
         });
         // A's output, rebuilt from its events, with its item after the tool
         // part of the step that triggered it.

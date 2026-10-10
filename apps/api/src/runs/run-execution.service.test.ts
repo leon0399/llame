@@ -7555,6 +7555,7 @@ describe('RunExecutionService settleTerminalRun', () => {
         complete: false,
         runId,
         modelId: 'fake-model',
+        costUsd: null,
       },
     });
     expect(touch).toHaveBeenCalledWith(chatId, userId);

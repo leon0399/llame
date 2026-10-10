@@ -281,6 +281,38 @@ describe('finalizeRunReply', () => {
         modelId: 'fake-model',
         effort: 'high',
         billing: 'subscription',
+        costUsd: null,
+      },
+    });
+  });
+
+  it('omits the cost of a token-less reply on a priced model', async () => {
+    const { create } = serve({
+      log: [requested(1), event(2, 'model.delta', { text: 'priced answer' })],
+    });
+
+    await finalizeRunReply(tx, {
+      run,
+      status: 'failed',
+      models: [
+        {
+          id: 'fake-model',
+          billing: 'usage',
+          pricingUsdPer1M: { input: 1, output: 4 },
+        },
+      ],
+    });
+
+    expect(create).toHaveBeenCalledWith({
+      chatId,
+      inReplyTo: messageId,
+      parts: [{ type: 'text', text: 'priced answer' }],
+      usage: {
+        status: 'error',
+        complete: false,
+        runId,
+        modelId: 'fake-model',
+        billing: 'usage',
       },
     });
   });
@@ -329,6 +361,7 @@ describe('finalizeRunReply', () => {
           effort: 'high',
           permissionMode: 'bypass',
           billing: 'subscription',
+          costUsd: null,
         },
       }),
     );
