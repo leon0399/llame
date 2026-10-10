@@ -5,7 +5,8 @@
  * browser tests exercise the real loop end-to-end with zero provider spend and
  * a fully deterministic answer. Speaks the /chat/completions streaming SSE
  * protocol — the endpoint the api's model client targets, and the one every
- * OpenAI-compatible provider implements.
+ * OpenAI-compatible provider implements — except for structured title
+ * generation, which it answers with one non-streaming JSON completion.
  *
  * Behavior: answers with a fixed token sequence. A prompt containing "SLOW"
  * drips tokens over ~4s so tests can reload the page mid-answer (the resume
@@ -1200,22 +1201,17 @@ const E2E_GENERATED_TITLE = "E2E Generated Title";
  * structured path would otherwise never run end to end.
  */
 function respondToStructuredTitle(res: ServerResponse, raw: string): boolean {
-  let body: {
-    stream?: boolean;
-    tool_choice?: { function?: { name?: string } };
-  };
+  let body: JsonValue;
   try {
-    // SAFETY: raw is this fixture's own /chat/completions request body from
-    // the api's OpenAI-compatible client; only the optional `stream` flag and
-    // the forced tool name are read, and both are checked before use.
-    body = JSON.parse(raw) as typeof body;
+    body = JSON.parse(raw);
   } catch {
     return false;
   }
-  if (
-    body.stream === true ||
-    body.tool_choice?.function?.name !== "generate_title"
-  ) {
+  if (!isJsonObject(body)) return false;
+  const toolChoice = body["tool_choice"];
+  const forced = isJsonObject(toolChoice) ? toolChoice["function"] : undefined;
+  const forcedName = isJsonObject(forced) ? forced["name"] : undefined;
+  if (body["stream"] === true || forcedName !== "generate_title") {
     return false;
   }
   res.writeHead(200, { "content-type": "application/json" });
