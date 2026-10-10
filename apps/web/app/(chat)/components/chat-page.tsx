@@ -346,6 +346,7 @@ function ChatSessionBody({
         pendingStop={composer.pendingStop}
         modelReadyForSend={composer.modelReadyForSend}
         modelSendUnavailableReason={composer.modelSendUnavailableReason}
+        attachments={composer.attachments}
         disabled={markdown.renderers === null}
       />
       <ChatSessionDialog dialog={dialog} />

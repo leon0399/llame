@@ -38,6 +38,7 @@ import {
   type NonReasoningPart,
 } from "./group-assistant-parts";
 import { InstructionsPart } from "./instructions-part";
+import { MessageAttachments } from "./message-attachments";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { PromptImportsPart } from "./prompt-imports-part";
@@ -192,8 +193,8 @@ function MessagePartView({
  *  "unsupported part type" span and print debug text into the owner's
  *  transcript on reload.
  *
- *  A `file` part — an image the owner attached — has no transcript view in
- *  this build, so it paints nothing rather than the same debug span. */
+ *  A `file` part — an image the owner attached — is not a segment: its
+ *  thumbnail renders above the bubble (`MessageAttachments`). */
 function isVisibleSegment(segment: GroupedAssistantPart): boolean {
   if (segment.kind === "reasoning") return segment.text.trim() !== "";
   if (segment.part.type === "file") return false;
@@ -411,6 +412,7 @@ export function ChatMessageRow({
           from={message.role}
           data-message-key={renderKey}
         >
+          <MessageAttachments message={message} />
           <MessageBubble
             mode={mode}
             parts={message.parts}
