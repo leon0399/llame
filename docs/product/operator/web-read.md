@@ -14,7 +14,8 @@ Enabling `http(s)://` reads and the permission boundary around them. Adapters:
 [web adapters](web-adapters.md). Model-visible behavior: [web
 locators](../reference/locators/web.md).
 
-Deferred by design: response snapshots and any cache (#915), and PDF or image
+Image pages: [web locators](../reference/locators/web.md#behavior). Deferred
+by design: response snapshots and any cache (#915), and PDF
 bodies (#916). See [what is not
 read](../reference/locators/web.md#what-is-not-read).
 
@@ -250,6 +251,10 @@ challenge; a challenge page is reported in a note instead.
 | `invalid_path` naming a spelling                    | the locator is not a URL; resubmit exactly the spelling the message names                                                                   |
 | `invalid_selector` naming a `%3A` spelling          | the last path segment holds a literal colon; use the suggested encoded locator or a real selector                                           |
 | `unsupported_content_type` naming `application/pdf` | document reads are not implemented (#916)                                                                                                   |
+| `unsupported_content_type` naming an `image/` type  | either the type is not PNG, JPEG, GIF, or WebP (e.g. `image/avif`, `image/x-icon`, `image/jpg`), or a system read had no owner media store  |
+| `unsupported_media_type`                            | the response declared an accepted image type, but its bytes are not a PNG, JPEG, GIF, or WebP image; nothing was stored                     |
+| `image_too_large`                                   | the page image is over 40 megapixels; its message also names the 20 MiB store bound, which the 5 MiB body bound makes unreachable here      |
+| `invalid_selector` on an image                      | an image is read without a selector, `:raw` included; drop the selector                                                                     |
 | `http_status` 403, or `raw` with a challenge note   | the publisher blocked the client; llame does not rotate its user agent or solve challenges                                                  |
 | `headers_timeout` or `body_too_large`               | that candidate exceeded a bound; a probe is disqualified and the pipeline continues, while the page's own response ends the call            |
 | `call_timeout`                                      | the call spent its 30-second budget across its requests; the read is not retried, so point the model at a smaller source                    |

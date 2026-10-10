@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Web `read` now accepts image pages (#935). A page whose response, after
+  redirects, declares `image/png`, `image/jpeg`, `image/gif`, or `image/webp`
+  within the 5 MiB body bound is stored in the Run owner's media store and
+  returned as the image result with `finalUrl` and `method: "image"`, the bytes
+  deciding the format. A declared image type over other bytes is
+  `unsupported_media_type`, any selector on an image (`:raw` included) is
+  `invalid_selector`, `image/svg+xml` stays text, and PDF and other binary
+  bodies, as well as images answered to an adapter or an alternate, suffix, or
+  `llms.txt` probe, stay refused content types.
+
 - Vision models on `openai-completions` and `opencode-go` now receive `read`
   images (#935). The Chat Completions adapter would send a tool output's image
   as text, so a tool result whose image is attached carries its text and

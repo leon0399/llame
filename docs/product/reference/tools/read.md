@@ -86,11 +86,21 @@ bytes reuses the object), and the read returns an image result instead of
 The source's attribution stays: `realPath` on a host path, the Space fields and
 notice on `kb://`, the skill fields on `skill://`. An image result has no line
 metadata and takes no selector. The extension never decides: an SVG, or any file
-matching no signature, stays on the text path whatever its size. A model that
-declares image input receives the image with the result, as the epoch image
-window in [media](../../operator/media.md) admits it; any other model receives a
-placeholder naming the locator. A [`media://`](../locators/media.md) read returns
-the same image result for an object the owner already holds.
+matching no signature, stays on the text path whatever its size.
+
+An `http(s)://` page whose response, after redirects, declares `image/png`,
+`image/jpeg`, `image/gif`, or `image/webp` within the 5 MiB web body bound is
+ingested the same way, labelled with the requested URL's scheme, host, port,
+and path, and returns the image result plus `finalUrl`, `method: "image"`, and
+`notes` only when non-empty; `path` is the URL with its selector stripped. The
+bytes still decide the format, `:raw` is refused like any selector, and
+`image/svg+xml` stays text; see [web](../locators/web.md#behavior).
+
+A model that declares image input receives the image with the result, as the
+epoch image window in [media](../../operator/media.md) admits it; any other
+model receives a placeholder naming the locator. A
+[`media://`](../locators/media.md) read returns the same image result for an
+object the owner already holds.
 
 A multi-range read reports the plural `requestedRanges` (the merged request) and
 `shownRanges` (emitted lines); continuation and trimming are under

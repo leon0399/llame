@@ -126,6 +126,17 @@ native read object — `content`, the requested and shown range or ranges,
 — plus `notes` only when the render reported something; there is no `url`,
 `contentType`, `markdownTokens`, `realPath`, text header, or frontmatter block.
 
+A page whose response, after any redirects, declares `image/png`, `image/jpeg`,
+`image/gif`, or `image/webp` is not rendered: its body is stored as a media
+object of the Run owner, and the read returns the
+[image result](../tools/read.md#image-result) with `path`, `finalUrl`,
+`method: "image"`, and `notes` only when non-empty, and no content or range
+fields. The bytes decide the format, so a JPEG declared as `image/png` reports
+`image/jpeg`, and bytes that are no PNG, JPEG, GIF, or WebP image fail with
+`unsupported_media_type`. Any selector on an image, `:raw` included, fails with
+`invalid_selector`. An adapter response or an alternate, suffix, or `llms.txt`
+probe with an image type is a refused content type, never an image.
+
 The web adapter stage runs after the source locator passes `read` permission
 admission and before the source is fetched: a claimed URL whose adapter renders
 makes no request to the source host. `:raw` bypasses every adapter. A URL
@@ -139,6 +150,7 @@ The full order is:
 | `method`      | Source of the content                                                                                           |
 | ------------- | --------------------------------------------------------------------------------------------------------------- |
 | `adapter`     | a configured adapter's rendered content, with structured provenance and notes                                   |
+| `image`       | a PNG, JPEG, GIF, or WebP page body, returned as the stored image with no content, before any probe             |
 | `negotiated`  | the first response itself: `text/markdown` or `text/plain`, returned as served                                  |
 | `alternate`   | a Markdown URL announced by a `Link` header or a head `<link rel="alternate" type="text/markdown">`             |
 | `md-suffix`   | the publisher's `.md` suffix probe: `/a/b.html` → `/a/b.html.md`, `/a/b` → `/a/b.md`, `/a/b/` → `/a/b/index.md` |
@@ -228,6 +240,7 @@ The URLs each configured adapter claims and the document it renders are in
 | Response headers              | 10 s per request (`headers_timeout`)                                                                          |
 | The whole call, every request | 30 s (`call_timeout`)                                                                                         |
 | Response body                 | 5 MiB streamed (`body_too_large`)                                                                             |
+| Page image                    | the 5 MiB body bound, then 40 megapixels (`image_too_large`)                                                  |
 | Redirects per call            | 20 (`too_many_redirects`)                                                                                     |
 | Requests per call             | 27: first, 20 hops, one alternate, one suffix probe, four `llms.txt`                                          |
 | Retries                       | none: no request is repeated, and a probe's failure disqualifies its candidate                                |
@@ -251,22 +264,24 @@ refused ([selectors](../selectors.md#media-types-and-errors)).
 
 ## Errors
 
-| Error type                 | Meaning                                                                                                                                                    |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid_path`             | the locator is not an absolute web URL, has a port that is not a number, carries userinfo, or targets `edit` or `write`                                    |
-| `invalid_selector`         | the split-off suffix is outside the shipped selector grammar, such as an unencoded colon in the last segment                                               |
-| `executor_unavailable`     | instance configuration resolved no boot-time version for `User-Agent: llame/<version>`                                                                     |
-| `headers_timeout`          | no response headers arrived within 10 seconds                                                                                                              |
-| `call_timeout`             | the call passed 30 seconds across its requests                                                                                                             |
-| `body_too_large`           | the body declared or streamed more than 5 MiB                                                                                                              |
-| `representation_too_large` | a `-K` member or `:outline` on an adapter document cut at the 5 MiB rendered-document bound                                                                |
-| `http_status`              | a non-2xx, non-redirect status on the first response or a hop; a 429 also carries `Retry-After`, and the body is not returned                              |
-| `unsupported_content_type` | the response is not a text body, or declares no content type                                                                                               |
-| `invalid_redirect`         | a redirect status without a parsable `Location`, or a hop with userinfo or a non-web scheme; the target is never named; a fragment is dropped, not refused |
-| `too_many_redirects`       | the call exceeded 20 redirects                                                                                                                             |
-| `permission_denied`        | the `read` group refused the submitted locator or a hop, or every address was refused — a hop rejection carries `rejectedUrl`                              |
-| `aborted`                  | the Run or the caller cancelled the read                                                                                                                   |
-| `network_error`            | the transport failed (DNS, TLS, connection reset); a probe's failure disqualifies only its candidate, and no request is retried                            |
+| Error type                 | Meaning                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `invalid_path`             | the locator is not an absolute web URL, has a port that is not a number, carries userinfo, or targets `edit` or `write`                                      |
+| `invalid_selector`         | the split-off suffix is outside the shipped selector grammar, such as an unencoded colon in the last segment, or any selector on an image body               |
+| `executor_unavailable`     | instance configuration resolved no boot-time version for `User-Agent: llame/<version>`                                                                       |
+| `headers_timeout`          | no response headers arrived within 10 seconds                                                                                                                |
+| `call_timeout`             | the call passed 30 seconds across its requests                                                                                                               |
+| `body_too_large`           | the body declared or streamed more than 5 MiB                                                                                                                |
+| `representation_too_large` | a `-K` member or `:outline` on an adapter document cut at the 5 MiB rendered-document bound                                                                  |
+| `http_status`              | a non-2xx, non-redirect status on the first response or a hop; a 429 also carries `Retry-After`, and the body is not returned                                |
+| `unsupported_content_type` | the response is neither a text body nor, on the page response of a read with the owner's media store, an accepted image type, or it declares no content type |
+| `unsupported_media_type`   | the response declared an accepted image type, but its bytes are no PNG, JPEG, GIF, or WebP image; nothing is stored                                          |
+| `image_too_large`          | the page image passed the 5 MiB body bound but is over 40 megapixels; the shared message also names the 20 MiB store bound, which a web read never reaches   |
+| `invalid_redirect`         | a redirect status without a parsable `Location`, or a hop with userinfo or a non-web scheme; the target is never named; a fragment is dropped, not refused   |
+| `too_many_redirects`       | the call exceeded 20 redirects                                                                                                                               |
+| `permission_denied`        | the `read` group refused the submitted locator or a hop, or every address was refused — a hop rejection carries `rejectedUrl`                                |
+| `aborted`                  | the Run or the caller cancelled the read                                                                                                                     |
+| `network_error`            | the transport failed (DNS, TLS, connection reset); a probe's failure disqualifies only its candidate, and no request is retried                              |
 
 Failures never return partial content: the model sees the error and can
 continue with other work. Only a submitted locator or a redirect hop can fail a
@@ -274,9 +289,9 @@ whole call on permissions; a refused probe only disqualifies its candidate.
 
 ### What is not read
 
-- **PDF, images, and every other non-text body.** They fail
+- **PDF and every other non-text, non-image body.** They fail
   `unsupported_content_type` naming the received type, and no extraction or
-  conversion is attempted.
+  conversion is attempted. `image/svg+xml` is a text body.
 - **A cache or a snapshot.** Nothing is stored between calls, so a selector
   read refetches and rerenders, and reading one locator twice issues two
   requests whose content may differ.

@@ -1205,6 +1205,47 @@ describe('web fetch client', () => {
   });
 });
 
+describe('web fetch page', () => {
+  /** One page read through `fetchPage`, the session released afterwards. */
+  async function fetchPageOf(response: Response) {
+    const session = createWebFetchSession(
+      { userAgent: USER_AGENT },
+      {
+        fetch: serving(response).fetch,
+        admit: refuseEveryHop,
+        admitAddress: admitEveryAddress,
+        resolve: resolveExampleHost,
+      },
+    );
+    try {
+      return await session.fetchPage(URL_);
+    } finally {
+      session.dispose();
+    }
+  }
+
+  it('returns an image body as its bytes, never decoded', async () => {
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]);
+    const result = await fetchPageOf(
+      new Response(bytes, { headers: { 'content-type': 'image/png' } }),
+    );
+
+    expect(result).toStrictEqual({ finalUrl: URL_, bytes });
+  });
+
+  it('reads any other body as a document', async () => {
+    const result = await fetchPageOf(
+      textResponse('# Title\n', 'text/markdown; charset=utf-8'),
+    );
+
+    expect(result).toStrictEqual({
+      finalUrl: URL_,
+      contentType: 'text/markdown; charset=utf-8',
+      body: '# Title\n',
+    });
+  });
+});
+
 describe('web fetch redirects', () => {
   const START = 'https://a.example.test/start';
   const TARGET = 'https://b.example.test/guide';

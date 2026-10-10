@@ -1,7 +1,9 @@
 import { promises as dns } from 'node:dns';
 
+import { IMAGE_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
 import { fetch as undiciFetch } from 'undici';
 
+import { type ToolMediaStore } from '../../media/tool-media-store';
 import { type ToolContext, type ToolResult } from '../types';
 import {
   createAddressAdmission,
@@ -12,6 +14,8 @@ import {
   type ResolveHost,
   type WebFetchFailure,
   type WebFetchSession,
+  type WebImageResponse,
+  type WebResponse,
   createWebFetchSession,
 } from './http-client';
 import { parseWebLocator, type WebLocator } from './locator';
@@ -22,7 +26,7 @@ import {
   type WebAdapterIo,
 } from './adapters/contract';
 import { renderWebContent } from './pipeline';
-import { buildWebReadResult } from './result';
+import { buildWebImageResult, buildWebReadResult } from './result';
 
 /** The locator-bearing call the native file tools dispatch by scheme. */
 type WebReadCall = {
@@ -78,12 +82,6 @@ export const realWebReadDeps: WebReadDeps = {
 const ABORTED_FAILURE: WebFetchFailure = {
   type: 'aborted',
   message: 'The web read was cancelled.',
-};
-
-/** The result returned when a caller abort lands before synchronous rendering. */
-const ABORTED: ToolResult = {
-  status: 'error',
-  ...ABORTED_FAILURE,
 };
 
 /**
@@ -143,10 +141,9 @@ async function fetchAndRender(
         );
       notes = adapters.notes;
     }
-    const response = await session.fetch(locator.url);
+    const response = await fetchPage(context, session, locator.url);
     if ('type' in response) return { status: 'error', ...response };
-    // Do not start synchronous rendering after a caller abort.
-    if (context.abortSignal?.aborted === true) return ABORTED;
+    if ('image' in response) return await readImage(locator, response, notes);
     const render = await deps.renderWebContent(
       response,
       { raw },
@@ -161,6 +158,60 @@ async function fetchAndRender(
   } finally {
     session.dispose();
   }
+}
+
+/** A page image body and the store that ingests it. */
+type WebImagePage = {
+  readonly image: WebImageResponse;
+  readonly media: ToolMediaStore;
+};
+
+/** The page response, or the abort that landed while it arrived: neither a
+ *  synchronous render nor an ingest starts after a caller abort. Only a read
+ *  that can store an image accepts one; without a media store an image body
+ *  stays `unsupported_content_type`. */
+async function fetchPage(
+  context: ToolContext,
+  session: WebFetchSession,
+  url: string,
+): Promise<WebResponse | WebImagePage | WebFetchFailure> {
+  const { media } = context;
+  let response: WebResponse | WebImagePage | WebFetchFailure;
+  if (media === undefined) {
+    response = await session.fetch(url);
+  } else {
+    const page = await session.fetchPage(url);
+    response = 'bytes' in page ? { image: page, media } : page;
+  }
+  if ('type' in response) return response;
+  return context.abortSignal?.aborted === true ? ABORTED_FAILURE : response;
+}
+
+/** An image page is stored, never rendered (vision-media D7). A selector is
+ *  refused before anything is ingested, `:raw` included, and the store refuses
+ *  bytes that match no image format, whatever the declared type. */
+async function readImage(
+  locator: WebLocator,
+  { image, media }: WebImagePage,
+  notes: ReadonlyArray<string>,
+): Promise<ToolResult> {
+  if (locator.selector !== undefined) {
+    return {
+      status: 'error',
+      type: 'invalid_selector',
+      message: IMAGE_SELECTOR_MESSAGE,
+    };
+  }
+  const { bytes } = image;
+  const ingested = await media.ingestImage(locator.url)({
+    byteSize: bytes.byteLength,
+    readBytes: () =>
+      Promise.resolve(
+        Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      ),
+  });
+  if (ingested.status === 'error') return ingested;
+  return buildWebImageResult(locator, image.finalUrl, ingested, notes);
 }
 
 function createSession(
