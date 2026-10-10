@@ -21,7 +21,7 @@ import type {
 import {
   abortFailure,
   transportFailure,
-  type CallDeadline,
+  type FetchDeadline,
 } from './call-deadline';
 
 /** The `Accept` value every request of a web read sends: publisher Markdown
@@ -48,7 +48,7 @@ export type ConnectionPlanner = {
   request(
     url: string,
     options: WebFetchOptions,
-    deadline: CallDeadline,
+    deadline: FetchDeadline,
     init?: WebRequestInit,
   ): Promise<ConnectionRequestOutcome>;
   dispose(): void;
@@ -64,14 +64,14 @@ type ConnectionRequestContext = {
   readonly state: ConnectionState;
   readonly url: string;
   readonly options: WebFetchOptions;
-  readonly deadline: CallDeadline;
+  readonly deadline: FetchDeadline;
   readonly init?: WebRequestInit;
 };
 
 type ConnectionDispatchContext = {
   readonly url: string;
   readonly options: WebFetchOptions;
-  readonly deadline: CallDeadline;
+  readonly deadline: FetchDeadline;
   readonly fetch: WebFetchDeps['fetch'];
   readonly agent: Agent;
   readonly init?: WebRequestInit;
