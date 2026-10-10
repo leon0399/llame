@@ -1,5 +1,6 @@
 /** Public-share parity: a logged-out browser can render a shared chat. */
 
+import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 
 const ANSWER = "Mocked answer from the e2e model server.";
@@ -14,7 +15,7 @@ test("an anonymous visitor can open a public shared chat", async ({
 }) => {
   await page.goto("/");
 
-  const input = page.getByPlaceholder("What would you like to know?");
+  const input = await readyComposer(page);
   await input.fill("Public share parity");
   await page.getByRole("button", { name: "Send message" }).click();
   await expect(page.getByRole("log").getByText(ANSWER)).toBeVisible({

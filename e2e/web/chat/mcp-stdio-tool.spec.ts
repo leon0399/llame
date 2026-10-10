@@ -17,6 +17,7 @@
  * spanning several lines; do not read a pass here as evidence for it.
  */
 
+import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 
 const STDIO_PROMPT =
@@ -24,22 +25,13 @@ const STDIO_PROMPT =
 const FIXTURE_ANSWER =
   "Local stdio evidence: deterministic local MCP lookup succeeded.";
 const STDIO_SECRET = process.env.E2E_STDIO_MCP_SECRET ?? "stdio-e2e-secret";
-const E2E_MODEL_ID = "system:openai:gpt-5.4-mini";
 
 test("local stdio MCP tool settles, redacts its secret, and replays from history", async ({
   page,
 }) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
-  // Wait for the client-fetched model catalog before touching the composer.
-  // `toBeEditable` is satisfied by the server-rendered markup, so filling on
-  // that alone races hydration: React remounts the controlled input, discards
-  // the typed value, and the subsequent click sends an empty composer.
-  await expect(
-    page.getByRole("combobox", { name: "Select model" }),
-  ).toContainText(E2E_MODEL_ID);
-  const composer = page.getByPlaceholder("What would you like to know?");
-  await expect(composer).toBeEditable();
+  const composer = await readyComposer(page);
   await composer.fill(STDIO_PROMPT);
   const send = page.getByRole("button", { name: "Send message" });
   await expect(send).toBeEnabled();

@@ -8,6 +8,7 @@
  */
 
 import type { Page } from "@playwright/test";
+import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 import { seedMessages } from "./seed-messages";
 
@@ -71,9 +72,7 @@ test.describe("chat history pagination (#187)", () => {
 
     // Create a real chat through the app, then grow it far past one page.
     await page.goto("/");
-    await page
-      .getByPlaceholder("What would you like to know?")
-      .fill("history pagination first turn");
+    await (await readyComposer(page)).fill("history pagination first turn");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByRole("log").getByText(ANSWER)).toBeVisible({
       timeout: 20_000,

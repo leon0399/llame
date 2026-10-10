@@ -35,6 +35,7 @@
  * fallback for an impractical-to-seed e2e scenario.
  */
 
+import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 
 const TOOL_ANSWER = "Here are the past conversations I found.";
@@ -45,9 +46,9 @@ test.describe("tool-calling loop (browser, full stack)", () => {
   }) => {
     await page.goto("/");
 
-    await page
-      .getByPlaceholder("What would you like to know?")
-      .fill("please search my past conversations for budget notes");
+    await (
+      await readyComposer(page)
+    ).fill("please search my past conversations for budget notes");
     await page.getByRole("button", { name: "Send message" }).click();
 
     const log = page.getByRole("log");
@@ -80,9 +81,9 @@ test.describe("tool-calling loop (browser, full stack)", () => {
     // tool part is already persisted as done and the answer is still
     // streaming: exactly the "already-completed tool activity + still-live
     // run" state a mid-tool-execution reload would also need to reconstruct.
-    await page
-      .getByPlaceholder("What would you like to know?")
-      .fill("SLOW please search my past conversations for budget notes");
+    await (
+      await readyComposer(page)
+    ).fill("SLOW please search my past conversations for budget notes");
     await page.getByRole("button", { name: "Send message" }).click();
 
     const log = page.getByRole("log");
@@ -110,9 +111,9 @@ test.describe("tool-calling loop (browser, full stack)", () => {
   }) => {
     await page.goto("/");
 
-    await page
-      .getByPlaceholder("What would you like to know?")
-      .fill("please search my past conversations for budget notes");
+    await (
+      await readyComposer(page)
+    ).fill("please search my past conversations for budget notes");
     await page.getByRole("button", { name: "Send message" }).click();
 
     const log = page.getByRole("log");

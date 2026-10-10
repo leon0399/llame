@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Fixed load-dependent product E2E flakes where a chat spec typed into the
+  composer before it was ready, so the typed prompt was discarded and the click
+  sent nothing (#350). The composer remounts when the markdown renderer finishes
+  loading, which drops a value typed before then. A shared `readyComposer`
+  helper in `e2e/support/composer.ts` now waits until the composer is editable
+  after that remount and the model selector names a resolved model, so Send is
+  enabled. Every chat spec that fills the composer right after navigation uses
+  it.
+
 - Changed a web `read`'s `network_error` message to name the failure's kind
   instead of forwarding the platform's `fetch failed` (part of #930): the server
   refused the connection, the connection was reset, timed out, or the host is

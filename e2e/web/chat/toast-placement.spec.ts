@@ -8,6 +8,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { readyComposer } from "../../support/composer";
 import { expect, test, type Page } from "../../support/fixtures";
 
 const MODEL_PORT = process.env.E2E_MODEL_PORT ?? "4303";
@@ -124,7 +125,7 @@ for (const viewport of VIEWPORTS) {
       const heldPrompt = `HOLD:${holdToken} please answer when released`;
 
       await page.goto("/");
-      const input = page.getByPlaceholder("What would you like to know?");
+      const input = await readyComposer(page);
       await input.fill(heldPrompt);
       await page.getByRole("button", { name: "Send message" }).click();
 
