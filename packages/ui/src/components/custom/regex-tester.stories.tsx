@@ -205,7 +205,8 @@ export const HtmlBlockLiterals: Story = {
       await body.findByRole("textbox", { name: "Text to match" }),
       "GET",
     );
-    await expect(await body.findByText("Match")).toBeVisible();
+    // Popup visibility retries: it fades in from opacity 0 (see TestRegexFlow).
+    await waitFor(() => expect(body.getByText("Match")).toBeVisible());
     await userEvent.keyboard("{Escape}");
   },
 };
@@ -385,7 +386,7 @@ export const TableWithLiterals: Story = {
     await userEvent.click(menuItem);
     const input = await body.findByRole("textbox", { name: "Text to match" });
     await userEvent.type(input, "x");
-    await expect(await body.findByText("No match")).toBeVisible();
+    await waitFor(() => expect(body.getByText("No match")).toBeVisible());
     // Neither interaction closed the fullscreen view.
     await expect(overlay).toBeVisible();
     await userEvent.keyboard("{Escape}");
@@ -421,17 +422,20 @@ export const TestRegexFlow: Story = {
     await expect(input).toHaveFocus();
 
     await userEvent.type(input, "My-Slug");
-    await expect(await body.findByText("No match")).toBeVisible();
+    await waitFor(() => expect(body.getByText("No match")).toBeVisible());
 
     await userEvent.clear(input);
     await userEvent.type(input, "my-slug");
 
-    const matchLabel = await body.findByText("Match");
-    // SAFETY: `parentElement` is only null for a detached/root node; this
-    // label is always rendered inside the tester's match-list container.
-    const results = within(matchLabel.parentElement as HTMLElement);
-    await expect(results.getByText("my-slug")).toBeVisible();
+    // The popup fades in from opacity 0, so retry the visibility check itself,
+    // re-resolving the results each attempt in case the subtree remounted.
     await waitFor(() => {
+      // SAFETY: `parentElement` is only null for a detached/root node; this
+      // label is always rendered inside the tester's match-list container.
+      const results = within(
+        body.getByText("Match").parentElement as HTMLElement,
+      );
+      expect(results.getByText("my-slug")).toBeVisible();
       const highlight = document.querySelector("mark");
       expect(highlight).not.toBeNull();
       expect(highlight).toHaveTextContent("my-slug");
@@ -468,13 +472,16 @@ export const GlobalFlagMatches: Story = {
     const input = await body.findByRole("textbox", { name: "Text to match" });
     await userEvent.type(input, "a1 b22");
 
-    const matchLabel = await body.findByText("Match");
-    // SAFETY: `parentElement` is only null for a detached/root node; this
-    // label is always rendered inside the tester's match-list container.
-    const results = within(matchLabel.parentElement as HTMLElement);
-    await expect(results.getByText("1")).toBeVisible();
-    await expect(results.getByText("22")).toBeVisible();
+    // The popup fades in from opacity 0, so retry the visibility check itself,
+    // re-resolving the results each attempt in case the subtree remounted.
     await waitFor(() => {
+      // SAFETY: `parentElement` is only null for a detached/root node; this
+      // label is always rendered inside the tester's match-list container.
+      const results = within(
+        body.getByText("Match").parentElement as HTMLElement,
+      );
+      expect(results.getByText("1")).toBeVisible();
+      expect(results.getByText("22")).toBeVisible();
       expect(document.querySelectorAll("mark").length).toBe(2);
     });
   },
