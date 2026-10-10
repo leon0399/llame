@@ -32,7 +32,6 @@ describe('RunsController context receipt', () => {
     workerId: null,
     cancelRequestedAt: null,
     error: null,
-    contextItems: null,
     createdAt: new Date('2026-07-18T10:00:00.000Z'),
     startedAt: new Date('2026-07-18T10:00:01.000Z'),
     finishedAt: new Date('2026-07-18T10:00:02.000Z'),
@@ -147,20 +146,6 @@ describe('RunsController context receipt', () => {
     // A run owned by someone else reaches the same 404 only because the lookup
     // is scoped to the authenticated caller, never to a client-supplied id.
     expect(findById).toHaveBeenCalledWith(run.id, 'owner');
-  });
-
-  it('discloses no context items for a run another owner holds', async () => {
-    const findById = vi
-      .spyOn(RunsRepository.prototype, 'findById')
-      .mockResolvedValue(undefined);
-
-    await expect(
-      controller().getContextItems('intruder', run.id),
-    ).rejects.toThrow(`Run ${run.id} not found`);
-    // The lookup carries the authenticated caller, never an id the client
-    // chose, so another owner's run is indistinguishable from a missing one -
-    // and no item, count, or producer name leaks through the difference.
-    expect(findById).toHaveBeenCalledWith(run.id, 'intruder');
   });
 
   it('requests cancellation and aborts an in-process run', async () => {

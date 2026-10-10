@@ -17,7 +17,6 @@
 
 import type { AssistantContent, ModelMessage, ProviderMetadata } from 'ai';
 
-import type { RunContextItem } from '../db/schema/chats';
 import { isContextItemPart, type ContextItemPart } from './context-item';
 import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
@@ -26,8 +25,6 @@ import {
   type ProjectedToolObservationPair,
   type ToolObservationProjection,
 } from './tool-observation-part';
-import { COMPACTION_CHECKPOINT_FORM } from './context-item-producers';
-import { resolveForm } from './context-item';
 
 export { projectToolObservations };
 export type { ModelMessage };
@@ -180,42 +177,6 @@ export function partsToText(parts: ReadonlyArray<unknown>): string {
 export interface ModelRequestContext {
   system: string;
   messages: Array<ModelMessage>;
-}
-
-export interface BuiltContext extends ModelRequestContext {
-  /**
-   * Every context item this build injected, as rendered.
-   *
-   * Returned rather than re-derivable: an item's wording is not reproducible
-   * from its durable part once a renderer changes, and a bind-time item is not
-   * reproducible at all — so the caller records this, and the record is the
-   * authority for what the run injected.
-   */
-  contextItems: Array<RunContextItem>;
-}
-
-/**
- * Read every stored context item in place. Metadata is receipt-only here;
- * `data.text` is the sole model replay authority.
- */
-function readContextItems(
-  parts: ReadonlyArray<MessagePart>,
-): Array<RunContextItem> {
-  return parts.flatMap((part) => {
-    if (!isContextItemPart(part)) return [];
-    const producer = part.data.producer;
-    const form = resolveForm(part);
-    return [
-      {
-        producer,
-        ...(form !== undefined && { form }),
-        residency: 'rail' as const,
-        // Historical metadata-only and explicitly empty items remain visible
-        // in receipts as inert entries; metadata never manufactures text.
-        text: part.data.text ?? '',
-      },
-    ];
-  });
 }
 
 function userPartsToModelContent(
@@ -414,7 +375,7 @@ function pushAssistantHistory(
 export function buildContext(
   messages: Array<StoredMessage>,
   options: BuildContextOptions,
-): BuiltContext {
+): ModelRequestContext {
   const { systemPrompt, checkpoint, requestKind } = options;
 
   // Checkpoint rows are storage-only markers. The selected checkpoint is
@@ -434,38 +395,29 @@ export function buildContext(
   const ordered = [...history].sort((a, b) => a.seq - b.seq);
 
   const result: Array<ModelMessage> = [];
-  const contextItems: Array<RunContextItem> = [];
 
   if (checkpoint !== undefined) {
     result.push({
       role: 'user',
       content: [{ type: 'text', text: checkpoint.text }],
     });
-    contextItems.push({
-      producer: 'compaction',
-      form: COMPACTION_CHECKPOINT_FORM,
-      residency: 'rail',
-      text: checkpoint.text,
-    });
   }
 
   for (const m of ordered) {
     if (m.role === 'user') {
-      appendUserMessage(result, contextItems, m);
+      appendUserMessage(result, m);
     } else {
-      appendAssistantMessage(result, contextItems, m, requestKind);
+      appendAssistantMessage(result, m, requestKind);
     }
   }
 
-  return { system: systemPrompt, messages: result, contextItems };
+  return { system: systemPrompt, messages: result };
 }
 
 function appendUserMessage(
   result: Array<ModelMessage>,
-  contextItems: Array<RunContextItem>,
   m: StoredMessage,
 ): void {
-  contextItems.push(...readContextItems(m.parts));
   const content = userPartsToModelContent(m.parts);
   if (content.length > 0) {
     result.push({ role: 'user', content });
@@ -474,13 +426,9 @@ function appendUserMessage(
 
 function appendAssistantMessage(
   result: Array<ModelMessage>,
-  contextItems: Array<RunContextItem>,
   m: StoredMessage,
   requestKind: ContextRequestKind,
 ): void {
-  // Recorded whether or not the part reaches the model: an empty or
-  // metadata-only item still marks a declared omission in the Run record.
-  contextItems.push(...readContextItems(m.parts));
   const visibleText = partsToText(m.parts);
   const projected =
     m.role === 'assistant' ? projectToolObservations(m.parts) : null;

@@ -88,7 +88,6 @@ const run: Run = {
   turnToolAvailability: null,
   cancelRequestedAt: null,
   error: null,
-  contextItems: null,
   createdAt: now,
   startedAt: null,
   finishedAt: null,

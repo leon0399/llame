@@ -22,7 +22,6 @@ import {
   type Message,
   type ModelToolDeclaration,
   type Run,
-  type RunContextItem,
   type RunStatus,
   type SkillCatalogBaseline,
   type TurnToolAvailabilityEntry,
@@ -30,7 +29,7 @@ import {
 import {
   buildContext,
   partsToText,
-  type BuiltContext,
+  type ModelRequestContext,
   type MessagePart,
 } from '../chats/context-builder';
 import {
@@ -89,7 +88,6 @@ import {
 import {
   CONTEXT_ITEM_PRODUCERS,
   isContextItemPart,
-  resolveForm,
   type AuthoredContextItemPart,
 } from '../chats/context-item';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
@@ -356,7 +354,7 @@ type TurnInstructions = {
 };
 
 /** Context resolved inside the worker transaction before the model request. */
-type PreparedAttemptContext = BuiltContext & {
+type PreparedAttemptContext = ModelRequestContext & {
   /** Receipt-only data persisted before target-model I/O. */
   effectiveContext: SystemPromptReceiptInput;
   /** The bound model catalog entry this pass resolved and rendered for. */
@@ -395,10 +393,7 @@ type CompactionTriggerInput = {
  * that complete it.
  */
 type PreparedFirstStep = {
-  readonly request: {
-    readonly prepared: PreparedExecutionContext;
-    readonly contextItems: Array<RunContextItem>;
-  };
+  readonly request: PreparedExecutionContext;
   readonly context: PreparedAttemptContext;
   readonly turnInstructions: TurnInstructions;
 };
@@ -446,14 +441,6 @@ type FinishRunInput = {
   assistantTurn?: AssistantTurnWrite;
   synthesizedTurnTelemetry?: AssistantTurnTelemetry;
   attemptContextParts?: ReadonlyArray<MessagePart>;
-  /**
-   * The completed Run's rail record: the dispatched request's items followed
-   * by the attempt's in-Run items in emission order. Supplied only for a
-   * completed outcome, because only a completed attempt publishes an in-Run
-   * item; every other settlement keeps whatever the pre-dispatch write
-   * recorded.
-   */
-  runContextItems?: Array<RunContextItem>;
   recencyDigestInitialization?: RecencyDigestInitialization;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
   skillCatalogWrites?: SkillCatalogWrites;
@@ -468,7 +455,7 @@ type FinishRunResult =
 /** The assembled context+tools an execution attempt runs against. */
 type PreparedExecutionContext = {
   system: string;
-  messages: BuiltContext['messages'];
+  messages: ModelRequestContext['messages'];
   untitled: boolean;
   toolDeclarations: Array<ModelToolDeclaration>;
   tools: Array<BoundExecutableTool>;
@@ -578,23 +565,6 @@ type RecencyDigestInitialization = {
   baseline: NonNullable<Chat['recencyDigestBaseline']>;
   told: NonNullable<Chat['recencyDigestTold']>;
 };
-
-function toRunContextItems(
-  parts: ReadonlyArray<MessagePart>,
-): Array<RunContextItem> {
-  return parts.flatMap((part) => {
-    if (!isContextItemPart(part)) return [];
-    const form = resolveForm(part);
-    return [
-      {
-        producer: part.data.producer,
-        ...(form !== undefined && { form }),
-        residency: 'rail' as const,
-        text: part.data.text ?? '',
-      },
-    ];
-  });
-}
 
 function toTurnToolAvailability(
   manifest: AttemptToolCatalog['availabilityManifest'],
@@ -978,9 +948,6 @@ export class RunExecutionService {
     // templates, and the receipt binds last, after any checkpoint published.
     let prepared: PreparedExecutionContext;
     let attemptStagedParts: Array<MessagePart>;
-    // The request's rail record as dispatched, kept for the completed
-    // outcome's finish-time write (extended there with the in-Run items).
-    let attemptContextItems: Array<RunContextItem>;
     let attemptRecencyDigestTold:
       | NonNullable<Chat['recencyDigestTold']>
       | undefined;
@@ -1003,8 +970,7 @@ export class RunExecutionService {
         workspaceRootCell: workspaceRoot,
         effort,
       });
-      prepared = firstStep.request.prepared;
-      attemptContextItems = firstStep.request.contextItems;
+      prepared = firstStep.request;
       attemptStagedParts = firstStep.context.stagedParts;
       attemptRecencyDigestTold = firstStep.context.recencyDigestTold;
       attemptRecencyDigestInitialization =
@@ -1015,22 +981,20 @@ export class RunExecutionService {
         firstStep.context.toolCatalog.availabilityManifest,
       );
       turnInstructions = firstStep.turnInstructions;
-      // Recorded only once the request is final: a preparation failure means no
-      // request was ever made, and recording earlier would durably assert a
-      // request the model never received. Fenced by activeAttemptId.
-      const recorded = await this.tenantDb.runAs(input.userId, (tx) =>
+      // Fenced by activeAttemptId: reassigning the identical UUID is a
+      // deliberate no-op update that still makes a stale attempt return no row.
+      const fenced = await this.tenantDb.runAs(input.userId, (tx) =>
         new RunsRepository(tx).updateForAttempt(
           input.runId,
           input.userId,
           attemptId,
-          { contextItems: attemptContextItems },
+          { activeAttemptId: attemptId },
         ),
       );
       // A miss means the owner-scoped row is gone — the chat was deleted out
       // from under a claimed run. Executing past that would send a request on
-      // behalf of a run nobody can see, and would leave the authority record
-      // empty for it; both are worse than stopping here.
-      if (!recorded) {
+      // behalf of a run nobody can see.
+      if (!fenced) {
         throw new RunNotRunnableError(input.runId);
       }
     } catch (error) {
@@ -2012,12 +1976,6 @@ export class RunExecutionService {
             assistantTurn: turn,
             ...(status === 'completed' && {
               attemptContextParts: attemptStagedParts,
-              // The dispatched request's items, then this attempt's in-Run
-              // items in emission order (D1/publication requirement).
-              runContextItems: [
-                ...attemptContextItems,
-                ...toRunContextItems(inRunItems.parts()),
-              ],
               ...(attemptRecencyDigestInitialization !== undefined && {
                 recencyDigestInitialization: attemptRecencyDigestInitialization,
               }),
@@ -2105,7 +2063,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     systemPrompt: string,
   ): Promise<{
-    readonly context: BuiltContext;
+    readonly context: ModelRequestContext;
     readonly historyRows: Array<Message>;
     readonly seenInstructionPaths: ReadonlySet<string>;
   }> {
@@ -2692,9 +2650,9 @@ export class RunExecutionService {
    * history before the first request and whenever that history is rebuilt. The
    * rebuild decides the seen set — the item this attempt staged can no longer
    * be what makes its files seen, and a file the rebuilt history discloses must
-   * not be staged again. The staged item is replaced in place, where every
-   * holder of the staged array — the request prepend, finish-time persistence,
-   * and the Run record — sees the same content.
+   * not be staged again. The staged item is replaced in place, where both
+   * holders of the staged array — the request prepend and finish-time
+   * persistence — see the same content.
    */
   private async refreshTurnInstructions(
     turn: TurnInstructions,
@@ -3162,17 +3120,6 @@ export class RunExecutionService {
       await events.append(input.runId, 'model.completed', input.modelCompleted);
     }
     await this.persistFinishedContext(tx, input, finished);
-    // The completed attempt appends its in-Run items to the request's record
-    // in the same transaction that publishes them on the assistant message, so
-    // the record can never list an item the model never received — or miss one
-    // it did.
-    if (input.status === 'completed' && input.runContextItems !== undefined) {
-      await runsRepo.recordContextItems(
-        input.runId,
-        input.userId,
-        input.runContextItems,
-      );
-    }
 
     const assistantMessage = await this.persistAssistantMessage(
       tx,
@@ -3479,8 +3426,7 @@ export class RunExecutionService {
           input.assistantTurn,
         );
         // The terminal transaction rolled back, so no in-Run item was
-        // published or recorded; the salvage adds back only what the user
-        // saw (design D1).
+        // published; the salvage adds back only what the user saw (design D1).
         return this.persistAssistantMessage(
           tx,
           input.userId,
@@ -3819,7 +3765,7 @@ export class RunExecutionService {
     );
     const trigger = await this.evaluateCompactionTrigger({
       run: input.run,
-      prepared: estimated.prepared,
+      prepared: estimated,
       stagedParts: estimatePass.stagedParts,
       historyRows: estimatePass.historyRows,
       boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
@@ -3848,8 +3794,8 @@ export class RunExecutionService {
                   client: input.run.client,
                   // The pre-re-bake render: the summary request continues the
                   // prefix this very pass produced, cache included.
-                  system: estimated.prepared.system,
-                  toolDeclarations: estimated.prepared.toolDeclarations,
+                  system: estimated.system,
+                  toolDeclarations: estimated.toolDeclarations,
                   ...(input.effort !== undefined && { effort: input.effort }),
                   abortSignal: input.run.abortSignal,
                 },
@@ -3903,9 +3849,9 @@ export class RunExecutionService {
     }
     if (
       !requestFitsContextWindow({
-        system: request.prepared.system,
-        messages: request.prepared.messages,
-        toolDeclarations: request.prepared.toolDeclarations,
+        system: request.system,
+        messages: request.messages,
+        toolDeclarations: request.toolDeclarations,
         contextWindowTokens: input.run.client.contextWindowTokens,
         reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
       })
@@ -3921,28 +3867,22 @@ export class RunExecutionService {
   private async assembleAttemptRequest(
     context: PreparedAttemptContext,
     dynamicResolver: DynamicToolExecutorResolver | undefined,
-  ): Promise<PreparedFirstStep['request']> {
+  ): Promise<PreparedExecutionContext> {
     const messages = context.messages;
     this.prependStagedContextItems(messages, context.stagedParts);
     return {
-      prepared: {
-        system: context.system,
-        messages,
-        untitled: context.untitled,
-        toolDeclarations: context.toolCatalog.declarations,
-        tools: await resolveBoundExecutableTools(
-          context.toolCatalog.declarations,
-          undefined,
-          constrainDynamicToolResolver(
-            dynamicResolver,
-            context.toolCatalog.sourceById ?? new Map(),
-          ),
+      system: context.system,
+      messages,
+      untitled: context.untitled,
+      toolDeclarations: context.toolCatalog.declarations,
+      tools: await resolveBoundExecutableTools(
+        context.toolCatalog.declarations,
+        undefined,
+        constrainDynamicToolResolver(
+          dynamicResolver,
+          context.toolCatalog.sourceById ?? new Map(),
         ),
-      },
-      contextItems: [
-        ...context.contextItems,
-        ...toRunContextItems(context.stagedParts),
-      ],
+      ),
     };
   }
 

@@ -75,7 +75,7 @@ export interface ContextItemPart {
      * As PARSED, not as recognized: validation accepts any string here, so
      * typing it as the closed union would let a caller pass a future form
      * straight into metadata behavior as though it were recognized.
-     * `resolveForm` is the only narrowing to `ContextItemForm`.
+     * Nothing narrows it to `ContextItemForm`.
      */
     readonly form?: string;
     readonly runId: string;
@@ -153,22 +153,6 @@ export function isContextItemPart(value: unknown): value is ContextItemPart {
     return false;
   }
   return data['form'] === undefined || isString(data['form']);
-}
-
-/**
- * An unrecognized form is treated as absent rather than rejected. Rejecting
- * it would make adding a form a coordinated revision boundary, which is the
- * tax this envelope exists to remove.
- */
-export function resolveForm(
-  part: ContextItemPart,
-): ContextItemForm | undefined {
-  const form = part.data.form;
-  return form !== undefined && isContextItemForm(form) ? form : undefined;
-}
-
-function isContextItemForm(value: string): value is ContextItemForm {
-  return CONTEXT_ITEM_FORMS.some((form) => form === value);
 }
 
 /** An unrecognized producer still parses; consumers must not infer behavior. */
