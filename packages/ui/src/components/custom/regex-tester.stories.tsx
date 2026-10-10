@@ -205,7 +205,8 @@ export const HtmlBlockLiterals: Story = {
       await body.findByRole("textbox", { name: "Text to match" }),
       "GET",
     );
-    await expect(await body.findByText("Match")).toBeVisible();
+    // Popup visibility retries: it fades in from opacity 0 (see TestRegexFlow).
+    await waitFor(() => expect(body.getByText("Match")).toBeVisible());
     await userEvent.keyboard("{Escape}");
   },
 };
@@ -385,7 +386,7 @@ export const TableWithLiterals: Story = {
     await userEvent.click(menuItem);
     const input = await body.findByRole("textbox", { name: "Text to match" });
     await userEvent.type(input, "x");
-    await expect(await body.findByText("No match")).toBeVisible();
+    await waitFor(() => expect(body.getByText("No match")).toBeVisible());
     // Neither interaction closed the fullscreen view.
     await expect(overlay).toBeVisible();
     await userEvent.keyboard("{Escape}");
@@ -421,7 +422,7 @@ export const TestRegexFlow: Story = {
     await expect(input).toHaveFocus();
 
     await userEvent.type(input, "My-Slug");
-    await expect(await body.findByText("No match")).toBeVisible();
+    await waitFor(() => expect(body.getByText("No match")).toBeVisible());
 
     await userEvent.clear(input);
     await userEvent.type(input, "my-slug");

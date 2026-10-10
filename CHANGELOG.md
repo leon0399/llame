@@ -2,11 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
-- Fixed an intermittent Storybook failure in the regex tester's "Test regex"
-  and global-flag stories (#353). They checked each match value's visibility
-  once, while the popup can still be fading in from `opacity: 0` or its
-  subtree can be replaced; the visibility checks now retry inside `waitFor`
-  and re-resolve the results on every attempt.
+- Fixed intermittent Storybook failures in the regex tester stories (#353).
+  Their play functions checked the tester popup's `Match` and `No match`
+  values for visibility once, while the popup can still be fading in from
+  `opacity: 0` or its subtree can be replaced; every popup visibility check now
+  retries inside `waitFor`, and the match lists re-resolve on every attempt.
 
 - Fixed a web `read` ending as `headers_timeout` when one probe (an announced
   alternate, the `.md` suffix, or `llms.txt`) sent no response headers within
