@@ -1,5 +1,23 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-10
+
+- Fixed the product E2E login test asserting the transient `/` URL. Login
+  pushes `/`, which server-redirects to a fresh draft chat, so the test failed
+  whenever no poll caught the in-between URL; it now asserts the fresh-draft
+  destination (#436).
+
+- Fixed intermittent `ECONNRESET` failures in API integration suites. They
+  handed supertest a server that was not listening, so each request started
+  its own listener and closed it on completion, resetting any request still
+  connecting; every supertest-driven integration suite now listens once in
+  setup, recorded as rule 12 in `docs/development/testing.md`.
+
+- The product E2E model mock now answers structured title generation with a
+  non-streaming tool-call completion, so the structured title path runs end to
+  end; it previously fell back to text titles on every chat. `chat-flow`
+  asserts the structured title.
+
 # 2026-10-09
 
 - Fixed API and Runs-worker boot failing with "canonical conversation search
