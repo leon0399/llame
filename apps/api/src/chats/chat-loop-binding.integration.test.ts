@@ -47,6 +47,10 @@ import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import {
+  AcceptedTurnPartsRepository,
+  placeAcceptedTurnItems,
+} from './accepted-turn-parts.repository';
 import { type CheckpointMessage } from './messages-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type RunJob } from '../runs/run-queues';
@@ -298,9 +302,22 @@ describe('ChatLoopService accept/worker context binding', () => {
         };
         return Promise.resolve(persistedMessage.current);
       });
-    const updateUserMessageParts = vi
-      .spyOn(MessagesRepository.prototype, 'updateUserMessageParts')
-      .mockResolvedValue(undefined);
+    // The dispatch transaction stores the attempt's accepted-turn items on the
+    // user row; mirror the repository's placement over the in-memory row so
+    // later reads see exactly what the request carried.
+    const storeAtDispatch = vi
+      .spyOn(AcceptedTurnPartsRepository.prototype, 'storeAtDispatch')
+      .mockImplementation(({ items, placement }) => {
+        persistedMessage.current = {
+          ...persistedMessage.current,
+          parts: placeAcceptedTurnItems(
+            persistedMessage.current.parts,
+            items,
+            placement,
+          ),
+        };
+        return Promise.resolve({ applied: true });
+      });
     vi.spyOn(
       MessagesRepository.prototype,
       'createAssistantReplyIfAbsent',
@@ -322,22 +339,52 @@ describe('ChatLoopService accept/worker context binding', () => {
           ? undefined
           : { run: priorRun, triggeringUserSeq: previousRunUserSeq },
       );
-    // The availability baseline reads the most recent *genuine completed* turn:
-    // the repository query only returns runs that finished successfully and
-    // carry the winning attempt link. Mirror that contract over the fixture.
-    const findPreviousCompletedRun = vi
+    // The availability baseline and the epoch rule read the most recent
+    // *dispatched* turn: the repository query only returns runs whose dispatch
+    // stored an availability record, or that completed. Mirror that contract
+    // over the fixture.
+    const findPreviousDispatchedRun = vi
       .spyOn(
         RunsRepository.prototype,
-        'findMostRecentCompletedByChatMessageSequence',
+        'findMostRecentDispatchedByChatMessageSequence',
       )
       .mockImplementation(() =>
         Promise.resolve(
-          priorRun?.status === 'completed' &&
-            priorRun.completedAttemptId !== null
+          priorRun !== undefined &&
+            (priorRun.turnToolAvailability !== null ||
+              priorRun.status === 'completed')
             ? { run: priorRun, triggeringUserSeq: previousRunUserSeq }
             : undefined,
         ),
       );
+    // Context measurement still reads the most recent *completed* turn.
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findMostRecentCompletedByChatMessageSequence',
+    ).mockImplementation(() =>
+      Promise.resolve(
+        priorRun?.status === 'completed' && priorRun.completedAttemptId !== null
+          ? { run: priorRun, triggeringUserSeq: previousRunUserSeq }
+          : undefined,
+      ),
+    );
+    // The Run under test has never dispatched: its own record is still null.
+    vi.spyOn(RunsRepository.prototype, 'findById').mockImplementation((runId) =>
+      Promise.resolve(
+        previousRun({
+          id: runId,
+          chatId: 'chat-id',
+          messageId: 'message-id',
+          userId: 'user-id',
+          modelId: model.id,
+          status: 'running_model',
+          activeAttemptId: 'attempt-id',
+          error: null,
+          startedAt: new Date(),
+          finishedAt: null,
+        }),
+      ),
+    );
     vi.spyOn(
       MessagesRepository.prototype,
       'findActiveCheckpoint',
@@ -577,14 +624,14 @@ describe('ChatLoopService accept/worker context binding', () => {
       updateForAttempt,
       createReceipt,
       findPreviousRun,
-      findPreviousCompletedRun,
+      findPreviousDispatchedRun,
       createRun,
       appendEvent,
       updateRecencyDigestTold,
       createUserMessage,
       persistedMessage,
       executeAttempt,
-      updateUserMessageParts,
+      storeAtDispatch,
       render,
       systemPrompts,
       personalization,
@@ -692,7 +739,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       createReceipt,
       updateForAttempt,
       executeAttempt,
-      updateUserMessageParts,
+      storeAtDispatch,
       persistedMessage,
     } = setup({
       toolsAllowed: ['knowledge_search'],
@@ -725,19 +772,33 @@ describe('ChatLoopService accept/worker context binding', () => {
     expect(createReceipt.mock.calls[0]?.[0]).not.toHaveProperty(
       'toolAvailabilityManifest',
     );
+    // The dispatch transaction fences the attempt while storing its
+    // availability record, then stores its accepted-turn items, all after the
+    // receipt binds and before the request is sent.
+    const dispatchedAvailability: unknown = expect.arrayContaining([
+      { id: 'knowledge_search', state: 'unavailable' },
+    ]);
     expect(updateForAttempt).toHaveBeenCalledWith(
       expect.any(String),
       'user-id',
       'attempt-id',
-      { activeAttemptId: 'attempt-id' },
+      {
+        activeAttemptId: 'attempt-id',
+        turnToolAvailability: dispatchedAvailability,
+      },
+    );
+    const dispatchFence = updateForAttempt.mock.invocationCallOrder.at(-1) ?? 0;
+    expect(dispatchFence).toBeGreaterThan(
+      createReceipt.mock.invocationCallOrder[0],
+    );
+    expect(storeAtDispatch.mock.invocationCallOrder[0]).toBeGreaterThan(
+      dispatchFence,
     );
     expect(attempt.request.system).toBe('Bound prompt');
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    expect(committedParts).toBeDefined();
-    expect(committedParts?.some(isContextItemPart)).toBe(true);
+    const storedParts = persistedMessage.current.parts;
+    expect(storedParts.some(isContextItemPart)).toBe(true);
     expect(
-      committedParts?.filter(
+      storedParts.filter(
         (part) => isContextItemPart(part) && part.data.producer === 'temporal',
       ),
     ).toHaveLength(1);
@@ -864,14 +925,13 @@ describe('ChatLoopService accept/worker context binding', () => {
       ChatsRepository.prototype,
       'setRecencyDigestIfAbsent',
     );
-    const { service, createReceipt, executeAttempt, updateUserMessageParts } =
-      setup({
-        memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
-      });
+    const { service, createReceipt, executeAttempt, persistedMessage } = setup({
+      memory: { getForOwnerForBinding },
+      recencyDigest: { resolveCandidate },
+    });
 
     await service.createMessageStream(input);
-    const attempt = await executeAttempt();
+    await executeAttempt();
 
     expect(getForOwnerForBinding).toHaveBeenCalledOnce();
     expect(resolveCandidate).not.toHaveBeenCalled();
@@ -882,15 +942,13 @@ describe('ChatLoopService accept/worker context binding', () => {
         systemPrompt: 'Bound prompt',
       }),
     );
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    expect(committedParts?.filter(isContextItemPart)).toHaveLength(1);
-    expect(committedParts?.filter(isContextItemPart)[0]?.data.producer).toBe(
-      'temporal',
-    );
+    const storedItems =
+      persistedMessage.current.parts.filter(isContextItemPart);
+    expect(storedItems).toHaveLength(1);
+    expect(storedItems[0]?.data.producer).toBe('temporal');
   });
 
-  it('stages a digest delta in the worker and leaves accept-time parts/told state untouched', async () => {
+  it('stages a digest delta in the worker and stores it with its told state at dispatch', async () => {
     const digestBaseline = baseline({
       recent: [
         {
@@ -928,7 +986,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       executeAttempt,
       persistedMessage,
       updateRecencyDigestTold,
-      updateUserMessageParts,
+      storeAtDispatch,
     } = setup({
       baseline: baseline(),
       told: [],
@@ -940,16 +998,13 @@ describe('ChatLoopService accept/worker context binding', () => {
     });
 
     await service.createMessageStream(input);
-    const attempt = await executeAttempt();
-
-    expect(persistedMessage.current.parts).toEqual([
-      { type: 'text', text: 'hello' },
-    ]);
-    expect(resolveCandidate).toHaveBeenCalledOnce();
+    const acceptedParts = persistedMessage.current.parts;
     expect(updateRecencyDigestTold).not.toHaveBeenCalled();
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    const digestPart = committedParts?.find(isRecencyDigestItem);
+    await executeAttempt();
+
+    expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
+    expect(resolveCandidate).toHaveBeenCalledOnce();
+    const digestPart = persistedMessage.current.parts.find(isRecencyDigestItem);
     expect(digestPart).toBeDefined();
     expect(isContextItemPart(digestPart)).toBe(true);
     if (isContextItemPart(digestPart)) {
@@ -957,10 +1012,15 @@ describe('ChatLoopService accept/worker context binding', () => {
         entries: [{ title: 'Resurfaced through activity', pinned: false }],
       });
     }
+    // The told set advances in the dispatch transaction, after the item it
+    // accounts for is stored and before the request completes.
     expect(updateRecencyDigestTold).toHaveBeenCalledWith(
       'chat-id',
       'user-id',
       told,
+    );
+    expect(updateRecencyDigestTold.mock.invocationCallOrder[0]).toBeGreaterThan(
+      storeAtDispatch.mock.invocationCallOrder[0],
     );
   });
 
@@ -973,7 +1033,6 @@ describe('ChatLoopService accept/worker context binding', () => {
       executeAttempt,
       persistedMessage,
       updateRecencyDigestTold,
-      updateUserMessageParts,
     } = setup({
       baseline: baseline(),
       told: [],
@@ -985,16 +1044,15 @@ describe('ChatLoopService accept/worker context binding', () => {
     });
 
     await service.createMessageStream(input);
-    const attempt = await executeAttempt();
+    const acceptedParts = persistedMessage.current.parts;
+    await executeAttempt();
 
     expect(resolveCandidate).not.toHaveBeenCalled();
     expect(updateRecencyDigestTold).not.toHaveBeenCalled();
-    expect(persistedMessage.current.parts).toEqual([
-      { type: 'text', text: 'hello' },
-    ]);
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    expect(committedParts?.filter(isContextItemPart)).toHaveLength(1);
+    expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
+    expect(
+      persistedMessage.current.parts.filter(isContextItemPart),
+    ).toHaveLength(1);
   });
 
   it('defers digest render failures to the worker and does not leak digest text', async () => {
@@ -1075,24 +1133,16 @@ describe('ChatLoopService accept/worker context binding', () => {
   });
 
   it('stages a model-switch notice in the worker, not on the accepted user message', async () => {
-    const {
-      service,
-      executeAttempt,
-      persistedMessage,
-      updateUserMessageParts,
-    } = setup({
+    const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun(),
     });
 
     await service.createMessageStream(input);
-    const attempt = await executeAttempt();
+    const acceptedParts = persistedMessage.current.parts;
+    await executeAttempt();
 
-    expect(persistedMessage.current.parts).toEqual([
-      { type: 'text', text: 'hello' },
-    ]);
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    const modelChange = committedParts?.find(
+    expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
+    const modelChange = persistedMessage.current.parts.find(
       (part) =>
         isContextItemPart(part) &&
         part.data.producer === 'effective-context-change',
@@ -1110,69 +1160,69 @@ describe('ChatLoopService accept/worker context binding', () => {
     });
   });
 
-  it('compares availability with the previous successful turn state record', async () => {
-    const {
-      service,
-      executeAttempt,
-      persistedMessage,
-      updateUserMessageParts,
-    } = setup({
-      previousRun: previousRun({
-        modelId: model.id,
-        status: 'completed',
-        completedAttemptId: 'attempt-id',
-        turnToolAvailability: [
-          { id: 'search_conversations', state: 'unavailable' },
-        ],
-      }),
-      toolsAllowed: ['search_conversations'],
-    });
-
-    await service.createMessageStream(input);
-    const attempt = await executeAttempt();
-
-    expect(persistedMessage.current.parts).toEqual([
-      { type: 'text', text: 'hello' },
-    ]);
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    const availability = committedParts?.find(
-      (part) =>
-        isContextItemPart(part) && part.data.producer === 'tool-availability',
-    );
-    expect(availability).toMatchObject({
-      data: {
-        form: 'notice',
-        payload: {
-          kind: 'delta',
-          added: [],
-          removed: [],
-          unavailable: [],
-          becameUnavailable: [],
-          nowAvailable: [
-            { id: 'search_conversations', reason: 'tool_restored' },
+  it.each([
+    { status: 'completed' as const, completedAttemptId: 'attempt-id' },
+    { status: 'failed' as const, completedAttemptId: null },
+  ])(
+    'compares availability with the state record of a previous $status turn that dispatched',
+    async ({ status, completedAttemptId }) => {
+      const { service, executeAttempt, persistedMessage } = setup({
+        previousRun: previousRun({
+          modelId: model.id,
+          status,
+          completedAttemptId,
+          turnToolAvailability: [
+            { id: 'search_conversations', state: 'unavailable' },
           ],
-        },
-      },
-    });
-  });
+        }),
+        toolsAllowed: ['search_conversations'],
+      });
 
-  it('does not use a failed prior run as the availability baseline', async () => {
-    const { service, executeAttempt, updateUserMessageParts } = setup({
+      await service.createMessageStream(input);
+      const acceptedParts = persistedMessage.current.parts;
+      await executeAttempt();
+
+      expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
+      const availability = persistedMessage.current.parts.find(
+        (part) =>
+          isContextItemPart(part) && part.data.producer === 'tool-availability',
+      );
+      expect(availability).toMatchObject({
+        data: {
+          form: 'notice',
+          payload: {
+            kind: 'delta',
+            added: [],
+            removed: [],
+            unavailable: [],
+            becameUnavailable: [],
+            nowAvailable: [
+              { id: 'search_conversations', reason: 'tool_restored' },
+            ],
+          },
+        },
+      });
+    },
+  );
+
+  it('never uses a pre-cutover failed Run with a null record as the availability baseline', async () => {
+    const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun({
         modelId: model.id,
         status: 'failed',
+        turnToolAvailability: null,
       }),
       toolsAllowed: ['search_conversations'],
     });
 
     await service.createMessageStream(input);
-    const attempt = await executeAttempt();
-    await attempt.result.consumeStream?.();
+    await executeAttempt();
 
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
+    // The Run ended before any dispatch stored a record, so it is not a
+    // dispatched turn: the attempt starts a fresh, healthy epoch and says
+    // nothing about availability.
     expect(
-      committedParts?.filter(
+      persistedMessage.current.parts.filter(
         (part) =>
           isContextItemPart(part) && part.data.producer === 'tool-availability',
       ),
@@ -1181,12 +1231,7 @@ describe('ChatLoopService accept/worker context binding', () => {
 
   it('starts a degraded availability epoch in the worker when the checkpoint boundary reaches the prior completed turn', async () => {
     const id = 'mcp__web__search';
-    const {
-      service,
-      executeAttempt,
-      persistedMessage,
-      updateUserMessageParts,
-    } = setup({
+    const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun({
         modelId: model.id,
         status: 'completed',
@@ -1215,14 +1260,11 @@ describe('ChatLoopService accept/worker context binding', () => {
     });
 
     await service.createMessageStream(input);
-    const attempt = await executeAttempt();
+    const acceptedParts = persistedMessage.current.parts;
+    await executeAttempt();
 
-    expect(persistedMessage.current.parts).toEqual([
-      { type: 'text', text: 'hello' },
-    ]);
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    const availability = committedParts?.find(
+    expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
+    const availability = persistedMessage.current.parts.find(
       (part) =>
         isContextItemPart(part) && part.data.producer === 'tool-availability',
     );
@@ -1239,12 +1281,7 @@ describe('ChatLoopService accept/worker context binding', () => {
   it('stages one digest supersession marker in the worker after an enabled re-bake', async () => {
     const previous = previousRun({ modelId: model.id });
     const digestBaseline = baseline();
-    const {
-      service,
-      executeAttempt,
-      persistedMessage,
-      updateUserMessageParts,
-    } = setup({
+    const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previous,
       activeCheckpoint: activeCheckpoint(),
       baseline: digestBaseline,
@@ -1265,22 +1302,20 @@ describe('ChatLoopService accept/worker context binding', () => {
     });
 
     await service.createMessageStream(input);
-    const attempt = await executeAttempt();
+    const acceptedParts = persistedMessage.current.parts;
+    await executeAttempt();
 
-    expect(persistedMessage.current.parts).toEqual([
-      { type: 'text', text: 'hello' },
-    ]);
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    expect(committedParts?.filter(isRecencyDigestItem)).toHaveLength(1);
-    expect(committedParts?.find(isRecencyDigestItem)).toMatchObject({
+    expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
+    const storedParts = persistedMessage.current.parts;
+    expect(storedParts.filter(isRecencyDigestItem)).toHaveLength(1);
+    expect(storedParts.find(isRecencyDigestItem)).toMatchObject({
       data: { form: 'snapshot', payload: {} },
     });
   });
 
   it("still stages the supersession marker when the worker's fresh digest read fails", async () => {
     const digestBaseline = baseline();
-    const { service, executeAttempt, updateUserMessageParts } = setup({
+    const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun({ modelId: model.id }),
       activeCheckpoint: activeCheckpoint(),
       baseline: digestBaseline,
@@ -1297,15 +1332,15 @@ describe('ChatLoopService accept/worker context binding', () => {
     });
 
     await service.createMessageStream(input);
-    const attempt = await executeAttempt();
+    await executeAttempt();
 
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    expect(committedParts?.filter(isRecencyDigestItem)).toHaveLength(1);
+    expect(
+      persistedMessage.current.parts.filter(isRecencyDigestItem),
+    ).toHaveLength(1);
   });
 
   it('does not stage a digest supersession marker after sharing is disabled during checkpointing', async () => {
-    const { service, executeAttempt, updateUserMessageParts } = setup({
+    const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun({ modelId: model.id }),
       activeCheckpoint: activeCheckpoint(),
       baseline: baseline(),
@@ -1321,15 +1356,15 @@ describe('ChatLoopService accept/worker context binding', () => {
     });
 
     await service.createMessageStream(input);
-    const attempt = await executeAttempt();
+    await executeAttempt();
 
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    expect(committedParts?.filter(isRecencyDigestItem)).toHaveLength(0);
+    expect(
+      persistedMessage.current.parts.filter(isRecencyDigestItem),
+    ).toHaveLength(0);
   });
 
   it('keeps a model-switch notice but no digest supersession marker when the prior attempt used another model', async () => {
-    const { service, executeAttempt, updateUserMessageParts } = setup({
+    const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun({ modelId: 'previous-model' }),
       activeCheckpoint: activeCheckpoint(),
       baseline: baseline(),
@@ -1345,13 +1380,12 @@ describe('ChatLoopService accept/worker context binding', () => {
     });
 
     await service.createMessageStream(input);
-    const attempt = await executeAttempt();
+    await executeAttempt();
 
-    await attempt.result.consumeStream?.();
-    const committedParts = updateUserMessageParts.mock.calls.at(-1)?.[0].parts;
-    expect(committedParts?.filter(isRecencyDigestItem)).toHaveLength(0);
+    const storedParts = persistedMessage.current.parts;
+    expect(storedParts.filter(isRecencyDigestItem)).toHaveLength(0);
     expect(
-      committedParts?.some(
+      storedParts.some(
         (part) =>
           isContextItemPart(part) &&
           part.data.producer === 'effective-context-change',

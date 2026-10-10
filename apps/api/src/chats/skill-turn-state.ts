@@ -6,8 +6,9 @@
  * Split from the prompt assembly because it owns a complete decision — reuse
  * within a compaction epoch, resolve a new one, and diff the advertised set
  * against what the chat was last told — and because the writes that decision
- * produces belong to the attempt's own terminal transaction rather than to
- * prompt assembly.
+ * produces belong to the attempt's own fenced transactions (the notice's told
+ * state at dispatch, an epoch freeze at completion) rather than to prompt
+ * assembly.
  */
 
 import { type Chat, type SkillCatalogBaseline } from '../db/schema';

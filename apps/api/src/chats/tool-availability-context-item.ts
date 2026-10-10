@@ -280,7 +280,7 @@ function statesById(
 
 /**
  * Derive a delta from the current attempt's observed manifest and the
- * preceding successful turn's minimal id/state record. The prior record has
+ * most recent prior dispatched Run's minimal id/state record. The prior record has
  * no failure reason, so recovery uses the existing generic `tool_restored`
  * reason rather than asserting a cause that was not stored.
  */
