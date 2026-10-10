@@ -1,3 +1,76 @@
+## ADDED Requirements
+
+### Requirement: Root GFM tables are an overlay on CommonMark lines
+
+For the ranged Markdown ancestor requirement, a root GFM table SHALL be
+recognized over the lines the CommonMark heading rules decide, without
+changing any heading, section, or outline decision. Its header row SHALL be a
+root paragraph line, not a lazy continuation of a container paragraph and not
+a body row of an earlier table.
+
+#### Scenario: A table after a paragraph line has a header
+
+- **WHEN** a paragraph line directly precedes a table header row and delimiter row, and a range starts at the table's second body row
+- **THEN** the header row and delimiter row are emitted before the window
+- **AND** the paragraph line is not emitted
+
+#### Scenario: A table inside a container or its lazy continuation gets no header
+
+- **WHEN** a range starts at a body row of a table inside a blockquote, or of rows that lazily continue a list item's paragraph
+- **THEN** no header pair is emitted and the range keeps its existing behavior
+
+### Requirement: Root GFM table delimiter rows
+
+A delimiter row SHALL directly follow the header row, be indented at most
+three columns, consist of cells that are each one or more `-` with optional
+edge colons and surrounding spaces, and SHALL NOT be a setext underline. The
+header and delimiter rows SHALL have the same cell count.
+
+#### Scenario: Mismatched cell counts are not a table
+
+- **WHEN** a header-looking row is followed by a delimiter row with a different number of cells, and a range starts two lines later
+- **THEN** no header pair is emitted
+
+#### Scenario: A setext underline is not a delimiter row
+
+- **WHEN** `| a |` is followed by `---` and a range starts on the next line
+- **THEN** `| a |` is a setext heading's text, emitted as that line's ancestor, and no header pair is emitted
+
+### Requirement: Root GFM table cells
+
+Cells SHALL be counted by splitting a row on every pipe not escaped by an odd
+number of backslashes, including pipes inside code spans, after removing one
+leading and one trailing pipe.
+
+#### Scenario: A pipe in a code span splits a cell
+
+- **WHEN** a header row is ``| `a|b` | c |`` and the delimiter row has two cells, and a range starts two lines later
+- **THEN** no header pair is emitted, because the header row has three cells
+
+### Requirement: Root GFM table bodies
+
+A table's body SHALL continue through each following line until a blank line
+or a line that starts an ATX heading, a fence, a thematic break, a blockquote,
+a list item, an HTML block, or indented code; any other line, including one
+without a pipe or a link reference definition, SHALL be a body row. A line the
+CommonMark heading rules decide is part of a heading SHALL end the table
+before it and belong to no table.
+
+#### Scenario: A line without a pipe continues the table
+
+- **WHEN** a table's body rows are followed, without a blank line, by a line that has no pipe, and a range starts at that line
+- **THEN** the table's header pair is emitted before the window
+
+#### Scenario: A list item ends the table
+
+- **WHEN** a table's body rows are followed by `2. item` and a range starts at that line
+- **THEN** no header pair is emitted
+
+#### Scenario: A setext heading over table lines takes precedence
+
+- **WHEN** a table's last body row is followed by `===` within the read window, and a range starts at a body row
+- **THEN** the table's lines are that setext heading's text, and no header pair is emitted
+
 ## MODIFIED Requirements
 
 ### Requirement: Ranged Markdown reads prepend their ancestor headings
@@ -15,17 +88,12 @@ earlier chain SHALL NOT be repeated. A heading whose own lines include line N,
 such as a setext heading whose text line or underline is requested, is N's own
 heading and SHALL NOT be emitted as N's ancestor.
 
-When line N is a body row of a root-level GFM table, the read SHALL also emit
-that table's header row and delimiter row, verbatim with the ordinary prefix,
-after the ancestor chain and before the window; a line of the pair already
-shown by the window or an earlier passage SHALL NOT be repeated. A root-level
-GFM table starts at a line that is not indented four or more columns, is not
-inside a container, fenced or indented code, or HTML block, and is followed by
-a delimiter row with the same number of cells; when that line ends an open
-paragraph, the paragraph ends before it. The table continues through each
-following line until a blank line or a line that starts another block, so a
-following line without a pipe is a body row. A range whose N is the header or
-delimiter row, or that starts outside a table, SHALL emit no header pair.
+When line N is a body row of a root GFM table, as defined by the root GFM table
+requirements, the read SHALL also emit that table's header row and delimiter
+row, verbatim with the ordinary prefix, after the ancestor chain and before the
+window; a line of the pair already shown by the window or an earlier passage
+SHALL NOT be repeated. A range whose N is the header or delimiter row, or that
+starts outside a table, SHALL emit no header pair.
 
 A single-range result that emits at least one ancestor or header line SHALL use the plural
 `requestedRanges` and `shownRanges` fields. Its `requestedRanges` SHALL contain
@@ -34,8 +102,8 @@ ancestor and header lines and the ordinary context-expanded window, merging adja
 intervals. A range with no emitted ancestor or header line SHALL retain the singular
 result shape. Comma-separated reads SHALL apply this rule independently to every
 merged passage using that passage's first requested line, deduplicate by source
-line, and keep the content in source order: a chain emits only heading lines
-before its passage's first shown line, and a chain line that would precede
+line, and keep the content in source order: a chain emits only ancestor and header
+lines before its passage's first shown line, and a chain line that would precede
 content already emitted SHALL be skipped. A chain heading whose earlier lines
 an earlier passage already emitted therefore contributes only its remaining
 lines, which directly follow those emitted lines, so a setext heading's text
@@ -46,8 +114,8 @@ and serialized result bound. A header pair is the innermost unit of its
 passage's chain and is admitted or dropped as one unit. If a passage's
 complete chain plus all mandatory output through
 the first requested line N does not fit, including the N-1 context line when it
-is shown and not already emitted and line N, whole headings SHALL be dropped
-from the outermost end until the deepest remaining unit plus that mandatory
+is shown and not already emitted and line N, whole units SHALL be dropped
+from the outermost end until the innermost remaining unit plus that mandatory
 output fits. A setext heading's text lines and underline SHALL be dropped as
 one unit. If even the innermost unit does not fit, no chain SHALL be emitted
 and the passage window SHALL still be returned when it can fit. `nextOffset`
@@ -184,35 +252,90 @@ SHALL remain unchanged.
 - **THEN** the result emits lines 6, 124, 126, 127, and 128 through 131, in that order
 - **AND** `requestedRanges` is `[{startLine: 129, endLine: 130}]` and `shownRanges` covers `{6,6}`, `{124,124}`, and `{126,131}`
 
-#### Scenario: A range starting on the delimiter row needs no header pair
+#### Scenario: A range at the first body row emits only the header row
 
-- **WHEN** a read requests a Markdown range whose first line is a table's delimiter row
-- **THEN** the header row appears once, as the ordinary preceding context line
-- **AND** no header line is emitted before it
+- **WHEN** a read requests a Markdown range whose first line is a table's first body row, so the delimiter row is the ordinary preceding context line
+- **THEN** only the header row is emitted before the window, directly followed by the delimiter row
+- **AND** the header row and the window form one merged `shownRanges` interval
 
-#### Scenario: A table after a paragraph line still has a header
+#### Scenario: A comma read starting twice in one table emits its pair once
 
-- **WHEN** a paragraph line directly precedes a table header row and delimiter row, and a range starts at the table's second body row
-- **THEN** the header row and delimiter row are emitted before the window
-- **AND** the paragraph line is not emitted
-
-#### Scenario: A line without a pipe continues the table
-
-- **WHEN** a table's body rows are followed, without a blank line, by a line that has no pipe, and a range starts at that line
-- **THEN** the table's header pair is emitted before the window
-
-#### Scenario: Mismatched cell counts are not a table
-
-- **WHEN** a header-looking row is followed by a delimiter row with a different number of cells, and a range starts two lines later
-- **THEN** no header pair is emitted
-
-#### Scenario: A table inside a blockquote gets no header pair
-
-- **WHEN** a range starts at a body row of a table inside a blockquote
-- **THEN** no header pair is emitted and the range keeps its existing behavior
+- **WHEN** a comma read's two passages both start at body rows of the same table
+- **THEN** the header pair is emitted once, before the first passage
+- **AND** the second passage emits no header line
 
 #### Scenario: The header pair outlasts outer headings under a tight budget
 
 - **WHEN** a range starts at a table body row under `# Title` and `## Setup`, and the shared budget fits only the header pair plus all mandatory output through the first requested line
 - **THEN** the result emits the header pair and the passage, without `# Title` or `## Setup`
 - **AND** if the header pair does not fit either, no chain is emitted and the passage window still returns when it can
+
+### Requirement: Read representations are selected by media type and member
+
+A representation SHALL be selected from a closed, compile-time table keyed by
+the admitted content's media type and the requested member. The table SHALL
+hold the `raw` and `outline` members; it
+SHALL NOT be runtime-configurable, operator-loadable, or dynamically imported.
+A member SHALL belong to one of two output classes: a `:` member returns
+verbatim source lines with a shown range (`raw` without generated line
+prefixes, as raw reads always have, and `outline` with the ordinary
+line-number prefixes), and a future `?` member would return transformed
+content with no prefixes and no shown range; no `?` member and no `?` grammar
+exists yet. With no member named, reading SHALL remain unchanged except that an ordinary ranged Markdown read SHALL prepend the direct ancestor headings and any enclosing table header pair under the ranged Markdown ancestor requirement. A member
+requested for a media type the table does not map SHALL fail with
+`invalid_selector` naming the member's accepted media types, and the ordinary
+read of that source SHALL remain available.
+
+The media type SHALL be derived from the source, never from the body's
+appearance: a host, `file://`, `kb://`, or `skill://` regular file by the
+extension table `.md`, `.markdown`, `.mdown`, and `.mkd` to `text/markdown`,
+with `.mdx` excluded and every other extension mapping to no
+representation-eligible type; a web ladder result by its stage —
+`text/markdown` for a `negotiated` response whose `Content-Type` is
+`text/markdown` and for `alternate`, `md-suffix`, `readability`, and
+`llms-txt`, the served type for `text` and for a `negotiated` `text/plain`
+body, and none for `raw`; a web adapter result by the label the adapter
+contract requires. A reader SHALL receive only the admitted decoded content as
+a sequence of native lines, the source display identity, and the selector's
+source scope; a file source SHALL feed those lines as it reads them rather
+than decoding the whole file first. A reader SHALL NOT change source
+admission, permission projection, owner resolution, executor binding, request
+policy, or the source-specific result envelope. Readers over
+bytes rather than decoded text SHALL define their own input contract rather
+than widening this one.
+
+#### Scenario: A Markdown file selects the outline reader
+
+- **WHEN** the model calls `read` with an authorized Markdown file and the `:outline` member
+- **THEN** the result has `representation: "outline"` and contains the deterministic outline
+- **AND** the source is admitted exactly as it is for an ordinary read
+
+#### Scenario: An omitted member keeps the existing read
+
+- **WHEN** the model reads an authorized Markdown file without a member
+- **THEN** the result uses the existing text representation and line-numbered source content
+- **AND** no outline is appended or inferred; a ranged Markdown read prepends its ancestor headings and any enclosing table header pair under the ranged Markdown ancestor requirement.
+
+#### Scenario: An unsupported media type names the accepted types
+
+- **WHEN** the model requests `:outline` for an otherwise readable `.json`, `.mdx`, `.pdf`, `.txt`, or binary file, or for a web read whose result is `text`, `raw`, or a `negotiated` `text/plain` body
+- **THEN** the tool returns `invalid_selector` naming `text/markdown` as the member's accepted media type
+- **AND** an ordinary read of that source is unchanged
+
+#### Scenario: Admission denies the submitted locator before any parse
+
+- **WHEN** permission admission denies the submitted `:outline` locator, including a host rule that matches the selector-free submitted text
+- **THEN** the tool returns the same `permission_denied` result as the ordinary read
+- **AND** no media-type derivation or Markdown scan is attempted
+
+#### Scenario: Web ladder Markdown supports outline
+
+- **WHEN** a web read's result method is `alternate`, `md-suffix`, `readability`, or `llms-txt`, or is `negotiated` with a `text/markdown` response
+- **THEN** `:outline` scans that rendered body and its line numbers refer to the rendered text
+- **AND** the web envelope and provenance remain present
+
+#### Scenario: A directory or catalog is not an outline document
+
+- **WHEN** the model requests `:outline` on a host, `file://`, `kb://`, or `skill://` directory, on `skill://`, or on a web read whose adapter returned a directory result
+- **THEN** the tool returns `invalid_selector`
+- **AND** it does not reinterpret the listing as headings or return a listing page as outline content
