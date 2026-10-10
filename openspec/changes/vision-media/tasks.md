@@ -89,8 +89,8 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 2.4 Carry owner attachments through model switches, append placeholder lines in `conversation_read` inside the 15,000-code-unit result bound, give title generation the placeholder lines, add the `media://` retention line to the summarization instruction, carry attachments into compaction requests, and omit `file` parts from shared and public forks; verify by unit tests for the `conversation-reads` and `owner-chat-forks` scenarios, the owner-attachment scenarios of the `model-system-prompts` model-switch requirement and the `media-attachments` compaction requirement, a test that search chunking ignores placeholder lines, and a test for the `media-attachments` scenario "An image-only first message can be titled", including a message whose text alone would fill the result bound
 - [x] 2.5 Document `models[].input` in `README.md` and the operator media runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 2.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites
-- [ ] 2.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 2.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 3. `vision-media/attachments-api` — owner file parts (design D5)
 
