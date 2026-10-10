@@ -9,7 +9,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   the stored assistant message kept it ahead, against the durable-runs rule
   that the message projects the event log's order. Both reasoning and text
   buffers now drain before every tool request, including refused and invalid
-  calls.
+  calls. That holds on the pinned Node 22 runtime, where the reasoning
+  consumer has delivered the step's reasoning by then; on Node 24 it can still
+  arrive after the call (#1184).
 
 - **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
   `runs.context_items` column are removed. The transcript's persisted
