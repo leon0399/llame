@@ -403,23 +403,23 @@ describe("ChatPage image attachments", () => {
   const LOCATOR_A = "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01";
   const LOCATOR_B = "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02";
 
-  /** Answers uploads in request order: the first gets `LOCATOR_A`. */
+  /** Answers uploads in request order: the first gets `LOCATOR_A` and
+   *  `a.png`, the second `LOCATOR_B` and `b.png`, later ones the next
+   *  locators and `image-n.png`. */
   function answerUploads(): void {
-    const answers = [
-      { locator: LOCATOR_A, name: "a.png" },
-      { locator: LOCATOR_B, name: "b.png" },
-    ];
+    let count = 0;
     mediaUploadHandler = () => {
-      const answer = answers.shift();
-      if (!answer) throw new Error("unexpected extra upload");
+      count += 1;
+      const locator = `media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a${String(count).padStart(2, "0")}`;
+      const name = ["a.png", "b.png"][count - 1] ?? `image-${count}.png`;
       return Promise.resolve(
         jsonResponse(
           {
-            id: answer.locator.slice("media://".length),
-            locator: answer.locator,
+            id: locator.slice("media://".length),
+            locator,
             provenance: "upload",
             mediaType: "image/png",
-            name: answer.name,
+            name,
             width: 4,
             height: 4,
             byteSize: 68,
@@ -436,6 +436,18 @@ describe("ChatPage image attachments", () => {
     };
   }
 
+  /** Pastes PNGs named `names` into the composer. */
+  function pasteImages(input: HTMLElement, names: Array<string>): void {
+    fireEvent.paste(input, {
+      clipboardData: {
+        types: ["Files"],
+        files: names.map(
+          (name) => new File([name], name, { type: "image/png" }),
+        ),
+      },
+    });
+  }
+
   /** Pastes two PNGs into the composer and waits until both uploaded. */
   async function pasteTwoImages() {
     modelsHandler = () => Promise.resolve(jsonResponse(VISION_MODELS));
@@ -447,15 +459,7 @@ describe("ChatPage image attachments", () => {
     await waitFor(() =>
       expect((send as HTMLButtonElement).disabled).toBe(false),
     );
-    fireEvent.paste(input, {
-      clipboardData: {
-        types: ["Files"],
-        files: [
-          new File(["a"], "a.png", { type: "image/png" }),
-          new File(["b"], "b.png", { type: "image/png" }),
-        ],
-      },
-    });
+    pasteImages(input, ["a.png", "b.png"]);
     await waitFor(() =>
       expect(screen.queryAllByRole("status", { name: "Uploading" })).toEqual(
         [],
@@ -514,5 +518,86 @@ describe("ChatPage image attachments", () => {
         expect.objectContaining({ url: LOCATOR_A }),
       ],
     });
+  });
+
+  /** Holds the next send pending until the returned `fail` rejects it. */
+  function holdSend() {
+    let reject: (error: Error) => void = () => {};
+    sendMessage.mockImplementation(
+      () =>
+        new Promise<void>((_resolve, rejectSend) => {
+          reject = rejectSend;
+        }),
+    );
+    return { fail: () => reject(new Error("send failed")) };
+  }
+
+  /** The attached images' names, in thumbnail order. */
+  function attachedNames(): Array<string> {
+    return screen
+      .getAllByRole("img")
+      .map((image) => image.getAttribute("alt") ?? "");
+  }
+
+  it("restores a failed send's images ahead of those attached while it was pending", async () => {
+    const user = userEvent.setup();
+    const { input, send } = await pasteTwoImages();
+    const { fail } = holdSend();
+
+    await user.click(send);
+    await waitFor(() =>
+      expect(screen.queryByRole("list", { name: "Attached images" })).toBe(
+        null,
+      ),
+    );
+    pasteImages(input, ["c.png"]);
+    await screen.findByRole("img", { name: "c.png" });
+    fail();
+
+    await waitFor(() =>
+      expect(attachedNames()).toEqual(["a.png", "b.png", "c.png"]),
+    );
+  });
+
+  it("caps the restored images at 10 and frees the previews the cap drops", async () => {
+    const createObjectURL = vi
+      .spyOn(URL, "createObjectURL")
+      .mockImplementation(
+        (file) => `blob:${file instanceof File ? file.name : "unnamed"}`,
+      );
+    const revokeObjectURL = vi
+      .spyOn(URL, "revokeObjectURL")
+      .mockImplementation(() => {});
+    try {
+      const user = userEvent.setup();
+      const { input, send } = await pasteTwoImages();
+      const { fail } = holdSend();
+      const pendingNames = Array.from(
+        { length: 9 },
+        (_, index) => `pending-${index + 1}.png`,
+      );
+
+      await user.click(send);
+      await waitFor(() =>
+        expect(screen.queryByRole("list", { name: "Attached images" })).toBe(
+          null,
+        ),
+      );
+      pasteImages(input, pendingNames);
+      await screen.findByRole("img", { name: "pending-9.png" });
+      fail();
+
+      await waitFor(() =>
+        expect(attachedNames()).toEqual([
+          "a.png",
+          "b.png",
+          ...pendingNames.slice(0, 8),
+        ]),
+      );
+      expect(revokeObjectURL.mock.calls).toEqual([["blob:pending-9.png"]]);
+    } finally {
+      createObjectURL.mockRestore();
+      revokeObjectURL.mockRestore();
+    }
   });
 });

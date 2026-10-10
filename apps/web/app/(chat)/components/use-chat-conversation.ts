@@ -48,7 +48,7 @@ function outgoingMessage(text: string, files: Array<FileUIPart>) {
 }
 
 /** Clears the composer, sends, and restores the text and images if the send
- *  throws. */
+ *  throws; images attached while it was pending stay after the restored ones. */
 async function sendComposed(
   {
     setInput,
@@ -63,7 +63,7 @@ async function sendComposed(
 ) {
   const sent = attachments.items;
   setInput("");
-  attachments.replace([]);
+  attachments.clear();
   setSendError(null);
 
   try {
@@ -77,7 +77,7 @@ async function sendComposed(
   } catch (error) {
     onSendFailed();
     setInput(text);
-    attachments.replace(sent);
+    attachments.restore(sent);
     setSendError(error instanceof Error ? error : new Error(String(error)));
   }
 }

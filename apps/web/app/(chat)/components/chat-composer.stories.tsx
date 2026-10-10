@@ -49,7 +49,8 @@ const NO_ATTACHMENTS: ComposerAttachments = {
   remove: fn(),
   retry: fn(),
   reorder: fn(),
-  replace: fn(),
+  clear: fn(),
+  restore: fn(),
   blockReason: null,
   sendBlocked: false,
 };
