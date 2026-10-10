@@ -69,7 +69,7 @@ describe("file-context handoff", () => {
 
     const read = await readFile({ path });
     expect(read).toMatchObject({ status: "success" });
-    if (read.status !== "success") return;
+    if (read.status !== "success" || read.kind !== "file") return;
     expect(read.content).toContain("from-bash");
   });
 
@@ -93,7 +93,7 @@ describe("file-context handoff", () => {
 
     const reread = await readFile({ path });
     expect(reread).toMatchObject({ status: "success" });
-    if (reread.status !== "success") return;
+    if (reread.status !== "success" || reread.kind !== "file") return;
     expect(reread.content).toContain("line-two");
   });
 

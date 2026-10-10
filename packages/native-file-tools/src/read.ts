@@ -15,6 +15,7 @@ import {
   type ReadTarget,
 } from "./path";
 import { streamFileWindow } from "./stream-read";
+import type { ImageReadHook, ImageReadSuccess } from "./image";
 import { missingFileMessage } from "./read-suggestions";
 import {
   listDirectory,
@@ -63,6 +64,9 @@ type ReadOutcome =
  * `linkTargets` applies to directory listings only: when it is false the
  * renderer omits where a link leads, which is what keeps a resolved host path
  * out of a Knowledge listing.
+ *
+ * `image` opts the read into image detection (vision-media D7); without it a
+ * file is always read as text.
  */
 export type NativeReadOptions = {
   readonly displayPath: string;
@@ -71,6 +75,7 @@ export type NativeReadOptions = {
   readonly followSymlinks?: boolean;
   readonly linkTargets?: boolean;
   readonly signal?: AbortSignal | undefined;
+  readonly image?: ImageReadHook | undefined;
 };
 
 export async function loadText(
@@ -94,10 +99,12 @@ export async function loadText(
   }
 }
 
+/** Without an `image` hook every file is read as text. */
 export async function readFile(
   input: { path: string },
   signal?: AbortSignal,
-): Promise<ReadOutcome> {
+  image?: ImageReadHook,
+): Promise<ReadOutcome | ImageReadSuccess> {
   let hostPath = input.path;
   try {
     const target = await resolveReadTarget(input.path);
@@ -108,17 +115,21 @@ export async function readFile(
           hostPath: target.path,
           followSymlinks: true,
           signal,
+          image,
         });
   } catch (error) {
     return readFailure(error, hostPath, input.path, true);
   }
 }
 
-/** Read a target a scheme resolver has already authorized and resolved. */
+/**
+ * Read a target a scheme resolver has already authorized and resolved.
+ * Without an `image` hook every file is read as text.
+ */
 export async function readResolvedFile(
   hostPath: string,
   options: NativeReadOptions,
-): Promise<ReadOutcome> {
+): Promise<ReadOutcome | ImageReadSuccess> {
   const followSymlinks = options.followSymlinks ?? false;
   try {
     const target = await resolveResolvedTarget(hostPath, options);
@@ -128,6 +139,7 @@ export async function readResolvedFile(
           hostPath,
           followSymlinks,
           signal: options.signal,
+          image: options.image,
         });
   } catch (error) {
     return readFailure(error, hostPath, options.displayPath, followSymlinks);

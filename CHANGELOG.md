@@ -2,6 +2,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Added image reads to the native `read` tool (#935).
+  A host, `file://`, Workspace-relative, `kb://`, or `skill://` file whose
+  leading bytes are a PNG, JPEG, GIF, or WebP image is ingested into the Run
+  owner's media store and returned as `kind: "image"` with its `media://<id>`
+  locator, format, and dimensions instead of text; SVG and other files stay
+  text, a selector on an image is `invalid_selector`, and an image over 20 MiB
+  or 40 megapixels is `image_too_large`. The new read-only `media://<id>`
+  locator re-reads an image the owner holds, needs no native executor, and
+  answers another owner's id with `not_found`; a domain-restricted `read`
+  permission group admits it with `^media://`. Vision models receive read
+  images in the tool result on the Responses, Codex, and Messages wires under
+  the epoch image window; the Chat Completions wires carry a placeholder for now.
+
 - Added image attachments to owner messages (#935).
   `POST /api/v1/chats/:id/messages` accepts up to 10 `file` parts whose `url`
   is a `media://<id>` locator of an image the sender uploaded, alongside the

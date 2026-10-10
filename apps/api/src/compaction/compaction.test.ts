@@ -700,6 +700,66 @@ describe('media sizing (vision-media D6)', () => {
     );
   });
 
+  describe('an image carried by a replayed read result', () => {
+    const readRow = (): StoredMessage => ({
+      ...msg('', 'assistant'),
+      parts: [
+        {
+          type: 'tool-read',
+          toolCallId: 'call-1',
+          state: 'output-available',
+          input: { path: '/work/shot.png' },
+          output: {
+            status: 'success',
+            kind: 'image',
+            media: `media://${A}`,
+            mediaType: 'image/png',
+            width: 4000,
+            height: 2250,
+            path: '/work/shot.png',
+          },
+          outcome: 'success',
+        },
+      ],
+    });
+    const estimateWith = (variant: {
+      modelWidth: number;
+      modelHeight: number;
+      modelByteSize: number;
+    }) =>
+      estimateContinuationTokens({
+        rows: [msg('look'), readRow()],
+        railText: '',
+        media: {
+          descriptors: new Map([[A, descriptor(A, variant)]]),
+          statuses: ['attached'],
+          imageInput: true,
+        },
+      });
+
+    it('charges the image by its variant dimensions', () => {
+      expect(
+        estimateWith({
+          modelWidth: 2000,
+          modelHeight: 1125,
+          modelByteSize: 1000,
+        }) -
+          estimateWith({
+            modelWidth: 1000,
+            modelHeight: 750,
+            modelByteSize: 1000,
+          }),
+      ).toBe(3000 - 1000);
+    });
+
+    it('gives the same estimate whatever the variant byte size', () => {
+      const dimensions = { modelWidth: 2000, modelHeight: 1125 };
+      expect(estimateWith({ ...dimensions, modelByteSize: 200 * 1024 })).toBe(
+        estimateWith({ ...dimensions, modelByteSize: 3_700_000 }),
+      );
+    });
+  });
+
   describe('imageOverflowCompacts', () => {
     const sizing = (
       statuses: Array<'attached' | 'limit' | 'unavailable'>,

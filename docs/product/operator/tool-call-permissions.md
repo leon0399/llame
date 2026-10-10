@@ -239,6 +239,7 @@ coexist:
           { "field": "path", "regex": "^/" },
           { "field": "path", "regex": "^kb://" },
           { "field": "path", "regex": "^skill://" },
+          { "field": "path", "regex": "^media://" },
           { "field": "path", "regex": "^https://docs\\.example\\.com/" },
         ],
       },
@@ -249,6 +250,9 @@ coexist:
 
 With that group, reading `https://docs.example.com/guide` is admitted, and
 reading `https://other.example/guide` is rejected as `no_allow` without a fetch.
+The `^media://` clause admits a re-read of an image the Run owner holds
+(another owner's id still returns `not_found`); without it every `media://`
+read is rejected as `no_allow` before any lookup.
 The `^/` and `^kb://` clauses admit `/etc/hosts` and `kb://SPACE/notes/a.md`; a
 read you want blocked must be absent from the allow list or denied by a reject
 clause.

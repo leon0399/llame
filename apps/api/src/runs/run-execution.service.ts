@@ -61,7 +61,14 @@ import {
   resolveCompactionThreshold,
   type CompactionPlan,
 } from '../compaction/compaction';
-import { loadMediaSizing, type MediaSizing } from '../media/epoch-admission';
+import {
+  imageResultMediaId,
+  loadMediaSizing,
+  toolResultOutput,
+  type MediaSizing,
+} from '../media/epoch-admission';
+import { MediaService } from '../media/media.service';
+import { createToolMediaStore } from '../media/tool-media-store';
 import {
   createRunMediaResolver,
   fileMediaIds,
@@ -1231,6 +1238,12 @@ export class RunExecutionService {
       // calls, references and scripts included; a turn that did not name it
       // carries an empty set and refuses again.
       skillSelection,
+      // The Run owner's media, for image reads and `media://` (vision-media D7).
+      media: createToolMediaStore(
+        new MediaService(this.tenantDb),
+        input.userId,
+        'read',
+      ),
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
       webAdapters: this.instanceConfig.config.tools.webAdapters,
@@ -1586,12 +1599,17 @@ export class RunExecutionService {
       if (initialExecutor === undefined) {
         throw new Error(`Tool "${declaration.id}" has no executor.`);
       }
+      // A native result reaches the model as its serialized text; an image
+      // result adds only its `media://` reference, which the step composer
+      // projects on every step (vision-media D6), so no bytes stay in the
+      // Run's response messages.
       const nativeOutput = isNativeFileTool(initialExecutor)
         ? {
-            toModelOutput: ({ output }: { output: unknown }) => ({
-              type: 'text' as const,
-              value: serializeNativeModelOutput(output),
-            }),
+            toModelOutput: ({ output }: { output: unknown }) =>
+              toolResultOutput(
+                serializeNativeModelOutput(output),
+                imageResultMediaId(output),
+              ),
           }
         : {};
       const definition = tool({

@@ -25,6 +25,10 @@ describe('workspace path projection', () => {
     expect(isWorkspaceRelative('/work/project/src')).toBe(false);
     expect(isWorkspaceRelative('KB://Space/file')).toBe(false);
     expect(isWorkspaceRelative('vault://notes/file')).toBe(false);
+    expect(
+      isWorkspaceRelative('media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f'),
+    ).toBe(false);
+    expect(isWorkspaceRelative('media://')).toBe(false);
   });
 
   it('does not treat file: aliases as workspace-relative', () => {

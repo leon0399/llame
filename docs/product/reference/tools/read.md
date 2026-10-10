@@ -10,6 +10,7 @@ configured_by:
   - ../../operator/web-adapters.md
   - ../../operator/knowledge.md
   - ../../operator/skills.md
+  - ../../operator/media.md
 ---
 
 # read
@@ -18,7 +19,7 @@ configured_by:
 
 `read` takes one `path` argument and returns a bounded view of what that path
 addresses. The scheme of the path selects the authority — a host filesystem, a
-Knowledge Space, a skill package, or a web URL — and the trailing selector
+Knowledge Space, a skill package, the owner's stored media, or a web URL — and the trailing selector
 selects lines or a representation. It never changes the source.
 
 ## Arguments
@@ -40,6 +41,7 @@ argument: the selector in `path` carries all of that. See
 | [`kb://`](../locators/kb.md)                   | no       | yes     | the owner's Knowledge Space tree         |
 | [`skill://`](../locators/skill.md)             | no       | no      | an installed skill package, read-only    |
 | [`http(s)://`](../locators/web.md)             | no       | no      | the public web, through the API process  |
+| [`media://`](../locators/media.md)             | no       | no      | the owner's stored images, read-only     |
 
 ## Result
 
@@ -62,6 +64,34 @@ given; `realPath` counts within the result bound, and the header and line
 numbering stay those of the path as given. A directory listing never carries it,
 and neither does a `kb://` or `skill://` read.
 
+### Image result
+
+A host, `file://`, Workspace-relative, `kb://`, or `skill://` regular file whose
+leading bytes are a PNG, JPEG, GIF, or WebP image is not decoded as text: it is
+ingested into the Run owner's media store with provenance `read` and the
+locator as submitted (a `file://` URL or Workspace-relative path as written,
+not the host path it resolves to) as its source label (re-reading the same
+bytes reuses the object), and the read returns an image result instead of
+`content`:
+
+| Field       | Meaning                                        |
+| ----------- | ---------------------------------------------- |
+| `kind`      | `image`                                        |
+| `media`     | the stored object's `media://<id>` locator     |
+| `mediaType` | the stored original's format                   |
+| `width`     | the original's width in pixels                 |
+| `height`    | the original's height in pixels                |
+| `path`      | the path as for a text read of the same source |
+
+The source's attribution stays: `realPath` on a host path, the Space fields and
+notice on `kb://`, the skill fields on `skill://`. An image result has no line
+metadata and takes no selector. The extension never decides: an SVG, or any file
+matching no signature, stays on the text path whatever its size. A model that
+declares image input receives the image with the result, as the epoch image
+window in [media](../../operator/media.md) admits it; any other model receives a
+placeholder naming the locator. A [`media://`](../locators/media.md) read returns
+the same image result for an object the owner already holds.
+
 A multi-range read reports the plural `requestedRanges` (the merged request) and
 `shownRanges` (emitted lines); continuation and trimming are under
 [selectors](../selectors.md#result-bounds).
@@ -76,8 +106,8 @@ open-ended `N-` and tail `-K` members), raw, and representation grammar is under
 
 A read never mutates its source. A read of a host path also triggers that
 directory's instruction chain, and a `kb://` read triggers its Space's chain; see
-[instruction files](../instruction-files.md). A `skill://`, `http(s)://`, or
-`bash` call never triggers a load.
+[instruction files](../instruction-files.md). A `skill://`, `http(s)://`,
+`media://`, or `bash` call never triggers a load.
 
 A marker in a prompt (`@path`, `@"…"`, `@'…'`, ``@`…` ``, `@[label](path)`, or
 `[label](path "import")`) is read once for the owner before the first model
@@ -105,7 +135,11 @@ message naming the working forms; see
 [selectors](../selectors.md#malformed-selectors). A `-K` member on a web
 adapter document cut at the document bound fails as `representation_too_large`
 instead ([selectors](../selectors.md#media-types-and-errors)).
-`unsupported_operation` is a `skill://` mutation refusal, and
+A selector on an image is `invalid_selector` (`An image is read without a
+selector.`). An image over 20 MiB fails `image_too_large` before it is read
+whole, as does one over 40 megapixels; bytes the store cannot decode fail
+`unsupported_media_type`. Neither falls back to text.
+`unsupported_operation` is a `skill://` or `media://` mutation refusal, and
 `skill_requires_explicit_selection` a manual-only package refusal; both are in
 [skill](../locators/skill.md#errors).
 

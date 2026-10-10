@@ -667,6 +667,7 @@ describe('instructions producer triggers', () => {
       readCall('kb://not-a-uuid/doc.md'),
       readCall('skill://name'),
       readCall('https://example.com/AGENTS.md'),
+      readCall('media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f'),
       readCall(join(root, 'apps/api/x.ts'), 'search_conversations'),
     ];
     const { producer, staged, prepare } = attemptOf();

@@ -9,6 +9,7 @@ configured_by:
   - ../../operator/knowledge.md
   - ../../operator/skills.md
   - ../../operator/web-read.md
+  - ../../operator/media.md
 ---
 
 # Locators
@@ -36,18 +37,20 @@ and read-only. Each scheme page states its accepted spellings; see
 | `kb://`       | yes    | yes    | yes     | no       | the owner's Knowledge Space directory   | yes     | yes, inside the Space |
 | `skill://`    | yes    | no     | no      | no       | an installed skill package, read-only   | no      | no                    |
 | `http(s)://`  | yes    | no     | no      | no       | the public web, through the API process | no      | no                    |
+| `media://`    | yes    | no     | no      | no       | the owner's stored images, read-only    | no      | no                    |
 
 `edit` and `write` reject `http://` and `https://` with `invalid_path` before
-any request, and reject `skill://` with `unsupported_operation` and no
-filesystem effect. The operator enables the host executor the first two rows
+any request, and reject `skill://` and [`media://`](media.md) with
+`unsupported_operation` and no filesystem effect. The operator enables the host executor the first two rows
 need; see [native files](../../operator/native-files.md#enabling).
 
 ## Authority
 
 A `kb://` identifier resolves under the trusted Run owner's current Space
 access on every call, with no filesystem probe; `skill://` resolves inside a
-package the operator installed; `http(s)://` is fetched by the API process.
-None of the three binds the Run to an executor.
+package the operator installed; `http(s)://` is fetched by the API process;
+`media://` resolves only the Run owner's stored media. None of the four binds
+the Run to an executor.
 
 An unimplemented `scheme://` prefix — for example `vault://x` — fails closed
 with `invalid_path` on `read`, `edit`, and `write` alike. It is never treated as
@@ -73,7 +76,8 @@ than reinterpreted: `:raw:outline` fails everywhere, and `kb://` and `skill://`
 refuse `:outline:raw`, where a host path or web locator reads it as a raw read
 of a path or URL ending in `:outline`; see
 [selectors](../selectors.md#markdown-outline). `not_found` covers a refused
-symbolic-link component on `kb://` and an absent path. The shared native
+symbolic-link component on `kb://`, an absent path, and a `media://` id the
+owner does not hold. The shared native
 vocabulary is in [read](../tools/read.md#errors).
 
 ## Configured by

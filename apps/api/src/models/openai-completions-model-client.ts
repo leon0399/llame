@@ -354,7 +354,10 @@ function runOpenAICompatibleStream(
 
   // The shared tool loop: without it `streamText` stops after one step.
   applyToolCallingOptions(streamOptions, input);
-  installStepPreparation(streamOptions, input, config.input);
+  // The Chat Completions adapter serializes tool content as text, so an
+  // attached tool-result image travels as the interim placeholder here and on
+  // opencode-go, which composes over this client (vision-media D6).
+  installStepPreparation(streamOptions, input, config.input, 'placeholder');
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
   if (input.onTextDelta || input.onReasoningDelta) {

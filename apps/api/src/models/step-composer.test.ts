@@ -8,12 +8,17 @@ import {
   streamText,
   tool,
   type ModelMessage,
+  type ToolResultPart,
 } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
-import { EPOCH_MAX_BASE64_BYTES } from '../media/epoch-admission';
+import {
+  EPOCH_MAX_BASE64_BYTES,
+  toolResultOutput,
+} from '../media/epoch-admission';
 import { descriptor, fakeResolver } from '../media/media-fixtures';
+import { buildContext, type StoredMessage } from '../chats/context-builder';
 import type { ModelStreamInput } from './model-client';
 import { composeStepMessages, installStepPreparation } from './step-composer';
 
@@ -46,7 +51,11 @@ describe('composeStepMessages', () => {
     ];
 
     expect(
-      await composeStepMessages(messages, { resolver, imageInput: true }),
+      await composeStepMessages(messages, {
+        resolver,
+        imageInput: true,
+        toolResultImages: 'content',
+      }),
     ).toEqual([
       {
         role: 'user',
@@ -79,7 +88,7 @@ describe('composeStepMessages', () => {
         { role: 'assistant', content: [{ type: 'text', text: 'seen' }] },
         { role: 'user', content: [fileRef(B)] },
       ],
-      { resolver, imageInput: true },
+      { resolver, imageInput: true, toolResultImages: 'content' },
     );
 
     expect(composed[0]?.content).toContainEqual({
@@ -93,9 +102,8 @@ describe('composeStepMessages', () => {
   });
 
   it('gives a text-only model the omitted placeholder and loads no bytes', async () => {
-    const { resolver, loads } = fakeResolver([
-      descriptor(A, { name: 'shot.png' }),
-    ]);
+    const { resolver } = fakeResolver([descriptor(A, { name: 'shot.png' })]);
+    const loadModelBytes = vi.spyOn(resolver, 'loadModelBytes');
     const composed = await composeStepMessages(
       [
         {
@@ -103,7 +111,7 @@ describe('composeStepMessages', () => {
           content: [fileRef(A), { type: 'text', text: 'what?' }],
         },
       ],
-      { resolver, imageInput: false },
+      { resolver, imageInput: false, toolResultImages: 'content' },
     );
 
     expect(composed).toEqual([
@@ -119,14 +127,14 @@ describe('composeStepMessages', () => {
         ],
       },
     ]);
-    expect(loads).toEqual([]);
+    expect(loadModelBytes).not.toHaveBeenCalled();
   });
 
   it('keeps the label and an unavailable placeholder for an unresolvable reference', async () => {
     const { resolver, loads } = fakeResolver([]);
     const composed = await composeStepMessages(
       [{ role: 'user', content: [fileRef(MISSING)] }],
-      { resolver, imageInput: true },
+      { resolver, imageInput: true, toolResultImages: 'content' },
     );
 
     expect(composed).toEqual([
@@ -151,6 +159,7 @@ describe('composeStepMessages', () => {
           loadModelBytes: () => Promise.resolve(new Map()),
         },
         imageInput: true,
+        toolResultImages: 'content',
       },
     );
 
@@ -176,7 +185,7 @@ describe('composeStepMessages', () => {
       [A, B].map(
         (id): ModelMessage => ({ role: 'user', content: [fileRef(id)] }),
       ),
-      { resolver, imageInput: true },
+      { resolver, imageInput: true, toolResultImages: 'content' },
     );
 
     expect(loads).toEqual([A]);
@@ -198,16 +207,232 @@ describe('composeStepMessages', () => {
     const { resolver } = fakeResolver([descriptor(A)]);
     const plain: Array<ModelMessage> = [{ role: 'user', content: 'hello' }];
     expect(
-      await composeStepMessages(plain, { resolver, imageInput: true }),
+      await composeStepMessages(plain, {
+        resolver,
+        imageInput: true,
+        toolResultImages: 'content',
+      }),
     ).toBe(plain);
 
     const once = await composeStepMessages(
       [{ role: 'user', content: [fileRef(A)] }],
-      { resolver, imageInput: true },
+      { resolver, imageInput: true, toolResultImages: 'content' },
     );
     expect(
-      await composeStepMessages(once, { resolver, imageInput: true }),
+      await composeStepMessages(once, {
+        resolver,
+        imageInput: true,
+        toolResultImages: 'content',
+      }),
     ).toBe(once);
+  });
+
+  describe('tool results', () => {
+    const ENVELOPE = '{"status":"success","kind":"image"}';
+    const readResult = (toolCallId: string, id: string): ModelMessage => ({
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId,
+          toolName: 'read',
+          output: toolResultOutput(ENVELOPE, id),
+        },
+      ],
+    });
+    const outputOf = (message: ModelMessage | undefined) =>
+      message?.role === 'tool' && message.content[0]?.type === 'tool-result'
+        ? message.content[0].output
+        : undefined;
+
+    it('sends an attached read image as content after the result text, in request order with attachments', async () => {
+      const { resolver, loads } = fakeResolver([descriptor(A), descriptor(B)]);
+      const composed = await composeStepMessages(
+        [{ role: 'user', content: [fileRef(A)] }, readResult('call-1', B)],
+        { resolver, imageInput: true, toolResultImages: 'content' },
+      );
+
+      expect(loads).toEqual([A, B]);
+      expect(outputOf(composed[1])).toEqual({
+        type: 'content',
+        value: [
+          { type: 'text', text: ENVELOPE },
+          {
+            type: 'image-data',
+            data: Buffer.from([0x62]).toString('base64'),
+            mediaType: 'image/png',
+          },
+        ],
+      });
+    });
+
+    it('sends an attached read image as the interim placeholder on a Chat Completions wire and loads no bytes for it', async () => {
+      const { resolver, loads } = fakeResolver([
+        descriptor(A, { name: 'shot.png' }),
+        descriptor(B),
+      ]);
+      const composed = await composeStepMessages(
+        [readResult('call-1', A), { role: 'user', content: [fileRef(B)] }],
+        { resolver, imageInput: true, toolResultImages: 'placeholder' },
+      );
+
+      expect(loads).toEqual([B]);
+      expect(outputOf(composed[0])).toEqual({
+        type: 'text',
+        value: `${ENVELOPE}\n[image media://${A} shot.png 1600×900, omitted: this connection cannot carry tool-result images yet]`,
+      });
+      // Owner attachments are still sent as images on that wire.
+      expect(composed[1]?.content).toContainEqual(
+        expect.objectContaining({ type: 'image' }),
+      );
+    });
+
+    it.each([
+      [
+        'a text-only model',
+        [descriptor(A, { name: 'shot.png' })],
+        false,
+        `[image media://${A} shot.png 1600×900, omitted: this model has no image input]`,
+      ],
+      [
+        'another owner or an unknown id',
+        [],
+        true,
+        `[image media://${A} unavailable]`,
+      ],
+    ])(
+      'gives %s a text output with the placeholder and no image',
+      async (_, descriptors, imageInput, placeholder) => {
+        const { resolver, loads } = fakeResolver(descriptors);
+        for (const toolResultImages of ['content', 'placeholder'] as const) {
+          const composed = await composeStepMessages(
+            [readResult('call-1', A)],
+            { resolver, imageInput, toolResultImages },
+          );
+          expect(outputOf(composed[0])).toEqual({
+            type: 'text',
+            value: `${ENVELOPE}\n${placeholder}`,
+          });
+        }
+        expect(loads).toEqual([]);
+      },
+    );
+
+    it('admits read images into the same window as attachments, oldest first', async () => {
+      const modelByteSize = EPOCH_MAX_BASE64_BYTES / 2;
+      const { resolver, loads } = fakeResolver([
+        descriptor(A, { modelByteSize }),
+        descriptor(B, { modelByteSize }),
+      ]);
+      const composed = await composeStepMessages(
+        [readResult('call-1', A), readResult('call-2', B)],
+        { resolver, imageInput: true, toolResultImages: 'content' },
+      );
+
+      expect(loads).toEqual([A]);
+      expect(outputOf(composed[0])).toMatchObject({ type: 'content' });
+      expect(outputOf(composed[1])).toEqual({
+        type: 'text',
+        value: `${ENVELOPE}\n[image media://${B} 0b.png 1600×900, not attached: this context's image limit is reached]`,
+      });
+    });
+
+    it('projects a stored read image result replayed by buildContext', async () => {
+      const stored: StoredMessage = {
+        id: 'msg-1',
+        chatId: 'chat-1',
+        seq: 1,
+        role: 'assistant',
+        senderUserId: null,
+        attachments: [],
+        createdAt: new Date(0),
+        parts: [
+          {
+            type: 'tool-read',
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { path: '/work/shot.png' },
+            output: {
+              status: 'success',
+              kind: 'image',
+              media: `media://${A}`,
+              mediaType: 'image/png',
+              width: 1600,
+              height: 900,
+              path: '/work/shot.png',
+            },
+            outcome: 'success',
+          },
+        ],
+      };
+      const { messages } = buildContext([stored], {
+        systemPrompt: 'system',
+        requestKind: 'continuation',
+      });
+      const composed = await composeStepMessages(messages, {
+        resolver: fakeResolver([descriptor(A)]).resolver,
+        imageInput: true,
+        toolResultImages: 'content',
+      });
+
+      expect(
+        outputOf(composed.find((message) => message.role === 'tool')),
+      ).toMatchObject({
+        type: 'content',
+        value: [{ type: 'text' }, { type: 'image-data' }],
+      });
+    });
+
+    it('is idempotent over composed tool outputs and leaves other tool results alone', async () => {
+      const { resolver } = fakeResolver([descriptor(A)]);
+      const textResult: ModelMessage = {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-0',
+            toolName: 'read',
+            output: { type: 'text', value: 'plain' },
+          },
+        ],
+      };
+      const options = {
+        resolver,
+        imageInput: true,
+        toolResultImages: 'content',
+      } as const;
+      const once = await composeStepMessages(
+        [textResult, readResult('call-1', A)],
+        options,
+      );
+      expect(once[0]).toBe(textResult);
+      expect(await composeStepMessages(once, options)).toBe(once);
+    });
+
+    it('projects every result of a tool message and leaves a content result without references as is', async () => {
+      const { resolver } = fakeResolver([descriptor(A)]);
+      const plain: ToolResultPart = {
+        type: 'tool-result',
+        toolCallId: 'call-0',
+        toolName: 'read',
+        output: { type: 'content', value: [{ type: 'text', text: 'plain' }] },
+      };
+      const image = readResult('call-1', A);
+      if (image.role !== 'tool') throw new Error('Expected a tool message');
+
+      const [composed] = await composeStepMessages(
+        [{ role: 'tool', content: [plain, ...image.content] }],
+        { resolver, imageInput: true, toolResultImages: 'content' },
+      );
+
+      expect(composed?.content[0]).toBe(plain);
+      expect(composed?.content[1]).toMatchObject({
+        output: {
+          type: 'content',
+          value: [{ type: 'text', text: ENVELOPE }, { type: 'image-data' }],
+        },
+      });
+    });
   });
 });
 
@@ -340,6 +565,88 @@ describe('installStepPreparation', () => {
     for (const prompt of prompts) {
       expect(promptFileData(prompt)).toEqual([new Uint8Array([0x61])]);
     }
+  });
+
+  describe('reads inside a Run', () => {
+    const IDS = [1, 2, 3, 4, 5].map(
+      (n) => `0192f3a4-5b6c-7d8e-9f01-0000000000a${n}`,
+    );
+    // Each base64 variant is 5 MiB, so four fit the 24 MiB bound.
+    const modelByteSize = (5 * 2 ** 20 * 3) / 4;
+
+    /** A Run that reads `IDS` one per step and then answers. */
+    async function readFive() {
+      const { resolver } = fakeResolver(
+        IDS.map((id) => descriptor(id, { modelByteSize })),
+      );
+      const { model, prompts } = recordingModel([
+        'tool',
+        'tool',
+        'tool',
+        'tool',
+        'tool',
+      ]);
+      let reads = 0;
+      const input: ModelStreamInput = {
+        chat: CHAT,
+        messages: [{ role: 'user', content: 'read them' }],
+        tools: {
+          noop: tool({
+            inputSchema: z.object({}),
+            execute: () => ({ media: `media://${IDS[reads++]}` }),
+            toModelOutput: ({ output }) =>
+              toolResultOutput('envelope', output.media.slice(8)),
+          }),
+        },
+        media: resolver,
+      };
+      const streamOptions = {
+        model,
+        messages: input.messages,
+        tools: input.tools,
+        stopWhen: stepCountIs(6),
+      };
+      installStepPreparation(streamOptions, input, ['text', 'image']);
+      await expect(streamText(streamOptions).text).resolves.toBe('ok');
+      return prompts;
+    }
+
+    /** The tool-result outputs of a provider prompt, in order. */
+    function toolOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
+      return prompt.flatMap((message) =>
+        message.role === 'tool'
+          ? message.content.flatMap((part) =>
+              part.type === 'tool-result' ? [part.output] : [],
+            )
+          : [],
+      );
+    }
+
+    it('sends every read in the window as image content and only the newest past the bounds as the limit placeholder', async () => {
+      const prompts = await readFive();
+
+      expect(prompts).toHaveLength(6);
+      const last = toolOutputs(prompts[5] ?? []);
+      expect(last.slice(0, 4)).toEqual(
+        IDS.slice(0, 4).map((id) => ({
+          type: 'content',
+          value: [
+            { type: 'text', text: 'envelope' },
+            {
+              type: 'image-data',
+              data: Buffer.from([id.codePointAt(35) ?? 0]).toString('base64'),
+              mediaType: 'image/png',
+            },
+          ],
+        })),
+      );
+      expect(last[4]).toEqual({
+        type: 'text',
+        value: `envelope\n[image media://${IDS[4]} a5.png 1600×900, not attached: this context's image limit is reached]`,
+      });
+      // Each step projects the same prefix: earlier steps attached the same reads.
+      expect(toolOutputs(prompts[4] ?? [])).toEqual(last.slice(0, 4));
+    });
   });
 
   it('treats a model without declared input as text-only', async () => {
