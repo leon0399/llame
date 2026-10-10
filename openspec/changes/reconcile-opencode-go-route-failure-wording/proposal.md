@@ -4,30 +4,39 @@ The `opencode-go-provider` requirement "Upstream failures are mirrored under
 the existing contract" says the operator runbook records that a model the
 gateway's format gate rejects fails with the gateway's "not supported for
 format" message ([#919](https://github.com/leon0399/llame/issues/919)). That
-text came from the gateway's open-source handler. The live proof recorded with
-the change
-([`live-proof.md`](../archive/2026-09-22-opencode-go-provider/live-proof.md))
-found the deployed gateway answering the one route-ceiling probe that could be
-run, `grok-4.6` on `/chat/completions`, with
-`RetryError: Failed after 3 attempts. Last error: Upstream request failed: Endpoint is unavailable.`
-after the SDK's own three retries. The
+text came from the gateway's open-source handler. The
+[live proof](../archive/2026-09-22-opencode-go-provider/live-proof.md#failure-shapes-observed)
+recorded with the change ran the one route-ceiling probe available, `grok-4.6`
+on `/chat/completions`. The deployed gateway answered
+`Upstream request failed: Endpoint is unavailable.`, and after the SDK's three
+attempts (the request plus two retries) the run recorded the failure message
+`Failed after 3 attempts. Last error: Upstream request failed: Endpoint is unavailable.`
+with class `RetryError`.
+
+The
 [runbook](../../../docs/product/operator/providers/opencode-go.md#accepted-upstream-failures)
-already records both and tells operators to match on the observed message, so
-a reader of the requirement alone expects one message while the runbook tells
-them to match another.
+already records both the documented and the observed text, so a reader of the
+requirement alone expects one message while the runbook tells them to match
+another. The runbook's own string to match is also slightly wrong: it reads
+`RetryError: Failed after 3 attempts. …`, prefixing the error class, which is
+not part of the message the run records (the client test asserts the surfaced
+message carries no class prefix).
 
 ## What Changes
 
 - Reword the runbook clause of "Upstream failures are mirrored under the
   existing contract" so that, for a model the route does not serve, the
-  runbook records the gateway's documented format-gate message, the message
-  the deployed gateway was observed to return, which one to match, and the
-  remedy.
+  runbook records the gateway's documented format-gate message, the failure
+  message the run was observed to record with its observation date, which one
+  to match, and the remedy.
 - Reword the scenario "The runbook names the accepted upstream shapes" to
   match.
-- No behavior changes. The failure contract itself, the other scenarios, and
-  the usage-limit clause stay word for word. The runbook already satisfies the
-  reworded text, so no code or document outside `openspec/` changes.
+- Correct the runbook's string to match: drop the `RetryError` class prefix,
+  and say the three attempts are the request plus two retries.
+- No behavior changes. Outside the runbook clause and its scenario, the
+  requirement and every other scenario stay word for word; the clause's
+  usage-limit half changes only by the connective `that` the new sentence
+  structure needs.
 
 ## Capabilities
 
@@ -44,9 +53,22 @@ None.
 
 - `openspec/specs/opencode-go-provider/spec.md`, through the finalize layer's
   spec sync.
-- No code, configuration, API, or runbook change. The archived change and its
-  delta stay untouched: rewriting an archived delta to match a later
-  observation is what the archive exists to prevent (#919).
+- `docs/product/operator/providers/opencode-go.md`: one corrected string and
+  one clarified retry count in "Accepted upstream failures".
+- `CHANGELOG.md`: one dated entry.
+- No code, configuration, or API change. The archived change and its delta
+  stay untouched: rewriting an archived delta to match a later observation is
+  what the archive exists to prevent (#919).
+
+## Acceptance
+
+- The synced canonical requirement carries the reworded runbook clause and
+  scenario, and every other sentence and scenario of the requirement is
+  byte-identical to today's except the connective `that`.
+- The runbook's "Accepted upstream failures" section names the documented
+  format-gate message, the observed failure message exactly as the run records
+  it (no class prefix) with its 2026-09-22 date, which one to match, and the
+  remedy.
 
 ## Assumptions
 
@@ -56,6 +78,12 @@ None.
   unobserved rather than disproven (#919).
 - The observed message is recorded as observed on 2026-09-22, not as a
   permanent gateway contract, since llame does not own the gateway.
+
+## Decisions for approval
+
+None open. The runbook correction gives the change an ordinary implementation
+layer, so `Closes #919` and the changelog entry sit there and the finalize
+layer keeps to spec sync and archive movement.
 
 ## Non-goals
 
