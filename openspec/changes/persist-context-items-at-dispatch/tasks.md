@@ -61,10 +61,10 @@ Re-estimate each layer's authored size at its boundary and before publication;
 split a growing concern or request a named exception before publishing an
 oversized layer.
 
-- [ ] 1.1 [proposal] Run the review rounds on the proposal, design, and delta specs; verify each finding against the repository; commit each round separately.
-- [ ] 1.2 [proposal] Verify every MODIFIED block reproduces master's requirement text and scenario headings, with only the edits the proposal names, by a recorded sentence-level diff against `openspec/specs`.
-- [ ] 1.3 [proposal] Prove the layer with `pnpm exec openspec validate persist-context-items-at-dispatch --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; obtain approval of the final revision.
-- [ ] 1.4 [proposal] SR: self-review the published draft PR's parent-relative diff against `REVIEW_GUIDE.md` and the approved scope, fix accepted findings with new commits, and mark the PR ready.
+- [x] 1.1 [proposal] Run the review rounds on the proposal, design, and delta specs; verify each finding against the repository; commit each round separately. Recorded: round 1 (spec consistency and feasibility reviewers; 4 P0 and 15 P1 accepted) applied in `79b5b56e`; round 2 (same reviewers; no P0 or P1, 13 P2/P3 accepted) applied in `f54b94c5`.
+- [x] 1.2 [proposal] Verify every MODIFIED block reproduces master's requirement text and scenario headings, with only the edits the proposal names, by a recorded sentence-level diff against `openspec/specs`. Recorded after round 2: 30 MODIFIED blocks across 11 deltas keep all 185 canonical scenario headings; the renamed tool-calling and chat-recency-digest requirements keep theirs under the new names.
+- [x] 1.3 [proposal] Prove the layer with `pnpm exec openspec validate persist-context-items-at-dispatch --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; obtain approval of the final revision. Recorded: all pass at `f54b94c5`; approval of this revision carried forward from Leo's instruction to implement after two review rounds (2026-10-10).
+- [x] 1.4 [proposal] SR: self-review the published draft PR's parent-relative diff against `REVIEW_GUIDE.md` and the approved scope, fix accepted findings with new commits, and mark the PR ready. Recorded: self-review was the two review rounds above; marked ready at the round-2 head.
 - [ ] 1.5 [proposal] GR: after ready, run the Ready-PR monitoring loop on the current head with zero actionable unresolved feedback before creating `record`.
 
 ## 2. Record layer
