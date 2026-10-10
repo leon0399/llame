@@ -201,7 +201,7 @@ function validateContentMode(
   }>,
 ): void {
   const data = ctx.value;
-  if (!data.query) {
+  if (!data.query?.trim()) {
     rejectField(ctx, 'query', 'content mode requires a query');
   }
   if (data.limit !== undefined && data.limit > CONTENT_LIMIT_MAX) {

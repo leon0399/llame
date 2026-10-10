@@ -1,5 +1,11 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-10
+
+- Fixed `search_conversations` accepting a whitespace-only content-mode
+  `query` and returning an empty page (#1066). Such a query is now refused as
+  `invalid_input`, as the chat-search spec requires.
+
 # 2026-10-09
 
 - Fixed API and Runs-worker boot failing with "canonical conversation search
