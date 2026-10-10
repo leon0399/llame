@@ -251,22 +251,22 @@ refused ([selectors](../selectors.md#media-types-and-errors)).
 
 ## Errors
 
-| Error type                 | Meaning                                                                                                                                                    |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid_path`             | the locator is not an absolute web URL, has a port that is not a number, carries userinfo, or targets `edit` or `write`                                    |
-| `invalid_selector`         | the split-off suffix is outside the shipped selector grammar, such as an unencoded colon in the last segment                                               |
-| `executor_unavailable`     | instance configuration resolved no boot-time version for `User-Agent: llame/<version>`                                                                     |
-| `headers_timeout`          | no response headers arrived within 10 seconds                                                                                                              |
-| `call_timeout`             | the call passed 30 seconds across its requests                                                                                                             |
-| `body_too_large`           | the body declared or streamed more than 5 MiB                                                                                                              |
-| `representation_too_large` | a `-K` member or `:outline` on an adapter document cut at the 5 MiB rendered-document bound                                                                |
-| `http_status`              | a non-2xx, non-redirect status on the first response or a hop; a 429 also carries `Retry-After`, and the body is not returned                              |
-| `unsupported_content_type` | the response is not a text body, or declares no content type                                                                                               |
-| `invalid_redirect`         | a redirect status without a parsable `Location`, or a hop with userinfo or a non-web scheme; the target is never named; a fragment is dropped, not refused |
-| `too_many_redirects`       | the call exceeded 20 redirects                                                                                                                             |
-| `permission_denied`        | the `read` group refused the submitted locator or a hop, or every address was refused — a hop rejection carries `rejectedUrl`                              |
-| `aborted`                  | the Run or the caller cancelled the read                                                                                                                   |
-| `network_error`            | the transport failed (DNS, TLS, connection reset); a probe's failure disqualifies only its candidate, and no request is retried                            |
+| Error type                 | Meaning                                                                                                                                                                                                                                               |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_path`             | the locator is not an absolute web URL, has a port that is not a number, carries userinfo, or targets `edit` or `write`                                                                                                                               |
+| `invalid_selector`         | the split-off suffix is outside the shipped selector grammar, such as an unencoded colon in the last segment                                                                                                                                          |
+| `executor_unavailable`     | instance configuration resolved no boot-time version for `User-Agent: llame/<version>`                                                                                                                                                                |
+| `headers_timeout`          | no response headers arrived within 10 seconds                                                                                                                                                                                                         |
+| `call_timeout`             | the call passed 30 seconds across its requests                                                                                                                                                                                                        |
+| `body_too_large`           | the body declared or streamed more than 5 MiB                                                                                                                                                                                                         |
+| `representation_too_large` | a `-K` member or `:outline` on an adapter document cut at the 5 MiB rendered-document bound                                                                                                                                                           |
+| `http_status`              | a non-2xx, non-redirect status on the first response or a hop; a 429 also carries `Retry-After`, and the body is not returned                                                                                                                         |
+| `unsupported_content_type` | the response is not a text body, or declares no content type                                                                                                                                                                                          |
+| `invalid_redirect`         | a redirect status without a parsable `Location`, or a hop with userinfo or a non-web scheme; the target is never named; a fragment is dropped, not refused                                                                                            |
+| `too_many_redirects`       | the call exceeded 20 redirects                                                                                                                                                                                                                        |
+| `permission_denied`        | the `read` group refused the submitted locator or a hop, or every address was refused — a hop rejection carries `rejectedUrl`                                                                                                                         |
+| `aborted`                  | the Run or the caller cancelled the read                                                                                                                                                                                                              |
+| `network_error`            | the transport failed; the message names the kind — host not resolved, connection refused, reset, timed out, host unreachable, or a TLS handshake failure with its code — and a probe's failure disqualifies only its candidate; no request is retried |
 
 Failures never return partial content: the model sees the error and can
 continue with other work. Only a submitted locator or a redirect hop can fail a

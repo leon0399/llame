@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Changed a web `read`'s `network_error` message to name the failure's kind
+  instead of forwarding the platform's `fetch failed` (part of #930): the server
+  refused the connection, the connection was reset, timed out, or the host is
+  unreachable, read from the socket error's code beneath undici's wrapper. A
+  TLS failure carries its code, for example
+  `The TLS handshake failed (CERT_HAS_EXPIRED).`. No address or locator is
+  echoed. A code with no known kind keeps the previous bounded message. Status
+  error bodies are still not returned; that decision stays open on #930.
+
 - Fixed a step's reasoning still reaching the Run after its tool call on
   runtimes that schedule the reasoning stream later, such as Node 24 (#1184).
   On the Responses and Anthropic wires, reasoning arrives through a separate
