@@ -42,6 +42,11 @@ describe('mediaSourceLabel', () => {
     // ...never inside a surrogate pair.
     [`${'a'.repeat(255)}😀${'b'.repeat(100)}`, 'a'.repeat(255)],
     [`${'a'.repeat(254)}😀${'b'.repeat(100)}`, `${'a'.repeat(254)}😀`],
+    // The surrogate rule covers the whole high range, U+D800 to U+DBFF...
+    [`${'a'.repeat(255)}\u{10000}b`, 'a'.repeat(255)],
+    [`${'a'.repeat(255)}\u{10FFFF}b`, 'a'.repeat(255)],
+    // ...and touches only a cut: a label at the bound is kept whole.
+    [`${'a'.repeat(255)}\uD83D`, `${'a'.repeat(255)}\uD83D`],
   ])('labels %j as %j', (input, expected) => {
     expect(mediaSourceLabel(input)).toBe(expected);
   });
