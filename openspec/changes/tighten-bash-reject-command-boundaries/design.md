@@ -15,7 +15,8 @@ special-cases them.
 
 - B1, B2, and B8 reject a dangerous command however a shell separator ends it.
 - No new false positive on a name that continues into a longer word or that is
-  followed by `(`.
+  followed by `(`; the wider textual false positives this does add are listed
+  under Risks.
 
 **Non-Goals:**
 
@@ -82,3 +83,10 @@ does. All 29 cases decided as expected:
   character. Every recommended reject is textual and the requirement frames
   them so; a sandbox or approval policy is the stronger control (ROADMAP local
   Sandbox execution).
+- [Wider textual false positives] → A quoted or argument mention of a B1 name
+  directly followed by a separator is now rejected, for example
+  `grep -E "sudo|wheel" /etc/group`, `git commit -m 'handle shutdown; flush'`,
+  or `rg -w reboot>out.txt`. This is the same textual class as today's
+  `rg sudo src` and `git commit -m "fix: reboot loop"`, which the old B1
+  already rejects; it is the price of catching `sudo|tee` and `(halt)`. A
+  probe of 84 ordinary agent commands found no new B2 or B8 false positive.

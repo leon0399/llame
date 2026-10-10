@@ -66,8 +66,9 @@ None.
   first `WHEN` is rejected by B1, B2, or B8, and every shape in its second is
   not.
 - The example, the runbook table, and the test mirror carry the canonical B1,
-  B2, and B8 values; the existing parity test keeps the example and the mirror
-  identical.
+  B2, and B8 values, the example and runbook keeping their stored escapes
+  (JSON, and the `{{` interpolation brace escape in B2); the existing parity
+  test keeps the example and the mirror identical.
 - Every other row, sentence, and scenario of the requirement is unchanged.
 
 ## Assumptions

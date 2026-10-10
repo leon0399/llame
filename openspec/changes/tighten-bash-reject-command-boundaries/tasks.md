@@ -30,7 +30,7 @@ master
 
 ## 1. patterns
 
-- [ ] 1.1 Set B1, B2, and B8 to the canonical values in `apps/api/src/testing/portable-tool-policy.ts`, `apps/api/llame.config.jsonc.example` (JSON-escaped, `\x60` as `\\x60`), and the table in `docs/product/operator/tool-call-permissions.md`; verify `tool-permissions-config.test.ts` still finds the example identical to the mirror, and that the runbook's three rows equal the canonical cells.
+- [ ] 1.1 Set B1, B2, and B8 to the canonical values in `apps/api/src/testing/portable-tool-policy.ts` (engine form), and in `apps/api/llame.config.jsonc.example` and the table in `docs/product/operator/tool-call-permissions.md` in their existing stored forms: JSON-escaped in the example (`\x60` as `\\x60`), and with the configuration-interpolation brace escape B2 already ships (`\{{HOME\}` for an engine `\{HOME\}`) kept in both; verify `tool-permissions-config.test.ts` still finds the example identical to the mirror, and that the runbook's three cells equal the canonical cells after `{{` is read as `{`.
 - [ ] 1.2 Add the new scenario's cases to the portable decision matrix in `apps/api/src/tools/permissions/permissions.test.ts`; verify each evasion rejects with `explicit_reject` and each guard case allows, and that every evasion case fails against the old patterns.
 - [ ] 1.3 Add the dated `CHANGELOG.md` entry naming B1, B2, and B8 and telling operators with a copied map to re-copy them; verify `pnpm lint:markdown`.
 - [ ] 1.4 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/tools/permissions src/instance-config src/testing`, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
@@ -39,7 +39,7 @@ master
 
 ## 2. finalize
 
-- [ ] 2.1 Enter `bash-reject-boundaries/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the synced `tool-call-permissions` requirement matches the delta word for word, with every canonical scenario kept.
+- [ ] 2.1 Enter `bash-reject-boundaries/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the synced `tool-call-permissions` requirement matches the delta word for word, with every canonical scenario kept. The in-flight `tool-search` change also modifies this requirement; if it syncs first, rebuild this delta from the new canonical text before syncing.
 - [ ] 2.2 Confirm archive readiness: `openspec status --change tighten-bash-reject-command-boundaries --json` reports every artifact done and every task above is checked; run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 
 ## Workflow follow-up
