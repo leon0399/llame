@@ -1718,12 +1718,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const retried = await service.executeRun(requestFor(turn, recording()));
       await retried.consumeStream?.();
       const dispatched = await readTurnState(turn);
-      expect(dispatched.contextParts).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ producer: 'skill-catalog' }),
-          expect.objectContaining({ producer: 'temporal' }),
-        ]),
-      );
+      for (const producer of ['skill-catalog', 'temporal']) {
+        expect(
+          dispatched.contextParts.filter((part) => part.producer === producer),
+        ).toHaveLength(1);
+      }
       expect(dispatched.chat?.skillCatalogTold).toEqual(['live-skill']);
       expect(
         dispatched.events.filter(
