@@ -88,16 +88,9 @@ export async function prepareMedia(input: Buffer): Promise<PreparedMedia> {
     throw new MediaIngestError('image_too_large');
   }
 
-  // Header only: libvips detects the format from the magic bytes and reads
-  // dimensions without decoding pixel data. For an animated image `height` is
-  // one frame's height. The pixel limit is lifted here so every oversized
-  // header reaches the 40-megapixel check below as `image_too_large` (sharp's
-  // default limit would throw first).
-  const header = await sharp(input, { limitInputPixels: false })
-    .metadata()
-    .catch(() => {
-      throw new MediaIngestError('unsupported_media_type');
-    });
+  const header = await readHeader(input).catch(() => {
+    throw new MediaIngestError('unsupported_media_type');
+  });
   const mediaType = MEDIA_TYPE_BY_FORMAT[header.format];
   if (mediaType === undefined) {
     throw new MediaIngestError('unsupported_media_type');
@@ -120,6 +113,19 @@ export async function prepareMedia(input: Buffer): Promise<PreparedMedia> {
     },
     model: await encodeModelVariant(pixels),
   };
+}
+
+/**
+ * Header only: libvips detects the format from the magic bytes and reads
+ * dimensions without decoding pixel data. For an animated image `height` is
+ * one frame's height. The pixel limit is lifted here so every oversized
+ * header reaches the 40-megapixel check as `image_too_large` (sharp's default
+ * limit would throw first). Being `async`, it turns the synchronous throw of
+ * sharp's constructor (an empty buffer) into a rejection like any other
+ * undecodable input.
+ */
+async function readHeader(input: Buffer): Promise<sharp.Metadata> {
+  return sharp(input, { limitInputPixels: false }).metadata();
 }
 
 /**
