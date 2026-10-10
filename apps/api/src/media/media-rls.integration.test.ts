@@ -46,7 +46,9 @@ const variantRows = z.array(z.object({ variant: z.string() }));
 vi.setConfig({ testTimeout: 30_000 });
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
-const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+if (!TEST_DB_URL) {
+  throw new Error('TEST_DATABASE_URL is required for media RLS tests');
+}
 
 /** A unique small PNG, so no two tests share a digest by accident. */
 function uniquePng(): Promise<Buffer> {
@@ -57,7 +59,7 @@ function uniquePng(): Promise<Buffer> {
     .toBuffer();
 }
 
-describeIfDb('RLS integration — media store tenancy', () => {
+describe('RLS integration — media store tenancy', () => {
   let sql: Sql;
   let tenantDb: TenantDbService;
   let media: MediaService;
@@ -75,8 +77,8 @@ describeIfDb('RLS integration — media store tenancy', () => {
     media.ingest(userId, { bytes, provenance: 'read', source: 'kb://a.png' });
 
   beforeAll(async () => {
-    const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
-    sql = postgres(TEST_DB_URL!, { ssl, max: 4 });
+    const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
+    sql = postgres(TEST_DB_URL, { ssl, max: 4 });
     const db: Db = drizzle(sql, { schema });
     tenantDb = new TenantDbService(db);
     media = new MediaService(tenantDb);
