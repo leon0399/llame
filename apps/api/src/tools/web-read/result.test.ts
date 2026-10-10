@@ -8,7 +8,7 @@ import {
 import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
 
 import { type WebRender } from './pipeline';
-import { buildWebReadResult } from './result';
+import { buildWebImageResult, buildWebReadResult } from './result';
 
 const GUIDE_URL = 'https://example.test/guide';
 const RANGED_MARKDOWN = [
@@ -951,6 +951,54 @@ describe('buildWebReadResult', () => {
       type: 'invalid_selector',
       message:
         'The selector :2-3 selected no line of this page, which rendered no text.',
+    });
+  });
+});
+
+describe('buildWebImageResult', () => {
+  const IMAGE_URL = 'https://example.test/shot.png';
+  const FINAL_URL = 'https://cdn.example.test/shot.png';
+  const stored = {
+    status: 'success',
+    media: 'media://0190f5a4-0000-7000-8000-000000000001',
+    mediaType: 'image/png',
+    width: 4,
+    height: 3,
+  } as const;
+
+  it('returns the stored image with the web envelope and no notes', () => {
+    const result = buildWebImageResult(
+      { url: IMAGE_URL },
+      FINAL_URL,
+      stored,
+      [],
+    );
+
+    expect(result).toStrictEqual({
+      ...stored,
+      kind: 'image',
+      path: IMAGE_URL,
+      finalUrl: FINAL_URL,
+      method: 'image',
+    });
+  });
+
+  it('carries the adapter notes the read collected', () => {
+    const notes = ['The reader adapter declined this page.'];
+    const result = buildWebImageResult(
+      { url: IMAGE_URL },
+      FINAL_URL,
+      stored,
+      notes,
+    );
+
+    expect(result).toStrictEqual({
+      ...stored,
+      kind: 'image',
+      path: IMAGE_URL,
+      finalUrl: FINAL_URL,
+      method: 'image',
+      notes,
     });
   });
 });

@@ -90,6 +90,14 @@ white; an image whose data URL would exceed 65,536 characters has no
 receives the result without it, and it counts toward no result or replay
 budget.
 
+An `http(s)://` page whose response, after redirects, declares `image/png`,
+`image/jpeg`, `image/gif`, or `image/webp` within the 5 MiB web body bound is
+ingested the same way, labelled with the requested URL's scheme, host, port,
+and path, and returns the image result plus `finalUrl`, `method: "image"`, and
+`notes` only when non-empty; `path` is the URL with its selector stripped. The
+bytes still decide the format, `:raw` is refused like any selector, and
+`image/svg+xml` stays text; see [web](../locators/web.md#behavior).
+
 The decoded model variant lives only in the memory of the Run attempt that read
 it. A model that declares image input receives the image with the result in
 that attempt's later steps, as the epoch image window in

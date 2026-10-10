@@ -1,7 +1,10 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
+
+import { IMAGE_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
 import { Response } from 'undici';
 import { type Mock, vi } from 'vitest';
 
+import { type ToolMediaStore } from '../media/tool-media-store';
 import {
   nativeEditTool,
   nativeReadTool,
@@ -182,6 +185,30 @@ function webContext(overrides: Partial<ToolContext> = {}): ToolContext {
     },
     ...overrides,
   };
+}
+
+const STORED_IMAGE = {
+  status: 'success',
+  media: 'media://0190f5a4-0000-7000-8000-000000000001',
+  mediaType: 'image/png',
+  width: 4,
+  height: 3,
+} as const;
+
+/** A media store that records each ingest and stores every body it is given. */
+function imageStore() {
+  const ingested: Array<{ byteSize: number; bytes: Buffer }> = [];
+  const media = {
+    ingestImage: vi.fn<ToolMediaStore['ingestImage']>(
+      () =>
+        async ({ byteSize, readBytes }) => {
+          ingested.push({ byteSize, bytes: await readBytes() });
+          return STORED_IMAGE;
+        },
+    ),
+    findImage: () => Promise.resolve(undefined),
+  } satisfies ToolMediaStore;
+  return { media, ingested };
 }
 
 let fixture: WebFixture;
@@ -648,6 +675,7 @@ describe('web locator dispatch', () => {
           abort.abort();
           return response;
         },
+        fetchPage: session.fetchPage,
         dispose: session.dispose,
       };
     };
@@ -688,6 +716,7 @@ describe('web locator dispatch', () => {
       const session = createWebFetchSession(options, deps);
       return {
         fetch: session.fetch,
+        fetchPage: session.fetchPage,
         dispose: () => {
           session.dispose();
           dispose();
@@ -725,5 +754,90 @@ describe('web locator dispatch', () => {
 
     expect(refused).toMatchObject({ status: 'error', type: 'http_status' });
     expect(dispose).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports a fetch failure as itself when the Run aborts as it lands', async () => {
+    const abort = new AbortController();
+    const failThenAbort: typeof createWebFetchSession = (options, deps) => {
+      const session = createWebFetchSession(options, deps);
+      return {
+        fetch: session.fetch,
+        fetchPage: async (url) => {
+          const response = await session.fetchPage(url);
+          abort.abort();
+          return response;
+        },
+        dispose: session.dispose,
+      };
+    };
+    fetchDouble.mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response('no such page', {
+          status: 404,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        }),
+      ),
+    );
+    const execute = webReadExecutor({ createWebFetchSession: failThenAbort });
+
+    const result = await execute(
+      webContext({ abortSignal: abort.signal, media: imageStore().media }),
+      { operation: 'read', input: { path: 'https://example.test/guide' } },
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'http_status' });
+  });
+
+  describe('an image page', () => {
+    const IMAGE_URL = 'https://example.test/shot.png';
+    const IMAGE_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+
+    beforeEach(() => {
+      fetchDouble.mockImplementationOnce(() =>
+        Promise.resolve(
+          new Response(IMAGE_BYTES, {
+            status: 200,
+            headers: { 'content-type': 'image/png' },
+          }),
+        ),
+      );
+    });
+
+    it('stores the body and returns the stored image', async () => {
+      const { media, ingested } = imageStore();
+
+      const result = await webReadExecutor()(webContext({ media }), {
+        operation: 'read',
+        input: { path: IMAGE_URL },
+      });
+
+      expect(result).toStrictEqual({
+        ...STORED_IMAGE,
+        kind: 'image',
+        path: IMAGE_URL,
+        finalUrl: IMAGE_URL,
+        method: 'image',
+      });
+      expect(media.ingestImage).toHaveBeenCalledWith(IMAGE_URL);
+      expect(ingested).toStrictEqual([
+        { byteSize: IMAGE_BYTES.byteLength, bytes: Buffer.from(IMAGE_BYTES) },
+      ]);
+    });
+
+    it('refuses a selector before anything is stored', async () => {
+      const { media } = imageStore();
+
+      const result = await webReadExecutor()(webContext({ media }), {
+        operation: 'read',
+        input: { path: `${IMAGE_URL}:1-5` },
+      });
+
+      expect(result).toStrictEqual({
+        status: 'error',
+        type: 'invalid_selector',
+        message: IMAGE_SELECTOR_MESSAGE,
+      });
+      expect(media.ingestImage).not.toHaveBeenCalled();
+    });
   });
 });

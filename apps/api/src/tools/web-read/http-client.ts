@@ -35,6 +35,13 @@ export type WebResponse = {
   readonly link?: string;
 };
 
+/** A page response with an accepted image type: its bytes, never decoded.
+ *  Only `WebFetchSession.fetchPage` returns one. */
+export type WebImageResponse = {
+  readonly finalUrl: string;
+  readonly bytes: Uint8Array;
+};
+
 export type WebRequestInit = {
   /** Replaces the default Accept header for this request chain. */
   readonly accept?: string;
@@ -100,6 +107,13 @@ export type WebFetchSession = {
     url: string,
     init?: WebRequestInit,
   ) => Promise<WebResponse | WebFetchFailure>;
+  /** The page request of a read that can store images: `fetch`, except that
+   *  a PNG, JPEG, GIF, or WebP response returns its bytes instead of failing
+   *  with `unsupported_content_type`. Adapter and probe requests use `fetch`,
+   *  so an image there stays refused. */
+  readonly fetchPage: (
+    url: string,
+  ) => Promise<WebResponse | WebImageResponse | WebFetchFailure>;
   /** Releases the deadline, caller listener, and per-request agents. */
   readonly dispose: () => void;
 };
@@ -114,6 +128,10 @@ const MAX_REDIRECTS = 20;
 /** The accepted text body set (design D8): `text/*`, `application/json`,
  *  `application/xml`, and any `+json`/`+xml` subtype. */
 const TEXT_MEDIA_TYPE = /^text\/|^application\/(?:json|xml)$|\+(?:json|xml)$/u;
+
+/** The image types a page response may carry (vision-media D7). The bytes,
+ *  not this declaration, decide the stored format. */
+const IMAGE_MEDIA_TYPE = /^image\/(?:png|jpeg|gif|webp)$/u;
 
 /** The `Content-Type` charset parameter, quoted or bare. */
 const CHARSET_PARAMETER = /;\s*charset\s*=\s*"?([^";\s]+)"?/iu;
@@ -183,8 +201,7 @@ function addressRefusal(
 }
 
 async function readDocumentResponse(
-  response: UndiciResponse,
-  locator: string,
+  { response, locator }: ReachedLocator,
   deadline: FetchDeadline,
   init?: WebRequestInit,
 ): Promise<WebResponse | WebFetchFailure> {
@@ -200,6 +217,28 @@ async function readDocumentResponse(
   };
   const link = response.headers.get('link');
   return link === null ? fetched : { ...fetched, link };
+}
+
+/** A page response under the same status and 5 MiB bounds as a document, its
+ *  image body returned as bytes; any other type is read as a document. */
+async function readPageResponse(
+  reached: ReachedLocator,
+  deadline: FetchDeadline,
+): Promise<WebResponse | WebImageResponse | WebFetchFailure> {
+  const { response, locator } = reached;
+  const contentType = contentTypeOf(response.headers.get('content-type'));
+  if (!IMAGE_MEDIA_TYPE.test(contentType.mediaType))
+    return readDocumentResponse(reached, deadline);
+  const refusal = await refusalFor(
+    response,
+    contentType,
+    undefined,
+    IMAGE_MEDIA_TYPE,
+  );
+  if (refusal !== undefined) return refusal;
+  const body = await readCappedBody(response, deadline);
+  if (body.kind === 'failure') return body.failure;
+  return { finalUrl: locator, bytes: body.bytes };
 }
 
 /**
@@ -357,12 +396,13 @@ async function refusalFor(
   response: UndiciResponse,
   contentType: ContentType,
   init?: WebRequestInit,
+  accepted = TEXT_MEDIA_TYPE,
 ): Promise<WebFetchFailure | undefined> {
   if (!response.ok) {
     await cancelBody(response);
     return statusFailure(response.status, response.headers, init);
   }
-  if (!TEXT_MEDIA_TYPE.test(contentType.mediaType)) {
+  if (!accepted.test(contentType.mediaType)) {
     await cancelBody(response);
     return unsupportedContentType(contentType);
   }
@@ -495,9 +535,20 @@ export function createWebFetchSession(
     redirects: 0,
   };
   const connections = createConnectionPlanner(deps);
+  const context: FetchLocatorContext = { options, deps, budget, connections };
   return {
     fetch: (url, init) =>
-      fetchLocator(url, { options, deps, budget, connections }, init),
+      withFetchDeadline(context, async (deadline) => {
+        const reached = await reachLocator(url, context, deadline, init);
+        if (!('response' in reached)) return reached;
+        return readDocumentResponse(reached, deadline, init);
+      }),
+    fetchPage: (url) =>
+      withFetchDeadline(context, async (deadline) => {
+        const reached = await reachLocator(url, context, deadline);
+        if (!('response' in reached)) return reached;
+        return readPageResponse(reached, deadline);
+      }),
     dispose: () => {
       budget.deadline.dispose();
       connections.dispose();
@@ -549,30 +600,38 @@ function redactAuthorization(
   return message === failure.message ? failure : { ...failure, message };
 }
 
-/** Fetches one locator and the hops it answers with. A redirect status is
- *  followed only when the hop it names parses, the call still has redirect
- *  budget, and the `read` group admits that locator; a refused hop ends the
- *  call without its target's body ever being read. A `POST` follows no
- *  redirect: its 3xx is read as a status failure. */
-async function fetchLocator(
-  url: string,
+/** Scopes one locator's header bound across its hops and the read of the
+ *  body that answers it. */
+async function withFetchDeadline<T>(
   context: FetchLocatorContext,
-  init?: WebRequestInit,
-): Promise<WebResponse | WebFetchFailure> {
+  run: (deadline: FetchDeadline) => Promise<T>,
+): Promise<T> {
   const deadline = context.budget.deadline.startFetch();
   try {
-    return await followLocator(url, context, deadline, init);
+    return await run(deadline);
   } finally {
     deadline.dispose();
   }
 }
 
-async function followLocator(
+/** The final response of one locator and the locator that answered it. */
+type ReachedLocator = {
+  readonly response: UndiciResponse;
+  readonly locator: string;
+};
+
+/** Requests one locator and the hops it answers with, up to the response
+ *  whose body the caller reads. A redirect status is
+ *  followed only when the hop it names parses, the call still has redirect
+ *  budget, and the `read` group admits that locator; a refused hop ends the
+ *  call without its target's body ever being read. A `POST` follows no
+ *  redirect: its 3xx is read as a status failure. */
+async function reachLocator(
   url: string,
   context: FetchLocatorContext,
   deadline: FetchDeadline,
   init?: WebRequestInit,
-): Promise<WebResponse | WebFetchFailure> {
+): Promise<ReachedLocator | WebFetchFailure> {
   let locator = url;
   let requestInit = requestInitForOrigin(url, init);
   for (;;) {
@@ -588,8 +647,7 @@ async function followLocator(
       return addressRefusal(url, outcome.locator);
     const { response } = outcome;
     const redirects = init?.body === undefined && isRedirect(response);
-    if (!redirects)
-      return readDocumentResponse(response, locator, deadline, init);
+    if (!redirects) return { response, locator };
     const hop = await followRedirect(
       response,
       locator,
