@@ -2,6 +2,7 @@ export * from './auth';
 export * from './chats';
 export * from './identity';
 export * from './knowledge-spaces';
+export * from './media';
 export * from './model-context';
 export * from './system-prompt-receipts';
 export * from './memory';
