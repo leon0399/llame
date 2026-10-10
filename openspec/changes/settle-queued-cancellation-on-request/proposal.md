@@ -36,8 +36,10 @@ None.
 
 ## Impact
 
-- `apps/api/src/runs/runs-repository.ts` (conditional settle), the runs
-  controller's cancel path, and their tests.
+- `apps/api/src/runs`: the `PATCH /api/v1/runs/:id` handler moves from
+  `RunsController` into a `RunCancellationController` in `RunWorkerModule`,
+  which can reach `settleTerminalRun`; the cancel tests and the existing
+  settled-at-pickup integration test.
 - No schema, API shape, or configuration change; `PATCH /api/v1/runs/:id`
   returns the Run as today, now already `cancelled` when it was queued.
 
