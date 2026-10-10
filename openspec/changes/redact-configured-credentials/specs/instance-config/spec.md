@@ -5,15 +5,20 @@
 At startup the API process SHALL derive one set of configured credentials,
 held only in process memory and never serialized to an API, an event, a log,
 or model context. It SHALL NOT narrow "Resolved secret values are never
-exposed". Except where a membership requirement says otherwise, a value
-shorter than 8 characters SHALL NOT be a member. A name is credential-shaped
-when it contains, ignoring case, `authorization`, `cookie`, `credential`,
-`token`, `key`, `secret`, `passw`, or `signature`.
+exposed". A name is credential-shaped when it contains, ignoring case,
+`authorization`, `cookie`, `credential`, `token`, `key`, `secret`, `passw`,
+or `signature`.
 
 #### Scenario: The set is never serialized
 
 - **WHEN** a provider `key` resolves to `sk-canary-set` and an owner requests the model catalog or any other configuration-derived response
 - **THEN** no response contains `sk-canary-set`
+
+### Requirement: Only inferred credentials need 8 characters
+
+Every member SHALL be nonblank. Only the database password, `PGPASSWORD`,
+and a URL userinfo username SHALL also need 8 characters to be members; every
+other member counts at any nonblank length.
 
 #### Scenario: A short database password is not a member
 
@@ -21,13 +26,19 @@ when it contains, ignoring case, `authorization`, `cookie`, `credential`,
 - **THEN** the set contains the connection string and not `app`
 - **AND** a bash result printing `apps/api/src` is unchanged
 
+#### Scenario: Only the database password and a URL username need 8 characters
+
+- **WHEN** a provider header is `X-Api-Key: {env:GW_KEY}` with `GW_KEY` set to `k-6chr`, a stdio MCP server's `env` value is `{env:MCP_TOKEN}` set to `t0ken`, a provider `baseUrl` is `https://svc:abc123@gw.internal/v1`, and the Codex auth document a provider `key` selects from holds a `refresh_token` of `rt-123`
+- **THEN** the set contains `k-6chr`, `t0ken`, `abc123`, and `rt-123`
+- **AND** it does not contain `svc`
+
 ### Requirement: Credential fields and their sources are members
 
 The set SHALL contain each provider `key` and `openai-codex` `accountId`, each
 `brave`, `exa`, `perplexity`, and `exa-mcp` engine `key`, and the `github`
-adapter `token`, written literally or interpolated, at any nonblank length;
-and the `POSTGRES_URL` connection string, and, from 8 characters, its
-password percent-encoded and decoded and `PGPASSWORD` when set.
+adapter `token`, written literally or interpolated; and the `POSTGRES_URL`
+connection string, its password percent-encoded and decoded, and
+`PGPASSWORD` when set.
 
 #### Scenario: Credential fields are members
 
@@ -79,10 +90,11 @@ around a substitution or a `:-` fallback written in the file.
 ### Requirement: Credentials in configured URLs are members
 
 For a provider `baseUrl` and a remote MCP `url`, the set SHALL contain each
-substitution that resolves within the resolved URL's userinfo or query and,
-however the URL was written, each nonempty userinfo component and each query
-parameter value under a credential-shaped name, both as written and
-percent-decoded. It SHALL NOT contain the whole URL or any other part of it.
+substitution that resolves within the resolved URL's userinfo password or
+query and, however the URL was written, the userinfo password at any nonblank
+length, the userinfo username from 8 characters, and each query parameter
+value under a credential-shaped name, all as written and percent-decoded. It
+SHALL NOT contain the whole URL or any other part of it.
 
 #### Scenario: A URL substitution is a member
 

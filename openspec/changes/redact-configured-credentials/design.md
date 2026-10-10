@@ -57,9 +57,9 @@ reports, extended to give each substitution's start and end in the raw
 resolved string and whether its `:-` fallback applied, for provider and
 remote MCP headers and stdio `command`, `args`, and `env`, excluding `:-`
 fallback text; for provider base URLs and the remote MCP `url`, substitutions
-whose resolved span lies in the userinfo or query spans computed on that raw
-string, not on a re-serialized `URL`, and, from the same raw spans, each
-nonempty userinfo component and each query value under a credential-shaped
+whose resolved span lies in the userinfo password or query spans computed on
+that raw string, not on a re-serialized `URL`, and, from the same raw spans,
+the userinfo password and username and each query value under a credential-shaped
 name, as written and percent-decoded, so a credential written literally or
 inside a whole-URL substitution is still a member; literal header values
 under a credential-shaped name; and `POSTGRES_URL`, its parsed password in both
@@ -68,8 +68,9 @@ substitution that is a member also contributes the credential-shaped string
 leaves of its document, together with each leaf's JSON-escaped spelling when
 that differs. `@workspace/config-interpolation` reports those leaves from the
 same single read that selects the value, so the set never mixes two versions
-of a file. The result is normalized, filtered by the 8-character floor except
-for provider, engine, and adapter credential fields, frozen on the loaded
+of a file. The result is normalized, drops blank values, applies the
+8-character floor only to the database password, `PGPASSWORD`, and a URL
+userinfo username (proposal A4), is frozen on the loaded
 configuration, and excluded from every serialized projection.
 
 - Alternative: every interpolation. Rejected: see proposal A1.
@@ -148,11 +149,16 @@ intervals directly (D2 step 4); MCP inherits the fix through
 
 ## Risks / Trade-offs
 
-- [A common member matches unrelated text] → The 8-character floor and the
-  credential-shaped name rule keep passwords like `app`, content types, and
-  timestamps out; a short or common value an operator sets as a credential
-  field, or interpolates into stdio `command` or `args`, still over-redacts.
-  Documented in the operator pages.
+- [A common member matches unrelated text] → The 8-character floor on the
+  database password, `PGPASSWORD`, and a URL username, and the
+  credential-shaped name rule, keep values like `app`, `svc`, content types,
+  and timestamps out; a short or common value in any other member position,
+  such as a credential field or a non-secret interpolated into stdio
+  `command` or `args`, still over-redacts. Documented in the operator pages.
+- [A short inferred credential is not redacted] → A database password,
+  `PGPASSWORD`, or URL username under 8 characters printed on its own reaches
+  the bash result; the database password is redacted only inside the whole
+  `POSTGRES_URL` (proposal A4). Documented in the operator pages.
 - [Encoded forms and other tools] → See the proposal's threat model.
 - [A consumer reads an error property the wrapper did not consider] → D3
   mutates only string values in place; task 2.1 lists every consumer that
