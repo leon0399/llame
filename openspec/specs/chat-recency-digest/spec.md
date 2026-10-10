@@ -133,30 +133,30 @@ Pinned entries SHALL be drawn only from pins whose item type is `chat`; pins tar
 - **THEN** the rendered pinned ratio counts 9, not 12
 - **AND** the same exclusions that removed those three from the list removed them from the count, so the ratio never names a pinned chat the digest could not have shown
 
-### Requirement: Digest baseline and disclosure state publish with the successful attempt
+### Requirement: Digest baselines publish with the successful attempt and disclosure state with the dispatched request
 
 Each chat SHALL carry two distinct pieces of digest state, and they SHALL NOT be conflated:
 
 - The **rendered baseline** — the capped, ordered entries available to both prompt surfaces. It is written once, with the chat's first successful turn whose attempt prepared it with the setting enabled, and is **immutable until re-resolution**, which keeps the digest contribution stable across the chat's turns.
-- The **told-set** — every chat this conversation has been told about in successful model context, whether through a rendered baseline in either prompt surface or a later append, with the pin state last communicated for each. It **grows** with every append.
+- The **told-set** — every chat this conversation has been told about in dispatched model context, whether through a rendered baseline in either prompt surface or a later append, with the pin state last communicated for each. It **grows** with every append.
 
-Both SHALL be reset together when the baseline is re-resolved at a checkpoint. The refresh SHALL be published with that checkpoint, in the same transaction, before the model step the checkpoint precedes; it SHALL not pretend the refreshed baseline was already disclosed by that step. The new epoch's told-set SHALL include only entries actually disclosed by a successful request, so a refresh awaiting its first request starts with no newly disclosed entries.
+Both SHALL be reset together when the baseline is re-resolved at a checkpoint. The refresh SHALL be published with that checkpoint, in the same transaction, before the model step the checkpoint precedes; it SHALL not pretend the refreshed baseline was already disclosed by that step. The new epoch's told-set SHALL include only entries actually disclosed by a dispatched request, so a refresh awaiting its first request starts with no newly disclosed entries.
 
 The told-set SHALL record only chats the model actually received. Initialization SHALL therefore derive it from the baseline actually **rendered** in the winning attempt's system prompt or admitted tool descriptions, not merely from the fact that baseline state was written: operator templates that omit the digest from both surfaces leave the baseline unrendered, and marking those chats told would suppress their later appends and disclose them never. A chat whose baseline entry was never rendered SHALL remain untold, so it enters through the ordinary append path when the ordinary append rules make it eligible.
 
-Both prompt renders SHALL return private disclosure metadata alongside text, keyed to the trusted digest candidates. Record entry ids only when their entry values are actually emitted along the executed template branch, not when a collection is tested/iterated or only aggregate counts are emitted. Use the existing validated renderer's emission path, not string matching, reparsing rendered text, or a second template engine. These ids SHALL not become new template variables or stored tool-description metadata. Use the union of prior told state and the current render's actual baseline disclosure when deriving this attempt's appends; commit that union plus successful digest appends only with the winning turn.
+Both prompt renders SHALL return private disclosure metadata alongside text, keyed to the trusted digest candidates. Record entry ids only when their entry values are actually emitted along the executed template branch, not when a collection is tested/iterated or only aggregate counts are emitted. Use the existing validated renderer's emission path, not string matching, reparsing rendered text, or a second template engine. These ids SHALL not become new template variables or stored tool-description metadata. Use the union of prior told state and the current render's actual baseline disclosure when deriving this attempt's appends; commit that union plus the request's digest appends in the attempt's dispatch transaction, whether or not the request carries a digest item, whatever the Run's outcome; a chat's initial baseline and told-set still commit only with the winning turn.
 
-A checkpoint refresh SHALL reset the new epoch's told-set without pre-marking unrendered entries; the next successful attempt accounts for actual baseline disclosure. Unrendered entries remain eligible under the ordinary append rules.
+A checkpoint refresh SHALL reset the new epoch's told-set without pre-marking unrendered entries; the next dispatched request accounts for actual baseline disclosure. Unrendered entries remain eligible under the ordinary append rules.
 
 The told-set SHALL identify chats by their chat id. Storing an identifier for bookkeeping is not in tension with omitting identifiers from the rendered output: the two serve different purposes, and no stored id is ever rendered.
 
 The worker SHALL recheck the owner setting and chat digest epoch under tenant scope immediately before preparing the final request and system-only receipt, after candidate resolution. If sharing was disabled during resolution, discard the new baseline/append candidate and proceed without newly produced digest content. This check SHALL occur before target-model I/O, not after disclosure. A checkpoint's re-resolved baseline commits in the checkpoint's own fenced transaction, which precedes the final request, so for that candidate the recheck SHALL run inside that transaction, after candidate resolution and before the refreshed baseline is written; a withdrawal before that point discards the candidate and the checkpoint publishes without the digest refresh. Existing baseline retention on withdrawal remains unchanged.
 
-Baseline/told-set initialization and append advancement SHALL be staged for the attempt and committed atomically with its successful turn and persisted context text. A checkpoint SHALL publish its refreshed baseline and reset told-set in its own fenced atomic transaction under `model-system-prompts`, before the model step it precedes. Failed, cancelled, or superseded attempts SHALL leave the committed digest state unchanged, except that a checkpoint already published with its refreshed baseline survives the failure of the attempt it preceded, because the checkpoint and its epoch state describe committed history only and a retry reuses them rather than re-resolving. At most one baseline epoch SHALL exist per chat; existing single-flight and attempt/epoch fencing SHALL prevent competing initialization or a stale compaction candidate from overwriting current state.
+Baseline/told-set initialization SHALL be staged for the attempt and committed atomically with its successful turn; it is the only digest state that waits for a successful turn. Append advancement, and an existing epoch's told-set accounting for the request's actual baseline disclosure, SHALL commit in the attempt's fenced dispatch transaction, the one that persists the request's accepted-turn items on their message before that request is dispatched, whether or not the request carries a digest item, whatever the Run's later outcome. A checkpoint SHALL publish its refreshed baseline and reset told-set in its own fenced atomic transaction under `model-system-prompts`, before the model step it precedes. Failed, cancelled, or superseded attempts SHALL leave the committed digest state unchanged beyond what their dispatch transactions committed: an attempt that ends before its dispatch transaction commits changes nothing, a failed initializing attempt leaves no baseline, told-set advancement already committed with a dispatched append remains because that append remains in history, and a checkpoint already published with its refreshed baseline survives the failure of the attempt it preceded, because the checkpoint and its epoch state describe committed history only and a retry reuses them rather than re-resolving. At most one baseline epoch SHALL exist per chat; existing single-flight and attempt/epoch fencing SHALL prevent competing initialization or a stale compaction candidate from overwriting current state.
 
-A setting change after request preparation applies to later attempts; it cannot undo content already sent. Successful publication SHALL record the actual prepared disclosure rather than pretending a later withdrawal prevented it. Receipts and committed content retain the existing non-erasure contract.
+A setting change after request preparation applies to later attempts; it cannot undo content already sent. The dispatch transaction SHALL record the actual prepared disclosure rather than pretending a later withdrawal prevented it. Receipts and committed content retain the existing non-erasure contract.
 
-Detecting events SHALL NOT require re-reading the chat's persisted message parts to reconstruct what was already announced; the told-set is the record. The told-set SHALL be advanced **in the same transaction as the append it accounts for**, so a run that fails to persist cannot leave the conversation marked as having been told something it never received.
+Detecting events SHALL NOT require re-reading the chat's persisted message parts to reconstruct what was already announced; the told-set is the record. The told-set SHALL be advanced **in the same transaction as the append it accounts for**, so a run that fails to persist cannot leave the conversation marked as having been told something it never received. Because that transaction is the one that dispatches the request, a Run that fails after dispatch keeps both the append and the advancement, and the next Run does not announce the same event again. A request that carries no append still commits its actual baseline disclosure in that transaction.
 
 #### Scenario: Baseline stays fixed while the told-set grows
 
@@ -167,7 +167,7 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 #### Scenario: Re-resolution resets both
 
 - **WHEN** the baseline is re-resolved at a checkpoint
-- **THEN** the new epoch replaces the old told-set and records only actual successful disclosure of the fresh baseline
+- **THEN** the new epoch replaces the old told-set and records only actual disclosure of the fresh baseline by a dispatched request
 - **AND** the request prepared after that publication accounts for entries rendered in either prompt surface before deriving appends, so that same request does not re-announce them
 
 #### Scenario: A failed attempt leaves the refreshed epoch in place
@@ -208,9 +208,27 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 
 #### Scenario: A failed run does not advance the told-set
 
-- **WHEN** an append is prepared but its attempt fails before successful publication
-- **THEN** the told-set is unchanged
+- **WHEN** an append is prepared but its attempt fails before the dispatch transaction that persists it commits
+- **THEN** the told-set is unchanged and the append is not in history
 - **AND** the same event is detected again on the next run
+
+#### Scenario: A failed run keeps the told-set its dispatched append advanced
+
+- **WHEN** an append is persisted and the told-set advanced in the dispatch transaction, and the Run then fails, is cancelled, or expires
+- **THEN** the append remains in history and the told-set still records it
+- **AND** the next run does not announce the same event again
+
+#### Scenario: A retry reuses the dispatched append
+
+- **WHEN** an attempt persisted an append at dispatch and then failed, and a retry of the same Run prepares its request
+- **THEN** the retry replays the stored append unchanged and in place
+- **AND** it derives appends against the told-set that dispatch advanced, so it derives no second append for the same event
+
+#### Scenario: The first request after a checkpoint refresh records disclosure without an append
+
+- **WHEN** a checkpoint published a refreshed baseline, the next request renders some of its entries in a prompt surface and derives no append, and that request is dispatched
+- **THEN** the request's dispatch transaction records the rendered entries in the new epoch's told-set although the request carries no digest item
+- **AND** if the Run then fails, is cancelled, or expires, that accounting remains and the next Run does not append those entries
 
 #### Scenario: A tool description is the only baseline disclosure
 
@@ -220,8 +238,8 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 
 #### Scenario: Sharing is withdrawn after the prepared request
 
-- **WHEN** sharing is disabled after the attempt's pre-request check and that attempt succeeds
-- **THEN** successful publication records the digest actually sent under the checked setting
+- **WHEN** sharing is disabled after the attempt's pre-request check and that attempt's request is dispatched
+- **THEN** the digest state committed for that request records the digest actually sent under the checked setting
 - **AND** later attempts obey withdrawal without rewriting existing receipts or committed content
 
 ### Requirement: Committed digest baselines remain stable until compaction
