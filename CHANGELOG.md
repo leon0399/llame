@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Fixed a web `read` ending as `headers_timeout` when one probe (an announced
+  alternate, the `.md` suffix, or `llms.txt`) sent no response headers within
+  10 seconds (#948). The header bound now aborts only that probe's request,
+  which disqualifies its candidate; the 30-second call bound and caller
+  cancellation still end the whole call.
+
 - Fixed `search_conversations` accepting a whitespace-only content-mode
   `query` and returning an empty page (#1066). Such a query is now refused as
   `invalid_input`, as the chat-search spec requires.

@@ -8,7 +8,9 @@ const URL_IN_MESSAGE = /https?:\/\//iu;
 
 export type AbortReason = 'aborted' | 'headers_timeout' | 'call_timeout';
 
-export type CallDeadline = {
+/** One locator's view of the call deadline: the call's bounds plus a header
+ *  bound of its own, so a probe that never answers fails only itself. */
+export type FetchDeadline = {
   readonly signal: AbortSignal;
   /** Arms the header bound for the request about to be sent. */
   requestStarted(): void;
@@ -16,6 +18,12 @@ export type CallDeadline = {
    *  for headers, not the body. */
   headersArrived(): void;
   reason(): AbortReason | undefined;
+  dispose(): void;
+};
+
+export type CallDeadline = {
+  /** Scopes the header bound to one locator and the hops it follows. */
+  startFetch(): FetchDeadline;
   dispose(): void;
 };
 
@@ -35,12 +43,11 @@ export function abortFailure(reason: AbortReason | undefined): WebFetchFailure {
   return { type: 'aborted', message: 'The web read was cancelled.' };
 }
 
-/** The call's single abort source, composed of the caller's signal and the two
- *  bounds, remembering which one fired first so the failure names it. */
+/** The call's abort source, composed of the caller's signal and the call
+ *  bound, remembering which one fired first so the failure names it. */
 export function startCallDeadline(options: WebFetchOptions): CallDeadline {
   const controller = new AbortController();
   let reason: AbortReason | undefined;
-  let headersTimer: NodeJS.Timeout | undefined;
   const abort = (next: AbortReason): void => {
     reason ??= next;
     controller.abort();
@@ -54,23 +61,36 @@ export function startCallDeadline(options: WebFetchOptions): CallDeadline {
     Math.min(options.deadlineMs ?? CALL_TIMEOUT_MS, CALL_TIMEOUT_MS),
   );
   return {
-    signal: controller.signal,
-    // Every request of the call gets the full header bound; a hop may not
-    // spend the next request's allowance waiting on this one.
-    requestStarted: () => {
-      clearTimeout(headersTimer);
-      headersTimer = setTimeout(
-        () => abort('headers_timeout'),
-        HEADERS_TIMEOUT_MS,
-      );
-    },
-    headersArrived: () => clearTimeout(headersTimer),
-    reason: () => reason,
+    startFetch: () => startFetchDeadline(controller.signal, () => reason),
     dispose: () => {
-      clearTimeout(headersTimer);
       clearTimeout(callTimer);
       options.signal?.removeEventListener('abort', onCallerAbort);
     },
+  };
+}
+
+function startFetchDeadline(
+  callSignal: AbortSignal,
+  callReason: () => AbortReason | undefined,
+): FetchDeadline {
+  const headers = new AbortController();
+  let headersTimedOut = false;
+  let headersTimer: NodeJS.Timeout | undefined;
+  return {
+    signal: AbortSignal.any([callSignal, headers.signal]),
+    // Every request of the locator gets the full header bound; a hop may not
+    // spend the next request's allowance waiting on this one.
+    requestStarted: () => {
+      clearTimeout(headersTimer);
+      headersTimer = setTimeout(() => {
+        // A call bound that fired first keeps its name.
+        headersTimedOut = !callSignal.aborted;
+        headers.abort();
+      }, HEADERS_TIMEOUT_MS);
+    },
+    headersArrived: () => clearTimeout(headersTimer),
+    reason: () => (headersTimedOut ? 'headers_timeout' : callReason()),
+    dispose: () => clearTimeout(headersTimer),
   };
 }
 
@@ -89,7 +109,7 @@ export function boundedEcho(value: string): string {
  *  all: Node's own errors embed the request's URL, credentials included. */
 export function transportFailure(
   error: unknown,
-  deadline: CallDeadline,
+  deadline: FetchDeadline,
 ): WebFetchFailure {
   const reason = deadline.reason();
   if (reason !== undefined) return abortFailure(reason);
