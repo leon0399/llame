@@ -430,7 +430,7 @@ export const TestRegexFlow: Story = {
     // SAFETY: `parentElement` is only null for a detached/root node; this
     // label is always rendered inside the tester's match-list container.
     const results = within(matchLabel.parentElement as HTMLElement);
-    await expect(results.getByText("my-slug")).toBeVisible();
+    await expect(await results.findByText("my-slug")).toBeVisible();
     await waitFor(() => {
       const highlight = document.querySelector("mark");
       expect(highlight).not.toBeNull();
@@ -472,8 +472,10 @@ export const GlobalFlagMatches: Story = {
     // SAFETY: `parentElement` is only null for a detached/root node; this
     // label is always rendered inside the tester's match-list container.
     const results = within(matchLabel.parentElement as HTMLElement);
-    await expect(results.getByText("1")).toBeVisible();
-    await expect(results.getByText("22")).toBeVisible();
+    // The label renders before the results derived from the typed text, so
+    // wait for each value rather than asserting on the first frame.
+    await expect(await results.findByText("1")).toBeVisible();
+    await expect(await results.findByText("22")).toBeVisible();
     await waitFor(() => {
       expect(document.querySelectorAll("mark").length).toBe(2);
     });

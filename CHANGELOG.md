@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Fixed an intermittent Storybook failure in the regex tester's "Test regex"
+  and global-flag stories (#353). They asserted the match values
+  synchronously after waiting only for the static `Match` label, so a slow
+  runner saw an empty result span; each value is now awaited with `findByText`.
+
 - Fixed a web `read` ending as `headers_timeout` when one probe (an announced
   alternate, the `.md` suffix, or `llms.txt`) sent no response headers within
   10 seconds (#948). The header bound now aborts only that probe's request,
