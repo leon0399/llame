@@ -59,7 +59,8 @@ None.
   one requirement renamed to "Attempt availability is disclosed against the
   preceding dispatched turn".
 - `mcp-tools`: namespace filtering compares against that same baseline.
-- `durable-runs`: the final assistant projection keeps rail items.
+- `durable-runs`: the final assistant projection keeps rail items, and
+  single-flight admission expiry projects the stuck Run's output.
 - `temporal-anchor`: the temporal item is written at dispatch.
 - `workspace-entry`: the detach reason clears at dispatch of the narrating
   turn.
@@ -70,7 +71,8 @@ None.
   reconstruction, repository), `apps/api/src/chats` (context builder), the
   skill, digest, and Workspace state writers, and `apps/api/src/compaction`
   comments.
-- A migration dropping `runs.context_items` and adding `runs.dispatched_at`; OpenAPI and the generated web
+- Two migrations: one adds `runs.dispatched_at` and backfills it for completed
+  Runs, the other drops `runs.context_items`; OpenAPI and the generated web
   client lose the endpoint and its DTOs.
 - Operator and reference docs that mention the context-item record;
   `CHANGELOG.md`.

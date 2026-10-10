@@ -49,14 +49,15 @@ prior Run with `dispatched_at` set, whatever its outcome, and retry reuse
 
 When the current Run has `dispatched_at`, preparation takes the Run's
 accepted-turn parts from the user message as the attempt's items and no
-producer authors another item, told-state update, or comparison record. The
+producer authors another turn-attached item, told-state update, or comparison
+record; in-Run producers run normally on the retry's own steps. The
 text is reused verbatim, which keeps the cached prefix stable. Prompt-import
 and skill-activation parts, persisted earlier in their own transactions, never
 trigger reuse, so a crash before the dispatch transaction leaves a retry that
 re-derives everything, as today.
 
-Two producers act on a retry anyway. A retry whose Workspace binding changed
-since the dispatched attempt (a detach) appends the detach notice and a
+Two exceptions apply. A retry of a dispatched Run whose Workspace detach
+reason is set, by its own re-check or an earlier one, appends the detach notice and a
 no-Workspace snapshot and clears the detach reason in its own attempt-fenced
 write, so the model is told. A retry of a dispatched Run does not publish a
 pre-step checkpoint; if its request no longer fits, it fails
@@ -68,11 +69,9 @@ items already carry.
 `onStepStart` appends a `context.item` Run event carrying the part and the
 attempt id, through the ordered event writer used for `tool.requested`, before
 the step request. Settlement projects the `context.item` events of exactly the
-attempts whose model output it projects; when two projected attempts carry an
-item from the same producer for the same key, such as one instruction
-canonical path, only the first is kept. A later attempt's item is dropped only
-when every file it names is already named by an earlier projected item, so
-committed text is never rewritten. `withoutContextItems` is deleted. The
+attempts whose model output it projects. A later attempt's item is dropped
+only when every file it names is already named by an earlier projected item,
+so committed text is never rewritten. `withoutContextItems` is deleted. The
 chat stream bridge and the owner raw event stream do not forward the event;
 the owner sees the part when the assistant message settles. The wedged-Run
 expiry on admission (`ChatLoopService.clearActiveRunSlot`) settles through
@@ -90,8 +89,9 @@ so it moves the baseline; a Run that never dispatched does not.
 ### D5. The per-Run record is removed
 
 The `turn-items` layer's migration adds `runs.dispatched_at` and sets it,
-for every pre-cutover `completed` Run, to that Run's finish time, since only
-completed Runs published their items before the cutover; other pre-cutover
+for every pre-cutover Run with status `completed` and a non-null
+`completed_attempt_id`, to that Run's finish time, since only those Runs
+published their items before the cutover; other pre-cutover
 Runs stay NULL (proposal P6). The `drop-record` layer's migration drops
 `runs.context_items`.
 `recordContextItems`, the `updateForAttempt` field, the controller route, the

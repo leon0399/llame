@@ -38,9 +38,10 @@ descriptions, and source/declaration hashes SHALL NOT be persisted as execution
 context. Minimal id/state comparison records SHALL follow
 `tool-calling`. Any permitted retry SHALL resolve and render its system prompt,
 catalog, and receipt again rather than using its predecessor's. A retry of a Run
-whose `dispatched_at` is set SHALL reuse that Run's persisted rail items as
-`context-injection` requires; any other retry SHALL derive its model context
-afresh.
+whose `dispatched_at` is set SHALL reuse that Run's persisted turn-attached
+items, told state, and comparison records as `context-injection` requires, while
+in-Run producers run normally on the retry's own model steps; any other retry
+SHALL derive its model context afresh.
 
 #### Scenario: Settings change while queued
 
@@ -84,11 +85,12 @@ afresh.
 - **THEN** that declaration joins the attempt-local model-facing catalog from the next model step without replacing an existing declaration
 - **AND** a later Workspace exit, switch, or detach leaves the declaration present with an unavailable executor, as specified by `tool-calling`
 
-#### Scenario: A retry of a dispatched Run renders afresh and reuses its rail items
+#### Scenario: A retry of a dispatched Run renders afresh and reuses its turn-attached items
 
 - **WHEN** a Run's first attempt commits its dispatch transaction and fails, and a retry runs with changed personalization
 - **THEN** the retry renders its own system prompt and appends its own receipt
-- **AND** it sends the rail items the first attempt committed instead of authoring new ones
+- **AND** it sends the turn-attached items the first attempt committed instead of authoring new ones, and authors no told-state update or comparison record
+- **AND** a tool result on one of the retry's own steps still triggers in-Run items
 
 #### Scenario: A failed attempt's comparison record stands
 

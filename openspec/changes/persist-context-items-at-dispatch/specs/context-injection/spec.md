@@ -70,8 +70,9 @@ Worker-attempt contributions intended for conversation history SHALL be staged i
 
 #### Scenario: In-Run items follow the projected output
 
-- **WHEN** attempt A records an `instructions` item naming `apps/api/AGENTS.md`, and a retry B of the same Run records one item naming only that file and another naming it and `apps/api/src/db/AGENTS.md`
-- **THEN** a settlement that projects both attempts' output keeps A's item, drops B's first item, and keeps B's second item verbatim
+- **WHEN** attempt A records an `instructions` item naming only `apps/api/AGENTS.md`, and a retry B of the same Run, whose seen set excludes A's in-Run items, independently records an item naming only that file
+- **THEN** a settlement that projects both attempts' output, such as an `outcome_unknown` settlement, keeps A's item and drops B's
+- **AND** when B's item instead names that file and `apps/api/src/db/AGENTS.md`, the settlement keeps it verbatim beside A's
 - **AND** a settlement that projects only B's output keeps only B's in-Run items
 
 #### Scenario: An unknown-outcome settlement keeps the earlier attempt's items
@@ -129,7 +130,7 @@ Replay SHALL preserve the stored part order. It SHALL NOT re-sort historical ite
 - **THEN** new items follow the new authoring order
 - **AND** existing messages remain in their original stored order
 
-When worker preparation adds attempt-owned items beside already persisted message facts, the final request SHALL apply this same producer order while preserving each producer's internal order and all user-authored content. The dispatch transaction SHALL store that final ordering atomically before the request that carries it, and the stored ordering SHALL stand whatever the Run's outcome. A retry of a dispatched Run SHALL NOT re-sort its reused items, whose text and order are fixed; the detach notice and no-Workspace snapshot that a detaching retry adds SHALL be appended immediately after the reused items and ahead of the user text, outside producer order.
+When worker preparation adds attempt-owned items beside already persisted message facts, the final request SHALL apply this same producer order while preserving each producer's internal order and all user-authored content. The dispatch transaction SHALL store that final ordering atomically before the request that carries it, and the stored ordering SHALL stand whatever the Run's outcome. A retry of a dispatched Run SHALL NOT re-sort its reused items, whose text and order are fixed; the detach notice and no-Workspace snapshot that a dispatched Run's retry adds for a persisted detach reason SHALL be appended immediately after the reused items and ahead of the user text, outside producer order.
 
 #### Scenario: Workspace and skill catalog items share a turn
 
@@ -337,9 +338,10 @@ claim to remove failed pre-cutover Run contributions from existing history or ag
 remains required and SHALL NOT authorize rewriting conversation state.
 
 The migration that adds `runs.dispatched_at` SHALL set it, for every pre-cutover Run whose status is
-`completed`, to that Run's finish time, and SHALL leave it unset for every other pre-cutover Run, so
-the first post-cutover turn's model-switch, availability, and epoch baseline is the Run the
-pre-cutover rules would have chosen.
+`completed` and whose `completed_attempt_id` is set, to that Run's finish time, and SHALL leave it unset for
+every other pre-cutover Run. That set matches the shipped lookup of the most recent successfully
+committed Run, so the first post-cutover turn's model-switch, availability, and epoch baseline is the
+Run that lookup returns.
 
 #### Scenario: An existing Chat crosses the worker-attempt cutover
 
@@ -560,11 +562,12 @@ Workspace state SHALL NOT be placed in the system prompt. A Workspace snapshot o
 exact item text, producer, and form on the triggering user message as a rail-resident part under the
 ordinary owner-isolation rules.
 
-A retry of a dispatched Run SHALL reuse its persisted `workspace` items. When that retry's binding
-re-check detaches a binding, the retry SHALL still narrate the detach: it SHALL append the detach
+A retry of a dispatched Run SHALL reuse its persisted `workspace` items. When `workspace_detach_reason`
+is set at that retry, whether its own binding re-check detached the binding or an earlier attempt's
+detach was never narrated, the retry SHALL still narrate the detach: it SHALL append the detach
 notice, and the snapshot stating that no Workspace is entered when `workspace_told` names a root,
 immediately after the reused items and ahead of the user text on the triggering user message, under
-the exception `Co-occurring items have a total author-time order` states, and SHALL write `workspace_told` and clear
+the exception `Co-occurring items have a total author-time order` states, and SHALL write `workspace_told` and consume
 the detach reason in the same attempt-fenced write before its first model request.
 
 #### Scenario: Changed binding is narrated on the rail
@@ -610,6 +613,12 @@ the detach reason in the same attempt-fenced write before its first model reques
 - **WHEN** a dispatched Run narrated a bound root, and its retry's binding re-check detaches that binding
 - **THEN** the retry reuses the dispatched `workspace` items and appends the detach notice and the no-Workspace snapshot after them
 - **AND** it clears the detach reason and writes the told state in one attempt-fenced write before its first model request
+
+#### Scenario: A retry narrates a detach reason it did not cause
+
+- **WHEN** a dispatched Run is retried while `workspace_detach_reason` is set and the retry's own binding re-check passes because the Chat is already unbound
+- **THEN** the retry appends the detach notice naming that reason after the reused items
+- **AND** it clears `workspace_detach_reason` in its attempt-fenced write before its first model request
 
 #### Scenario: A failed Run's Workspace narration is not repeated
 
