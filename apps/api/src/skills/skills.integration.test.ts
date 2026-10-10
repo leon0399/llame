@@ -75,7 +75,7 @@ describe('skills catalog e2e — real HTTP + Postgres', () => {
       .compile();
     app = mod.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     http = app.getHttpServer();
 
     const registered = await Promise.all(

@@ -100,7 +100,7 @@ d('Knowledge Spaces REST API', () => {
 
     app = moduleRef.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     http = app.getHttpServer();
 
     cookieA = (await register(`knowledge-a-${tag}@test.com`, 'Knowledge A'))

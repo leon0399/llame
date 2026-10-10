@@ -67,7 +67,7 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
       .compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
 

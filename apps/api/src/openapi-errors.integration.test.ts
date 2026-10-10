@@ -83,7 +83,7 @@ describe('OpenAPI error schemas match real HTTP responses', () => {
       .compile();
     app = moduleRef.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     const appServer: unknown = app.getHttpServer();
     if (!isHttpServer(appServer)) {
       throw new Error('Expected Nest to expose a Node HTTP server');

@@ -50,7 +50,7 @@ describe('/api/v1/me/memory (HTTP)', () => {
 
     app = moduleRef.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     http = app.getHttpServer();
 
     const a = await register(`memory-a-${tag}@test.com`, 'Memory Owner A');
