@@ -25,13 +25,16 @@ nothing builds one for the instance.
 
 - The API process derives one in-memory set of configured credentials at
   startup. Membership is listed in the `instance-config` requirements:
-  credential fields whole, the other secrets of a JSON document a credential
-  field selects from, `POSTGRES_URL` and its password, and the interpolated
-  substitutions inside provider headers and base URLs, MCP URLs, and stdio
-  MCP `env` values.
-- Every host `bash` result replaces each member with `[REDACTED]` before the
-  output bound, so a credential crossing the bound is redacted whole. This
-  needs a small executor change.
+  credential fields whole; the credential-shaped leaves of a JSON document a
+  member substitution selects from; `POSTGRES_URL`, its password, and
+  `PGPASSWORD`; interpolated substitutions in provider and MCP headers and
+  stdio MCP `env` values, and in the userinfo or query of provider, SearXNG,
+  and MCP URLs; and literal header values under a credential-shaped name. An
+  8-character floor applies throughout.
+- Every host `bash` result replaces each member with `[REDACTED]`. The output
+  bound is applied on raw positions without splitting a member, so a
+  credential crossing the bound is redacted whole. This needs an executor
+  change.
 - No language-model failure, on any wire or request kind, carries a member;
   where a wire forwards upstream text, the member is replaced with
   `[REDACTED]`. Failure classification is unchanged.
@@ -109,9 +112,9 @@ permission policy and a future Sandbox.
 - **A4 An 8-character floor and one credential-shaped name rule.** Without
   them the shipped development password `app` would turn `apps/api` into
   `[REDACTED]s/api`, and a literal `Accept: application/json` header would be
-  redacted everywhere. The name rule (`authorization`, `cookie`, `token`,
-  `key`, `secret`, `password`) decides which literal header values and which
-  document leaves are members.
+  redacted everywhere. The name rule (`authorization`, `cookie`, `credential`,
+  `token`, `key`, `secret`, `passw`, `signature`) decides which literal header
+  values and which document leaves are members.
 
 ## Non-goals
 

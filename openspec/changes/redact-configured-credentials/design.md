@@ -47,10 +47,13 @@
 
 `loadInstanceConfig` collects members as it resolves each field, rather than
 re-deriving them afterwards: whole values for credential fields; the
-`substituted` values from `interpolateStringWithSubstitutions` for provider and
+substitutions `interpolateStringWithSubstitutions` reports, extended to give each
+substitution's start and end in the raw resolved string and whether its `:-`
+fallback applied, for provider and
 remote MCP headers and stdio `env`, excluding `:-` fallback text; for provider
 and SearXNG base URLs and the remote MCP `url`, only substitutions whose
-resolved span lies in the parsed URL's userinfo or query; literal header values
+resolved span lies in the userinfo or query spans computed on that raw string,
+not on a re-serialized `URL`; literal header values
 under a credential-shaped name; and `POSTGRES_URL`, its parsed password in both
 percent-encoded and decoded spellings, and `PGPASSWORD`. A `{path:…|json:…}`
 substitution that is a member also contributes the credential-shaped string
@@ -70,15 +73,26 @@ on the loaded configuration, and excluded from every serialized projection.
 
 ### D2. Bash redacts on raw positions
 
-`bash.ts` passes the set as `protectedValues`. The executor captures up to
-`bound + longest member − 1` raw characters per stream, finds every member
-match in that raw capture, and cuts at `bound` in raw positions, extending the
-cut to the end of any match that starts before it. It then drops a trailing
-fragment that is a proper prefix of a member, at the capture cap and at the
-drain's forced close alike, and only then redacts with
-`redactProtectedString` and sets truncation metadata. Cutting before
-redacting means an earlier redaction can never shift later raw text inside
-the bound. The executor's own split/join is replaced by the shared routine.
+`bash.ts` passes the set as `protectedValues`. The executor decodes each
+stream with a streaming UTF-8 decoder, so a multibyte character split across
+pipe chunks still matches, and captures up to `bound + longest member − 1`
+raw characters. It then works on raw positions only:
+
+1. Find every member occurrence in the raw capture once.
+2. Cut at `bound`, extending once to the end of any occurrence that starts
+   before it.
+3. At a forced close only (the drain's destroy), drop the longest trailing
+   suffix of the kept text that starts after the end of the last found
+   occurrence and is a proper prefix of a member. At the capture cap no drop
+   is needed: the lookahead already holds any member that starts before the
+   bound.
+4. Replace each merged occurrence interval (D4) that intersects the kept
+   range, clipped to it, with `[REDACTED]`, without re-scanning.
+
+No step re-scans altered text, so neither an earlier redaction nor a drop can
+split a complete match. Output can exceed the raw bound by the extended match
+and marker growth; the truncation metadata still reports the cut. The
+executor's own split/join is replaced by the shared intervals routine.
 
 ### D3. Model failures keep their identity
 
