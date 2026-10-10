@@ -117,7 +117,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 5.2 Add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 5.3 Verify `pnpm --filter api lint`, `typecheck`, and the focused unit tests
 - [x] 5.4 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 5.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 5.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 6. `vision-media/vision-read-web` — web image bodies (design D7)
 
