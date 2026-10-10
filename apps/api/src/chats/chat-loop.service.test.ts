@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { type Chat, type Message, type Run } from '../db/schema';
+import { type Chat, type Message, type Run, type RunEvent } from '../db/schema';
 import {
   type Db,
   TenantDbService,
@@ -167,10 +167,16 @@ function makeService(options?: {
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
     .mockResolvedValue(chat);
-  vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
-    userMessage: undefined,
-    assistantMessage: undefined,
-  });
+  const findTurnState = vi
+    .spyOn(MessagesRepository.prototype, 'findTurnState')
+    .mockResolvedValue({
+      userMessage: undefined,
+      assistantMessage: undefined,
+    });
+  // The reply finalizer an admission expiry runs reads the blocker's events.
+  const listByRunId = vi
+    .spyOn(RunEventsRepository.prototype, 'listByRunId')
+    .mockResolvedValue([]);
   const createUserMessageIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
     .mockResolvedValue(userMessage);
@@ -236,6 +242,8 @@ function makeService(options?: {
     markFinished,
     createRun,
     appendEvent,
+    findTurnState,
+    listByRunId,
   };
 }
 
@@ -527,6 +535,94 @@ describe('ChatLoopService.createMessageStream', () => {
             'Expired by a new message: run stuck with no execution progress.',
         },
       },
+    );
+    expect(appendEvent).toHaveBeenCalledWith(blocking.id, 'run.expired', {
+      status: 'expired',
+      message:
+        'Expired by a new message: run stuck with no execution progress.',
+    });
+  });
+
+  it("finalizes the blocker's running reply from its attempt's events before run.expired", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const blocking: Run = {
+      ...run,
+      id: 'blocking-run',
+      messageId: 'blocking-message',
+      createdAt: new Date(now.getTime() - 60_000),
+      startedAt: null,
+    };
+    const runningReply: Message = {
+      ...userMessage,
+      id: 'blocking-reply',
+      seq: 2,
+      role: 'assistant',
+      senderUserId: null,
+      parts: [],
+      inReplyTo: 'blocking-message',
+      usage: {
+        status: 'running',
+        complete: false,
+        runId: 'blocking-run',
+        attemptId: 'attempt-a',
+        modelId: model.id,
+      },
+    };
+    const {
+      service,
+      findActiveByChatId,
+      markFinished,
+      appendEvent,
+      jobState,
+      findTurnState,
+      listByRunId,
+    } = makeService();
+    findActiveByChatId.mockResolvedValue(blocking);
+    jobState.mockResolvedValue('completed');
+    markFinished.mockResolvedValue({ ...blocking, status: 'expired' });
+    findTurnState.mockImplementation((_chatId, _userId, messageId) =>
+      Promise.resolve(
+        messageId === 'blocking-message'
+          ? { userMessage, assistantMessage: runningReply }
+          : { userMessage: undefined, assistantMessage: undefined },
+      ),
+    );
+    const logged: Array<RunEvent> = [
+      { sequence: 1, eventType: 'run.started', payload: null },
+      {
+        sequence: 2,
+        eventType: 'model.requested',
+        payload: { modelId: model.id, attemptId: 'attempt-a' },
+      },
+      { sequence: 3, eventType: 'model.delta', payload: { text: 'partial' } },
+    ].map((entry) => ({ ...entry, runId: 'blocking-run', createdAt: now }));
+    listByRunId.mockResolvedValue(logged);
+    const updateAssistantReply = vi
+      .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
+      .mockResolvedValue(runningReply);
+
+    await service.createMessageStream(input);
+
+    expect(updateAssistantReply).toHaveBeenCalledWith({
+      id: 'blocking-reply',
+      chatId: chat.id,
+      inReplyTo: 'blocking-message',
+      parts: [{ type: 'text', text: 'partial' }],
+      // No attempt measured anything here: the reply's own identity.
+      usage: {
+        status: 'aborted',
+        complete: false,
+        runId: 'blocking-run',
+        attemptId: 'attempt-a',
+        modelId: model.id,
+      },
+    });
+    const expiredCall = appendEvent.mock.calls.findIndex(
+      (call) => call[1] === 'run.expired',
+    );
+    expect(updateAssistantReply.mock.invocationCallOrder[0]).toBeLessThan(
+      appendEvent.mock.invocationCallOrder[expiredCall] ?? 0,
     );
     expect(appendEvent).toHaveBeenCalledWith(blocking.id, 'run.expired', {
       status: 'expired',

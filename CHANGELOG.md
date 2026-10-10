@@ -16,6 +16,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   items now follow producer rank around `$skill` and `@import` facts instead
   of preceding them (refs #1177).
 
+- The assistant reply now exists from the Run's first model request and keeps
+  its in-Run instruction bundles and partial output when the Run fails, is
+  cancelled, expires, or its worker crashes, so the next turn does not load
+  those rules again. History, shares, forks, and the chat list show the reply
+  once it is finalized. The model-switch notice now compares against the
+  model of the latest earlier reply in the Chat, whatever its outcome and
+  even when a checkpoint absorbed it, so a failed Run's switch is not
+  announced twice. Closes #1177.
+
 # 2026-10-09
 
 - Fixed API and Runs-worker boot failing with "canonical conversation search

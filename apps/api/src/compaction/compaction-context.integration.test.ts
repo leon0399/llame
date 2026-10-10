@@ -595,7 +595,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
               ]
             : []),
         ],
-        usage: { status: 'completed' },
+        // The model-switch baseline is the latest prior reply's recorded model.
+        usage: {
+          status: 'completed',
+          ...(options?.sourceRun !== false && { modelId: sourceModel }),
+        },
       });
       const targetRunId = crypto.randomUUID();
       // A model-change item asserts two DISTINCT models — the producer refuses

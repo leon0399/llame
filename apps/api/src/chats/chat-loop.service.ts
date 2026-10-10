@@ -37,6 +37,7 @@ import {
   type RunStreamResponder,
 } from '../runs/run-stream-bridge';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { finalizeRunReply } from '../runs/run-reply-finalizer';
 import { heartbeatSeconds } from '../runs/run-queues';
 import {
   RunDispatchService,
@@ -276,7 +277,7 @@ export class ChatLoopService {
         messagesRepo,
         input,
       );
-      await this.clearActiveRunSlot({ runsRepo, eventsRepo, ...input });
+      await this.clearActiveRunSlot({ tx, runsRepo, eventsRepo, ...input });
 
       // The user message is persisted with only the caller's sanitized text
       // parts. Context-rail items (model-switch, availability, digest,
@@ -513,6 +514,7 @@ export class ChatLoopService {
   }
 
   private async clearActiveRunSlot(input: {
+    tx: Db;
     runsRepo: RunsRepository;
     eventsRepo: RunEventsRepository;
     chatId: string;
@@ -544,6 +546,13 @@ export class ChatLoopService {
       { error: { message } },
     );
     if (expired) {
+      // The chat row is held first and the run row next, so finalizing the
+      // reply after them keeps the worker's run-then-reply order.
+      await finalizeRunReply(input.tx, {
+        run: expired,
+        status: 'expired',
+        models: this.instanceConfig.config.models,
+      });
       await input.eventsRepo.append(blocking.id, 'run.expired', {
         status: 'expired',
         message,

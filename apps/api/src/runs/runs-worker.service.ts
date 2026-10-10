@@ -38,7 +38,8 @@ import {
   RUNS_QUEUE,
   type RunJob,
 } from './run-queues';
-import { RunsRepository, failRunTransactionally } from './runs-repository';
+import { RunsRepository } from './runs-repository';
+import { failRunTransactionally } from './run-reply-finalizer';
 import {
   CanonicalSearchCoverageService,
   type CanonicalSearchCoverageGate,
@@ -187,7 +188,12 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         error instanceof ModelNotAvailableError ||
         error instanceof ModelConfigurationError
       ) {
-        await failRunTransactionally(this.tenantDb, job, error.message);
+        await failRunTransactionally(
+          this.tenantDb,
+          job,
+          error.message,
+          this.instanceConfig.config.models,
+        );
         return;
       }
       throw error;

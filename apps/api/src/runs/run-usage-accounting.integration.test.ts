@@ -712,13 +712,14 @@ describe('Run usage accounting through the worker and Postgres', () => {
         userId: ownerId,
         modelId,
         userMessage: seed.userMessage,
+        // The retry waits long enough for the salvaged reply to be read before
+        // the retry's dispatch resets it.
         enqueueOptions: {
           retryLimit: 1,
-          retryDelay: 0,
+          retryDelay: 2,
           retryBackoff: false,
         },
       });
-      await retryProviderStarted;
       const salvaged = await waitForReply(seed.chatId, seed.userMessage.id);
       expect(await runStatus(seed.runId)).toMatchObject({
         status: 'running_model',
@@ -732,6 +733,32 @@ describe('Run usage accounting through the worker and Postgres', () => {
         complete: false,
         billing: 'subscription',
       });
+
+      // The retry's dispatch resets the same row to `running` for its own
+      // attempt; history hides it until it is final.
+      await retryProviderStarted;
+      const retryAttemptId = (await runStatus(seed.runId))?.activeAttemptId;
+      const reset = await harness!.tenantDb.runAs(ownerId, (tx) =>
+        new MessagesRepository(tx).findTurnState(
+          seed.chatId,
+          ownerId,
+          seed.userMessage.id,
+        ),
+      );
+      expect(reset.assistantMessage).toMatchObject({
+        id: salvaged.id,
+        parts: [],
+        usage: {
+          status: 'running',
+          complete: false,
+          runId: seed.runId,
+          attemptId: retryAttemptId,
+          modelId,
+        },
+      });
+      expect(
+        (await history(seed.chatId)).some(({ id }) => id === salvaged.id),
+      ).toBe(false);
       const receipts = await harness!.tenantDb.runAs(ownerId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           seed.runId,

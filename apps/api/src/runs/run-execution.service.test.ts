@@ -73,6 +73,7 @@ import {
 } from '@workspace/runtime-safety';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type CheckpointMessage } from '../chats/messages-repository';
+import { RunningReplyRepository } from '../chats/running-reply-repository';
 import { ActivationPartsRepository } from '../chats/activation-parts.repository';
 import {
   AcceptedTurnPartsRepository,
@@ -544,8 +545,16 @@ function mockNormalExecutionRepositories() {
   const storeAtDispatch = vi
     .spyOn(AcceptedTurnPartsRepository.prototype, 'storeAtDispatch')
     .mockResolvedValue({ applied: true });
-  const findMostRecent = vi
-    .spyOn(RunsRepository.prototype, 'findMostRecentByMessageSequence')
+  // The dispatch transaction's `running` reply, and its in-Run snapshots.
+  const upsertRunningReply = vi
+    .spyOn(RunningReplyRepository.prototype, 'upsertRunningReply')
+    .mockResolvedValue(assistantMessage);
+  const updateRunningReplyParts = vi
+    .spyOn(RunningReplyRepository.prototype, 'updateRunningReplyParts')
+    .mockResolvedValue(true);
+  // The model-switch baseline: no prior reply unless a case installs one.
+  const findLatestReplyModelId = vi
+    .spyOn(MessagesRepository.prototype, 'findLatestReplyModelIdBefore')
     .mockResolvedValue(undefined);
   // The measurement source: absent unless a case installs a completed
   // predecessor, so the whole request is estimated instead.
@@ -583,6 +592,8 @@ function mockNormalExecutionRepositories() {
     markFinished,
     createAssistantReplyIfAbsent,
     storeAtDispatch,
+    upsertRunningReply,
+    updateRunningReplyParts,
     setTold,
     touch,
     updateForAttempt,
@@ -590,7 +601,7 @@ function mockNormalExecutionRepositories() {
     findById,
     hasMutation,
     findByOwnedRun,
-    findMostRecent,
+    findLatestReplyModelId,
     findCompleted,
     findDispatched,
     findActiveCheckpoint,
@@ -1701,7 +1712,7 @@ describe('RunExecutionService executeRun', () => {
       ]);
     });
 
-    it('publishes no staged rail part when the attempt fails after staging', async () => {
+    it('keeps a staged in-Run item in position when the attempt fails after staging', async () => {
       const notice = workspaceNotice(runId);
       const { spies, options } = await runWithInRunProducer((step) => {
         if (step.stepNumber !== 1) return;
@@ -1710,17 +1721,50 @@ describe('RunExecutionService executeRun', () => {
 
       await executeBoundTool(options, { q: 'first' }, 'in-run-call');
       await options.onStepStart?.({ messages: [], stepNumber: 1 });
+      // The item was written onto the running reply, fenced by the attempt,
+      // with the collector's snapshot before the step's request.
+      expect(spies.updateForAttempt).toHaveBeenCalledWith(
+        runId,
+        userId,
+        testAttemptId,
+        { activeAttemptId: testAttemptId },
+      );
+      expect(spies.updateRunningReplyParts).toHaveBeenCalledWith({
+        chatId,
+        inReplyTo: messageId,
+        attemptId: testAttemptId,
+        parts: [expect.objectContaining({ toolCallId: 'in-run-call' }), notice],
+      });
       await options.onError?.({ error: new Error('provider exploded') });
 
       const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
       if (!turn) throw new Error('Expected persisted assistant turn');
-      expect(turn.parts.some(isContextItemPart)).toBe(false);
       expect(turn.parts).toEqual([
         expect.objectContaining({
           type: `tool-${toolDeclaration.id}`,
           toolCallId: 'in-run-call',
         }),
+        notice,
       ]);
+    });
+
+    it('fails the step without the item when its snapshot write loses the attempt', async () => {
+      const notice = workspaceNotice(runId);
+      const { spies, options } = await runWithInRunProducer((step) => {
+        if (step.stepNumber !== 1) return;
+        step.stage(notice);
+      });
+      spies.updateRunningReplyParts.mockResolvedValue(false);
+
+      await executeBoundTool(options, { q: 'first' }, 'in-run-call');
+      await expect(
+        options.onStepStart?.({ messages: [], stepNumber: 1 }),
+      ).rejects.toThrow(RunNotRunnableError);
+      await options.onError?.({ error: new Error('reply reset') });
+
+      const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+      if (!turn) throw new Error('Expected persisted assistant turn');
+      expect(turn.parts.some(isContextItemPart)).toBe(false);
     });
 
     it('fails the step when an in-Run producer throws after staging', async () => {
@@ -1734,26 +1778,26 @@ describe('RunExecutionService executeRun', () => {
       await expect(
         options.onStepStart?.({ messages: [], stepNumber: 1 }),
       ).rejects.toThrow('producer failed after staging');
-      // The SDK surfaces that rejection as the stream's failure: nothing the
-      // producer staged may reach the published turn.
+      // The SDK surfaces that rejection as the stream's failure: an item the
+      // step never sent is neither written nor kept.
       await options.onError?.({
         error: new Error('producer failed after staging'),
       });
 
+      expect(spies.updateRunningReplyParts).not.toHaveBeenCalled();
       const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
       if (!turn) throw new Error('Expected persisted assistant turn');
       expect(turn.parts.some(isContextItemPart)).toBe(false);
     });
 
-    it('publishes no in-Run item when a lost finish keeps the streamed turn for an expired run', async () => {
+    it('keeps the in-Run item when a lost finish keeps the streamed turn for an expired run', async () => {
       const notice = workspaceNotice(runId);
       const { spies, options } = await runWithInRunProducer((step) => {
         if (step.stepNumber !== 1) return;
         step.stage(notice);
       });
       // Another writer expired the run before this finish landed: the
-      // streamed turn is kept, but nothing the attempt staged may be
-      // published.
+      // streamed turn is kept with the item it was produced under.
       spies.markFinished.mockResolvedValue(undefined);
       spies.findById.mockResolvedValue({ ...run, status: 'expired' });
 
@@ -1773,17 +1817,17 @@ describe('RunExecutionService executeRun', () => {
 
       const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
       if (!turn) throw new Error('Expected persisted assistant turn');
-      expect(turn.parts.some(isContextItemPart)).toBe(false);
       expect(turn.parts).toEqual([
         expect.objectContaining({
           type: `tool-${toolDeclaration.id}`,
           toolCallId: 'in-run-call',
           state: 'output-available',
         }),
+        notice,
       ]);
     });
 
-    it('salvages the answer without the in-Run item when the terminal write rolls back', async () => {
+    it('salvages the answer with the in-Run item when the terminal write rolls back', async () => {
       const notice = workspaceNotice(runId);
       const { spies, options } = await runWithInRunProducer((step) => {
         if (step.stepNumber !== 1) return;
@@ -1807,13 +1851,13 @@ describe('RunExecutionService executeRun', () => {
 
       const turn = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
       if (!turn) throw new Error('Expected salvaged assistant turn');
-      expect(turn.parts.some(isContextItemPart)).toBe(false);
       expect(turn.parts).toEqual([
         expect.objectContaining({
           type: `tool-${toolDeclaration.id}`,
           toolCallId: 'in-run-call',
           state: 'output-available',
         }),
+        notice,
       ]);
     });
   });
@@ -2543,6 +2587,18 @@ describe('RunExecutionService executeRun', () => {
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockResolvedValue(event);
+    // The claim-time finalizer reads the log and the turn: never dispatched,
+    // so the Run gets no reply.
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+    });
+    const createReply = vi.spyOn(
+      MessagesRepository.prototype,
+      'createAssistantReplyIfAbsent',
+    );
     const execution = makeExecutionService();
     const streamText = vi.spyOn(execution.client, 'streamText');
 
@@ -2572,6 +2628,7 @@ describe('RunExecutionService executeRun', () => {
       message: 'Run timed out: exceeded its wall-clock budget.',
     });
     expect(streamText).not.toHaveBeenCalled();
+    expect(createReply).not.toHaveBeenCalled();
   });
 
   it('settles a cancelled run found after a failed claim', async () => {
@@ -2592,6 +2649,16 @@ describe('RunExecutionService executeRun', () => {
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockResolvedValue(event);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+    });
+    const createReply = vi.spyOn(
+      MessagesRepository.prototype,
+      'createAssistantReplyIfAbsent',
+    );
     const execution = makeExecutionService();
 
     await expect(
@@ -2613,6 +2680,7 @@ describe('RunExecutionService executeRun', () => {
     expect(append).toHaveBeenCalledWith(runId, 'run.cancelled', {
       message: 'Run was cancelled before model inference.',
     });
+    expect(createReply).not.toHaveBeenCalled();
   });
 });
 
@@ -2728,7 +2796,13 @@ function recordAppendedEvents() {
   vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
     (_runId, eventType, payload) => {
       appended.push({ type: eventType, payload });
-      return Promise.resolve(event);
+      // The row as written: settlers fold returned events into the reply.
+      return Promise.resolve({
+        ...event,
+        sequence: appended.length,
+        eventType,
+        payload: payload ?? null,
+      });
     },
   );
   return appended;
@@ -3281,6 +3355,7 @@ describe('RunExecutionService executeRun — stream completion', () => {
     const spies = mockNormalExecutionRepositories();
     vi.spyOn(RunsRepository.prototype, 'markStarted').mockResolvedValue({
       ...run,
+      activeAttemptId: testAttemptId,
       effort: 'high',
     });
     const appended = recordAppendedEvents();
@@ -3299,7 +3374,23 @@ describe('RunExecutionService executeRun — stream completion', () => {
 
     expect(appended[1]).toStrictEqual({
       type: 'model.requested',
-      payload: { modelId: 'fake-model', effort: 'high' },
+      payload: {
+        modelId: 'fake-model',
+        effort: 'high',
+        attemptId: testAttemptId,
+      },
+    });
+    expect(spies.upsertRunningReply).toHaveBeenCalledWith({
+      chatId,
+      inReplyTo: messageId,
+      usage: {
+        status: 'running',
+        complete: false,
+        runId,
+        attemptId: testAttemptId,
+        modelId: 'fake-model',
+        effort: 'high',
+      },
     });
     const completedUsage: unknown = expect.objectContaining({
       effort: 'high',
@@ -3330,9 +3421,50 @@ describe('RunExecutionService executeRun — stream completion', () => {
     expect(Object.hasOwn(usage ?? {}, 'effort')).toBe(false);
     expect(appended[1]).toStrictEqual({
       type: 'model.requested',
-      payload: { modelId: 'fake-model' },
+      payload: { modelId: 'fake-model', attemptId: testAttemptId },
+    });
+    // The running reply omits effort and, under the default mode, the mode.
+    expect(spies.upsertRunningReply.mock.calls[0]?.[0].usage).toStrictEqual({
+      status: 'running',
+      complete: false,
+      runId,
+      attemptId: testAttemptId,
+      modelId: 'fake-model',
     });
   });
+
+  it.each([
+    { workerModes: ['default', 'bypass'] as const, recorded: true },
+    { workerModes: ['default'] as const, recorded: false },
+  ])(
+    'records bypass on the running reply only when the effective mode is bypass ($workerModes)',
+    async ({ workerModes, recorded }) => {
+      const spies = mockNormalExecutionRepositories();
+      spies.markStarted.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+        permissionMode: 'bypass',
+      });
+      const capturing = makeCapturingClient();
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        undefined,
+        { permissionModes: [...workerModes] },
+      );
+
+      await execution.service.executeRun(executionInput(capturing.client));
+
+      expect(spies.upsertRunningReply.mock.calls[0]?.[0].usage).toStrictEqual({
+        status: 'running',
+        complete: false,
+        runId,
+        attemptId: testAttemptId,
+        modelId: 'fake-model',
+        ...(recorded && { permissionMode: 'bypass' }),
+      });
+    },
+  );
 
   it('publishes partial usage before failure without publishing a checkpoint', async () => {
     const spies = mockNormalExecutionRepositories();
@@ -5814,10 +5946,10 @@ describe('RunExecutionService executeRun — context preparation', () => {
 
   it('streams a fitting request that stages a model-change notice without summarizing', async () => {
     const spies = mockNormalExecutionRepositories();
-    // The notice is staged from the preceding run's model, so the switch has
-    // to be real for the request to carry one.
-    spies.findMostRecent.mockImplementation(
-      lookupBefore(1, completedPredecessor({ modelId: 'old-model' })),
+    // The notice is staged from the preceding reply's model, so the switch
+    // has to be real for the request to carry one.
+    spies.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(1, 'old-model'),
     );
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);
@@ -6350,6 +6482,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
   type TriggerCase = {
     historyRows: Array<Message>;
     triggerSeq?: number;
+    /** The Run whose reply's model is the switch baseline. */
     recent?: Run;
     completed?: CompletedRunWithTrigger;
     client?: ModelClient;
@@ -6390,7 +6523,9 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         }),
         1,
       );
-    spies.findMostRecent.mockImplementation(lookupBefore(triggerSeq, recent));
+    spies.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(triggerSeq, recent.modelId),
+    );
     // A completed Run is also the dispatched baseline the epoch is judged by.
     spies.findCompleted.mockImplementation(
       completedLookupBefore(triggerSeq, completed),
@@ -6639,8 +6774,8 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     'summarizes $name once, before the first model request',
     async ({ variant }) => {
       const spies = mockNormalExecutionRepositories();
-      spies.findMostRecent.mockImplementation(
-        lookupBefore(3, committedTurnAnswer().run),
+      spies.findLatestReplyModelId.mockImplementation(
+        replyModelBefore(3, committedTurnAnswer().run.modelId),
       );
       spies.findCompleted.mockImplementation(
         completedLookupBefore(3, committedTurnAnswer()),
@@ -6823,7 +6958,9 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     'makes no summary call for $name',
     async ({ triggerSeq, recent, completed, messages, checkpoint }) => {
       const spies = mockNormalExecutionRepositories();
-      spies.findMostRecent.mockImplementation(lookupBefore(triggerSeq, recent));
+      spies.findLatestReplyModelId.mockImplementation(
+        replyModelBefore(triggerSeq, recent?.modelId),
+      );
       spies.findCompleted.mockImplementation(
         completedLookupBefore(triggerSeq, completed),
       );
@@ -6868,13 +7005,8 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         contextTokens: 40_000,
       },
     };
-    spies.findMostRecent.mockImplementation(
-      lookupBefore(4, {
-        ...run,
-        id: '5e5e5e5e-5e5e-4e5e-8e5e-5e5e5e5e5e5e',
-        status: 'cancelled',
-        messageId: committedTurnUserId,
-      }),
+    spies.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(4, run.modelId),
     );
     spies.findCompleted.mockImplementation(
       completedLookupBefore(
@@ -7126,6 +7258,10 @@ describe('RunExecutionService settleTerminalRun', () => {
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
       [],
     );
+    // Never dispatched: no model.requested, so no reply to finalize.
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+    });
     const touch = vi
       .spyOn(ChatsRepository.prototype, 'touch')
       .mockResolvedValue(chat);
@@ -7175,6 +7311,7 @@ describe('RunExecutionService settleTerminalRun', () => {
     const execution = makeExecutionService();
     const telemetry = {
       runId,
+      attemptId: testAttemptId,
       modelId: 'fake-model',
       latencyMs: 10,
       finishReason: 'stop' as const,
@@ -7196,15 +7333,23 @@ describe('RunExecutionService settleTerminalRun', () => {
     });
   });
 
-  it('synthesizes the settlement of a durably-open tool call and persists the reconstructed turn', async () => {
+  it('synthesizes the settlement of a durably-open tool call and creates a legacy reply from the full log', async () => {
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...run,
       status: 'failed',
     });
+    // Dispatched before replies existed from first dispatch: no reply row,
+    // and a request with no attempt id.
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
       {
         ...event,
         sequence: 1,
+        eventType: 'model.requested',
+        payload: { modelId: 'fake-model' },
+      },
+      {
+        ...event,
+        sequence: 2,
         eventType: 'tool.requested',
         payload: {
           toolCallId: 'orphan-1',
@@ -7261,7 +7406,13 @@ describe('RunExecutionService settleTerminalRun', () => {
           resultProviderMetadata: { llame: { cancelled: true } },
         },
       ],
-      usage: undefined,
+      // Terminal usage even with nothing measured: the Run's own identity.
+      usage: {
+        status: 'error',
+        complete: false,
+        runId,
+        modelId: 'fake-model',
+      },
     });
     expect(touch).toHaveBeenCalledWith(chatId, userId);
     expect(execution.searchIndex.reindexChat).toHaveBeenCalledWith(
@@ -7523,8 +7674,7 @@ describe('RunExecutionService settleTerminalRun', () => {
     expect(createAssistantReplyIfAbsent).not.toHaveBeenCalled();
   });
 
-  it('refuses to settle durable parts against a run with no triggering message', async () => {
-    const loggerError = vi.spyOn(Logger.prototype, 'error');
+  it('settles a run whose triggering message is gone without writing a reply', async () => {
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...run,
       status: 'failed',
@@ -7534,32 +7684,37 @@ describe('RunExecutionService settleTerminalRun', () => {
       {
         ...event,
         sequence: 1,
+        eventType: 'model.requested',
+        payload: { modelId: 'fake-model' },
+      },
+      {
+        ...event,
+        sequence: 2,
         eventType: 'model.delta',
         payload: { text: 'x' },
       },
     ]);
-    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
-      userMessage,
-      assistantMessage: undefined,
-    });
+    const findTurnState = vi.spyOn(
+      MessagesRepository.prototype,
+      'findTurnState',
+    );
     const createAssistantReplyIfAbsent = vi
       .spyOn(MessagesRepository.prototype, 'createAssistantReplyIfAbsent')
       .mockResolvedValue(assistantMessage);
     const appended = recordAppendedEvents();
     const execution = makeExecutionService();
 
-    await expect(
-      execution.service.settleTerminalRun({ userId, runId, status: 'failed' }),
-    ).rejects.toThrow(`Could not durably settle terminal run ${runId}.`);
-    // The operator is told why the settlement was refused, not just that it
-    // failed.
-    expect(loggerError).toHaveBeenCalledWith(
-      `Failed to finish run ${runId}`,
-      expect.stringContaining(
-        'has durable assistant parts but no triggering message.',
-      ),
-    );
-    expect(appended).toEqual([]);
+    const settlement = await execution.service.settleTerminalRun({
+      userId,
+      runId,
+      status: 'failed',
+      runPayload: { status: 'failed', message: 'worker died' },
+    });
+
+    // The reply went with its user turn, so there is nothing to finalize.
+    expect(settlement.outcome).toBe('won');
+    expect(appended.map((entry) => entry.type)).toEqual(['run.failed']);
+    expect(findTurnState).not.toHaveBeenCalled();
     expect(createAssistantReplyIfAbsent).not.toHaveBeenCalled();
   });
 
@@ -7705,11 +7860,26 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     expect(execution.titles.maybeGenerateTitle).not.toHaveBeenCalled();
   });
 
-  it('updates an incomplete assistant reply in place instead of inserting a second one', async () => {
+  /** The reply as the dispatch transaction left it for `attemptId`. */
+  function runningReply(input: { runId: string; attemptId: string }): Message {
+    return {
+      ...assistantMessage,
+      parts: [],
+      usage: {
+        status: 'running',
+        complete: false,
+        runId: input.runId,
+        attemptId: input.attemptId,
+        modelId: 'fake-model',
+      },
+    };
+  }
+
+  it('finalizes its own running reply in place without counting it as replaced', async () => {
     mockNormalExecutionRepositories();
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
       userMessage,
-      assistantMessage: { ...assistantMessage, usage: { status: 'error' } },
+      assistantMessage: runningReply({ runId, attemptId: testAttemptId }),
     });
     const updateAssistantReply = vi
       .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
@@ -7728,27 +7898,131 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
         requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
       );
     await capturing.streamOptions().onFinish?.({
-      text: 'retried answer',
+      text: 'answer',
       usage: ZERO_USAGE,
       finishReason: 'stop',
       stepCount: 1,
     });
 
     expect(createAssistantReplyIfAbsent).not.toHaveBeenCalled();
-    const retriedUsage: unknown = expect.objectContaining({
+    // The Run's own `running` row is its turn in progress, not an earlier
+    // reply it replaces, so a first attempt that completes stays complete.
+    const ownCompletedUsage: unknown = expect.objectContaining({
       inputTokens: 100,
       outputTokens: 20,
       status: 'completed',
-      complete: false,
+      complete: true,
       runId,
+      attemptId: testAttemptId,
     });
     expect(updateAssistantReply).toHaveBeenCalledWith(
       expect.objectContaining({
         id: assistantMessage.id,
         chatId,
         inReplyTo: messageId,
-        parts: [{ type: 'text', text: 'retried answer' }],
-        usage: retriedUsage,
+        parts: [{ type: 'text', text: 'answer' }],
+        usage: ownCompletedUsage,
+      }),
+    );
+  });
+
+  it('counts a running reply another Run left as replaced usage', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: runningReply({
+        runId: '5f5f5f5f-5f5f-4f5f-8f5f-5f5f5f5f5f5f',
+        attemptId: testAttemptId,
+      }),
+    });
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'updateAssistantReply',
+    ).mockResolvedValue(assistantMessage);
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    capturing
+      .streamOptions()
+      .onRequestUsage?.(
+        requestUsageReceipt({ inputTokens: 100, outputTokens: 20 }),
+      );
+    await capturing.streamOptions().onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      appended.find((entry) => entry.type === 'model.completed')?.payload,
+    ).toMatchObject({ telemetry: { complete: false } });
+  });
+
+  it("leaves a later attempt's running reply untouched when a stale finish loses", async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.markFinished.mockResolvedValue(undefined);
+    spies.findById.mockResolvedValue({ ...run, status: 'expired' });
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: runningReply({
+        runId,
+        attemptId: '6a6a6a6a-6a6a-4a6a-8a6a-6a6a6a6a6a6a',
+      }),
+    });
+    const updateAssistantReply = vi.spyOn(
+      MessagesRepository.prototype,
+      'updateAssistantReply',
+    );
+    recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'stale answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(updateAssistantReply).not.toHaveBeenCalled();
+    expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it('finalizes its own running reply when another writer cancelled the run', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.markFinished.mockResolvedValue(undefined);
+    spies.findById.mockResolvedValue({ ...run, status: 'cancelled' });
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: runningReply({ runId, attemptId: testAttemptId }),
+    });
+    const updateAssistantReply = vi
+      .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
+      .mockResolvedValue(assistantMessage);
+    recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'partial',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const incompleteAttemptUsage: unknown = expect.objectContaining({
+      complete: false,
+      attemptId: testAttemptId,
+    });
+    expect(updateAssistantReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [{ type: 'text', text: 'partial' }],
+        usage: incompleteAttemptUsage,
       }),
     );
   });
@@ -8153,14 +8427,11 @@ function answeredTurn(candidate: Run, triggeringUserSeq: number) {
   } satisfies CompletedRunWithTrigger;
 }
 
-/** A predecessor lookup that answers only within the trigger's sequence bound. */
-function lookupBefore(seq: number, candidate: Run | undefined) {
-  return (_chatId: string, _userId: string, options?: { beforeSeq?: number }) =>
-    Promise.resolve(
-      options?.beforeSeq === seq && candidate !== undefined
-        ? { run: candidate, triggeringUserSeq: seq - 1 }
-        : undefined,
-    );
+/** The latest-prior-reply model lookup, answering only within the trigger's
+ * sequence bound. */
+function replyModelBefore(seq: number, modelId: string | undefined) {
+  return (_chatId: string, _userId: string, beforeSeq: number) =>
+    Promise.resolve(beforeSeq === seq ? modelId : undefined);
 }
 
 /** The same lookup for the completed-predecessor read, which answers with the
@@ -8207,15 +8478,10 @@ const digestBaseline: RecencyDigestResolution['baseline'] = {
 /** One attempt against a chat whose last dispatched turn is `dispatched`, with
  * `checkpoint` the active row. Runs to a committed turn. */
 async function executeAvailabilityAttempt(input: {
-  recent?: Run;
   dispatched?: CompletedRunWithTrigger;
   compaction?: CheckpointMessage;
 }) {
   const repositories = mockNormalExecutionRepositories();
-  vi.spyOn(
-    RunsRepository.prototype,
-    'findMostRecentByMessageSequence',
-  ).mockImplementation(lookupBefore(1, input.recent));
   repositories.findDispatched.mockImplementation(
     completedLookupBefore(1, input.dispatched),
   );
@@ -8486,8 +8752,8 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         { id: contextToolId, state: 'available' },
       ]);
       // The switch was already stored by the earlier dispatch of this turn.
-      repositories.findMostRecent.mockImplementation(
-        lookupBefore(1, completedPredecessor({ modelId: 'other-model' })),
+      repositories.findLatestReplyModelId.mockImplementation(
+        replyModelBefore(1, 'other-model'),
       );
       const capturing = makeCapturingClient();
       const execution = makeExecutionService(
@@ -8656,7 +8922,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
   it('compares availability against the last dispatched turn while the epoch continues', async () => {
     const repositories = await executeAvailabilityAttempt({
-      recent: completedPredecessor(),
       dispatched: answeredTurn(completedPredecessor(), 2),
     });
 
@@ -8669,7 +8934,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
   it('starts a new disclosure epoch when the checkpoint reaches the dispatched turn', async () => {
     const repositories = await executeAvailabilityAttempt({
-      recent: completedPredecessor(),
       dispatched: answeredTurn(completedPredecessor(), 2),
       compaction: activeCheckpoint({
         uptoSeq: 2,
@@ -8688,9 +8952,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     // Published after that turn finished, and it still does not start one: the
     // epoch is re-keyed on the boundary, never on the checkpoint's timestamp.
     const repositories = await executeAvailabilityAttempt({
-      recent: completedPredecessor({
-        createdAt: new Date('2026-09-10T00:00:00.000Z'),
-      }),
       dispatched: answeredTurn(completedPredecessor(), 2),
       compaction: activeCheckpoint({
         uptoSeq: 1,
@@ -8707,10 +8968,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
   it('starts an epoch when the preceding run never dispatched', async () => {
     const repositories = await executeAvailabilityAttempt({
-      recent: completedPredecessor({
-        status: 'failed',
-        turnToolAvailability: null,
-      }),
       dispatched: undefined,
       compaction: activeCheckpoint({
         uptoSeq: 1,
@@ -8725,13 +8982,10 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     expect(availability?.data.payload).toMatchObject(initialAvailability);
   });
 
-  it('stages the model-change notice only when the preceding run used another model', async () => {
+  it('stages the model-change notice only when the latest prior reply used another model', async () => {
     const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findMostRecentByMessageSequence',
-    ).mockImplementation(
-      lookupBefore(1, completedPredecessor({ modelId: 'other-model' })),
+    repositories.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(1, 'other-model'),
     );
     // The dispatched-predecessor read is the availability baseline; the
     // default mock leaves it absent.
@@ -8742,6 +8996,12 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     );
     await expect(result.text).resolves.toBe('answer');
 
+    // The latest reply below the trigger, whatever its status (design D5).
+    expect(repositories.findLatestReplyModelId).toHaveBeenCalledWith(
+      chatId,
+      userId,
+      1,
+    );
     const [modelChange] = stagedItemsOf(
       repositories.storeAtDispatch,
       'effective-context-change',
@@ -8758,10 +9018,9 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
   it('stages no model-change notice while the model is unchanged', async () => {
     const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findMostRecentByMessageSequence',
-    ).mockImplementation(lookupBefore(1, completedPredecessor()));
+    repositories.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(1, 'fake-model'),
+    );
     // As above: no dispatched predecessor.
     const execution = makeExecutionService(createFakeModelClient(['answer']));
 
@@ -9151,6 +9410,9 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
       [],
     );
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+    });
     recordAppendedEvents();
     const execution = makeExecutionService();
 
@@ -9243,7 +9505,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     });
   });
 
-  it('carries the settlement telemetry onto a reconstructed turn', async () => {
+  it("carries the settling attempt's telemetry onto its rebuilt running reply", async () => {
     const telemetry = {
       inputTokens: 4,
       cachedInputTokens: 0,
@@ -9256,6 +9518,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       status: 'error' as const,
       costUsd: null,
       runId,
+      attemptId: testAttemptId,
     };
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...run,
@@ -9265,6 +9528,12 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       {
         ...event,
         sequence: 1,
+        eventType: 'model.requested',
+        payload: { modelId: 'fake-model', attemptId: testAttemptId },
+      },
+      {
+        ...event,
+        sequence: 2,
         eventType: 'model.delta',
         payload: { text: 'x' },
       },
@@ -9272,14 +9541,24 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
       userMessage,
-      assistantMessage: undefined,
+      assistantMessage: {
+        ...assistantMessage,
+        parts: [],
+        usage: {
+          status: 'running',
+          complete: false,
+          runId,
+          attemptId: testAttemptId,
+          modelId: 'fake-model',
+        },
+      },
     });
     vi.spyOn(
       SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue([]);
-    const createAssistantReplyIfAbsent = vi
-      .spyOn(MessagesRepository.prototype, 'createAssistantReplyIfAbsent')
+    const updateAssistantReply = vi
+      .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
       .mockResolvedValue(assistantMessage);
     recordAppendedEvents();
     const execution = makeExecutionService();
@@ -9288,13 +9567,89 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       userId,
       runId,
       status: 'failed',
+      attemptId: testAttemptId,
       telemetry,
-      runPayload: { status: 'failed', message: 'worker died' },
+      runPayload: { status: 'failed', message: 'progress lost' },
     });
 
-    expect(createAssistantReplyIfAbsent).toHaveBeenCalledWith(
-      expect.objectContaining({ usage: telemetry }),
+    expect(updateAssistantReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [{ type: 'text', text: 'x' }],
+        usage: telemetry,
+      }),
     );
+  });
+
+  it("finalizes a dead-lettered Run's running reply from its attempt's events", async () => {
+    vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
+      ...run,
+      status: 'expired',
+    });
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      { ...event, sequence: 1, eventType: 'run.started' },
+      {
+        ...event,
+        sequence: 2,
+        eventType: 'model.requested',
+        payload: { modelId: 'fake-model', attemptId: testAttemptId },
+      },
+      {
+        ...event,
+        sequence: 3,
+        eventType: 'model.delta',
+        payload: { text: 'before the crash' },
+      },
+      // A redelivery claimed the Run and died before its own dispatch.
+      { ...event, sequence: 4, eventType: 'run.started' },
+    ]);
+    vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(chat);
+    const notice = createContextItemPart({
+      producer: 'workspace',
+      form: 'notice',
+      runId,
+      payload: {},
+      text: '<system-reminder producer="workspace" form="notice">x</system-reminder>',
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: {
+        ...assistantMessage,
+        parts: [notice],
+        usage: {
+          status: 'running',
+          complete: false,
+          runId,
+          attemptId: testAttemptId,
+          modelId: 'fake-model',
+        },
+      },
+    });
+    const updateAssistantReply = vi
+      .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
+      .mockResolvedValue(assistantMessage);
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+
+    await execution.service.settleTerminalRun({
+      userId,
+      runId,
+      status: 'expired',
+      runPayload: { status: 'expired', message: 'retries exhausted' },
+    });
+
+    expect(updateAssistantReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [notice, { type: 'text', text: 'before the crash' }],
+        usage: {
+          status: 'aborted',
+          complete: false,
+          runId,
+          attemptId: testAttemptId,
+          modelId: 'fake-model',
+        },
+      }),
+    );
+    expect(appended.map((entry) => entry.type)).toEqual(['run.expired']);
   });
 
   it('fails the attempt when its chat vanished before context preparation', async () => {

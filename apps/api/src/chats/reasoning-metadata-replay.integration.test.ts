@@ -264,7 +264,10 @@ describeWithDatabase(
      * A turn that died mid-flight: the model streamed reasoning (with the
      * adapter's opaque metadata) and called a tool, and the worker never
      * continued the turn. Settling the run from those durable events is the
-     * restart idiom the retry-exhaustion/settlement suites use.
+     * restart idiom the retry-exhaustion/settlement suites use. The seed has a
+     * `model.requested` and no reply row, as a Run dispatched before the reply
+     * existed from first dispatch, so settlement builds the reply from the
+     * Run's full event log.
      */
     async function seedInterruptedTurn() {
       const chatId = crypto.randomUUID();
@@ -290,6 +293,9 @@ describeWithDatabase(
       );
       await tenantDb.runAs(userId, async (tx) => {
         const events = new RunEventsRepository(tx);
+        await events.append(interrupted.id, 'model.requested', {
+          modelId: MODEL_ID,
+        });
         // Opaque metadata the adapter delivered for a reasoning item whose
         // summary was empty: the item's only delivery, because it produced no
         // displayable text. Under D18 it starts the reasoning part it belongs

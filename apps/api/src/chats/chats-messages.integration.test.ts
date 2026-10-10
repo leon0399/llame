@@ -1155,7 +1155,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     ]);
     expect(
       events.find((event) => event.eventType === 'model.requested')?.payload,
-    ).toEqual({ modelId: 'system:openai:gpt-5.4-mini' });
+    ).toEqual({
+      modelId: 'system:openai:gpt-5.4-mini',
+      attemptId: expect.any(String),
+    });
     const completedPayload = events.find(
       (event) => event.eventType === 'model.completed',
     )?.payload;
