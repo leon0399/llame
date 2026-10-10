@@ -1,6 +1,6 @@
 # Runtime and package manager
 
-llame uses Node >=22.19 and pnpm 11. Revisit Bun only when all hard triggers
+llame uses Node >=22.19 and pnpm 12. Revisit Bun only when all hard triggers
 below change.
 
 ## Why Node remains
@@ -30,6 +30,10 @@ in-place API migration.
   blocked.
 - Keep `enableGlobalVirtualStore` off: tsgo resolves global-store realpaths into
   split `@types` identities. Revisit when tsgo supports that layout.
-- Stay current on pnpm 11. Security/build defaults are pinned in
-  `pnpm-workspace.yaml`; `minimumReleaseAge` is seven days and `engineStrict`
-  lives there. pnpm 12 is #634.
+- Stay current on pnpm 12, pinned to the version nixpkgs packages as
+  `pnpm_12` so the Nix dev shell and `packageManager` agree. Security/build
+  defaults are pinned in `pnpm-workspace.yaml`; `minimumReleaseAge` is seven
+  days and `engineStrict` lives there.
+- pnpm 12 validates patch hunk positions that pnpm 11 ignored: each hunk's
+  new-side start must include the lines earlier hunks added. Prefer
+  regenerating a patch with `pnpm patch`/`pnpm patch-commit` over editing it.
