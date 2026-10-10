@@ -2,7 +2,7 @@
 
 ### Requirement: The owner requests cancellation of a Run
 
-An authenticated owner SHALL request cancellation of their own Run by submitting an update with `status: cancelled`. This records the cancellation request. When the Run is still `queued` after the request is recorded, or a repeated request finds it still `queued`, the request SHALL also settle it before responding, writing `cancelled` unless another terminal writer commits first; otherwise settlement later sets the Run status to `cancelled`. This SHALL be the only cancellation request a client can write; a request carrying any other status SHALL be rejected as invalid and SHALL NOT change the Run.
+An authenticated owner SHALL request cancellation of their own Run by submitting an update with `status: cancelled`. This records the cancellation request. When the Run is no longer `queued`, settlement later sets the Run status to `cancelled`. When the Run is still `queued` after the request is recorded, or a repeated request finds it still `queued`, the request SHALL also settle it before responding, writing `cancelled` unless another terminal writer commits first. This SHALL be the only cancellation request a client can write; a request carrying any other status SHALL be rejected as invalid and SHALL NOT change the Run.
 
 The request SHALL act only on a Run owned by the authenticated identity. A Run that does not exist and a Run owned by someone else SHALL produce the same not-found response, and the other owner's Run SHALL NOT be changed.
 
