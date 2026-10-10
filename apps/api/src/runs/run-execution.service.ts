@@ -108,7 +108,6 @@ import {
   turnStatusForTerminalRun,
   type AssistantTurnTelemetry,
   type AssistantTurnWrite,
-  type TerminalRunStatus,
 } from './run-reply-finalizer';
 import {
   InstanceConfigService,
@@ -281,6 +280,7 @@ import {
 } from '../tools/workspace-path';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import { evaluatePermission } from '../tools/permissions/evaluator';
+import { isTerminalRunStatus, type TerminalRunStatus } from './run-status';
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
@@ -852,9 +852,7 @@ export class RunExecutionService {
         const current = await runs.findById(input.runId, input.userId);
         if (
           current?.cancelRequestedAt == null ||
-          ['completed', 'failed', 'cancelled', 'expired'].includes(
-            current.status,
-          )
+          isTerminalRunStatus(current.status)
         ) {
           return { settledReply: undefined };
         }
@@ -3255,9 +3253,7 @@ export class RunExecutionService {
       turn === undefined ||
       current === undefined ||
       (current.activeAttemptId !== input.attemptId &&
-        !['completed', 'failed', 'cancelled', 'expired'].includes(
-          current.status,
-        ))
+        !isTerminalRunStatus(current.status))
         ? undefined
         : await this.persistAttemptTurn(
             tx,
