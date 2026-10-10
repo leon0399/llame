@@ -1,17 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 import { ErrorResponse } from '../../common/dto/error-response.dto';
-import { type MediaObject } from '../../db/schema';
+import { mediaProvenance, type MediaObject } from '../../db/schema';
+import { MODEL_MEDIA_TYPES, ORIGINAL_MEDIA_TYPES } from '../media-ingest';
 import { mediaLocator } from '../media-locator';
-
-const MEDIA_PROVENANCES = ['upload', 'read', 'prompt-import'] as const;
-const ORIGINAL_MEDIA_TYPES = [
-  'image/png',
-  'image/jpeg',
-  'image/gif',
-  'image/webp',
-] as const;
-const MODEL_MEDIA_TYPES = ['image/png', 'image/jpeg'] as const;
 
 /** The model variant's own format, size, and dimensions. */
 export class MediaModelVariantResponse {
@@ -39,7 +31,7 @@ export class MediaDescriptorResponse {
   @ApiProperty({ example: 'media://01920000-0000-7000-8000-000000000000' })
   locator!: string;
 
-  @ApiProperty({ enum: MEDIA_PROVENANCES })
+  @ApiProperty({ enum: mediaProvenance.enumValues })
   provenance!: string;
 
   @ApiProperty({ enum: ORIGINAL_MEDIA_TYPES })

@@ -3,21 +3,20 @@ import {
   Catch,
   Controller,
   Get,
-  Headers,
+  HttpException,
   HttpStatus,
   Inject,
   NotFoundException,
   Param,
   PayloadTooLargeException,
   Post,
+  Req,
   Res,
-  UnsupportedMediaTypeException,
   UploadedFile,
   UseFilters,
   UseInterceptors,
   type ArgumentsHost,
   type ExceptionFilter,
-  type HttpException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -38,7 +37,7 @@ import {
   ApiUnauthorizedResponse,
   ApiUnsupportedMediaTypeResponse,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 // Also loads @types/multer's global `Express.Multer.File` (tsconfig pins
 // `types`, so it is not ambient otherwise).
 import type { Options as MulterOptions } from 'multer';
@@ -51,86 +50,59 @@ import {
   MediaUnsupportedErrorResponse,
   toMediaDescriptor,
 } from './dto/media.dto';
-import {
-  MEDIA_MAX_BYTES,
-  MediaIngestError,
-  type MediaIngestErrorCode,
-} from './media-ingest';
+import { MEDIA_MAX_BYTES, MediaIngestError } from './media-ingest';
 import { MediaService } from './media.service';
 
-type MediaApi = Pick<MediaService, 'ingest' | 'findOwned' | 'readVariant'>;
-
-/** The part of Express's response the upload route writes. */
-type UploadResponse = { status(code: number): void };
-
-/** The part of Express's response the byte routes write. */
-type MediaBytesResponse = {
-  status(code: number): void;
-  setHeader(name: string, value: string): void;
-  end(body?: Buffer): void;
-};
-
-/** One byte-route request: who asks for which variant, with which validator. */
+/** One byte-route request: who asks for which variant. */
 type VariantRequest = {
   userId: string;
   id: string;
   variant: MediaVariant;
-  ifNoneMatch: string | undefined;
 };
 
-// Memory storage (multer's default). `fileSize` is the only limit set, so
-// `LIMIT_FILE_SIZE` is the only multer error Nest maps to 413.
+// Memory storage (multer's default). Only the one file part is read: any text
+// field or further part aborts with a multer `LIMIT_*` error that Nest maps to
+// 400, so no non-file part is buffered (busboy fires `parts` when the count
+// reaches the limit, so 2 still admits a lone file). `LIMIT_FILE_SIZE` is the
+// only multer error Nest maps to 413.
 const UPLOAD_OPTIONS = {
-  limits: { fileSize: MEDIA_MAX_BYTES },
+  limits: { fileSize: MEDIA_MAX_BYTES, files: 1, fields: 0, parts: 2 },
   // Browsers send UTF-8 filenames; multer's default is latin1.
   defParamCharset: 'utf8',
 } satisfies MulterOptions;
 
 /** The one HTTP body of each ingest refusal, whichever layer detects it. */
-function ingestRefusal(code: MediaIngestErrorCode): HttpException {
-  const message = new MediaIngestError(code).message;
-  return code === 'image_too_large'
-    ? new PayloadTooLargeException({
-        statusCode: HttpStatus.PAYLOAD_TOO_LARGE,
-        error: 'Payload Too Large',
-        message,
-        code,
-      })
-    : new UnsupportedMediaTypeException({
-        statusCode: HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-        error: 'Unsupported Media Type',
-        message,
-        code,
-      });
+function ingestRefusal(error: MediaIngestError): HttpException {
+  const tooLarge = error.code === 'image_too_large';
+  const statusCode = tooLarge
+    ? HttpStatus.PAYLOAD_TOO_LARGE
+    : HttpStatus.UNSUPPORTED_MEDIA_TYPE;
+  return new HttpException(
+    {
+      statusCode,
+      error: tooLarge ? 'Payload Too Large' : 'Unsupported Media Type',
+      message: error.message,
+      code: error.code,
+    },
+    statusCode,
+  );
 }
 
 /**
  * Multer's `LIMIT_FILE_SIZE` reaches Nest as a generic
- * `PayloadTooLargeException`; it is the only multer limit the upload route
- * sets, so every such exception on that route is the ingest byte bound.
+ * `PayloadTooLargeException`; it is the only multer limit Nest maps to 413,
+ * so every such exception on the upload route is the ingest byte bound.
  */
 @Catch(PayloadTooLargeException)
 class ImageTooLargeFilter implements ExceptionFilter {
   catch(_exception: PayloadTooLargeException, host: ArgumentsHost): void {
-    const refusal = ingestRefusal('image_too_large');
+    const refusal = ingestRefusal(new MediaIngestError('image_too_large'));
     host
       .switchToHttp()
       .getResponse<Response>()
       .status(refusal.getStatus())
       .json(refusal.getResponse());
   }
-}
-
-/**
- * True when an `If-None-Match` value matches `etag` under the weak comparison
- * RFC 9110 prescribes for this header.
- */
-function matchesIfNoneMatch(header: string | undefined, etag: string): boolean {
-  if (header === undefined) return false;
-  return header
-    .split(',')
-    .map((tag) => tag.trim().replace(/^W\//u, ''))
-    .some((tag) => tag === '*' || tag === etag);
 }
 
 const MEDIA_ID_PARAM = {
@@ -150,7 +122,7 @@ const MEDIA_ID_PARAM = {
 export class MediaController {
   constructor(
     @Inject(MediaService)
-    private readonly media: MediaApi,
+    private readonly media: MediaService,
   ) {}
 
   @Post()
@@ -180,7 +152,7 @@ export class MediaController {
   async upload(
     @CurrentUser() userId: string,
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Res({ passthrough: true }) res: UploadResponse,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<MediaDescriptorResponse> {
     if (file === undefined) {
       throw new BadRequestException('Exactly one file field named "file"');
@@ -194,7 +166,7 @@ export class MediaController {
       res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
       return toMediaDescriptor(media);
     } catch (error) {
-      if (error instanceof MediaIngestError) throw ingestRefusal(error.code);
+      if (error instanceof MediaIngestError) throw ingestRefusal(error);
       throw error;
     }
   }
@@ -225,13 +197,10 @@ export class MediaController {
   async getOriginal(
     @CurrentUser() userId: string,
     @Param('id') id: string,
-    @Headers('if-none-match') ifNoneMatch: string | undefined,
-    @Res() res: MediaBytesResponse,
+    @Req() req: Request,
+    @Res() res: Response,
   ): Promise<void> {
-    await this.sendVariant(
-      { userId, id, variant: 'original', ifNoneMatch },
-      res,
-    );
+    await this.sendVariant({ userId, id, variant: 'original' }, req, res);
   }
 
   @Get(':id/model')
@@ -245,10 +214,10 @@ export class MediaController {
   async getModel(
     @CurrentUser() userId: string,
     @Param('id') id: string,
-    @Headers('if-none-match') ifNoneMatch: string | undefined,
-    @Res() res: MediaBytesResponse,
+    @Req() req: Request,
+    @Res() res: Response,
   ): Promise<void> {
-    await this.sendVariant({ userId, id, variant: 'model', ifNoneMatch }, res);
+    await this.sendVariant({ userId, id, variant: 'model' }, req, res);
   }
 
   /**
@@ -256,20 +225,20 @@ export class MediaController {
    * cached under another owner's session earns a 404, never a 304.
    */
   private async sendVariant(
-    { userId, id, variant, ifNoneMatch }: VariantRequest,
-    res: MediaBytesResponse,
+    { userId, id, variant }: VariantRequest,
+    req: Request,
+    res: Response,
   ): Promise<void> {
     const media = await this.media.findOwned(userId, id);
     if (media === undefined) throw new NotFoundException();
 
     // The bytes under an id never change, so digest + variant is a strong
     // validator.
-    const etag = `"${media.sha256}-${variant}"`;
-    res.setHeader('ETag', etag);
+    res.setHeader('ETag', `"${media.sha256}-${variant}"`);
     res.setHeader('Cache-Control', 'private, no-cache');
-    if (matchesIfNoneMatch(ifNoneMatch, etag)) {
-      res.status(HttpStatus.NOT_MODIFIED);
-      res.end();
+    // Express compares If-None-Match (weak, list-aware) with the ETag above.
+    if (req.fresh) {
+      res.status(HttpStatus.NOT_MODIFIED).end();
       return;
     }
 
@@ -282,8 +251,7 @@ export class MediaController {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', 'inline');
     res.setHeader('Content-Security-Policy', 'sandbox');
-    res.status(HttpStatus.OK);
     // A single `end` with the body lets Node set Content-Length.
-    res.end(bytes);
+    res.status(HttpStatus.OK).end(bytes);
   }
 }
