@@ -444,6 +444,16 @@ directory listing requirements and SHALL NOT add context lines; an outline
 request on a directory SHALL fail under the representation requirements rather
 than reinterpret listing text.
 
+A read whose source is an image under the image read requirement, or whose
+locator is `media://`, SHALL take no selector: any selector, every range member,
+`:raw`, and `:outline` included, SHALL fail with `invalid_selector`, whose
+message states that an image is read without a selector, and SHALL create no
+media object. An image has no line count. On a host, `file://`, `kb://`, or
+`skill://` regular file, the image check on the leading bytes SHALL run before
+the line count an `N-` or `-K` member requires, so an image is never counted. An
+image result SHALL carry no requested or shown range, `nextOffset`, or
+`truncated` field.
+
 #### Scenario: Bounded read includes live adjacent lines
 
 - **WHEN** the model reads lines 11 through 13 of a file with lines on both sides
@@ -525,6 +535,23 @@ than reinterpret listing text.
 - **WHEN** the model reads `/var/log/:-20` and `skill://:-10`
 - **THEN** the directory read returns the last twenty entries of its requested level and the catalog read the last ten entries of its count, as its single range
 - **AND** neither adds context lines
+
+#### Scenario: A selector on an image is refused
+
+- **WHEN** the model reads `/work/shot.png:1-10`, `/work/shot.png:raw`, or `kb://<id>/diagrams/flow.png:raw`, and each file's leading bytes are a PNG image
+- **THEN** the tool returns `invalid_selector` stating that an image is read without a selector
+- **AND** no media object is created and no line content is returned
+
+#### Scenario: A tail member on an image is refused before counting
+
+- **WHEN** the model reads `:-20` of a host regular file whose leading bytes are a JPEG image
+- **THEN** the tool returns `invalid_selector`
+- **AND** the file's lines are not counted
+
+#### Scenario: An image result has no line metadata
+
+- **WHEN** the model reads `/work/shot.png` without a selector and its leading bytes are a PNG image
+- **THEN** the image result carries no requested or shown range, `nextOffset`, or `truncated` field
 
 ### Requirement: Reads through symbolic links report the real path
 
@@ -1101,8 +1128,10 @@ targets SHALL follow the same regular-file, directory, selector, context,
 truncation, mutation, and `file_exists` behavior as absolute paths. No
 Markdown-only or per-file byte policy SHALL apply to `kb://` operations, except
 that the explicit `outline` representation is available only for content the
-representation requirements identify as Markdown; text and raw reads, edits,
-and writes are unaffected.
+representation requirements identify as Markdown, and that a file whose leading
+bytes match an accepted image signature is bounded by the media store's bounds
+under "Image ingest refusals fail the read"; text and raw reads, edits, and
+writes are unaffected.
 
 Every `kb://` result SHALL identify the target by its locator and SHALL carry
 the response-time Knowledge Space identifier and display name. It SHALL expose
@@ -1112,7 +1141,9 @@ SHALL include the Knowledge untrusted-content `notice`; content SHALL be returne
 verbatim so that `edit` `oldText` can be copied from it once the generated
 line-number prefixes are removed, or read with `:raw` to omit them. An
 `outline` read returns a selection of verbatim source lines under that same
-rule while retaining the same locator, Space attribution, and notice.
+rule while retaining the same locator, Space attribution, and notice. A `kb://`
+read whose file is an image SHALL return the image result with the same
+locator, Space attribution, and notice, and SHALL carry no line content.
 
 The `kb://` grammar is the authority-aware locator that later schemes follow; a
 scheme SHALL declare which of `read`, `edit`, and `write` it supports, and an
@@ -1183,6 +1214,18 @@ unsupported operation SHALL return a structured error without side effects.
 - **WHEN** the model calls `read` with `kb://<id>/notes/guide.md:outline`
 - **THEN** the result is the note's outline with the Space identifier, display name, locator, and untrusted-content notice
 - **AND** `kb://<id>/notes/guide.md:outline:raw` returns `invalid_selector`, because `raw` is not a member `outline` accepts
+
+#### Scenario: A Knowledge image keeps its attribution
+
+- **WHEN** the model calls `read` with `kb://<id>/diagrams/flow.png` and the file's leading bytes are a PNG image
+- **THEN** the result is the image result with `media`, `mediaType`, `width`, and `height`, plus the locator, Space identifier, display name, and untrusted-content notice
+- **AND** it carries no `content` and exposes no configured root or resolved child path
+
+#### Scenario: Another owner's Knowledge image is not ingested
+
+- **WHEN** the model reads `kb://<id>/diagrams/flow.png` and the identifier belongs to another owner's Space that holds a PNG at that path
+- **THEN** the tool returns `knowledge_space_not_found`, identical to the result for an absent identifier
+- **AND** no file is opened and no media object is created for either owner
 
 ### Requirement: Web locators are fetched by the native read tool
 
@@ -1449,13 +1492,28 @@ across all of its requests.
 - **THEN** the call fails with `http_status` naming the status
 - **AND** the response body is not returned as content
 
-### Requirement: Web reads accept text bodies only
+### Requirement: Web reads accept text and image bodies
 
-A web read SHALL accept only text bodies: `text/*` media types,
-`application/json`, `application/xml`, and any type whose subtype carries a
-`+json` or `+xml` suffix. `text/markdown` SHALL be handled as Markdown. Every
-other content type SHALL fail with `unsupported_content_type` naming the
-received type, and its body SHALL NOT be returned as content. An adapter
+A web read SHALL accept only text bodies and image bodies. Text bodies are
+`text/*` media types, `application/json`, `application/xml`, and any type whose
+subtype carries a `+json` or `+xml` suffix, so `image/svg+xml` is a text body.
+`text/markdown` SHALL be handled as Markdown. An image body is a page response,
+after any redirects, whose declared media type is `image/png`, `image/jpeg`,
+`image/gif`, or `image/webp` and whose leading bytes match the PNG, JPEG, GIF,
+or WebP signature; the format the bytes match, not the declared type, SHALL
+decide the result's `mediaType`. An image body SHALL remain under the existing
+5 MiB body bound, SHALL end the ladder with `method` `image`, and SHALL be
+returned as the image result under the image read requirement, never as
+content. A body declared as one of those image types whose leading bytes match
+none of the four signatures SHALL fail with `unsupported_media_type`, SHALL
+create no media object, and its body SHALL NOT be returned as content. Any
+selector on an image body, `:raw` included, SHALL fail with `invalid_selector`
+and SHALL create no media object. Every other content type, `application/pdf`
+and `application/octet-stream` included, SHALL fail with
+`unsupported_content_type` naming the received type, and its body SHALL NOT be
+returned as content. An adapter response, or an alternate, suffix, or
+`llms.txt` probe response, with an image type SHALL count as a refused content
+type. An adapter
 response with a refused content type SHALL disqualify that adapter with a
 bounded `content_type` note and SHALL not fail the source call. Only a
 declared HTML type — `text/html` or `application/xhtml+xml` — SHALL be
@@ -1477,7 +1535,7 @@ first 2 KiB of the body, else as UTF-8.
 
 #### Scenario: A binary body is refused with its type named
 
-- **WHEN** a locator serves `application/pdf` or `image/png`
+- **WHEN** a locator serves `application/pdf` or `application/octet-stream`
 - **THEN** the read fails with `unsupported_content_type` naming that type
 - **AND** no conversion or extraction is attempted
 
@@ -1492,6 +1550,41 @@ first 2 KiB of the body, else as UTF-8.
 - **WHEN** a response declares `charset=iso-8859-1` and its body contains bytes outside ASCII
 - **THEN** the returned text is decoded with that charset
 - **AND** a response that declares no charset and carries no `<meta charset>` in its first 2 KiB is decoded as UTF-8
+
+#### Scenario: An image body is returned as an image
+
+- **WHEN** a locator serves `image/png` and the body's leading bytes are a PNG image of 1600 by 900 pixels
+- **THEN** the read returns the image result with `method` `image`, a `media` locator, `mediaType` `image/png`, `width` 1600, and `height` 900
+- **AND** the result carries no `content` and the body is stored as a media object of the Run owner
+
+#### Scenario: The bytes decide the image format
+
+- **WHEN** a locator serves `image/png` and the body's leading bytes are a JPEG image
+- **THEN** the read returns the image result with `mediaType` `image/jpeg`
+
+#### Scenario: A declared image type over other bytes is refused
+
+- **WHEN** a locator serves `image/png` and the body is an HTML document
+- **THEN** the read fails with `unsupported_media_type`
+- **AND** no media object is created and no part of the body is returned as content
+
+#### Scenario: A selector on a web image is refused
+
+- **WHEN** the model reads `https://example.test/shot.png:raw` or `https://example.test/shot.png:1-5` and the locator serves `image/png` with PNG bytes
+- **THEN** the read fails with `invalid_selector`
+- **AND** no media object is created and the raw bytes are not returned
+
+#### Scenario: An SVG body stays text
+
+- **WHEN** a locator serves `image/svg+xml`
+- **THEN** the read returns the body text unchanged with `method` `text`
+- **AND** no media object is created
+
+#### Scenario: An oversized image body fails the existing body bound
+
+- **WHEN** a locator serves `image/png` with a body larger than 5 MiB
+- **THEN** the read fails with `body_too_large`
+- **AND** no media object is created
 
 ### Requirement: Web HTML reads prefer publisher Markdown
 
@@ -1853,8 +1946,13 @@ the requested and shown range or ranges, `nextOffset`, `truncated`, and `path`
 as the locator with its selector stripped, as a local read reports it —
 extended with `finalUrl` and `method`, plus `notes` only when
 the tool has something to report. `method` SHALL be one of `negotiated`,
-`alternate`, `md-suffix`, `readability`, `llms-txt`, `text`, `raw`, or
-`adapter`, and SHALL name the ladder stage or adapter that produced the returned content.
+`alternate`, `md-suffix`, `readability`, `llms-txt`, `text`, `raw`, `adapter`,
+or `image`, and SHALL name the ladder stage or adapter that produced the returned content.
+For `method: "image"`, the result SHALL instead be the image result under the
+image read requirement — `status`, `kind: "image"`, `media`, `mediaType`,
+`width`, and `height` — together with `path`, `finalUrl`, `method`, and `notes`
+only when non-empty, and SHALL carry no `content`, range fields, `nextOffset`,
+or `truncated`.
 For `method: "adapter"`, the result SHALL carry an `adapter` object with its
 stable `id` and `route` (`native` or `rewrite`); `origin` SHALL be present only
 for `rewrite`. The adapter result SHALL keep `finalUrl` equal to the source URL,
@@ -1877,7 +1975,7 @@ promise that two reads of the same URL return the same text.
 
 #### Scenario: The result is the native object plus the web fields
 
-- **WHEN** a web read succeeds
+- **WHEN** a web read of a text body succeeds
 - **THEN** the result carries `content`, the range metadata, `path` as the locator with its selector stripped (as a local read reports it), `finalUrl`, and `method`, with `notes` only when non-empty
 - **AND** it carries no `url`, `contentType`, `markdownTokens`, leading text header, or frontmatter block
 
@@ -1910,6 +2008,12 @@ promise that two reads of the same URL return the same text.
 - **WHEN** a declared rewrite entry renders `https://x.com/jack/status/20` through `https://x.pcstyle.dev`
 - **THEN** the result has `method: "adapter"`, `finalUrl: "https://x.com/jack/status/20"`, and an adapter object with route `rewrite` and origin `https://x.pcstyle.dev`
 - **AND** its notes state that the content came through the configured origin
+
+#### Scenario: An image result carries the web fields and no content
+
+- **WHEN** `https://example.test/shot` redirects to `https://cdn.example.test/shot.png`, which serves `image/png` with PNG bytes
+- **THEN** the result has `kind: "image"`, a `media` locator, `mediaType`, `width`, `height`, `path` `https://example.test/shot`, `finalUrl` `https://cdn.example.test/shot.png`, and `method: "image"`
+- **AND** it carries no `content`, range fields, `nextOffset`, `truncated`, `url`, or `contentType`
 
 ### Requirement: Web adapter contract is ordered, admitted, and fallible
 
@@ -2913,7 +3017,12 @@ than decoding the whole file first. A reader SHALL NOT change source
 admission, permission projection, owner resolution, executor binding, request
 policy, or the source-specific result envelope. Readers over
 bytes rather than decoded text SHALL define their own input contract rather
-than widening this one.
+than widening this one. Image detection is such a byte-level reader and sits
+outside the table: under the image read requirement it inspects a regular
+file's leading bytes, or a web body declared as an accepted image type, before
+any text decoding. The table SHALL gain no image member and no image media type,
+an image source SHALL have no representation, and an image result SHALL carry no
+`representation` field.
 
 #### Scenario: A Markdown file selects the outline reader
 
@@ -2950,6 +3059,12 @@ than widening this one.
 - **WHEN** the model requests `:outline` on a host, `file://`, `kb://`, or `skill://` directory, on `skill://`, or on a web read whose adapter returned a directory result
 - **THEN** the tool returns `invalid_selector`
 - **AND** it does not reinterpret the listing as headings or return a listing page as outline content
+
+#### Scenario: An image is detected outside the representation table
+
+- **WHEN** the model reads `/work/shot.png` without a member and its leading bytes are a PNG image
+- **THEN** the result is the image result and carries no `representation` field
+- **AND** `/work/shot.png:outline` returns `invalid_selector` rather than an outline or an image result
 
 ### Requirement: Markdown outlines are verbatim structural lines
 
@@ -3424,3 +3539,169 @@ SHALL remain unchanged.
 - **WHEN** the model reads a Markdown note through `kb://<space-id>/notes/guide.md:60-72`
 - **THEN** the result includes the direct ancestor chain and ordinary context lines for that note
 - **AND** it retains the Space identifier, display name, locator, and untrusted-content notice
+
+### Requirement: Image reads return an image result
+
+A native `read` SHALL return an image result when the bytes it acquires are a PNG, JPEG, GIF, or
+WebP image: a host path, `file:` alias, or Workspace-relative path, `kb://`, `skill://`, a web image
+body, or `media://`. The result SHALL carry `status: "success"`, `kind: "image"`, `media` (the object's
+`media://` locator), the stored original's `mediaType`, `width`, and `height`, and the source's
+existing attribution fields, and no `content` or image bytes. It SHALL NOT depend on the Run's model.
+
+#### Scenario: A host PNG returns an image result
+
+- **WHEN** the model reads `/work/shot.png`, a regular file whose bytes are a 1600 by 900 PNG image
+- **THEN** the result has `status: "success"`, `kind: "image"`, a `media` locator `media://<id>`, `mediaType` `image/png`, `width` 1600, `height` 900, and `path` `/work/shot.png`
+- **AND** it carries no `content` and no encoding of the image bytes
+
+#### Scenario: A skill image keeps the skill envelope
+
+- **WHEN** the model reads `skill://pdf/assets/sample.png`, whose bytes are a PNG image
+- **THEN** the result is the image result with the logical locator, selected source, `resolvedPath`, and `skillDirectory`
+- **AND** it carries no `content`
+
+#### Scenario: A model without image input still receives the envelope
+
+- **WHEN** a Run whose model declares no image input reads `/work/shot.png`, whose bytes are a PNG image
+- **THEN** the tool result is the same image result, with the same `media` locator, that a Run on a model declaring image input receives
+- **AND** the media object is created all the same
+
+### Requirement: Image detection reads leading bytes before text decoding
+
+For a regular file on a host path, `file:` alias, Workspace-relative path, `kb://`, or `skill://`,
+after the same admission, permission decision, owner resolution, and regular-file check as a text
+read, the reader SHALL compare the file's leading bytes with the PNG, JPEG, GIF, and WebP signatures
+before any UTF-8 decoding or line counting. The file extension SHALL NOT decide. Bytes that match no
+signature, SVG included, SHALL stay on the text path unchanged and SHALL create no media object.
+
+#### Scenario: The extension does not decide
+
+- **WHEN** the model reads `/work/notes.png`, whose bytes are an HTML document, and `/work/diagram.dat`, whose bytes are a JPEG image
+- **THEN** `/work/notes.png` returns its text with line numbers and creates no media object
+- **AND** `/work/diagram.dat` returns the image result with `mediaType` `image/jpeg`
+
+#### Scenario: An SVG file stays text
+
+- **WHEN** the model reads `/work/logo.svg`
+- **THEN** the result is the file's text with line numbers, as an ordinary text read returns it
+- **AND** no media object is created
+
+#### Scenario: A denied read ingests nothing
+
+- **WHEN** permission admission denies a `read` of `/work/shot.png`, whose bytes are a PNG image
+- **THEN** the tool returns `permission_denied` without opening the file
+- **AND** no media object is created
+
+### Requirement: Image reads ingest into the owner's media store
+
+A detected image SHALL be ingested into the Run owner's media store under tenant enforcement, with
+provenance `prompt-import` when the read's system origin is `prompt-import` and `read` otherwise, the
+submitted locator as source label, and the store's bounds. Bytes that owner already stored SHALL
+resolve to the existing object.
+
+#### Scenario: The stored object records its read provenance
+
+- **WHEN** the model reads `/work/shot.png`, whose bytes are a PNG image
+- **THEN** the Run owner holds a media object named by the result's `media` locator
+- **AND** that object has provenance `read` and source label `/work/shot.png`
+
+#### Scenario: A prompt-import read records prompt-import provenance
+
+- **WHEN** a prompt import reads `/work/shot.png` through `read` with system origin `prompt-import`,
+  and the owner has not stored those PNG bytes before
+- **THEN** the Run owner holds a new media object named by the result's `media` locator
+- **AND** that object has provenance `prompt-import` and source label `/work/shot.png`
+
+#### Scenario: Re-reading an image reuses its object
+
+- **WHEN** the model reads `/work/shot.png` twice without the file changing
+- **THEN** both results carry the same `media` locator
+- **AND** the Run owner holds one media object for those bytes
+
+#### Scenario: Identical bytes stay separate across owners
+
+- **WHEN** owner A's Run reads a PNG and owner B's Run later reads a file with identical bytes
+- **THEN** owner B's result carries a `media` locator different from owner A's
+- **AND** owner B's `read` of owner A's `media://` locator returns `not_found`
+
+### Requirement: Image ingest refusals fail the read
+
+A regular file whose leading bytes match an accepted image signature and whose size exceeds the media
+store's byte bound SHALL be refused without being read whole. A file matching no signature SHALL stay
+on the text path whatever its size. An ingest refusal SHALL fail the read with a bounded structured
+error, `image_too_large` for the byte or pixel bound, create no object, and not fall back to text.
+
+#### Scenario: An oversized image is refused
+
+- **WHEN** the model reads a 21 MiB PNG file, or a PNG file under 20 MiB whose header declares 41 megapixels
+- **THEN** the read fails with `image_too_large`
+- **AND** no media object is created and no text content is returned
+
+#### Scenario: A large text file is read as text
+
+- **WHEN** the model reads `/work/app.log`, a 25 MiB regular file whose bytes are text
+- **THEN** the read returns the file's text with line numbers under the ordinary text read rules
+- **AND** it does not fail with `image_too_large` and no media object is created
+
+### Requirement: Media locators read the owner's stored media
+
+`read` SHALL accept `media://<id>`, where `<id>` is a lower-case canonical UUID under the
+`media-store` locator grammar, and SHALL return the image result for the Run owner's object with
+that id, with `media` and `path` both equal to the locator. The id SHALL resolve under tenant
+enforcement against the Run owner only. Another owner's id and an unknown id SHALL return the same
+`not_found`. A bare `media://` or a malformed id SHALL fail with `invalid_path` before any lookup.
+
+#### Scenario: The owner's stored image is returned
+
+- **WHEN** the model reads `media://<id>` naming an image the Run owner stored
+- **THEN** the result is the image result with `media` and `path` equal to `media://<id>` and the stored original's `mediaType`, `width`, and `height`
+- **AND** no media object is created or changed
+
+#### Scenario: Another owner's id is indistinguishable from an unknown id
+
+- **WHEN** the model reads `media://<id>` naming an object another owner stored, and separately a well-formed id with no stored object
+- **THEN** both reads return the same `not_found` result
+- **AND** neither result carries any field of the other owner's object
+
+#### Scenario: Bare and malformed media locators are invalid
+
+- **WHEN** the model reads `media://`, `media://123`, or `media://` followed by an upper-case UUID
+- **THEN** the tool returns `invalid_path`
+- **AND** no media lookup is performed
+
+### Requirement: Media locators route before local path resolution
+
+`media://` SHALL be a scheme the shared locator parser recognizes, routed before local path
+resolution like `kb://`, `skill://`, and web locators, so it is never projected from an entered
+Workspace root, and `read` SHALL accept it on a process without a native executor.
+
+#### Scenario: A media locator is read without host authority
+
+- **WHEN** a process with no `tools.nativeExecutorId` allowlists `read`, and the model calls `read` with `media://<id>` naming an image the Run owner stored
+- **THEN** the read returns that image result without returning `executor_unavailable`
+- **AND** it binds no native executor identity and is not projected from an entered Workspace root
+
+### Requirement: Media locators are read-only and take no selector
+
+A `media://` read SHALL ingest nothing, SHALL NOT change the stored object, SHALL neither require
+nor bind a native executor identity, and SHALL trigger no instruction-file chain. Any selector on a
+`media://` locator SHALL fail with `invalid_selector` before any lookup. `edit` and `write` SHALL
+reject a `media://` locator with the unsupported-operation error, without a lookup or any effect.
+
+#### Scenario: A media read takes no selector
+
+- **WHEN** the model reads `media://<id>:raw`, `media://<id>:1-5`, or `media://<id>:outline`
+- **THEN** the tool returns `invalid_selector`
+- **AND** no media lookup is performed
+
+#### Scenario: Media locators are read-only
+
+- **WHEN** `edit` or `write` targets `media://<id>`
+- **THEN** the tool returns the unsupported-operation error
+- **AND** the stored object is unchanged and no file is created
+
+#### Scenario: A media read loads no instruction files
+
+- **WHEN** the model reads `media://<id>` while a Workspace is entered
+- **THEN** the result is the image result
+- **AND** no instruction-file chain is triggered by the read

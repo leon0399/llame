@@ -1,10 +1,10 @@
 Track [#935](https://github.com/leon0399/llame/issues/935), [#1166](https://github.com/leon0399/llame/issues/1166), and their PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's approval
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's approval
 of the published proposal revision; keep live status in the Project.
 
 Implementation is one `gh stack` rooted on `master`, one PR per layer, bottom to top. Every layer is
 created and published with `$gh-stack`, implemented with `$openspec-apply-change`, self-reviewed before
-it is marked ready, and monitored per [CONTRIBUTING.md](../../../CONTRIBUTING.md).
+it is marked ready, and monitored per [CONTRIBUTING.md](../../../../CONTRIBUTING.md).
 
 ```text
 (master) <- vision-media/proposal
@@ -159,5 +159,5 @@ Enter this layer with `$gh-stack` from the implementation top, before `$openspec
 writes. Its self-review and GitHub review are post-archive
 gates, not tasks here.
 
-- [ ] 10.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass
-- [ ] 10.2 Confirm `openspec status --change vision-media --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
+- [x] 10.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass
+- [x] 10.2 Confirm `openspec status --change vision-media --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean

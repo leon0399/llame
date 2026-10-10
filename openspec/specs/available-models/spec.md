@@ -46,7 +46,7 @@ Each available model entry SHALL include an opaque API `id`, a `source` enum val
 
 Internal system model catalog entries SHALL explicitly configure the provider execution id used by the adapter. The implementation SHALL NOT derive a provider execution id by parsing, splitting, or stripping the llame model `id`.
 
-Per model entry, `id`, `source`, and `contextWindowTokens` SHALL be required. `contextWindowTokens` is execution-critical — it sizes the context-compaction trigger — and SHALL therefore be part of the model contract at every layer (internal catalog, API response, and future org/group/user sources), not optional display metadata. All other metadata SHALL remain optional and SHALL NOT affect model executability; missing optional metadata, including `name`, SHALL NOT make model configuration invalid. Unknown optional metadata SHALL be omitted from JSON rather than returned as `null`; `null` is reserved for fields with explicit domain-level null semantics.
+Per model entry, `id`, `source`, `contextWindowTokens`, and `input` SHALL be required. `contextWindowTokens` is execution-critical — it sizes the context-compaction trigger — and SHALL therefore be part of the model contract at every layer (internal catalog, API response, and future org/group/user sources), not optional display metadata. `input` SHALL be `["text"]` when a model's configuration omits it, and SHALL NOT be omitted or returned as `null`. All other metadata SHALL remain optional and SHALL NOT affect model executability; missing optional metadata, including `name`, SHALL NOT make model configuration invalid. Unknown optional metadata SHALL be omitted from JSON rather than returned as `null`; `null` is reserved for fields with explicit domain-level null semantics.
 
 #### Scenario: System model entry
 
@@ -646,3 +646,26 @@ A change in effort between turns SHALL NOT author a model-visible context item, 
 - **WHEN** a turn changes both the model and the effort
 - **THEN** the model change is disclosed exactly as it is for an effort-unchanged model change
 - **AND** the disclosure does not mention effort
+
+### Requirement: Available model entries publish their input modalities
+
+An entry's `input` SHALL name the input modalities the model accepts, drawn only from `text` and
+`image`. It SHALL be the model's resolved configured declaration in its declared order, and it SHALL
+NOT be inferred from the model `id`, name, provider, or provider execution id.
+
+#### Scenario: Declared image input is published
+
+- **WHEN** a model entry configures `input: ["text", "image"]` and an authenticated caller requests
+  `GET /api/v1/models`
+- **THEN** that model's entry includes `input` equal to `["text", "image"]`
+
+#### Scenario: Undeclared input is published as text only
+
+- **WHEN** a model entry omits `input` and an authenticated caller requests `GET /api/v1/models`
+- **THEN** that model's entry includes `input` equal to `["text"]`
+- **AND** the field is neither omitted nor `null`
+
+#### Scenario: Every returned entry carries input
+
+- **WHEN** `GET /api/v1/models` returns several models, some declaring `input` and some not
+- **THEN** every returned entry includes a non-empty `input` array containing `text`
