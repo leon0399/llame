@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- **pnpm 11 → 12** (#634). `packageManager` pins `pnpm@12.9.0`, the version
+  nixpkgs packages as `pnpm_12`, and the Nix dev shell switches to
+  `pkgs.pnpm_12` on a nixpkgs lock bumped to 2026-10-08, which also moves its
+  Node to 22.23.3 (CI still reads `.node-version`). pnpm 12's patch parser
+  rejected `patches/@orval__fetch@8.24.0.patch`, whose last three hunks had
+  new-side starts that ignored the lines earlier hunks add. pnpm 11 never
+  read those numbers. The headers are corrected and the patch's content is
+  unchanged; its lockfile hash updates with them. The lockfile now also
+  records `pnpm@12.9.0` and its platform binaries, which pnpm 12 writes. No
+  repository script uses one of the install flags pnpm 12 removed.
+
 - Fixed load-dependent product E2E flakes where a chat spec typed into the
   composer before it was ready, so the typed prompt was discarded and the click
   sent nothing (#350). The composer remounts when the markdown renderer finishes
