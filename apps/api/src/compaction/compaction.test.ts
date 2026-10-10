@@ -28,6 +28,7 @@ import {
 } from './compaction';
 import type { ModelMessage } from 'ai';
 import { descriptor } from '../media/media-fixtures';
+import type { ToolResultOutput } from '../media/epoch-admission';
 import { createToolAvailabilityItem } from '../chats/context-item-producers';
 import type { StoredMessage } from '../chats/context-builder';
 import { isRecord, isString } from '@workspace/runtime-safety';
@@ -757,6 +758,69 @@ describe('media sizing (vision-media D6)', () => {
       expect(estimateWith({ ...dimensions, modelByteSize: 200 * 1024 })).toBe(
         estimateWith({ ...dimensions, modelByteSize: 3_700_000 }),
       );
+    });
+  });
+
+  describe('a tool-result image on a wire that moves it out of the tool message', () => {
+    const call: ModelMessage = {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-1',
+          toolName: 'read',
+          input: { path: '/work/shot.png' },
+        },
+      ],
+    };
+    const result = (output: ToolResultOutput): ModelMessage => ({
+      role: 'tool',
+      content: [
+        { type: 'tool-result', toolCallId: 'call-1', toolName: 'read', output },
+      ],
+    });
+    const estimateOn = (moveToolImages: boolean) =>
+      estimateModelRequestTokens({
+        ...request([
+          call,
+          result({
+            type: 'content',
+            value: [
+              { type: 'text', text: 'envelope' },
+              { type: 'image-url', url: `media://${A}` },
+            ],
+          }),
+        ]),
+        media: {
+          descriptors: new Map([[A, screenshot(1000)]]),
+          statuses: ['attached'],
+          imageInput: true,
+          moveToolImages,
+        },
+      });
+
+    it('counts the moved-image lines the Chat Completions wires send', () => {
+      expect(estimateOn(true)).toBe(
+        estimateModelRequestTokens(
+          request([
+            call,
+            result({ type: 'text', value: 'envelope\n(image attached below)' }),
+            {
+              role: 'user',
+              content: [{ type: 'text', text: 'Images from tool results:' }],
+            },
+          ]),
+        ) + 3000,
+      );
+    });
+
+    it('counts no moved-image lines on the Responses wire', () => {
+      expect(estimateOn(false)).toBe(
+        estimateModelRequestTokens(
+          request([call, result({ type: 'text', value: 'envelope' })]),
+        ) + 3000,
+      );
+      expect(estimateOn(false)).toBeLessThan(estimateOn(true));
     });
   });
 

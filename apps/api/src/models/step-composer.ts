@@ -60,7 +60,9 @@ export async function composeStepMessages(
   messages: Array<ModelMessage>,
   { resolver, imageInput, moveToolImages = false }: ComposeStepOptions,
 ): Promise<Array<ModelMessage>> {
-  const sizing = await loadMediaSizing(messages, resolver, imageInput);
+  const sizing = await loadMediaSizing(messages, resolver, imageInput, {
+    moveToolImages,
+  });
   if (sizing.refs.length === 0) return messages;
 
   // One owner-scoped read for the step's sent images; the resolver caches
@@ -79,14 +81,13 @@ export async function composeStepMessages(
       ? new Map<string, Uint8Array>()
       : await resolver.loadModelBytes(sent);
 
-  const projected = projectMediaRefs(messages, sizing, (id, descriptor) => {
+  return projectMediaRefs(messages, sizing, (id, descriptor) => {
     const image = bytes.get(id);
     // A descriptor whose blob cannot be read is as unresolvable as a missing one.
     return image === undefined
       ? [{ type: 'text', text: unavailablePlaceholder(id) }]
       : [{ type: 'image', image, mediaType: descriptor.modelMediaType }];
   });
-  return moveToolImages ? moveToolResultImages(projected) : projected;
 }
 
 /**
@@ -154,9 +155,11 @@ function moveResultImages(
  * `messages` as the composer projects them under `sizing` (see `mapMediaRefs`
  * for the placement): each reference becomes the unavailable placeholder when
  * unresolvable, the omitted one on a text-only model, the limit one when the
- * window does not attach it, and `attach(id, descriptor)` otherwise.
- * `sizing.statuses` is aligned to the end of `messages`' references, so a
- * continuation's trailing rows project with the whole request's admission.
+ * window does not attach it, and `attach(id, descriptor)` otherwise; with
+ * `sizing.moveToolImages`, tool-result images then move out of the tool
+ * messages (see `moveToolResultImages`). `sizing.statuses` is aligned to the
+ * end of `messages`' references, so a continuation's trailing rows project
+ * with the whole request's admission.
  */
 export function projectMediaRefs(
   messages: Array<ModelMessage>,
@@ -164,7 +167,7 @@ export function projectMediaRefs(
   attach: (id: string, descriptor: MediaDescriptor) => Array<ProjectedMedia>,
 ): Array<ModelMessage> {
   const offset = sizing.statuses.length - collectMediaRefs(messages).length;
-  return mapMediaRefs(messages, (id, index) => {
+  const projected = mapMediaRefs(messages, (id, index) => {
     const descriptor = sizing.descriptors.get(id);
     if (descriptor === undefined) {
       return [{ type: 'text', text: unavailablePlaceholder(id) }];
@@ -177,6 +180,64 @@ export function projectMediaRefs(
     }
     return attach(id, descriptor);
   });
+  return sizing.moveToolImages ? moveToolResultImages(projected) : projected;
+}
+
+/** The bytes a sized projection gives each attached image (see `projectSizedText`). */
+const UNSIZED = new Uint8Array(0);
+
+/**
+ * `messages` as the composer sends them under `sizing` (see
+ * `projectMediaRefs`), with every attached image passed to `charge` and then
+ * left out: the text an estimate counts, including the lines a wire that
+ * moves tool-result images adds, while the image itself is charged by its
+ * dimensions (vision-media D6).
+ */
+export function projectSizedText(
+  messages: Array<ModelMessage>,
+  sizing: MediaSizing,
+  charge: (descriptor: MediaDescriptor) => void,
+): Array<ModelMessage> {
+  const projected = projectMediaRefs(messages, sizing, (_id, descriptor) => {
+    charge(descriptor);
+    return [
+      { type: 'image', image: UNSIZED, mediaType: descriptor.modelMediaType },
+    ];
+  });
+  // An attached image is UNSIZED in a user message and, as `image-data`,
+  // empty base64 in a tool output or once moved out of one.
+  return projected.map((message): ModelMessage => {
+    if (message.role === 'tool') {
+      return { ...message, content: message.content.map(withoutSizedImages) };
+    }
+    if (message.role !== 'user' || !Array.isArray(message.content)) {
+      return message;
+    }
+    return {
+      ...message,
+      content: message.content.filter(
+        (part) =>
+          part.type !== 'image' ||
+          (part.image !== UNSIZED && part.image !== ''),
+      ),
+    };
+  });
+}
+
+/**
+ * `part` without the empty `image-data` items `projectSizedText` attaches;
+ * a result left with text alone is sized as a text output (see `toolOutput`).
+ */
+function withoutSizedImages(part: ToolMessagePart): ToolMessagePart {
+  if (part.type !== 'tool-result' || part.output.type !== 'content') {
+    return part;
+  }
+  const value = part.output.value.filter(
+    (item) => item.type !== 'image-data' || item.data !== '',
+  );
+  return value.length === part.output.value.length
+    ? part
+    : { ...part, output: toolOutput(value) };
 }
 
 /**

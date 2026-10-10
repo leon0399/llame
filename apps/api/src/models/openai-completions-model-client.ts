@@ -330,7 +330,7 @@ function reportBoundedFailure(
 /**
  * The adapter serializes tool content as text, so tool-result images move into
  * a user message here and on opencode-go, which composes over this client
- * (vision-media D6).
+ * (vision-media D6). The client declares it too, so estimates size that move.
  */
 const MOVE_TOOL_IMAGES = { moveToolImages: true } as const;
 
@@ -422,6 +422,7 @@ export function createOpenAICompletionsModelClient(
       compactionThresholdTokens: config.compactionThresholdTokens,
     }),
     ...(config.input !== undefined && { input: config.input }),
+    ...MOVE_TOOL_IMAGES,
     streamText: (input: ModelStreamInput) =>
       runOpenAICompatibleStream(provider, config, dependencies, input),
     generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) => {
