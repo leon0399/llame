@@ -1,14 +1,108 @@
 ## MODIFIED Requirements
 
+### Requirement: Every execution attempt resolves its effective context in the worker
+
+API acceptance SHALL persist the user message, selected public model/effort, and
+Run identity without resolving or persisting an effective prompt/tool catalog.
+Remove the old `modelContextSnapshotId` Run FK and required create input after
+historical system receipts have been migrated; no placeholder snapshot SHALL be
+created for acceptance. Source-context lookup SHALL follow the successful
+Run's system-only receipt.
+Each queue-authorized attempt SHALL resolve those fixed model choices through
+its executing worker's configuration, reread the owner's safe variable
+projection, and admit its worker-local current tool inventory. It SHALL render
+the complete system prompt and admitted llame-owned descriptions together from
+that one context. Existing digest and temporal lifecycles SHALL retain their
+meaning. A missing selected model SHALL fail explicitly without fallback.
+
+The system prompt and admitted declarations SHALL stay fixed in memory for
+that attempt's target-model loop after the pre-step checkpoint publication and
+final rendering. A trusted Workspace action admitted under `tool-calling` MAY
+extend the in-memory declarations without replacing existing declarations; each
+such addition SHALL take effect from the next model step, and Workspace exit,
+switch, or detach SHALL leave its declaration in the attempt-local catalog with
+an unavailable executor. The trusted executors and source declarations SHALL
+stay bound together in that memory; current invocation permissions,
+tenant/resource authority, and native recovery fences SHALL still apply. Source
+loss or drift during an MCP attempt SHALL use the existing unavailable-call
+behavior without substituting newer definitions.
+
+Before target-model I/O, the worker SHALL persist its finalized system-only prompt receipt
+under a still-current attempt identity. The pre-step compaction summary request
+is not target-model I/O for that attempt: the attempt's receipt is bound after
+the checkpoint publishes and records the prompt actually sent, and the summary
+request's pre-re-bake render SHALL NOT become a receipt. The window variant of
+that publication uses the previous completed Run's successful system receipt
+and separately identified operational events. Full tool catalogs, templates, schemas,
+descriptions, and source/declaration hashes SHALL NOT be persisted as execution
+context. Minimal id/state comparison records SHALL follow `tool-calling`, which
+writes them when a Run dispatches and compares each attempt against the most
+recent prior dispatched Run. Any permitted retry SHALL resolve and render its
+system prompt and declarations again rather than using its predecessor's
+receipt, catalog, or model context; its rail items follow the retry rule that
+`context-injection` states, keeping the items an earlier attempt of the Run
+stored and appending only newly derived ones.
+
+#### Scenario: Settings change while queued
+
+- **WHEN** the owner changes personalization after queue acceptance but before worker execution
+- **THEN** the attempt uses the current owner projection in both prompt surfaces
+- **AND** its receipt records its actual rendered system prompt
+
+#### Scenario: Catalog changes before retry
+
+- **WHEN** an infrastructure retry runs with a changed worker catalog
+- **THEN** it admits and renders the new attempt's catalog
+- **AND** it never loads a catalog or rendered description from the database
+
+#### Scenario: A retry renders again but keeps stored rail items
+
+- **WHEN** an attempt dispatched and stored accepted-turn rail items, and a
+  later attempt of the same Run retries it
+- **THEN** the retry resolves and renders its own system prompt and
+  declarations and binds its own receipt
+- **AND** it keeps the stored rail items unchanged and in place, appending only
+  the items its comparison newly yields
+
+#### Scenario: Tool definitions change during an attempt
+
+- **WHEN** an MCP source disconnects or changes its declaration after attempt preparation
+- **THEN** the existing in-memory declaration is not replaced
+- **AND** a requested incompatible call settles through the unavailable-tool path
+
+#### Scenario: Selected model is no longer executable
+
+- **WHEN** the worker cannot resolve the queued Run's selected model or effort
+- **THEN** preparation fails before target-model I/O
+- **AND** another model is not substituted
+
+#### Scenario: Render fails after scheduling
+
+- **WHEN** current attempt inputs produce an invalid or empty effective prompt
+- **THEN** that attempt fails final preparation with a safe error and no target-model request
+- **AND** the scheduled message/Run remains recorded without a new comparison baseline
+
+#### Scenario: Superseded attempt tries to publish context
+
+- **WHEN** an earlier worker tries to write a receipt, model context, or completion after a newer attempt owns the Run
+- **THEN** the stale write is refused under trusted attempt fencing
+- **AND** it cannot replace the winning attempt or advance availability state
+
+#### Scenario: Trusted Workspace addition extends the attempt catalog
+
+- **WHEN** a trusted Workspace action adds an admitted declaration during a Run
+- **THEN** that declaration joins the attempt-local model-facing catalog from the next model step without replacing an existing declaration
+- **AND** a later Workspace exit, switch, or detach leaves the declaration present with an unavailable executor, as specified by `tool-calling`
+
 ### Requirement: A model switch replaces the top-level prompt and preserves portable history
 
-For a turn whose selected model differs from the model recorded on the most recent prior assistant reply in effective history, whatever that reply's status, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability. It MUST NOT synthesize, rewrite, or re-bind an originating model's provider-native thinking/signature/cache metadata for the target model; reasoning parts and their provider metadata replay under the `reasoning-output` capability, which passes each part back unchanged, omits before the request any part the target wire cannot represent, and lets the target provider ignore or drop the rest. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
+For a turn whose selected model differs from the model recorded on the most recent prior assistant reply in the Chat whose sequence is below the triggering user message, whatever that reply's status and whether or not a checkpoint absorbed it, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability. It MUST NOT synthesize, rewrite, or re-bind an originating model's provider-native thinking/signature/cache metadata for the target model; reasoning parts and their provider metadata replay under the `reasoning-output` capability, which passes each part back unchanged, omits before the request any part the target wire cannot represent, and lets the target provider ignore or drop the rest. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
 
 Tool observations are no longer display-only. They are replayed in the conventional tool-call/tool-result representation, carried across a model or provider switch in the target provider's expected form, with every replayed call accompanied by its result. Reasoning parts are likewise no longer display-only for the Chat that stores them: `reasoning-output` replays each part and any provider metadata it carries, unchanged; the system neither coerces it nor selects which parts to keep by content, while the selected adapter still omits a part its wire cannot represent. What this requirement still forbids is llame synthesizing, rewriting, or re-binding an originating model's provider metadata for a different model.
 
 #### Scenario: User sends the next turn with a different model
 
-- **WHEN** the most recent prior assistant reply in effective history records model `A` and the user sends the next message with model `B`
+- **WHEN** the most recent prior assistant reply in the Chat records model `A` and the user sends the next message with model `B`
 - **THEN** model `B` receives model `B`'s effective top-level system prompt and tool declarations
 - **AND** portable earlier conversation turns remain in history
 - **AND** model `A`'s system prompt is not replayed
@@ -61,12 +155,12 @@ Tool observations are no longer display-only. They are replayed in the conventio
 
 #### Scenario: Same model continues
 
-- **WHEN** the selected model is the same as the model recorded on the most recent prior assistant reply in effective history, whatever that reply's status
+- **WHEN** the selected model is the same as the model recorded on the most recent prior assistant reply in the Chat, whatever that reply's status
 - **THEN** no model-switch reminder or model-switch UI boundary is created
 
 #### Scenario: First turn in a chat
 
-- **WHEN** a chat has no prior assistant reply in effective history
+- **WHEN** a chat has no assistant reply with a sequence below the triggering user message
 - **THEN** the selected model receives its effective prompt normally
 - **AND** no model-switch reminder is created
 
@@ -74,7 +168,7 @@ Failed-attempt visible output and tool observations SHALL remain part of the com
 
 ### Requirement: Model switches use canonical persisted context text and metadata
 
-The worker SHALL prepare a server-authored context part when the selected model differs from the model recorded on the most recent prior assistant reply in effective history, whatever that reply's status; a failed or cancelled reply counts, because its switch item is already in history, while the previous completed Run remains the source for compaction's model and system-prompt receipt. It SHALL persist that exact text on the triggering user message in the transaction that dispatches the attempt's first model request, whatever the Run's outcome; a retry of the same Run SHALL reuse the stored item unchanged rather than author another. Its
+The worker SHALL prepare a server-authored context part when the selected model differs from the model recorded on the most recent prior assistant reply in the Chat whose sequence is below the triggering user message, whatever that reply's status and whether or not a checkpoint absorbed it; a failed or cancelled reply counts, because its switch item is already in history, while the previous completed Run remains the source for compaction's model and system-prompt receipt. A running or finalized reply records its model id in its usage, so every Run that dispatched a model request leaves a reply that can serve as this baseline. It SHALL persist that exact text on the triggering user message in the transaction that dispatches the attempt's first model request, whatever the Run's outcome; a retry of the same Run SHALL keep the stored item unchanged and SHALL NOT add a second switch item when one is already stored on the triggering user message. Its
 producer SHALL be `effective-context-change`, its form SHALL be `notice`, and
 its `data.v` SHALL remain `1`.
 
@@ -150,12 +244,36 @@ rewrite model replay.
 - **THEN** that turn persists a switch item from model `B` to model `A`
 - **AND** history does not leave the model believing model `B` is still active
 
+#### Scenario: A switch that forces compaction is still announced
+
+- **WHEN** the most recent prior reply records model `A` and the next turn
+  selects smaller-context model `B` whose window the prepared request does not
+  fit
+- **AND** the window variant publishes a checkpoint that absorbs model `A`'s
+  reply
+- **THEN** the attempt still compares model `B` against model `A` recorded on
+  that absorbed reply
+- **AND** it persists a switch item from model `A` to model `B` at dispatch,
+  and the request carries the checkpoint before that reminder and the
+  triggering user text
+
+#### Scenario: A checkpoint left by an undispatched Run does not hide the switch
+
+- **WHEN** a reply records model `A`, and a later Run on model `B` publishes a
+  checkpoint absorbing that reply and then fails before dispatching
+- **AND** the next turn selects model `B`
+- **THEN** that turn compares model `B` against model `A` recorded on the
+  absorbed reply
+- **AND** it persists a switch item from model `A` to model `B`
+
 #### Scenario: A retry reuses the stored switch item
 
 - **WHEN** an attempt persisted a switch item at dispatch and a later attempt of
   the same Run retries it
-- **THEN** the retry's request carries the stored switch item unchanged
-- **AND** no second switch item is authored for that user message
+- **THEN** the retry's request carries the stored switch item unchanged and in
+  place
+- **AND** the retry adds no second switch item, because one is already stored
+  on the triggering user message
 
 #### Scenario: Metadata and text disagree
 
@@ -612,7 +730,7 @@ configuration.
 
 - **WHEN** a retry renders a different system prompt from an earlier failed attempt
 - **THEN** both prepared attempts have separate immutable system-only receipts
-- **AND** the retry reuses the accepted-turn context items stored by the earlier attempt, while the earlier attempt's in-Run context items leave history together with its output when the retry resets the reply
+- **AND** the retry keeps the accepted-turn context items stored by the earlier attempt and appends only newly derived ones, while the earlier attempt's in-Run context items leave history together with its output when the retry's dispatch resets the reply
 
 #### Scenario: Owner inspects Workspace paths in effective context
 
