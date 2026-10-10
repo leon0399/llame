@@ -277,12 +277,6 @@ export interface ModelClient {
    * clients, and then means `['text']`.
    */
   readonly input?: ReadonlyArray<ModelInput>;
-  /**
-   * Whether the client's wire moves tool-result images into a user message
-   * (the Chat Completions wires, vision-media D6), so request-size estimates
-   * size the request it sends. Absent means it keeps them in the tool output.
-   */
-  readonly moveToolImages?: boolean;
   streamText(input: ModelStreamInput): ModelStreamResult;
   /**
    * Schema-constrained single object generation. How the object is obtained

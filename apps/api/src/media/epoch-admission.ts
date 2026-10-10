@@ -242,8 +242,7 @@ export function collectMediaRefs(
  * How a request's media references are projected (vision-media D6): the
  * owner's descriptors for its stored references, the attempt's entries for
  * its unstored ones, and their epoch admission, in request order, for a model
- * that does or does not declare `image` input, on a wire that does or does not
- * move tool-result images into a user message. The step composer projects a
+ * that does or does not declare `image` input. The step composer projects a
  * request from it; the estimators size one with it.
  *
  * A continuation estimate sizes only the request's trailing rows, so its
@@ -254,8 +253,6 @@ export type MediaSizing = {
   held: ReadonlyMap<string, HeldImage>;
   statuses: ReadonlyArray<MediaAdmission>;
   imageInput: boolean;
-  /** Whether tool-result images move into a user message (Chat Completions wires). */
-  moveToolImages?: boolean;
 };
 
 /**
@@ -267,7 +264,6 @@ export async function loadMediaSizing(
   messages: ReadonlyArray<ModelMessage>,
   resolver: RunMediaResolver,
   imageInput: boolean,
-  { moveToolImages = false }: { moveToolImages?: boolean } = {},
 ): Promise<MediaSizing & { refs: ReadonlyArray<MediaRef> }> {
   const refs = collectMediaRefs(messages);
   const descriptors = await resolver.describe(refs.filter(isString));
@@ -286,7 +282,6 @@ export async function loadMediaSizing(
       descriptors,
     ),
     imageInput,
-    moveToolImages,
   };
 }
 
