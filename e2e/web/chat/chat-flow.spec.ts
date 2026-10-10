@@ -11,10 +11,21 @@
 import { expect, test } from "../../support/fixtures";
 
 const ANSWER = "Mocked answer from the e2e model server.";
+// The structured title the model mock returns for `generate_title`; the text
+// fallback would produce "E2E Mock Title" instead.
+const GENERATED_TITLE = "E2E Generated Title";
+const apiUrl =
+  process.env.NEXT_PUBLIC_API_URL ??
+  `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
+
+function isTitledChat(value: unknown): value is { title: unknown } {
+  return value !== null && typeof value === "object" && "title" in value;
+}
 
 test.describe("chat flow (worker execution mode)", () => {
   test("create → stream → render: first message creates the chat and streams the answer", async ({
     page,
+    account,
   }) => {
     await page.goto("/");
 
@@ -34,6 +45,24 @@ test.describe("chat flow (worker execution mode)", () => {
     await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/, {
       timeout: 15_000,
     });
+
+    // Title generation took the structured path: a fallback to text would
+    // still title the chat, but with the mock's text answer.
+    const chatId = new URL(page.url()).pathname.split("/").at(-1);
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get(
+            `${apiUrl}/api/v1/chats/${chatId}`,
+            { headers: { Authorization: `Bearer ${account.token}` } },
+          );
+          expect(response.status(), await response.text()).toBe(200);
+          const body: unknown = await response.json();
+          return isTitledChat(body) ? body.title : undefined;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe(GENERATED_TITLE);
   });
 
   test("refresh mid-FIRST-answer resumes the draft run and completes (#49)", async ({
