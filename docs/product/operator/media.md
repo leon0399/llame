@@ -71,6 +71,12 @@ configuration.
 | Format       | PNG, JPEG, GIF, or WebP, detected by magic bytes          | `unsupported_media_type` |
 | Decodability | the image must decode fully                               | `unsupported_media_type` |
 
+Size the API and worker memory for concurrent ingests, not upload bytes. A
+40-megapixel image can upload as about 2 MiB but decodes to roughly 120–160 MB
+of pixel buffers while its model variant is built, on top of the up to 20 MiB
+the upload route holds for the request. Memory returns after each ingest, but
+the request rate limit does not bound how many ingests run at once.
+
 The filename, extension, and declared Content-Type never decide the format: a
 JPEG named `notes.txt` is stored as `image/jpeg`, and HTML named `shot.png` is
 refused. SVG is refused. A refused input stores nothing.
