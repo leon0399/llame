@@ -1,4 +1,6 @@
 @import "katex/dist/katex.min.css";
+/* MediaLightbox (custom/media-lightbox.tsx) themes it through its CSS variables. */
+@import "yet-another-react-lightbox/styles.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -210,5 +212,17 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* yet-another-react-lightbox strips its buttons' outline; give them the
+   system's visible focus ring (DESIGN.md §6). A pseudo-class, so it cannot go
+   through the library's `styles` prop like MediaLightbox's colors. */
+@layer components {
+  .yarl__button {
+    @apply rounded-md;
+  }
+  .yarl__button:focus-visible {
+    @apply ring-[3px] ring-ring/50;
   }
 }

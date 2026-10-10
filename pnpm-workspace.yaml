@@ -124,6 +124,7 @@ catalog:
   tsx: ^4.23.12
   typescript: 5.9.3
   use-stick-to-bottom: ^1.1.1
+  yet-another-react-lightbox: 3.32.2
   # Exact, not a range: vitest warns and may misbehave when the
   # coverage provider's version differs from its own, and vitest
   # itself is lockfile-pinned at 4.1.10.

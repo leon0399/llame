@@ -51,6 +51,7 @@
     "use-stick-to-bottom": "catalog:",
     "vite": "6.4.3",
     "vitest": "catalog:",
+    "yet-another-react-lightbox": "catalog:",
     "zod": "catalog:"
   }
 }

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, fn, waitFor, within } from "storybook/test";
 
 import {
   Message,
@@ -105,17 +105,18 @@ export const ImportedDeniedFailedOmitted: Story = {
 const MEDIA_LOCATOR = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
 
 /**
- * A prompt that imported images beside the other outcomes. An image entry's
- * private record, the inline thumbnail of an image that was not stored or a
- * `media://` locator, changes nothing in the chip: every outcome is still
- * listed, the images as imported prompt files.
+ * A prompt that imported images beside the other outcomes. Every outcome is
+ * still listed as a chip, the images as imported prompt files, and a
+ * `media://` import also shows its thumbnail (the `/model` route), which opens
+ * the chat lightbox.
  *
- * @summary image entries beside denied, failed, and omitted prompt files
+ * @summary image entries with a thumbnail beside denied, failed, and omitted prompt files
  */
 export const WithImageEntry: Story = {
   tags: ["ai-generated"],
   args: {
     imports: [
+      { locator: "docs/GUIDE.md", outcome: "imported" },
       {
         locator: "shot.png",
         resolved: "/home/operator/repo/shot.png",
@@ -126,13 +127,28 @@ export const WithImageEntry: Story = {
         mediaType: "image/png",
       },
       { locator: MEDIA_LOCATOR, outcome: "imported", media: MEDIA_LOCATOR },
-      { locator: "docs/GUIDE.md", outcome: "imported" },
       { locator: "/srv/secret.png", outcome: "denied" },
       { locator: "missing.png", outcome: "failed" },
     ],
     omitted: ["extra.png"],
+    onOpenImage: fn(),
   },
-  play: async ({ canvas }) => {
+  play: async ({ args, canvas, userEvent }) => {
+    const thumbnails = canvas.getByRole("list", { name: "Imported images" });
+    const image = within(thumbnails).getByRole("img", { name: MEDIA_LOCATOR });
+    await expect(image).toHaveAttribute(
+      "src",
+      expect.stringMatching(
+        /\/api\/v1\/media\/0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f\/model$/,
+      ),
+    );
+    await expect(within(thumbnails).getAllByRole("img")).toHaveLength(1);
+    await userEvent.click(
+      within(thumbnails).getByRole("button", { name: MEDIA_LOCATOR }),
+    );
+    // The stored image is the payload's third entry.
+    await expect(args.onOpenImage).toHaveBeenCalledWith(2);
+
     await expect(
       canvas.getByLabelText("Imported prompt file: shot.png"),
     ).toBeVisible();

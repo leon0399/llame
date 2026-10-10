@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, fn } from "storybook/test";
 
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 
@@ -191,6 +191,81 @@ export const Directory: Story = {
     await expect(
       canvas.queryByText(/continues at line/u),
     ).not.toBeInTheDocument();
+  },
+};
+
+/** A labelled 16:9 placeholder standing in for a stored image's model variant. */
+const SHOT_THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="100%" height="100%" fill="#e4e4e7"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#18181b">shot.png</text></svg>',
+)}`;
+
+const SHOT_LOCATOR = "media://0199d1c4-5e6f-7a8b-9c0d-1e2f3a4b5c6d";
+
+/**
+ * A read whose bytes were an image returns the stored object instead of
+ * content: the card shows its thumbnail, which opens the chat's lightbox, and
+ * the original's size, format, and `media://` locator.
+ *
+ * @summary for an image returned by `read`
+ */
+export const ImageResult: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "/work/shot.png" },
+    output: {
+      status: "success" as const,
+      kind: "image" as const,
+      path: "/work/shot.png",
+      media: SHOT_LOCATOR,
+      mediaType: "image/png",
+      width: 1600,
+      height: 900,
+    },
+    imageSrc: (media: string) =>
+      media === SHOT_LOCATOR ? SHOT_THUMBNAIL : null,
+    onOpenImage: fn(),
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    await expect(
+      canvas.getByRole("img", { name: "/work/shot.png" }),
+    ).toHaveAttribute("src", SHOT_THUMBNAIL);
+    await expect(canvas.getByText("1600×900 PNG")).toBeInTheDocument();
+    await expect(canvas.getByText(SHOT_LOCATOR)).toBeInTheDocument();
+    await expect(canvas.queryByText("No content.")).not.toBeInTheDocument();
+    await userEvent.click(
+      canvas.getByRole("button", { name: "/work/shot.png" }),
+    );
+    await expect(args.onOpenImage).toHaveBeenCalledOnce();
+  },
+};
+
+/**
+ * Without a thumbnail source (a surface that cannot load stored media) the
+ * image result still names its size, format, and locator.
+ *
+ * @summary for an image result shown without a thumbnail
+ */
+export const ImageResultWithoutThumbnail: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "kb://3f2a9c1e/diagrams/flow.webp" },
+    output: {
+      status: "success" as const,
+      kind: "image" as const,
+      path: "kb://3f2a9c1e/diagrams/flow.webp",
+      media: SHOT_LOCATOR,
+      mediaType: "image/webp",
+      width: 800,
+      height: 600,
+      notice: "Owner-maintained Knowledge; untrusted and possibly stale.",
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    await expect(canvas.queryByRole("img")).not.toBeInTheDocument();
+    await expect(canvas.getByText("800×600 WEBP")).toBeInTheDocument();
+    await expect(canvas.getByText("notice:")).toBeInTheDocument();
   },
 };
 

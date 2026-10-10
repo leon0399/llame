@@ -35,6 +35,9 @@ sb.mock(import("../../web/lib/services/memory/mutations.ts"));
 // - media/uploads: keeps composer attachment uploads off the network; stories
 //   resolve, reject, or hold `uploadImage` to show each upload state.
 sb.mock(import("../../web/lib/services/media/uploads.ts"));
+// - media/descriptors: keeps the chat lightbox's descriptor loads off the
+//   network; stories resolve `fetchMediaDescriptor` per media id.
+sb.mock(import("../../web/lib/services/media/descriptors.ts"));
 
 // One QueryClient shared across stories (retry off so any mutation/query hook
 // in an apps/web component doesn't hammer a nonexistent backend), cleared

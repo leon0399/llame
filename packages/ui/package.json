@@ -42,6 +42,7 @@
     "streamdown": "catalog:",
     "tw-animate-css": "^1.2.4",
     "use-stick-to-bottom": "catalog:",
+    "yet-another-react-lightbox": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

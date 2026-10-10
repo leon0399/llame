@@ -15,6 +15,7 @@ import {
   AlertTitle,
 } from "@workspace/ui/components/alert";
 
+import { ChatLightbox } from "./chat-lightbox";
 import { ChatLoadOlder } from "./chat-load-older";
 import { CompactionBoundary } from "./compaction-boundary";
 import { ChatMessageRow, messageBoundaries } from "./chat-message-row";
@@ -104,7 +105,8 @@ type ChatTranscriptMessagesProps = {
 };
 
 /** Every message row, plus the trailing compaction boundary when it lands
- *  after the last loaded message. Split out of `ChatTranscript` as its own
+ *  after the last loaded message, inside the chat lightbox that every image
+ *  thumbnail of these rows opens. Split out of `ChatTranscript` as its own
  *  self-contained region. */
 function ChatTranscriptMessages({
   chatId,
@@ -118,7 +120,7 @@ function ChatTranscriptMessages({
   const router = useRouter();
 
   return (
-    <>
+    <ChatLightbox messages={displayMessages}>
       {displayMessages.map((message, index) => (
         <ChatTranscriptMessage
           key={`message-${messageRenderKey(message)}`}
@@ -142,7 +144,7 @@ function ChatTranscriptMessages({
           availableModels={availableModels}
         />
       )}
-    </>
+    </ChatLightbox>
   );
 }
 
