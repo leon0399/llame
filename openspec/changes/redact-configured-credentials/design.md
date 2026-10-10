@@ -2,80 +2,113 @@
 
 ## Context
 
-- The bash executor already redacts: `executeManagedBash` accepts
-  `protectedValues`, and `sanitize.ts` replaces each with `[REDACTED]` before
-  cutting at the output bound. `apps/api/src/tools/bash.ts` never passes the
-  option.
-- MCP already derives protected values per server: `config-loader.ts` collects
-  every `{env:…}`/`{path:…}` substitution of a stdio entry, remote clients add
-  their header values, and `@workspace/runtime-safety`'s
-  `normalizeProtectedValues` dedupes, drops empties, and sorts longest first.
-- Every language-model client is built by one factory,
-  `apps/api/src/models/model-client-factory.ts` `createModelClient`.
-  Failures leave a client through three channels: the stream's `onError`
-  callback, the stream result's rejected promises (`text`, `consumeStream`),
-  and a rejected `generateObject`.
-- Title generation logs `error.message` and `error.stack` itself
+- The bash executor redacts a `protectedValues` list in `sanitize.ts` with its
+  own sequential split/join, but only after `watch.ts` `appendBound` has
+  already clipped each raw stream at the output bound while capturing, so a
+  credential crossing the bound leaves its prefix. `apps/api/src/tools/bash.ts`
+  passes no list.
+- `@workspace/runtime-safety` `redactProtectedString` redacts with one
+  leftmost-longest scan, and `normalizeProtectedValues` dedupes, drops empties,
+  and sorts. MCP uses them; `bash-executor` already depends on the package.
+- MCP protects per server: every whole resolved remote header value, and every
+  stdio `command`/`args`/`env` substitution
+  (`config-loader.ts` `resolveStdioServer`). Provider headers resolve through
+  `resolveInterpolatedString`, which does not report substitutions.
+- Every language-model client is built by `createModelClient`
+  (`apps/api/src/models/model-client-factory.ts`). Failures leave a client
+  through the stream's `onError`, the stream result's rejected promises
+  (`text`, `consumeStream`), and a rejected `generateObject`. When a caller
+  supplies no `onError`, the Responses and Messages clients pass none, and the
+  AI SDK's default handler logs the raw error object.
+- Consumers classify failures by identity and properties:
+  `run-execution.service.ts` reads `instanceof ModelStreamIdleError` and
+  `.code`; hosted web search reads `RetryError.isInstance`, `lastError`, and
+  `statusCode`; the Codex and Messages sanitizers keep `statusCode`; abort
+  settlement passes the signal's reason, which may be a string.
+- Title generation logs `error.message` and `error.stack`
   (`apps/api/src/titles/title.service.ts`).
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- One credential set, derived once, consumed by bash and by every model
-  client.
-- Redaction at one boundary per consumer, so a new wire or a new call site
-  inherits it.
+- One set, derived once, consumed by bash and by every model client.
+- One redaction routine for every consumer.
+- Redaction at one boundary per consumer, so a new wire or call site inherits
+  it.
 
 **Non-Goals:**
 
-- New configuration, a redaction registry, or per-tool opt-in.
+- New configuration, a registry, or per-tool opt-in.
 
 ## Decisions
 
-### D1. Membership by field, not by interpolation
+### D1. The loader collects members while resolving
 
-See proposal.md, Decisions for approval. The set is built in
-`loadInstanceConfig` from the already-resolved provider, web-search, adapter,
-and MCP entries, and carried on the loaded configuration as a frozen,
-normalized array that is never part of any serialized projection. Building it
-from resolved entries, not by re-scanning raw text, keeps one source of truth
-for what each field resolved to.
+`loadInstanceConfig` collects members as it resolves each field, rather than
+re-deriving them afterwards: whole values for credential fields; the
+`substituted` values from `interpolateStringWithSubstitutions` for provider
+headers and `baseUrl`, the remote MCP `url`, and stdio `env`; the string leaves
+of a selected JSON document from the interpolation package's document read;
+and `POSTGRES_URL` with its parsed password. The result is normalized and
+frozen on the loaded configuration and excluded from every serialized
+projection.
 
-- Alternative: every interpolation. Rejected: redacting `knowledge.root` or a
-  port corrupts paths and numbers in ordinary output.
-- Alternative: only interpolated credentials, not literal ones. Rejected: a
-  literally written key is still the key.
+- Alternative: every interpolation. Rejected: see proposal D1.
+- Alternative: whole provider header values, as remote MCP does. Rejected for
+  provider headers: their literal parts (the `Bearer` prefix) are not secret and would
+  be redacted wherever they appear. Remote MCP header values stay whole to
+  match `mcp-tools`.
 
-### D2. Bash passes the set as the executor's existing option
+### D2. Bash redacts through runtime-safety before the bound
 
-`bash.ts` passes `protectedValues` to `admitManagedBash`. No executor change:
-its tests already cover replacement before the bound and at code-point
-boundaries.
+`bash.ts` passes the set as `protectedValues`. The executor captures up to
+`bound + longest member − 1` characters per stream, redacts with
+`redactProtectedString`, and only then applies the bound and truncation
+metadata, so a member crossing the bound is redacted whole. Its own
+split/join is replaced by the shared routine.
 
-### D3. Model failures are redacted by wrapping the factory's client
+### D3. Model failures keep their identity
 
-`createModelClient` wraps the client it builds so the three failure channels
-redact each error's message, and `cause` chain messages, before they leave.
-The wrapper creates a new `Error` carrying the redacted message and the
-original class name rather than mutating the SDK's object, so a stack trace
-logged later also passes through redaction. Title generation logs through the
-same redacted error. Per-wire sanitizers stay as they are and run first; this
-layer only removes credentials.
+`createModelClient` wraps the client it builds:
 
-- Alternative: redact in `RunExecutionService` where the failure is recorded.
-  Rejected: it misses title generation, compaction, hosted web search, and any
-  caller with no error handler, which are the paths #1098 names.
+- An error whose message, stack, cause chain, and string own properties
+  contain no member passes through as the same object.
+- Otherwise those strings are redacted in place on the original object, so
+  `instanceof`, the AI SDK's symbol-marked `isInstance`, `statusCode`,
+  `lastError`, and `code` are untouched.
+- A non-`Error` value passes through unless it is a string containing a
+  member, which is redacted.
+- The wrapper always installs an `onError`; when the caller supplied none, it
+  logs the redacted error through llame's logger instead of letting the SDK
+  log the raw object.
+- Title generation logs through the redacted error.
+
+Per-wire sanitizers run first and are unchanged.
+
+- Alternative: replace the error with a new `Error`. Rejected: it breaks the
+  classification consumers above.
+- Alternative: redact where `RunExecutionService` records the failure.
+  Rejected: it misses title generation, compaction, hosted search, and callers
+  with no handler.
+
+### D4. Overlapping members merge into one marker
+
+`redactProtectedString` is extended to replace the union of every member's
+match intervals, merging overlapping or adjacent intervals into one
+`[REDACTED]`, so two members that overlap without containment leave no tail.
+MCP inherits the fix.
 
 ## Risks / Trade-offs
 
-- [A short credential matches unrelated text] → Exact substring replacement
-  of a short operator value can redact ordinary output. Credentials are long
-  in practice; the risk is accepted and the operator doc says why.
-- [Encoded forms leak] → A base64 or URL-encoded credential is not matched.
-  Accepted and documented; the stronger control is not letting bash read the
-  file (permission policy, future Sandbox).
-- [An SDK error class check downstream] → Replacing the error object could
-  break an `instanceof` check on SDK classes. D3 keeps the class name, and
-  the implementation layer must check every consumer that branches on the
-  error class (abort detection, retry classification) and preserve it.
+- [A short or common member matches unrelated text] → Credentials are long in
+  practice; a selected document's short leaves (a timestamp, a boolean
+  spelling) can over-redact. Accepted and documented in the operator pages.
+- [Encoded forms and other tools] → See the proposal's threat model.
+- [A consumer reads an error property the wrapper did not consider] → D3
+  mutates only string values in place; task 2.1 lists every consumer that
+  branches on a failure and proves each still classifies it.
+- [Two in-flight changes modify the same requirement] →
+  `reconcile-opencode-go-route-failure-wording` also modifies
+  "Upstream failures are mirrored under the existing contract"; whichever
+  syncs second rebuilds its delta from the new canonical text.

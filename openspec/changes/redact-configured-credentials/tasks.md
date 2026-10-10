@@ -17,12 +17,12 @@ master
   <- redact-configured-credentials/finalize
 ```
 
-| Layer                                          | Parent           | Ownership                                                                         | Authored estimate | Closes |
-| ---------------------------------------------- | ---------------- | --------------------------------------------------------------------------------- | ----------------- | ------ |
-| `redact-configured-credentials/proposal`       | `master`         | The approved proposal, design, deltas, and this task list.                        | ~350              | none   |
-| `redact-configured-credentials/bash`           | `proposal`       | The configured credential set and its use in bash results, with tests and docs.   | ~400              | #1065  |
-| `redact-configured-credentials/model-failures` | `bash`           | Redacting every language-model failure through the client factory and title logs. | ~600              | #1098  |
-| `redact-configured-credentials/finalize`       | `model-failures` | Spec sync, task records, and archive movement only.                               | ~250              | none   |
+| Layer                                          | Parent           | Ownership                                                                                                        | Authored estimate | Closes |
+| ---------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------- | ------ |
+| `redact-configured-credentials/proposal`       | `master`         | The approved proposal, design, deltas, and this task list.                                                       | ~350              | none   |
+| `redact-configured-credentials/bash`           | `proposal`       | The configured credential set, one redaction routine, and redact-before-bound bash results, with tests and docs. | ~700              | #1065  |
+| `redact-configured-credentials/model-failures` | `bash`           | Redacting every language-model failure through the client factory and title logs, keeping error identity.        | ~700              | #1098  |
+| `redact-configured-credentials/finalize`       | `model-failures` | Spec sync, task records, and archive movement only.                                                              | ~250              | none   |
 
 ## 0. proposal
 
@@ -33,27 +33,30 @@ master
 
 ## 1. bash
 
-- [ ] 1.1 Derive the configured credential set in `loadInstanceConfig` from the resolved provider, web-search, `github` adapter, and MCP entries, normalized with `normalizeProtectedValues`; verify `config-loader.test.ts` cases for each member kind in the instance-config scenarios, a literal key, a blank key, and that `knowledge.root`, a numeric setting, and a header's literal text are absent.
-- [ ] 1.2 Verify the set appears in no serialized projection: `GET /api/v1/models` and every other config-derived response; add a test that a canary credential is absent from the models response.
-- [ ] 1.3 Pass the set as `protectedValues` from `apps/api/src/tools/bash.ts`; verify a `bash.ts` test where a command prints a canary provider key and a canary MCP header substitution, the result and the persisted `native.result` event contain `[REDACTED]` and neither canary, and a printed `knowledge.root` path survives.
-- [ ] 1.4 Document the redaction in `docs/product/reference/tools/bash.md` and the bash operator page, including the encoded-form and short-value limits; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
-- [ ] 1.5 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/instance-config src/tools`, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
-- [ ] 1.6 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
-- [ ] 1.7 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1065` in the PR body.
+- [ ] 1.1 Collect the configured credential set in `loadInstanceConfig` while resolving each member field (design D1), normalized with `normalizeProtectedValues`; verify `config-loader.test.ts` cases for every scenario of the four `instance-config` requirements, including a literal key, a blank key, a Codex auth document's refresh token, `POSTGRES_URL` and its password, a provider header's literal `Bearer` absent, and `knowledge.root`, a numeric setting, and a stdio `args` substitution absent.
+- [ ] 1.2 Verify the set appears in no serialized projection: a canary credential is absent from `GET /api/v1/models` and every other configuration-derived response.
+- [ ] 1.3 Extend `redactProtectedString` in `@workspace/runtime-safety` to merge overlapping and adjacent match intervals into one marker (design D4); verify unit tests for containment, partial overlap, adjacency, and that existing MCP redaction tests still pass.
+- [ ] 1.4 In `packages/bash-executor`, capture up to `bound + longest member − 1` characters per stream, redact with `redactProtectedString`, then apply the bound (design D2); verify a `watch.test.ts` case where a member begins a few characters before the bound yields no prefix of it and still reports truncation, and that the contract tests still pass.
+- [ ] 1.5 Pass the set as `protectedValues` from `apps/api/src/tools/bash.ts`; verify a `bash.ts` test where a command prints a canary provider key and a canary MCP header value, the result and the persisted `native.result` event contain `[REDACTED]` and neither canary, and a printed `knowledge.root` path survives.
+- [ ] 1.6 Document the redaction, its threat model, and the encoded-form and short-value limits in `docs/product/reference/tools/bash.md` and the bash operator page; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
+- [ ] 1.7 Verify the layer: `pnpm --filter @workspace/runtime-safety test`, `pnpm --filter @workspace/bash-executor test`, in `apps/api` `pnpm exec vitest run --project unit src/instance-config src/tools src/mcp`, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
+- [ ] 1.8 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
+- [ ] 1.9 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1065` in the PR body.
 
 ## 2. model-failures
 
-- [ ] 2.1 Wrap the client `createModelClient` builds so `onError`, the stream result's rejections, and `generateObject` rejections redact the set from each error's message and `cause` messages, keeping the error's class name; list every consumer that branches on the error's class or `name` and verify each still classifies the wrapped error as before.
-- [ ] 2.2 Route title generation's failure log through the redacted error; verify a title test where a canary credential in the upstream message is absent from the log line.
-- [ ] 2.3 Verify per-wire tests, with a stubbed upstream echoing the entry's resolved key in its failure, for `openai-responses`, `openai-completions`, `anthropic-messages`, `openai-codex`, and `opencode-go`: the run's failure, its terminal run event, and its failure log line contain `[REDACTED]`; and that `Invalid API key.` with no member is reported unchanged.
-- [ ] 2.4 Update the provider failure section of each provider operator runbook to state the redaction; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
-- [ ] 2.5 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/models src/titles src/runs`, the run-failure integration tests that cover provider failures, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
-- [ ] 2.6 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
-- [ ] 2.7 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1098` in the PR body.
+- [ ] 2.1 List every consumer that branches on a language-model failure (`instanceof`, `isInstance`, `name`, `statusCode`, `lastError`, `code`, abort reasons) and record the list in the PR body; wrap the client `createModelClient` builds per design D3; verify each listed consumer classifies a credential-bearing failure exactly as the same failure without it.
+- [ ] 2.2 Verify the wrapper always installs an `onError` and that a request with no caller handler logs only the redacted error, with no raw SDK object in the log line.
+- [ ] 2.3 Route title generation's failure log through the redacted error; verify a title test where a canary credential in the upstream message is absent from the log line.
+- [ ] 2.4 Verify per-wire tests with a stubbed upstream echoing the entry's resolved key: `openai-responses`, `openai-completions`, and `opencode-go` report `[REDACTED]` in the run's failure, its terminal event, and its log line; `anthropic-messages` and `openai-codex` report no key; and a non-retried `openai-completions` envelope `Invalid API key.` is reported unchanged.
+- [ ] 2.5 Update the provider failure section of each provider operator runbook to state the redaction; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
+- [ ] 2.6 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/models src/titles src/runs src/tools/web-search`, the run-failure integration tests that cover provider failures, `pnpm typecheck`, and `pnpm lint`; at the root, `pnpm format:check` and `git diff --check`.
+- [ ] 2.7 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
+- [ ] 2.8 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #1098` in the PR body.
 
 ## 3. finalize
 
-- [ ] 3.1 Enter `redact-configured-credentials/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the four added requirements appear in `instance-config` (two), `bash-execution`, and `provider-api-selection` word for word.
+- [ ] 3.1 Enter `redact-configured-credentials/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the four added `instance-config` requirements and the added `provider-api-selection` requirement appear word for word, and that each MODIFIED requirement in `bash-execution`, `provider-api-selection`, `opencode-go-provider`, and `provider-request-headers` matches its delta with every canonical scenario kept. If `reconcile-opencode-go-route-failure-wording` synced first, rebuild the `opencode-go-provider` delta from the new canonical text before syncing.
 - [ ] 3.2 Confirm archive readiness: `openspec status --change redact-configured-credentials --json` reports every artifact done and every task above is checked; run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 
 ## Workflow follow-up
