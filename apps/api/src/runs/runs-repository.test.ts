@@ -2,12 +2,8 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
 import { type Run, type RunEvent } from '../db/schema';
-import { type Db, type TenantRunner } from '../db/tenant-db.service';
-import {
-  failRunTransactionally,
-  RunEventsRepository,
-  RunsRepository,
-} from './runs-repository';
+import { type Db } from '../db/tenant-db.service';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 type QueryCall = { method: string; args: Array<unknown> };
 type LoggedQuery = { sql: string; params: Array<unknown> };
@@ -390,41 +386,6 @@ describe('RunEventsRepository', () => {
       runId: run.id,
       eventType: event.eventType,
       payload: event.payload,
-    });
-  });
-});
-
-describe('failRunTransactionally', () => {
-  it('appends run.failed only when the terminal update wins', async () => {
-    const { db, calls, insert } = makeDb({
-      update: [[run], []],
-      insert: [[event]],
-    });
-    const runAsCalls: Array<string> = [];
-    const tenantDb = {
-      runAs<T>(_userId: string, callback: (tx: Db) => Promise<T>): Promise<T> {
-        runAsCalls.push(_userId);
-        return callback(db);
-      },
-    } satisfies TenantRunner;
-
-    await failRunTransactionally(
-      tenantDb,
-      { runId: run.id, userId: run.userId },
-      'failed once',
-    );
-    await failRunTransactionally(
-      tenantDb,
-      { runId: run.id, userId: run.userId },
-      'late failure',
-    );
-
-    expect(runAsCalls).toHaveLength(2);
-    expect(insert).toHaveBeenCalledOnce();
-    expect(calls.find(({ method }) => method === 'values')?.args[0]).toEqual({
-      runId: run.id,
-      eventType: 'run.failed',
-      payload: { status: 'failed', message: 'failed once' },
     });
   });
 });

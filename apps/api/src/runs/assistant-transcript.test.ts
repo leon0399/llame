@@ -2,11 +2,9 @@ import {
   createAssistantPartCollector,
   reconstructDurableAssistant,
   toolActivityPart,
-  withoutContextItems,
   type ToolActivityPart,
 } from './assistant-transcript';
 import { createContextItemPart } from '../chats/context-item';
-import type { MessagePart } from '../chats/context-builder';
 import { projectToolObservations } from '../chats/tool-observation-part';
 import {
   REJECTED_HOP_MESSAGE,
@@ -285,29 +283,6 @@ describe('AssistantPartCollector in-Run context items (D1)', () => {
     // The settlement fills the reserved slot in place, so the item keeps its
     // position after the tool part the step's results triggered.
     expect(collector.parts()).toEqual([successToolPart('c1'), item]);
-  });
-});
-
-describe('withoutContextItems', () => {
-  it('drops rail parts and preserves everything else in order', () => {
-    const item = contextItemPart();
-    const turn = {
-      messageId: 'message-1',
-      parts: [
-        successToolPart('c1'),
-        item,
-        { type: 'text', text: 'partial answer' },
-      ],
-    } satisfies { messageId: string; parts: ReadonlyArray<MessagePart> };
-
-    expect(withoutContextItems(turn)).toEqual({
-      messageId: 'message-1',
-      parts: [successToolPart('c1'), { type: 'text', text: 'partial answer' }],
-    });
-  });
-
-  it('passes an absent turn through', () => {
-    expect(withoutContextItems(undefined)).toBeUndefined();
   });
 });
 

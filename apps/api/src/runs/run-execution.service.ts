@@ -22,7 +22,6 @@ import {
   type Message,
   type ModelToolDeclaration,
   type Run,
-  type RunStatus,
   type SkillCatalogBaseline,
   type TurnToolAvailabilityEntry,
 } from '../db/schema';
@@ -45,6 +44,7 @@ import {
   isCompletedAssistantTurn,
 } from '../chats/chats-repository';
 import { type CheckpointMessage } from '../chats/messages-repository';
+import { RunningReplyRepository } from '../chats/running-reply-repository';
 import {
   CompactionService,
   toStoredMessages,
@@ -97,10 +97,19 @@ import {
   MAX_ADDRESS_DECISIONS,
   MAX_DERIVED_DECISIONS,
   createAssistantPartCollector,
-  reconstructDurableAssistant,
   toolActivityPart,
-  withoutContextItems,
 } from './assistant-transcript';
+import {
+  finalizeRunReply,
+  isRunningUsage,
+  ownsLiveReply,
+  persistReply,
+  runningReplyUsage,
+  turnStatusForTerminalRun,
+  type AssistantTurnTelemetry,
+  type AssistantTurnWrite,
+  type TerminalRunStatus,
+} from './run-reply-finalizer';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -277,21 +286,6 @@ import {
   resolveInstanceTimezone,
   type TemporalAnchor,
 } from '../prompts/temporal-anchor';
-type AssistantTurnTelemetry = TurnTelemetry & {
-  runId: string;
-  complete?: boolean;
-};
-
-type AssistantTurnPersistence = {
-  chatId: string;
-  inReplyTo: string;
-  parts: Array<MessagePart>;
-  telemetry?: AssistantTurnTelemetry;
-};
-
-type AssistantTurnWrite = AssistantTurnPersistence & {
-  telemetry: AssistantTurnTelemetry;
-};
 
 /**
  * The skill-catalog baseline a turn that starts an epoch freezes, with the told
@@ -449,8 +443,8 @@ type AttemptStagedContext = {
 type DisclosureBaseline = {
   /** This Run's availability record, written once an attempt dispatched. */
   readonly ownAvailability: Run['turnToolAvailability'];
-  /** The immediately preceding Run, of any status. */
-  readonly previousRun: Run | undefined;
+  /** `usage.modelId` of the latest prior reply in the Chat (design D5). */
+  readonly previousReplyModelId: string | undefined;
   /** The most recent dispatched predecessor turn (design D11). */
   readonly previousDispatched: CompletedRunWithTrigger | undefined;
   /** Whether this turn opens a new disclosure epoch (design D7). */
@@ -505,6 +499,17 @@ export class RunNotRunnableError extends Error {
   constructor(readonly runId: string) {
     super(`Run ${runId} is no longer runnable (already terminal).`);
     this.name = 'RunNotRunnableError';
+  }
+}
+
+/**
+ * The dispatch found the reply already completed: a salvaged answer stored it
+ * while the Run stayed live. The dispatch transaction rolls back on it.
+ */
+class ReplyAlreadyCompletedError extends Error {
+  constructor(readonly runId: string) {
+    super(`Run ${runId} already has a completed reply.`);
+    this.name = 'ReplyAlreadyCompletedError';
   }
 }
 
@@ -574,19 +579,6 @@ export type RunUserMessage = {
   seq: number;
   parts: Array<MessagePart>;
 };
-
-type TerminalRunStatus = Extract<
-  RunStatus,
-  'completed' | 'failed' | 'cancelled' | 'expired'
->;
-
-function turnStatusForTerminalRun(
-  status: TerminalRunStatus,
-): TurnTelemetry['status'] {
-  if (status === 'completed') return 'completed';
-  if (status === 'failed') return 'error';
-  return 'aborted';
-}
 
 type RecencyDigestInitialization = {
   baseline: NonNullable<Chat['recencyDigestBaseline']>;
@@ -781,10 +773,9 @@ export class RunExecutionService {
    * Throws when that transaction cannot commit so callers never acknowledge
    * queue work whose terminal state is not durable.
    *
-   * Every caller settles a NON-completed status (retry exhaustion expires,
-   * pre-start cancellation cancels), and the live collector is the only
-   * carrier of an attempt's in-Run context item: a settlement after a worker
-   * restart therefore publishes no in-Run part (design D1).
+   * A settler holding the attempt's live collector (parent-abort cancellation
+   * and expiry) passes `assistantTurn`; every other caller leaves the reply to
+   * be rebuilt from the events of the attempt it names (design D3).
    */
   async settleTerminalRun(input: {
     userId: string;
@@ -795,6 +786,7 @@ export class RunExecutionService {
     runPayload?: unknown;
     error?: unknown;
     telemetry?: AssistantTurnTelemetry;
+    assistantTurn?: AssistantTurnWrite;
   }) {
     const { telemetry, ...terminalInput } = input;
     const settlement = await this.finishRun({
@@ -843,45 +835,42 @@ export class RunExecutionService {
       const events = new RunEventsRepository(tx);
       if (input.abortSignal?.aborted) {
         const status = classifyAbortedRun(input.abortSignal);
+        const message = this.abortedRunMessage(status, input.abortSignal);
         const finished = await runs.markFinished(
           input.runId,
           input.userId,
           status,
-          {
-            error: {
-              message: this.abortedRunMessage(status, input.abortSignal),
-            },
-          },
+          { error: { message } },
         );
-        if (finished) {
-          await events.append(input.runId, `run.${status}`, {
-            message: this.abortedRunMessage(status, input.abortSignal),
-          });
-        }
-        return false;
+        return {
+          settledReply: await this.settleAtClaim(tx, finished, status, message),
+        };
       }
 
       const started = await runs.markStarted(input.runId, input.userId);
       if (!started) {
         const current = await runs.findById(input.runId, input.userId);
         if (
-          current?.cancelRequestedAt != null &&
-          !['completed', 'failed', 'cancelled', 'expired'].includes(
+          current?.cancelRequestedAt == null ||
+          ['completed', 'failed', 'cancelled', 'expired'].includes(
             current.status,
           )
         ) {
-          const cancelled = await runs.markFinished(
-            input.runId,
-            input.userId,
-            'cancelled',
-          );
-          if (cancelled) {
-            await events.append(input.runId, 'run.cancelled', {
-              message: this.abortedRunMessage('cancelled', input.abortSignal),
-            });
-          }
+          return { settledReply: undefined };
         }
-        return false;
+        const cancelled = await runs.markFinished(
+          input.runId,
+          input.userId,
+          'cancelled',
+        );
+        return {
+          settledReply: await this.settleAtClaim(
+            tx,
+            cancelled,
+            'cancelled',
+            this.abortedRunMessage('cancelled', input.abortSignal),
+          ),
+        };
       }
 
       if (await new NativeFilesRepository(tx).hasMutation(input.runId)) {
@@ -906,7 +895,10 @@ export class RunExecutionService {
         nativeDeliverySequence: startedEvent.sequence,
       };
     });
-    if (!claim) {
+    if ('settledReply' in claim) {
+      // A reply finalized in place keeps its creation time, so only the
+      // post-commit touch and reindex make its settled content searchable.
+      await this.afterAssistantTurn(claim.settledReply, input.userId);
       throw new RunNotRunnableError(input.runId);
     }
     if ('nativeRecovery' in claim) {
@@ -1001,7 +993,7 @@ export class RunExecutionService {
         // reclaim (`persistAttemptPromptReceipt` refuses a stale attempt), and
         // an unfenced write here would let that stale attempt mark a run
         // another attempt is actively executing as failed.
-        await this.finishRun({
+        await this.finishRunWithoutCollector({
           userId: input.userId,
           runId: input.runId,
           status: 'failed',
@@ -1048,22 +1040,39 @@ export class RunExecutionService {
         stepCount,
       }),
       runId: input.runId,
+      attemptId,
     });
 
     // One fenced transaction stores the accepted-turn items this request
-    // carries, with the told and baseline state they account for, and records
-    // `model.requested` immediately before the target call (design D1). The
-    // request already carries the trigger's history row with the same items
-    // placed by the same placement, so it equals the parts the trigger stores.
-    await this.tenantDb.runAs(input.userId, (tx) =>
-      this.dispatchAttempt(tx, {
-        run: input,
-        attemptId,
-        context: attemptContext,
-        modelId: client.model,
-        effort,
-      }),
-    );
+    // carries, with the told and baseline state they account for, creates or
+    // resets the reply as `running`, and records `model.requested` immediately
+    // before the target call (design D1). The request already carries the
+    // trigger's history row with the same items placed by the same placement,
+    // so it equals the parts the trigger stores.
+    await this.tenantDb
+      .runAs(input.userId, (tx) =>
+        this.dispatchAttempt(tx, {
+          run: input,
+          attemptId,
+          context: attemptContext,
+          modelId: client.model,
+          effort,
+          permissionMode: effectivePermissionMode,
+        }),
+      )
+      .catch(async (error: unknown) => {
+        if (!(error instanceof ReplyAlreadyCompletedError)) throw error;
+        // A salvaged answer completed the reply while the Run stayed live:
+        // this attempt settles the Run completed (the finalizer leaves that
+        // reply untouched) instead of dispatching a second answer.
+        await this.settleTerminalRun({
+          userId: input.userId,
+          runId: input.runId,
+          status: 'completed',
+          attemptId,
+        });
+        throw new RunNotRunnableError(input.runId);
+      });
 
     // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
     // position matters for replay — model.delta, reasoning.delta, AND
@@ -1077,9 +1086,10 @@ export class RunExecutionService {
     // consistent: a failed run whose turn shows what the user actually saw).
     let streamedText = '';
     const assistantPartCollector = createAssistantPartCollector();
-    // In-Run rail items for this attempt: staged at step boundaries, spliced
-    // into every later step by the model client's step callback, and published
-    // only with a completed turn (design D1).
+    // In-Run rail items for this attempt: staged at step boundaries, written
+    // onto the running reply with the collector's snapshot before the step's
+    // request, and spliced into every later step by the model client's step
+    // callback (design D3).
     const inRunItems = createInRunContextItems();
     let deltaWrites: Promise<void> = Promise.resolve();
     let progressWriteFailed = false;
@@ -1631,6 +1641,12 @@ export class RunExecutionService {
             status,
             attemptId,
             telemetry: assistantTelemetry,
+            assistantTurn: {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              parts: assistantPartCollector.parts(),
+              telemetry: assistantTelemetry,
+            },
             runPayload: { status, message },
             error: { message },
           });
@@ -1680,14 +1696,27 @@ export class RunExecutionService {
           onStepStart: async ({ messages, stepNumber }) => {
             workspaceRoot.beginStep();
             inRunItems.beginStep(messages);
+            const staged: Array<AuthoredContextItemPart> = [];
             await inRunProducer?.prepareStep({
               messages,
               stepNumber,
               stage: (part) => {
-                inRunItems.stage(part);
-                assistantPartCollector.contextItem(part);
+                staged.push(part);
               },
             });
+            // An item joins the attempt only once it is committed onto the
+            // running reply, before the request that first carries it (design
+            // D3); a step that fails first never sent it.
+            if (staged.length > 0) {
+              await this.storeInRunSnapshot(input, attemptId, [
+                ...assistantPartCollector.parts(),
+                ...staged,
+              ]);
+            }
+            for (const part of staged) {
+              inRunItems.stage(part);
+              assistantPartCollector.contextItem(part);
+            }
             // Recomputed from the step's own messages on every step, so a
             // retained override is replaced rather than accumulated (D1).
             return inRunItems.applyToStep(messages);
@@ -2025,7 +2054,7 @@ export class RunExecutionService {
       const message = error instanceof Error ? error.message : String(error);
       // This attempt holds the claim; a reclaim during the synchronous throw
       // must reject this write rather than let the superseded attempt publish.
-      await this.finishRun({
+      await this.finishRunWithoutCollector({
         userId: input.userId,
         runId: input.runId,
         status: 'failed',
@@ -2917,6 +2946,43 @@ export class RunExecutionService {
       : 'Run was cancelled before model inference.';
   }
 
+  /**
+   * Finalizes the reply of a Run the claim transaction just ended, and
+   * records its terminal event. Returns the reply it wrote, so the caller
+   * touches and reindexes the chat once the claim commits.
+   */
+  private async settleAtClaim(
+    tx: Db,
+    finished: Run | undefined,
+    status: TerminalRunStatus,
+    message: string,
+  ): Promise<Message | undefined> {
+    if (!finished) return undefined;
+    const reply = await finalizeRunReply(tx, {
+      run: finished,
+      status,
+      models: this.instanceConfig.config.models,
+    });
+    await new RunEventsRepository(tx).append(finished.id, `run.${status}`, {
+      message,
+    });
+    return reply;
+  }
+
+  /**
+   * Settles a Run from an attempt that does not hold its live collector: the
+   * reply is rebuilt in place from the log and keeps its creation time, so
+   * only the chat touch and reindex after the commit make its settled content
+   * searchable.
+   */
+  private async finishRunWithoutCollector(
+    input: FinishRunInput,
+  ): Promise<FinishRunResult> {
+    const finish = await this.finishRun(input);
+    await this.afterAssistantTurn(finish.assistantMessage, input.userId);
+    return finish;
+  }
+
   /** Settle an observed abort before streaming and suppress queue retries only
    * after the terminal state + matching event are durably visible. Fenced by
    * `attemptId`: only the attempt that observed the abort may settle it, so a
@@ -2931,7 +2997,7 @@ export class RunExecutionService {
   ): Promise<never> {
     const status = classifyAbortedRun(input.abortSignal);
     const message = this.abortedRunMessage(status, input.abortSignal);
-    const finish = await this.finishRun({
+    const finish = await this.finishRunWithoutCollector({
       userId: input.userId,
       runId: input.runId,
       status,
@@ -3082,32 +3148,21 @@ export class RunExecutionService {
       return this.handleLostFinish(tx, input, runsRepo);
     }
 
+    // Completeness reads the reply before the finalizer settles it.
+    await this.finalizeAssistantTurnTelemetry(tx, input, finished);
+    const assistantMessage = await finalizeRunReply(tx, {
+      run: finished,
+      status: input.status,
+      attemptId: input.attemptId,
+      live: input.assistantTurn,
+      telemetry: input.synthesizedTurnTelemetry,
+      models: this.instanceConfig.config.models,
+    });
     const events = new RunEventsRepository(tx);
-    const durable = reconstructDurableAssistant(
-      await events.listByRunId(input.runId, input.userId),
-    );
-    await this.settleDurableOpenTools(tx, input, durable, events);
-    const assistantTurn = this.buildAssistantTurnForFinish(
-      input,
-      finished,
-      durable.collector.parts(),
-    );
-    await this.finalizeAssistantTurnTelemetry(
-      tx,
-      input,
-      finished,
-      assistantTurn,
-    );
     if (input.modelCompleted) {
       await events.append(input.runId, 'model.completed', input.modelCompleted);
     }
     await this.persistWinningTurnBaselines(tx, input, finished);
-
-    const assistantMessage = await this.persistAssistantMessage(
-      tx,
-      input.userId,
-      assistantTurn,
-    );
     await events.append(input.runId, `run.${input.status}`, input.runPayload);
     return {
       outcome: 'won',
@@ -3118,6 +3173,7 @@ export class RunExecutionService {
   private async hasReplaceableAssistantUsage(
     tx: Db,
     userId: string,
+    runId: string,
     chatId: string | undefined,
     inReplyTo: string | null | undefined,
   ): Promise<boolean> {
@@ -3129,10 +3185,16 @@ export class RunExecutionService {
       userId,
       inReplyTo,
     );
-    return (
-      assistantMessage !== undefined &&
-      !isCompletedAssistantTurn(assistantMessage)
-    );
+    if (
+      assistantMessage === undefined ||
+      isCompletedAssistantTurn(assistantMessage)
+    ) {
+      return false;
+    }
+    // The Run's own `running` reply is its turn in progress, not an earlier
+    // reply it replaces (design D3).
+    const usage = assistantMessage.usage;
+    return !isRunningUsage(usage) || usage.runId !== runId;
   }
 
   /** Finalizes usage completeness against owner-scoped Run and reply state. */
@@ -3143,7 +3205,7 @@ export class RunExecutionService {
       'userId' | 'runId' | 'attemptId' | 'assistantTurn' | 'modelCompleted'
     >,
     run: Run | undefined,
-    assistantTurn: AssistantTurnPersistence | undefined = input.assistantTurn,
+    assistantTurn: AssistantTurnWrite | undefined = input.assistantTurn,
   ): Promise<void> {
     // Telemetry-bearing writers share one object between the completed event
     // and assistant turn, so finalizing the event's object finalizes both.
@@ -3160,6 +3222,7 @@ export class RunExecutionService {
     const replacedUsage = await this.hasReplaceableAssistantUsage(
       tx,
       input.userId,
+      input.runId,
       chatId,
       inReplyTo,
     );
@@ -3171,8 +3234,11 @@ export class RunExecutionService {
   }
 
   /**
-   * A terminal race can still salvage streamed content after an expiry. A
-   * cancellation or an already-recorded answer intentionally does not.
+   * Another writer won the terminal transition. While the Run is terminal or
+   * still names this attempt, the attempt's live turn finalizes a reply left
+   * `running` under it, and after an expiry salvages what streamed; a newer
+   * attempt holding the live Run owns the reply, and a cancellation or an
+   * already-recorded answer intentionally gets nothing.
    */
   private async handleLostFinish(
     tx: Db,
@@ -3180,22 +3246,22 @@ export class RunExecutionService {
     runsRepo: RunsRepository,
   ): Promise<FinishRunResult> {
     const current = await runsRepo.findById(input.runId, input.userId);
-    let assistantMessage: Message | undefined;
-    if (current?.status === 'expired') {
-      await this.finalizeAssistantTurnTelemetry(
-        tx,
-        input,
-        current,
-        input.assistantTurn,
-      );
-      // A settlement someone else won publishes what the user saw: the
-      // expired attempt's staged rail items stay unpublished (design D1).
-      assistantMessage = await this.persistAssistantMessage(
-        tx,
-        input.userId,
-        withoutContextItems(input.assistantTurn),
-      );
-    }
+    const turn = input.assistantTurn;
+    const assistantMessage =
+      turn === undefined ||
+      current === undefined ||
+      (current.activeAttemptId !== input.attemptId &&
+        !['completed', 'failed', 'cancelled', 'expired'].includes(
+          current.status,
+        ))
+        ? undefined
+        : await this.persistAttemptTurn(
+            tx,
+            input,
+            current,
+            turn,
+            current.status === 'expired',
+          );
     return {
       outcome: 'lost',
       finalStatus: current?.status,
@@ -3203,51 +3269,38 @@ export class RunExecutionService {
     };
   }
 
-  private async settleDurableOpenTools(
+  /**
+   * Writes an attempt's live turn outside its own terminal transition, where
+   * `ownsLiveReply` admits it: onto a reply still `running` under this
+   * attempt, and when `salvage` also onto a missing reply or one this attempt
+   * dispatched that another writer settled.
+   */
+  private async persistAttemptTurn(
     tx: Db,
-    input: FinishRunInput,
-    durable: ReturnType<typeof reconstructDurableAssistant>,
-    events: RunEventsRepository,
-  ): Promise<void> {
-    for (const [
-      toolCallId,
-      { toolName, toolInput, permission },
-    ] of durable.openToolCalls) {
-      if (input.status === 'completed') {
-        throw new Error(
-          `Run ${input.runId} cannot complete with durable tool calls still open.`,
-        );
-      }
-      const nativeResult =
-        toolName === 'edit' ||
-        toolName === 'write' ||
-        toolName === 'bash' ||
-        toolName.startsWith('mcp__')
-          ? await new NativeFilesRepository(tx).priorOutcome(
-              input.runId,
-              toolCallId,
-            )
-          : undefined;
-      const result =
-        nativeResult ?? toolTerminationResult(input.status, toolName);
-      const completedPayload: ToolCompletedEventPayload = {
-        toolCallId,
-        toolName,
-        status: result.status,
-        output: result,
-      };
-      if (permission !== undefined) completedPayload.permission = permission;
-      await events.append(input.runId, 'tool.completed', completedPayload);
-      durable.collector.tool(
-        toolActivityPart({
-          toolCallId,
-          toolName,
-          input: toolInput,
-          result,
-          permission,
-        }),
-      );
+    input: Pick<
+      FinishRunInput,
+      'userId' | 'runId' | 'attemptId' | 'assistantTurn' | 'modelCompleted'
+    >,
+    run: Run | undefined,
+    turn: AssistantTurnWrite,
+    salvage: boolean,
+  ): Promise<Message | undefined> {
+    const messagesRepo = new MessagesRepository(tx);
+    const state = await messagesRepo.findTurnState(
+      turn.chatId,
+      input.userId,
+      turn.inReplyTo,
+    );
+    if (!ownsLiveReply(state.assistantMessage, input.attemptId, salvage)) {
+      return undefined;
     }
+    await this.finalizeAssistantTurnTelemetry(tx, input, run, turn);
+    return persistReply(messagesRepo, state, {
+      chatId: turn.chatId,
+      inReplyTo: turn.inReplyTo,
+      parts: turn.parts,
+      usage: turn.telemetry,
+    });
   }
 
   /**
@@ -3316,34 +3369,6 @@ export class RunExecutionService {
     });
   }
 
-  private buildAssistantTurnForFinish(
-    input: FinishRunInput,
-    finished: Run,
-    durableParts: Array<MessagePart>,
-  ): AssistantTurnPersistence | undefined {
-    if (input.assistantTurn || durableParts.length === 0) {
-      // A non-completed outcome publishes what the user saw, never the rail
-      // items the failed attempt staged (design D1). Reconstructed parts need
-      // no stripping: no in-Run item is ever event-reconstructed.
-      return input.status === 'completed'
-        ? input.assistantTurn
-        : withoutContextItems(input.assistantTurn);
-    }
-    if (!finished.messageId) {
-      throw new Error(
-        `Run ${input.runId} has durable assistant parts but no triggering message.`,
-      );
-    }
-    return {
-      chatId: finished.chatId,
-      inReplyTo: finished.messageId,
-      parts: durableParts,
-      ...(input.synthesizedTurnTelemetry && {
-        telemetry: input.synthesizedTurnTelemetry,
-      }),
-    };
-  }
-
   /** Best-effort standalone persist after the terminal transaction rolled back. */
   private async salvageAssistantMessage(
     input: Pick<
@@ -3351,7 +3376,8 @@ export class RunExecutionService {
       'userId' | 'runId' | 'attemptId' | 'assistantTurn' | 'modelCompleted'
     >,
   ): Promise<Message | undefined> {
-    if (!input.assistantTurn) {
+    const turn = input.assistantTurn;
+    if (!turn) {
       return undefined;
     }
     try {
@@ -3360,19 +3386,9 @@ export class RunExecutionService {
           input.runId,
           input.userId,
         );
-        await this.finalizeAssistantTurnTelemetry(
-          tx,
-          input,
-          run,
-          input.assistantTurn,
-        );
-        // The terminal transaction rolled back, so no in-Run item was
-        // published; the salvage adds back only what the user saw (design D1).
-        return this.persistAssistantMessage(
-          tx,
-          input.userId,
-          withoutContextItems(input.assistantTurn),
-        );
+        // The terminal transaction rolled back: the reply still holds this
+        // attempt's `running` row unless a later attempt has reset it.
+        return this.persistAttemptTurn(tx, input, run, turn, true);
       });
     } catch (error) {
       this.logger.error(
@@ -3497,52 +3513,6 @@ export class RunExecutionService {
         userText: partsToText(input.userMessage.parts),
       });
     }
-  }
-
-  /**
-   * Caller-supplied `tx`: normally the terminal transaction, or a standalone
-   * one on the salvage path.
-   */
-  private async persistAssistantMessage(
-    tx: Db,
-    userId: string,
-    write: AssistantTurnPersistence | undefined,
-  ): Promise<Message | undefined> {
-    if (!write) {
-      return undefined;
-    }
-
-    const messagesRepo = new MessagesRepository(tx);
-    const turn = await messagesRepo.findTurnState(
-      write.chatId,
-      userId,
-      write.inReplyTo,
-    );
-
-    if (turn.assistantMessage) {
-      if (isCompletedAssistantTurn(turn.assistantMessage)) {
-        return undefined;
-      }
-      return messagesRepo.updateAssistantReply({
-        id: turn.assistantMessage.id,
-        chatId: write.chatId,
-        inReplyTo: write.inReplyTo,
-        parts: write.parts,
-        usage: write.telemetry,
-      });
-    }
-    if (!turn.userMessage) {
-      // The user turn must still exist (it was persisted before streaming). If
-      // it's gone — e.g. the chat was deleted mid-stream — skip rather than hit
-      // an in_reply_to FK error.
-      return undefined;
-    }
-    return messagesRepo.createAssistantReplyIfAbsent({
-      chatId: write.chatId,
-      parts: write.parts,
-      usage: write.telemetry,
-      inReplyTo: write.inReplyTo,
-    });
   }
 
   /**
@@ -4390,26 +4360,23 @@ export class RunExecutionService {
     const ownAvailability =
       (await runsRepo.findById(run.runId, run.userId))?.turnToolAvailability ??
       null;
-    const previousRun = (
-      await runsRepo.findMostRecentByMessageSequence(run.chatId, run.userId, {
-        beforeSeq: run.userMessage.seq,
-      })
-    )?.run;
+    // Model selection is established by any reply, failed and checkpointed
+    // ones included (design D5): a failed reply's switch item was stored at its
+    // dispatch, and a checkpoint can absorb every earlier reply.
+    const previousReplyModelId = await new MessagesRepository(
+      tx,
+    ).findLatestReplyModelIdBefore(run.chatId, run.userId, run.userMessage.seq);
 
     // The baseline is the most recent *dispatched* turn (design D11): a run
     // whose dispatch stored its items has told the model what they say, even
     // if it later failed, while a run that ended before any request told it
-    // nothing and must not mask the state the turns before it established. No
-    // prior run at all implies no dispatched predecessor, so the second lookup
-    // is skipped rather than issued for an answer it cannot have.
+    // nothing and must not mask the state the turns before it established.
     const previousDispatched =
-      previousRun === undefined
-        ? undefined
-        : await runsRepo.findMostRecentDispatchedByChatMessageSequence(
-            run.chatId,
-            run.userId,
-            { beforeSeq: run.userMessage.seq },
-          );
+      await runsRepo.findMostRecentDispatchedByChatMessageSequence(
+        run.chatId,
+        run.userId,
+        { beforeSeq: run.userMessage.seq },
+      );
 
     // Every newly active compaction checkpoint starts a new disclosure epoch,
     // judged against that same dispatched-turn baseline by sequence rather
@@ -4421,32 +4388,42 @@ export class RunExecutionService {
       (prompt.checkpoint !== undefined &&
         prompt.checkpoint.absorbedThroughSeq >=
           previousDispatched.triggeringUserSeq);
-    return { ownAvailability, previousRun, previousDispatched, startsEpoch };
+    return {
+      ownAvailability,
+      previousReplyModelId,
+      previousDispatched,
+      startsEpoch,
+    };
   }
 
   /**
-   * Model selection is established by any run (failed runs included), so the
-   * switch item reads the immediately preceding run, not the dispatched
-   * baseline the availability/epoch comparison uses.
+   * The switch item compares this attempt's model with the latest prior
+   * reply's recorded model, not the dispatched baseline the availability and
+   * epoch comparison uses (design D5).
    */
   private deriveModelChangeItem(
     baseline: DisclosureBaseline,
     run: ExecuteRunInput,
     prompt: AttemptPromptContext,
   ): MessagePart | undefined {
-    const { previousRun } = baseline;
-    if (previousRun === undefined || previousRun.modelId === run.client.model) {
+    const { previousReplyModelId } = baseline;
+    // Compared with the catalog id the item names as the new model, so a
+    // notice is authored only when the two ids it states actually differ.
+    if (
+      previousReplyModelId === undefined ||
+      previousReplyModelId === prompt.model.id
+    ) {
       return undefined;
     }
-    // The previous run records the selected id alone, and the body names the
-    // model that id belonged to, so it is resolved against the operator
-    // catalog this service already reads at construction. A model the catalog
-    // no longer carries is named by its bare id.
+    // The reply records the selected id alone, and the body names the model
+    // that id belonged to, so it is resolved against the operator catalog this
+    // service already reads at construction. A model the catalog no longer
+    // carries is named by its bare id.
     const previousModel = this.instanceConfig.config.models.find(
-      (model) => model.id === previousRun.modelId,
+      (model) => model.id === previousReplyModelId,
     );
     return createModelChangeItem({
-      oldModel: previousModel ?? { id: previousRun.modelId },
+      oldModel: previousModel ?? { id: previousReplyModelId },
       newModel: prompt.model,
       runId: run.runId,
     });
@@ -4505,9 +4482,11 @@ export class RunExecutionService {
   /**
    * The attempt's dispatch transaction (design D1), in the worker's lock
    * order: the run fence with this attempt's availability record, the
-   * accepted-turn items on the triggering user row, the told state those items
-   * account for on the chat, then `model.requested`. A lost fence or a missing
-   * user row stores nothing and dispatches nothing.
+   * accepted-turn items on the triggering user row, the reply created or reset
+   * as `running` for this attempt (design D3/D7), the told state those items
+   * account for on the chat, then `model.requested` naming the attempt. A lost
+   * fence or a missing user row stores nothing and dispatches nothing; a
+   * completed reply rolls the transaction back with ReplyAlreadyCompletedError.
    */
   private async dispatchAttempt(
     tx: Db,
@@ -4517,6 +4496,7 @@ export class RunExecutionService {
       context: PreparedAttemptContext;
       modelId: string;
       effort: string | undefined;
+      permissionMode: PermissionMode;
     },
   ): Promise<void> {
     const { run, context } = input;
@@ -4544,6 +4524,19 @@ export class RunExecutionService {
     // The chat was deleted out from under a claimed run; executing past that
     // would send a request on behalf of a run nobody can see.
     if (!stored.applied) throw new RunNotRunnableError(run.runId);
+    // The reset drops an earlier attempt's output and in-Run items together.
+    const reply = await new RunningReplyRepository(tx).upsertRunningReply({
+      chatId: run.chatId,
+      inReplyTo: run.userMessage.id,
+      usage: runningReplyUsage({
+        runId: run.runId,
+        attemptId: input.attemptId,
+        modelId: input.modelId,
+        effort: input.effort,
+        permissionMode: input.permissionMode,
+      }),
+    });
+    if (!reply) throw new ReplyAlreadyCompletedError(run.runId);
     const chatsRepo = new ChatsRepository(tx);
     if (context.recencyDigestTold !== undefined) {
       await chatsRepo.updateRecencyDigestTold(
@@ -4575,6 +4568,39 @@ export class RunExecutionService {
       // Travels with modelId wherever it is recorded (available-models
       // spec); omitted rather than null when the run carried none.
       ...(input.effort !== undefined && { effort: input.effort }),
+      // The attempt whose events a settler without its collector rebuilds
+      // the reply from (design D3).
+      attemptId: input.attemptId,
+    });
+  }
+
+  /**
+   * Writes an in-Run item onto the running reply with the collector's part
+   * snapshot, in one transaction fenced by the attempt, before the request
+   * that first carries it (design D3). A lost fence or a reply no longer
+   * running under this attempt fails the step.
+   */
+  private async storeInRunSnapshot(
+    input: ExecuteRunInput,
+    attemptId: string,
+    parts: Array<MessagePart>,
+  ): Promise<void> {
+    await this.tenantDb.runAs(input.userId, async (tx) => {
+      const fenced = await new RunsRepository(tx).updateForAttempt(
+        input.runId,
+        input.userId,
+        attemptId,
+        { activeAttemptId: attemptId },
+      );
+      const stored =
+        fenced !== undefined &&
+        (await new RunningReplyRepository(tx).updateRunningReplyParts({
+          chatId: input.chatId,
+          inReplyTo: input.userMessage.id,
+          attemptId,
+          parts,
+        }));
+      if (!stored) throw new RunNotRunnableError(input.runId);
     });
   }
 }

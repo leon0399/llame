@@ -23,6 +23,7 @@ import * as schema from '../db/schema';
 import { chats } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { RunningReplyRepository } from './running-reply-repository';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { toSharedChatResponse } from './dto/chats.dto';
@@ -169,6 +170,49 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       new MessagesRepository(tx).listPublicByChatId(chat),
     );
     expect(messages.length).toBe(2);
+  });
+
+  it('a public share omits a reply whose Run is still running', async () => {
+    const chat = await seedChat('public');
+    await tenantDb.runAs(owner, async (tx) => {
+      const messages = new MessagesRepository(tx);
+      const user = await messages.create({
+        chatId: chat,
+        role: 'user',
+        senderUserId: owner,
+        parts: [{ type: 'text', text: 'an in-flight question' }],
+      });
+      const replies = new RunningReplyRepository(tx);
+      const reply = await replies.upsertRunningReply({
+        chatId: chat,
+        inReplyTo: user.id,
+        usage: {
+          status: 'running',
+          complete: false,
+          runId: '66666666-6666-4666-8666-666666666666',
+          attemptId: '77777777-7777-4777-8777-777777777777',
+          modelId: 'model-a',
+        },
+      });
+      expect(reply).toBeDefined();
+      await replies.updateRunningReplyParts({
+        chatId: chat,
+        inReplyTo: user.id,
+        attemptId: '77777777-7777-4777-8777-777777777777',
+        parts: [{ type: 'text', text: 'PARTIAL_PUBLIC_OUTPUT' }],
+      });
+    });
+
+    const messages = await tenantDb.runAsPublic((tx) =>
+      new MessagesRepository(tx).listPublicByChatId(chat),
+    );
+    expect(messages.map(({ role }) => role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+    ]);
+    const shared = await service.getSharedChat(chat);
+    expect(JSON.stringify(shared)).not.toContain('PARTIAL_PUBLIC_OUTPUT');
   });
 
   it('runAsPublic NEVER leaks a PRIVATE chat or its messages', async () => {
