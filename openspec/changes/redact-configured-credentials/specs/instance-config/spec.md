@@ -5,16 +5,17 @@
 At startup the API process SHALL derive one set of configured credentials,
 held only in process memory and never serialized to an API, an event, a log,
 or model context. It SHALL NOT narrow "Resolved secret values are never
-exposed". A value shorter than 8 characters SHALL NOT be a member. A name is
-credential-shaped when it contains, ignoring case, `authorization`, `cookie`,
-`credential`, `token`, `key`, `secret`, `passw`, or `signature`.
+exposed". Except where a membership requirement says otherwise, a value
+shorter than 8 characters SHALL NOT be a member. A name is credential-shaped
+when it contains, ignoring case, `authorization`, `cookie`, `credential`,
+`token`, `key`, `secret`, `passw`, or `signature`.
 
 #### Scenario: The set is never serialized
 
 - **WHEN** a provider `key` resolves to `sk-canary-set` and an owner requests the model catalog or any other configuration-derived response
 - **THEN** no response contains `sk-canary-set`
 
-#### Scenario: A short value is never a member
+#### Scenario: A short database password is not a member
 
 - **WHEN** `POSTGRES_URL` is `postgres://app:app@db:5432/llame`
 - **THEN** the set contains the connection string and not `app`
@@ -24,14 +25,19 @@ credential-shaped when it contains, ignoring case, `authorization`, `cookie`,
 
 The set SHALL contain each provider `key` and `openai-codex` `accountId`, each
 `brave`, `exa`, `perplexity`, and `exa-mcp` engine `key`, and the `github`
-adapter `token`, written literally or interpolated; and the `POSTGRES_URL`
-connection string, its password percent-encoded and decoded, and
-`PGPASSWORD` when set.
+adapter `token`, written literally or interpolated, at any nonblank length;
+and the `POSTGRES_URL` connection string, and, from 8 characters, its
+password percent-encoded and decoded and `PGPASSWORD` when set.
 
 #### Scenario: Credential fields are members
 
 - **WHEN** a provider declares `key: "{env:OPENAI_KEY}"`, a `brave` engine declares a literal `key`, and the `github` adapter declares `token: "{env:GH_TOKEN}"`
 - **THEN** the set contains each of those resolved values
+
+#### Scenario: A short credential field is a member
+
+- **WHEN** a provider declares the literal `key: "secret7"`
+- **THEN** the set contains `secret7`
 
 #### Scenario: The database password is a member
 
@@ -55,38 +61,55 @@ in the same file read that selects the value.
 
 The set SHALL contain each resolved `{env:…}` or `{path:…}` substitution
 inside a provider entry's or remote MCP server's `headers`, or a stdio MCP
-server's `env` values; each such substitution that resolves within the
-userinfo or query of a provider or `searxng` `baseUrl` or a remote MCP `url`;
-and each literal header value whose header name is credential-shaped. It SHALL
-NOT contain the literal text around a substitution or a `:-` fallback written
-in the file.
+server's `command`, `args`, or `env` values, and each literal header value
+whose header name is credential-shaped. It SHALL NOT contain the literal text
+around a substitution or a `:-` fallback written in the file.
 
-#### Scenario: Header and URL substitutions are members
+#### Scenario: Header and stdio substitutions are members
 
-- **WHEN** a provider header is `"Authorization": "Bearer {path:/run/secrets/gw}"` and a remote MCP `url` is `https://mcp.example/mcp?apiKey={env:MCP_KEY}`
-- **THEN** the set contains the resolved file contents and the resolved `MCP_KEY`
-- **AND** it does not contain `Bearer`, a header name, or `https://mcp.example/mcp?apiKey=`
-
-#### Scenario: An endpoint is not a member
-
-- **WHEN** a provider `baseUrl` is `{env:OPENAI_BASE_URL:-http://localhost:11434/v1}` and `OPENAI_BASE_URL` is set to `https://gateway.example/v1` or unset
-- **THEN** neither URL is in the set
+- **WHEN** a provider header is `"Authorization": "Bearer {path:/run/secrets/gw}"` and a stdio MCP server's `args` contain `--token={env:MCP_TOKEN}`
+- **THEN** the set contains the resolved file contents and the resolved `MCP_TOKEN`
+- **AND** it does not contain `Bearer`, a header name, or `--token=`
 
 #### Scenario: Only credential-shaped literal headers are members
 
 - **WHEN** a remote MCP server declares a literal `X-Api-Key: abcdefgh-canary` and a literal `Accept: application/json`
 - **THEN** the set contains `abcdefgh-canary` and not `application/json`
 
+### Requirement: Credentials in configured URLs are members
+
+For a provider `baseUrl` and a remote MCP `url`, the set SHALL contain each
+substitution that resolves within the resolved URL's userinfo or query and,
+however the URL was written, each nonempty userinfo component and each query
+parameter value under a credential-shaped name, both as written and
+percent-decoded. It SHALL NOT contain the whole URL or any other part of it.
+
+#### Scenario: A URL substitution is a member
+
+- **WHEN** a remote MCP `url` is `https://mcp.example/mcp?apiKey={env:MCP_KEY}`
+- **THEN** the set contains the resolved `MCP_KEY`
+- **AND** it does not contain `https://mcp.example/mcp?apiKey=`
+
+#### Scenario: A credential written into a URL is a member
+
+- **WHEN** a remote MCP `url` is the literal `https://mcp.example/mcp?apiKey=sk-canary-1065&region=eu-west-1` and a provider `baseUrl` is `{env:GATEWAY_URL}` resolving to `https://gateway.example/v1?signature=gw-canary-1065`
+- **THEN** the set contains `sk-canary-1065` and `gw-canary-1065`
+- **AND** it contains neither URL nor `eu-west-1`
+
+#### Scenario: An endpoint is not a member
+
+- **WHEN** a provider `baseUrl` is `{env:OPENAI_BASE_URL:-http://localhost:11434/v1}` and `OPENAI_BASE_URL` is set to `https://gateway.example/v1` or unset
+- **THEN** neither URL is in the set
+
 ### Requirement: Other settings are not members
 
 The set SHALL NOT contain a `{session:…}` rendering, the keyless placeholder
-llame sends for a keyless provider, a substitution in a stdio MCP server's
-`command` or `args`, or the value of any setting not named by the membership
-requirements, whether or not it was interpolated.
+llame sends for a keyless provider, or the value of any setting not named by
+the membership requirements, whether or not it was interpolated.
 
 #### Scenario: Other interpolations are not members
 
-- **WHEN** `knowledge.root` is `{env:KB_ROOT}`, a numeric setting is `{env:POOL_SIZE}`, and a stdio MCP server's `args` contain `{env:HOME}`
+- **WHEN** `knowledge.root` is `{env:KB_ROOT}`, a numeric setting is `{env:POOL_SIZE}`, and the `searxng` `baseUrl` is `{env:SEARXNG_URL}`
 - **THEN** none of those resolved values is in the set
 
 #### Scenario: A keyless provider contributes nothing

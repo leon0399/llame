@@ -10,8 +10,9 @@ reordering, or deleting lines, except that every member of the instance's
 configured credential set (`instance-config`) SHALL be replaced with
 `[REDACTED]` before the result leaves the executor. The bound SHALL be
 applied to the raw output's positions without splitting a member match, and
-a fragment at a forced stream close that is a proper prefix of a member SHALL be
-dropped; no cut or drop SHALL expose any part of a member match. Secrets a
+when timeout settlement ended a stream, whether drained or destroyed, a
+trailing fragment that is a proper prefix of a member SHALL be dropped; no
+cut or drop SHALL expose any part of a member match. Secrets a
 bound Workspace's own MCP configuration resolves are not members. The
 delimiter neutralization
 every model-facing tool result receives SHALL still apply to the copy the model
@@ -59,6 +60,11 @@ marked truncated and destroyed.
 
 - **WHEN** a configured credential crosses the stdout bound and its last character is the first character of another member
 - **THEN** the result contains `[REDACTED]` for it and no part of it
+
+#### Scenario: A credential cut by the timeout is not exposed
+
+- **WHEN** a command times out while printing a configured credential and its stream ends during the drain
+- **THEN** the result contains no prefix of the credential
 
 #### Scenario: Non-credential configuration survives
 

@@ -5,8 +5,12 @@
 - The bash executor redacts a `protectedValues` list in `sanitize.ts` with its
   own sequential split/join, but only after `watch.ts` `appendBound` has
   already clipped each raw stream at the output bound while capturing, so a
-  credential crossing the bound leaves its prefix. `apps/api/src/tools/bash.ts`
+  credential crossing the bound leaves its prefix. `sanitizeStream` then clips
+  the redacted text at the bound a second time. `apps/api/src/tools/bash.ts`
   passes no list.
+- On timeout, `settleDeadline` kills the process group and drains output;
+  a stream that ends within the 50 ms drain settles unforced, unmarked, and
+  not destroyed, so a value the kill cut short reaches the result as printed.
 - `@workspace/runtime-safety` `redactProtectedString` redacts with one
   leftmost-longest scan, and `normalizeProtectedValues` dedupes, drops empties,
   and sorts. MCP uses them; `bash-executor` already depends on the package.
@@ -46,22 +50,27 @@
 ### D1. The loader collects members while resolving
 
 `loadInstanceConfig` collects members as it resolves each field, rather than
-re-deriving them afterwards: whole values for credential fields; the
-substitutions `interpolateStringWithSubstitutions` reports, extended to give each
-substitution's start and end in the raw resolved string and whether its `:-`
-fallback applied, for provider and
-remote MCP headers and stdio `env`, excluding `:-` fallback text; for provider
-and SearXNG base URLs and the remote MCP `url`, only substitutions whose
-resolved span lies in the userinfo or query spans computed on that raw string,
-not on a re-serialized `URL`; literal header values
+re-deriving them afterwards: whole values for provider, engine, and adapter
+credential fields at any nonblank length; the substitutions
+`interpolateStringWithSubstitutions`
+reports, extended to give each substitution's start and end in the raw
+resolved string and whether its `:-` fallback applied, for provider and
+remote MCP headers and stdio `command`, `args`, and `env`, excluding `:-`
+fallback text; for provider base URLs and the remote MCP `url`, substitutions
+whose resolved span lies in the userinfo or query spans computed on that raw
+string, not on a re-serialized `URL`, and, from the same raw spans, each
+nonempty userinfo component and each query value under a credential-shaped
+name, as written and percent-decoded, so a credential written literally or
+inside a whole-URL substitution is still a member; literal header values
 under a credential-shaped name; and `POSTGRES_URL`, its parsed password in both
 percent-encoded and decoded spellings, and `PGPASSWORD`. A `{path:…|json:…}`
 substitution that is a member also contributes the credential-shaped string
 leaves of its document, together with each leaf's JSON-escaped spelling when
 that differs. `@workspace/config-interpolation` reports those leaves from the
 same single read that selects the value, so the set never mixes two versions
-of a file. The result is normalized, filtered by the 8-character floor, frozen
-on the loaded configuration, and excluded from every serialized projection.
+of a file. The result is normalized, filtered by the 8-character floor except
+for provider, engine, and adapter credential fields, frozen on the loaded
+configuration, and excluded from every serialized projection.
 
 - Alternative: every interpolation. Rejected: see proposal A1.
 - Alternative: whole provider header values. Rejected: their literal parts
@@ -81,10 +90,13 @@ raw characters. It then works on raw positions only:
 1. Find every member occurrence in the raw capture once.
 2. Cut at `bound`, extending once to the end of any occurrence that starts
    before it.
-3. At a forced close only (the drain's destroy), drop the longest trailing
-   suffix of the kept text that is a proper prefix of a member. At the
-   capture cap no drop is needed: the lookahead already holds any member that
-   starts before the bound.
+3. When timeout settlement ended the stream, whether the 50 ms drain saw it
+   end or destroyed it, drop the longest trailing suffix of the kept text that
+   is a proper prefix of a member: llame cut that value, not the command. A
+   command that exits on its own keeps its tail, since a partial value it
+   printed itself is out of scope (proposal Non-goals). At the capture cap no
+   drop is needed: the lookahead already holds any member that starts before
+   the bound.
 4. Replace each merged occurrence interval (D4) that intersects the kept
    range, clipped to it, with `[REDACTED]`, without re-scanning.
 
@@ -92,9 +104,11 @@ No step re-scans altered text, and step 4 clips every interval found in step
 1, so a drop or cut through an occurrence still leaves a marker for its kept
 part. A throwaway fuzz of exactly these steps (200k trials of 1-4 members of
 8-200 characters with shared prefixes, suffixes, and containment, bounds
-20-300, natural exit, capture cap, and forced close) emitted no member
-character. Output can exceed the raw bound by the extended match and marker
-growth; the truncation metadata still reports the cut.
+20-300, natural exit, capture cap, and a close with the step 3 drop) emitted
+no member character. Output can exceed the raw bound by the extended match
+and marker growth; the truncation metadata still reports the cut. D2 replaces
+`sanitizeStream`'s split/join redaction and its second clip at the bound, so
+no later step re-cuts or re-scans the result.
 
 ### D3. Model failures keep their identity
 
@@ -136,8 +150,9 @@ intervals directly (D2 step 4); MCP inherits the fix through
 
 - [A common member matches unrelated text] → The 8-character floor and the
   credential-shaped name rule keep passwords like `app`, content types, and
-  timestamps out; a long common value an operator uses as a credential can
-  still over-redact. Documented in the operator pages.
+  timestamps out; a short or common value an operator sets as a credential
+  field, or interpolates into stdio `command` or `args`, still over-redacts.
+  Documented in the operator pages.
 - [Encoded forms and other tools] → See the proposal's threat model.
 - [A consumer reads an error property the wrapper did not consider] → D3
   mutates only string values in place; task 2.1 lists every consumer that
