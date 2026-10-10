@@ -1,5 +1,11 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-10
+
+- Fixed generated chat titles keeping a `Title:` prefix when the model wrapped
+  it in a Markdown blockquote (`> Title: …`). Leading blockquote markers are now
+  stripped with the other leading Markdown before the prefix (#125).
+
 # 2026-10-09
 
 - Fixed API and Runs-worker boot failing with "canonical conversation search
