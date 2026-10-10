@@ -966,6 +966,31 @@ describe('web fetch client', () => {
     });
   });
 
+  it.each([
+    [3, 'The server refused the connection.'],
+    [4, 'fetch failed'],
+  ])(
+    'follows the cause chain %i links deep at most three',
+    async (depth, message) => {
+      // The code sits on the `depth`-th cause: three links are followed, a
+      // fourth is past the bound and falls back to the echoed message.
+      let cause: Error = Object.assign(new Error('refused'), {
+        code: 'ECONNREFUSED',
+      });
+      for (let link = 1; link < depth; link += 1) {
+        cause = new Error('wrapped', { cause });
+      }
+      const deps: TestDeps = {
+        fetch: () => Promise.reject(new TypeError('fetch failed', { cause })),
+      };
+
+      expect(refusalOf(await fetchOne(deps))).toStrictEqual({
+        type: 'network_error',
+        message,
+      });
+    },
+  );
+
   it('reports a caller abort as aborted', async () => {
     const controller = new AbortController();
     const pending = fetchOne(
