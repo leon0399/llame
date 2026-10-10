@@ -30,6 +30,8 @@ import {
   type UIMessage,
 } from "ai";
 
+import { chatImageKey } from "./chat-images";
+import { useOpenChatImage } from "./chat-lightbox";
 import { CompactionBoundary } from "./compaction-boundary";
 import { EffectiveContextAction } from "./effective-context-inspector";
 import {
@@ -57,6 +59,7 @@ import {
   runIdFromMessageMetadata,
   type Compaction,
 } from "@/lib/services/chat/history";
+import { mediaVariantUrl } from "@/lib/services/media/urls";
 
 // Markdown/reasoning bodies come from `ChatMarkdownProvider` — never
 // next/dynamic here. Dynamic still mounts an empty shell on first paint even
@@ -126,36 +129,87 @@ function ReasoningPanel({
   );
 }
 
+/** Opens the chat lightbox on an image this part carries (`entryIndex`
+ *  picks one of a prompt-imports part's images), or `undefined` outside a
+ *  `ChatLightbox`. */
+function usePartImageOpener(
+  messageKey: string,
+  partIndex: number,
+): ((entryIndex?: number) => void) | undefined {
+  const openImage = useOpenChatImage();
+  if (openImage === null) return undefined;
+  return (entryIndex = 0) =>
+    openImage(chatImageKey(messageKey, partIndex, entryIndex));
+}
+
+/** A tool call/result: the dedicated `read` and `web_search` cards, else the
+ *  generic tool block. A `read` image result's thumbnail loads the `/model`
+ *  route and opens the chat lightbox. */
+function ToolUIPartView({
+  part,
+  renderers,
+  onOpenImage,
+}: {
+  part: ToolUIPart | DynamicToolUIPart;
+  renderers: ChatMarkdownRenderers;
+  onOpenImage: (() => void) | undefined;
+}) {
+  const toolName = getToolName(part);
+  if (toolName === "web_search") {
+    return (
+      <WebSearchTool
+        input={part.input}
+        output={part.output}
+        errorText={part.errorText}
+        state={toolHeaderState(part)}
+        Markdown={renderers.MessageResponse}
+      />
+    );
+  }
+  if (toolName !== "read") return <ToolPartView part={part} />;
+  return (
+    <ReadTool
+      input={part.input}
+      output={part.output}
+      errorText={part.errorText}
+      state={toolHeaderState(part)}
+      Markdown={renderers.MessageResponse}
+      imageSrc={(media) => mediaVariantUrl(media, "model")}
+      onOpenImage={onOpenImage}
+    />
+  );
+}
+
 /** Renders one non-reasoning message part — text, a tool call/result, a
  *  step-cap notice, the instructions or prompt-imports chip, or a
  *  server-authored context item this build does not render (the walk
- *  withholds those before they reach here). */
+ *  withholds those before they reach here). An image the part carries (a
+ *  `read` image result, a prompt-import image) opens the chat lightbox at its
+ *  `chatImageKey`. */
 function MessagePartView({
   part,
+  partIndex,
+  messageKey,
   renderers,
 }: {
   part: NonReasoningPart;
+  partIndex: number;
+  messageKey: string;
   renderers: ChatMarkdownRenderers;
 }) {
+  const openImage = usePartImageOpener(messageKey, partIndex);
   if (part.type === "text") {
     const MessageResponse = renderers.MessageResponse;
     return <MessageResponse>{part.text}</MessageResponse>;
   }
   if (isToolUIPart(part)) {
-    const toolName = getToolName(part);
-    if (toolName === "web_search" || toolName === "read") {
-      const DedicatedTool = toolName === "read" ? ReadTool : WebSearchTool;
-      return (
-        <DedicatedTool
-          input={part.input}
-          output={part.output}
-          errorText={part.errorText}
-          state={toolHeaderState(part)}
-          Markdown={renderers.MessageResponse}
-        />
-      );
-    }
-    return <ToolPartView part={part} />;
+    return (
+      <ToolUIPartView
+        part={part}
+        renderers={renderers}
+        onOpenImage={openImage && (() => openImage())}
+      />
+    );
   }
   if (part.type === "data-cap-notice") {
     // Step-cap notice (D6): persisted alongside the tool call/result parts
@@ -168,7 +222,7 @@ function MessagePartView({
     return <InstructionsPart {...part.data.payload} />;
   }
   if (isPromptImportsPart(part)) {
-    return <PromptImportsPart {...part.data.payload} />;
+    return <PromptImportsPart {...part.data.payload} onOpenImage={openImage} />;
   }
   return <span>unsupported part type: {part.type}</span>;
 }
@@ -312,6 +366,8 @@ function ChatMessageFooter({
  *  the message bubble with its parts, usage/context affordances, and the
  *  fork action. */
 type ChatMessageRowProps = ChatMessageActionProps & {
+  /** `messageRenderKey(message)`: the row's scroll anchor, its parts' key
+   *  prefix, and the message key of its images' `chatImageKey`s. */
   renderKey: string;
   boundary: ReactNode;
   modelBoundary: ReactNode;
@@ -338,6 +394,8 @@ function MessageSegments({
         <MessagePartView
           key={`message-part-${renderKey}-${segment.index}`}
           part={segment.part}
+          partIndex={segment.index}
+          messageKey={renderKey}
           renderers={renderers}
         />
       );

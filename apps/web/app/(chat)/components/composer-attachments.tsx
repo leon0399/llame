@@ -1,36 +1,81 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { ImagePlusIcon } from "lucide-react";
 
 import { ImageThumbnailRow } from "@workspace/ui/components/custom/image-thumbnail";
+import {
+  MediaLightbox,
+  type MediaLightboxSlide,
+} from "@workspace/ui/components/custom/media-lightbox";
 
+import { mediaLightboxSlide } from "@/lib/services/media/lightbox";
 import { ATTACHABLE_IMAGE_TYPES } from "@/lib/services/media/uploads";
 import { PromptInputButton } from "./prompt-input";
 import type { ComposerAttachments } from "./use-composer-attachments";
 
+/** One open of the composer lightbox: the uploaded images' slides as they
+ *  stood then, so an upload finishing meanwhile cannot shift the slides. */
+type ComposerLightboxSession = {
+  slides: ReadonlyArray<MediaLightboxSlide>;
+  index: number;
+};
+
+/** A session opening on the item `key` over the uploaded items' slides, or
+ *  `null` when that item has no descriptor yet (uploading or failed). */
+function composerLightboxSession(
+  items: ComposerAttachments["items"],
+  key: string,
+): ComposerLightboxSession | null {
+  const slides: Array<MediaLightboxSlide> = [];
+  let index = -1;
+  for (const item of items) {
+    const slide = item.descriptor && mediaLightboxSlide(item.descriptor);
+    if (!slide) continue;
+    if (item.key === key) index = slides.length;
+    slides.push(slide);
+  }
+  return index === -1 ? null : { slides, index };
+}
+
 /** The attached images as thumbnails inside the input card, above the
- *  textarea; renders nothing while none are attached. */
+ *  textarea; renders nothing while none are attached. Activating an uploaded
+ *  thumbnail opens a lightbox over the composer's uploaded images only, built
+ *  from their upload descriptors; a thumbnail still uploading or failed
+ *  opens nothing. */
 export function ComposerAttachmentRow({
   attachments,
 }: {
   attachments: ComposerAttachments;
 }) {
+  const [session, setSession] = useState<ComposerLightboxSession | null>(null);
   if (attachments.items.length === 0) return null;
+  const open = (key: string) => {
+    const opened = composerLightboxSession(attachments.items, key);
+    if (opened !== null) setSession(opened);
+  };
   return (
-    <ImageThumbnailRow
-      aria-label="Attached images"
-      className="mx-3 mt-3"
-      items={attachments.items.map((item) => ({
-        key: item.key,
-        src: item.previewUrl,
-        alt: item.file.name,
-        status: item.status,
-      }))}
-      onRemove={attachments.remove}
-      onRetry={attachments.retry}
-      onReorder={attachments.reorder}
-    />
+    <>
+      <ImageThumbnailRow
+        aria-label="Attached images"
+        className="mx-3 mt-3"
+        items={attachments.items.map((item) => ({
+          key: item.key,
+          src: item.previewUrl,
+          alt: item.file.name,
+          status: item.status,
+        }))}
+        onOpen={open}
+        onRemove={attachments.remove}
+        onRetry={attachments.retry}
+        onReorder={attachments.reorder}
+      />
+      <MediaLightbox
+        slides={session?.slides ?? []}
+        index={session?.index ?? null}
+        onClose={() => setSession(null)}
+      />
+    </>
   );
 }
 

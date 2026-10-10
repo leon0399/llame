@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Chat images now open in a lightbox (#1166, #935). The `read` tool card shows
+  a thumbnail for an image result and the prompt-imports chip one per imported
+  image, beside the attachment thumbnails above a sent message. Activating any
+  of them opens a full-screen viewer over every image of the loaded chat in
+  transcript order, moved through with the arrow keys and zoomed with the
+  wheel or a pinch; opened from the composer it spans the unsent images only.
+  A toggle switches between the stored `model` and `original` variants, the
+  caption names the shown variant's size and format, the provenance (`upload`,
+  `read`, or `prompt-import`), and the `media://` locator, and `Escape` returns
+  focus to the thumbnail.
+
 - The chat composer now attaches images (#1166). Paste a PNG, JPEG, GIF, or
   WebP image, choose files with the new image button, or drop them onto the
   input card: each appears as a thumbnail above the textarea and uploads at

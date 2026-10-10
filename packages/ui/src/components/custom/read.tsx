@@ -11,6 +11,7 @@ import {
   ToolOutput,
   type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
+import { ImageThumbnail } from "@workspace/ui/components/custom/image-thumbnail";
 import { SearchLink } from "@workspace/ui/components/custom/web-search";
 
 const lineRangeSchema = z.object({
@@ -18,22 +19,11 @@ const lineRangeSchema = z.object({
   endLine: z.number(),
 });
 
-/** The native read result and the web envelope. Loose, so a scheme envelope
- *  (`kb://` space identity and notice, `skill://` paths) survives parsing and
- *  renders as a detail row instead of disappearing. */
-const outputSchema = z.looseObject({
+/** Fields every successful read carries, whatever it returned. */
+const readSourceFields = {
   status: z.literal("success"),
-  kind: z.enum(["file", "directory"]),
   path: z.string(),
-  content: z.string(),
-  truncated: z.boolean(),
-  nextOffset: z.number().optional(),
   realPath: z.string().optional(),
-  representation: z.string().optional(),
-  requestedRange: lineRangeSchema.nullable().optional(),
-  requestedRanges: z.array(lineRangeSchema).optional(),
-  shownRange: lineRangeSchema.nullable().optional(),
-  shownRanges: z.array(lineRangeSchema).optional(),
   finalUrl: z.string().optional(),
   method: z.string().optional(),
   // `route` and `origin` are optional so results stored before they existed
@@ -46,9 +36,38 @@ const outputSchema = z.looseObject({
     })
     .optional(),
   notes: z.array(z.string()).optional(),
+};
+
+/** The native read result and the web envelope. Loose, so a scheme envelope
+ *  (`kb://` space identity and notice, `skill://` paths) survives parsing and
+ *  renders as a detail row instead of disappearing. */
+const textOutputSchema = z.looseObject({
+  ...readSourceFields,
+  kind: z.enum(["file", "directory"]),
+  content: z.string(),
+  truncated: z.boolean(),
+  nextOffset: z.number().optional(),
+  representation: z.string().optional(),
+  requestedRange: lineRangeSchema.nullable().optional(),
+  requestedRanges: z.array(lineRangeSchema).optional(),
+  shownRange: lineRangeSchema.nullable().optional(),
+  shownRanges: z.array(lineRangeSchema).optional(),
 });
 
-type ReadOutput = z.infer<typeof outputSchema>;
+/** A read whose bytes were an image: the stored object's `media://` locator
+ *  and the original's type and size, with no content. Loose for the same
+ *  scheme envelopes as a text read. */
+const imageOutputSchema = z.looseObject({
+  ...readSourceFields,
+  kind: z.literal("image"),
+  media: z.string(),
+  mediaType: z.string(),
+  width: z.number(),
+  height: z.number(),
+});
+
+type ReadOutput = z.infer<typeof textOutputSchema>;
+type ImageReadOutput = z.infer<typeof imageOutputSchema>;
 type LineRange = z.infer<typeof lineRangeSchema>;
 
 /** Props for the dedicated read tool row. */
@@ -63,6 +82,11 @@ export type ReadToolProps = {
   state: ToolHeaderState;
   /** Markdown renderer supplied by the chat so web links use link safety. */
   Markdown: ComponentType<{ children?: string }>;
+  /** Thumbnail URL for an image result's `media://` locator, or `null` when
+   *  it has none; without it an image result shows no thumbnail. */
+  imageSrc?: (media: string) => string | null;
+  /** Opens an image result's thumbnail (the chat's lightbox). */
+  onOpenImage?: () => void;
 };
 
 function formatRanges(
@@ -88,7 +112,7 @@ function truncation(output: ReadOutput): string | undefined {
 
 /** A rewrite adapter fetches another host, so its route and origin name
  *  where the content actually came from. */
-function methodLabel(output: ReadOutput): string | undefined {
+function methodLabel(output: ReadOutput | ImageReadOutput): string | undefined {
   const { adapter, method } = output;
   if (!adapter) return method;
   const provenance = [
@@ -99,8 +123,21 @@ function methodLabel(output: ReadOutput): string | undefined {
   return `${method ?? "adapter"} (${provenance.join(", ")})`;
 }
 
-/** Labelled rows for everything the source header and content do not show.
- *  Unknown fields keep their own key, so no envelope is ever dropped. */
+/** Every field `schema` does not declare, under its own key, so no envelope
+ *  is ever dropped. */
+function envelopeRows(
+  output: ReadOutput | ImageReadOutput,
+  schema: typeof textOutputSchema | typeof imageOutputSchema,
+): Array<[string, string]> {
+  return Object.entries(output)
+    .filter(([key]) => !Object.hasOwn(schema.shape, key))
+    .map(([key, value]): [string, string] => [
+      key,
+      z.string().safeParse(value).data ?? JSON.stringify(value),
+    ]);
+}
+
+/** Labelled rows for everything the source header and content do not show. */
 function metadataRows(output: ReadOutput): Array<[string, string]> {
   const rows: Array<[string, string | undefined]> = [
     [
@@ -115,20 +152,29 @@ function metadataRows(output: ReadOutput): Array<[string, string]> {
     ["Method", methodLabel(output)],
     ["Truncated", truncation(output)],
     ...(output.notes ?? []).map((note): [string, string] => ["Note", note]),
-    ...Object.entries(output)
-      .filter(([key]) => !Object.hasOwn(outputSchema.shape, key))
-      .map(([key, value]): [string, string] => [
-        key,
-        z.string().safeParse(value).data ?? JSON.stringify(value),
-      ]),
+    ...envelopeRows(output, textOutputSchema),
   ];
   return rows.filter((row): row is [string, string] => row[1] !== undefined);
 }
 
-function ReadMetadata({ output }: { output: ReadOutput }) {
+/** An image result's rows: the stored original's size and format, the
+ *  locator a later turn can read again, and the shared source rows. */
+function imageMetadataRows(output: ImageReadOutput): Array<[string, string]> {
+  const format = output.mediaType.replace(/^image\//, "").toUpperCase();
+  const rows: Array<[string, string | undefined]> = [
+    ["Image", `${output.width}×${output.height} ${format}`],
+    ["Media", output.media],
+    ["Method", methodLabel(output)],
+    ...(output.notes ?? []).map((note): [string, string] => ["Note", note]),
+    ...envelopeRows(output, imageOutputSchema),
+  ];
+  return rows.filter((row): row is [string, string] => row[1] !== undefined);
+}
+
+function ReadMetadata({ rows }: { rows: Array<[string, string]> }) {
   return (
     <ul className="space-y-0.5 border-border border-t px-4 py-3 text-muted-foreground text-xs">
-      {metadataRows(output).map(([label, value], index) => (
+      {rows.map(([label, value], index) => (
         <li className="break-words" key={`${label}-${index}`}>
           <span className="font-medium">{label}:</span> {value}
         </li>
@@ -141,7 +187,7 @@ function ReadSource({
   output,
   Markdown,
 }: {
-  output: ReadOutput;
+  output: ReadOutput | ImageReadOutput;
   Markdown: ComponentType<{ children?: string }>;
 }) {
   return (
@@ -185,16 +231,67 @@ function ReadBody({
           </pre>
         )}
       </div>
-      <ReadMetadata output={output} />
+      <ReadMetadata rows={metadataRows(output)} />
     </div>
   );
+}
+
+function ReadImageBody({
+  output,
+  Markdown,
+  imageSrc,
+  onOpenImage,
+}: {
+  output: ImageReadOutput;
+  Markdown: ComponentType<{ children?: string }>;
+  imageSrc: ReadToolProps["imageSrc"];
+  onOpenImage: ReadToolProps["onOpenImage"];
+}) {
+  const src = imageSrc?.(output.media) ?? null;
+  return (
+    <div className="space-y-4">
+      <ReadSource output={output} Markdown={Markdown} />
+      {src !== null && (
+        <div className="px-4">
+          <ImageThumbnail src={src} alt={output.path} onOpen={onOpenImage} />
+        </div>
+      )}
+      <ReadMetadata rows={imageMetadataRows(output)} />
+    </div>
+  );
+}
+
+function ReadResult({
+  output,
+  Markdown,
+  imageSrc,
+  onOpenImage,
+}: Pick<ReadToolProps, "output" | "Markdown" | "imageSrc" | "onOpenImage">) {
+  const textOutput = textOutputSchema.safeParse(output).data;
+  if (textOutput) return <ReadBody output={textOutput} Markdown={Markdown} />;
+  const imageOutput = imageOutputSchema.safeParse(output).data;
+  if (imageOutput) {
+    return (
+      <ReadImageBody
+        output={imageOutput}
+        Markdown={Markdown}
+        imageSrc={imageSrc}
+        onOpenImage={onOpenImage}
+      />
+    );
+  }
+  if (output !== undefined) {
+    return <ToolOutput output={output} errorText={undefined} />;
+  }
+  return <p className="p-4 text-muted-foreground text-sm">Reading…</p>;
 }
 
 /**
  * Renders a native `read` invocation: the source it identified, the content
  * as the model received it, and how much of the source that content covers.
+ * An image result shows a thumbnail of the stored image instead of content.
  *
- * @summary displays a file, directory, or web read inside a collapsible tool row
+ * @summary displays a file, directory, image, or web read inside a collapsible tool row
  */
 export function ReadTool({
   input,
@@ -202,9 +299,9 @@ export function ReadTool({
   errorText,
   state,
   Markdown,
+  imageSrc,
+  onOpenImage,
 }: ReadToolProps): ReactElement {
-  const validOutput = outputSchema.safeParse(output).data;
-
   return (
     <Tool>
       <ToolHeader state={state} type="tool-read" />
@@ -216,12 +313,13 @@ export function ReadTool({
             output={undefined}
             state="output-error"
           />
-        ) : validOutput ? (
-          <ReadBody output={validOutput} Markdown={Markdown} />
-        ) : output !== undefined ? (
-          <ToolOutput output={output} errorText={undefined} />
         ) : (
-          <p className="p-4 text-muted-foreground text-sm">Reading…</p>
+          <ReadResult
+            output={output}
+            Markdown={Markdown}
+            imageSrc={imageSrc}
+            onOpenImage={onOpenImage}
+          />
         )}
       </ToolContent>
     </Tool>

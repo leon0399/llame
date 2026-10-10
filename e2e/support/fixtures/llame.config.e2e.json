@@ -43,6 +43,17 @@
       "name": "E2E Context Target",
       "systemPromptFile": "./prompts/context-target.md",
       "contextWindowTokens": 400000
+    },
+    // Declares image input so the composer attaches images and Runs send them
+    // (e2e/web/chat/vision-lightbox.spec.ts); the mock answers a request whose
+    // last user turn carries an image with the vision fixture answer.
+    {
+      "id": "e2e:vision-viridian",
+      "provider": "mock",
+      "providerModelId": "vision-viridian",
+      "name": "E2E Vision",
+      "input": ["text", "image"],
+      "contextWindowTokens": 400000
     }
   ],
   // Deterministic local Streamable HTTP source for the browser MCP acceptance

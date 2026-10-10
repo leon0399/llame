@@ -146,11 +146,11 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
 ## 9. `vision-media/previews-lightbox` — history thumbnails and viewer (design D10, D11)
 
-- [ ] 9.1 Add `yet-another-react-lightbox` with the Zoom plugin to `packages/ui`, wrapped once with `scrollToZoom: true` and `maxZoomPixelRatio: 8`, themed with semantic tokens, with the original/model toggle and caption; add stories; verify with Storybook story tests that plain wheel zoom (also on an image smaller than the viewport), arrow navigation, `Escape`, and the toggle work and focus returns to the opener
-- [ ] 9.2 Render thumbnails in the `read` tool card and the prompt-import chip, and open the lightbox over every image of the chat in transcript order (composer-only when opened from the composer); verify by component tests and in a browser across reload, a fork, and an image-only message
-- [ ] 9.3 Add a focused product E2E test: paste an image, send it to a scripted vision model, reload, open the lightbox, and switch variants; update the user-facing reference; add the dated `CHANGELOG.md` entry; this layer's PR carries `Closes #1166` and references #935; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 9.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, the `packages/ui` checks, and the focused E2E spec
-- [ ] 9.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 9.1 Add `yet-another-react-lightbox` with the Zoom plugin to `packages/ui`, wrapped once with `scrollToZoom: true` and `maxZoomPixelRatio: 8`, themed with semantic tokens, with the original/model toggle and caption; add stories; verify with Storybook story tests that plain wheel zoom (also on an image smaller than the viewport), arrow navigation, `Escape`, and the toggle work and focus returns to the opener
+- [x] 9.2 Render thumbnails in the `read` tool card and the prompt-import chip, and open the lightbox over every image of the chat in transcript order (composer-only when opened from the composer); verify by component tests and in a browser across reload, a fork, and an image-only message
+- [x] 9.3 Add a focused product E2E test: paste an image, send it to a scripted vision model, reload, open the lightbox, and switch variants; update the user-facing reference; add the dated `CHANGELOG.md` entry; this layer's PR carries `Closes #1166` and references #935; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 9.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, the `packages/ui` checks, and the focused E2E spec
+- [x] 9.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
 - [ ] 9.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 10. `vision-media/finalize` — spec sync and archive
