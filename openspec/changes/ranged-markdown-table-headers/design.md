@@ -63,9 +63,13 @@ lines in order:
   and laziness rules, applied from that line, and no line before the list ends
   can open a table: lazy lines, lines indented to an item's content column, and
   blank lines inside the list stay in it, while `# H`, `***`, a fence, or `>`
-  ends it as GFM does; when the ending line starts an HTML block, no line up to
-  the next blank line can open a table, since a type-7 block ignores headings;
-  this following never changes a heading decision;
+  ends it as GFM does; when the line that ends the list is itself root
+  paragraph text that starts a list item, such as `3) y` after `2. x`, the
+  tracker follows the new list the same way, while a `>` or `- y` line that
+  ends it opens a container CommonMark opens too, whose lines the scanner
+  already reports as container content; when the ending line starts an HTML
+  block, no line up to the next blank line can open a table, since a type-7
+  block ignores headings; this following never changes a heading decision;
 - a line decided as part of a heading closes the table and belongs to none of
   it.
 
@@ -87,7 +91,12 @@ heading here and container content under GFM. The round-3 comparison of this
 definition with the oracle on 229 adversarial inputs left only the 15 setext
 cases as disagreements; round 4 found that ending the list rule at the next
 blank line misread lists that end at a heading or continue past a blank line,
-now fixed.
+and round 5 found that a list of another type starting where the followed list
+ends lazily continues too; both are now fixed. One conservative disagreement
+remains: a lone `<span>` line after a list item's paragraph continues that
+paragraph lazily here, as in the `commonmark.js` reference parser, while
+micromark makes it an HTML block in the item, so a table the oracle opens
+after it gets no header.
 
 - Alternative: let tables win over setext headings as GFM does. Rejected: it
   changes shipped heading sections, `:outline` entries, and ancestor chains
