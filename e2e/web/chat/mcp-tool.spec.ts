@@ -9,6 +9,7 @@
  * answer without executing the remote tool again.
  */
 
+import { readyComposer } from "../../support/composer";
 import { expect, test, type APIResponse } from "../../support/fixtures";
 
 const MCP_SEARCH_PROMPT =
@@ -16,7 +17,6 @@ const MCP_SEARCH_PROMPT =
 const FIXTURE_ANSWER =
   "Current fixture evidence: deterministic operator MCP search succeeded.";
 const FIXTURE_SOURCE_URL = "https://fixture.invalid/operator-mcp/current";
-const E2E_MODEL_ID = "system:openai:gpt-5.4-mini";
 const mcpFixtureUrl = `http://localhost:${process.env.E2E_MCP_PORT ?? "4304"}`;
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
@@ -83,11 +83,7 @@ test("operator MCP search settles and reconstructs from durable chat history", a
     { times: 1 },
   );
 
-  await expect(
-    page.getByRole("combobox", { name: "Select model" }),
-  ).toContainText(E2E_MODEL_ID);
-  const composer = page.getByPlaceholder("What would you like to know?");
-  await expect(composer).toBeEditable();
+  const composer = await readyComposer(page);
   await composer.fill(MCP_SEARCH_PROMPT);
   const send = page.getByRole("button", { name: "Send message" });
   await expect(send).toBeEnabled();
