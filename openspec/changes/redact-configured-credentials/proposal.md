@@ -28,9 +28,11 @@ nothing builds one for the instance.
   credential fields whole; the credential-shaped leaves of a JSON document a
   member substitution selects from; `POSTGRES_URL`, its password, and
   `PGPASSWORD`; interpolated substitutions in provider and MCP headers and
-  stdio MCP `env` values, and in the userinfo or query of provider, SearXNG,
-  and MCP URLs; and literal header values under a credential-shaped name. An
-  8-character floor applies throughout.
+  stdio MCP `command`, `args`, and `env` values; the userinfo and
+  credential-shaped query values of provider and remote MCP URLs, however
+  written; and literal header values under a credential-shaped name. An
+  8-character floor applies to every member except provider, engine, and
+  adapter credential fields.
 - Every host `bash` result replaces each member with `[REDACTED]`. The output
   bound is applied on raw positions without splitting a member, so a
   credential crossing the bound is redacted whole. This needs an executor
@@ -49,7 +51,7 @@ None.
 
 ### Modified Capabilities
 
-- `instance-config`: five new requirements defining the set.
+- `instance-config`: six new requirements defining the set.
 - `bash-execution`: "Command results are bounded and explicit" names the set
   and the raw-position cut that never splits a member.
 - `provider-api-selection`: a new requirement for failures on every wire, and
@@ -101,9 +103,16 @@ permission policy and a future Sandbox.
 - **A1 Membership by field.** Redacting every interpolation would corrupt
   ordinary output (`knowledge.root`, ports, home paths). Membership is an
   explicit list of credential fields, the documents they select from,
-  `POSTGRES_URL`, and substitutions in credential-bearing values. Stdio MCP
-  `command` and `args` substitutions are left out because they routinely hold
-  paths; they stay protected inside their own server's traffic.
+  `POSTGRES_URL`, substitutions in credential-bearing values, and URL
+  credentials. Stdio MCP `command` and `args` substitutions are members:
+  `mcp-tools` already treats every such interpolation as a declared secret,
+  and bash can read a live child's argv from `/proc/<pid>/cmdline`. The cost
+  is that an interpolated path such as `{env:HOME}` is redacted from bash
+  output too; writing it literally is the remedy `mcp-tools` already
+  documents. URL credentials are taken from the resolved userinfo and
+  credential-shaped query values, not only from substitutions inside them, so
+  a whole-URL substitution or a literal URL credential is covered; other query
+  values and the endpoint stay unredacted.
 - **A2 Bash covers instance credentials only.** A bound Workspace's own
   `.mcp.json` secrets are not added.
 - **A3 Selected JSON documents contribute their credential-shaped leaves.** A
@@ -112,9 +121,14 @@ permission policy and a future Sandbox.
 - **A4 An 8-character floor and one credential-shaped name rule.** Without
   them the shipped development password `app` would turn `apps/api` into
   `[REDACTED]s/api`, and a literal `Accept: application/json` header would be
-  redacted everywhere. The name rule (`authorization`, `cookie`, `credential`,
-  `token`, `key`, `secret`, `passw`, `signature`) decides which literal header
-  values and which document leaves are members.
+  redacted everywhere. The floor does not apply to provider, engine, and
+  adapter credential fields, which only need to be nonblank: a valid short
+  key would otherwise leak. The cost is that a short or common key
+  over-redacts; a keyless provider omits its key instead. A short database
+  password stays out, so it is redacted only inside the whole `POSTGRES_URL`.
+  The name rule (`authorization`, `cookie`, `credential`, `token`, `key`,
+  `secret`, `passw`, `signature`) decides which literal header values, URL
+  query values, and document leaves are members.
 
 ## Non-goals
 
@@ -122,5 +136,6 @@ permission policy and a future Sandbox.
   set, or web reads with this set.
 - Redacting a Workspace's own `.mcp.json` secrets.
 - Picking up a credential file rotated after startup; the set is built at boot.
-- Redacting encoded or partial forms of a credential.
+- Redacting encoded forms of a credential, or a partial value a command
+  printed itself before exiting.
 - Preventing bash from reading credential files.
