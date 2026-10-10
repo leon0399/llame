@@ -109,7 +109,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 4.4 Update `apps/api/src/prompts/tools/read.md`, `docs/product/reference/tools/read.md`, and a new `docs/product/reference/locators/media.md` linked from its index; document `^media://` in the domain-restricted `read` alternative of `docs/product/operator/tool-call-permissions.md`; update `SPEC.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 4.5 Verify `pnpm --filter api lint`, `typecheck`, `pnpm --filter @workspace/native-file-tools test`, the focused unit tests, and the touched integration suites
 - [x] 4.6 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 4.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 4.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 5. `vision-media/vision-read-completions` — Chat Completions transport (design D6)
 
