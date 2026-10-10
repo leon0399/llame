@@ -18,6 +18,7 @@
 import type {
   AssistantContent,
   FilePart,
+  ImagePart,
   ModelMessage,
   ProviderMetadata,
 } from 'ai';
@@ -25,6 +26,7 @@ import type {
 import { storedFilePartSchema } from '../media/media-descriptors';
 import { parseMediaLocator } from '../media/media-locator';
 import { isContextItemPart, type ContextItemPart } from './context-item';
+import { promptImportMediaLocators } from './prompt-imports-item';
 import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
   projectToolObservations,
@@ -190,7 +192,9 @@ export interface ModelRequestContext {
  * One stored user message's model content (`context-injection`): context
  * items and text keep their stored relative order, and the owner `file` parts,
  * in their stored order, follow every context item (the temporal row
- * included) and so precede the owner's text, wherever they were stored.
+ * included) and so precede the owner's text, wherever they were stored. A
+ * `prompt-imports` item's text is followed by one `media://` image reference
+ * per image entry of its payload (vision-media D8).
  * References stay `media://` references here; only the step composer turns
  * them into image parts or placeholders (vision-media D6). Exported for the
  * run worker, which sets the triggering message's content from the parts its
@@ -198,8 +202,8 @@ export interface ModelRequestContext {
  */
 export function userPartsToModelContent(
   parts: ReadonlyArray<unknown>,
-): Array<TextPart | FilePart> {
-  const content: Array<TextPart | FilePart> = [];
+): Array<TextPart | FilePart | ImagePart> {
+  const content: Array<TextPart | FilePart | ImagePart> = [];
   const files: Array<FilePart> = [];
   let afterLastItem = 0;
   for (const part of parts) {
@@ -210,7 +214,13 @@ export function userPartsToModelContent(
     if (isContextItemPart(part)) {
       const text = part.data.text;
       if (text !== undefined && text.length > 0) {
-        content.push({ type: 'text', text });
+        content.push(
+          { type: 'text', text },
+          ...promptImportMediaLocators(part).map((image) => ({
+            type: 'image' as const,
+            image,
+          })),
+        );
       }
       afterLastItem = content.length;
       continue;

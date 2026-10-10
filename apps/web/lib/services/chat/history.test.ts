@@ -780,6 +780,29 @@ describe("prompt-imports context items", () => {
     ).toBe(true);
   });
 
+  it("accepts an imported image entry carrying its media locator beside every other outcome", () => {
+    const image = {
+      locator: "shot.png",
+      resolved: "/home/u/repo/shot.png",
+      outcome: "imported" as const,
+      media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+    };
+    const item = withPayload({
+      imports: [image, ...promptImportsItem.data.payload.imports],
+      omitted: ["extra.md"],
+    });
+
+    expect(isPromptImportsPart(item)).toBe(true);
+    if (!isPromptImportsPart(item)) return;
+    expect(item.data.payload.imports.map((entry) => entry.outcome)).toEqual([
+      "imported",
+      "imported",
+      "imported",
+      "denied",
+      "failed",
+    ]);
+  });
+
   it("accepts empty imports only beside a non-empty omitted list", () => {
     expect(
       isPromptImportsPart(withPayload({ imports: [], omitted: ["a.md"] })),
@@ -797,6 +820,13 @@ describe("prompt-imports context items", () => {
       { ...entry, locator: "  " },
       { ...entry, resolved: "" },
       { ...entry, truncated: "yes" },
+      { ...entry, media: "media://not-a-uuid" },
+      { ...entry, media: "MEDIA://0190F5E2-7C1A-7B3E-9D4F-2A6B8C0D1E2F" },
+      {
+        ...entry,
+        outcome: "failed",
+        media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+      },
     ]) {
       expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
     }

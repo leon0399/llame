@@ -17,6 +17,8 @@ type HarnessOptions = {
   readonly existing?: ReadonlyArray<string>;
   /** Selector-free `kb://` locators a probe finds, with their canonical form. */
   readonly knowledge?: Readonly<Record<string, string>>;
+  /** Selector-free `media://` locators the owner stores. */
+  readonly media?: ReadonlyArray<string>;
   readonly reject?: (path: string) => boolean;
   readonly body?: (path: string) => string;
   readonly result?: (path: string) => ToolResult;
@@ -40,6 +42,7 @@ function createHarness(options: HarnessOptions = {}) {
     admits: new Array<string>(),
     hostProbes: new Array<string>(),
     knowledgeProbes: new Array<string>(),
+    mediaProbes: new Array<string>(),
     reads: new Array<{ path: string; ordinal: number }>(),
   };
   const existing = new Set(options.existing ?? []);
@@ -68,6 +71,13 @@ function createHarness(options: HarnessOptions = {}) {
         return (
           options.probeKnowledge?.(locator) ??
           Promise.resolve(options.knowledge?.[locator])
+        );
+      },
+      probeMedia: (locator) => {
+        calls.mediaProbes.push(locator);
+        now += options.probeCostMs ?? 0;
+        return Promise.resolve(
+          options.media?.includes(locator) === true ? locator : undefined,
         );
       },
       readImport: (path, ordinal) => {
@@ -715,5 +725,178 @@ describe('resolvePromptImports abort', () => {
       outcomes: [],
       omitted: ['https://x.test/after'],
     });
+  });
+});
+
+describe('resolvePromptImports image entries', () => {
+  const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  const FOREIGN = 'media://0190f5e2-7c1a-7b3e-9d4f-00000000000b';
+  /** The native image result `read` returns for `path`. */
+  const imageResult = (path: string): ToolResult => ({
+    status: 'success',
+    kind: 'image',
+    media: MEDIA,
+    mediaType: 'image/png',
+    width: 1600,
+    height: 900,
+    path,
+  });
+  const isImage = (path: string) =>
+    path.endsWith('.png') || path.startsWith('media://');
+
+  it('turns an image read into an image entry whose body is the read envelope', async () => {
+    const { calls, run } = createHarness({
+      existing: ['/repo/shot.png'],
+      result: imageResult,
+      body: (path) => JSON.stringify(imageResult(path)),
+    });
+
+    const result = await run('see @shot.png');
+
+    expect(calls.reads).toEqual([{ path: '/repo/shot.png', ordinal: 0 }]);
+    expect(result.outcomes).toEqual([
+      {
+        locator: 'shot.png',
+        resolved: '/repo/shot.png',
+        outcome: 'imported',
+        body: JSON.stringify(imageResult('/repo/shot.png')),
+        media: MEDIA,
+      },
+    ]);
+  });
+
+  it('counts an image entry toward the eight-target bound', async () => {
+    const { calls, run } = createHarness({
+      existing: ['/repo/shot.png'],
+      result: (path) => (isImage(path) ? imageResult(path) : OK),
+    });
+
+    const result = await run(
+      `@shot.png ${tokens(8, (index) => `https://x.test/${index}`)}`,
+    );
+
+    expect(calls.reads.map(({ path }) => path)).toEqual([
+      '/repo/shot.png',
+      ...Array.from({ length: 7 }, (_, index) => `https://x.test/${index}`),
+    ]);
+    expect(result.outcomes[0]).toMatchObject({ media: MEDIA });
+    expect(result.omitted).toEqual(['https://x.test/7']);
+  });
+
+  it('counts only the image envelope toward the output bound', async () => {
+    // The envelope is all the text an image contributes; its model variant
+    // never enters the item, however large it is.
+    const { run } = createHarness({
+      existing: ['/repo/shot.png'],
+      result: (path) => (isImage(path) ? imageResult(path) : OK),
+      body: (path) =>
+        isImage(path)
+          ? JSON.stringify(imageResult(path))
+          : 'a'.repeat(120 * 1024),
+    });
+
+    const result = await run('@shot.png @https://x.test/long');
+
+    expect(result.outcomes.map((outcome) => outcome.locator)).toEqual([
+      'shot.png',
+      'https://x.test/long',
+    ]);
+    expect(result.omitted).toEqual([]);
+  });
+
+  it('audits a denied image target without a probe or an image entry', async () => {
+    const { calls, run } = createHarness({
+      existing: ['/tmp/shot.png'],
+      reject: (path) => path === '/tmp/shot.png',
+      result: imageResult,
+    });
+
+    const result = await run('@/tmp/shot.png');
+
+    expect(calls.hostProbes).toEqual([]);
+    expect(calls.reads).toEqual([{ path: '/tmp/shot.png', ordinal: 0 }]);
+    expect(result.outcomes).toEqual([
+      { locator: '/tmp/shot.png', outcome: 'denied' },
+    ]);
+  });
+
+  it('records an image the ingest refused as not imported', async () => {
+    const { run } = createHarness({
+      existing: ['/repo/huge.png'],
+      result: () => ({
+        status: 'error',
+        type: 'image_too_large',
+        message: 'The image exceeds the 40-megapixel limit.',
+      }),
+    });
+
+    const result = await run('@huge.png');
+
+    expect(result.outcomes).toEqual([
+      { locator: 'huge.png', resolved: '/repo/huge.png', outcome: 'failed' },
+    ]);
+  });
+
+  it('probes an owned media locator and imports it as an image entry', async () => {
+    const { calls, run } = createHarness({
+      hostAvailable: false,
+      knowledgeAvailable: false,
+      media: [MEDIA],
+      result: imageResult,
+    });
+
+    const result = await run(`look at @${MEDIA}`);
+
+    expect(calls.admits).toEqual([MEDIA]);
+    expect(calls.mediaProbes).toEqual([MEDIA]);
+    expect(calls.reads).toEqual([{ path: MEDIA, ordinal: 0 }]);
+    expect(result.outcomes).toEqual([
+      {
+        locator: MEDIA,
+        resolved: MEDIA,
+        outcome: 'imported',
+        body: `body of ${MEDIA}`,
+        media: MEDIA,
+      },
+    ]);
+  });
+
+  it('probes the selector-free media locator', async () => {
+    const { calls, run } = createHarness({ media: [MEDIA] });
+
+    await run(`@${MEDIA}:1-2`);
+
+    expect(calls.admits).toEqual([`${MEDIA}:1-2`]);
+    expect(calls.mediaProbes).toEqual([MEDIA]);
+    expect(calls.reads).toEqual([{ path: `${MEDIA}:1-2`, ordinal: 0 }]);
+  });
+
+  it("keeps another owner's media locator prose", async () => {
+    const { calls, run } = createHarness({ media: [MEDIA] });
+
+    const result = await run(`@${FOREIGN}`);
+
+    expect(calls.mediaProbes).toEqual([FOREIGN]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
+  });
+
+  it('audits a denied media target without a lookup and never counts it', async () => {
+    const { calls, run } = createHarness({
+      media: [MEDIA],
+      reject: (path) => path === MEDIA,
+    });
+
+    const result = await run(
+      `@${MEDIA} ${tokens(8, (index) => `https://x.test/${index}`)}`,
+    );
+
+    expect(calls.mediaProbes).toEqual([]);
+    expect(result.outcomes[0]).toEqual({ locator: MEDIA, outcome: 'denied' });
+    expect(result.outcomes.slice(1).map((outcome) => outcome.outcome)).toEqual(
+      Array.from({ length: 8 }, () => 'imported'),
+    );
+    expect(result.omitted).toEqual([]);
+    expect(calls.reads).toHaveLength(9);
   });
 });

@@ -3,7 +3,10 @@
  *
  * One item carries every outcome from the bounded prompt-import pass. Read
  * bodies are model-facing data and are neutralized before they enter a file
- * element; the payload deliberately records metadata only.
+ * element; the payload deliberately records metadata only. An image entry's
+ * body is its native image result; its payload entry records the `media://`
+ * locator the conversion boundary attaches after the item's text
+ * (vision-media D8).
  */
 
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
@@ -15,9 +18,12 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 
+import { MEDIA_LOCATOR_PATTERN } from '../media/media-locator';
+
 import {
   escapeXmlAttribute,
   type AuthoredContextItemPart,
+  type ContextItemPart,
 } from './context-item';
 import {
   createRenderedContextItem,
@@ -38,6 +44,8 @@ export type PromptImportOutcome = {
       readonly outcome: 'imported';
       readonly body: string;
       readonly truncated?: boolean;
+      /** The `media://` locator of an image read result. */
+      readonly media?: string;
     }
   | { readonly outcome: 'denied' | 'failed' }
 );
@@ -47,6 +55,8 @@ export interface PromptImportsPayloadEntry extends UnknownRecord {
   readonly resolved?: string;
   readonly outcome: PromptImportOutcomeKind;
   readonly truncated?: boolean;
+  /** The `media://` locator of an imported image; only on `imported`. */
+  readonly media?: string;
 }
 
 /** Private metadata retained for owner disclosure and accepted-turn triggers. */
@@ -69,17 +79,23 @@ function isPromptImportsPayloadEntry(
 ): value is PromptImportsPayloadEntry {
   const hasResolved = isRecord(value) && Object.hasOwn(value, 'resolved');
   const hasTruncated = isRecord(value) && Object.hasOwn(value, 'truncated');
+  const hasMedia = isRecord(value) && Object.hasOwn(value, 'media');
   return (
     isExactRecord(value, [
       'locator',
       'outcome',
       ...(hasResolved ? ['resolved'] : []),
       ...(hasTruncated ? ['truncated'] : []),
+      ...(hasMedia ? ['media'] : []),
     ]) &&
     isNonEmptyString(value['locator']) &&
     isPromptImportOutcome(value['outcome']) &&
     (!hasResolved || isNonEmptyString(value['resolved'])) &&
-    (!hasTruncated || isBoolean(value['truncated']))
+    (!hasTruncated || isBoolean(value['truncated'])) &&
+    (!hasMedia ||
+      (value['outcome'] === 'imported' &&
+        isString(value['media']) &&
+        MEDIA_LOCATOR_PATTERN.test(value['media'])))
   );
 }
 
@@ -120,7 +136,26 @@ function toPayloadEntry(
     outcome: outcome.outcome,
     ...(outcome.outcome === 'imported' &&
       outcome.truncated !== undefined && { truncated: outcome.truncated }),
+    ...(outcome.outcome === 'imported' &&
+      outcome.media !== undefined && { media: outcome.media }),
   };
+}
+
+/**
+ * The `media://` locators of a `prompt-imports` item's image entries, in entry
+ * order; none for another producer's item or a payload this build cannot
+ * validate.
+ */
+export function promptImportMediaLocators(
+  part: ContextItemPart,
+): Array<string> {
+  const { producer, payload } = part.data;
+  if (producer !== 'prompt-imports' || !isPromptImportsPayload(payload)) {
+    return [];
+  }
+  return payload.imports.flatMap((entry) =>
+    entry.media === undefined ? [] : [entry.media],
+  );
 }
 
 type PromptImportsTemplateValues = {

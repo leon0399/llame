@@ -1,5 +1,5 @@
 import { isRecord, isString } from '@workspace/runtime-safety';
-import type { FilePart, ModelMessage, ToolResultPart } from 'ai';
+import type { FilePart, ImagePart, ModelMessage, ToolResultPart } from 'ai';
 import { z } from 'zod';
 
 import type { HeldImage, UnstoredImage } from './attempt-images';
@@ -100,6 +100,15 @@ function countedBytes(
  */
 export function fileMediaRef(part: FilePart): string | undefined {
   return isString(part.data) ? parseMediaLocator(part.data) : undefined;
+}
+
+/**
+ * The media id a model-message image part references, or undefined: only the
+ * `media://` string `buildContext` emits after a prompt-imports item's text
+ * (vision-media D8) is a reference; projected images carry bytes.
+ */
+export function imageMediaRef(part: ImagePart): string | undefined {
+  return isString(part.image) ? parseMediaLocator(part.image) : undefined;
 }
 
 /** The media id a tool output's `image-url` part references, or undefined. */
@@ -213,7 +222,8 @@ export function toolItemRef(
 
 /**
  * Every media reference of a request, in request order: the `media://` file
- * parts of user messages (owner attachments, `buildContext`) and the image
+ * parts of user messages (owner attachments, `buildContext`), the `media://`
+ * image parts of user messages (prompt-import images), and the image
  * references of tool results (`read` image results, live or replayed).
  */
 export function collectMediaRefs(
@@ -222,7 +232,12 @@ export function collectMediaRefs(
   return messages.flatMap((message): Array<MediaRef> => {
     if (message.role === 'user' && Array.isArray(message.content)) {
       return message.content.flatMap((part) => {
-        const id = part.type === 'file' ? fileMediaRef(part) : undefined;
+        const id =
+          part.type === 'file'
+            ? fileMediaRef(part)
+            : part.type === 'image'
+              ? imageMediaRef(part)
+              : undefined;
         return id === undefined ? [] : [id];
       });
     }

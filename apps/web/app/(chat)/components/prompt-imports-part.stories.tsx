@@ -101,3 +101,45 @@ export const ImportedDeniedFailedOmitted: Story = {
     );
   },
 };
+
+/**
+ * A prompt that imported an image beside the other outcomes. The image
+ * entry's private `media://` locator changes nothing in the chip: every
+ * outcome is still listed, the image as an imported prompt file.
+ *
+ * @summary an image entry beside denied, failed, and omitted prompt files
+ */
+export const WithImageEntry: Story = {
+  tags: ["ai-generated"],
+  args: {
+    imports: [
+      {
+        locator: "shot.png",
+        resolved: "/home/operator/repo/shot.png",
+        outcome: "imported",
+        media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+      },
+      { locator: "docs/GUIDE.md", outcome: "imported" },
+      { locator: "/srv/secret.png", outcome: "denied" },
+      { locator: "missing.png", outcome: "failed" },
+    ],
+    omitted: ["extra.png"],
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByLabelText("Imported prompt file: shot.png"),
+    ).toBeVisible();
+    await expect(
+      canvas.getByLabelText("Imported prompt file: docs/GUIDE.md"),
+    ).toBeVisible();
+    await expect(
+      canvas.getByLabelText("Denied prompt file: /srv/secret.png"),
+    ).toBeVisible();
+    await expect(
+      canvas.getByLabelText("Failed prompt file: missing.png"),
+    ).toBeVisible();
+    await expect(
+      canvas.getByLabelText("Omitted prompt file: extra.png"),
+    ).toBeVisible();
+  },
+};
