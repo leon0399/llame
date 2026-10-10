@@ -1,8 +1,14 @@
 const MEDIA_SCHEME = 'media://';
 
 // Lower-case canonical UUID only: no braces, no upper-case hex, no suffix.
-const CANONICAL_MEDIA_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
+const UUID_HEX = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const CANONICAL_MEDIA_ID = new RegExp(`^${UUID_HEX}$`, 'u');
+
+/** The whole-string grammar of a `media://<id>` locator. */
+export const MEDIA_LOCATOR_PATTERN = new RegExp(
+  `^${MEDIA_SCHEME}${UUID_HEX}$`,
+  'u',
+);
 
 export function isCanonicalMediaId(id: string): boolean {
   return CANONICAL_MEDIA_ID.test(id);

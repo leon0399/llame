@@ -38,6 +38,7 @@ import {
   type TurnToolAvailabilityEntry,
 } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { MediaService } from '../media/media.service';
 import { type ModelSelectionValidator } from '../models/models.service';
 import {
   type ModelClient,
@@ -408,6 +409,7 @@ describeIfDb(
         bridge,
         aborts,
         dispatch,
+        new MediaService(tenantDb),
       );
 
       // The window variant is never exercised by this suite: every seeded turn
@@ -1063,6 +1065,7 @@ describeIfDb(
         { createUiMessageStreamResponse: vi.fn() },
         new RunAbortRegistry(),
         dispatch,
+        new MediaService(tenantDb),
       );
       const before = await tenantDb.runAs(userId, async (tx) => ({
         chats: (await tx.select().from(schema.chats)).length,

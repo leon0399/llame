@@ -207,30 +207,42 @@ export function createContextItemPart(input: {
   return part;
 }
 
-export interface ClientTextPart {
+export type ClientTextPart = {
   readonly type: 'text';
   readonly text: string;
-}
+};
+
+/**
+ * An owner attachment as a client sent it: only the `url` is kept, because the
+ * stored `mediaType` and `filename` come from the media the url names, never
+ * from the client (vision-media D5).
+ */
+export type ClientFilePart = {
+  readonly type: 'file';
+  readonly url: string;
+};
+
+export type ClientMessagePart = ClientTextPart | ClientFilePart;
 
 /**
  * Defense-in-depth for direct service callers that bypass the HTTP DTO: a
- * client may author text and nothing else. Every context item is server-authored,
- * so a client-supplied item-shaped part is discarded rather than trusted.
+ * client may author text and file parts and nothing else. Every context item
+ * is server-authored, so a client-supplied item-shaped part is discarded
+ * rather than trusted. A kept file part is only a claim: the caller still
+ * resolves its url against the sender's own media.
  */
 export function sanitizeClientMessageParts(
   parts: ReadonlyArray<unknown>,
-): Array<ClientTextPart> {
-  return parts.flatMap((part) => {
-    if (
-      !isRecord(part) ||
-      !('type' in part) ||
-      part.type !== 'text' ||
-      !('text' in part) ||
-      !isString(part.text)
-    ) {
-      return [];
+): Array<ClientMessagePart> {
+  return parts.flatMap((part): Array<ClientMessagePart> => {
+    if (!isRecord(part)) return [];
+    if (part.type === 'text' && isString(part.text)) {
+      return [{ type: 'text', text: sanitizeAuthoredText(part.text) }];
     }
-    return [{ type: 'text' as const, text: sanitizeAuthoredText(part.text) }];
+    if (part.type === 'file' && isString(part.url)) {
+      return [{ type: 'file', url: part.url }];
+    }
+    return [];
   });
 }
 

@@ -25,13 +25,14 @@ export const storedFilePartSchema = z.object({
 
 /**
  * What a request needs to know about one owned image without its bytes: the
- * stored source label, the original's dimensions (shown in placeholders), and
- * the model variant's dimensions, size, and format (used to size and attach
- * it). Never carries bytes.
+ * stored source label, the original's format and dimensions (stored on owner
+ * file parts and shown in placeholders), and the model variant's dimensions,
+ * size, and format (used to size and attach it). Never carries bytes.
  */
 export type MediaDescriptor = {
   id: string;
   name: string;
+  mediaType: string;
   width: number;
   height: number;
   modelWidth: number;
@@ -56,6 +57,7 @@ export async function loadMediaDescriptors(
     .select({
       id: mediaObjects.id,
       name: mediaObjects.name,
+      mediaType: mediaObjects.mediaType,
       width: mediaObjects.width,
       height: mediaObjects.height,
       modelWidth: mediaObjects.modelWidth,

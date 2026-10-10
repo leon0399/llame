@@ -15,6 +15,7 @@ export function descriptor(
   return {
     id,
     name: `${id.slice(-2)}.png`,
+    mediaType: 'image/png',
     width: 1600,
     height: 900,
     modelWidth: 1600,

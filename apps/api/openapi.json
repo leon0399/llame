@@ -720,7 +720,7 @@
             }
           },
           "400": {
-            "description": "Malformed chat id or invalid message body"
+            "description": "Malformed chat id or invalid message body, including a file part naming media the sender does not own"
           },
           "401": {
             "description": ""
@@ -962,6 +962,254 @@
         ],
         "summary": "",
         "tags": ["chats"]
+      }
+    },
+    "/api/v1/media": {
+      "post": {
+        "operationId": "uploadMedia",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file"],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The same bytes were already stored and are reused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaDescriptorResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "A new media object was created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaDescriptorResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No file, or more than one file"
+          },
+          "401": {
+            "description": ""
+          },
+          "413": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaTooLargeErrorResponse"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaUnsupportedErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["media"]
+      }
+    },
+    "/api/v1/media/{id}": {
+      "get": {
+        "operationId": "getMedia",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Lower-case canonical UUID",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaDescriptorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["media"]
+      }
+    },
+    "/api/v1/media/{id}/original": {
+      "get": {
+        "operationId": "getMediaOriginal",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Lower-case canonical UUID",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["media"]
+      }
+    },
+    "/api/v1/media/{id}/model": {
+      "get": {
+        "operationId": "getMediaModel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Lower-case canonical UUID",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["media"]
       }
     },
     "/api/v1/models": {
@@ -2647,254 +2895,6 @@
         "tags": ["org-units"]
       }
     },
-    "/api/v1/media": {
-      "post": {
-        "operationId": "uploadMedia",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "required": ["file"],
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "The same bytes were already stored and are reused",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MediaDescriptorResponse"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "A new media object was created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MediaDescriptorResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "No file, or more than one file"
-          },
-          "401": {
-            "description": ""
-          },
-          "413": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MediaTooLargeErrorResponse"
-                }
-              }
-            }
-          },
-          "415": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MediaUnsupportedErrorResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "",
-        "tags": ["media"]
-      }
-    },
-    "/api/v1/media/{id}": {
-      "get": {
-        "operationId": "getMedia",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "description": "Lower-case canonical UUID",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MediaDescriptorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "",
-        "tags": ["media"]
-      }
-    },
-    "/api/v1/media/{id}/original": {
-      "get": {
-        "operationId": "getMediaOriginal",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "description": "Lower-case canonical UUID",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "image/png": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
-              "image/jpeg": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
-              "image/gif": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
-              "image/webp": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "304": {
-            "description": ""
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "",
-        "tags": ["media"]
-      }
-    },
-    "/api/v1/media/{id}/model": {
-      "get": {
-        "operationId": "getMediaModel",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "description": "Lower-case canonical UUID",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "image/png": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              },
-              "image/jpeg": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "304": {
-            "description": ""
-          },
-          "401": {
-            "description": ""
-          },
-          "404": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "cookie": []
-          },
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "",
-        "tags": ["media"]
-      }
-    },
     "/api/v1/permission-modes": {
       "get": {
         "operationId": "listPermissionModes",
@@ -3373,6 +3373,29 @@
         },
         "required": ["type", "text"]
       },
+      "CreateFileMessagePartDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["file"]
+          },
+          "mediaType": {
+            "type": "string",
+            "description": "Ignored: the stored part carries the media's own type."
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^media:\\/\\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "A `media://<id>` locator of media the sender owns."
+          },
+          "filename": {
+            "type": "string",
+            "description": "Ignored: the stored part carries the media's own name."
+          }
+        },
+        "required": ["type", "mediaType", "url"]
+      },
       "CreateMessageBodyDto": {
         "type": "object",
         "properties": {
@@ -3381,12 +3404,20 @@
             "format": "uuid"
           },
           "parts": {
-            "minItems": 1,
-            "maxItems": 50,
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/CreateTextMessagePartDto"
-            }
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/CreateTextMessagePartDto"
+                },
+                {
+                  "$ref": "#/components/schemas/CreateFileMessagePartDto"
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 60,
+            "description": "At most 50 text parts and 10 file parts, in order; at least one part."
           }
         },
         "required": ["id", "parts"]
@@ -3555,6 +3586,111 @@
           }
         },
         "required": ["id", "title", "messages"]
+      },
+      "MediaModelVariantResponse": {
+        "type": "object",
+        "properties": {
+          "mediaType": {
+            "type": "string",
+            "enum": ["image/png", "image/jpeg"]
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "byteSize": {
+            "type": "number"
+          }
+        },
+        "required": ["mediaType", "width", "height", "byteSize"]
+      },
+      "MediaDescriptorResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locator": {
+            "type": "string",
+            "example": "media://01920000-0000-7000-8000-000000000000"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": ["upload", "read", "prompt-import"]
+          },
+          "mediaType": {
+            "type": "string",
+            "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
+          },
+          "name": {
+            "type": "string",
+            "description": "Single-line source label"
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "byteSize": {
+            "type": "number"
+          },
+          "model": {
+            "$ref": "#/components/schemas/MediaModelVariantResponse"
+          }
+        },
+        "required": [
+          "id",
+          "locator",
+          "provenance",
+          "mediaType",
+          "name",
+          "width",
+          "height",
+          "byteSize",
+          "model"
+        ]
+      },
+      "MediaTooLargeErrorResponse": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": ["image_too_large"]
+          }
+        },
+        "required": ["statusCode", "error", "message", "code"]
+      },
+      "MediaUnsupportedErrorResponse": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "enum": ["unsupported_media_type"]
+          }
+        },
+        "required": ["statusCode", "error", "message", "code"]
       },
       "ModelPricingResponse": {
         "type": "object",
@@ -4544,111 +4680,6 @@
           }
         },
         "required": ["role", "viaOrgUnitId", "inherited"]
-      },
-      "MediaModelVariantResponse": {
-        "type": "object",
-        "properties": {
-          "mediaType": {
-            "type": "string",
-            "enum": ["image/png", "image/jpeg"]
-          },
-          "width": {
-            "type": "number"
-          },
-          "height": {
-            "type": "number"
-          },
-          "byteSize": {
-            "type": "number"
-          }
-        },
-        "required": ["mediaType", "width", "height", "byteSize"]
-      },
-      "MediaDescriptorResponse": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "locator": {
-            "type": "string",
-            "example": "media://01920000-0000-7000-8000-000000000000"
-          },
-          "provenance": {
-            "type": "string",
-            "enum": ["upload", "read", "prompt-import"]
-          },
-          "mediaType": {
-            "type": "string",
-            "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
-          },
-          "name": {
-            "type": "string",
-            "description": "Single-line source label"
-          },
-          "width": {
-            "type": "number"
-          },
-          "height": {
-            "type": "number"
-          },
-          "byteSize": {
-            "type": "number"
-          },
-          "model": {
-            "$ref": "#/components/schemas/MediaModelVariantResponse"
-          }
-        },
-        "required": [
-          "id",
-          "locator",
-          "provenance",
-          "mediaType",
-          "name",
-          "width",
-          "height",
-          "byteSize",
-          "model"
-        ]
-      },
-      "MediaTooLargeErrorResponse": {
-        "type": "object",
-        "properties": {
-          "statusCode": {
-            "type": "number"
-          },
-          "error": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string",
-            "enum": ["image_too_large"]
-          }
-        },
-        "required": ["statusCode", "error", "message", "code"]
-      },
-      "MediaUnsupportedErrorResponse": {
-        "type": "object",
-        "properties": {
-          "statusCode": {
-            "type": "number"
-          },
-          "error": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string",
-            "enum": ["unsupported_media_type"]
-          }
-        },
-        "required": ["statusCode", "error", "message", "code"]
       },
       "PermissionModeResponse": {
         "type": "object",

@@ -94,9 +94,19 @@ describe('MediaService authorization', () => {
       await expect(
         media.readVariant('owner', id, 'model'),
       ).resolves.toBeUndefined();
+      await expect(media.describeOwned('owner', [id])).resolves.toEqual(
+        new Map(),
+      );
       expect(runAs).not.toHaveBeenCalled();
     },
   );
+
+  it('describes no ids without opening a transaction', async () => {
+    const { media, runAs } = service();
+
+    await expect(media.describeOwned('owner', [])).resolves.toEqual(new Map());
+    expect(runAs).not.toHaveBeenCalled();
+  });
 
   it('refuses an unsupported input before opening a transaction', async () => {
     const { media, runAs } = service();
