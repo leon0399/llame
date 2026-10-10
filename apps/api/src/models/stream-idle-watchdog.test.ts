@@ -20,6 +20,7 @@ import { z } from 'zod';
 
 import type { ModelStreamInput } from './model-client';
 import { applyToolCallingOptions } from './openai-model-client';
+import { createToolCallGate } from './tool-call-gate';
 import {
   applyStreamIdleWatchdog,
   ModelStreamIdleError,
@@ -232,7 +233,7 @@ describe('applyStreamIdleWatchdog', () => {
       maxSteps: null,
     };
     const streamOptions = { model: scripted, messages };
-    applyToolCallingOptions(streamOptions, input);
+    applyToolCallingOptions(streamOptions, input, createToolCallGate());
     applyStreamIdleWatchdog(streamOptions, input);
 
     const text = streamText(streamOptions).text;
