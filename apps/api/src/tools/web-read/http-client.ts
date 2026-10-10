@@ -15,6 +15,7 @@ import {
   startCallDeadline,
   transportFailure,
   type CallDeadline,
+  type FetchDeadline,
 } from './call-deadline';
 import { createConnectionPlanner, type ConnectionPlanner } from './connection';
 import {
@@ -184,7 +185,7 @@ function addressRefusal(
 async function readDocumentResponse(
   response: UndiciResponse,
   locator: string,
-  deadline: CallDeadline,
+  deadline: FetchDeadline,
   init?: WebRequestInit,
 ): Promise<WebResponse | WebFetchFailure> {
   const contentType = contentTypeOf(response.headers.get('content-type'));
@@ -401,7 +402,7 @@ function concatChunks(
  *  the abort reason, not the truncated body, is what returns. */
 async function readAllChunks(
   reader: UndiciBodyReader,
-  deadline: CallDeadline,
+  deadline: FetchDeadline,
 ): Promise<BodyOutcome> {
   const chunks: Array<Uint8Array> = [];
   let total = 0;
@@ -437,7 +438,7 @@ async function readAllChunks(
 
 async function readCappedBody(
   response: UndiciResponse,
-  deadline: CallDeadline,
+  deadline: FetchDeadline,
 ): Promise<BodyOutcome> {
   const body = response.body;
   if (body === null) return { kind: 'body', bytes: new Uint8Array(0) };
@@ -558,13 +559,27 @@ async function fetchLocator(
   context: FetchLocatorContext,
   init?: WebRequestInit,
 ): Promise<WebResponse | WebFetchFailure> {
+  const deadline = context.budget.deadline.startFetch();
+  try {
+    return await followLocator(url, context, deadline, init);
+  } finally {
+    deadline.dispose();
+  }
+}
+
+async function followLocator(
+  url: string,
+  context: FetchLocatorContext,
+  deadline: FetchDeadline,
+  init?: WebRequestInit,
+): Promise<WebResponse | WebFetchFailure> {
   let locator = url;
   let requestInit = requestInitForOrigin(url, init);
   for (;;) {
     const outcome = await context.connections.request(
       locator,
       context.options,
-      context.budget.deadline,
+      deadline,
       requestInit,
     );
     if (outcome.kind === 'failure')
@@ -574,12 +589,7 @@ async function fetchLocator(
     const { response } = outcome;
     const redirects = init?.body === undefined && isRedirect(response);
     if (!redirects)
-      return readDocumentResponse(
-        response,
-        locator,
-        context.budget.deadline,
-        init,
-      );
+      return readDocumentResponse(response, locator, deadline, init);
     const hop = await followRedirect(
       response,
       locator,
