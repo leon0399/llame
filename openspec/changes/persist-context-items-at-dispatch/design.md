@@ -70,11 +70,15 @@ attempt id, through the ordered event writer used for `tool.requested`, before
 the step request. Settlement projects the `context.item` events of exactly the
 attempts whose model output it projects; when two projected attempts carry an
 item from the same producer for the same key, such as one instruction
-canonical path, only the first is kept. `withoutContextItems` is deleted. The
+canonical path, only the first is kept. A later attempt's item is dropped only
+when every file it names is already named by an earlier projected item, so
+committed text is never rewritten. `withoutContextItems` is deleted. The
 chat stream bridge and the owner raw event stream do not forward the event;
 the owner sees the part when the assistant message settles. The wedged-Run
 expiry on admission (`ChatLoopService.clearActiveRunSlot`) settles through
-the same projection instead of marking the Run expired without one.
+the same projection instead of marking the Run expired without one; the
+projection helpers move out of `RunExecutionService` so both callers share
+them.
 
 ### D4. The switch baseline is the latest dispatched Run's model
 
@@ -85,7 +89,11 @@ so it moves the baseline; a Run that never dispatched does not.
 
 ### D5. The per-Run record is removed
 
-A migration drops `runs.context_items` and adds `runs.dispatched_at`.
+The `turn-items` layer's migration adds `runs.dispatched_at` and sets it,
+for every pre-cutover `completed` Run, to that Run's finish time, since only
+completed Runs published their items before the cutover; other pre-cutover
+Runs stay NULL (proposal P6). The `drop-record` layer's migration drops
+`runs.context_items`.
 `recordContextItems`, the `updateForAttempt` field, the controller route, the
 DTOs, and the OpenAPI operation are deleted, and the web client is
 regenerated. `BuiltContext` keeps its in-memory item list only where request
@@ -101,9 +109,10 @@ assembly needs it.
   them; an `outcome_unknown` Run keeps them as context the model may have
   seen, which is the conservative reading.
 - [A retry of a dispatched Run cannot compact] → Its window was fit before
-  the first dispatch; it can only stop fitting if tool declarations grew
-  between attempts, and then it fails `context_incompatible` rather than
-  resetting state the reused items depend on.
+  the first dispatch; it can stop fitting when its re-rendered system prompt,
+  its tool declarations, or a detach narration grew, and then it fails
+  `context_incompatible` rather than resetting state the reused items depend
+  on.
 - [Breaking API change] → The endpoint has no UI consumer; the changelog marks
   it breaking.
 - [Larger replays after failures] → A failed Run's context now replays like a

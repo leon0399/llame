@@ -1,5 +1,53 @@
 ## MODIFIED Requirements
 
+### Requirement: One in-flight run per chat (single-flight)
+
+At most one non-terminal run SHALL exist per chat, enforced **at the datastore** (a partial unique index over non-terminal runs), not by application checks alone. A second, _different_ message for a chat that already has an in-flight run SHALL be rejected with a conflict (409). Re-submitting an already-accepted message id SHALL be rejected as a duplicate — a message never produces two runs. A run whose worker has died mid-execution SHALL be recovered or expired by the `job-queue` substrate (worker-death recovery / dead-letter).
+
+Each run SHALL be enqueued as the job named by the run's own id (per `job-queue`'s named-job requirement), so the single-flight admission path can judge a blocking run from its own job's state rather than from the run's age. A blocking run whose job is queued, retrying, or active SHALL be treated as live: the new message is rejected (409), however long the run has existed. A blocking run whose job is absent, completed, failed, or cancelled SHALL be treated as **stuck** — the queue can no longer execute it (a job never enqueued after a crash, or a job that settled without settling its run) — and SHALL be expired by the admission path on the next message, so a stuck run can never wedge a chat permanently. That expiry SHALL settle the stuck run through the same assistant-message projection as every other settlement, projecting its durable output (partial text, settled tool activity, and in-Run context items) into its assistant message. A run younger than one liveness window (`runs.heartbeatSeconds`) whose job is absent SHALL be treated as live, because its enqueue may still be in flight. A job state admission cannot read within a bounded wait, or at all, SHALL be treated as live, never as stuck. Admission SHALL read only the job named by the blocking run's id, and only for a run visible in the requesting owner's tenant scope; it SHALL NOT scan the queue or read another owner's run or job.
+
+#### Scenario: Concurrent different message is refused
+
+- **WHEN** a chat has a non-terminal run whose job is queued, retrying, or active, and a different message is submitted for it
+- **THEN** the second submission is rejected (409), and the first run is unaffected
+
+#### Scenario: A long-running live blocker is never expired by age
+
+- **WHEN** a chat's run has been executing for hours with its job active, and a different message is submitted
+- **THEN** the submission is rejected (409) and the running run continues
+
+#### Scenario: A duplicate message id is rejected
+
+- **WHEN** a message id that already has a run is submitted again
+- **THEN** it is rejected as a duplicate; a second run is never created for the same message
+
+#### Scenario: A stuck blocker cannot wedge a chat forever
+
+- **WHEN** a non-terminal run older than one liveness window has no job, or its job is completed, failed, or cancelled, and a new different message arrives
+- **THEN** the admission path expires the stuck run with a terminal `run.expired` and admits the new message, rather than 409-ing the chat indefinitely
+- **AND** the stuck run's assistant message carries its durable partial text, settled tool activity, and in-Run context items
+
+#### Scenario: An expired stuck run's in-Run items enter the next turn
+
+- **WHEN** the admission path expires a stuck run whose event log holds an in-Run `instructions` item
+- **THEN** the new message's Run replays that item at its stored position
+- **AND** its first trigger omits the files that item names
+
+#### Scenario: An unreadable job state never expires a run
+
+- **WHEN** a chat's run is old enough to be stuck and admission cannot read its job state, because the read fails or does not answer in time
+- **THEN** the submission is rejected (409) and the run is neither expired nor otherwise changed
+
+#### Scenario: A queued run blocks during a worker outage
+
+- **WHEN** no worker is consuming the runs queue, a chat's run is still queued, and a different message is submitted
+- **THEN** the submission is rejected (409) and the queued run executes once a worker returns
+
+#### Scenario: Another owner's run is never judged
+
+- **WHEN** a caller submits a message naming another owner's chat whose run is live or stuck
+- **THEN** the request is rejected as not found, no job state is read, and that run is neither expired nor revealed
+
 ### Requirement: Run claiming and completion are crash-safe
 
 A worker SHALL claim a run only if it is non-terminal; a run already marked running SHALL be re-executed only after the queue substrate has determined its prior holder is no longer alive (redelivering the job per the native worker-liveness path), so two live workers racing the same run cannot both execute it. Completion SHALL be first-writer-wins: once a run is terminal, no later writer may change its outcome — this is the safety net that keeps even a transient two-worker overlap (a paused-but-not-dead worker) to a single terminal result.
@@ -82,7 +130,7 @@ The final assistant message written for a run SHALL be an ordered projection of 
 
 The prospective cutover boundary in `context-injection` SHALL govern these publication rules; existing conversation state SHALL not be retrospectively filtered or rebuilt.
 
-Operational and UI replay SHALL retain a failed attempt's observed part order, and that persisted record SHALL become model history. A failed, cancelled, expired, or superseded attempt keeps the partial assistant turn the user saw, entering later model context, model-facing recall, and compaction like any other committed turn. The rail context such an attempt dispatched stays in history with that turn under `context-injection`, and the projection keeps the `context.item` events of exactly the attempts whose model output it projects, under the rule `context-injection` states. Every settlement that writes the assistant message, including completion, failure, cancellation, `outcome_unknown`, in-process or dead-letter expiry, and the admission path's expiry of a stuck Run, SHALL use this same projection, so its in-Run context items persist. `context.item` events are projection input only and are not forwarded to stream subscribers. Within a successful attempt, an individually failed tool call remains a normal paired observation.
+Operational and UI replay SHALL retain a failed attempt's observed part order, and that persisted record SHALL become model history. A failed, cancelled, expired, or superseded attempt keeps the partial assistant turn the user saw, entering later model context, model-facing recall, and compaction like any other committed turn. The rail context such an attempt dispatched stays in history with that turn under `context-injection`, and the projection keeps the `context.item` events of exactly the attempts whose model output it projects, under the rule `context-injection` states, which drops a later attempt's item only when every file it names is already named by an earlier projected item. Every settlement that writes the assistant message, including completion, failure, cancellation, `outcome_unknown`, in-process or dead-letter expiry, and the admission path's expiry of a stuck Run, SHALL use this same projection, so its in-Run context items persist. `context.item` events are projection input only and are not forwarded to stream subscribers. Within a successful attempt, an individually failed tool call remains a normal paired observation.
 
 A Run's first model request MAY be preceded by a compaction checkpoint that publishes before that request. The checkpoint row and the re-baked epoch state it names SHALL commit in one transaction before the model request, and SHALL be retained when that attempt later fails, cancelled, or expires: a checkpoint describes committed history only, so it is correct regardless of the attempt's outcome. A checkpoint row is committed history, not attempt-owned staged rail context, and SHALL NOT be withheld or retracted on the attempt's outcome. A later attempt of the same Run SHALL reuse the published checkpoint rather than pay a second summary call.
 

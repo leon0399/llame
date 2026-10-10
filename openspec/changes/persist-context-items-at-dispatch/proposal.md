@@ -51,7 +51,7 @@ None.
 - `context-injection`: one dispatch transaction per attempt, reuse on retry,
   in-Run items as Run events, and removal of the per-Run record.
 - `model-system-prompts`: the switch baseline and the publication wording.
-- `instruction-files`: a failed attempt's loaded files stay seen.
+- `instruction-files`: a failed Run's loaded files stay seen.
 - `chat-recency-digest`: baseline and told state commit at dispatch; one
   requirement renamed to "Digest baseline and disclosure state commit before
   dispatch".
@@ -109,6 +109,14 @@ None.
   again. If its request no longer fits, it fails `context_incompatible`.
 - **P4 The per-Run record is deleted, not repaired.** Every entry is
   byte-identical to a persisted part, and nothing reads it.
+
+- **P6 Backfill `dispatched_at` for completed pre-cutover Runs.** Repository
+  rules forbid preservation backfills unless requested, so this needs your
+  call. Without it, every existing chat's first post-cutover turn finds no
+  baseline: a chat whose digest was rebaked from the active checkpoint gets a
+  second digest-supersession item, a pending tool-availability transition is
+  lost, and a model switch on that turn emits no switch item. The backfill is
+  one `UPDATE` in the migration that adds the column. Recommended.
 
 ## Non-goals
 

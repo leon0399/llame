@@ -123,9 +123,10 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **WHEN** a turn switches from model `A` to smaller-context model `B` and the
   complete request for `B` would exceed its configured context window or
   reserved output budget
-- **AND** model `A` plus its most recent system-prompt receipt remain executable
-- **THEN** the worker compacts with model `A` over history through the last
-  assistant turn before invoking model `B`
+- **AND** the previous completed Run used model `A`, and model `A` plus that
+  Run's successful system-prompt receipt remain executable
+- **THEN** the worker compacts with the previous completed Run's model `A` over
+  history through the last assistant turn before invoking model `B`
 - **AND** the triggering user message remains outside the summarized prefix
 - **AND** model `B` receives its own prompt and tools, the resulting checkpoint
   message, the user and assistant rows above its absorbed-through sequence, and
@@ -133,8 +134,9 @@ Tool observations are no longer display-only. They are replayed in the conventio
 
 #### Scenario: No capable source model is available
 
-- **WHEN** the target request does not fit and the prior model or its successful
-  system-prompt receipt is unavailable or the source-model compaction fails
+- **WHEN** the target request does not fit and the previous completed Run's model
+  or its successful system-prompt receipt is unavailable, or the source-model
+  compaction fails
 - **THEN** the run fails before the target provider call with
   `context_incompatible`
 - **AND** history is not silently truncated and no fallback model is selected
@@ -166,6 +168,12 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **THEN** the selected model receives its effective prompt normally
 - **AND** no model-switch reminder is created
 
+#### Scenario: The switch baseline and the compaction source differ
+
+- **WHEN** a Run completed on model `A`, a later Run dispatched on model `C` and failed, and the next turn selects smaller-context model `B` whose request does not fit
+- **THEN** the switch item names `C` as the prior model
+- **AND** the window compaction uses model `A` with the completed Run's successful system-prompt receipt
+
 #### Scenario: A failed dispatched Run keeps its model as the baseline
 
 - **WHEN** the most recent prior Run used model `A`, set `dispatched_at`, and failed, and the next turn also selects `A`
@@ -177,7 +185,7 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **WHEN** a Run selected model `B` but failed before its dispatch transaction, and the next turn selects model `A`, which the dispatched Run before it used
 - **THEN** no model-switch reminder is created
 
-Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`, except that a failed, cancelled, or expired Run supplies no measured context size, as the checkpoint contract below requires; the rail context its attempt dispatched is committed history too, as `context-injection` requires. Compaction SHALL run in the Run's own attempt before its first model step and SHALL follow the checkpoint contract below. When the prepared request does not fit that attempt's model, the summary SHALL use the previous completed Run's model, that Run's system-prompt receipt and effort, and no tool declarations; it SHALL NOT load, reconstruct, or persist a historical tool catalog.
+Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`, except that a failed, cancelled, or expired Run supplies no measured context size, as the checkpoint contract below requires; the rail context its attempt dispatched is committed history too, as `context-injection` requires. Compaction SHALL run in the Run's own attempt before its first model step and SHALL follow the checkpoint contract below. The compaction source Run MAY differ from the switch item's baseline Run: when the prepared request does not fit that attempt's model, the summary SHALL use the previous completed Run's model, that Run's system-prompt receipt and effort, and no tool declarations; it SHALL NOT load, reconstruct, or persist a historical tool catalog.
 
 ### Requirement: Model switches use canonical persisted context text and metadata
 
