@@ -962,7 +962,8 @@ Result content composed by a tool implementation, the permission layer, or resul
 The existing read-only loop may retry a claimable Run from its first step with freshly resolved
 worker context only when that Run has no recorded native attempt or MCP dispatch. A retry SHALL
 re-resolve its own prompt and its own attempt-local catalog rather than reuse the failed attempt's
-preparation, and SHALL compare availability against the same previous committed turn. The failed
+preparation, and SHALL compare availability against the id/state record its Run already stored when an earlier
+attempt dispatched, and otherwise against the most recent prior dispatched Run's record. The failed
 attempt's persisted output remains part of the committed record that later turns load. A Run that
 has executed an alpha native `edit` or `write` SHALL NOT automatically replay that mutation after a
 worker failure, timeout, or unknown settlement. A Run that has dispatched an MCP operation SHALL
@@ -1074,7 +1075,7 @@ The canonical closed Knowledge reason vocabulary and model-safe label mapping SH
 
 #### Scenario: Knowledge availability recovery does not infer a prior cause
 
-- **WHEN** an attempt admits a Knowledge tool recorded as unavailable in the previous committed turn within the disclosure epoch
+- **WHEN** an attempt admits a Knowledge tool recorded as unavailable in the most recent prior dispatched Run's record within the disclosure epoch
 - **THEN** its `Now available` transition identifies that exact tool without inferring a stored failure reason
 - **AND** no root, host path, or arbitrary reason text is rendered
 
