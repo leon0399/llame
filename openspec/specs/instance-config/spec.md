@@ -286,7 +286,7 @@ The `openai-codex` variant SHALL require `{ id, type, key, accountId }` and MAY 
 
 ### Requirement: Model catalog configuration
 
-The config file SHALL support a top-level `models` array that is the executable model catalog, superseding any hardcoded catalog. Each entry SHALL include a required opaque `id`, a required `provider` referencing a defined `providers[].id`, a required server-only `providerModelId`, and a required positive-integer `contextWindowTokens`. Each entry MAY include `pricingUsdPer1M`, an optional per-model `compactionThresholdTokens`, an optional positive-integer `maxOutputTokens` (accepting a whole-value interpolation token and validated after resolution, exactly like `contextWindowTokens`), an optional `reasoning` object, an optional server-only `providerOptions` object, and the optional display fields of the public model contract. `pricingUsdPer1M` MAY carry an optional `cacheWrite` rate alongside `input`, `cachedInput`, and `output`, validated like the other rates. A `models[].provider` that does not reference a defined provider id SHALL fail startup naming the model id and the dangling provider reference.
+The config file SHALL support a top-level `models` array that is the executable model catalog, superseding any hardcoded catalog. Each entry SHALL include a required opaque `id`, a required `provider` referencing a defined `providers[].id`, a required server-only `providerModelId`, and a required positive-integer `contextWindowTokens`. Each entry MAY include `pricingUsdPer1M`, an optional per-model `compactionThresholdTokens`, an optional positive-integer `maxOutputTokens` (accepting a whole-value interpolation token and validated after resolution, exactly like `contextWindowTokens`), an optional `input` array, an optional `reasoning` object, an optional server-only `providerOptions` object, and the optional display fields of the public model contract. `pricingUsdPer1M` MAY carry an optional `cacheWrite` rate alongside `input`, `cachedInput`, and `output`, validated like the other rates. A `models[].provider` that does not reference a defined provider id SHALL fail startup naming the model id and the dangling provider reference.
 
 The optional `reasoning` object declares that the model accepts a reasoning-effort request parameter and what values it accepts. Its presence is the declaration; there SHALL be no separate availability flag. It SHALL contain a required non-empty `effortLevels` array, a required `defaultEffort` string, and an optional `cacheInvalidatedByEffortChange` boolean defaulting to `false`.
 
@@ -301,6 +301,15 @@ At load time the system SHALL normalize every item to `{ value, label? }` (omitt
 The system SHALL NOT verify that a declared level is accepted by the provider. A misdeclared level surfaces as a provider request error at execution time, consistent with provider credentials not being prevalidated at boot.
 
 The optional `providerOptions` object carries provider-native request options for the adapter the entry's provider `type` selects, keyed as that adapter documents them. The published schema SHALL declare it as a typed free-form object, so the closed-schema rule applies to the `providerOptions` key itself and not to its contents. At load time the system SHALL validate only that it is a JSON object and SHALL otherwise retain it unchanged: it SHALL NOT constrain, interpret, or verify its keys or values against the adapter or the provider, because those vocabularies belong to the provider and change between releases. `{env:…}` and `{path:…}` interpolation syntax in any string value at any depth of the object SHALL fail startup naming the model id and the field before any token is resolved, so no interpolated secret can reach a request option. The object is not a credential channel: its contents are not redacted anywhere, and an operator SHALL NOT place a secret in it. The object is server-only and SHALL NOT be published in the public model catalog. How the retained options and the optional `maxOutputTokens` reach the provider, and what takes precedence over them, is specified by `provider-api-selection`.
+
+The optional `input` array declares the input modalities the model accepts. Its items SHALL come from
+the closed set `text` and `image`; the array SHALL contain `text` and SHALL NOT repeat an item. An
+absent `input` SHALL resolve to `["text"]`, and a present one SHALL be retained in its declared order.
+An item outside the set, an array without `text`, or a repeated item SHALL fail startup naming the
+model id and the field. The system SHALL NOT verify that a declared modality is accepted by the
+provider: a model declared with `image` that rejects images surfaces the provider's error when a Run
+sends it one. The resolved array is published on the model's available-model entry as required by
+`available-models`.
 
 #### Scenario: Model references a defined provider
 
@@ -421,6 +430,40 @@ The optional `providerOptions` object carries provider-native request options fo
 - **WHEN** a model entry's `pricingUsdPer1M` declares `cacheWrite`, or omits it while declaring other rates
 - **THEN** startup succeeds
 - **AND** a negative or non-numeric `cacheWrite` fails startup naming the model id and the field
+
+#### Scenario: Input modalities default to text only
+
+- **WHEN** a model entry omits `input`
+- **THEN** startup succeeds
+- **AND** the model's resolved `input` is `["text"]`
+
+#### Scenario: Image input is declared explicitly
+
+- **WHEN** a model entry sets `input` to `["text", "image"]`
+- **THEN** startup succeeds
+- **AND** the model's resolved `input` is `["text", "image"]`
+
+#### Scenario: Input without text fails startup
+
+- **WHEN** a model entry sets `input` to `["image"]` or to `[]`
+- **THEN** startup fails naming the model id and the `input` field
+- **AND** no partial catalog is applied
+
+#### Scenario: Unknown input modality fails startup
+
+- **WHEN** a model entry sets `input` to `["text", "audio"]`
+- **THEN** startup fails naming the model id and the `input` field
+
+#### Scenario: Repeated input modality fails startup
+
+- **WHEN** a model entry sets `input` to `["text", "text"]` or `["text", "image", "image"]`
+- **THEN** startup fails naming the model id and the `input` field
+
+#### Scenario: Declared image input is not verified against the provider
+
+- **WHEN** a model entry declares `input: ["text", "image"]` for a provider model that rejects images
+- **THEN** startup succeeds
+- **AND** the rejection surfaces as the provider's request error when a Run sends that model an image
 
 ### Requirement: Model prompt files are dedicated visible-content configuration
 

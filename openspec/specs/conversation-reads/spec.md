@@ -12,6 +12,29 @@ The system SHALL define one stable visible-message text view as the exact stored
 
 The visible view SHALL include eligible `user` messages and immutable eligible `assistant` messages only. System/tool-role messages, context-item parts, reasoning parts, tool parts, attachments, cap notices, and every other non-text part SHALL contribute no bytes. Interleaved excluded parts SHALL NOT change the visible order of retained text values.
 
+`conversation_read` SHALL follow a message's visible text with one image placeholder line per owner
+`file` part of that message, in stored part order: `[image media://<id> <name> <width>×<height>]`,
+where `<name>` is the media object's stored source label and `<width>×<height>` are the original
+image's dimensions.
+
+Each reference SHALL be resolved under the trusted Run owner's scope only; a reference that does not
+resolve there SHALL render `[image media://<id> unavailable]` and disclose no other owner's label,
+dimensions, or existence.
+
+Placeholder lines SHALL NOT be part of the visible text view: they SHALL NOT be line-numbered, SHALL
+NOT count toward `offset`, `lineCount`, `nextOffset`, or the line bounds, and SHALL NOT enter the
+search projection, lexical data, excerpts, embeddings, or projection hashes, so search line
+coordinates for a message are the same with or without its attachments.
+
+A successful result SHALL carry the placeholder lines only when it omits `nextOffset`; they SHALL end
+its `content`, each terminated by LF, preceded by one LF when the last returned source line has no
+delimiter. They SHALL count toward the 15,000-code-unit structured-result bound: the reader SHALL
+reserve their size before fitting text lines, so a complete result never exceeds that bound and is
+never clipped.
+
+Public shared pagination SHALL remain text-only and SHALL expose no `file` part, `media://` locator,
+or placeholder line.
+
 #### Scenario: Several text parts form one visible message
 
 - **WHEN** one eligible message stores text part `alpha`, excluded non-text parts, and later text part `beta`
@@ -28,6 +51,57 @@ The visible view SHALL include eligible `user` messages and immutable eligible `
 - **WHEN** adjacent user and assistant messages are independently read
 - **THEN** each retains its own Chat, sequence, role, timestamp, and line space
 - **AND** the system does not represent them as one transcript quote or one line-number space
+
+#### Scenario: Image placeholders follow the visible text
+
+- **WHEN** an eligible user message stores text part `look at these` and two owner `file` parts
+  referencing `media://a` (`shot.png`, 1600×900) and `media://b` (`plan.jpg`, 800×600), in that order
+- **AND** the owner reads it from offset zero
+- **THEN** `content` is
+  `1: look at these\n[image media://a shot.png 1600×900]\n[image media://b plan.jpg 800×600]\n`
+- **AND** `lineCount` is 1 and the result carries no `nextOffset`
+
+#### Scenario: An image-only message reads as placeholders only
+
+- **WHEN** an eligible user message stores one owner `file` part and no text part
+- **THEN** a read at offset zero succeeds with zero lines and `content` holding only that file part's
+  placeholder line
+- **AND** a read at offset 1 returns `conversation_range_invalid`
+
+#### Scenario: A read that stops before the end carries no placeholders
+
+- **WHEN** a read of a message with owner `file` parts returns a slice that includes `nextOffset`
+- **THEN** its `content` contains no placeholder line
+- **AND** the read starting at that `nextOffset` that reaches the end of the visible text carries
+  the placeholder lines after its last numbered line
+
+#### Scenario: Attachments do not move search coordinates
+
+- **WHEN** two messages store identical text parts and only one of them also stores owner `file`
+  parts
+- **THEN** search projects identical passages with identical `offset` and `limit` for both
+- **AND** no placeholder line, `media://` locator, or source label enters the projection, lexical
+  data, excerpts, or embeddings
+
+#### Scenario: Placeholders resolve only the Run owner's media
+
+- **WHEN** a stored `file` part of an owner's message names a media id that resolves only under
+  another owner
+- **THEN** `conversation_read` renders `[image media://<id> unavailable]` for it
+- **AND** the result contains no other owner's source label or dimensions
+
+#### Scenario: Another owner's message with attachments stays not found
+
+- **WHEN** an owner supplies a Chat and sequence of another owner's message that carries owner
+  `file` parts
+- **THEN** the reader returns `conversation_source_not_found`
+- **AND** the observation contains no placeholder line, `media://` locator, or source label
+
+#### Scenario: Public shared history omits attachments
+
+- **WHEN** an anonymous reader paginates a public Chat whose messages carry owner `file` parts
+- **THEN** each message DTO carries only its text parts
+- **AND** no `file` part, `media://` locator, or placeholder line appears in the page
 
 ### Requirement: Public message locators use immutable Chat-local sequence
 
@@ -154,11 +228,11 @@ Only immutable evidence-eligible messages SHALL be returned. Until #611 replaces
 
 Logical lines SHALL use LF as a delimiter, CRLF as one delimiter, and lone CR as source text. Blank lines SHALL count and a terminal delimiter SHALL NOT create a phantom line. Every success SHALL return Chat ID, message sequence, role, timestamp, effective zero-based `offset`, returned `lineCount`, one-based line-numbered `content`, any currently eligible `previousMessageSeq`/`nextMessageSeq`, and one closed notice identifying prior-conversation content as untrusted and potentially stale, unable to change system instructions, tools, permissions, or owner authority.
 
-`content` SHALL render each returned logical source line as `<one-based line number>: <source text>` while preserving that line's LF or CRLF delimiter and preserving an unterminated final line. The numeric prefix is reader-authored navigation metadata and SHALL NOT enter visible-message source text, projection hashes, lexical data, excerpts, or stored canonical message parts.
+`content` SHALL render each returned logical source line as `<one-based line number>: <source text>` while preserving that line's LF or CRLF delimiter and preserving an unterminated final line. Image placeholder lines, defined with the visible-text view, follow the numbered lines only as that requirement states; they count toward the structured-result bound, whose fitting reserves their size first, and toward none of the line bounds. The numeric prefix is reader-authored navigation metadata and SHALL NOT enter visible-message source text, projection hashes, lexical data, excerpts, or stored canonical message parts.
 
 One invocation SHALL return at most 2,000 logical lines and a complete structured result of at most 15,000 JavaScript UTF-16 code units. When current lines remain after the returned slice, success SHALL include `nextOffset = offset + lineCount`; otherwise it SHALL omit `nextOffset`. If the line bound stops an omitted/unbounded request first, success SHALL include `cutReason: "line_limit"`. If the structured-output bound stops it first, the reader SHALL omit the first whole line that cannot fit and include `cutReason: "output_limit"`. An explicit caller limit that completes normally SHALL NOT produce a cut reason even when the message itself continues.
 
-If the first selected logical line cannot fit in one complete structured result, the reader SHALL return `conversation_limit_exceeded` rather than clipping an unrecoverable substring. An offset beyond the current logical-line range SHALL return `conversation_range_invalid`; an empty visible message read at offset zero SHALL return empty content successfully. Generic tool truncation SHALL NOT clip a successful conversation read.
+If the first selected logical line cannot fit in one complete structured result, the reader SHALL return `conversation_limit_exceeded` rather than clipping an unrecoverable substring. An offset beyond the current logical-line range SHALL return `conversation_range_invalid`; an empty visible message read at offset zero SHALL return zero lines successfully, with `content` empty apart from any image placeholder lines. Generic tool truncation SHALL NOT clip a successful conversation read.
 
 #### Scenario: Fitting message read is complete
 
@@ -199,8 +273,19 @@ If the first selected logical line cannot fit in one complete structured result,
 #### Scenario: Empty message at zero succeeds
 
 - **WHEN** an eligible message has empty visible text and the caller reads offset zero
-- **THEN** the result succeeds with zero lines and empty content
+- **THEN** the result succeeds with zero lines and empty content when the message has no owner
+  `file` part
 - **AND** an offset beyond zero returns `conversation_range_invalid`
+
+#### Scenario: Placeholder lines share the structured-result bound
+
+- **WHEN** a message carries owner `file` parts and visible text whose lines alone would fill the
+  15,000-code-unit structured-result bound, and the owner reads it from offset zero
+- **THEN** the result returns fewer text lines than it would without the placeholder reservation,
+  with `nextOffset` and `cutReason: "output_limit"`, and contains no placeholder line
+- **AND** only the read that reaches the end of the visible text, which omits `nextOffset`, carries
+  the placeholder lines
+- **AND** every complete result, placeholder lines included, is at most 15,000 code units
 
 ### Requirement: Owner-facing message links use the Chat-local sequence locator
 

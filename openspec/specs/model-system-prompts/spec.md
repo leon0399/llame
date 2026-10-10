@@ -315,7 +315,7 @@ using its predecessor's receipt, catalog, or model context.
 
 ### Requirement: A model switch replaces the top-level prompt and preserves portable history
 
-For a turn whose selected model differs from the most recent successfully committed prior run in the chat, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability. It MUST NOT synthesize, rewrite, or re-bind an originating model's provider-native thinking/signature/cache metadata for the target model; reasoning parts and their provider metadata replay under the `reasoning-output` capability, which passes each part back unchanged, omits before the request any part the target wire cannot represent, and lets the target provider ignore or drop the rest. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
+For a turn whose selected model differs from the most recent successfully committed prior run in the chat, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, owner `file` parts, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability, image `read` results included. Every image reference in portable history SHALL be projected for the target model's declared input as the `media-attachments` capability defines: an image part when the target model declares `image` input and the epoch image window attaches the reference, and its placeholder text otherwise. The attached set SHALL NOT depend on which vision model the request targets. A switch SHALL NOT rewrite a stored part, and an image an earlier model received as a placeholder SHALL reach a later vision model as an image part when that request's epoch image window attaches it. It MUST NOT synthesize, rewrite, or re-bind an originating model's provider-native thinking/signature/cache metadata for the target model; reasoning parts and their provider metadata replay under the `reasoning-output` capability, which passes each part back unchanged, omits before the request any part the target wire cannot represent, and lets the target provider ignore or drop the rest. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
 
 Tool observations are no longer display-only. They are replayed in the conventional tool-call/tool-result representation, carried across a model or provider switch in the target provider's expected form, with every replayed call accompanied by its result. Reasoning parts are likewise no longer display-only for the Chat that stores them: `reasoning-output` replays each part and any provider metadata it carries, unchanged; the system neither coerces it nor selects which parts to keep by content, while the selected adapter still omits a part its wire cannot represent. What this requirement still forbids is llame synthesizing, rewriting, or re-binding an originating model's provider metadata for a different model.
 
@@ -384,6 +384,40 @@ Tool observations are no longer display-only. They are replayed in the conventio
 - **AND** no model-switch reminder is created
 
 Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`, except that a failed, cancelled, or expired Run supplies no measured context size, as the checkpoint contract below requires; only attempt-generated rail context stays staged and publishes with a successful turn. Compaction SHALL run in the Run's own attempt before its first model step and SHALL follow the checkpoint contract below. When the prepared request does not fit that attempt's model, the summary SHALL use the previous completed Run's model, that Run's system-prompt receipt and effort, and no tool declarations; it SHALL NOT load, reconstruct, or persist a historical tool catalog.
+
+#### Scenario: A switch to a text-only model replays images as placeholders
+
+- **WHEN** earlier turns carry an owner `file` part and an image `read` result that a vision model
+  received as image parts
+- **AND** the next turn selects a model whose declared input is text only
+- **THEN** that model receives each earlier image, in the image's original position, as its
+  placeholder `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`
+- **AND** the request carries no image part and the stored parts are unchanged
+
+#### Scenario: A switch to a vision model restores image parts
+
+- **WHEN** earlier turns of the current epoch ran on a text-only model and carry owner `file` parts
+  and an image `read` result
+- **AND** the next turn selects a model that declares `image` input
+- **THEN** that model receives each image the epoch image window attaches as an image part built from
+  its model variant
+- **AND** each image beyond the epoch's bounds replays as
+  `[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`
+
+#### Scenario: A switch between vision models keeps the attached set
+
+- **WHEN** a turn switches from one model that declares `image` input to another within the same
+  epoch
+- **THEN** the target's request attaches exactly the references the previous request attached
+- **AND** every reference beyond the epoch's bounds keeps the limit placeholder
+
+#### Scenario: A public-chat fork replays none of the source owner's media
+
+- **WHEN** the owner of a fork of another owner's public Chat sends a turn with a model that declares
+  `image` input
+- **THEN** portable history carries no image part, placeholder, or `media://` locator for the source
+  owner's attachments
+- **AND** no media object owned by the source owner is resolved during preparation
 
 ### Requirement: Model switches use canonical persisted context text and metadata
 
@@ -510,6 +544,22 @@ threshold, because a request that does not fit is also over the default
 threshold and only the window variant can summarize it. Otherwise a measured
 context size at or above the Run model's threshold SHALL select the threshold
 variant. No request SHALL be compacted by both variants.
+
+A prepared request on a model that declares `image` input SHALL also count as
+reaching the Run model's threshold when it carries an image reference that
+`media-attachments` does not attach because its epoch's image bounds are reached
+and an image reference in a row before the triggering user message. Image
+overflow SHALL therefore select the threshold variant on the attempt's own
+model, because that request fits; a request that also does not fit SHALL select
+the window variant as above.
+
+When image overflow is the only trigger condition and its compaction fails or
+yields no usable summary, the attempt SHALL proceed without a checkpoint and the
+overflowing references SHALL keep the limit placeholder that `media-attachments`
+defines; image overflow alone SHALL NOT fail an attempt. The trigger SHALL be
+evaluated again before every Run's first model step, so those references stay
+unattached only until the next Run whose compaction succeeds and starts a new
+epoch.
 
 Measured context size SHALL be the previous completed assistant message's
 persisted final-request context size plus the estimate of the rows and rail
@@ -802,6 +852,37 @@ work.
   around a retained historical boundary
 - **THEN** it does not reuse this compaction
 - **AND** it requires a separately specified summary contract
+
+#### Scenario: Image overflow selects the threshold variant
+
+- **WHEN** a prepared request on a model that declares `image` input fits that
+  model's window and its measured context size is below the threshold, but it
+  carries an image reference beyond its epoch's image bounds and an image
+  reference in a row before the triggering user message
+- **THEN** the threshold variant runs before the Run's first model step, with
+  that attempt's own model client, system prompt, schema-only tool declarations,
+  and effort
+- **AND** the request after the checkpoint admits images oldest first under the
+  new epoch
+
+#### Scenario: Image overflow in the triggering message alone does not compact
+
+- **WHEN** only the triggering user message's own images exceed the epoch's image
+  bounds and no row before it carries an image reference
+- **THEN** no checkpoint is published
+- **AND** the overflowing images keep the limit placeholder and the attempt
+  proceeds
+
+#### Scenario: Image overflow alone never fails an attempt
+
+- **WHEN** image overflow is the only trigger condition and its summarization
+  call throws or returns no usable summary
+- **THEN** the attempt proceeds without a checkpoint instead of failing
+  `context_incompatible`
+- **AND** the overflowing images keep the limit placeholder
+- **AND** the next Run evaluates the trigger again before its first model step
+  and, when its compaction succeeds, admits images oldest first under the new
+  epoch
 
 ### Requirement: Summarization instructions and the title prompts are packaged templates
 

@@ -70,7 +70,7 @@ The loop remains queue-processed and durable.
 
 ### Requirement: Tool registry with mandatory safety classification
 
-Every registered tool SHALL declare a safety classification from the SPEC §13.5 set (`read_only`, `write_low_risk`, `write_high_risk`, `execute_code`, `external_send`, `financial_or_sensitive`, `admin`, `unverified`). The loop SHALL execute allowlisted `read_only` tools and exact code-owned tools registered by an approved alpha-native capability only when the executing process's `tools.permissions` policy also allows the invocation. MCP tools SHALL declare `unverified`; their eligibility SHALL be determined by an admitted MCP declaration whose exact id matches either an exact `tools.allowed` entry or a validated namespace rule, not by a `read_only` classification. An MCP invocation SHALL execute only when its source is allowlisted and the executing process's `tools.permissions` policy allows that invocation. The initial native set is `read` classified `read_only`, plus `edit` and `write` classified `write_low_risk`; later native capabilities such as Knowledge submit or bash must declare their own exact tools and retry policy. Classification alone SHALL NOT admit any other write or execution tool. Alpha-native tools carry explicit host authority for absolute paths and owner-scoped Knowledge authority for `kb://` locators; they are not a general permission engine, and their host authority SHALL NOT grant authority to MCP tools. The candidate resolver SHALL admit `edit` and `write` when the process has accepted native host authority or has a configured Knowledge root, and SHALL leave them unavailable when it has neither. It SHALL admit `read` whenever `tools.allowed` names it, because skill and web locators need no host authority; an absolute path on a process without accepted native authority still fails closed with `executor_unavailable`. A configured Knowledge root admits only `read`, `edit`, and `write`; `bash`, `enter_workspace`, `exit_workspace`, and every other host-capability tool remain admitted solely by accepted native host authority. The exact host-capability set SHALL include `enter_workspace` and `exit_workspace`; `enter_workspace` SHALL be classified `execute_code`, `exit_workspace` SHALL be classified `write_low_risk`, neither SHALL record a `native.attempt` effect, both SHALL bind the Run to the executing native executor identity like other host tools, and both SHALL be idempotent over Chat state when retried after their state change commits. Every MCP source-inventory, advertisement, executable-binding, and unavailable-state gate SHALL use source admission, `tools.allowed`, and per-call `tools.permissions` as applicable; no MCP gate SHALL require or infer a `read_only` classification or attestation, and an unavailable MCP declaration SHALL retain at most its exact identity for availability disclosure without an executable binding.
+Every registered tool SHALL declare a safety classification from the SPEC §13.5 set (`read_only`, `write_low_risk`, `write_high_risk`, `execute_code`, `external_send`, `financial_or_sensitive`, `admin`, `unverified`). The loop SHALL execute allowlisted `read_only` tools and exact code-owned tools registered by an approved alpha-native capability only when the executing process's `tools.permissions` policy also allows the invocation. MCP tools SHALL declare `unverified`; their eligibility SHALL be determined by an admitted MCP declaration whose exact id matches either an exact `tools.allowed` entry or a validated namespace rule, not by a `read_only` classification. An MCP invocation SHALL execute only when its source is allowlisted and the executing process's `tools.permissions` policy allows that invocation. The initial native set is `read` classified `read_only`, plus `edit` and `write` classified `write_low_risk`; later native capabilities such as Knowledge submit or bash must declare their own exact tools and retry policy. Classification alone SHALL NOT admit any other write or execution tool. Alpha-native tools carry explicit host authority for absolute paths and owner-scoped Knowledge authority for `kb://` locators, and `read` alone carries owner-scoped, read-only media authority for `media://` locators, which resolves only the Run owner's media; they are not a general permission engine, and their host authority SHALL NOT grant authority to MCP tools. The candidate resolver SHALL admit `edit` and `write` when the process has accepted native host authority or has a configured Knowledge root, and SHALL leave them unavailable when it has neither. It SHALL admit `read` whenever `tools.allowed` names it, because skill, web, and `media://` locators need no host authority; an absolute path on a process without accepted native authority still fails closed with `executor_unavailable`. A configured Knowledge root admits only `read`, `edit`, and `write`; `bash`, `enter_workspace`, `exit_workspace`, and every other host-capability tool remain admitted solely by accepted native host authority. The exact host-capability set SHALL include `enter_workspace` and `exit_workspace`; `enter_workspace` SHALL be classified `execute_code`, `exit_workspace` SHALL be classified `write_low_risk`, neither SHALL record a `native.attempt` effect, both SHALL bind the Run to the executing native executor identity like other host tools, and both SHALL be idempotent over Chat state when retried after their state change commits. Every MCP source-inventory, advertisement, executable-binding, and unavailable-state gate SHALL use source admission, `tools.allowed`, and per-call `tools.permissions` as applicable; no MCP gate SHALL require or infer a `read_only` classification or attestation, and an unavailable MCP declaration SHALL retain at most its exact identity for availability disclosure without an executable binding.
 
 The `mcp__` tool-id prefix SHALL be reserved for ids produced by the MCP capability. A code-owned or other non-MCP registry entry beginning with that prefix SHALL fail registration, so ID-only namespace permission matching cannot grant authority across source kinds.
 
@@ -129,6 +129,26 @@ The `mcp__` tool-id prefix SHALL be reserved for ids produced by the MCP capabil
 
 - **WHEN** an MCP source supplies an admitted write-capable declaration whose exact id matches `tools.allowed`, and the invocation passes the executing process's `tools.permissions` policy
 - **THEN** the tool executes despite its `unverified` classification
+
+#### Scenario: Read serves media locators without host or Knowledge authority
+
+- **WHEN** a process has no `tools.nativeExecutorId` and no configured Knowledge root, allowlists
+  `read`, and the Run owner reads `media://<id>` of an image that owner holds
+- **THEN** `read` returns the image result when its permission policy allows the call
+- **AND** without a matching allow the call receives `permission_denied`
+
+#### Scenario: Media authority does not cross owners
+
+- **WHEN** user A's Run reads `media://<id>` of an image owned by user B, under a policy that allows
+  the locator text
+- **THEN** the call returns `not_found`, exactly as for an id that does not exist
+- **AND** no bytes or descriptor fields of user B's image reach user A
+
+#### Scenario: Media authority is read-only
+
+- **WHEN** `edit` or `write` targets a `media://` locator
+- **THEN** the call returns the existing unsupported-operation error
+- **AND** no media object or stored variant changes
 
 ### Requirement: Each execution attempt applies the operator availability gate and per-call permission
 
@@ -315,6 +335,11 @@ A tool that throws, times out, becomes unavailable, dynamically loses its truste
 
 Oversized tool results SHALL be truncated to a documented cap, measured in JavaScript UTF-16 code units over the serialized result, after secret redaction. Truncation SHALL operate on the tool's own payload rather than on the result envelope: the `status` discriminant and every top-level field the tool declared SHALL survive, with values shrunk in place. Where the declared field names alone exceed the cap, the cap SHALL win over the declared shape — trailing fields SHALL be omitted and the marker SHALL state how many of how many — so a result above the cap is never emitted. A string value SHALL be cut only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate. Truncation SHALL NOT re-serialize any part of the payload into a string field, so redaction performed before truncation cannot be defeated by an alternate typed representation. A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. When truncation shortens a list, the marker SHALL also state how many elements of that list survived out of how many it held, naming the lists that lost the most and counting any remainder, so a count read off a shortened list is not mistaken for a complete one. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.
 
+An image in a tool result SHALL be carried by its media reference, never by image bytes, so the cap
+measures only the reference text. Truncation SHALL NOT cut, shorten, or omit the media reference of
+an image result: other values SHALL be shrunk and, at the floor, other fields omitted in its place,
+so a recorded image result always names the complete `media://` locator of the image it carries.
+
 A code-owned tool whose executor is inconsistent with its admitted in-memory id/schema/classification SHALL fail attempt preparation before a provider request. Fresh attempts SHALL resolve from the executing worker's trusted registry; no historical description or template hash SHALL be required. A dynamic source tool that loses its executor, disconnects, or drifts after attempt preparation SHALL instead retain its attempt-local model-facing declaration with an unavailable executor for that Run, so a requested call settles non-fatally without substituting a changed contract.
 
 #### Scenario: Tool error surfaces to the model and the run continues
@@ -391,6 +416,18 @@ A code-owned tool whose executor is inconsistent with its admitted in-memory id/
 - **THEN** no tool executor or native effect attempt starts
 - **AND** the model receives `permission_denied` and may continue within existing Run limits
 - **AND** the system neither retries the rejected call automatically nor requests approval
+
+#### Scenario: Truncation keeps an image result's media reference
+
+- **WHEN** a result carrying an image serializes above the cap because another field is oversized
+- **THEN** the recorded result carries the complete `media://` locator unchanged
+- **AND** the oversized field is shrunk in place and the marker states the omitted characters
+
+#### Scenario: The floor omits other fields before the media reference
+
+- **WHEN** an image result's top-level field names alone serialize above the cap
+- **THEN** fields other than the one carrying the media reference are omitted until the result fits
+- **AND** the recorded result still carries the complete `media://` locator
 
 ### Requirement: Availability comparison retains only committed tool identities and states
 
@@ -756,8 +793,9 @@ The ordinary projection SHALL remain:
 - labelled untrusted inside result content;
 - neutralized so remote-authored result content cannot forge a reserved
   structural boundary;
-- bounded in JavaScript UTF-16 code units over the exact serialized pair, at
-  8,000 per pair and 32,000 per stored assistant turn;
+- bounded in JavaScript UTF-16 code units over the exact serialized text of the
+  pair, at 8,000 per pair and 32,000 per stored assistant turn, where an image
+  in a result counts only as its stored media reference;
 - reduced by preserving pairing before budget, newer observations before older
   ones, and identity/outcome before payload; and
 - stable for the same unmodified stored turn under the current explicit
@@ -767,6 +805,17 @@ Payloads SHALL clear oldest-first only when clearing shrinks the envelope. If
 irreducible pairs still exceed a limit, the oldest complete pairs SHALL be
 dropped atomically until the projection fits, with one bounded omission count
 and marker. An unmatched call or result SHALL never be emitted.
+
+An image in a tool result SHALL be stored in the tool part as the native image result that produced
+it, which names the image by its `media://` locator in `media`, and never as the `media-store` media
+descriptor, image bytes, or base64. On replay, the result's text SHALL follow
+the projection above, and the image SHALL become provider image content, built at request time from
+the stored model variant, only when the request's model declares `image` input and the epoch image
+window defined by `media-attachments` attaches that reference. Otherwise the replayed result SHALL carry the image placeholder
+defined by `media-attachments` in its text, and a reference that does not resolve to the Run owner's
+media SHALL replay as the unavailable placeholder without failing the request. Image content SHALL
+NOT count toward the UTF-16 budgets, and an image SHALL replay only together with its retained result
+payload: clearing a payload or dropping a pair also removes its image from the request.
 
 Visible assistant text and retained tool occurrences SHALL keep their current
 chronology. Because ordinary stored messages do not prove parallel or step
@@ -912,6 +961,49 @@ that produced them.
 
 - **WHEN** a tool executes during a Run
 - **THEN** its result remains available within that same Run's tool loop
+
+#### Scenario: An image result is stored as a media reference
+
+- **WHEN** a `read` of `/work/shot.png` returns an image result
+- **THEN** the stored tool part carries that native image result, with `kind: "image"`, its
+  `media://` locator in `media`, `mediaType`, `width`, `height`, and `path`
+- **AND** it carries no `provenance`, `byteSize`, or `model` descriptor field, no image bytes, and no
+  base64 data
+
+#### Scenario: An attached image result replays as image content
+
+- **WHEN** a later request on a model that declares `image` input replays a stored image result whose
+  reference the epoch image window attaches
+- **THEN** the replayed result carries its text and the image as provider image content built from
+  the stored model variant
+- **AND** the call remains immediately paired with its result
+
+#### Scenario: An unattached image result replays as a placeholder
+
+- **WHEN** a later request replays a stored image result whose reference is beyond the epoch image
+  window's bounds, or the request's model does not declare `image` input
+- **THEN** the replayed result's text carries the image placeholder with the image's `media://`
+  locator
+- **AND** the request carries no image content for that result
+
+#### Scenario: Image content does not consume the observation budget
+
+- **WHEN** a replayed image result's model variant would serialize as base64 longer than 8,000 UTF-16
+  code units, and the pair's text fits within the budget
+- **THEN** the pair's payload is neither cleared nor dropped on account of the image
+- **AND** the budgets measure only the pair's text, including the stored media reference
+
+#### Scenario: A dropped pair carries no image
+
+- **WHEN** the hard budget drops an older complete pair whose result carries an image
+- **THEN** neither the pair nor its image content appears in the request
+- **AND** the omission is counted by the single omission marker
+
+#### Scenario: A replayed image reference never resolves another owner's media
+
+- **WHEN** a stored tool part replayed in user A's Run references a media id owned by user B
+- **THEN** the replayed result carries the unavailable placeholder and the request proceeds
+- **AND** no image bytes or descriptor fields of user B's object reach the request
 
 ### Requirement: Framing llame authors inside tool results is a packaged template
 

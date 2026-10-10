@@ -123,7 +123,9 @@ carry the complete final canonical envelope beneath `data.text` like every
 other persisted item. It SHALL NOT need a second storage shape to preserve its
 semantic form.
 
-`data.text` SHALL be the sole replay authority. Producer, form, Run linkage,
+`data.text` SHALL be the sole replay authority, except that the conversion
+boundary emits the image parts or placeholders of a `prompt-imports` item from
+the `media` locators in its payload, after `data.text`. Producer, form, Run linkage,
 and payload SHALL remain non-rendering metadata for validated machine behavior,
 owner UI, provenance, and inspection. A metadata/text disagreement SHALL NOT
 cause text to be regenerated: text wins for model replay, while metadata
@@ -187,9 +189,23 @@ backfilled or reconstructed from its raw summary either.
   parts containing a context-item-shaped part
 - **THEN** the part is discarded while the remaining user text parts retain
   their order
-- **AND** the message is rejected before database work when no user text part
-  remains
+- **AND** the message is rejected before database work when neither a user text
+  part nor a file part remains
 - **AND** only server-derived state can author an item
+
+#### Scenario: Service-level defense keeps an image-only message
+
+- **WHEN** a direct service caller bypasses request validation and supplies a context-item-shaped
+  part alongside one file part referencing the caller's own media and no text part
+- **THEN** the forged part is discarded and the message is accepted with its file part
+- **AND** only server-derived state can author an item
+
+#### Scenario: Service-level defense does not count another owner's media
+
+- **WHEN** a direct service caller supplies a context-item-shaped part alongside one file part
+  referencing media owned by a different owner and no text part
+- **THEN** the message is rejected before any row is written
+- **AND** no part referencing the other owner's media is persisted
 
 ### Requirement: Producer item bodies are packaged templates rendered at author time
 
@@ -617,11 +633,17 @@ that limitation SHALL remain documented.
 ### Requirement: Stored parts cross a minimal SDK conversion boundary
 
 Request assembly SHALL treat `messages.parts` as the durable application/UI
-history. It SHALL preserve model-bearing stored parts and their order, omit
-declared display-only parts except reasoning parts, which `reasoning-output`
+history. It SHALL preserve model-bearing stored parts and their order, except
+for the placement of owner `file` parts stated below, omit declared display-only
+parts except reasoning parts, which `reasoning-output`
 returns to the provider for the Chat that stores them, and map each surviving
 `data-context` part on a user message to one
-ordinary SDK text part containing `data.text`. A `data-context` part stored on an
+ordinary SDK text part containing `data.text`, followed, for each image entry
+that `prompt-imports` attaches to that item, by either one image part built from
+the referenced object's model variant or the image placeholder text part, chosen
+by the epoch image window and the request model's declared input as `media-attachments`
+requires. A `data-context`
+part stored on an
 assistant message SHALL be mapped to one user-role message containing one text
 part with `data.text`, emitted directly after the tool-result message of the
 tool part that precedes it in stored order, or in its stored position when that
@@ -635,6 +657,29 @@ Run SHALL take the latest checkpoint whose absorbed-through sequence is below th
 triggering user message's sequence, because a checkpoint published before the step
 sits above the user row it was published for. It SHALL then pass the ordered parts
 to the AI SDK rather than manually constructing a joined transcript.
+
+Each owner `file` part on a user message SHALL be mapped at request time from the
+media object it references; a stored part SHALL carry only its `media://`
+reference and never image bytes. Within that message, the mapped file parts SHALL
+follow every mapped `data-context` part, the temporal row included, and precede
+the message's first text part, in the file parts' stored order, while every other
+part keeps its stored relative order. Each file part SHALL map to one text part
+`Image n (media://<id>):`, with `n` counting that message's file parts from 1,
+followed by either one image part built from the object's model variant or the
+image placeholder text part, chosen by the epoch image window and the request model's
+declared input as `media-attachments` requires.
+
+A stored tool part whose result is an image result (`kind: "image"`) SHALL map to
+a tool output of type `content` carrying the result's text followed by one image
+part built from the referenced object's model variant when `media-attachments`
+selects an image part for that reference; otherwise its output SHALL carry the
+result's text followed by the image placeholder and no image part. The transport
+of image outputs on Chat Completions wires is specified by `media-attachments`.
+
+Media references SHALL resolve only within the Run owner's media. A reference that
+does not resolve for that owner SHALL contribute no byte or descriptor field of
+any media object to the request and SHALL map to the unavailable placeholder that
+`media-attachments` defines.
 
 This SHALL be an application-level best-effort invariant, not a promise of
 provider-wire byte identity. SDK conversion, role grouping, and provider
@@ -683,6 +728,55 @@ no other stored form of superseded history is replayed.
 - **THEN** those parts are passed to the AI SDK in their stored positions with any
   provider metadata they carry
 - **AND** every other declared display-only part is still omitted
+
+#### Scenario: Owner attachments are placed after context items and before text
+
+- **WHEN** a stored user message holds an activation item, its temporal row, one text part, and two
+  file parts stored after the text, the request model declares `image` input, and the epoch image
+  window attaches both references
+- **THEN** the request supplies, in order, the activation text, the temporal row text,
+  `Image 1 (media://<first id>):`, the first object's image part, `Image 2 (media://<second id>):`,
+  the second object's image part, and then the owner's text
+- **AND** each image part carries the referenced object's model variant, while the stored parts
+  still carry only their `media://` references
+
+#### Scenario: A text-only model receives labelled placeholders for attachments
+
+- **WHEN** a stored user message holds one text part and one file part and the request model's
+  `input` lacks `image`
+- **THEN** the file part maps to `Image 1 (media://<id>):` followed by the image placeholder text part
+  ahead of the owner's text
+- **AND** no image part is supplied for that message
+
+#### Scenario: An image read result crosses as tool content
+
+- **WHEN** a stored assistant message holds a `read` tool part whose result is an image result, the
+  request model declares `image` input, and the epoch image window attaches the reference
+- **THEN** the tool-result message carries an output of type `content` holding the result's text
+  followed by one image part built from the referenced object's model variant
+
+#### Scenario: An image read result for a text-only model carries a placeholder
+
+- **WHEN** the same stored tool part is replayed to a model whose `input` lacks `image`
+- **THEN** the tool output carries the result's text followed by the image placeholder
+- **AND** it carries no image part
+
+#### Scenario: A prompt-import image crosses as an image part or a placeholder
+
+- **WHEN** a stored user message holds a `data-context` item to which `prompt-imports` attaches one
+  image entry, and the request is replayed once to a model declaring `image` input with the
+  reference attached by the epoch image window and once to a model whose `input` lacks `image`
+- **THEN** the first request supplies the item's text followed by one image part built from the
+  referenced object's model variant
+- **AND** the second supplies the item's text followed by the image placeholder text part and no
+  image part for that entry
+
+#### Scenario: Another owner's media never enters the request
+
+- **WHEN** a stored file part or image result in owner A's chat references a media object owned by
+  owner B
+- **THEN** no byte, dimension, name, or media type of B's object appears in A's request
+- **AND** the reference maps to the unavailable placeholder
 
 ### Requirement: The skill catalog is a frozen prefix baseline stored on the chat
 
