@@ -4,9 +4,10 @@
 
 For the ranged Markdown ancestor requirement, a root GFM table SHALL be
 recognized over the lines the CommonMark heading rules decide, without
-changing any heading, section, or outline decision. Its header row SHALL be a
-root paragraph line, not a lazy continuation of a container paragraph and not
-a body row of an earlier table.
+changing any heading, section, or outline decision. Its header row and
+delimiter row SHALL each be a line CommonMark decides is a root paragraph or
+root link reference definition line, not part of a heading and not a lazy
+continuation of a container paragraph.
 
 #### Scenario: A table after a paragraph line has a header
 
@@ -21,15 +22,21 @@ a body row of an earlier table.
 
 ### Requirement: Root GFM table delimiter rows
 
-A delimiter row SHALL directly follow the header row, be indented at most
-three columns, consist of cells that are each one or more `-` with optional
-edge colons and surrounding spaces, and SHALL NOT be a setext underline. The
-header and delimiter rows SHALL have the same cell count.
+The header row SHALL be indented at most three columns and SHALL NOT be a body
+row of an earlier table. A delimiter row SHALL directly follow it, be indented
+at most three columns, and consist of cells that are each one or more `-` with
+optional edge colons and surrounding spaces. The header and delimiter rows
+SHALL have the same cell count.
 
 #### Scenario: Mismatched cell counts are not a table
 
 - **WHEN** a header-looking row is followed by a delimiter row with a different number of cells, and a range starts two lines later
 - **THEN** no header pair is emitted
+
+#### Scenario: A list item is not a delimiter row
+
+- **WHEN** `a | b` is followed by `- | -` and `1 | 2`, and a range starts at the third line
+- **THEN** no header pair is emitted, because CommonMark decides `- | -` is a list item
 
 #### Scenario: A setext underline is not a delimiter row
 
@@ -40,7 +47,8 @@ header and delimiter rows SHALL have the same cell count.
 
 Cells SHALL be counted by splitting a row on every pipe not escaped by an odd
 number of backslashes, including pipes inside code spans, after removing one
-leading and one trailing pipe.
+leading and one trailing pipe and, on line 1, one leading U+FEFF. A row that
+is a single pipe SHALL have no cells.
 
 #### Scenario: A pipe in a code span splits a cell
 
@@ -52,9 +60,7 @@ leading and one trailing pipe.
 A table's body SHALL continue through each following line until a blank line
 or a line that starts an ATX heading, a fence, a thematic break, a blockquote,
 a list item, an HTML block, or indented code; any other line, including one
-without a pipe or a link reference definition, SHALL be a body row. A line the
-CommonMark heading rules decide is part of a heading SHALL end the table
-before it and belong to no table.
+without a pipe or a link reference definition, SHALL be a body row.
 
 #### Scenario: A line without a pipe continues the table
 
@@ -64,6 +70,17 @@ before it and belong to no table.
 #### Scenario: A list item ends the table
 
 - **WHEN** a table's body rows are followed by `2. item` and a range starts at that line
+- **THEN** no header pair is emitted
+
+### Requirement: Headings and ended blocks close root GFM tables
+
+A line the CommonMark heading rules decide is part of a heading SHALL end the
+table before it and belong to no table. The line that ends a table and each
+line after it up to the next blank line SHALL NOT start a table.
+
+#### Scenario: Rows after a list item that ended a table are not a new table
+
+- **WHEN** a table is ended by `2. item`, which is followed without a blank line by another header row, delimiter row, and body row, and a range starts at that body row
 - **THEN** no header pair is emitted
 
 #### Scenario: A setext heading over table lines takes precedence

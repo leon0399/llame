@@ -43,7 +43,7 @@ None.
 ### Modified Capabilities
 
 - `native-file-tools`: "Ranged Markdown reads prepend their ancestor
-  headings" also prepends the enclosing table's header rows; four new
+  headings" also prepends the enclosing table's header rows; five new
   requirements define root GFM table recognition; "Read representations are
   selected by media type and member" names the header pair in its exception.
 
