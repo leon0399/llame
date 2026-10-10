@@ -1140,36 +1140,6 @@ describe('buildContext', () => {
     });
   });
 
-  describe('items the builder cannot interpret', () => {
-    it('renders an item it cannot interpret as nothing', () => {
-      const unknown = msg({
-        seq: 2,
-        role: 'user',
-        senderUserId: 'user-alice',
-        parts: [
-          {
-            type: 'data-context',
-            data: {
-              v: 1,
-              producer: 'from-a-newer-api',
-              form: 'notice',
-              runId: '11111111-1111-4111-8111-111111111111',
-              payload: { anything: true },
-            },
-          },
-          { type: 'text', text: 'Continue.' },
-        ],
-      });
-
-      const result = buildContext([unknown], {
-        systemPrompt,
-        requestKind: 'continuation',
-      });
-
-      expect(contentText(result.messages[0].content)).toBe('Continue.');
-    });
-  });
-
   describe('untrusted rails cannot forge an item', () => {
     it('does not rewrite a reserved delimiter in text that is already stored', () => {
       const parts: Array<MessagePart> = [

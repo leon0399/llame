@@ -179,8 +179,6 @@ export interface ModelRequestContext {
   messages: Array<ModelMessage>;
 }
 
-export type BuiltContext = ModelRequestContext;
-
 function userPartsToModelContent(
   parts: ReadonlyArray<MessagePart>,
 ): Array<TextPart> {
@@ -377,7 +375,7 @@ function pushAssistantHistory(
 export function buildContext(
   messages: Array<StoredMessage>,
   options: BuildContextOptions,
-): BuiltContext {
+): ModelRequestContext {
   const { systemPrompt, checkpoint, requestKind } = options;
 
   // Checkpoint rows are storage-only markers. The selected checkpoint is

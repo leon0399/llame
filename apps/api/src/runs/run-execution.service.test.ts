@@ -5736,7 +5736,7 @@ describe('RunExecutionService executeRun — context preparation', () => {
     );
   });
 
-  it('stops without streaming when the context items cannot be recorded', async () => {
+  it('stops without streaming when the dispatch fence misses', async () => {
     const spies = mockNormalExecutionRepositories();
     spies.updateForAttempt
       .mockResolvedValueOnce({ ...run })

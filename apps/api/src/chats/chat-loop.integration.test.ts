@@ -23,7 +23,7 @@
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { streamText } from 'ai';
-import { expectMessageParts } from '../testing/support';
+import { contentBlockTexts, expectMessageParts } from '../testing/support';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -112,24 +112,6 @@ const workerDynamicToolResolver: DynamicToolExecutorResolver = {
   resolveDynamicTool: () => ({ state: 'unavailable' }),
 };
 
-const AVAILABILITY_NOTICE =
-  /^<system-reminder producer="tool-availability" form="notice">\n/u;
-
-/** Every text block of a model request, in request order. */
-function messageTexts(messages: ModelStreamInput['messages']): Array<string> {
-  const texts: Array<string> = [];
-  for (const message of messages) {
-    if (!Array.isArray(message.content)) {
-      texts.push(message.content);
-      continue;
-    }
-    for (const part of message.content) {
-      if (part.type === 'text') texts.push(part.text);
-    }
-  }
-  return texts;
-}
-
 function workerModelClient(
   modelId: string,
   fail = false,
@@ -201,7 +183,6 @@ describeIfDb(
     let systemPrompt: string;
     let allowedTools: Array<string>;
     let runExecution: RunExecutionService;
-    /** The text blocks of each Run's model request, keyed by Run id. */
     let requestTexts: Map<string, Array<string>>;
 
     type AvailabilityState =
@@ -273,7 +254,10 @@ describeIfDb(
         userId: job.userId,
         userMessage: job.userMessage,
         client: workerModelClient(job.modelId, options.fail, (messages) => {
-          requestTexts.set(job.runId, messageTexts(messages));
+          requestTexts.set(
+            job.runId,
+            messages.flatMap(({ content }) => contentBlockTexts(content)),
+          );
         }),
       });
       if (options.consume !== false) {
@@ -331,7 +315,9 @@ describeIfDb(
       const texts = requestTexts.get(runId);
       if (!texts) throw new Error(`Expected a model request for Run ${runId}`);
       return texts.find((text) =>
-        text.startsWith('<system-reminder producer="tool-availability"'),
+        text.startsWith(
+          '<system-reminder producer="tool-availability" form="notice">',
+        ),
       );
     };
 
@@ -1381,7 +1367,6 @@ describeIfDb(
         degraded,
       );
       const firstAvailability = availabilityRequestItem(first.runId);
-      expect(firstAvailability).toMatch(AVAILABILITY_NOTICE);
       expect(firstAvailability).toContain('mcp__docs__lookup');
       expect(firstAvailability).toContain('server disconnected');
       await finish(first.runId, 'failed');
@@ -1394,7 +1379,6 @@ describeIfDb(
       const unchangedOutageAvailability = availabilityRequestItem(
         unchangedOutage.runId,
       );
-      expect(unchangedOutageAvailability).toMatch(AVAILABILITY_NOTICE);
       expect(unchangedOutageAvailability).toContain('mcp__docs__lookup');
       expect(unchangedOutageAvailability).toContain('server connecting');
       await finish(unchangedOutage.runId, 'completed', [
@@ -1407,7 +1391,6 @@ describeIfDb(
         healthy,
       );
       const recoveredAvailability = availabilityRequestItem(recovered.runId);
-      expect(recoveredAvailability).toMatch(AVAILABILITY_NOTICE);
       expect(recoveredAvailability).toContain('mcp__docs__lookup');
       expect(recoveredAvailability).toContain('tool restored');
       await finish(recovered.runId, 'completed', [
@@ -1427,7 +1410,6 @@ describeIfDb(
       // The expired predecessor is skipped, not treated as a fresh epoch: the
       // last successful turn observed the tool as available, so dropping it
       // from the eligible set is an observable removal.
-      expect(removedAvailability).toMatch(AVAILABILITY_NOTICE);
       expect(removedAvailability).toContain('mcp__docs__lookup');
       expect(removedAvailability).toContain('Removed tools');
       await finish(removed.runId, 'completed', []);
@@ -1440,7 +1422,6 @@ describeIfDb(
       const newlyUnavailableAvailability = availabilityRequestItem(
         newlyUnavailable.runId,
       );
-      expect(newlyUnavailableAvailability).toMatch(AVAILABILITY_NOTICE);
       expect(newlyUnavailableAvailability).toContain('mcp__docs__lookup');
 
       const receipts = await tenantDb.runAs(userId, (tx) =>
@@ -1556,7 +1537,6 @@ describeIfDb(
         const recoveredAvailability = availabilityRequestItem(
           recoveredJob.runId,
         );
-        expect(recoveredAvailability).toMatch(AVAILABILITY_NOTICE);
         expect(recoveredAvailability).toContain('tool restored');
         await finish(recoveredJob.runId);
       } finally {
@@ -1640,7 +1620,6 @@ describeIfDb(
       const firstAfterAvailability = availabilityRequestItem(
         firstAfterCompaction.runId,
       );
-      expect(firstAfterAvailability).toMatch(AVAILABILITY_NOTICE);
       expect(firstAfterAvailability).toContain('mcp__docs__lookup');
       expect(firstAfterAvailability).toContain('server disconnected');
       await finish(firstAfterCompaction.runId, 'completed', [

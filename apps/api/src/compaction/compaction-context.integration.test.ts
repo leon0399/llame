@@ -1101,16 +1101,21 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(settled.contextParts).toContainEqual(
         expect.objectContaining({ producer: 'temporal' }),
       );
-      const replayed = await readTurnState(publishing);
+      const nextRequest = sole(nextCalls);
+      const nextRequestText = nextRequest.messages
+        .map(({ content }) => contentText(content))
+        .join('\n\n');
       for (const producer of ['workspace', 'recency-digest']) {
         expect(
           settled.contextParts.filter((item) => item.producer === producer),
         ).toEqual([]);
         expect(
-          replayed.contextParts.filter((item) => item.producer === producer),
+          published.contextParts.filter((item) => item.producer === producer),
         ).toHaveLength(1);
+        expect(
+          nextRequestText.split(`<system-reminder producer="${producer}"`),
+        ).toHaveLength(2);
       }
-      const nextRequest = sole(nextCalls);
       const publishingRequest = sole(
         publishingCalls.filter((call) => !isSummaryRequest(call)),
       );

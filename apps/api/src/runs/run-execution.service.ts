@@ -29,7 +29,7 @@ import {
 import {
   buildContext,
   partsToText,
-  type BuiltContext,
+  type ModelRequestContext,
   type MessagePart,
 } from '../chats/context-builder';
 import {
@@ -354,7 +354,7 @@ type TurnInstructions = {
 };
 
 /** Context resolved inside the worker transaction before the model request. */
-type PreparedAttemptContext = BuiltContext & {
+type PreparedAttemptContext = ModelRequestContext & {
   /** Receipt-only data persisted before target-model I/O. */
   effectiveContext: SystemPromptReceiptInput;
   /** The bound model catalog entry this pass resolved and rendered for. */
@@ -393,9 +393,7 @@ type CompactionTriggerInput = {
  * that complete it.
  */
 type PreparedFirstStep = {
-  readonly request: {
-    readonly prepared: PreparedExecutionContext;
-  };
+  readonly request: PreparedExecutionContext;
   readonly context: PreparedAttemptContext;
   readonly turnInstructions: TurnInstructions;
 };
@@ -457,7 +455,7 @@ type FinishRunResult =
 /** The assembled context+tools an execution attempt runs against. */
 type PreparedExecutionContext = {
   system: string;
-  messages: BuiltContext['messages'];
+  messages: ModelRequestContext['messages'];
   untitled: boolean;
   toolDeclarations: Array<ModelToolDeclaration>;
   tools: Array<BoundExecutableTool>;
@@ -972,7 +970,7 @@ export class RunExecutionService {
         workspaceRootCell: workspaceRoot,
         effort,
       });
-      prepared = firstStep.request.prepared;
+      prepared = firstStep.request;
       attemptStagedParts = firstStep.context.stagedParts;
       attemptRecencyDigestTold = firstStep.context.recencyDigestTold;
       attemptRecencyDigestInitialization =
@@ -2065,7 +2063,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     systemPrompt: string,
   ): Promise<{
-    readonly context: BuiltContext;
+    readonly context: ModelRequestContext;
     readonly historyRows: Array<Message>;
     readonly seenInstructionPaths: ReadonlySet<string>;
   }> {
@@ -2652,9 +2650,9 @@ export class RunExecutionService {
    * history before the first request and whenever that history is rebuilt. The
    * rebuild decides the seen set — the item this attempt staged can no longer
    * be what makes its files seen, and a file the rebuilt history discloses must
-   * not be staged again. The staged item is replaced in place, where every
-   * holder of the staged array — the request prepend, finish-time persistence,
-   * and the Run record — sees the same content.
+   * not be staged again. The staged item is replaced in place, where both
+   * holders of the staged array — the request prepend and finish-time
+   * persistence — see the same content.
    */
   private async refreshTurnInstructions(
     turn: TurnInstructions,
@@ -3767,7 +3765,7 @@ export class RunExecutionService {
     );
     const trigger = await this.evaluateCompactionTrigger({
       run: input.run,
-      prepared: estimated.prepared,
+      prepared: estimated,
       stagedParts: estimatePass.stagedParts,
       historyRows: estimatePass.historyRows,
       boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
@@ -3796,8 +3794,8 @@ export class RunExecutionService {
                   client: input.run.client,
                   // The pre-re-bake render: the summary request continues the
                   // prefix this very pass produced, cache included.
-                  system: estimated.prepared.system,
-                  toolDeclarations: estimated.prepared.toolDeclarations,
+                  system: estimated.system,
+                  toolDeclarations: estimated.toolDeclarations,
                   ...(input.effort !== undefined && { effort: input.effort }),
                   abortSignal: input.run.abortSignal,
                 },
@@ -3851,9 +3849,9 @@ export class RunExecutionService {
     }
     if (
       !requestFitsContextWindow({
-        system: request.prepared.system,
-        messages: request.prepared.messages,
-        toolDeclarations: request.prepared.toolDeclarations,
+        system: request.system,
+        messages: request.messages,
+        toolDeclarations: request.toolDeclarations,
         contextWindowTokens: input.run.client.contextWindowTokens,
         reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
       })
@@ -3869,24 +3867,22 @@ export class RunExecutionService {
   private async assembleAttemptRequest(
     context: PreparedAttemptContext,
     dynamicResolver: DynamicToolExecutorResolver | undefined,
-  ): Promise<PreparedFirstStep['request']> {
+  ): Promise<PreparedExecutionContext> {
     const messages = context.messages;
     this.prependStagedContextItems(messages, context.stagedParts);
     return {
-      prepared: {
-        system: context.system,
-        messages,
-        untitled: context.untitled,
-        toolDeclarations: context.toolCatalog.declarations,
-        tools: await resolveBoundExecutableTools(
-          context.toolCatalog.declarations,
-          undefined,
-          constrainDynamicToolResolver(
-            dynamicResolver,
-            context.toolCatalog.sourceById ?? new Map(),
-          ),
+      system: context.system,
+      messages,
+      untitled: context.untitled,
+      toolDeclarations: context.toolCatalog.declarations,
+      tools: await resolveBoundExecutableTools(
+        context.toolCatalog.declarations,
+        undefined,
+        constrainDynamicToolResolver(
+          dynamicResolver,
+          context.toolCatalog.sourceById ?? new Map(),
         ),
-      },
+      ),
     };
   }
 

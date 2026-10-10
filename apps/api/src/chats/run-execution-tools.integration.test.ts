@@ -127,7 +127,11 @@ import {
   createCompactionCheckpointPart,
   createModelChangeItem,
 } from './context-item-producers';
-import { createContextItemPart, isContextItemPart } from './context-item';
+import {
+  createContextItemPart,
+  isContextItemPart,
+  type ContextItemPart,
+} from './context-item';
 import {
   instructionsSeenPaths,
   isInstructionsPayload,
@@ -853,6 +857,24 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
   }
 
+  /** A context item's model-visible identity: what it says and who said it. */
+  const persistedItem = ({
+    data: { producer, form, text },
+  }: ContextItemPart) => ({
+    producer,
+    form,
+    text,
+  });
+
+  async function waitForCompleted(runId: string): Promise<void> {
+    await waitFor(async () => {
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(runId, userId),
+      );
+      return events.some((entry) => entry.eventType === 'run.completed');
+    });
+  }
+
   it('enters a Workspace and reads a relative file on the next model step', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'workspace-loop-'));
     writeFileSync(path.join(root, 'file.txt'), 'workspace-content\n');
@@ -1039,13 +1061,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ),
       );
       await nextExecution.consumeStream?.();
-
-      await waitFor(async () => {
-        const events = await tenantDb.runAs(userId, (tx) =>
-          new RunEventsRepository(tx).listByRunId(next.run.id, userId),
-        );
-        return events.some((event) => event.eventType === 'run.completed');
-      });
+      await waitForCompleted(next.run.id);
       expect(
         await messageContextParts(seeded.chatId, next.messageId),
       ).toContainEqual(
@@ -2840,25 +2856,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ],
       },
     ]);
-    // Task 4.2: the persisted items are what was SENT, asserted end to end
-    // rather than at the buildContext boundary — an item's wording is not
-    // reproducible from its part once a renderer changes, so a reconstruction
-    // would not catch a drift between the two. The turn's staged items are
-    // stored ahead of the item the message already carried.
-    await waitFor(async () => {
-      const events = await tenantDb.runAs(userId, (tx) =>
-        new RunEventsRepository(tx).listByRunId(seeded.targetRun.id, userId),
-      );
-      return events.some((event) => event.eventType === 'run.completed');
-    });
+    // The persisted items are exactly the blocks sent: the turn's staged
+    // items, then the item the message already carried.
+    await waitForCompleted(seeded.targetRun.id);
     const persisted = await messageContextParts(chatId, seeded.targetUser.id);
-    expect(
-      persisted.map(({ data }) => ({
-        producer: data.producer,
-        form: data.form,
-        text: data.text,
-      })),
-    ).toEqual([
+    expect(persisted.map(persistedItem)).toEqual([
       {
         producer: 'effective-context-change',
         form: 'notice',
@@ -4130,28 +4132,13 @@ describeIfDb('executeRun tool-loop persistence', () => {
         })),
       );
       for (const runId of [defaultSeeded.run.id, bypassSeeded.run.id]) {
-        await waitFor(async () => {
-          const events = await tenantDb.runAs(userId, (tx) =>
-            new RunEventsRepository(tx).listByRunId(runId, userId),
-          );
-          return events.some((event) => event.eventType === 'run.completed');
-        });
+        await waitForCompleted(runId);
       }
       const defaultParts = await storedContextParts(defaultSeeded.chatId);
       const bypassParts = await storedContextParts(bypassSeeded.chatId);
       expect(defaultParts.length).toBeGreaterThan(0);
-      expect(
-        bypassParts.map(({ data }) => ({
-          producer: data.producer,
-          form: data.form,
-          text: data.text,
-        })),
-      ).toEqual(
-        defaultParts.map(({ data }) => ({
-          producer: data.producer,
-          form: data.form,
-          text: data.text,
-        })),
+      expect(bypassParts.map(persistedItem)).toEqual(
+        defaultParts.map(persistedItem),
       );
 
       for (const request of calls) {
@@ -5307,9 +5294,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         // event log: only the locator does.
         const stored = await storedInstructionPart(seeded.chatId);
         const storedFiles =
-          stored !== undefined &&
-          isContextItemPart(stored) &&
-          isInstructionsPayload(stored.data.payload)
+          stored !== undefined && isInstructionsPayload(stored.data.payload)
             ? stored.data.payload.files.map((file) => file.path)
             : [];
         expect(storedFiles).toEqual([
@@ -5644,40 +5629,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
       readonly chatId: string;
       readonly messageId: string;
     }) {
-      const turn = await tenantDb.runAs(userId, (tx) =>
-        new MessagesRepository(tx).findTurnState(
-          seeded.chatId,
-          userId,
-          seeded.messageId,
-        ),
-      );
-      return (turn.userMessage?.parts ?? []).flatMap((part) =>
-        isContextItemPart(part) && part.data.producer === 'instructions'
-          ? [part]
-          : [],
-      );
+      return (
+        await messageContextParts(seeded.chatId, seeded.messageId)
+      ).filter(({ data }) => data.producer === 'instructions');
     }
 
     /** The single instructions data-context part among stored messages. */
     async function storedInstructionPart(chatId: string) {
-      const messages = await tenantDb.runAs(userId, (tx) =>
-        new MessagesRepository(tx).findByChatId(chatId, userId),
+      return (await storedContextParts(chatId)).find(
+        ({ data }) => data.producer === 'instructions',
       );
-      return messages
-        .flatMap((message) => message.parts)
-        .find(
-          (part) =>
-            isContextItemPart(part) && part.data.producer === 'instructions',
-        );
-    }
-
-    async function waitForCompleted(runId: string): Promise<void> {
-      await waitFor(async () => {
-        const events = await tenantDb.runAs(userId, (tx) =>
-          new RunEventsRepository(tx).listByRunId(runId, userId),
-        );
-        return events.some((entry) => entry.eventType === 'run.completed');
-      });
     }
 
     it('loads the touched chain into the next step and keeps its reads out of the transcript', async () => {
