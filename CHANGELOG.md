@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Prompt imports now import images (#935). A marker whose `read` returns an
+  image, such as `@shot.png`, becomes an image entry of the `prompt-imports`
+  notice whose body is the image result `read` returns, stored in the owner's
+  media under provenance `prompt-import`; its private metadata records the
+  `media://<id>` locator, and the request carries the image part, or its
+  placeholder, right after the notice's text under the epoch image window.
+  Image entries count toward the 8-read bound but their bytes never count
+  toward the 128 KiB output bound, and a retry reuses the stored `media://<id>`
+  without reading again. `@media://<id>` is a target too: an image you stored
+  imports without a new ingest, while an unknown id or another owner's stays
+  prose. See [prompt imports](docs/product/reference/prompt-imports.md).
+
 - Web `read` now accepts image pages (#935). A page whose response, after
   redirects, declares `image/png`, `image/jpeg`, `image/gif`, or `image/webp`
   within the 5 MiB body bound is stored in the Run owner's media store and

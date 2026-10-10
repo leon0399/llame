@@ -3,6 +3,7 @@ import type { ModelMessage, streamText, UserContent } from 'ai';
 import {
   collectMediaRefs,
   fileMediaRef,
+  imageMediaRef,
   loadMediaSizing,
   toolOutputMediaRef,
   type MediaSizing,
@@ -228,10 +229,12 @@ export function projectSizedText(
  * `project(id, index)`, where `index` is the reference's position among
  * all of `messages`' references. A user message's `media://` file part is
  * preceded by its label `Image n (media://<id>):` (n counting that message's
- * references from 1). A tool result's `image-url` reference is projected in
- * place after the result's text, an image becoming `image-data`; a result left
- * with text alone becomes a text output of those texts joined by newlines.
- * Messages without references are returned as the same objects.
+ * file references from 1); its `media://` image part (a prompt-import image)
+ * is projected in place, unlabelled, right after the item's text. A tool
+ * result's `image-url` reference is projected in place after the result's
+ * text, an image becoming `image-data`; a result left with text alone becomes
+ * a text output of those texts joined by newlines. Messages without
+ * references are returned as the same objects.
  */
 export function mapMediaRefs(
   messages: Array<ModelMessage>,
@@ -254,21 +257,41 @@ export function mapMediaRefs(
     if (message.role !== 'user' || !Array.isArray(message.content)) {
       return message;
     }
-    let label = 0;
-    const content = message.content.flatMap((part): Array<UserContentPart> => {
-      const id = part.type === 'file' ? fileMediaRef(part) : undefined;
-      if (id === undefined) return [part];
-      label += 1;
-      return [
-        { type: 'text', text: `Image ${label} (${mediaLocator(id)}):` },
-        ...next(id),
-      ];
-    });
-    return label === 0 ? message : { ...message, content };
+    const content = mapUserContentRefs(message.content, next);
+    return content === undefined ? message : { ...message, content };
   });
 }
 
 type NextRef = (id: string) => Array<ProjectedMedia>;
+
+/**
+ * A user message's content with each reference projected by `next` (see
+ * `mapMediaRefs`), or undefined when it holds none.
+ */
+function mapUserContentRefs(
+  parts: Array<UserContentPart>,
+  next: NextRef,
+): Array<UserContentPart> | undefined {
+  let label = 0;
+  let mapped = false;
+  const content = parts.flatMap((part): Array<UserContentPart> => {
+    const imageId = part.type === 'image' ? imageMediaRef(part) : undefined;
+    if (imageId !== undefined) {
+      mapped = true;
+      return next(imageId);
+    }
+    const id = part.type === 'file' ? fileMediaRef(part) : undefined;
+    if (id === undefined) return [part];
+    mapped = true;
+    label += 1;
+    return [
+      { type: 'text', text: `Image ${label} (${mediaLocator(id)}):` },
+      ...next(id),
+    ];
+  });
+  return mapped ? content : undefined;
+}
+
 type ToolMessagePart = Extract<
   ModelMessage,
   { role: 'tool' }

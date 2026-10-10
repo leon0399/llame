@@ -207,6 +207,27 @@ describe('collectMediaRefs', () => {
       mediaId(3),
     ]);
   });
+
+  it('lists a prompt-import image reference in place and skips byte images', () => {
+    const messages: Array<ModelMessage> = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'imports' },
+          { type: 'image', image: `media://${mediaId(5)}` },
+          { type: 'image', image: new Uint8Array([1]), mediaType: 'image/png' },
+          {
+            type: 'file',
+            data: `media://${mediaId(6)}`,
+            mediaType: 'image/png',
+          },
+          { type: 'text', text: 'question' },
+        ],
+      },
+    ];
+
+    expect(collectMediaRefs(messages)).toEqual([mediaId(5), mediaId(6)]);
+  });
 });
 
 describe('imageResultMediaId', () => {
