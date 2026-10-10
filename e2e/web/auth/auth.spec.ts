@@ -25,7 +25,10 @@ test.describe("anonymous auth flows", () => {
     await page.goto("/login");
     await loginViaUi(page, account);
 
-    await expect(page).toHaveURL(/\/$/);
+    // Login pushes the default callback `/`, which the server redirects to a
+    // fresh draft chat; `/` itself is only a transient URL, so asserting it
+    // races the redirect.
+    await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}\?draft=fresh$/);
     await expectProtectedShell(page, account);
   });
 
