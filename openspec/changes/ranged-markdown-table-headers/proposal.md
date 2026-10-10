@@ -10,6 +10,8 @@ cannot tell which column a cell belongs to without a second read
 124: ## Common Rationalizations
 128: | "Codex found nothing this round, we're done" | One reviewer is one reviewer. ...
 129: | "I've done 3 rounds, that's enough" | Convergence is empirical. ...
+130: | "The fix is obvious, I'll skip verification" | A meaningful fraction ...
+131: | "Reviewer said X is wrong, so X is wrong" | Verify against the primary source. ...
 ```
 
 Web pages rendered to Markdown carry many GFM tables, so web reads gain the
@@ -21,11 +23,11 @@ most.
   table, the read also emits that table's header row and delimiter row, after
   the ancestor headings and before the window, skipping any of the two already
   shown.
-- The Markdown scanner learns to recognize root-level GFM tables: a header row
-  followed by a delimiter row with the same cell count, then rows until a blank
-  line or the start of another block. Recognition is checked against
-  micromark's GFM table extension, as heading recognition is checked against
-  `mdast-util-from-markdown` today.
+- Root GFM tables are recognized as an overlay on the Markdown scanner's
+  decided lines: a root paragraph line followed by a delimiter row with the
+  same cell count, then rows until a blank line or the start of another block.
+  CommonMark heading decisions are unchanged. Recognition is checked against
+  micromark's GFM table extension wherever the two agree on headings.
 - The header pair joins the existing admission budget as the innermost unit:
   when the budget is tight, outer headings are dropped first and the header
   pair last, as one unit.
@@ -41,7 +43,9 @@ None.
 ### Modified Capabilities
 
 - `native-file-tools`: "Ranged Markdown reads prepend their ancestor
-  headings" also prepends the enclosing table's header rows.
+  headings" also prepends the enclosing table's header rows; four new
+  requirements define root GFM table recognition; "Read representations are
+  selected by media type and member" names the header pair in its exception.
 
 ## Impact
 
@@ -59,8 +63,8 @@ None.
 - A range starting at a table's header or delimiter row, outside any table, or
   inside a table nested in a blockquote or list item is unchanged.
 - Recognition agrees with micromark's GFM table extension on a fixture set of
-  root-level tables, including tables that follow a paragraph, mismatched cell
-  counts, escaped pipes, and tables ended by a heading or fence.
+  root-level tables wherever GFM and CommonMark agree on headings, and keeps
+  the CommonMark heading result where they do not.
 
 ## Decisions for approval
 
@@ -72,10 +76,14 @@ None.
   budget the outer headings are dropped first.
 - **T3 No header for a range that starts on the header or delimiter row.** The
   header is then already in the window or its context line.
+- **T4 CommonMark headings win over GFM tables.** Table lines followed by
+  `===` or `---` are a setext heading under CommonMark and a table under GFM.
+  Letting the table win would change shipped heading sections, `:outline`, and
+  ancestor chains; keeping CommonMark means such lines get no header pair.
 
 ## Non-goals
 
 - `:outline` naming the table a range falls in.
 - Header rows for a passage that starts outside a table and runs into one; its
   header is already inside the window.
-- Tables inside containers (T1).
+- Tables inside containers (T1), and GFM's table-over-setext precedence (T4).

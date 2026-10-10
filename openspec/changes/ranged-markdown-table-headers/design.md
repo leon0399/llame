@@ -19,7 +19,10 @@
   leaves everything a paragraph; a following line without a pipe is still a
   body row; a heading ends the table; a table inside a blockquote is a child of
   the blockquote; four-space indentation makes code; and `a` followed by `-` is
-  a setext heading.
+  a setext heading. Every unescaped pipe splits a cell, inside code spans too;
+  a list item, HTML block, or indented code line ends a table even where it could
+  not interrupt a paragraph; and lazy continuation lines after a container are
+  not a root table.
 
 ## Goals / Non-Goals
 
@@ -37,23 +40,41 @@
 
 ## Decisions
 
-### D1. Tables are a scanner role, decided at the delimiter row
+### D1. Tables are an overlay on the scanner's decided lines
 
-The scanner gains a root table leaf. At a root line that would continue or
-open a paragraph, it tests whether the line is a delimiter row whose cell
-count equals the cell count of the previous root line, which must itself be a
-paragraph line or a paragraph start. If so, the previous line is retroactively
-the header row, the paragraph ends before it, and the leaf stays open until a
-blank line or a line that starts another block. Cell counting splits on
-unescaped pipes outside code spans and ignores one leading and one trailing
-pipe. A setext underline is decided before the table test, matching the
-oracle. The header row's role was pending until the delimiter row; the window
-end rule already treats a pending role as undecided, so a window ending on a
-header row emits nothing.
+The CommonMark scanner stays the authority for headings, sections, and
+outlines. It reports, for each decided content line, whether the line is root
+paragraph text (not frontmatter, code, HTML, container content, or a lazy
+continuation of a container paragraph). A table tracker consumes those decided
+lines in order:
 
-- Alternative: parse the window with micromark at read time. Rejected: it reads
-  the whole source rather than streaming to the window end, and adds a runtime
-  dependency to a package that has one.
+- a root paragraph line followed by a delimiter row with the same cell count
+  opens a table; the delimiter test rejects a setext underline, so a setext
+  decision always wins;
+- the table stays open through each following line until a blank line or a
+  line that starts an ATX heading, fence, thematic break, blockquote, list
+  item, HTML block, or indented code, the oracle's ending set rather than the
+  narrower paragraph-interruption set;
+- a line decided as part of a heading closes the table and belongs to none of
+  it.
+
+Cells split on every pipe not escaped by an odd number of backslashes, code
+spans included, as the oracle does. Because the tracker sees lines only after
+the scanner decides them, a setext underline later in the window turns earlier
+table lines into heading text before the tracker sees them; past the window
+end, the existing rule treats an undecided line as not a heading.
+
+Where GFM and this overlay differ, the overlay keeps CommonMark's heading
+decision (proposal T4): table lines followed by `===` or `---` are a setext
+heading here and a table plus a body row or thematic break under GFM, and a
+table directly after a container table is a lazy continuation here and a root
+table under GFM.
+
+- Alternative: let tables win over setext headings as GFM does. Rejected: it
+  changes shipped heading sections, `:outline` entries, and ancestor chains
+  under the CommonMark boundaries requirement.
+- Alternative: parse the window with micromark at read time. Rejected: it does
+  not stream to the window end, and adds a runtime dependency.
 
 ### D2. The tracker snapshots the open table's header pair
 
@@ -68,9 +89,10 @@ row, so the chain stays in source order.
 ### D3. The oracle grows a GFM table mode
 
 The conformance test adds `micromark-extension-gfm-table` and
-`mdast-util-gfm-table` as dev dependencies and, for a table fixture set,
-compares the scanner's root table spans and header lines with the oracle's
-root `table` nodes.
+`mdast-util-gfm-table` as dev dependencies. For fixtures where GFM and
+CommonMark agree on every heading, it compares the tracker's root table spans
+and header lines with the oracle's root `table` nodes. Fixtures for the D1
+divergences assert the CommonMark heading result and no table instead.
 
 ## Risks / Trade-offs
 
