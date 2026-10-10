@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Fixed reasoning that a model emits directly before a tool call, with no text
+  between them, being written to the Run's event log after that call's
+  `tool.requested`, `tool.started`, and `tool.completed` events (#191). Live
+  and replayed streams therefore showed the thinking after the tool, while
+  the stored assistant message kept it ahead, against the durable-runs rule
+  that the message projects the event log's order. Both reasoning and text
+  buffers now drain before every tool request, including refused and invalid
+  calls. That holds on the pinned Node 22 runtime, where the reasoning
+  consumer has delivered the step's reasoning by then; on Node 24 it can still
+  arrive after the call (#1184).
+
 - Fixed intermittent Storybook failures in the regex tester stories (#353).
   Their play functions checked the tester popup's `Match` and `No match`
   values for visibility once, while the popup can still be fading in from

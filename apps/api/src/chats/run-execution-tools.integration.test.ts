@@ -383,19 +383,25 @@ function textThenToolCallResponse(
   return { stream: simulateReadableStream({ chunks }) };
 }
 
-/** A step that reasons, writes text, then requests a tool. */
-function reasoningTextThenToolCallResponse(
-  pre: string,
+/** A step that reasons, optionally writes text, then requests a tool. */
+function reasoningThenToolCallResponse(
   query: string,
+  pre?: string,
 ): LanguageModelV3StreamResult {
+  const text: Array<LanguageModelV3StreamPart> =
+    pre === undefined
+      ? []
+      : [
+          { type: 'text-start', id: 'p' },
+          textDelta('p', pre),
+          { type: 'text-end', id: 'p' },
+        ];
   const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
     { type: 'reasoning-start', id: 'r' },
     { type: 'reasoning-delta', id: 'r', delta: 'I should search first. ' },
     { type: 'reasoning-end', id: 'r' },
-    { type: 'text-start', id: 'p' },
-    textDelta('p', pre),
-    { type: 'text-end', id: 'p' },
+    ...text,
     {
       type: 'tool-call',
       toolCallId: 'call-1',
@@ -412,14 +418,25 @@ function reasoningTextThenToolCallResponse(
 }
 
 /** A step that requests a tool NOT in the advertised toolSet (unlisted or
- * hallucinated) — the AI SDK raises NoSuchToolError, routed through
- * experimental_repairToolCall to onUnavailableToolCall. */
+ * hallucinated), optionally reasoning first — the AI SDK raises
+ * NoSuchToolError, routed through experimental_repairToolCall to
+ * onUnavailableToolCall. */
 function unlistedToolCallResponse(
   toolName: string,
   query: string,
+  reasoning?: string,
 ): LanguageModelV3StreamResult {
+  const thinking: Array<LanguageModelV3StreamPart> =
+    reasoning === undefined
+      ? []
+      : [
+          { type: 'reasoning-start', id: 'r' },
+          { type: 'reasoning-delta', id: 'r', delta: reasoning },
+          { type: 'reasoning-end', id: 'r' },
+        ];
   const chunks: Array<LanguageModelV3StreamPart> = [
     { type: 'stream-start', warnings: [] },
+    ...thinking,
     {
       type: 'tool-call',
       toolCallId: 'call-bad',
@@ -2901,7 +2918,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         turn += 1;
         return Promise.resolve(
           turn === 1
-            ? reasoningTextThenToolCallResponse('Let me search. ', 'budget')
+            ? reasoningThenToolCallResponse('budget', 'Let me search. ')
             : textResponse('Here is what I found about your budget.'),
         );
       },
@@ -3025,6 +3042,89 @@ describeIfDb('executeRun tool-loop persistence', () => {
         'finish',
       ]),
     );
+
+    await sql`DELETE FROM chats WHERE id = ${chatId}`;
+  });
+
+  it('flushes buffered reasoning before a tool call that no text separates', async () => {
+    // With no text between them, the text cross-flush never runs: only the
+    // flush ahead of the tool call keeps the reasoning from landing after it.
+    const service = serviceWithTools();
+    const chatId = crypto.randomUUID();
+    const messageId = crypto.randomUUID();
+    const userMessage = await tenantDb.runAs(userId, async (tx) => {
+      await new ChatsRepository(tx).createIfAbsent({
+        id: chatId,
+        ownerUserId: userId,
+      });
+      return new MessagesRepository(tx).create({
+        id: messageId,
+        chatId,
+        role: 'user',
+        senderUserId: userId,
+        parts: [{ type: 'text', text: 'find my budget notes' }],
+      });
+    });
+    const run = await tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).create({
+        chatId,
+        messageId,
+        userId,
+        modelId: 'system:openai:gpt-5.4-mini',
+      }),
+    );
+    let turn = 0;
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+        return Promise.resolve(
+          turn === 1
+            ? reasoningThenToolCallResponse('budget')
+            : textResponse('Here is what I found about your budget.'),
+        );
+      },
+    });
+
+    const result = await service.executeRun({
+      runId: run.id,
+      chatId,
+      userId,
+      userMessage: {
+        id: userMessage.id,
+        seq: userMessage.seq,
+        parts: userMessage.parts.filter(isTextPart),
+      },
+      client: createMockModelClient(model),
+    });
+    await result.consumeStream?.();
+    await waitFor(async () => {
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(run.id, userId),
+      );
+      return events.some((e) => e.eventType === 'run.completed');
+    });
+
+    const events = await tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(run.id, userId),
+    );
+    const types = events.map((e) => e.eventType);
+    expect(types.indexOf('reasoning.delta')).toBeGreaterThan(-1);
+    expect(types.indexOf('reasoning.delta')).toBeLessThan(
+      types.indexOf('tool.requested'),
+    );
+    expect(types.indexOf('tool.requested')).toBeLessThan(
+      types.indexOf('model.delta'),
+    );
+
+    const messages = await tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(chatId, userId),
+    );
+    const assistant = messages.find(
+      (m) => m.role === 'assistant' && m.inReplyTo === messageId,
+    );
+    expect(
+      (assistant?.parts ?? []).filter(isTypedPart).map((part) => part.type),
+    ).toEqual(['reasoning', 'tool-search_conversations', 'text']);
 
     await sql`DELETE FROM chats WHERE id = ${chatId}`;
   });
@@ -3842,7 +3942,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
         turn += 1;
         return Promise.resolve(
           turn === 1
-            ? unlistedToolCallResponse('not_a_real_tool', 'budget')
+            ? unlistedToolCallResponse(
+                'not_a_real_tool',
+                'budget',
+                'I will try a tool. ',
+              )
             : textResponse('I could not use that tool, but here is an answer.'),
         );
       },
@@ -3879,6 +3983,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
     expect(idx('tool.requested')).toBeGreaterThan(-1);
     expect(types.filter((t) => t === 'tool.started')).toHaveLength(0);
     expect(idx('tool.completed')).toBeGreaterThan(idx('tool.requested'));
+    // Reasoning streamed right before the refused call is durable ahead of it.
+    expect(idx('reasoning.delta')).toBeGreaterThan(-1);
+    expect(idx('reasoning.delta')).toBeLessThan(idx('tool.requested'));
 
     const requested = events.find((e) => e.eventType === 'tool.requested')!;
     expect(requested.payload).toMatchObject({
