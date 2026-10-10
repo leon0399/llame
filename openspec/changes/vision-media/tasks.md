@@ -133,7 +133,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 7.2 Update `docs/product/reference/prompt-imports.md` or the page that documents prompt imports; add the dated `CHANGELOG.md` entry; this layer completes #935's acceptance, so its PR carries `Closes #935`; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 7.3 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites
 - [x] 7.4 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 7.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 7.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 8. `vision-media/composer` — attaching images (design D10)
 
