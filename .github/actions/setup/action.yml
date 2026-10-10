@@ -34,12 +34,41 @@ runs:
 
     - uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
       with:
-        cache: true
         install: false
         runtime: node@${{ steps.node-version.outputs.version }}
 
+    # The pnpm store is ~380 MB. The action's own `cache: true` saves it from
+    # every ref, so each pull request stored its own copies (one per store
+    # path: host and container jobs differ) and pushed the repository past the
+    # 10 GB cache limit. Every job restores; only a push to master saves, and
+    # a pull request with a different lockfile falls back to master's store
+    # and downloads only the delta.
+    - id: pnpm-store
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      shell: bash
+
+    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          pnpm-store-${{ runner.os }}-
+
     - run: pnpm install --frozen-lockfile
       shell: bash
+
+    # A restore by prefix brings the previous master store, and install only
+    # adds to it; prune what this lockfile no longer references, as the
+    # action's own `cache: true` did, so the saved store does not grow forever.
+    - if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: pnpm store prune
+      shell: bash
+
+    - if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.pnpm-store.outputs.path }}
+        key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
     # Exact-key save per commit, prefix fallback to the newest prior cache:
     # unchanged turbo tasks replay instead of re-executing.

@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- CI now saves the pnpm store cache only from pushes to `master`; every job
+  still restores it, and a pull request whose lockfile differs falls back to
+  `master`'s store and downloads only the delta. `pnpm/setup`'s
+  `cache: true` had saved a 360–400 MB store from every pull-request ref, once
+  per store path (host and container jobs differ). That came to 22 entries,
+  8.3 GB of the repository's 11.1 GB, which put it past GitHub's 10 GB limit
+  and evicted caches still in use. The setup action now restores and saves
+  the store itself with `actions/cache`.
+
 - **pnpm 11 → 12** (#634). `packageManager` pins `pnpm@12.9.0`, the version
   nixpkgs packages as `pnpm_12`, and the Nix dev shell switches to
   `pkgs.pnpm_12` on a nixpkgs lock bumped to 2026-10-08, which also moves its
