@@ -7008,7 +7008,6 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
             ),
         },
         imageInput: true,
-        toolResultImages: 'content',
       });
       const userParts = composed.flatMap((message) =>
         message.role === 'user' && Array.isArray(message.content)

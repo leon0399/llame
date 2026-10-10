@@ -244,11 +244,11 @@ describe('collectMediaRefs', () => {
     ];
 
     expect(collectMediaRefs(messages)).toEqual([
-      { image: mediaId(1), tool: false },
-      { image: mediaId(2), tool: false },
-      { image: mediaId(1), tool: false },
-      { image: mediaId(3), tool: true },
-      { image: { ...SHOT, key: 'c3' }, tool: true },
+      mediaId(1),
+      mediaId(2),
+      mediaId(1),
+      mediaId(3),
+      { ...SHOT, key: 'c3' },
     ]);
   });
 });
@@ -326,10 +326,7 @@ describe('loadMediaSizing', () => {
 
     expect(describeSpy).toHaveBeenCalledWith([mediaId(1), mediaId(2)]);
     expect(sizing).toMatchObject({
-      refs: [
-        { image: mediaId(1), tool: false },
-        { image: mediaId(2), tool: false },
-      ],
+      refs: [mediaId(1), mediaId(2)],
       statuses: ['attached', 'unavailable'],
       imageInput: true,
     });

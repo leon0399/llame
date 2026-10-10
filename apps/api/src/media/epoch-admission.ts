@@ -194,11 +194,8 @@ export function toolResultOutput(
 /** An unstored image reference of a request, keyed by its tool call id. */
 export type UnstoredRef = UnstoredImage & { key: string };
 
-/**
- * One media reference of a request: a media id or an unstored image, and
- * whether a tool result rather than an owner file part carries it.
- */
-export type MediaRef = { image: string | UnstoredRef; tool: boolean };
+/** One media reference of a request: a media id or an unstored image. */
+export type MediaRef = string | UnstoredRef;
 
 /**
  * The reference one item of the tool result with call id `key` carries: a
@@ -226,7 +223,7 @@ export function collectMediaRefs(
     if (message.role === 'user' && Array.isArray(message.content)) {
       return message.content.flatMap((part) => {
         const id = part.type === 'file' ? fileMediaRef(part) : undefined;
-        return id === undefined ? [] : [{ image: id, tool: false }];
+        return id === undefined ? [] : [id];
       });
     }
     if (message.role !== 'tool') return [];
@@ -234,7 +231,7 @@ export function collectMediaRefs(
       part.type === 'tool-result' && part.output.type === 'content'
         ? part.output.value.flatMap((item) => {
             const image = toolItemRef(item, part.toolCallId);
-            return image === undefined ? [] : [{ image, tool: true }];
+            return image === undefined ? [] : [image];
           })
         : [],
     );
@@ -269,21 +266,19 @@ export async function loadMediaSizing(
   imageInput: boolean,
 ): Promise<MediaSizing & { refs: ReadonlyArray<MediaRef> }> {
   const refs = collectMediaRefs(messages);
-  const descriptors = await resolver.describe(
-    refs.flatMap(({ image }) => (isString(image) ? [image] : [])),
-  );
+  const descriptors = await resolver.describe(refs.filter(isString));
   const held = new Map<string, HeldImage>();
-  for (const { image } of refs) {
-    if (isString(image)) continue;
-    const entry = resolver.images.get(image.key);
-    if (entry !== undefined) held.set(image.key, entry);
+  for (const ref of refs) {
+    if (isString(ref)) continue;
+    const entry = resolver.images.get(ref.key);
+    if (entry !== undefined) held.set(ref.key, entry);
   }
   return {
     refs,
     descriptors,
     held,
     statuses: admitEpochImages(
-      refs.map(({ image }) => epochRef(image, held)),
+      refs.map((ref) => epochRef(ref, held)),
       descriptors,
     ),
     imageInput,
