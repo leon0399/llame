@@ -192,7 +192,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     app = mod.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
 

@@ -51,7 +51,7 @@ d('auth e2e — real HTTP + Postgres', () => {
       .compile();
     app = mod.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
   });
