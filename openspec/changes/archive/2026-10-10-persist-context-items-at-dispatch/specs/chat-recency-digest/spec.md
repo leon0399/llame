@@ -12,9 +12,9 @@ Each chat SHALL carry two distinct pieces of digest state, and they SHALL NOT be
 - The **rendered baseline** — the capped, ordered entries available to both prompt surfaces. It is written once, with the chat's first successful turn whose attempt prepared it with the setting enabled, and is **immutable until re-resolution**, which keeps the digest contribution stable across the chat's turns.
 - The **told-set** — every chat this conversation has been told about in dispatched model context, whether through a rendered baseline in either prompt surface or a later append, with the pin state last communicated for each. It **grows** with every append.
 
-Both SHALL be reset together when the baseline is re-resolved at a checkpoint. The refresh SHALL be published with that checkpoint, in the same transaction, before the model step the checkpoint precedes; it SHALL record the refreshed baseline's entries as the new epoch's told-set in that transaction, because every request of the new epoch renders that baseline.
+Both SHALL be reset together when the baseline is re-resolved at a checkpoint. The refresh SHALL be published with that checkpoint, in the same transaction, before the model step the checkpoint precedes; it SHALL record the refreshed baseline's entries as the new epoch's told-set in that transaction.
 
-The told-set SHALL record only chats the model actually received. Initialization SHALL therefore derive it from the baseline actually **rendered** in the winning attempt's system prompt or admitted tool descriptions, not merely from the fact that baseline state was written: operator templates that omit the digest from both surfaces leave the baseline unrendered, and marking those chats told would suppress their later appends and disclose them never. A chat whose baseline entry was never rendered SHALL remain untold, so it enters through the ordinary append path when the ordinary append rules make it eligible.
+At initialization the told-set SHALL record only chats the model actually received. Initialization SHALL therefore derive it from the baseline actually **rendered** in the winning attempt's system prompt or admitted tool descriptions, not merely from the fact that baseline state was written: operator templates that omit the digest from both surfaces leave the baseline unrendered, and marking those chats told would suppress their later appends and disclose them never. At initialization, a chat whose baseline entry was never rendered SHALL remain untold, so it enters through the ordinary append path when the ordinary append rules make it eligible; a checkpoint refresh instead marks every refreshed baseline entry told.
 
 Both prompt renders SHALL return private disclosure metadata alongside text, keyed to the trusted digest candidates. Record entry ids only when their entry values are actually emitted along the executed template branch, not when a collection is tested/iterated or only aggregate counts are emitted. Use the existing validated renderer's emission path, not string matching, reparsing rendered text, or a second template engine. These ids SHALL not become new template variables or stored tool-description metadata. Use the union of prior told state and the current render's actual baseline disclosure when deriving this attempt's appends; when the request carries a digest append, commit that union plus the append in the attempt's dispatch transaction, whatever the Run's outcome; a chat's initial baseline and told-set still commit only with the winning turn.
 
@@ -34,13 +34,13 @@ Detecting events SHALL NOT require re-reading the chat's persisted message parts
 
 - **WHEN** several appends are emitted over a chat's life
 - **THEN** the rendered baseline is byte-identical throughout
-- **AND** the told-set contains the baseline chats a request actually disclosed plus every appended chat
+- **AND** the told-set contains the epoch's baseline chats, as initialization or the checkpoint refresh recorded them, plus every appended chat
 
 #### Scenario: Re-resolution resets both
 
 - **WHEN** the baseline is re-resolved at a checkpoint
 - **THEN** the checkpoint publication replaces the old told-set with the fresh baseline's entries
-- **AND** the request prepared after that publication accounts for entries rendered in either prompt surface before deriving appends, so that same request does not re-announce them
+- **AND** the request prepared after that publication derives appends against that told-set, so it does not re-announce any refreshed baseline entry
 
 #### Scenario: A failed attempt leaves the refreshed epoch in place
 
