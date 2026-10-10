@@ -70,7 +70,7 @@ d('compaction lineage over HTTP (#57)', () => {
 
     app = mod.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
 
