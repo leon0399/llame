@@ -85,7 +85,7 @@ around a substitution or a `:-` fallback written in the file.
 #### Scenario: Only credential-shaped literal headers are members
 
 - **WHEN** a remote MCP server declares a literal `X-Api-Key: abcdefgh-canary` and a literal `X-Region: eu-west-1`
-- **THEN** the set contains `abcdefgh-canary` and not `application/json`
+- **THEN** the set contains `abcdefgh-canary` and not `eu-west-1`
 
 ### Requirement: Credentials in configured URLs are members
 
