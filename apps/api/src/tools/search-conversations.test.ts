@@ -672,6 +672,11 @@ describe('search_conversations', () => {
     const rejections: ReadonlyArray<[unknown, string, string]> = [
       [{ mode: 'content' }, 'query', 'content mode requires a query'],
       [
+        { mode: 'content', query: ' \t\n' },
+        'query',
+        'content mode requires a query',
+      ],
+      [
         { mode: 'content', query: 'x', limit: 11 },
         'limit',
         'content mode limit must be at most 10',
