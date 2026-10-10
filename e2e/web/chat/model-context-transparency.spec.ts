@@ -8,6 +8,7 @@
  * projection to rebuild after every hidden context artifact exists.
  */
 
+import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 import { seedCheckpoint } from "./seed-compaction";
 
@@ -41,7 +42,7 @@ test.describe("model-context transparency (browser, full stack)", () => {
   }) => {
     await page.goto("/");
 
-    const input = page.getByPlaceholder("What would you like to know?");
+    const input = await readyComposer(page);
     await input.fill("Establish the first model turn.");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByRole("log").getByText(ANSWER)).toBeVisible({

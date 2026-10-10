@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Fixed load-dependent product E2E flakes where a chat spec typed into the
+  server-rendered composer before React hydrated, so the typed prompt was
+  discarded and the click sent nothing (#350). A shared `readyComposer`
+  helper in `e2e/support/composer.ts` now waits until the model selector
+  names its selection, which happens only after hydration and the models
+  query. Every chat spec that fills the composer right after navigation uses
+  it.
+
 - Changed a web `read`'s `network_error` message to name the failure's kind
   instead of forwarding the platform's `fetch failed` (part of #930): the server
   refused the connection, the connection was reset, timed out, or the host is
