@@ -1,12 +1,39 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
-### Requirement: Bash results redact configured credentials
+### Requirement: Command results are bounded and explicit
 
-The values the host knows to be secret SHALL be the instance's configured
-credential set (`instance-config`). Each occurrence of a member in a result's
-stdout or stderr SHALL be replaced with `[REDACTED]`, longest member first,
-before the output bound is applied and before the result is recorded,
-replayed, or shown to the model.
+Each bash call SHALL enforce finite input, duration, process, stdout, and stderr
+bounds. The result SHALL contain a safe status, exit code when known, bounded
+output, and truncation metadata when output is limited. The executor SHALL
+return output as the command produced it, cut at the bound, without rewriting,
+reordering, or deleting lines, except that every member of the instance's
+configured credential set (`instance-config`) SHALL be replaced with
+`[REDACTED]` before the output bound is applied, so a member that crosses the
+bound is replaced whole, and before the result leaves the executor. Secrets a
+bound Workspace's own MCP configuration resolves are not members. The delimiter neutralization
+every model-facing tool result receives SHALL still apply to the copy the model
+reads. After timeout settlement proves the process group stopped, the watcher
+SHALL drain output for at most 50 ms; a stream still open at that bound SHALL be
+marked truncated and destroyed.
+
+#### Scenario: Oversized output is bounded
+
+- **WHEN** a command produces more output than the configured result bound
+- **THEN** the result contains a bounded prefix and explicit truncation metadata
+- **AND** excess output is not sent to the model
+
+#### Scenario: Non-zero exit is observable
+
+- **WHEN** a command exits non-zero within its bounds
+- **THEN** the result reports the non-zero status and bounded stderr
+- **AND** it does not convert the command into a successful file or Knowledge effect
+
+#### Scenario: Paths and diagnostics survive
+
+- **WHEN** a command prints absolute paths, a stack trace, or a line beginning
+  with `Error:`
+- **THEN** the executor result contains those lines verbatim within the bound
+- **AND** only reserved tool delimiters are escaped in the copy the model reads
 
 #### Scenario: A printed provider key is redacted
 
@@ -14,10 +41,11 @@ replayed, or shown to the model.
 - **THEN** the result's stdout contains `[REDACTED]` where the key was
 - **AND** the recorded result and its replay contain no `sk-canary-1065`
 
-#### Scenario: A header substitution printed on stderr is redacted
+#### Scenario: A credential crossing the output bound is redacted whole
 
-- **WHEN** an MCP server's header resolves a `{path:…}` substitution to `gw-canary` and a command writes it to stderr
-- **THEN** the result's stderr contains `[REDACTED]` and no `gw-canary`
+- **WHEN** a command prints output whose configured credential begins a few characters before the stdout bound
+- **THEN** the result contains no prefix of the credential
+- **AND** the result is still bounded and marked truncated
 
 #### Scenario: Non-credential configuration survives
 
