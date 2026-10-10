@@ -96,15 +96,16 @@ export const TITLE_INPUT_MAX_CHARS = 1000;
 export const TITLE_GENERATION_TIMEOUT_MS = 10_000;
 
 /**
- * Normalize raw model output into a persistable title: strip leading markdown /
- * quote artifacts and a "Title:" prefix, collapse whitespace, clamp length.
+ * Normalize raw model output into a persistable title: strip leading markdown
+ * (heading, emphasis, blockquote) / quote artifacts and a "Title:" prefix,
+ * collapse whitespace, clamp length.
  * Returns an empty string when nothing usable remains (caller skips the update).
  */
 export function sanitizeTitle(raw: string): string {
   const cleaned = raw
-    .replace(/^[#*"'\s]+/, '')
+    .replace(/^[#*>"'\s]+/, '')
     .replace(/^\s*title\s*:\s*/i, '')
-    .replace(/^[#*"'\s]+/, '')
+    .replace(/^[#*>"'\s]+/, '')
     .replace(/[#*"'\s]+$/, '')
     .replaceAll(/\s+/g, ' ')
     .trim();
