@@ -85,7 +85,8 @@ keeps a separate per-run copy of it.
 **Non-Goals:**
 
 - Changing what the model sees on a successful turn: request bytes for a turn
-  that completes are unchanged.
+  that completes are unchanged, except that accepted-turn items follow producer
+  rank around the persisted `prompt-imports` and `skill-activation` facts.
 - Changing search, conversation-read, or usage-completeness eligibility rules
   beyond recognizing the new `running` status as non-completed and hiding a
   `running` reply from owner-facing reads (D10).

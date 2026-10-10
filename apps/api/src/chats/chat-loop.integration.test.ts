@@ -23,7 +23,7 @@
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { streamText } from 'ai';
-import { contentBlockTexts, expectMessageParts } from '../testing/support';
+import { expectMessageParts } from '../testing/support';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -32,11 +32,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 
 import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
-import {
-  type ModelToolDeclaration,
-  type Run,
-  type TurnToolAvailabilityEntry,
-} from '../db/schema';
+import { type ModelToolDeclaration, type Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type ModelSelectionValidator } from '../models/models.service';
 import {
@@ -78,6 +74,7 @@ import {
   type ToolUnavailableReason,
 } from '../tools/turn-tool-catalog';
 import { createCompactionCheckpointPart } from './context-item-producers';
+import { isContextItemPart } from './context-item';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -112,11 +109,7 @@ const workerDynamicToolResolver: DynamicToolExecutorResolver = {
   resolveDynamicTool: () => ({ state: 'unavailable' }),
 };
 
-function workerModelClient(
-  modelId: string,
-  fail = false,
-  onRequest?: (messages: ModelStreamInput['messages']) => void,
-): ModelClient {
+function workerModelClient(modelId: string, fail = false): ModelClient {
   const chunks: Array<LanguageModelV3StreamPart> = fail
     ? [
         { type: 'stream-start', warnings: [] },
@@ -145,7 +138,6 @@ function workerModelClient(
     provider: 'test',
     contextWindowTokens: 128_000,
     streamText(input: ModelStreamInput) {
-      onRequest?.(input.messages);
       return streamText({
         model,
         system: input.system,
@@ -183,7 +175,6 @@ describeIfDb(
     let systemPrompt: string;
     let allowedTools: Array<string>;
     let runExecution: RunExecutionService;
-    let requestTexts: Map<string, Array<string>>;
 
     type AvailabilityState =
       | { id: string; state: 'available' }
@@ -240,6 +231,7 @@ describeIfDb(
       };
     }
     type PersistResult = {
+      chatId: string;
       runId: string;
       userMessage: RunJob['userMessage'];
     };
@@ -253,12 +245,7 @@ describeIfDb(
         chatId: job.chatId,
         userId: job.userId,
         userMessage: job.userMessage,
-        client: workerModelClient(job.modelId, options.fail, (messages) => {
-          requestTexts.set(
-            job.runId,
-            messages.flatMap(({ content }) => contentBlockTexts(content)),
-          );
-        }),
+        client: workerModelClient(job.modelId, options.fail),
       });
       if (options.consume !== false) {
         await result.consumeStream?.();
@@ -277,8 +264,8 @@ describeIfDb(
       modelId = 'system:openai:gpt-5.4-mini',
     ): Promise<PersistResult> => {
       // The API only persists the sanitized user message. Resolve the supplied
-      // context through the actual worker preparation path, leaving terminal
-      // status to each test so failed attempts cannot commit staged metadata.
+      // context through the actual worker preparation path up to its first
+      // dispatched request, leaving terminal status to each test.
       const resolve = vi
         .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
         .mockResolvedValueOnce(effectiveContext);
@@ -298,6 +285,7 @@ describeIfDb(
         if (!job) throw new Error('Expected accepted Run dispatch');
         await executeWorker(job, { consume: false });
         return {
+          chatId,
           runId: job.runId,
           userMessage: job.userMessage,
         };
@@ -307,41 +295,42 @@ describeIfDb(
     };
 
     /**
-     * The tool-availability block one Run's request carried. These Runs are
-     * settled by hand, so the accepted-turn items they stage never reach the
-     * stored user message; the request is where the item is observable.
+     * The tool-availability item a Run stored on its user message. Every Run
+     * here dispatched its first request, which is where the item is stored,
+     * whatever the Run's later outcome.
      */
-    const availabilityRequestItem = (runId: string) => {
-      const texts = requestTexts.get(runId);
-      if (!texts) throw new Error(`Expected a model request for Run ${runId}`);
-      return texts.find((text) =>
-        text.startsWith(
-          '<system-reminder producer="tool-availability" form="notice">',
-        ),
+    const availabilityItem = async ({
+      chatId,
+      userMessage,
+    }: Pick<PersistResult, 'chatId' | 'userMessage'>) => {
+      const stored = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findById(chatId, userId, userMessage.id),
       );
+      if (!stored) throw new Error(`Expected user message ${userMessage.id}`);
+      return stored.parts
+        .filter(isContextItemPart)
+        .find(({ data }) => data.producer === 'tool-availability')?.data.text;
     };
 
     const finish = (
       runId: string,
       status: 'completed' | 'failed' | 'cancelled' | 'expired' = 'completed',
-      turnToolAvailability?: Array<TurnToolAvailabilityEntry>,
     ) =>
       tenantDb.runAs(userId, async (tx) => {
         const runs = new RunsRepository(tx);
         // `settleAttempt` finishes a run fenced by the attempt that produced
         // it, which is also how a completed run earns the winning attempt
-        // link the availability baseline lookup requires. Mirror that here so
-        // fixtures are genuine completed turns rather than unlinked ones.
+        // link. Mirror that here so fixtures are genuine completed turns
+        // rather than unlinked ones; the availability record was already
+        // stored by the dispatch.
         const run = await runs.findById(runId, userId);
         const attemptId = run?.activeAttemptId ?? undefined;
-        const options: NonNullable<
-          Parameters<RunsRepository['markFinished']>[3]
-        > = {};
-        if (attemptId !== undefined) options.attemptId = attemptId;
-        if (turnToolAvailability !== undefined) {
-          options.turnToolAvailability = turnToolAvailability;
-        }
-        return runs.markFinished(runId, userId, status, options);
+        return runs.markFinished(
+          runId,
+          userId,
+          status,
+          attemptId === undefined ? {} : { attemptId },
+        );
       });
 
     beforeAll(async () => {
@@ -364,7 +353,6 @@ describeIfDb(
 
     beforeEach(async () => {
       dispatchCalls = [];
-      requestTexts = new Map();
       systemPrompt = 'Chat-loop integration prompt';
       allowedTools = [];
       await new MemoryService(tenantDb).updateForOwner(userId, {
@@ -1176,7 +1164,7 @@ describeIfDb(
       expect(after?.recencyDigestTold).toEqual([]);
     });
 
-    it('persists worker-owned context only on successful model turns and fences a model-change marker to its run', async () => {
+    it("keeps a failed dispatched turn's context items and fences a model-change marker to its run", async () => {
       const chatId = crypto.randomUUID();
       const modelA = 'system:openai:model-a';
       const modelB = 'system:openai:model-b';
@@ -1209,10 +1197,12 @@ describeIfDb(
         [{ type: 'text', text: 'first' }],
         runs[0].id,
       );
-      // Failed attempts do not publish their staged context items.
-      expect(userMessages[1]?.parts).toEqual([
-        { type: 'text', text: 'same model' },
-      ]);
+      // The failed Run dispatched its request, so the items it carried stay.
+      expectMessageParts(
+        userMessages[1]?.parts ?? [],
+        [{ type: 'text', text: 'same model' }],
+        runs[1].id,
+      );
       expectMessageParts(
         userMessages[2]?.parts ?? [],
         [
@@ -1340,7 +1330,7 @@ describeIfDb(
         secondReceipts[0]?.systemPrompt,
       );
     });
-    it('persists only observable availability changes and uses terminal Runs as the baseline', async () => {
+    it('persists only observable availability changes and uses every dispatched Run as the baseline', async () => {
       const chatId = crypto.randomUUID();
       const degraded = availabilityContext([
         {
@@ -1366,63 +1356,58 @@ describeIfDb(
         'first degraded turn',
         degraded,
       );
-      const firstAvailability = availabilityRequestItem(first.runId);
+      const firstAvailability = await availabilityItem(first);
       expect(firstAvailability).toContain('mcp__docs__lookup');
       expect(firstAvailability).toContain('server disconnected');
       await finish(first.runId, 'failed');
+      // The failed Run dispatched, so its reminder stays where it was stored.
+      expect(await availabilityItem(first)).toBe(firstAvailability);
 
+      // The failed Run's record is the baseline: the tool is still
+      // unavailable, and the changed internal reason is not observable.
       const unchangedOutage = await persistWithContext(
         chatId,
         'same outage with a changed internal reason',
         changedDiagnostic,
       );
-      const unchangedOutageAvailability = availabilityRequestItem(
-        unchangedOutage.runId,
-      );
-      expect(unchangedOutageAvailability).toContain('mcp__docs__lookup');
-      expect(unchangedOutageAvailability).toContain('server connecting');
-      await finish(unchangedOutage.runId, 'completed', [
-        { id: 'mcp__docs__lookup', state: 'unavailable' },
-      ]);
+      expect(await availabilityItem(unchangedOutage)).toBeUndefined();
+      await finish(unchangedOutage.runId, 'completed');
 
       const recovered = await persistWithContext(
         chatId,
         'tool recovered',
         healthy,
       );
-      const recoveredAvailability = availabilityRequestItem(recovered.runId);
+      const recoveredAvailability = await availabilityItem(recovered);
       expect(recoveredAvailability).toContain('mcp__docs__lookup');
       expect(recoveredAvailability).toContain('tool restored');
-      await finish(recovered.runId, 'completed', [
-        { id: 'mcp__docs__lookup', state: 'available' },
-      ]);
+      await finish(recovered.runId, 'completed');
 
       const transientFlap = await persistWithContext(
         chatId,
         'disconnect and reconnect between attempts',
         healthy,
       );
-      expect(availabilityRequestItem(transientFlap.runId)).toBeUndefined();
+      expect(await availabilityItem(transientFlap)).toBeUndefined();
       await finish(transientFlap.runId, 'expired');
 
       const removed = await persistWithContext(chatId, 'tool removed', empty);
-      const removedAvailability = availabilityRequestItem(removed.runId);
-      // The expired predecessor is skipped, not treated as a fresh epoch: the
-      // last successful turn observed the tool as available, so dropping it
-      // from the eligible set is an observable removal.
+      const removedAvailability = await availabilityItem(removed);
+      // The expired predecessor dispatched with the tool available, so its
+      // record is the baseline, not a fresh epoch: dropping the tool from the
+      // eligible set is an observable removal.
       expect(removedAvailability).toContain('mcp__docs__lookup');
       expect(removedAvailability).toContain('Removed tools');
-      await finish(removed.runId, 'completed', []);
+      await finish(removed.runId, 'completed');
 
       const newlyUnavailable = await persistWithContext(
         chatId,
         'newly eligible but unavailable',
         degraded,
       );
-      const newlyUnavailableAvailability = availabilityRequestItem(
-        newlyUnavailable.runId,
+      expect(await availabilityItem(newlyUnavailable)).toContain(
+        'mcp__docs__lookup',
       );
-      expect(newlyUnavailableAvailability).toContain('mcp__docs__lookup');
 
       const receipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
@@ -1451,9 +1436,7 @@ describeIfDb(
         'healthy baseline',
         healthy,
       );
-      await finish(baseline.runId, 'completed', [
-        { id: 'mcp__docs__lookup', state: 'available' },
-      ]);
+      await finish(baseline.runId, 'completed');
 
       const gate = () => {
         let release!: () => void;
@@ -1523,9 +1506,7 @@ describeIfDb(
         await executeWorker(degradedJob, {
           consume: false,
         });
-        await finish(degradedJob.runId, 'completed', [
-          { id: 'mcp__docs__lookup', state: 'unavailable' },
-        ]);
+        await finish(degradedJob.runId, 'completed');
         releaseSecond.release();
         await recoveredTurn;
 
@@ -1534,10 +1515,7 @@ describeIfDb(
         );
         if (!recoveredJob) throw new Error('Expected recovered Run dispatch');
         await executeWorker(recoveredJob, { consume: false });
-        const recoveredAvailability = availabilityRequestItem(
-          recoveredJob.runId,
-        );
-        expect(recoveredAvailability).toContain('tool restored');
+        expect(await availabilityItem(recoveredJob)).toContain('tool restored');
         await finish(recoveredJob.runId);
       } finally {
         releaseFirst.release();
@@ -1577,7 +1555,7 @@ describeIfDb(
         'first observed healthy turn',
         healthy,
       );
-      expect(availabilityRequestItem(afterLegacy.runId)).toBeUndefined();
+      expect(await availabilityItem(afterLegacy)).toBeUndefined();
       const observedReceipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           afterLegacy.runId,
@@ -1593,9 +1571,7 @@ describeIfDb(
         'healthy before compaction',
         healthy,
       );
-      await finish(beforeCompaction.runId, 'completed', [
-        { id: 'mcp__docs__lookup', state: 'available' },
-      ]);
+      await finish(beforeCompaction.runId, 'completed');
       await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).createCheckpoint({
           chatId: degradedChatId,
@@ -1617,20 +1593,17 @@ describeIfDb(
         'degraded after compaction',
         degraded,
       );
-      const firstAfterAvailability = availabilityRequestItem(
-        firstAfterCompaction.runId,
-      );
+      const firstAfterAvailability =
+        await availabilityItem(firstAfterCompaction);
       expect(firstAfterAvailability).toContain('mcp__docs__lookup');
       expect(firstAfterAvailability).toContain('server disconnected');
-      await finish(firstAfterCompaction.runId, 'completed', [
-        { id: 'mcp__docs__lookup', state: 'unavailable' },
-      ]);
+      await finish(firstAfterCompaction.runId, 'completed');
       const repeated = await persistWithContext(
         degradedChatId,
         'unchanged after new epoch baseline',
         degraded,
       );
-      expect(availabilityRequestItem(repeated.runId)).toBeUndefined();
+      expect(await availabilityItem(repeated)).toBeUndefined();
 
       const healthyChatId = crypto.randomUUID();
       const degradedBefore = await persistWithContext(
@@ -1638,9 +1611,7 @@ describeIfDb(
         'degraded before healthy epoch',
         degraded,
       );
-      await finish(degradedBefore.runId, 'completed', [
-        { id: 'mcp__docs__lookup', state: 'unavailable' },
-      ]);
+      await finish(degradedBefore.runId, 'completed');
       await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).createCheckpoint({
           chatId: healthyChatId,
@@ -1653,12 +1624,10 @@ describeIfDb(
         'healthy after compaction',
         healthy,
       );
-      expect(
-        availabilityRequestItem(healthyAfterCompaction.runId),
-      ).toBeUndefined();
+      expect(await availabilityItem(healthyAfterCompaction)).toBeUndefined();
     });
 
-    it('does not commit a prospective availability baseline when the worker fails, then commits it on success', async () => {
+    it("stores a failed Run's availability reminder at dispatch and initializes the digest only on success", async () => {
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
@@ -1687,11 +1656,39 @@ describeIfDb(
         await finish(failedRun.id, 'failed');
       }
 
-      const afterFailure = await tenantDb.runAs(userId, (tx) =>
-        new ChatsRepository(tx).findById(chatId, userId),
+      const afterFailure = await tenantDb.runAs(userId, async (tx) => ({
+        chat: await new ChatsRepository(tx).findById(chatId, userId),
+        messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
+      }));
+      // A first-turn digest baseline waits for a completed turn.
+      expect(afterFailure.chat?.recencyDigestBaseline).toBeNull();
+      expect(afterFailure.chat?.recencyDigestTold).toBeNull();
+      // The reminder rode the dispatched request, so it stays on the failed
+      // turn's user message.
+      const unavailableReminder = {
+        type: 'data-context',
+        data: {
+          v: 1,
+          producer: 'tool-availability',
+          form: 'notice',
+          runId: failedRun.id,
+          payload: {
+            kind: 'initial',
+            added: [],
+            removed: [],
+            unavailable: [
+              { id: 'mcp__docs__lookup', reason: 'discovery_failed' },
+            ],
+            becameUnavailable: [],
+            nowAvailable: [],
+          },
+        },
+      };
+      expectMessageParts(
+        afterFailure.messages.find(({ role }) => role === 'user')?.parts ?? [],
+        [unavailableReminder, { type: 'text', text: 'worker failure' }],
+        failedRun.id,
       );
-      expect(afterFailure?.recencyDigestBaseline).toBeNull();
-      expect(afterFailure?.recencyDigestTold).toBeNull();
 
       const successfulResolve = vi
         .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
@@ -1715,30 +1712,16 @@ describeIfDb(
       const userMessages = afterSuccess.messages.filter(
         ({ role }) => role === 'user',
       );
+      // The failed Run's record is the baseline, so the unchanged outage is
+      // not announced a second time.
+      expectMessageParts(
+        userMessages[0]?.parts ?? [],
+        [unavailableReminder, { type: 'text', text: 'worker failure' }],
+        failedRun.id,
+      );
       expectMessageParts(
         userMessages[1]?.parts ?? [],
-        [
-          {
-            type: 'data-context',
-            data: {
-              v: 1,
-              producer: 'tool-availability',
-              form: 'notice',
-              runId: successfulRun.id,
-              payload: {
-                kind: 'initial',
-                added: [],
-                removed: [],
-                unavailable: [
-                  { id: 'mcp__docs__lookup', reason: 'discovery_failed' },
-                ],
-                becameUnavailable: [],
-                nowAvailable: [],
-              },
-            },
-          },
-          { type: 'text', text: 'accepted after failure' },
-        ],
+        [{ type: 'text', text: 'accepted after failure' }],
         successfulRun.id,
       );
     });

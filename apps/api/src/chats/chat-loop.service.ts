@@ -280,8 +280,9 @@ export class ChatLoopService {
 
       // The user message is persisted with only the caller's sanitized text
       // parts. Context-rail items (model-switch, availability, digest,
-      // temporal) are resolved by the executing worker and published
-      // atomically with the successful assistant turn.
+      // temporal) are resolved by the executing worker and stored on this
+      // message by the attempt's dispatch transaction, before its first
+      // request.
       const userMessage = await this.persistUserMessageIfAbsent(
         messagesRepo,
         admittedMessage,

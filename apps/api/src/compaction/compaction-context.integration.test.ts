@@ -59,6 +59,8 @@ import {
   createCompactionCheckpointPart,
   createModelChangeItem,
 } from '../chats/context-item-producers';
+import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
+import { createPromptImportsItem } from '../chats/prompt-imports-item';
 import type { MessagePart } from '../chats/context-builder';
 import {
   RUN_TIMEOUT_ABORT_REASON,
@@ -133,6 +135,31 @@ const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
         tool,
       })),
     ),
+};
+
+/** The same catalog with `knowledge_search` unavailable, so an epoch is degraded. */
+const DEGRADED_KNOWLEDGE = {
+  allowed: ['knowledge_search'],
+  knowledgeCandidates: {
+    resolve: () =>
+      Promise.resolve(
+        [...TOOL_REGISTRY.values()].map((tool) =>
+          tool.id === 'knowledge_search'
+            ? {
+                source: { type: 'code_owned' as const },
+                state: 'unavailable' as const,
+                id: tool.id,
+                classification: tool.classification,
+                reason: 'knowledge_space_unavailable' as const,
+              }
+            : {
+                source: { type: 'code_owned' as const },
+                state: 'available' as const,
+                tool,
+              },
+        ),
+      ),
+  } satisfies KnowledgeToolCandidateResolverPort,
 };
 
 /**
@@ -243,6 +270,23 @@ function sole<T>(rows: ReadonlyArray<T>): T {
     throw new Error(`Expected exactly one row, found ${rows.length}`);
   }
   return rows[0];
+}
+
+/** The accepted-turn items a re-baking turn's first dispatch stores. */
+const DISPATCHED_EPOCH_PRODUCERS = [
+  'workspace',
+  'recency-digest',
+  'temporal',
+] as const;
+
+/** How many items of one producer a model request carries, across every message. */
+function reminderCount(request: ModelStreamInput, producer: string): number {
+  return (
+    request.messages
+      .map(({ content }) => contentText(content))
+      .join('\n\n')
+      .split(`<system-reminder producer="${producer}"`).length - 1
+  );
 }
 
 function compactionClient(input: {
@@ -479,6 +523,8 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     sourceEffort?: string;
     /** Effort persisted on the run under test. */
     targetEffort?: string;
+    /** The availability record the SOURCE run's dispatch stored. */
+    sourceAvailability?: NonNullable<Run['turnToolAvailability']>;
   }): Promise<SeededSwitch> {
     const sourceModel = options?.sourceModel ?? SOURCE_MODEL;
     return tenantDb.runAs(userId, async (tx) => {
@@ -519,11 +565,15 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           systemPrompt: sourcePrompt,
           promptHash: `transition-source-prompt-${chat.id}`,
         });
-        await runs.markFinished(sourceRun.id, userId, 'completed', {
-          attemptId,
-          turnToolAvailability: [
+        // A dispatch stores the Run's availability record; completion only
+        // links the winning attempt.
+        await runs.updateForAttempt(sourceRun.id, userId, attemptId, {
+          turnToolAvailability: options?.sourceAvailability ?? [
             { id: 'search_conversations', state: 'available' },
           ],
+        });
+        await runs.markFinished(sourceRun.id, userId, 'completed', {
+          attemptId,
         });
       }
       await messages.create({
@@ -667,6 +717,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     };
     models?: ModelSelectionValidator;
     recencyDigest?: RecencyDigestResolver;
+    knowledgeCandidates?: KnowledgeToolCandidateResolverPort;
   };
 
   function runService(
@@ -705,7 +756,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       options.models ?? executionModels,
       new SystemPromptsService(),
       { resolvePromptUser: () => Promise.resolve(undefined) },
-      knowledgeCandidates,
+      options.knowledgeCandidates ?? knowledgeCandidates,
       { snapshotCandidates: () => [] },
       new MemoryService(tenantDb),
       options.recencyDigest ?? new RecencyDigestService(tenantDb),
@@ -713,11 +764,21 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     );
   }
 
-  function epochService(compaction: CompactionService) {
+  function epochService(
+    compaction: CompactionService,
+    degraded?: {
+      allowed: ReadonlyArray<string>;
+      knowledgeCandidates: KnowledgeToolCandidateResolverPort;
+    },
+  ) {
     return runService(compaction, {
       config: {
         tools: {
-          allowed: ['search_conversations', 'enter_workspace'],
+          allowed: [
+            'search_conversations',
+            'enter_workspace',
+            ...(degraded?.allowed ?? []),
+          ],
           nativeExecutorId: EPOCH_EXECUTOR_ID,
         },
         skills: {
@@ -726,6 +787,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         skillCatalog: LIVE_CATALOG,
       },
       models: epochModels,
+      ...(degraded !== undefined && {
+        knowledgeCandidates: degraded.knowledgeCandidates,
+      }),
     });
   }
 
@@ -958,14 +1022,15 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       });
     });
 
-    it('keeps the checkpoint and its re-baked epoch when the attempt dies, and the next attempt reuses them', async () => {
+    it('keeps the checkpoint, its re-baked epoch, and the dispatched items once when the attempt dies, and the next attempt reuses them', async () => {
       const seeded = await seedEpoch();
       const turn = turnOf(seeded);
       const service = epochService(createCompactionService(unexercisedModels));
       const firstCalls: Array<ModelStreamInput> = [];
 
-      // The first attempt publishes, then its model never answers: the worker
-      // is gone and the Run stays claimed for the next delivery.
+      // The first attempt publishes and dispatches, then its model never
+      // answers: the worker is gone and the Run stays claimed for the next
+      // delivery.
       await service.executeRun(
         requestFor(
           turn,
@@ -997,7 +1062,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         skillCatalogRebakedFrom: checkpoint.id,
         skillCatalogBaseline: LIVE_SKILLS,
         workspaceToldFrom: checkpoint.id,
-        workspaceTold: null,
+        // The dispatch transaction advanced the told state with the snapshot
+        // it stored.
+        workspaceTold: seeded.workspaceRoot,
       });
       expect(published.chat?.recencyDigestBaseline?.recent).toEqual(
         expect.arrayContaining([
@@ -1008,9 +1075,19 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         firstCalls.filter((call) => !isSummaryRequest(call)),
       );
       expect(sole(published.receipts).systemPrompt).toBe(firstRequest.system);
+      // The dispatched request's accepted-turn items are already on the user
+      // message, whatever the attempt's outcome.
+      for (const producer of DISPATCHED_EPOCH_PRODUCERS) {
+        expect(
+          published.contextParts.filter((item) => item.producer === producer),
+        ).toHaveLength(1);
+        expect(reminderCount(firstRequest, producer)).toBe(1);
+      }
 
       // The retry: nothing lies between the boundary and the trigger, so it
-      // pays no second summary and re-resolves nothing.
+      // pays no second summary and re-resolves nothing. Its request carries
+      // the stored items once, and it authors no second temporal anchor,
+      // Workspace snapshot, or digest supersession marker.
       const secondCalls: Array<ModelStreamInput> = [];
       const retried = await service.executeRun(
         requestFor(
@@ -1031,7 +1108,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(
         contentText(secondRequest.messages.at(-1)?.content ?? ''),
       ).toContain(`\`${seeded.workspaceRoot}\``);
+      for (const producer of DISPATCHED_EPOCH_PRODUCERS) {
+        expect(reminderCount(secondRequest, producer)).toBe(1);
+      }
       const after = await readTurnState(turn);
+      expect(after.contextParts).toEqual(published.contextParts);
       expect(after.run?.status).toBe('completed');
       expect(sole(after.checkpoints).id).toBe(checkpoint.id);
       expect(after.chat?.recencyDigestBaseline).toEqual(
@@ -1124,6 +1205,138 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(contentText(nextRequest.messages.at(-1)?.content ?? '')).toContain(
         'NEXT TURN',
       );
+    });
+
+    it('does not repeat the supersession marker or the Unavailable list a failed Run dispatched', async () => {
+      const seeded = await seedEpoch();
+      const failing = turnOf(seeded);
+      const service = epochService(
+        createCompactionService(unexercisedModels),
+        DEGRADED_KNOWLEDGE,
+      );
+
+      // The Run publishes a checkpoint and dispatches its first request, then
+      // fails before its model answers.
+      await service.executeRun(
+        requestFor(
+          failing,
+          attemptClient({
+            calls: [],
+            summary: { response: SUMMARY },
+            answer: null,
+            compactionThresholdTokens: 1,
+          }),
+        ),
+      );
+      const dispatched = await readTurnState(failing);
+      const attemptId = dispatched.run?.activeAttemptId;
+      if (!attemptId) throw new Error('Expected the dispatched attempt');
+      await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).markFinished(failing.runId, userId, 'failed', {
+          attemptId,
+        }),
+      );
+      const failed = await readTurnState(failing);
+      expect(failed.run?.status).toBe('failed');
+      expect(failed.contextParts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            producer: 'recency-digest',
+            form: 'snapshot',
+          }),
+          expect.objectContaining({
+            producer: 'tool-availability',
+            payload: expect.objectContaining({
+              kind: 'initial',
+              unavailable: [
+                expect.objectContaining({ id: 'knowledge_search' }),
+              ],
+            }),
+          }),
+        ]),
+      );
+
+      const next = await addTurn(seeded.chat.id, 'NEXT TURN');
+      const nextCalls: Array<ModelStreamInput> = [];
+      const second = await service.executeRun(
+        requestFor(next, attemptClient({ calls: nextCalls })),
+      );
+      await second.consumeStream?.();
+
+      const settled = await readTurnState(next);
+      expect(settled.run?.status).toBe('completed');
+      expect(nextCalls.filter(isSummaryRequest)).toHaveLength(0);
+      expect(settled.checkpoints).toHaveLength(1);
+      // The failed Run dispatched both items, so it is the next turn's
+      // baseline: each rides the next request once, from the failed turn.
+      const nextRequest = sole(nextCalls);
+      for (const producer of ['recency-digest', 'tool-availability']) {
+        expect(
+          failed.contextParts.filter((item) => item.producer === producer),
+        ).toHaveLength(1);
+        expect(
+          settled.contextParts.filter((item) => item.producer === producer),
+        ).toEqual([]);
+        expect(reminderCount(nextRequest, producer)).toBe(1);
+      }
+    });
+
+    it("places a never-dispatched Run's items by producer rank around its stored prompt-imports item", async () => {
+      const seeded = await seedSwitch({
+        switchMarker: false,
+        sourceModel: TARGET_MODEL,
+        sourceAvailability: [
+          { id: 'search_conversations', state: 'unavailable' },
+        ],
+      });
+      const turn = turnOf(seeded);
+      // An earlier attempt stored its prompt-imports item, then failed before
+      // its dispatch transaction committed.
+      await tenantDb.runAs(userId, (tx) =>
+        new PromptImportPartsRepository(tx).appendForRun({
+          id: turn.user.id,
+          chatId: turn.chatId,
+          runId: turn.runId,
+          item: createPromptImportsItem({
+            runId: turn.runId,
+            outcomes: [{ locator: '/srv/private/notes.md', outcome: 'denied' }],
+            omitted: [],
+          }),
+        }),
+      );
+      const calls: Array<ModelStreamInput> = [];
+
+      const result = await runService(
+        createCompactionService(unexercisedModels),
+      ).executeRun(requestFor(turn, attemptClient({ calls })));
+      await result.consumeStream?.();
+
+      const stored = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findById(turn.chatId, userId, turn.user.id),
+      );
+      // The availability reminder ranks before the import, the temporal
+      // anchor after it, and the owner's text stays last.
+      expect(
+        stored?.parts.map((part) =>
+          isContextItemPart(part)
+            ? `${part.data.producer}:${part.data.runId}`
+            : part,
+        ),
+      ).toEqual([
+        `tool-availability:${turn.runId}`,
+        `prompt-imports:${turn.runId}`,
+        `temporal:${turn.runId}`,
+        { type: 'text', text: 'CURRENT TRIGGER' },
+      ]);
+      const trigger = contentText(sole(calls).messages.at(-1)?.content ?? '');
+      const positions = [
+        '<system-reminder producer="tool-availability"',
+        '<system-reminder producer="prompt-imports"',
+        '<system-reminder producer="temporal"',
+        'CURRENT TRIGGER',
+      ].map((marker) => trigger.indexOf(marker));
+      expect(positions.every((position) => position >= 0)).toBe(true);
+      expect([...positions].sort((a, b) => a - b)).toEqual(positions);
     });
 
     // The exclusion rides the trailing instruction, so the digest block is

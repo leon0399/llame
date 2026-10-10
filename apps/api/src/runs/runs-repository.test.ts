@@ -216,6 +216,30 @@ describe('RunsRepository', () => {
     expect(queries[0]?.params).toEqual(['chat-bound', 'owner-bound', 10, 1]);
   });
 
+  it('counts a run as dispatched by its availability record or its completion', async () => {
+    const { db, queries } = makeLoggedDb();
+    await new RunsRepository(db)
+      .findMostRecentDispatchedByChatMessageSequence(
+        'chat-bound',
+        'owner-bound',
+        { beforeSeq: 10 },
+      )
+      .catch(() => undefined);
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]?.sql).toContain(
+      '("runs"."turn_tool_availability" is not null or "runs"."status" = $3)',
+    );
+    expect(queries[0]?.sql).toContain('"messages"."seq" < $');
+    expect(queries[0]?.params).toEqual([
+      'chat-bound',
+      'owner-bound',
+      'completed',
+      10,
+      1,
+    ]);
+  });
+
   it('reads runs by chat, active chat, active user, and owner-scoped id', async () => {
     const activeSummary = {
       id: run.id,
@@ -295,27 +319,18 @@ describe('RunsRepository', () => {
     expect(sets[3]).not.toHaveProperty('error');
   });
 
-  it('records the completed attempt and availability only for a completed run', async () => {
-    const availability = [
-      {
-        id: 'tool-a',
-        state: 'available' as const,
-        declarationHash: 'a'.repeat(64),
-      },
-    ];
+  it('records the completed attempt only for a completed run and never the availability record', async () => {
     const { db, calls } = makeDb({ update: [[run], [run]] });
     const repository = new RunsRepository(db);
 
     await expect(
       repository.markFinished(run.id, run.userId, 'completed', {
         attemptId: 'attempt-1',
-        turnToolAvailability: availability,
       }),
     ).resolves.toBe(run);
     await expect(
       repository.markFinished(run.id, run.userId, 'failed', {
         attemptId: 'attempt-2',
-        turnToolAvailability: availability,
       }),
     ).resolves.toBe(run);
 
@@ -325,10 +340,11 @@ describe('RunsRepository', () => {
     expect(sets[0]).toMatchObject({
       status: 'completed',
       completedAttemptId: 'attempt-1',
-      turnToolAvailability: availability,
     });
-    // A terminal non-success must not claim an attempt or a baseline record:
-    // the next attempt diffs against the last *successful* turn.
+    // The availability record is written by the dispatch transaction; a
+    // terminal update never touches it.
+    expect(sets[0]).not.toHaveProperty('turnToolAvailability');
+    // A terminal non-success must not claim an attempt.
     expect(sets[1]).toMatchObject({ status: 'failed' });
     expect(sets[1]).not.toHaveProperty('completedAttemptId');
     expect(sets[1]).not.toHaveProperty('turnToolAvailability');

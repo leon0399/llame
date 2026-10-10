@@ -9,6 +9,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   this migration: an older worker still writes the dropped column and would
   fail its Runs.
 
+- Accepted-turn context items are now stored on the user message when the
+  Run's first model request dispatches, whatever the Run's outcome, so a failed
+  or crashed Run's rules, timestamp, Workspace, digest, skill-catalog, and
+  tool-availability items are not repeated on the next turn or retry. These
+  items now follow producer rank around `$skill` and `@import` facts instead
+  of preceding them (refs #1177).
+
 # 2026-10-09
 
 - Fixed API and Runs-worker boot failing with "canonical conversation search
