@@ -933,8 +933,45 @@ describe('RunStreamBridgeService', () => {
     await expect(response.text()).resolves.toBe(
       `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
     );
-    expect(listByRunId).toHaveBeenCalledOnce();
+    // The pass that saw no events, then the re-drain after the terminal row.
+    expect(listByRunId).toHaveBeenCalledTimes(2);
     expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
+  });
+
+  it('emits the terminal event that commits between the drain and the row read', async () => {
+    // The pickup-cancel transaction commits after the first drain read no
+    // events but before the row read, which then already sees `cancelled`.
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([runEvent(1, 'run.cancelled', null)]);
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      id: RUN_ID,
+      chatId: '00000000-0000-4000-8000-000000000002',
+      messageId: null,
+      userId: 'user-1',
+      modelId: 'model-1',
+      activeAttemptId: null,
+      completedAttemptId: null,
+      turnToolAvailability: null,
+      status: 'cancelled',
+      workerId: null,
+      cancelRequestedAt: new Date('2026-01-01T00:00:00.000Z'),
+      error: null,
+      contextItems: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      startedAt: null,
+      finishedAt: new Date('2026-01-01T00:00:00.000Z'),
+      effort: null,
+      permissionMode: 'default' as const,
+    });
+    const { bridge } = bridgeFixture();
+
+    const body = await bridge
+      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .text();
+
+    expect(body).toContain('"type":"finish"');
+    expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
   });
 
   it('emits an explicit error when the configured stream window expires', async () => {
