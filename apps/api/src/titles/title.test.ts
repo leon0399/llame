@@ -2,11 +2,14 @@
  * Title generation unit tests (#78) — pure functions, no DB or model required.
  */
 
+import { barePlaceholder } from '../media/media-descriptors';
+import { descriptor } from '../media/media-fixtures';
 import {
   MAX_TITLE_LENGTH,
   TITLE_INPUT_MAX_CHARS,
   TITLE_SYSTEM_PROMPT,
   sanitizeTitle,
+  titleInputWithLines,
   titlePromptInput,
   titleUserPrompt,
 } from './title';
@@ -50,6 +53,57 @@ describe('titlePromptInput', () => {
 
     expect(result).toHaveLength(TITLE_INPUT_MAX_CHARS);
     expect(result).toBe('x'.repeat(TITLE_INPUT_MAX_CHARS));
+  });
+});
+
+describe('titleInputWithLines (vision-media D9)', () => {
+  it('cuts the text first so every placeholder line fits', () => {
+    const line = barePlaceholder(
+      descriptor('0192f3a4-5b6c-7d8e-9f01-00000000000a'),
+    );
+
+    expect(titleInputWithLines('x'.repeat(2000), [line])).toBe(
+      `${'x'.repeat(TITLE_INPUT_MAX_CHARS - line.length - 1)}\n${line}`,
+    );
+  });
+
+  it('drops the text and whole trailing lines when ten long-label images exceed the bound', () => {
+    const lines = Array.from({ length: 10 }, (_, n) =>
+      barePlaceholder(
+        descriptor(`0192f3a4-5b6c-7d8e-9f01-00000000000${n}`, {
+          name: `Screenshot 2026-10-10 at 03.04.41 with a longer suffix ${n}.png`,
+        }),
+      ),
+    );
+    expect(lines.join('\n').length).toBeGreaterThan(TITLE_INPUT_MAX_CHARS);
+
+    const input = titleInputWithLines('what are these?', lines);
+    const kept = input.split('\n').length;
+
+    expect(input).toBe(lines.slice(0, kept).join('\n'));
+    expect(input.length).toBeLessThanOrEqual(TITLE_INPUT_MAX_CHARS);
+    expect(lines.slice(0, kept + 1).join('\n').length).toBeGreaterThan(
+      TITLE_INPUT_MAX_CHARS,
+    );
+    expect(titlePromptInput(input)).toBe(input);
+  });
+
+  it('puts each line on its own line after the trimmed text', () => {
+    expect(titleInputWithLines('compare these  \n', ['[a]', '[b]'])).toBe(
+      'compare these\n[a]\n[b]',
+    );
+  });
+
+  it('gives only the lines when there is no text', () => {
+    expect(titleInputWithLines('', ['[a]', '[b]'])).toBe('[a]\n[b]');
+  });
+
+  it('keeps every line and no text when the lines fill the bound exactly', () => {
+    const lines = ['a'.repeat(TITLE_INPUT_MAX_CHARS - 11), 'b'.repeat(10)];
+    const joined = lines.join('\n');
+    expect(joined).toHaveLength(TITLE_INPUT_MAX_CHARS);
+
+    expect(titleInputWithLines('hello', lines)).toBe(joined);
   });
 });
 

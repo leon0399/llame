@@ -352,6 +352,93 @@ describe('buildContext', () => {
       ]);
     });
 
+    it('places owner file references after the context items and the temporal row, before the text', () => {
+      const first = '0192f3a4-5b6c-7d8e-9f01-000000000001';
+      const second = '0192f3a4-5b6c-7d8e-9f01-000000000002';
+      const stored = msg({
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          contextPart({ producer: 'skill-activation', text: 'activation' }),
+          contextPart({ producer: 'temporal', text: 'temporal row' }),
+          { type: 'text', text: 'compare these' },
+          {
+            type: 'file',
+            mediaType: 'image/png',
+            url: `media://${first}`,
+            filename: 'a.png',
+          },
+          { type: 'file', mediaType: 'image/jpeg', url: `media://${second}` },
+        ],
+      });
+
+      expect(
+        buildContext([stored], { systemPrompt, requestKind: 'continuation' })
+          .messages,
+      ).toEqual([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'activation' },
+            { type: 'text', text: 'temporal row' },
+            {
+              type: 'file',
+              data: `media://${first}`,
+              mediaType: 'image/png',
+              filename: 'a.png',
+            },
+            {
+              type: 'file',
+              data: `media://${second}`,
+              mediaType: 'image/jpeg',
+            },
+            { type: 'text', text: 'compare these' },
+          ],
+        },
+      ]);
+    });
+
+    it('replays an image-only message as its file reference alone', () => {
+      const id = '0192f3a4-5b6c-7d8e-9f01-000000000003';
+      const stored = msg({
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [{ type: 'file', mediaType: 'image/png', url: `media://${id}` }],
+      });
+
+      expect(
+        buildContext([stored], { systemPrompt, requestKind: 'continuation' })
+          .messages,
+      ).toStrictEqual([
+        {
+          role: 'user',
+          content: [
+            { type: 'file', data: `media://${id}`, mediaType: 'image/png' },
+          ],
+        },
+      ]);
+    });
+
+    it('drops a stored file part that is not a media:// reference', () => {
+      const stored = msg({
+        role: 'user',
+        senderUserId: 'user-alice',
+        parts: [
+          {
+            type: 'file',
+            mediaType: 'image/png',
+            url: 'https://example.com/a.png',
+          },
+          { type: 'text', text: 'hi' },
+        ],
+      });
+
+      expect(
+        buildContext([stored], { systemPrompt, requestKind: 'continuation' })
+          .messages,
+      ).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hi' }] }]);
+    });
+
     it('does not sanitize or join stored user text during replay', () => {
       const stored = msg({
         role: 'user',

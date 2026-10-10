@@ -19,6 +19,7 @@ const CATALOG = {
       source: "system",
       name: "Model One",
       contextWindowTokens: 128_000,
+      input: ["text"],
     },
   ],
 } satisfies { defaultModelId: string; models: Array<AvailableModel> };

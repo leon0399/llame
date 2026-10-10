@@ -23,6 +23,7 @@ const REASONING_MODEL: AvailableModel = {
   source: "system",
   name: "Reasoner",
   contextWindowTokens: 400_000,
+  input: ["text"],
   reasoning: {
     // Mixed bare values and labeled objects — selection stays on `value`,
     // display prefers `label` when present.
@@ -43,6 +44,7 @@ const PLAIN_MODEL: AvailableModel = {
   source: "system",
   name: "Plain",
   contextWindowTokens: 128_000,
+  input: ["text"],
 };
 
 /** Declares a `reasoning` object whose vocabulary is EMPTY — the api's other
@@ -52,6 +54,7 @@ const EMPTY_VOCABULARY_MODEL: AvailableModel = {
   source: "system",
   name: "No Effort",
   contextWindowTokens: 128_000,
+  input: ["text"],
   reasoning: {
     effortLevels: [],
     defaultEffort: "n/a",
@@ -67,6 +70,7 @@ const TERSE_MODEL: AvailableModel = {
   source: "system",
   name: "Terse",
   contextWindowTokens: 128_000,
+  input: ["text"],
   reasoning: {
     effortLevels: [{ value: "x" }, { value: "y", label: "Y" }],
     defaultEffort: "x",

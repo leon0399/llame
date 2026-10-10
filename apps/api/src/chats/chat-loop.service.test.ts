@@ -29,6 +29,7 @@ const model: SystemModelCatalogEntry = {
   id: 'system:openai:gpt-5.4-mini',
   source: 'system',
   contextWindowTokens: 128_000,
+  input: ['text'],
   provider: 'openai',
   providerModelId: 'gpt-5.4-mini',
   systemPromptTemplate: 'Bound prompt',

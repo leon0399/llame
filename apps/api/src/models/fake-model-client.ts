@@ -14,6 +14,7 @@ import {
 import { applyRequestUsageCallback } from './request-usage';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 import { applyToolCallingOptions } from './openai-model-client';
+import { installStepPreparation } from './step-composer';
 
 /** Default for `resolveCompletion`/`rejectCompletion` before the completion Promise executor below replaces them. */
 function noop(): void {}
@@ -126,6 +127,8 @@ function streamFakeResponse(response: string, input: ModelStreamInput) {
     ...handlers,
   };
   applyToolCallingOptions(streamOptions, input);
+  // A text-only fake: it declares no `input`.
+  installStepPreparation(streamOptions, input, undefined);
   applyRequestUsageCallback(streamOptions, input);
   const result = streamText(streamOptions);
   return wrapStreamTextResult(result, {

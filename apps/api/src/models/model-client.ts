@@ -11,7 +11,8 @@ import type {
   ToolSet,
 } from 'ai';
 
-import type { TokenPrice } from './model-catalog';
+import type { RunMediaResolver } from '../media/media-descriptors';
+import type { ModelInput, TokenPrice } from './model-catalog';
 
 /** Whether reported model usage is metered or covered by a subscription. */
 export type BillingMode = 'usage' | 'subscription';
@@ -106,7 +107,8 @@ export interface ModelStreamInput {
   onToolSet?: (tools: ToolSet) => void;
   /**
    * Fired at the beginning of every model step in a tool-calling stream.
-   * Provider clients single-source this callback through `prepareStep`.
+   * Every client single-sources this callback through `installStepPreparation`
+   * (`step-composer.ts`), which composes media references after it.
    * A returned array REPLACES this step's messages, and `undefined` leaves
    * them unchanged; the client merges that with its own step settings, such
    * as the step cap's `activeTools`.
@@ -186,6 +188,13 @@ export interface ModelStreamInput {
   onRequestUsage?: (usage: LanguageModelUsage) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: ModelStreamFinishEvent) => void | Promise<void>;
+  /**
+   * The Run owner's media, which the step composer (`installStepPreparation`)
+   * uses to turn every `media://` reference in the request into an image part
+   * or a placeholder on each step. Absent leaves messages as they are: only
+   * requests without media references (titles, search) omit it.
+   */
+  media?: RunMediaResolver;
 }
 
 export type ModelStreamFinishEvent = {
@@ -262,6 +271,12 @@ export interface ModelClient {
    * `contextWindowTokens x COMPACTION_WINDOW_RATIO` (see compaction.ts).
    */
   readonly compactionThresholdTokens?: number;
+  /**
+   * The model's declared input (`models[].input`), which decides whether the
+   * step composer sends attached images as image parts. Absent only on test
+   * clients, and then means `['text']`.
+   */
+  readonly input?: ReadonlyArray<ModelInput>;
   streamText(input: ModelStreamInput): ModelStreamResult;
   /**
    * Schema-constrained single object generation. How the object is obtained

@@ -21,6 +21,7 @@ const MODELS = [
     source: "system" as const,
     name: "GPT-4o",
     contextWindowTokens: 128_000,
+    input: ["text" as const],
     reasoning: {
       effortLevels: [
         { value: "none" },
@@ -35,6 +36,7 @@ const MODELS = [
     source: "system" as const,
     name: "GPT-5",
     contextWindowTokens: 400_000,
+    input: ["text" as const],
     reasoning: {
       effortLevels: [{ value: "high" }],
       defaultEffort: "high",

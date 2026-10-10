@@ -19,12 +19,15 @@ import {
   countedContextTokens,
   estimateContinuationTokens,
   estimateModelRequestTokens,
+  imageOverflowCompacts,
   isPositiveFinite,
   planCompactionCheckpoint,
   requestFitsContextWindow,
   normalizeCompactionSummary,
   resolveCompactionThreshold,
 } from './compaction';
+import type { ModelMessage } from 'ai';
+import { descriptor } from '../media/media-fixtures';
 import { createToolAvailabilityItem } from '../chats/context-item-producers';
 import type { StoredMessage } from '../chats/context-builder';
 import { isRecord, isString } from '@workspace/runtime-safety';
@@ -554,6 +557,191 @@ describe('estimateContinuationTokens', () => {
   });
 });
 
+describe('media sizing (vision-media D6)', () => {
+  const A = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+
+  const screenshot = (modelByteSize: number) =>
+    descriptor(A, {
+      name: 'shot.png',
+      width: 4000,
+      height: 2250,
+      modelWidth: 2000,
+      modelHeight: 1125,
+      modelByteSize,
+    });
+
+  const withImage: Array<ModelMessage> = [
+    {
+      role: 'user',
+      content: [
+        { type: 'file', data: `media://${A}`, mediaType: 'image/png' },
+        { type: 'text', text: 'what is this?' },
+      ],
+    },
+  ];
+  /** The same request as the composer projects it, minus the image part. */
+  const labelOnly = (after: Array<string>): Array<ModelMessage> => [
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: `Image 1 (media://${A}):` },
+        ...after.map((text) => ({ type: 'text' as const, text })),
+        { type: 'text', text: 'what is this?' },
+      ],
+    },
+  ];
+  const request = (messages: Array<ModelMessage>) => ({
+    system: 'system',
+    messages,
+    toolDeclarations: [],
+  });
+
+  it('charges a 2000×1125 variant 3,000 tokens and admits it on a 200,000-token model', () => {
+    const media = {
+      descriptors: new Map([[A, screenshot(3_700_000)]]),
+      statuses: ['attached' as const],
+      imageInput: true,
+    };
+
+    const estimate = estimateModelRequestTokens({
+      ...request(withImage),
+      media,
+    });
+
+    expect(estimate - estimateModelRequestTokens(request(labelOnly([])))).toBe(
+      3000,
+    );
+    expect(
+      requestFitsContextWindow({
+        ...request(withImage),
+        media,
+        contextWindowTokens: 200_000,
+        reservedOutputTokens: null,
+      }),
+    ).toBe(true);
+    expect(estimate).toBeLessThan(
+      resolveCompactionThreshold({ contextWindowTokens: 200_000 }),
+    );
+  });
+
+  it('gives the same estimate whatever the variant byte size', () => {
+    const estimateFor = (bytes: number) =>
+      estimateModelRequestTokens({
+        ...request(withImage),
+        media: {
+          descriptors: new Map([[A, screenshot(bytes)]]),
+          statuses: ['attached'],
+          imageInput: true,
+        },
+      });
+
+    expect(estimateFor(200 * 1024)).toBe(estimateFor(3.7 * 1024 * 1024));
+  });
+
+  it('sizes a reference a text-only model receives as its placeholder text', () => {
+    expect(
+      estimateModelRequestTokens({
+        ...request(withImage),
+        media: {
+          descriptors: new Map([[A, screenshot(1000)]]),
+          statuses: ['attached'],
+          imageInput: false,
+        },
+      }),
+    ).toBe(
+      estimateModelRequestTokens(
+        request(
+          labelOnly([
+            `[image media://${A} shot.png 4000×2250, omitted: this model has no image input]`,
+          ]),
+        ),
+      ),
+    );
+  });
+
+  it('aligns a continuation estimate with the trailing statuses of the request', () => {
+    const stored: StoredMessage = {
+      ...msg('what is this?'),
+      parts: [
+        { type: 'file', mediaType: 'image/png', url: `media://${A}` },
+        { type: 'text', text: 'what is this?' },
+      ],
+    };
+    const descriptors = new Map([[A, screenshot(1000)]]);
+
+    // The earlier reference (outside these rows) was attached; this one is not.
+    expect(
+      estimateContinuationTokens({
+        rows: [stored],
+        railText: '',
+        media: {
+          descriptors,
+          statuses: ['attached', 'limit'],
+          imageInput: true,
+        },
+      }),
+    ).toBe(
+      estimateContinuationTokens({
+        rows: [
+          {
+            ...stored,
+            parts: [
+              { type: 'text', text: `Image 1 (media://${A}):` },
+              {
+                type: 'text',
+                text: `[image media://${A} shot.png 4000×2250, not attached: this context's image limit is reached]`,
+              },
+              { type: 'text', text: 'what is this?' },
+            ],
+          },
+        ],
+        railText: '',
+      }),
+    );
+  });
+
+  describe('imageOverflowCompacts', () => {
+    const sizing = (
+      statuses: Array<'attached' | 'limit' | 'unavailable'>,
+      imageInput = true,
+    ) => ({
+      descriptors: new Map([[A, screenshot(1000)]]),
+      statuses,
+      imageInput,
+    });
+
+    it('compacts when an image in an earlier row precedes the overflow', () => {
+      expect(imageOverflowCompacts(sizing(['attached', 'limit']), 1)).toBe(
+        true,
+      );
+    });
+
+    it('does not compact when the overflow lies in the triggering message alone', () => {
+      expect(
+        imageOverflowCompacts(
+          sizing(['attached', 'attached', 'attached', 'attached', 'limit']),
+          5,
+        ),
+      ).toBe(false);
+    });
+
+    it('does not count an unresolvable earlier reference as an image', () => {
+      expect(imageOverflowCompacts(sizing(['unavailable', 'limit']), 1)).toBe(
+        false,
+      );
+    });
+
+    it('never compacts for a text-only model or without an overflow', () => {
+      expect(
+        imageOverflowCompacts(sizing(['attached', 'limit'], false), 1),
+      ).toBe(false);
+      expect(imageOverflowCompacts(sizing(['attached', 'attached']), 1)).toBe(
+        false,
+      );
+    });
+  });
+});
+
 describe('buildCompactionRequest', () => {
   const CHAT_SYSTEM = 'You are llame, an answer-only assistant.';
 
@@ -653,6 +841,9 @@ describe('buildCompactionRequest', () => {
     );
     expect(COMPACTION_INSTRUCTION).toContain(
       'Omit a field rather than invent it; never shorten or reconstruct an identifier.',
+    );
+    expect(COMPACTION_INSTRUCTION).toContain(
+      'Keep verbatim the `media://` locator of every image the summary mentions, so a later turn can read that image again.',
     );
     expect(COMPACTION_INSTRUCTION).toContain('Output only the summary');
   });

@@ -45,6 +45,7 @@ const model = {
   provider: 'provider',
   displayName: 'Model',
   contextWindowTokens: 128_000,
+  input: ['text'] as const,
   systemPromptTemplate: 'Test prompt',
   systemPromptSource: 'project_default' as const,
   referencesSkills: false,
@@ -252,10 +253,11 @@ describe('createModelClient wire dispatch', () => {
     expect(createCompletionsClientMock).toHaveBeenCalledTimes(1);
   });
 
-  it('carries the model providerOptions and maxOutputTokens into every client config without mutating the entry', () => {
+  it('carries the model providerOptions, maxOutputTokens, and input into every client config without mutating the entry', () => {
     const providerOptions = { user: 'run-owner', max_tokens: 1 };
     const entry = {
       ...model,
+      input: ['text', 'image'] as const,
       providerOptions,
       maxOutputTokens: 4096,
     };
@@ -306,6 +308,7 @@ describe('createModelClient wire dispatch', () => {
         expect.objectContaining({
           providerOptions,
           maxOutputTokens: 4096,
+          input: ['text', 'image'],
         }),
       );
     }

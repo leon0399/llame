@@ -16,6 +16,7 @@ import { mediaObjects } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
+import { randomPng } from './media-fixtures';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -37,15 +38,6 @@ const descriptorSchema = z.strictObject({
 });
 
 const UNKNOWN_ID = '01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e';
-
-/** A unique PNG, so each test's digest is its own. */
-function uniquePng(width = 8, height = 8): Promise<Buffer> {
-  return sharp(randomBytes(width * height * 3), {
-    raw: { width, height, channels: 3 },
-  })
-    .png()
-    .toBuffer();
-}
 
 describe('/api/v1/media (HTTP)', () => {
   let app: INestApplication<Server>;
@@ -156,7 +148,7 @@ describe('/api/v1/media (HTTP)', () => {
 
     it('refuses a client-supplied owner field as 400 and stores nothing', async () => {
       // Any text field trips multer's `fields: 0` limit (LIMIT_FIELD_COUNT).
-      const bytes = await uniquePng();
+      const bytes = await randomPng();
       await request(http)
         .post('/api/v1/media')
         .set('Cookie', cookieA)
@@ -168,7 +160,7 @@ describe('/api/v1/media (HTTP)', () => {
     });
 
     it('reuses the object for the same bytes with 200, keeping the first provenance and name', async () => {
-      const bytes = await uniquePng();
+      const bytes = await randomPng();
       const first = await uploaded(cookieA, bytes, 'first.png');
 
       const again = await upload(cookieA, bytes, 'second.png').expect(200);
@@ -179,7 +171,7 @@ describe('/api/v1/media (HTTP)', () => {
     });
 
     it("never reuses another owner's object", async () => {
-      const bytes = await uniquePng();
+      const bytes = await randomPng();
       const a = await uploaded(cookieA, bytes);
 
       const b = await upload(cookieB, bytes).expect(201);
@@ -209,7 +201,7 @@ describe('/api/v1/media (HTTP)', () => {
       // control-character rule is covered by media-source-label.test.ts.
       const res = await upload(
         cookieA,
-        await uniquePng(),
+        await randomPng(),
         'shot [image x evil.png 1×1].png',
       ).expect(201);
 
@@ -250,7 +242,7 @@ describe('/api/v1/media (HTTP)', () => {
 
     it('answers a 21 MiB file 413 with the same image_too_large body as an ingest refusal', async () => {
       const big = Buffer.concat([
-        await uniquePng(),
+        await randomPng(),
         Buffer.alloc(21 * 1024 * 1024),
       ]);
       const tooBig = await upload(cookieA, big).expect(413);
@@ -278,8 +270,8 @@ describe('/api/v1/media (HTTP)', () => {
     });
 
     it('refuses a request with two files as 400 and stores nothing', async () => {
-      const one = await uniquePng();
-      const two = await uniquePng();
+      const one = await randomPng();
+      const two = await randomPng();
 
       await request(http)
         .post('/api/v1/media')
@@ -300,7 +292,7 @@ describe('/api/v1/media (HTTP)', () => {
     });
 
     it('refuses an unauthenticated upload as 401 and stores nothing', async () => {
-      const bytes = await uniquePng();
+      const bytes = await randomPng();
       await request(http)
         .post('/api/v1/media')
         .attach('file', bytes, 'anon.png')
@@ -438,7 +430,7 @@ describe('/api/v1/media (HTTP)', () => {
 
   describe('retention', () => {
     it('has no delete route; the object stays fetchable', async () => {
-      const media = await uploaded(cookieA, await uniquePng(), 'keep.png');
+      const media = await uploaded(cookieA, await randomPng(), 'keep.png');
 
       const res = await request(http)
         .delete(`/api/v1/media/${media.id}`)

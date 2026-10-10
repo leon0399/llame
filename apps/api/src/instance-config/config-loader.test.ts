@@ -2926,6 +2926,54 @@ describe('loadInstanceConfig — models[].reasoning (add-reasoning-effort)', () 
   });
 });
 
+describe('loadInstanceConfig — models[].input (vision-media, task 2.1)', () => {
+  /** Write a one-model config whose `models[]` entry carries `fields`. */
+  function writeModel(fields: string): void {
+    writeConfig(
+      `{ ${SINGLE_PROVIDER_JSON}, "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000${fields} }] }`,
+    );
+  }
+
+  it('resolves an omitted input to text only', () => {
+    writeModel('');
+    expect(loadInstanceConfig().models[0]?.input).toEqual(['text']);
+  });
+
+  it('retains a declared image input in declared order', () => {
+    writeModel(', "input": ["text", "image"]');
+    expect(loadInstanceConfig().models[0]?.input).toEqual(['text', 'image']);
+
+    writeModel(', "input": ["image", "text"]');
+    expect(loadInstanceConfig().models[0]?.input).toEqual(['image', 'text']);
+  });
+
+  it.each([
+    ['["image"]', 'an input without text'],
+    ['[]', 'an empty input'],
+    ['["text", "audio"]', 'an unknown modality'],
+    ['["text", "text"]', 'a repeated text'],
+    ['["text", "image", "image"]', 'a repeated image'],
+  ])(
+    'fails startup on %s (%s), naming the model id and the input field',
+    (input) => {
+      writeModel(`, "input": ${input}`);
+      expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+      expect(() => loadInstanceConfig()).toThrow(/models\[m\]\/input/);
+    },
+  );
+
+  it('does not verify a declared image input against the provider', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      writeModel(', "input": ["text", "image"]');
+      expect(loadInstanceConfig().models[0]?.input).toEqual(['text', 'image']);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+});
+
 // The JSONC parser builds every nested record with a null prototype, and
 // `providerOptions` is retained verbatim, so it is compared with `toEqual`:
 // full content equality without `toStrictEqual`'s extra prototype type check,

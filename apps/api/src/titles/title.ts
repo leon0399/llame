@@ -115,3 +115,29 @@ export function sanitizeTitle(raw: string): string {
 export function titlePromptInput(raw: string): string {
   return raw.trim().slice(0, TITLE_INPUT_MAX_CHARS);
 }
+
+/**
+ * A turn's title input (vision-media D9): its text followed by one line per
+ * file part, at most `TITLE_INPUT_MAX_CHARS` long, so `titlePromptInput` never
+ * cuts it. The text is cut first; when the lines alone exceed the bound, the
+ * text is dropped and so are whole trailing lines, never part of one.
+ */
+export function titleInputWithLines(
+  text: string,
+  lines: ReadonlyArray<string>,
+): string {
+  const joined = lines.join('\n');
+  if (joined.length < TITLE_INPUT_MAX_CHARS) {
+    const kept = text
+      .slice(0, TITLE_INPUT_MAX_CHARS - joined.length - 1)
+      .trimEnd();
+    return kept.length === 0 ? joined : `${kept}\n${joined}`;
+  }
+  let kept = '';
+  for (const line of lines) {
+    const next = kept.length === 0 ? line : `${kept}\n${line}`;
+    if (next.length > TITLE_INPUT_MAX_CHARS) break;
+    kept = next;
+  }
+  return kept;
+}

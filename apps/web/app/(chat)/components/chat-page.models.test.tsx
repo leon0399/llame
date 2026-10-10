@@ -176,6 +176,7 @@ describe("ChatPage model gating", () => {
               source: "system",
               name: "GPT-5.4 mini",
               contextWindowTokens: 400_000,
+              input: ["text"],
             },
           ],
         }),
@@ -207,12 +208,14 @@ describe("ChatPage last-message model restore", () => {
         source: "system",
         name: "GPT-5.4 mini",
         contextWindowTokens: 400_000,
+        input: ["text"],
       },
       {
         id: "system:openai:gpt-5.4",
         source: "system",
         name: "GPT-5.4",
         contextWindowTokens: 400_000,
+        input: ["text"],
       },
     ],
   };
@@ -317,12 +320,14 @@ describe("ChatPage last-message model restore", () => {
               source: "system",
               name: "GPT-5.4 mini",
               contextWindowTokens: 400_000,
+              input: ["text"],
             },
             {
               id: "system:openai:gpt-5.4",
               source: "system",
               name: "GPT-5.4",
               contextWindowTokens: 400_000,
+              input: ["text"],
               reasoning: {
                 effortLevels: [
                   { value: "low", label: "Low" },

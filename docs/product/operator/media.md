@@ -1,8 +1,9 @@
 ---
-summary: "Media store: owner images in Postgres, ingest bounds, upload and fetch routes, sharp, growth, and the no-deletion gap"
+summary: "Media store: owner images in Postgres, ingest bounds, upload and fetch routes, models[].input, sharp, growth, and the no-deletion gap"
 read_when:
   - you are deploying a release that ships the media store or building its production image
   - you are sizing the database or backups for stored images
+  - you are declaring which models accept images
   - you are troubleshooting an image upload or fetch
 ---
 
@@ -11,11 +12,13 @@ read_when:
 The media store keeps images that chat owners upload. Each image is one media
 object owned by exactly one owner, addressed as `media://<id>`, and kept in the
 same Postgres database as the rest of the application state. This release
-ships the store and its upload and fetch routes; attaching images to messages
-and reading images through `read` arrive in later releases.
+ships the store, its upload and fetch routes, and the per-model image input
+declaration; attaching images to messages and reading images through `read`
+arrive in later releases.
 
 There is nothing to enable: the store has no configuration keys, and its bounds
-are fixed by the application.
+are fixed by the application. Models opt into receiving images with
+[`models[].input`](#model-image-input).
 
 ## Storage
 
@@ -166,6 +169,69 @@ digits and bare `media://` do not resolve. A locator resolves only for the
 owner who owns the object; for anyone else it is indistinguishable from an id
 that does not exist.
 
+## Model image input
+
+`models[].input` declares the input modalities a model accepts:
+
+```jsonc
+{
+  "id": "vision-model",
+  // ...
+  "input": ["text", "image"],
+}
+```
+
+Items come from the closed set `text` and `image`. The list must contain
+`text` and must not repeat an item; an absent `input` means `["text"]`. An
+item outside the set, a list without `text`, or a repeated item fails startup
+naming the model id and the field. llame does not check the declaration
+against the provider: a model declared with `image` that rejects images fails
+the Run that sends it one with the provider's error. `GET /api/v1/models`
+publishes the resolved `input` on every entry, so clients can tell which
+models accept images.
+
+Every model request is composed from the stored `media://` references:
+
+- A model that declares `image` receives each attached image as its model
+  variant. An image attached to a user message follows that message's context
+  items and comes before its text, labelled `Image n (media://<id>):`, where
+  `n` counts the message's images from 1.
+- Any other model receives
+  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`
+  in the image's place, with the original's dimensions.
+- A reference the chat owner's store cannot resolve, because the id is unknown
+  or belongs to another owner, becomes `[image media://<id> unavailable]` and
+  never fails the request.
+
+### Image window
+
+Within one compaction epoch, the rows after the active checkpoint plus the
+current attempt, images are attached oldest first while two bounds hold: at
+most 100 images and at most 24 MiB of base64 model variants. Both are code
+constants. The first image past either bound, and every newer one in that
+epoch, reaches the model as
+`[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`.
+Attachment never changes for an earlier image, so the request prefix stays
+stable for provider prompt caching.
+
+Before a Run's first step, unattached images on a vision model count as
+reaching the compaction threshold when an earlier message carries an image.
+The summary keeps the `media://` locator of every image it mentions, and the
+new epoch attaches images again from the start. A failed compaction never
+fails the Run; the placeholders stay until a later compaction succeeds.
+
+Admission and compaction estimates leave image bytes out and charge each image
+`ceil(width × height / 750)` tokens on its model variant's dimensions, so a
+2000×1125 variant counts as 3,000 tokens.
+
+### Text-only views
+
+`conversation_read` follows a message's text with one
+`[image media://<id> <name> <width>×<height>]` line per attached image. Search
+indexes no image data. Public shares and shared forks carry only text parts:
+a shared fork drops a message whose only content was images, and its new owner
+gains no access to the source owner's media.
+
 ## `sharp` native dependency
 
 Ingest decodes and encodes with `sharp`, which bundles prebuilt libvips
@@ -183,8 +249,8 @@ arm64; macOS and Windows builds also exist for development.
 Media belongs to its owner, not to a chat or message, and this release ships
 no way to delete it:
 
-- deleting a chat deletes none of the media its messages reference, and a fork
-  references the same objects instead of copying them;
+- deleting a chat deletes none of the media its messages reference, and an
+  owner fork references the same objects instead of copying them;
 - there is no delete route;
 - an upload that no sent message references is kept.
 

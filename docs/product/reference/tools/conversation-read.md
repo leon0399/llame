@@ -36,6 +36,15 @@ The read returns exact lines with one-based prefixes. Neighbor fields name the
 closest currently readable messages; never infer them with sequence
 arithmetic, because system, tool, and retryable rows may be ineligible.
 
+A message's attached images follow its numbered lines, one unnumbered
+`[image media://<id> <name> <width>×<height>]` line each in stored order, or
+`[image media://<id> unavailable]` for an image the owner's store cannot
+resolve. Only the result that reaches the end of the text, the one without
+`nextOffset`, carries them. They count toward no line offset or line bound,
+but their size is reserved inside the 15,000-code-unit bound, so search
+coordinates are unaffected and an image-only message reads as zero lines plus
+its image lines.
+
 Tool observations persist in the destination Chat and replay without rereading
 the source. Deleting the source does not rewrite history.
 

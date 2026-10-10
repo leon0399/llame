@@ -125,6 +125,11 @@
       // which is exactly the pre-field behavior. The web usage panel shows
       // the count as an "of which cache write" row under Input.
       "pricingUsdPer1M": { "input": 5, "cachedInput": 0.5, "output": 30 },
+      // Input modalities this model accepts, from `text` and `image`. Must
+      // contain "text"; absent means ["text"]. Declare "image" only for a
+      // vision model: llame does not check it against the provider, so a
+      // model that rejects images fails the Run with the provider's error.
+      // "input": ["text", "image"],
       // Reasoning effort (add-reasoning-effort). Presence declares that this
       // model accepts a per-request `effort`; absence means it accepts none.
       // The levels are the PROVIDER's own tokens, passed through untouched —

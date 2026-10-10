@@ -118,9 +118,16 @@ import type {
   CompactionSummary,
 } from '../compaction/compaction.service';
 import { estimateContinuationTokens } from '../compaction/compaction';
+import type { MediaDescriptor } from '../media/media-descriptors';
+import { descriptor } from '../media/media-fixtures';
+import { composeStepMessages } from '../models/step-composer';
 
 import type { TitleCapability } from '../titles/title.service';
-import type { ChatSearchIndexer } from './run-execution.service';
+import { TITLE_INPUT_MAX_CHARS } from '../titles/title';
+import type {
+  ChatSearchIndexer,
+  RunUserMessage,
+} from './run-execution.service';
 import type { ChatEmbedDispatcher } from '../search/search-embed-dispatch.service';
 import type { ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
@@ -311,6 +318,7 @@ const testModelEntry: SystemModelCatalogEntry = {
   id: 'fake-model',
   source: 'system',
   contextWindowTokens: 128_000,
+  input: ['text'],
   provider: 'fake',
   providerModelId: 'fake-model',
   systemPromptTemplate: 'Stable system prompt',
@@ -472,6 +480,7 @@ function makeExecutionService(
   );
   return {
     service,
+    db,
     runAs,
     compaction,
     summarizeCheckpoint,
@@ -2176,6 +2185,30 @@ describe('RunExecutionService executeRun', () => {
     );
     expect(execution.titles.maybeGenerateTitle).toHaveBeenCalledWith(
       expect.objectContaining({ chatId, userId, userText: 'hello' }),
+    );
+  });
+  it.each([
+    ['trimmed', '  hello \n', 'hello'],
+    [
+      'whole, however long, without file parts',
+      'x'.repeat(TITLE_INPUT_MAX_CHARS + 5),
+      'x'.repeat(TITLE_INPUT_MAX_CHARS + 5),
+    ],
+  ])('passes the turn text to titling %s', async (_label, text, userText) => {
+    mockNormalExecutionRepositories();
+    const execution = makeExecutionService();
+
+    const result = await execution.service.executeRun({
+      runId,
+      chatId,
+      userId,
+      userMessage: { id: messageId, seq: 1, parts: [{ type: 'text', text }] },
+      client: execution.client,
+    });
+
+    await expect(result.text).resolves.toBe('answer');
+    expect(execution.titles.maybeGenerateTitle).toHaveBeenCalledWith(
+      expect.objectContaining({ userText }),
     );
   });
   it('resolves a recency digest only when the owner has opted in on the worker', async () => {
@@ -6379,6 +6412,10 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     duplicateCutoff?: CheckpointMessage;
     fenceLost?: boolean;
     startedEffort?: string | null;
+    /** The triggering user message's parts (default: one text part). */
+    triggerParts?: RunUserMessage['parts'];
+    /** Owned media the run's resolver describes (vision-media D6). */
+    mediaRows?: ReadonlyArray<MediaDescriptor>;
   };
 
   async function executeTriggerCase(input: TriggerCase) {
@@ -6456,13 +6493,24 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     if (input.summary !== undefined) {
       execution.summarizeCheckpoint.mockResolvedValue(input.summary);
     }
+    if (input.mediaRows !== undefined) {
+      const rows = input.mediaRows;
+      // The resolver's descriptor read is `select().from().where()`; drizzle's
+      // builders carry private state no structural double can satisfy.
+      const where = () => Promise.resolve(rows);
+      // SAFETY: the double implements exactly the fluent calls the read makes.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      vi.spyOn(execution.db, 'select').mockReturnValue({
+        from: () => ({ where }),
+      } as never);
+    }
 
     const result = await execution.service.executeRun({
       ...executionInput(client),
       userMessage: {
         id: messageId,
         seq: triggerSeq,
-        parts: [{ type: 'text', text: 'hello' }],
+        parts: input.triggerParts ?? [{ type: 'text', text: 'hello' }],
       },
     });
     return { spies, publication, execution, result };
@@ -6478,6 +6526,157 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     expect(execution.summarizeCheckpoint.mock.calls[0]?.[0]).not.toHaveProperty(
       'effort',
     );
+  });
+
+  describe('image overflow (vision-media D6)', () => {
+    const earlierId = '0192f3a4-5b6c-7d8e-9f01-0000000000e1';
+    /** A small-dimension image whose base64 model variant is `mib` MiB. */
+    const image = (id: string, mib: number) =>
+      descriptor(id, {
+        width: 100,
+        height: 100,
+        modelWidth: 100,
+        modelHeight: 100,
+        modelByteSize: (mib * 1024 * 1024 * 3) / 4,
+      });
+    const fileParts = (ids: ReadonlyArray<string>) =>
+      ids.map((id) => ({
+        type: 'file',
+        mediaType: 'image/png',
+        url: `media://${id}`,
+      }));
+    const triggerIds = (count: number) =>
+      Array.from(
+        { length: count },
+        (_, n) => `0192f3a4-5b6c-7d8e-9f01-0000000000a${n}`,
+      );
+    const visionClient = () => {
+      const capturing = triggerClient();
+      Object.assign(capturing.client, { input: ['text', 'image'] });
+      return capturing;
+    };
+
+    /** An earlier 20 MiB image, so the trigger's 5 MiB image overflows. */
+    async function overflowWithEarlierImage(
+      summary?: CompactionSummary | null,
+    ) {
+      const capturing = visionClient();
+      const [triggerId = ''] = triggerIds(1);
+      const triggerParts = [
+        ...fileParts([triggerId]),
+        { type: 'text', text: 'and this one?' },
+      ];
+      const outcome = await executeTriggerCase({
+        client: capturing.client,
+        historyRows: [
+          ...committedTurn({
+            contextTokens: 100,
+            parts: [...fileParts([earlierId]), { type: 'text', text: 'look' }],
+          }),
+          { ...triggerTurn(), parts: triggerParts },
+        ],
+        triggerParts,
+        mediaRows: [image(earlierId, 20), image(triggerId, 5)],
+        ...(summary !== undefined && { summary }),
+      });
+      return { ...outcome, capturing, triggerId };
+    }
+
+    it('takes the threshold variant when an earlier row holds an image', async () => {
+      const { execution } = await overflowWithEarlierImage();
+
+      expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
+      const request = execution.summarizeCheckpoint.mock.calls[0]?.[0];
+      expect(request?.variant).toBe('threshold');
+      expect(request?.media).toBeDefined();
+    });
+
+    it('proceeds with the limit placeholder when the overflow-only compaction yields nothing', async () => {
+      const { capturing, triggerId, spies } =
+        await overflowWithEarlierImage(null);
+
+      const sent = capturing.streamOptions();
+      const { media } = sent;
+      if (media === undefined) throw new Error('no media resolver sent');
+      // What the composer the clients install makes of the sent request.
+      const composed = await composeStepMessages(sent.messages, {
+        resolver: {
+          describe: (ids) => media.describe(ids),
+          loadModelBytes: () => Promise.resolve(new Uint8Array([1])),
+        },
+        imageInput: true,
+      });
+      const userParts = composed.flatMap((message) =>
+        message.role === 'user' && Array.isArray(message.content)
+          ? message.content
+          : [],
+      );
+      expect(userParts).toContainEqual({
+        type: 'text',
+        text: `[image media://${triggerId} ${triggerId.slice(-2)}.png 100×100, not attached: this context's image limit is reached]`,
+      });
+      const earlierImage: unknown = expect.objectContaining({ type: 'image' });
+      const earlierLabel = userParts.findIndex(
+        (part) =>
+          part.type === 'text' &&
+          part.text === `Image 1 (media://${earlierId}):`,
+      );
+      expect(userParts[earlierLabel + 1]).toEqual(earlierImage);
+      expect(spies.markFinished).not.toHaveBeenCalledWith(
+        runId,
+        userId,
+        'failed',
+        expect.anything(),
+      );
+    });
+
+    it('does not compact when the overflow lies in the triggering message alone', async () => {
+      const ids = triggerIds(5);
+      const triggerParts = [
+        ...fileParts(ids),
+        { type: 'text', text: 'all of these' },
+      ];
+
+      const { execution } = await executeTriggerCase({
+        client: visionClient().client,
+        historyRows: [
+          ...committedTurn({ contextTokens: 100 }),
+          { ...triggerTurn(), parts: triggerParts },
+        ],
+        triggerParts,
+        mediaRows: ids.map((id) => image(id, 5)),
+      });
+
+      expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+    });
+
+    it('sizes images as placeholders for a model that declares no input', async () => {
+      // As an image this one alone is past the window (ceil(w×h/750) tokens).
+      const [id = ''] = triggerIds(1);
+      const huge = descriptor(id, { modelWidth: 10_000, modelHeight: 10_000 });
+      const triggerParts = [...fileParts([id]), { type: 'text', text: 'hm' }];
+      const capturing = triggerClient();
+      expect(capturing.client.input).toBeUndefined();
+
+      const { execution, spies } = await executeTriggerCase({
+        client: capturing.client,
+        historyRows: [
+          ...committedTurn({ contextTokens: 100 }),
+          { ...triggerTurn(), parts: triggerParts },
+        ],
+        triggerParts,
+        mediaRows: [huge],
+      });
+
+      expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+      expect(capturing.streamOptions().media).toBeDefined();
+      expect(spies.markFinished).not.toHaveBeenCalledWith(
+        runId,
+        userId,
+        'failed',
+        expect.anything(),
+      );
+    });
   });
 
   it('compacts when the counted request is exactly at the threshold', async () => {

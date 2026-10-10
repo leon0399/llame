@@ -95,6 +95,43 @@ describe('chunkConversation', () => {
     expect(chunks[0].normalizedContent).not.toContain('snippet');
   });
 
+  it('projects a message with owner file parts exactly like the same text without them', () => {
+    const withFiles: ChunkerMessage = {
+      id: 'u',
+      role: 'user',
+      parts: [
+        {
+          type: 'file',
+          mediaType: 'image/png',
+          url: 'media://01920000-0000-7000-8000-00000000000a',
+          filename: 'shot.png',
+        },
+        { type: 'text', text: 'look at this\nsecond line' },
+        {
+          type: 'file',
+          mediaType: 'image/jpeg',
+          url: 'media://01920000-0000-7000-8000-00000000000b',
+          filename: 'plan.jpg',
+        },
+      ],
+      createdAt: at(0),
+    };
+    const reply = assistantMsg('a', 'seen', 1);
+
+    const attached = chunkConversation([withFiles, reply]);
+    const plain = chunkConversation([
+      userMsg('u', 'look at this\nsecond line', 0),
+      reply,
+    ]);
+
+    expect(attached).toEqual(plain);
+    const serialized = JSON.stringify(attached);
+    expect(serialized).not.toContain('media://');
+    expect(serialized).not.toContain('[image');
+    expect(serialized).not.toContain('shot.png');
+    expect(serialized).not.toContain('plan.jpg');
+  });
+
   it('excludes checkpoint rows and their stored summary text', () => {
     const chunks = chunkConversation([
       userMsg('u', 'visible question', 0),

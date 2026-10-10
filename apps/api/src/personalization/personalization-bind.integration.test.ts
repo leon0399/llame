@@ -144,6 +144,7 @@ describeIfDb('personalization binds per run', () => {
         id: modelId,
         source: 'system' as const,
         contextWindowTokens: 128_000,
+        input: ['text'],
         provider: 'openai',
         providerModelId: modelId,
         systemPromptTemplate: SYSTEM_PROMPT_TEMPLATE,

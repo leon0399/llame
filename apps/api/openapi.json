@@ -3641,6 +3641,14 @@
           "contextWindowTokens": {
             "type": "integer"
           },
+          "input": {
+            "type": "array",
+            "description": "Input modalities this model accepts, in the operator-declared order. Always present and always contains `text`; `[\"text\"]` when the operator declared none. Never inferred from the model id or provider.",
+            "items": {
+              "type": "string",
+              "enum": ["text", "image"]
+            }
+          },
           "pricingUsdPer1M": {
             "$ref": "#/components/schemas/ModelPricingResponse"
           },
@@ -3668,7 +3676,7 @@
             "type": "string"
           }
         },
-        "required": ["id", "source", "contextWindowTokens"]
+        "required": ["id", "source", "contextWindowTokens", "input"]
       },
       "ModelsResponse": {
         "type": "object",

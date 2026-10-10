@@ -21,6 +21,8 @@ import {
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { ContextIncompatibleError } from '../runs/model-context-errors';
+import { ScriptedModelsService } from '../runs/scripted-model-client';
+import { descriptor, fakeResolver } from '../media/media-fixtures';
 import type { CompactionPlan } from './compaction';
 import { COMPACTION_INSTRUCTION } from './compaction';
 import { CompactionService, toStoredMessages } from './compaction.service';
@@ -242,7 +244,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     });
   });
 
-  it('omits effort from the request and the recorded usage when the turn had none', async () => {
+  it('omits effort and media from the request and the recorded usage when the turn had none', async () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);
     mockReads();
@@ -259,6 +261,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     });
 
     expect(Object.keys(calls[0] ?? {})).not.toContain('effort');
+    expect(Object.keys(calls[0] ?? {})).not.toContain('media');
     expect(summary?.usage).not.toHaveProperty('effort');
   });
 
@@ -771,5 +774,120 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
         abortSignal: controller.signal,
       }),
     ).rejects.toBe(aborted);
+  });
+});
+
+describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
+  const imageId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+  const { resolver: media } = fakeResolver([
+    descriptor(imageId, { name: 'shot.png' }),
+  ]);
+  /** An absorbable prefix whose user turn carries one owner attachment. */
+  const attachmentPlan = (): CompactionPlan => ({
+    uptoSeq: 3,
+    absorb: toStoredMessages([
+      {
+        ...message(2),
+        parts: [
+          { type: 'file', mediaType: 'image/png', url: `media://${imageId}` },
+          { type: 'text', text: 'look at this' },
+        ],
+      },
+      message(3, 'assistant'),
+    ]),
+  });
+  /** The provider prompt's user file parts and its serialized form. */
+  const sentImages = (models: ScriptedModelsService) => {
+    const prompt = models.prompts.at(-1) ?? [];
+    return {
+      files: prompt.flatMap((entry) =>
+        entry.role === 'user'
+          ? entry.content.flatMap((part) =>
+              part.type === 'file' ? [part.mediaType] : [],
+            )
+          : [],
+      ),
+      text: JSON.stringify(prompt),
+    };
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('carries an attachment as an image part in a request without tool declarations', async () => {
+    const models = new ScriptedModelsService();
+    models.register('vision', { kind: 'complete', text: 'summary text' });
+    models.registerInput('vision', ['text', 'image']);
+    const client = models.createClient('vision');
+    const setup = makeService(client);
+    mockReads();
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'threshold',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 4,
+      plan: attachmentPlan(),
+      client,
+      system: 'system',
+      toolDeclarations: [],
+      media,
+    });
+
+    expect(summary).toMatchObject({ summary: 'summary text' });
+    const sent = sentImages(models);
+    expect(sent.files).toEqual(['image/png']);
+    expect(sent.text).toContain(`Image 1 (media://${imageId}):`);
+  });
+
+  it('gives a text-only source model the omitted placeholder and no image part', async () => {
+    const models = new ScriptedModelsService();
+    models.register('source-model-1', {
+      kind: 'complete',
+      text: 'summary text',
+    });
+    const setup = makeService(models.createClient('source-model-1'));
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+    await setup.service.summarizeCheckpoint({
+      variant: 'window',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 4,
+      plan: attachmentPlan(),
+      reservedOutputTokens: 10,
+      media,
+    });
+
+    const sent = sentImages(models);
+    expect(sent.files).toEqual([]);
+    expect(sent.text).toContain(
+      `[image media://${imageId} shot.png 1600×900, omitted: this model has no image input]`,
+    );
+  });
+
+  it('sizes an attachment as its placeholder for a source model that declares no input', async () => {
+    // As an image this one alone is past the window (ceil(w×h/750) tokens).
+    const { resolver } = fakeResolver([
+      descriptor(imageId, { modelWidth: 10_000, modelHeight: 10_000 }),
+    ]);
+    const { client, calls } = recordingClient();
+    expect(client.input).toBeUndefined();
+    const setup = makeService(client);
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'window',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 4,
+      plan: attachmentPlan(),
+      reservedOutputTokens: 10,
+      media: resolver,
+    });
+
+    expect(summary).toMatchObject({ summary: 'summary text' });
+    expect(calls[0]?.media).toBe(resolver);
   });
 });

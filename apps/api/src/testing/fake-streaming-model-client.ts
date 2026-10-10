@@ -20,6 +20,7 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 
 import { applyRequestUsageCallback } from '../models/request-usage';
+import { installStepPreparation } from '../models/step-composer';
 import { TITLE_SYSTEM_PROMPT } from '../titles/title';
 import {
   MissingModelCredentialError,
@@ -455,6 +456,8 @@ export class FakeStreamingModelClient {
         this.onFinishCalls += 1;
       }),
     };
+    // A text-only fake: it declares no `input`.
+    installStepPreparation(streamOptions, input, undefined);
     applyRequestUsageCallback(streamOptions, input);
     const result = sdkStreamText(streamOptions);
 
@@ -497,6 +500,7 @@ export class FakeModelsService implements ModelSelectionValidator {
       id: modelId,
       source: 'system' as const,
       contextWindowTokens: 128_000,
+      input: ['text'] as const,
       provider: 'openai',
       providerModelId: 'test-provider-model',
       systemPromptTemplate: `Test prompt for ${modelId}`,
