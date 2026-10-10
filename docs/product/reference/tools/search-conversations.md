@@ -25,9 +25,8 @@ A strict two-mode schema, with `mode` set to `"content"` or `"timeline"`:
 { "mode": "timeline", "after": "2026-09-04T00:00:00Z", "before": "2026-09-06T00:00:00Z" }
 ```
 
-Content mode requires a `query`; an absent or empty one is refused as
-`invalid_input`. A whitespace-only query passes that check and returns an empty
-page of results. `limit` is 1-10, default 5. `after` and `before` are optional
+Content mode requires a `query`; an absent, empty, or whitespace-only one is
+refused as `invalid_input`. `limit` is 1-10, default 5. `after` and `before` are optional
 absolute timezone-explicit instants forming
 the half-open interval `[after, before)`; when either is present `constraint`
 is required and is `required` (filters) or `preferred` (boosts near-ties), and
