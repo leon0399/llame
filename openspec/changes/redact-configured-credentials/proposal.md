@@ -139,7 +139,7 @@ permission policy and a future Sandbox.
   and a keyless provider omits its key. The name rule (`authorization`,
   `cookie`, `credential`, `token`, `key`, `secret`, `passw`, `signature`)
   decides which literal header values, URL query values, and document leaves
-  are members, so `Accept: application/json` stays out.
+  are members, so `X-Region: eu-west-1` stays out.
 
 ## Non-goals
 
