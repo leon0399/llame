@@ -27,9 +27,11 @@ import {
   MAX_READ_LINES,
   MAX_RESULT_CODE_UNITS,
   type LineRange,
+  type FileFailure,
   type MultiReadSuccess,
   type ReadSuccess,
 } from "./source-lines";
+import { readImage, type ImageReadHook, type ImageReadSuccess } from "./image";
 
 type SourceLineState = {
   partial: string;
@@ -532,20 +534,26 @@ export function selectMultiRangeLines(
   return finishMultiWindow(walk.result, target, walk.count);
 }
 
+/**
+ * With an `image` hook, a regular file whose leading bytes are an image takes
+ * the image path before any decode or line count; every other file, and every
+ * file when no hook is given, stays on the text path.
+ */
 export async function streamFileWindow(
   target: ReadTarget,
   source: {
     hostPath: string;
     followSymlinks: boolean;
     signal?: AbortSignal | undefined;
+    image?: ImageReadHook | undefined;
   },
-): Promise<ReadSuccess> {
+): Promise<ReadSuccess | ImageReadSuccess | FileFailure> {
   const file = await open(source.hostPath, openFlags(source.followSymlinks));
   try {
-    if (!(await file.stat()).isFile())
-      throw new NativeFileError("not_regular_file");
-    // The count pass runs on this handle and only here: a device or FIFO was
-    // refused above, and a target with no end-relative member skips it.
+    const stats = await file.stat();
+    if (!stats.isFile()) throw new NativeFileError("not_regular_file");
+    const image = await readImage(file, stats.size, target, source);
+    if (image) return image;
     const resolved =
       target.pending === undefined
         ? target

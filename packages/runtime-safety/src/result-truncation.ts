@@ -179,8 +179,13 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
     throw new TypeError("Malformed oversized tool result projection.");
   }
   const { status: _status, ...payload } = parsed;
+  // An image result's `media` locator is its only handle on the image, so it
+  // is kept whole and ahead of every other field: no pass shortens or omits it.
+  const { media, ...rest } = payload;
+  const pinsMedia = payload.kind === "image" && isString(media);
   const source: TruncationSource = {
-    payload,
+    payload: pinsMedia ? rest : payload,
+    pinned: pinsMedia ? { media } : {},
     totalFields: Object.keys(payload).length,
     json,
   };
@@ -202,6 +207,8 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
  * search's candidate limits. */
 interface TruncationSource {
   readonly payload: UnknownRecord;
+  /** Fields kept verbatim before the capped payload. */
+  readonly pinned: UnknownRecord;
   readonly totalFields: number;
   readonly json: string;
 }
@@ -217,17 +224,17 @@ function buildTruncatedResult(
     { limit, lists, keepAllEntries: keepAllFields },
     "",
   );
+  const kept = { ...source.pinned, ...capped };
   const omittedChars =
-    source.json.length -
-    JSON.stringify({ status: "success", ...capped }).length;
+    source.json.length - JSON.stringify({ status: "success", ...kept }).length;
   return {
     status: "success",
-    ...capped,
+    ...kept,
     [TRUNCATED_FIELD]: true,
     [NOTICE_FIELD]: truncationNotice(
       omittedChars,
       lists,
-      source.totalFields - Object.keys(capped).length,
+      source.totalFields - Object.keys(kept).length,
       source.totalFields,
     ),
   };

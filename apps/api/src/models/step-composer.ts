@@ -4,9 +4,13 @@ import {
   collectMediaRefs,
   fileMediaRef,
   loadMediaSizing,
+  toolOutputMediaRef,
   type MediaSizing,
+  type ToolContentPart,
+  type ToolResultOutput,
 } from '../media/epoch-admission';
 import {
+  completionsToolImagePlaceholder,
   limitPlaceholder,
   omittedPlaceholder,
   unavailablePlaceholder,
@@ -17,51 +21,77 @@ import { mediaLocator } from '../media/media-locator';
 import type { ModelInput } from './model-catalog';
 import type { ModelStreamInput } from './model-client';
 
+/**
+ * How a wire carries an attached tool-result image: as `content` tool output
+ * (Responses, Codex, Messages), or, on the Chat Completions wires whose
+ * adapter serializes tool content as text, as the interim placeholder until
+ * `vision-read-completions` (vision-media D6).
+ */
+export type ToolResultImages = 'content' | 'placeholder';
+
 export type ComposeStepOptions = {
   resolver: RunMediaResolver;
   /** Whether the request's model declares `image` input. */
   imageInput: boolean;
+  toolResultImages: ToolResultImages;
 };
 
 export type UserContentPart = Exclude<UserContent, string>[number];
 
+/** What one media reference projects to, in either message role. */
+export type ProjectedMedia =
+  | { type: 'text'; text: string }
+  | { type: 'image'; image: Uint8Array; mediaType: string };
+
 /**
  * The one place media references become what a model sees (vision-media D6).
  * Within each user message, its `media://` file parts are numbered from 1 and
- * each becomes the label `Image n (media://<id>):` followed by: the model
- * variant as an image part when the model declares `image` and the epoch window
- * attaches it; the limit placeholder when the window does not; the omitted
- * placeholder for any resolvable image on a text-only model; the unavailable
- * placeholder when the owner's store cannot resolve it. Only attached images'
- * bytes are loaded.
+ * each becomes the label `Image n (media://<id>):` followed by its projection;
+ * a tool result's image reference becomes its projection after the result's
+ * text. The projection is the model variant as an image when the model
+ * declares `image` and the epoch window attaches it; the limit placeholder
+ * when the window does not; the omitted placeholder for any resolvable image
+ * on a text-only model; the unavailable placeholder when the owner's store
+ * cannot resolve it. On a `placeholder` wire an attached tool-result image is
+ * the interim Chat Completions placeholder. Only the bytes of images sent as
+ * images are loaded.
  *
  * Idempotent: the output carries no references, and messages without any are
  * returned as the same objects.
  */
 export async function composeStepMessages(
   messages: Array<ModelMessage>,
-  { resolver, imageInput }: ComposeStepOptions,
+  { resolver, imageInput, toolResultImages }: ComposeStepOptions,
 ): Promise<Array<ModelMessage>> {
   const sizing = await loadMediaSizing(messages, resolver, imageInput);
   if (sizing.refs.length === 0) return messages;
+  const toolImagesAsContent = toolResultImages === 'content';
 
-  // One owner-scoped read for the step's attached images; the resolver caches
+  // One owner-scoped read for the step's sent images; the resolver caches
   // loaded bytes, so later steps read only images not loaded yet.
-  const attached = imageInput
+  const sent = imageInput
     ? [
         ...new Set(
-          sizing.refs.filter(
-            (_id, index) => sizing.statuses[index] === 'attached',
+          sizing.refs.flatMap(({ id, tool }, index) =>
+            sizing.statuses[index] === 'attached' &&
+            (!tool || toolImagesAsContent)
+              ? [id]
+              : [],
           ),
         ),
       ]
     : [];
   const bytes =
-    attached.length === 0
+    sent.length === 0
       ? new Map<string, Uint8Array>()
-      : await resolver.loadModelBytes(attached);
+      : await resolver.loadModelBytes(sent);
 
-  return projectMediaRefs(messages, sizing, (id, descriptor) => {
+  return projectMediaRefs(messages, sizing, (id, descriptor, tool) => {
+    if (tool && !toolImagesAsContent) {
+      return [
+        { type: 'text', text: completionsToolImagePlaceholder(descriptor) },
+      ];
+    }
     const image = bytes.get(id);
     // A descriptor whose blob cannot be read is as unresolvable as a missing one.
     return image === undefined
@@ -72,19 +102,23 @@ export async function composeStepMessages(
 
 /**
  * `messages` as the composer projects them under `sizing` (see `mapMediaRefs`
- * for the labels): each reference becomes the unavailable placeholder when
+ * for the placement): each reference becomes the unavailable placeholder when
  * unresolvable, the omitted one on a text-only model, the limit one when the
- * window does not attach it, and `attach(id, descriptor)` otherwise.
+ * window does not attach it, and `attach(id, descriptor, tool)` otherwise.
  * `sizing.statuses` is aligned to the end of `messages`' references, so a
  * continuation's trailing rows project with the whole request's admission.
  */
 export function projectMediaRefs(
   messages: Array<ModelMessage>,
   sizing: MediaSizing,
-  attach: (id: string, descriptor: MediaDescriptor) => Array<UserContentPart>,
+  attach: (
+    id: string,
+    descriptor: MediaDescriptor,
+    tool: boolean,
+  ) => Array<ProjectedMedia>,
 ): Array<ModelMessage> {
   const offset = sizing.statuses.length - collectMediaRefs(messages).length;
-  return mapMediaRefs(messages, (id, index) => {
+  return mapMediaRefs(messages, (id, index, tool) => {
     const descriptor = sizing.descriptors.get(id);
     if (descriptor === undefined) {
       return [{ type: 'text', text: unavailablePlaceholder(id) }];
@@ -95,23 +129,38 @@ export function projectMediaRefs(
     if (sizing.statuses[offset + index] !== 'attached') {
       return [{ type: 'text', text: limitPlaceholder(descriptor) }];
     }
-    return attach(id, descriptor);
+    return attach(id, descriptor, tool);
   });
 }
 
 /**
- * Replace each `media://` file part of each user message, in request order,
- * with its label `Image n (media://<id>):` (n counting that message's
- * references from 1) followed by `project(id, index)`, where `index` is the
- * reference's position among all of `messages`' references. Messages without
- * references are returned as the same objects.
+ * Replace each media reference of `messages`, in request order, with
+ * `project(id, index, tool)`, where `index` is the reference's position among
+ * all of `messages`' references. A user message's `media://` file part is
+ * preceded by its label `Image n (media://<id>):` (n counting that message's
+ * references from 1). A tool result's `image-url` reference is projected in
+ * place after the result's text, an image becoming `image-data`; a result left
+ * with text alone becomes a text output of those texts joined by newlines.
+ * Messages without references are returned as the same objects.
  */
 export function mapMediaRefs(
   messages: Array<ModelMessage>,
-  project: (id: string, index: number) => Array<UserContentPart>,
+  project: (id: string, index: number, tool: boolean) => Array<ProjectedMedia>,
 ): Array<ModelMessage> {
   let index = 0;
+  const next: NextRef = (id, tool) => {
+    index += 1;
+    return project(id, index - 1, tool);
+  };
   return messages.map((message) => {
+    if (message.role === 'tool') {
+      const content = message.content.map((part) =>
+        mapToolResultRefs(part, next),
+      );
+      return content.every((part, at) => part === message.content[at])
+        ? message
+        : { ...message, content };
+    }
     if (message.role !== 'user' || !Array.isArray(message.content)) {
       return message;
     }
@@ -120,14 +169,64 @@ export function mapMediaRefs(
       const id = part.type === 'file' ? fileMediaRef(part) : undefined;
       if (id === undefined) return [part];
       label += 1;
-      index += 1;
       return [
         { type: 'text', text: `Image ${label} (${mediaLocator(id)}):` },
-        ...project(id, index - 1),
+        ...next(id, false),
       ];
     });
     return label === 0 ? message : { ...message, content };
   });
+}
+
+type NextRef = (id: string, tool: boolean) => Array<ProjectedMedia>;
+type ToolMessagePart = Extract<
+  ModelMessage,
+  { role: 'tool' }
+>['content'][number];
+
+/**
+ * A tool result with each `image-url` media reference projected in place by
+ * `next` (see `mapMediaRefs`); a part without one is returned as is.
+ */
+function mapToolResultRefs(
+  part: ToolMessagePart,
+  next: NextRef,
+): ToolMessagePart {
+  if (part.type !== 'tool-result' || part.output.type !== 'content') {
+    return part;
+  }
+  const items = part.output.value;
+  if (items.every((item) => toolOutputMediaRef(item) === undefined)) {
+    return part;
+  }
+  const value = items.flatMap((item): Array<ToolContentPart> => {
+    const id = toolOutputMediaRef(item);
+    if (id === undefined) return [item];
+    return next(id, true).map((projected) =>
+      projected.type === 'text'
+        ? projected
+        : {
+            type: 'image-data',
+            data: Buffer.from(projected.image).toString('base64'),
+            mediaType: projected.mediaType,
+          },
+    );
+  });
+  return { ...part, output: toolOutput(value) };
+}
+
+/**
+ * Text-only content is sent as a text output: the Chat Completions adapter
+ * serializes `content` outputs as JSON, so a placeholder would otherwise reach
+ * the model wrapped in part syntax.
+ */
+function toolOutput(value: Array<ToolContentPart>): ToolResultOutput {
+  const texts = value.flatMap((item) =>
+    item.type === 'text' ? [item.text] : [],
+  );
+  return texts.length === value.length
+    ? { type: 'text', value: texts.join('\n') }
+    : { type: 'content', value };
 }
 
 /**
@@ -138,12 +237,14 @@ export function mapMediaRefs(
  * Only `onStepStart` and the step cap are tool-loop concerns and stay gated on
  * `input.tools`. The composer runs last, on the final messages, so the in-Run
  * splice records its prefix index on untransformed messages. Without
- * `input.media` the composer is the identity.
+ * `input.media` the composer is the identity. `toolResultImages` is the
+ * wire's carriage of tool-result images.
  */
 export function installStepPreparation(
   streamOptions: Parameters<typeof streamText>[0],
   input: ModelStreamInput,
   modelInput: ReadonlyArray<ModelInput> | undefined,
+  toolResultImages: ToolResultImages = 'content',
 ): void {
   const tools = input.tools !== undefined;
   // `null` and absent both mean "no cap" (design D1).
@@ -170,6 +271,7 @@ export function installStepPreparation(
         : await composeStepMessages(override ?? messages, {
             resolver: media,
             imageInput,
+            toolResultImages,
           });
     return {
       ...(composed && { messages: composed }),

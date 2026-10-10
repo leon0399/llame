@@ -493,3 +493,66 @@ describe("truncateOversizedResult field preservation", () => {
     expect(notice).not.toContain("result fields omitted entirely");
   });
 });
+
+describe("truncateOversizedResult image results", () => {
+  const MEDIA = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
+
+  it("keeps the media reference whole while another field shrinks in place", () => {
+    const result = truncateOversizedResult({
+      status: "success",
+      kind: "image",
+      media: MEDIA,
+      mediaType: "image/png",
+      width: 1600,
+      height: 900,
+      path: `/work/${"a".repeat(50_000)}.png`,
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({
+      status: "success",
+      kind: "image",
+      media: MEDIA,
+      truncated: true,
+    });
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(result).truncationNotice;
+    expect(notice).toContain("characters omitted");
+  });
+
+  it("omits other fields before the media reference at the floor", () => {
+    // Over the cap on the key names alone, so every value is cut to nothing
+    // and trailing fields are dropped; the reference survives both passes.
+    const payload = Object.fromEntries(
+      Array.from({ length: 4000 }, (_entry, index) => [
+        `field-number-${index}`,
+        `value ${index}`,
+      ]),
+    );
+    const result = truncateOversizedResult({
+      status: "success",
+      kind: "image",
+      ...payload,
+      media: MEDIA,
+    });
+
+    expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    expect(result).toMatchObject({ media: MEDIA, truncated: true });
+    const notice = z
+      .object({ truncationNotice: z.string() })
+      .parse(result).truncationNotice;
+    expect(notice).toMatch(/\d+ of 4002 result fields omitted entirely/u);
+  });
+
+  it("pins nothing on a result that is not an image", () => {
+    const result = truncateOversizedResult({
+      status: "success",
+      kind: "file",
+      media: "x".repeat(50_000),
+    });
+
+    expect(result).toMatchObject({ truncated: true });
+    expect(result).not.toMatchObject({ media: "x".repeat(50_000) });
+  });
+});

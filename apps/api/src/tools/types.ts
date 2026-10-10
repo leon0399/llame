@@ -20,6 +20,7 @@ import { type WorkspaceRootCell } from './workspace-path';
 import { type AttemptToolAdditions } from './attempt-tool-additions';
 import { type DerivedDecision } from './web-read/admission';
 import { type ModelClientFactory } from '../models/models.service';
+import { type ToolMediaStore } from '../media/tool-media-store';
 /**
  * A JSON Schema document used as a tool's input schema. Accepted as-is from
  * external sources (D2: "accepted as the source ships it"). Distinct from
@@ -102,6 +103,12 @@ export interface ToolContext {
    * a manual-only package's body read refuses.
    */
   readonly skillSelection?: ReadonlySet<string>;
+  /**
+   * The Run owner's media store, bound to that owner and the read's
+   * provenance by the Run (vision-media D7). Absent means a local read never
+   * detects images and `media://` fails closed.
+   */
+  readonly media?: ToolMediaStore;
   /** Process-wide query embedder for search; undefined when no model is configured. */
   readonly queryEmbedder?: QueryEmbedderPort;
   /**

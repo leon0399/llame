@@ -651,3 +651,101 @@ describe('tool observation replay budgets', () => {
     expect(projection?.omissionPartIndex).toBe(0);
   });
 });
+
+describe('image read result replay', () => {
+  const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  const imagePart = (overrides: UnknownRecord = {}): MessagePart => ({
+    type: 'tool-read',
+    toolCallId: 'call-1',
+    state: 'output-available',
+    input: { path: '/work/shot.png' },
+    output: {
+      status: 'success',
+      kind: 'image',
+      media: MEDIA,
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+      path: '/work/shot.png',
+    },
+    outcome: 'success',
+    ...overrides,
+  });
+
+  it('replays the result text followed by its media reference, never bytes', () => {
+    const output = projectToolObservations([imagePart()])?.pairs[0]
+      ?.toolResultPart.output;
+
+    expect(output).toMatchObject({
+      type: 'content',
+      value: [{ type: 'text' }, { type: 'image-url', url: MEDIA }],
+    });
+    expect(JSON.stringify(output)).toContain(
+      String.raw`\"media\":\"${MEDIA}\"`,
+    );
+    expect(JSON.stringify(output)).not.toContain('base64');
+  });
+
+  it('measures the pair by its text and the reference, so a large image never clears it', () => {
+    const projection = projectToolObservations([imagePart()]);
+    const pair = projection?.pairs[0];
+    if (pair === undefined) throw new Error('Expected one projected pair');
+
+    const size = JSON.stringify([
+      { role: 'assistant', content: [pair.toolCallPart] },
+      { role: 'tool', content: [pair.toolResultPart] },
+    ]).length;
+    expect(size).toBeLessThan(TOOL_REPLAY_CALL_LIMIT);
+    expect(pair.toolResultPart.output.type).toBe('content');
+  });
+
+  it('removes the image with a cleared payload', () => {
+    const cleared = imagePart({
+      input: { path: `/work/${'a'.repeat(TOOL_REPLAY_CALL_LIMIT)}.png` },
+    });
+    const output = projectToolObservations([cleared])?.pairs[0]?.toolResultPart
+      .output;
+
+    expect(toolOutputText(output)).not.toContain('Payload:');
+    expect(JSON.stringify(output)).not.toContain(MEDIA);
+  });
+
+  it('drops an old image pair whole, counted by the omission marker', () => {
+    const parts = [
+      imagePart({ outcome: 'retried_v2', input: { pad: 'p'.repeat(9000) } }),
+      ...Array.from({ length: 150 }, (_, index) =>
+        toolPart({
+          toolCallId: `call-${index + 2}`,
+          output: 'p'.repeat(9000),
+          outcome: 'retried_v2',
+        }),
+      ),
+    ];
+
+    const projection = projectToolObservations(parts);
+    expect(projection?.omissionPartIndex).toBe(0);
+    expect(projection?.omittedCount).toBeGreaterThan(0);
+    expect(JSON.stringify(projection?.pairs)).not.toContain(MEDIA);
+  });
+
+  it('replays only a read result as an image', () => {
+    const output = projectToolObservations([
+      imagePart({ type: 'tool-search_conversations' }),
+    ])?.pairs[0]?.toolResultPart.output;
+
+    expect(output?.type).toBe('text');
+  });
+
+  it('replays a failed read as text even when its stored part keeps an image output', () => {
+    const output = projectToolObservations([
+      imagePart({
+        state: 'output-error',
+        errorText: 'The read failed.',
+        outcome: 'error',
+      }),
+    ])?.pairs[0]?.toolResultPart.output;
+
+    expect(output?.type).toBe('text');
+    expect(JSON.stringify(output)).not.toContain(MEDIA);
+  });
+});
