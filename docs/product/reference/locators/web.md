@@ -150,6 +150,7 @@ The full order is:
 | `method`      | Source of the content                                                                                           |
 | ------------- | --------------------------------------------------------------------------------------------------------------- |
 | `adapter`     | a configured adapter's rendered content, with structured provenance and notes                                   |
+| `image`       | a PNG, JPEG, GIF, or WebP page body, returned as the stored image with no content, before any probe             |
 | `negotiated`  | the first response itself: `text/markdown` or `text/plain`, returned as served                                  |
 | `alternate`   | a Markdown URL announced by a `Link` header or a head `<link rel="alternate" type="text/markdown">`             |
 | `md-suffix`   | the publisher's `.md` suffix probe: `/a/b.html` → `/a/b.html.md`, `/a/b` → `/a/b.md`, `/a/b/` → `/a/b/index.md` |
@@ -157,7 +158,6 @@ The full order is:
 | `llms-txt`    | an `llms.txt` index reached from the deepest path segment up to the site root                                   |
 | `text`        | a JSON, XML, or other `text/*` body, returned unchanged                                                         |
 | `raw`         | the response body unchanged, with a note; also `:raw` and a detected challenge page                             |
-| `image`       | a PNG, JPEG, GIF, or WebP page body, returned as the stored image with no content                               |
 
 A successful adapter reports `method: "adapter"` and
 `adapter: { id, route, origin }`; a rewrite uses `route: "rewrite"` and its
@@ -240,6 +240,7 @@ The URLs each configured adapter claims and the document it renders are in
 | Response headers              | 10 s per request (`headers_timeout`)                                                                          |
 | The whole call, every request | 30 s (`call_timeout`)                                                                                         |
 | Response body                 | 5 MiB streamed (`body_too_large`)                                                                             |
+| Page image                    | the 5 MiB body bound, then 40 megapixels (`image_too_large`)                                                  |
 | Redirects per call            | 20 (`too_many_redirects`)                                                                                     |
 | Requests per call             | 27: first, 20 hops, one alternate, one suffix probe, four `llms.txt`                                          |
 | Retries                       | none: no request is repeated, and a probe's failure disqualifies its candidate                                |
@@ -275,6 +276,7 @@ refused ([selectors](../selectors.md#media-types-and-errors)).
 | `http_status`              | a non-2xx, non-redirect status on the first response or a hop; a 429 also carries `Retry-After`, and the body is not returned                                |
 | `unsupported_content_type` | the response is neither a text body nor, on the page response of a read with the owner's media store, an accepted image type, or it declares no content type |
 | `unsupported_media_type`   | the response declared an accepted image type, but its bytes are no PNG, JPEG, GIF, or WebP image; nothing is stored                                          |
+| `image_too_large`          | the page image passed the 5 MiB body bound but is over 40 megapixels; the shared message also names the 20 MiB store bound, which a web read never reaches   |
 | `invalid_redirect`         | a redirect status without a parsable `Location`, or a hop with userinfo or a non-web scheme; the target is never named; a fragment is dropped, not refused   |
 | `too_many_redirects`       | the call exceeded 20 redirects                                                                                                                               |
 | `permission_denied`        | the `read` group refused the submitted locator or a hop, or every address was refused — a hop rejection carries `rejectedUrl`                                |
