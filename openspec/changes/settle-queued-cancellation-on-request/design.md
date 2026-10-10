@@ -62,8 +62,9 @@ its test double implements one method.
 
 ## Risks / Trade-offs
 
-- [A settlement failure after recording] → The Run stays queued with its
-  cancellation recorded, which is today's state; the worker's pickup path
-  still settles it. The request returns the Run as recorded.
+- [A settlement failure after recording] → The request fails with a server
+  error, leaving the Run queued with its cancellation recorded, which is
+  today's state; a retried request settles it through the repeat path (D1),
+  and the worker's pickup gate settles it otherwise.
 - [The API process now writes a terminal Run] → The write goes through the same
   owner-scoped settlement transaction the worker uses.
