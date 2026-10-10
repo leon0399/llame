@@ -37,6 +37,13 @@ describe('sanitizeTitle', () => {
     );
   });
 
+  it('removes only a leading "Title:" prefix, with or without spacing around the colon', () => {
+    expect(sanitizeTitle('Title:NoSpace Again')).toBe('NoSpace Again');
+    expect(sanitizeTitle('Title : Spaced Colon')).toBe('Spaced Colon');
+    expect(sanitizeTitle('Subtitle: Ideas')).toBe('Subtitle: Ideas');
+    expect(sanitizeTitle('Retitle: Plans')).toBe('Retitle: Plans');
+  });
+
   it('collapses internal whitespace and trims', () => {
     expect(sanitizeTitle('  Weather   in\nNYC  ')).toBe('Weather in NYC');
   });
