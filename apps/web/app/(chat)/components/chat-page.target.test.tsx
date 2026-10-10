@@ -422,7 +422,10 @@ describe("ChatPage target hydration", () => {
     await user.click(send);
 
     await waitFor(() =>
-      expect(mocks.sendMessage).toHaveBeenCalledWith({ text: "follow-up" }),
+      expect(mocks.sendMessage).toHaveBeenCalledWith({
+        text: "follow-up",
+        files: [],
+      }),
     );
     expect(window.location.pathname).toBe(`/chat/${CHAT_ID}`);
     expect(window.location.search).toBe("?draft=sent");

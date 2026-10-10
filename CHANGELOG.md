@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- The chat composer now attaches images (#1166). Paste a PNG, JPEG, GIF, or
+  WebP image, choose files with the new image button, or drop them onto the
+  input card: each appears as a thumbnail above the textarea and uploads at
+  once. Send waits while an upload is in flight and while one failed (its
+  thumbnail offers retry), thumbnails reorder by drag or `Alt+←/→` and remove
+  from a button shown on hover and focus, and one message carries at most 10.
+  A message may be images alone, sent as file parts in thumbnail order. With a
+  model that publishes no `image` input the composer refuses attachments and
+  says "`<model>` has no image input", and keeps send disabled while images
+  are attached. Sent messages show their images as thumbnails above the
+  bubble, loaded from the image's `/model` route.
+
 - Prompt imports now import images (#935). A marker whose `read` returns an
   image, such as `@shot.png`, becomes an image entry of the `prompt-imports`
   notice whose body is the image result `read` returns, stored in the owner's
