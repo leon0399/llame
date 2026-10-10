@@ -45,15 +45,21 @@ export async function composeStepMessages(
   const sizing = await loadMediaSizing(messages, resolver, imageInput);
   if (sizing.refs.length === 0) return messages;
 
-  // One short owner-scoped read per attached image, one at a time, so a step
-  // never holds more than one pooled connection for its images.
-  const bytes = new Map<string, Uint8Array | undefined>();
-  if (imageInput) {
-    for (const [index, id] of sizing.refs.entries()) {
-      if (sizing.statuses[index] !== 'attached' || bytes.has(id)) continue;
-      bytes.set(id, await resolver.loadModelBytes(id));
-    }
-  }
+  // One owner-scoped read for the step's attached images; the resolver caches
+  // loaded bytes, so later steps read only images not loaded yet.
+  const attached = imageInput
+    ? [
+        ...new Set(
+          sizing.refs.filter(
+            (_id, index) => sizing.statuses[index] === 'attached',
+          ),
+        ),
+      ]
+    : [];
+  const bytes =
+    attached.length === 0
+      ? new Map<string, Uint8Array>()
+      : await resolver.loadModelBytes(attached);
 
   return projectMediaRefs(messages, sizing, (id, descriptor) => {
     const image = bytes.get(id);

@@ -92,20 +92,29 @@ export type RunMediaResolver = {
   describe(
     ids: ReadonlyArray<string>,
   ): Promise<ReadonlyMap<string, MediaDescriptor>>;
-  /** The model variant's bytes of an owned id, or undefined. */
-  loadModelBytes(id: string): Promise<Uint8Array | undefined>;
+  /**
+   * The model variant bytes of the owned ids among `ids`; unknown, foreign,
+   * and non-canonical ids are absent.
+   */
+  loadModelBytes(
+    ids: ReadonlyArray<string>,
+  ): Promise<ReadonlyMap<string, Uint8Array>>;
 };
 
 /**
  * The resolver for one Run attempt, bound to the Run owner's identity.
  * Descriptors are immutable (media is never updated), so they are cached for
- * the attempt, misses included; bytes are read per request and never cached.
+ * the attempt, misses included. Loaded model bytes are cached for the attempt
+ * too, since the composer asks for them on every step: each attached blob is
+ * read at most once, and the set is bounded by the epoch image window. Only
+ * found bytes are cached, so a miss or a failed read is retried next step.
  */
 export function createRunMediaResolver(
   tenantDb: TenantRunner,
   ownerUserId: string,
 ): RunMediaResolver {
   const known = new Map<string, MediaDescriptor | undefined>();
+  const bytes = new Map<string, Uint8Array>();
   return {
     async describe(ids) {
       const missing = ids.filter((id) => !known.has(id));
@@ -115,31 +124,53 @@ export function createRunMediaResolver(
         );
         for (const id of missing) known.set(id, loaded.get(id));
       }
-      const result = new Map<string, MediaDescriptor>();
-      for (const id of ids) {
-        const descriptor = known.get(id);
-        if (descriptor !== undefined) result.set(id, descriptor);
-      }
-      return result;
+      return pickKnown(known, ids);
     },
-    async loadModelBytes(id) {
-      if (!isCanonicalMediaId(id)) return undefined;
-      return tenantDb.runAs(ownerUserId, async (tx) => {
-        const [row] = await tx
-          .select({ data: mediaBlobs.data })
-          .from(mediaBlobs)
-          .innerJoin(mediaObjects, eq(mediaObjects.id, mediaBlobs.mediaId))
-          .where(
-            and(
-              eq(mediaBlobs.mediaId, id),
-              eq(mediaBlobs.variant, 'model'),
-              eq(mediaObjects.ownerUserId, ownerUserId),
-            ),
-          );
-        return row?.data;
-      });
+    async loadModelBytes(ids) {
+      const missing = [...new Set(ids)].filter(
+        (id) => isCanonicalMediaId(id) && !bytes.has(id),
+      );
+      if (missing.length > 0) {
+        const rows = await tenantDb.runAs(ownerUserId, (tx) =>
+          loadModelVariants(tx, ownerUserId, missing),
+        );
+        for (const row of rows) bytes.set(row.id, row.data);
+      }
+      return pickKnown(bytes, ids);
     },
   };
+}
+
+/** The entries of `cache` found for `ids`; absent and `undefined` ones skipped. */
+function pickKnown<T>(
+  cache: ReadonlyMap<string, T | undefined>,
+  ids: ReadonlyArray<string>,
+): ReadonlyMap<string, T> {
+  const result = new Map<string, T>();
+  for (const id of ids) {
+    const found = cache.get(id);
+    if (found !== undefined) result.set(id, found);
+  }
+  return result;
+}
+
+/** The owner's model variant blobs among canonical `ids`, in one statement. */
+function loadModelVariants(
+  tx: Db,
+  ownerUserId: string,
+  ids: ReadonlyArray<string>,
+): Promise<ReadonlyArray<{ id: string; data: Uint8Array }>> {
+  return tx
+    .select({ id: mediaBlobs.mediaId, data: mediaBlobs.data })
+    .from(mediaBlobs)
+    .innerJoin(mediaObjects, eq(mediaObjects.id, mediaBlobs.mediaId))
+    .where(
+      and(
+        inArray(mediaBlobs.mediaId, ids),
+        eq(mediaBlobs.variant, 'model'),
+        eq(mediaObjects.ownerUserId, ownerUserId),
+      ),
+    );
 }
 
 /**

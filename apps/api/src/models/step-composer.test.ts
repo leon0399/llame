@@ -148,7 +148,7 @@ describe('composeStepMessages', () => {
       {
         resolver: {
           ...resolver,
-          loadModelBytes: () => Promise.resolve(undefined),
+          loadModelBytes: () => Promise.resolve(new Map()),
         },
         imageInput: true,
       },

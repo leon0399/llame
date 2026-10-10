@@ -67,6 +67,7 @@ import {
   fileMediaIds,
   filePlaceholder,
   loadMediaDescriptors,
+  type MediaDescriptor,
   type RunMediaResolver,
 } from '../media/media-descriptors';
 import { SearchIndexService } from '../search/search-index.service';
@@ -3647,7 +3648,9 @@ export class RunExecutionService {
 
   /**
    * The titled turn's text followed by one bare placeholder line per file part
-   * (vision-media D9), so an image-only message can still be titled.
+   * (vision-media D9), so an image-only message can still be titled. Titling is
+   * best-effort, so a failed descriptor lookup never fails the completed Run:
+   * it is logged and every line falls back to the unavailable placeholder.
    */
   private async titleInputText(
     userId: string,
@@ -3656,9 +3659,18 @@ export class RunExecutionService {
     const text = partsToText(userMessage.parts).trim();
     const ids = fileMediaIds(userMessage.parts);
     if (ids.length === 0) return text;
-    const descriptors = await this.tenantDb.runAs(userId, (tx) =>
-      loadMediaDescriptors(tx, userId, ids),
-    );
+    let descriptors: ReadonlyMap<string, MediaDescriptor> = new Map();
+    try {
+      descriptors = await this.tenantDb.runAs(userId, (tx) =>
+        loadMediaDescriptors(tx, userId, ids),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Title media lookup failed; titling with unavailable placeholders: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
     return titleInputWithLines(
       text,
       ids.map((id) => filePlaceholder(id, descriptors)),
