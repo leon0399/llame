@@ -7,8 +7,17 @@ import {
 } from 'node:http';
 import { type Socket } from 'node:net';
 
+import { IMAGE_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
 import { isString } from '@workspace/runtime-safety';
+import sharp from 'sharp';
 
+import { type MediaObject } from '../db/schema';
+import { prepareMedia } from '../media/media-ingest';
+import {
+  type MediaIngestInput,
+  type MediaService,
+} from '../media/media.service';
+import { createToolMediaStore } from '../media/tool-media-store';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { nativeReadTool } from './native-files';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
@@ -206,7 +215,7 @@ function send(
   response: ServerResponse,
   status: number,
   contentType: string,
-  body: string,
+  body: string | Buffer,
 ): void {
   sendWithHeaders(response, status, { 'content-type': contentType }, body);
 }
@@ -215,7 +224,7 @@ function sendWithHeaders(
   response: ServerResponse,
   status: number,
   headers: OutgoingHttpHeaders,
-  body = '',
+  body: string | Buffer = '',
 ): void {
   response.writeHead(status, headers);
   response.end(body);
@@ -236,8 +245,11 @@ function serveNegotiated(
 
 /** Streams past the cap with no declared length, stopping as soon as the
  *  client cancels — which a refused read does at the first chunk past it. */
-function serveOversizedBody(response: ServerResponse): void {
-  response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+function serveOversizedBody(
+  response: ServerResponse,
+  contentType = 'text/plain; charset=utf-8',
+): void {
+  response.writeHead(200, { 'content-type': contentType });
   const chunk = Buffer.alloc(OVERSIZED_CHUNK_BYTES, 'a');
   let written = 0;
   const writeNext = (): void => {
@@ -1778,5 +1790,384 @@ describe('web read address admission over loopback fixtures', () => {
       { address: '127.0.0.1', path: '/page.md' },
     ]);
     expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+  });
+});
+
+describe('web image reads over loopback fixtures', () => {
+  const MEDIA_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  const HTML_AS_IMAGE =
+    '<!doctype html><html><body><p>HTML_UNDER_AN_IMAGE_TYPE</p></body></html>';
+  const SVG_BODY =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>\n';
+
+  type Images = {
+    readonly png: Buffer;
+    readonly jpeg: Buffer;
+    readonly gif: Buffer;
+    readonly webp: Buffer;
+  };
+
+  let fixture: AddressFixture;
+  let images: Images;
+  let attempts: Array<MediaIngestInput>;
+  let stored: Array<MediaObject>;
+
+  /** A media service whose ingest runs the real format detection, so the
+   *  bytes, not the declared type, decide the result, and a refused body
+   *  creates nothing. */
+  const mediaService: Pick<MediaService, 'ingest' | 'findOwned'> = {
+    async ingest(ownerUserId, input) {
+      attempts.push(input);
+      const prepared = await prepareMedia(input.bytes);
+      const media: MediaObject = {
+        id: MEDIA_ID,
+        ownerUserId,
+        provenance: input.provenance,
+        name: input.source,
+        mediaType: prepared.original.mediaType,
+        width: prepared.original.width,
+        height: prepared.original.height,
+        byteSize: prepared.original.bytes.length,
+        modelMediaType: prepared.model.mediaType,
+        modelWidth: prepared.model.width,
+        modelHeight: prepared.model.height,
+        modelByteSize: prepared.model.bytes.length,
+        sha256: prepared.sha256,
+        createdAt: new Date(0),
+      };
+      stored.push(media);
+      return { media, created: true };
+    },
+    findOwned: () => Promise.resolve(undefined),
+  };
+
+  const route: AddressFixtureRoute = (address, request, response) => {
+    const path = request.url ?? '';
+    if (address === '127.0.0.2') {
+      // The CDN a page redirects to, and the rewrite origin of the adapter
+      // case: both answer with a PNG.
+      send(response, 200, 'image/png', images.png);
+      return;
+    }
+    // Every probe a page can derive — its announced alternate, its `.md`
+    // sibling, and each `llms.txt` candidate — answers with an image.
+    if (path.endsWith('.md') || path.endsWith('/llms.txt')) {
+      send(response, 200, 'image/png', images.png);
+      return;
+    }
+    switch (path) {
+      case '/shot.png':
+      case '/claimed.png':
+        send(response, 200, 'image/png', images.png);
+        return;
+      case '/jpeg-as-png':
+        send(response, 200, 'image/png', images.jpeg);
+        return;
+      case '/html-as-png':
+        send(response, 200, 'image/png', Buffer.from(HTML_AS_IMAGE));
+        return;
+      case '/shot.gif':
+        send(response, 200, 'image/gif', images.gif);
+        return;
+      case '/shot.webp':
+        send(response, 200, 'image/webp', images.webp);
+        return;
+      case '/logo.svg':
+        send(response, 200, 'image/svg+xml', SVG_BODY);
+        return;
+      case '/huge.png':
+        serveOversizedBody(response, 'image/png');
+        return;
+      case '/document.pdf':
+        send(response, 200, 'application/pdf', PDF_BODY);
+        return;
+      case '/blob':
+        send(response, 200, 'application/octet-stream', PDF_BODY);
+        return;
+      case '/shot':
+        sendWithHeaders(
+          response,
+          302,
+          { location: `http://cdn.example.test:${fixture.port}/shot.png` },
+          'Moved',
+        );
+        return;
+      case '/article':
+        sendWithHeaders(
+          response,
+          200,
+          {
+            'content-type': 'text/html; charset=utf-8',
+            link: '</article-alternate.md>; rel="alternate"; type="text/markdown"',
+          },
+          ARTICLE_HTML,
+        );
+        return;
+      case '/guides/gated':
+        send(response, 200, 'text/html; charset=utf-8', NAV_ONLY_HTML);
+        return;
+      default:
+        send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
+    }
+  };
+
+  const resolve: ResolveHost = (hostname) => {
+    if (hostname === 'example.test') {
+      return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        { address: '127.0.0.1', family: 4 },
+      ]);
+    }
+    if (hostname === 'cdn.example.test' || hostname === 'rewrite.test') {
+      return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
+        { address: '127.0.0.2', family: 4 },
+      ]);
+    }
+    return Promise.reject(
+      new Error(`The image fixture received an unexpected host: ${hostname}`),
+    );
+  };
+
+  const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
+  const urlOf = (path: string): string =>
+    `http://example.test:${fixture.port}${path}`;
+
+  /** A read with the Run owner's media store bound, as a model read has. */
+  const read = (
+    path: string,
+    overrides: Partial<ToolContext> = {},
+  ): Promise<ToolResult> =>
+    execute(
+      webContext({
+        permissionPolicy: ADMIT_EVERY_LOCATOR,
+        media: createToolMediaStore(mediaService, 'owner', 'read'),
+        ...overrides,
+      }),
+      { operation: 'read', input: { path } },
+    );
+
+  const requested = (): ReadonlyArray<{
+    readonly address: LoopbackAddress;
+    readonly path: string;
+  }> => fixture.requests.map(({ address, path }) => ({ address, path }));
+
+  beforeAll(async () => {
+    const solid = (width: number, height: number) =>
+      sharp({
+        create: { width, height, channels: 3, background: '#336699' },
+      });
+    images = {
+      png: await solid(1600, 900).png().toBuffer(),
+      jpeg: await solid(64, 48).jpeg().toBuffer(),
+      gif: await solid(32, 24).gif().toBuffer(),
+      webp: await solid(40, 30).webp().toBuffer(),
+    };
+    fixture = await startAddressFixture((address, request, response) =>
+      route(address, request, response),
+    );
+  });
+
+  afterAll(async () => {
+    if (fixture) await fixture.close();
+  });
+
+  beforeEach(() => {
+    fixture.requests.length = 0;
+    attempts = [];
+    stored = [];
+  });
+
+  it('returns a PNG body as an image result of the Run owner', async () => {
+    const result = await read(urlOf('/shot.png'));
+
+    expect(result).toStrictEqual({
+      status: 'success',
+      kind: 'image',
+      media: `media://${MEDIA_ID}`,
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+      path: urlOf('/shot.png'),
+      finalUrl: urlOf('/shot.png'),
+      method: 'image',
+    });
+    expect(attempts).toEqual([
+      { bytes: images.png, provenance: 'read', source: urlOf('/shot.png') },
+    ]);
+    expect(stored).toEqual([
+      expect.objectContaining({ ownerUserId: 'owner', mediaType: 'image/png' }),
+    ]);
+    expect(requested()).toEqual([{ address: '127.0.0.1', path: '/shot.png' }]);
+  });
+
+  it('lets the bytes decide the image format', async () => {
+    const result = await read(urlOf('/jpeg-as-png'));
+
+    expect(result).toMatchObject({
+      status: 'success',
+      kind: 'image',
+      mediaType: 'image/jpeg',
+      width: 64,
+      height: 48,
+      method: 'image',
+    });
+  });
+
+  it.each([
+    ['/shot.gif', 'image/gif', 32, 24],
+    ['/shot.webp', 'image/webp', 40, 30],
+  ])('accepts %s served as %s', async (path, mediaType, width, height) => {
+    const result = await read(urlOf(path));
+
+    expect(result).toMatchObject({
+      status: 'success',
+      kind: 'image',
+      mediaType,
+      width,
+      height,
+      method: 'image',
+    });
+  });
+
+  it('refuses a declared image type over HTML bytes without storing or returning them', async () => {
+    const result = await read(urlOf('/html-as-png'));
+    const error = errorOf(result);
+
+    expect(error.type).toBe('unsupported_media_type');
+    expect(stored).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain('HTML_UNDER_AN_IMAGE_TYPE');
+  });
+
+  it.each([':raw', ':1-5'])(
+    'refuses the %s selector on an image before anything is stored',
+    async (selector) => {
+      const result = await read(`${urlOf('/shot.png')}${selector}`);
+
+      expect(result).toStrictEqual({
+        status: 'error',
+        type: 'invalid_selector',
+        message: IMAGE_SELECTOR_MESSAGE,
+      });
+      expect(attempts).toEqual([]);
+      expect(JSON.stringify(result)).not.toContain('PNG');
+      expect(requested()).toEqual([
+        { address: '127.0.0.1', path: '/shot.png' },
+      ]);
+    },
+  );
+
+  it('keeps an SVG body as text', async () => {
+    const result = await read(urlOf('/logo.svg'));
+
+    expect(result).toMatchObject({ status: 'success', method: 'text' });
+    expect(contentOf(result)).toContain('<svg xmlns=');
+    expect(attempts).toEqual([]);
+  });
+
+  it('refuses an image body past the 5 MiB bound before storing it', async () => {
+    const result = await read(urlOf('/huge.png'));
+    const error = errorOf(result);
+
+    expect(error.type).toBe('body_too_large');
+    expect(attempts).toEqual([]);
+  });
+
+  it.each([
+    ['/document.pdf', 'application/pdf'],
+    ['/blob', 'application/octet-stream'],
+  ])(
+    'refuses %s with its type named when images are accepted',
+    async (path, mediaType) => {
+      const result = await read(urlOf(path));
+      const error = errorOf(result);
+
+      expect(error.type).toBe('unsupported_content_type');
+      expect(error.message).toContain(mediaType);
+      expect(JSON.stringify(result)).not.toContain('%PDF');
+      expect(attempts).toEqual([]);
+    },
+  );
+
+  it('reports where a redirected image came from', async () => {
+    const result = await read(urlOf('/shot'));
+
+    expect(result).toStrictEqual({
+      status: 'success',
+      kind: 'image',
+      media: `media://${MEDIA_ID}`,
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+      path: urlOf('/shot'),
+      finalUrl: `http://cdn.example.test:${fixture.port}/shot.png`,
+      method: 'image',
+    });
+    expect(requested()).toEqual([
+      { address: '127.0.0.1', path: '/shot' },
+      { address: '127.0.0.2', path: '/shot.png' },
+    ]);
+  });
+
+  it('refuses an image body when the read has no media store', async () => {
+    const result = await read(urlOf('/shot.png'), { media: undefined });
+    const error = errorOf(result);
+
+    expect(error.type).toBe('unsupported_content_type');
+    expect(error.message).toContain('image/png');
+  });
+
+  it('refuses an image from an alternate, suffix, or llms.txt probe', async () => {
+    const article = await read(urlOf('/article'));
+    expect(article).toMatchObject({ status: 'success', method: 'readability' });
+    expect(contentOf(article)).toContain('## Negotiation');
+
+    // The render of this page fails the gate, so the llms.txt walk would
+    // decide the read had a candidate's image been accepted.
+    const gated = await read(urlOf('/guides/gated'));
+    expect(gated).toMatchObject({ status: 'success', method: 'raw' });
+    expect(contentOf(gated)).toContain('Sign in');
+
+    expect(requested()).toEqual(
+      expect.arrayContaining([
+        { address: '127.0.0.1', path: '/article-alternate.md' },
+        { address: '127.0.0.1', path: '/article.md' },
+        { address: '127.0.0.1', path: '/guides/gated.md' },
+        { address: '127.0.0.1', path: '/guides/llms.txt' },
+      ]),
+    );
+    expect(attempts).toEqual([]);
+  });
+
+  it('disqualifies an adapter whose origin answers with an image', async () => {
+    const result = await read(urlOf('/claimed.png'), {
+      webAdapters: [
+        {
+          id: 'reader',
+          use: 'rewrite',
+          hosts: ['example.test'],
+          target: `http://rewrite.test:${fixture.port}{path}`,
+        },
+      ],
+    });
+
+    expect(result).toStrictEqual({
+      status: 'success',
+      kind: 'image',
+      media: `media://${MEDIA_ID}`,
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+      path: urlOf('/claimed.png'),
+      finalUrl: urlOf('/claimed.png'),
+      method: 'image',
+      notes: ['web adapter "reader" fell through: content_type'],
+    });
+    expect(attempts.map(({ source }) => source)).toEqual([
+      urlOf('/claimed.png'),
+    ]);
+    expect(requested()).toEqual([
+      { address: '127.0.0.2', path: '/claimed.png' },
+      { address: '127.0.0.1', path: '/claimed.png' },
+    ]);
   });
 });
