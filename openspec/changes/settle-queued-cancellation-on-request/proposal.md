@@ -15,9 +15,12 @@ consuming, that wait is unbounded from the owner's side.
   model request, no assistant message.
 - Recording the request already blocks every later claim (a worker claims only
   a Run with no recorded cancellation), so the Run read back as `queued` after
-  recording can only be settled by this request or by a worker's pickup gate,
-  and first-writer-wins decides. A Run a worker claimed before the request was
-  recorded keeps today's behavior (recorded, settled by its executor).
+  recording can only be settled by this request, by a worker's pickup gate, or
+  by a non-cancellation writer (retry-exhaustion or admission expiry, enqueue
+  failure), and first-writer-wins decides. The response returns the Run re-read
+  after settlement, so it carries the winner's state. A Run a worker claimed
+  before the request was recorded keeps today's behavior (recorded, settled by
+  its executor).
 - The worker's existing pickup gate skips the now-terminal Run when its job
   arrives, so the queued job needs no deletion.
 
@@ -41,7 +44,8 @@ None.
   which can reach `settleTerminalRun`; the cancel tests and the existing
   settled-at-pickup integration test.
 - No schema, API shape, or configuration change; `PATCH /api/v1/runs/:id`
-  returns the Run as today, now already `cancelled` when it was queued.
+  returns the Run as today, now already terminal when it was queued:
+  `cancelled`, or the state of a writer that settled it first.
 
 ## Acceptance
 
@@ -52,6 +56,8 @@ None.
   changes nothing.
 - Cancelling a Run a worker has already claimed records the request and leaves
   settlement to the executor, as today.
+- Cancelling a queued Run that an expiry settled first returns it `expired`
+  with no `run.cancelled` event.
 
 ## Decisions for approval
 
@@ -59,6 +65,11 @@ None.
   deleting the pg-boss job, does not free the slot by itself and couples the
   API to queue internals; settling the Run row frees the slot and the pickup
   gate already handles the orphaned job.
+- **Q2 A lost settlement returns the winner's Run with 200.** When an expiry
+  or failure settles the queued Run before the request does, the response
+  returns the Run as stored (`expired` or `failed`) instead of the conflict a
+  request for an already-terminal Run gets, because the request found the Run
+  live and its cancellation recorded.
 
 ## Non-goals
 
