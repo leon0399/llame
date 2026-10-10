@@ -373,6 +373,45 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     expect((await search(a, 'user')).some((r) => r.id === id)).toBe(true);
   });
 
+  // media-attachments "An attachment filename is not searchable": the text
+  // beside the file part is indexed, the part's name and locator are not.
+  it('indexes nothing from an owner file part', async () => {
+    const mediaId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+    const id = await seedChat(a, null, [
+      {
+        role: 'user',
+        parts: [
+          { type: 'text', text: 'zzattachmenttext' },
+          {
+            type: 'file',
+            mediaType: 'image/png',
+            url: `media://${mediaId}`,
+            filename: 'zzquarterly.png',
+          },
+        ],
+      },
+      {
+        role: 'user',
+        parts: [
+          {
+            type: 'file',
+            mediaType: 'image/png',
+            url: `media://${mediaId}`,
+            filename: 'zzquarterly.png',
+          },
+        ],
+      },
+    ]);
+    await indexService.reindexChat(id, a);
+
+    expect((await search(a, 'zzattachmenttext')).some((r) => r.id === id)).toBe(
+      true,
+    );
+    for (const query of ['zzquarterly', mediaId]) {
+      expect((await search(a, query)).some((r) => r.id === id)).toBe(false);
+    }
+  });
+
   it('returns [] for a blank or whitespace query', async () => {
     expect(await search(a, '')).toEqual([]);
     expect(await search(a, '   ')).toEqual([]);

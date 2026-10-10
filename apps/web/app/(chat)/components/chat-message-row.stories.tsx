@@ -464,6 +464,64 @@ export const HiddenPlaceholderKeepsBoundary: Story = {
   },
 };
 
+/** A stored owner attachment: a `file` part referencing the media store. */
+const IMAGE_PART: UIMessage["parts"][number] = {
+  type: "file",
+  mediaType: "image/png",
+  url: "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8b",
+  filename: "diagram.png",
+};
+const IMAGE_CAPTION = "What does this diagram show?";
+
+/**
+ * An owner message with an attached image and a prompt: the text renders and
+ * the `file` part paints nothing — never the "unsupported part type" fallback.
+ *
+ * @summary an attached image is withheld beside its text
+ */
+export const AttachedImageWithText: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: {
+      id: "user-image-text",
+      role: "user",
+      parts: [IMAGE_PART, { type: "text", text: IMAGE_CAPTION }],
+    },
+  },
+  play: async ({ canvas }) => {
+    await waitFor(() => expect(canvas.getByText(IMAGE_CAPTION)).toBeVisible(), {
+      timeout: 15_000,
+    });
+    await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
+  },
+};
+
+/**
+ * An image-only owner message: no fallback text and no empty bubble — the
+ * row keeps only its fork action.
+ *
+ * @summary an image-only message paints no bubble
+ */
+export const ImageOnlyMessage: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "user-image-only",
+    message: { id: "user-image-only", role: "user", parts: [IMAGE_PART] },
+  },
+  play: async ({ canvas, canvasElement }) => {
+    const fork = await waitFor(
+      () => canvas.getByRole("button", { name: "Fork from here" }),
+      { timeout: 15_000 },
+    );
+    await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
+    // The action row is the row's first child: no bubble precedes it.
+    const row = canvasElement.querySelector(
+      '[data-message-key="user-image-only"]',
+    );
+    await expect(row?.firstElementChild).toContainElement(fork);
+  },
+};
+
 /** The paths one in-Run bundle touched: two loaded files (one cut at the
  *  per-file cap) and the one the `read` permission group denied. */
 const LOADED_INSTRUCTION_PATH = "/home/operator/repo/AGENTS.md";

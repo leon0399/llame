@@ -245,6 +245,86 @@ describe('CreateMessageDto', () => {
       ),
     ).rejects.toMatchObject({ status: 400 });
   });
+
+  describe('file parts', () => {
+    const modelId = 'system:openai:gpt-5.4-mini';
+    const media = (n: number) =>
+      `media://0192f3a4-5b6c-7d8e-9f01-${String(n).padStart(12, '0')}`;
+    const file = (url: string) => ({
+      type: 'file',
+      mediaType: 'image/png',
+      url,
+      filename: 'shot.png',
+    });
+    const send = (parts: ReadonlyArray<unknown>) =>
+      pipe.transform({ modelId, message: { id: message.id, parts } }, metadata);
+
+    it('accepts an image-only message and keeps text and file parts in submitted order', async () => {
+      await expect(send([file(media(1))])).resolves.toMatchObject({
+        message: { parts: [file(media(1))] },
+      });
+      const { mediaType, url } = file(media(2));
+      await expect(
+        send([
+          file(media(1)),
+          { type: 'text', text: 'compare' },
+          { type: 'file', mediaType, url },
+        ]),
+      ).resolves.toMatchObject({
+        message: {
+          parts: [
+            file(media(1)),
+            { type: 'text', text: 'compare' },
+            { type: 'file', mediaType, url },
+          ],
+        },
+      });
+    });
+
+    it('accepts ten file parts beside fifty text parts and rejects an eleventh file part', async () => {
+      const texts = Array.from({ length: 50 }, () => ({
+        type: 'text',
+        text: 'x',
+      }));
+      const files = Array.from({ length: 10 }, (_, n) => file(media(n)));
+      await expect(send([...texts, ...files])).resolves.toBeDefined();
+      await expect(
+        send([{ type: 'text', text: 'x' }, ...files, file(media(10))]),
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        send([...texts, { type: 'text', text: 'x' }]),
+      ).rejects.toMatchObject({ status: 400 });
+    });
+
+    it('rejects an empty parts array', async () => {
+      await expect(send([])).rejects.toMatchObject({ status: 400 });
+    });
+
+    it.each([
+      ['a data URL', 'data:image/png;base64,iVBORw0KGgo='],
+      ['an https URL', 'https://example.com/shot.png'],
+      ['bare media://', 'media://'],
+      ['an upper-case id', 'media://0192F3A4-5B6C-7D8E-9F01-00000000000A'],
+      ['a suffixed id', `${media(1)}/x`],
+    ])('rejects the whole message for %s', async (_label, url) => {
+      await expect(
+        send([{ type: 'text', text: 'see' }, file(url)]),
+      ).rejects.toMatchObject({ status: 400 });
+    });
+
+    it('rejects a file part without a mediaType, with extra keys, or of an unknown part type', async () => {
+      await expect(
+        send([{ type: 'file', url: media(1) }]),
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        send([{ ...file(media(1)), providerMetadata: {} }]),
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(
+        send([{ type: 'image', url: media(1) }]),
+      ).rejects.toMatchObject({ status: 400 });
+      await expect(send([null])).rejects.toMatchObject({ status: 400 });
+    });
+  });
 });
 
 describe('ChatMessagesQueryDto', () => {

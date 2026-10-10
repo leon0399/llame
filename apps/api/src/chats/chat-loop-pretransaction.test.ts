@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { MediaService } from '../media/media.service';
 import {
   ModelConfigurationError,
   EffortNotAvailableError,
@@ -63,6 +64,7 @@ function makeService(models?: {
       bridge,
       aborts,
       dispatch,
+      new MediaService(tenantDb),
     ),
     runAs,
     validateModelSelection,

@@ -52,6 +52,7 @@ function scriptedResolver(
 const descriptor: MediaDescriptor = {
   id: ID,
   name: 'shot.png',
+  mediaType: 'image/png',
   width: 3,
   height: 2,
   modelWidth: 3,
@@ -64,6 +65,7 @@ const descriptor: MediaDescriptor = {
 const descriptorRow = (d: MediaDescriptor): ReadonlyArray<unknown> => [
   d.id,
   d.name,
+  d.mediaType,
   d.width,
   d.height,
   d.modelWidth,

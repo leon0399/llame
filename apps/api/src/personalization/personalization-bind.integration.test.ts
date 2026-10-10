@@ -14,6 +14,7 @@ import { type Sql } from 'postgres';
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { MediaService } from '../media/media.service';
 import { type ModelSelectionValidator } from '../models/models.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { MessagesRepository } from '../chats/chats-repository';
@@ -166,6 +167,7 @@ describeIfDb('personalization binds per run', () => {
         dispatch: () => Promise.resolve(),
         jobState: () => Promise.resolve('absent'),
       },
+      new MediaService(tenantDb),
     );
     runExecution = new RunExecutionService(
       tenantDb,

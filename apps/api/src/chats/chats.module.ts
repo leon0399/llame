@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { MediaModule } from '../media/media.module';
 import { ModelsModule } from '../models/models.module';
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
@@ -21,6 +22,7 @@ import { SharedChatsController } from './shared-chats.controller';
 @Module({
   imports: [
     AuthModule,
+    MediaModule,
     ModelsModule,
     RunsModule,
     RunWorkerModule,
