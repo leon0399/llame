@@ -1,8 +1,7 @@
 /**
- * Reasoning-token end-to-end proof through the real loop (master slice of
- * #150's reasoning split — no tool loop here, so this exercises only the
- * reasoning<->text cross-flush, not the flush-before-tool.call invariant,
- * which stays on the tool-loop branch). A mock reasoning model emits a
+ * Reasoning-token end-to-end proof through the real loop, without tools: the
+ * reasoning<->text cross-flush. The flush ahead of a tool call is proven in
+ * `run-execution-tools.integration.test.ts`. A mock reasoning model emits a
  * thinking stream, then the answer; the run captures reasoning-delta and
  * persists `reasoning.delta` run-events IN STREAM ORDER — before the answer
  * text (the cross-flush fix) — and, on completion, persists the accumulated

@@ -1481,6 +1481,9 @@ export class RunExecutionService {
       args: unknown,
       toolCallId: string,
     ) => {
+      // Reasoning that directly precedes a call has no text to cross-flush
+      // it, so drain both buffers before the call's events.
+      persistReasoning(reasoningDeltas.flush());
       persistDelta(deltas.flush());
       reserveToolRequest(toolCallId, declaration.id, args);
       const executor = toolAdditions.executorFor(declaration.id);
@@ -1756,6 +1759,7 @@ export class RunExecutionService {
             input: callInput,
             reason,
           }) => {
+            persistReasoning(reasoningDeltas.flush());
             persistDelta(deltas.flush());
             const result =
               reason === 'not_available'
