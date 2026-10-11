@@ -1,6 +1,7 @@
 import type { TextStreamPart, ToolSet } from 'ai';
 
 import type { ModelStreamInput } from './model-client';
+import type { ToolCallGate } from './tool-call-gate';
 
 /**
  * The whole reasoning channel of one provider invocation, forwarded from ONE
@@ -35,6 +36,7 @@ import type { ModelStreamInput } from './model-client';
 export async function consumeReasoningStream(
   fullStream: AsyncIterable<TextStreamPart<ToolSet>>,
   onReasoningDelta: NonNullable<ModelStreamInput['onReasoningDelta']>,
+  gate: Pick<ToolCallGate, 'reach' | 'close'>,
 ): Promise<void> {
   // Zero-based step number, matching the SDK's own (`finish-step` closes the
   // step its parts already belong to). A stream that announces no step keeps
@@ -44,6 +46,11 @@ export async function consumeReasoningStream(
     for await (const part of fullStream) {
       if (part.type === 'finish-step') {
         step += 1;
+        continue;
+      }
+      // Every reasoning delta ahead of this call is delivered by now (#1184).
+      if (part.type === 'tool-call') {
+        gate.reach(part.toolCallId);
         continue;
       }
       if (
@@ -66,5 +73,7 @@ export async function consumeReasoningStream(
   } catch {
     // See the contract above: the run's own stream consumption reports the
     // failure, so this consumer just ends.
+  } finally {
+    gate.close();
   }
 }

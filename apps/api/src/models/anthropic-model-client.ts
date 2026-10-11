@@ -33,6 +33,7 @@ import {
   productUserAgentHeaders,
   trackAbortSettlement,
 } from './openai-model-client';
+import { createToolCallGate } from './tool-call-gate';
 import { applyRequestUsageCallback } from './request-usage';
 import {
   applyStreamIdleWatchdog,
@@ -355,17 +356,18 @@ function anthropicStatusMessage(statusCode: number): string {
 /**
  * Builds one streaming request: the declared Messages wire (anthropic-provider
  * D1), the caller's message/system/abort plumbing, the composed options, the
- * catalog output limit, and the shared tool loop. Text deltas ride `onChunk`;
- * the whole reasoning channel — deltas, part metadata, and the
- * provider-invocation-scoped part ids — comes off one `fullStream` branch the
- * shared terminal deferral starts for this request.
+ * catalog output limit, and the shared tool loop with its tool-call gate.
+ * Text deltas ride `onChunk`; the whole reasoning channel — deltas, part
+ * metadata, and the provider-invocation-scoped part ids — comes off one
+ * `fullStream` branch the shared terminal deferral starts for this request.
  */
 function buildStreamOptions(
   provider: AnthropicProvider,
   config: AnthropicModelClientConfig,
   input: ModelStreamInput,
   onError: ModelStreamInput['onError'],
-): Parameters<typeof streamText>[0] {
+) {
+  const gate = createToolCallGate();
   const streamOptions: Parameters<typeof streamText>[0] & {
     model: LanguageModelV3;
   } = {
@@ -387,7 +389,7 @@ function buildStreamOptions(
       maxOutputTokens: config.maxOutputTokens,
     }),
   };
-  applyToolCallingOptions(streamOptions, input);
+  applyToolCallingOptions(streamOptions, input, gate);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
   if (input.onTextDelta) {
@@ -397,7 +399,7 @@ function buildStreamOptions(
       }
     };
   }
-  return streamOptions;
+  return { streamOptions, gate };
 }
 
 function runAnthropicStream(
@@ -407,7 +409,7 @@ function runAnthropicStream(
   input: ModelStreamInput,
 ) {
   const onError = input.onError;
-  const streamOptions = buildStreamOptions(
+  const { streamOptions, gate } = buildStreamOptions(
     provider,
     config,
     input,
@@ -424,7 +426,7 @@ function runAnthropicStream(
   const settlement = trackAbortSettlement(input, terminals);
   streamOptions.onAbort = settlement.onAbort;
   const result = dependencies.streamText(streamOptions);
-  bindReasoningChannel(terminals, result, input);
+  bindReasoningChannel(terminals, result, input, gate);
 
   return awaitSettlementAfter(
     result,
