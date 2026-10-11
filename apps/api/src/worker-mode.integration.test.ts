@@ -241,9 +241,13 @@ d('queue-executed runs behind the stream bridge', () => {
     const events = await tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(run.id, userId),
     );
+    const dispatchedAttemptId: unknown = expect.any(String);
     expect(
       events.find((event) => event.eventType === 'model.requested')?.payload,
-    ).toEqual({ modelId: 'system:openai:gpt-5.4-mini' });
+    ).toEqual({
+      modelId: 'system:openai:gpt-5.4-mini',
+      attemptId: dispatchedAttemptId,
+    });
     const messages = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );

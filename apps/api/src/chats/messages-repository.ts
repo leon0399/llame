@@ -17,9 +17,9 @@ import {
   eq,
   gt,
   inArray,
+  isNotNull,
   lt,
   lte,
-  max,
   ne,
   sql,
   type SQL,
@@ -27,22 +27,15 @@ import {
 import { countAbsorbedMessages } from './absorbed-message-count';
 import { type Message, type MessageRole, chats, messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { isString, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  insertWithChatSequence,
+  type MessageInsertWithoutSequence,
+} from './message-sequence';
 import {
   findConversationMessage,
   type ConversationMessageLookup,
 } from './conversation-message-lookup';
 import { type ContextItemPart } from './context-item';
-
-// Fixed application budget, not operator configuration. Current writers are
-// bounded to assistant finalization/salvage after accepted-turn admission has
-// rejected or expired an active Run; eight attempts leaves a defensive retry
-// wave without permitting an unbounded transaction loop.
-const MESSAGE_SEQUENCE_INSERT_ATTEMPTS = 8;
-const MESSAGE_SEQUENCE_UNIQUE_INDEX = 'messages_chat_seq_unique_idx';
-
-type MessageInsert = typeof messages.$inferInsert;
-type MessageInsertWithoutSequence = Omit<MessageInsert, 'seq'>;
 
 /** A checkpoint row; the repository guarantees its boundary is present. */
 export type CheckpointMessage = Message & { absorbedThroughSeq: number };
@@ -51,27 +44,32 @@ function isCheckpointMessage(row: Message): row is CheckpointMessage {
   return row.absorbedThroughSeq !== null;
 }
 
-function isCauseChainLink(value: unknown): value is UnknownRecord {
-  return typeof value === 'object' && value !== null;
-}
+/**
+ * Hides an assistant reply whose Run is still in flight. The row exists from
+ * the first model request so its in-Run context items survive a failed Run,
+ * but owner-facing reads (history, forks, shares, previews) never show it
+ * until a terminal writer finalizes it. Only assistant rows carry `running`,
+ * so the predicate applies to every role.
+ */
+const notRunningReply = sql`(${messages.usage} ->> 'status') is distinct from 'running'`;
 
-function isMessageSequenceUniqueViolation(error: unknown): boolean {
-  for (
-    let current = error;
-    isCauseChainLink(current);
-    current = current['cause']
-  ) {
-    const namesSequenceIndex =
-      (isString(current['constraint_name']) &&
-        current['constraint_name'] === MESSAGE_SEQUENCE_UNIQUE_INDEX) ||
-      (isString(current['message']) &&
-        current['message'].includes(MESSAGE_SEQUENCE_UNIQUE_INDEX));
-    if (current['code'] === '23505' && namesSequenceIndex) {
-      return true;
-    }
-  }
-  return false;
-}
+/**
+ * An assistant reply a writer may still replace. Atomic guard against a retry
+ * race: two overlapping retries of the same aborted/error turn can both pass
+ * the app-level isCompletedAssistantTurn check before either writes. Without
+ * this, a stale callback could overwrite (or revert to aborted) a reply
+ * another retry already marked completed. Re-checking status in the WHERE
+ * means a row that became `completed` no longer matches, so the loser writes
+ * nothing and the completed answer stays intact.
+ *
+ * EXACTLY isCompletedAssistantTurn's semantics — the two layers must never
+ * disagree on what "completed" means. `->` (jsonb) vs `->>` (text)
+ * distinguishes the cases:
+ *   usage not an object / no 'status' key → `->` IS NULL   → immutable
+ *   {status: 'completed'}                 → text match     → immutable
+ *   {status: <anything else, incl. null>} → DISTINCT FROM  → replaceable
+ */
+export const replaceableReply = sql`(${messages.usage} -> 'status') is not null and (${messages.usage} ->> 'status') is distinct from 'completed'`;
 
 export class MessagesRepository {
   constructor(private readonly db: Db) {}
@@ -203,9 +201,9 @@ export class MessagesRepository {
   /**
    * Run `predicates` against the joined messages/chats query, windowed
    * oldest-first: unbounded ascending, or the most recent `limit` rows
-   * (queried newest-first, then reversed back to ascending). Shared by every
-   * caller of this ordering/limiting shape — currently `findByChatId` and
-   * `listPublicByChatId` — so the desc+limit+reverse-for-a-window pattern
+   * (queried newest-first, then reversed back to ascending). Shared by
+   * `findByChatId`, `findForkSource` and `listPublicByChatId`, so the
+   * desc+limit+reverse-for-a-window pattern and the running-reply exclusion
    * can't drift between them.
    */
   private async windowedByPredicates(
@@ -216,7 +214,7 @@ export class MessagesRepository {
       .select()
       .from(messages)
       .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(and(...predicates));
+      .where(and(...predicates, notRunningReply));
 
     const rows =
       options?.limit === undefined
@@ -231,7 +229,8 @@ export class MessagesRepository {
 
   /**
    * Find a single message by id, scoped to a chat + owner (defense-in-depth).
-   * Returns undefined if not found, in a different chat, or not owned by this user.
+   * Returns undefined if not found, in a different chat, not owned by this
+   * user, or a reply whose Run is still running.
    */
   async findById(
     chatId: string,
@@ -247,6 +246,7 @@ export class MessagesRepository {
           eq(messages.id, messageId),
           eq(messages.chatId, chatId),
           eq(chats.ownerUserId, ownerUserId),
+          notRunningReply,
         ),
       )
       .limit(1);
@@ -307,7 +307,8 @@ export class MessagesRepository {
   }
 
   /**
-   * Latest message per owned chat (highest seq) — chat-list previews.
+   * Latest message per owned chat (highest seq) — chat-list previews. A reply
+   * still running is skipped, so the preview stays on the newest visible row.
    *
    * Owner-scoped via the chats join, same defense-in-depth as findByChatId:
    * RLS is the primary guarantee, the ownerUserId predicate is the seatbelt.
@@ -321,6 +322,7 @@ export class MessagesRepository {
         and(
           eq(chats.ownerUserId, ownerUserId),
           inArray(messages.role, ['user', 'assistant']),
+          notRunningReply,
         ),
       )
       .orderBy(messages.chatId, desc(messages.seq));
@@ -521,7 +523,8 @@ export class MessagesRepository {
     };
     if (input.id !== undefined) values.id = input.id;
 
-    const created = await this.insertWithChatSequence(
+    const created = await insertWithChatSequence(
+      this.db,
       values,
       async (tx, row) => {
         const [inserted] = await tx.insert(messages).values(row).returning();
@@ -541,7 +544,8 @@ export class MessagesRepository {
     parts: Array<unknown>;
     attachments?: Array<unknown>;
   }): Promise<Message | undefined> {
-    return this.insertWithChatSequence(
+    return insertWithChatSequence(
+      this.db,
       {
         id: input.id,
         chatId: input.chatId,
@@ -567,7 +571,8 @@ export class MessagesRepository {
     usage?: unknown;
     inReplyTo: string;
   }): Promise<Message | undefined> {
-    return this.insertWithChatSequence(
+    return insertWithChatSequence(
+      this.db,
       {
         chatId: input.chatId,
         role: 'assistant',
@@ -588,38 +593,34 @@ export class MessagesRepository {
     );
   }
 
-  private async insertWithChatSequence(
-    values: MessageInsertWithoutSequence,
-    insert: (tx: Db, row: MessageInsert) => Promise<Message | undefined>,
-  ): Promise<Message | undefined> {
-    let sequenceConflict: unknown;
-    for (
-      let attempt = 0;
-      attempt < MESSAGE_SEQUENCE_INSERT_ATTEMPTS;
-      attempt++
-    ) {
-      try {
-        return await this.db.transaction(async (tx) => {
-          const [current] = await tx
-            .select({ value: max(messages.seq) })
-            .from(messages)
-            .where(eq(messages.chatId, values.chatId));
-          const seq = (current?.value ?? 0) + 1;
-          if (!Number.isSafeInteger(seq) || seq <= 0) {
-            throw new Error(
-              `Chat ${values.chatId} exhausted safe message sequence values`,
-            );
-          }
-          return insert(tx, { ...values, seq });
-        });
-      } catch (error) {
-        if (!isMessageSequenceUniqueViolation(error)) {
-          throw error;
-        }
-        sequenceConflict = error;
-      }
-    }
-    throw sequenceConflict;
+  /**
+   * The model that produced the newest assistant reply before `beforeSeq`,
+   * whatever that reply's status and whether or not a checkpoint absorbed
+   * it. Replies that record no model are skipped.
+   */
+  async findLatestReplyModelIdBefore(
+    chatId: string,
+    ownerUserId: string,
+    beforeSeq: number,
+  ): Promise<string | undefined> {
+    const modelId = sql<string>`(${messages.usage} ->> 'modelId')`;
+    const [row] = await this.db
+      .select({ modelId })
+      .from(messages)
+      .innerJoin(chats, eq(messages.chatId, chats.id))
+      .where(
+        and(
+          eq(messages.chatId, chatId),
+          eq(chats.ownerUserId, ownerUserId),
+          eq(messages.role, 'assistant'),
+          lt(messages.seq, beforeSeq),
+          isNotNull(modelId),
+        ),
+      )
+      .orderBy(desc(messages.seq))
+      .limit(1);
+
+    return row?.modelId;
   }
 
   async updateAssistantReply(input: {
@@ -641,19 +642,7 @@ export class MessagesRepository {
           eq(messages.chatId, input.chatId),
           eq(messages.role, 'assistant'),
           eq(messages.inReplyTo, input.inReplyTo),
-          // Atomic guard against a retry race: two overlapping retries of the same
-          // aborted/error turn can both pass the app-level isCompletedAssistantTurn check
-          // before either writes. Without this, a stale callback could overwrite (or revert
-          // to aborted) a reply another retry already marked completed. Re-check status in
-          // the WHERE so a row that became `completed` no longer matches → the loser updates
-          // 0 rows and returns undefined, leaving the completed answer intact.
-          // EXACTLY isCompletedAssistantTurn's semantics — the two layers must
-          // never disagree on what "completed" means. `->` (jsonb) vs `->>`
-          // (text) distinguishes the cases:
-          //   usage not an object / no 'status' key → `->` IS NULL   → immutable
-          //   {status: 'completed'}                 → text match     → immutable
-          //   {status: <anything else, incl. null>} → DISTINCT FROM  → retryable
-          sql`(${messages.usage} -> 'status') is not null and (${messages.usage} ->> 'status') is distinct from 'completed'`,
+          replaceableReply,
         ),
       )
       .returning();

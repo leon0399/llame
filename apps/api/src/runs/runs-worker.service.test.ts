@@ -21,7 +21,10 @@ import {
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type WorkerConcurrencyResolver } from '../instance-config/worker-profile.service';
-import { type ModelClientFactory } from '../models/models.service';
+import {
+  ModelNotAvailableError,
+  type ModelClientFactory,
+} from '../models/models.service';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { type RunAbortRegistrar } from './run-abort-registry';
 import { ModelContextExecutionError } from './model-context-errors';
@@ -466,6 +469,36 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       status: 'cancelled',
       runPayload: { status: 'cancelled', message: cancellationMessage },
       error: { message: cancellationMessage },
+    });
+  });
+
+  it('routes a pickup failure through central terminal settlement, which refreshes search', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(queuedRun);
+    const settleTerminalRun = vi.fn().mockResolvedValue({
+      outcome: 'won' as const,
+    });
+    const unavailable = new ModelNotAvailableError(job.modelId);
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: {
+        createClient: () => {
+          throw unavailable;
+        },
+      },
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+    });
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler(job);
+
+    expect(settleTerminalRun).toHaveBeenCalledWith({
+      runId: job.runId,
+      userId: job.userId,
+      status: 'failed',
+      runPayload: { status: 'failed', message: unavailable.message },
+      error: { message: unavailable.message },
     });
   });
 });

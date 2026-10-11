@@ -3,7 +3,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { QUEUE, type JobState, type Queue } from '../queue/queue';
-import { failRunTransactionally } from './runs-repository';
+import { failRunTransactionally } from './run-reply-finalizer';
 import { RUNS_QUEUE, runsQueueDefinition, type RunJob } from './run-queues';
 
 /**
@@ -55,7 +55,12 @@ export class RunDispatchService {
         error instanceof Error ? error.stack : String(error),
       );
       const message = 'Could not queue the run for execution.';
-      await failRunTransactionally(this.tenantDb, job, message);
+      await failRunTransactionally(
+        this.tenantDb,
+        job,
+        message,
+        this.instanceConfig.config.models,
+      );
       throw error;
     }
   }

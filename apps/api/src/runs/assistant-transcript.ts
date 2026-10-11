@@ -7,8 +7,8 @@
  *
  * Two producers share this vocabulary: `createAssistantPartCollector` is fed
  * live during `RunExecutionService#executeRun`'s stream callbacks, and
- * `reconstructDurableAssistant` replays a persisted event log (used by
- * `finishRun` when a run terminalizes without its own in-memory turn, e.g.
+ * `reconstructDurableAssistant` replays a persisted event log (used by the
+ * reply finalizer when a run terminalizes without its own in-memory turn, e.g.
  * dead-letter expiry). Both go through the same `toolActivityPart` shaping
  * and the same occurrence-order rules, so a durable-replayed transcript and a
  * live-collected one are indistinguishable to the UI.
@@ -21,10 +21,7 @@ import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { type ProviderMetadata } from 'ai';
 import { type RunEvent } from '../db/schema';
 import { type MessagePart } from '../chats/context-builder';
-import {
-  isContextItemPart,
-  type AuthoredContextItemPart,
-} from '../chats/context-item';
+import { type AuthoredContextItemPart } from '../chats/context-item';
 import {
   isHopRejection,
   normalizeToolObservationOutcome,
@@ -262,10 +259,9 @@ class AssistantPartCollectorImpl {
   }
 
   /**
-   * An in-Run context item (design D1): appended where the transcript had
-   * reached when the producing step's results settled, so a completed turn
-   * stores it after that step's last tool part. Only a completed winning
-   * attempt publishes it — `withoutContextItems` fences every other outcome.
+   * An in-Run context item (design D3): appended where the transcript had
+   * reached when the producing step's results settled, so the reply stores it
+   * after that step's last tool part whatever the attempt's outcome.
    */
   contextItem(part: AuthoredContextItemPart): void {
     this.collected.push(part);
@@ -284,20 +280,6 @@ class AssistantPartCollectorImpl {
 /** Builds the stored assistant transcript in the exact order llame observed it. */
 export function createAssistantPartCollector(): AssistantPartCollectorImpl {
   return new AssistantPartCollectorImpl();
-}
-
-/**
- * Drop the rail parts a turn collected in-Run. A non-completed outcome
- * publishes what the user actually saw and nothing else: the attempt's staged
- * context items are the winning attempt's to publish (design D1). An absent
- * turn stays absent; every other field is carried over unchanged.
- */
-export function withoutContextItems<
-  T extends { readonly parts: ReadonlyArray<MessagePart> },
->(turn: T | undefined): T | undefined {
-  return turn === undefined
-    ? undefined
-    : { ...turn, parts: turn.parts.filter((part) => !isContextItemPart(part)) };
 }
 
 export type ToolActivityPartInput = {

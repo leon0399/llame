@@ -1162,8 +1162,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
       .spyOn(turnTelemetryLogger, 'info')
       .mockImplementation(() => {});
     const seeded = await seedBoundRun(`dead-letter-${crypto.randomUUID()}`);
+    // A Run dispatched before the reply existed from first dispatch: its log
+    // has a `model.requested` and no reply row, so the finalizer builds the
+    // reply from the full event log.
     await tenantDb.runAs(userId, async (tx) => {
       const events = new RunEventsRepository(tx);
+      await events.append(seeded.run.id, 'model.requested', {
+        modelId: seeded.run.modelId,
+      });
       await events.append(seeded.run.id, 'model.delta', { text: 'Before. ' });
       await events.append(seeded.run.id, 'tool.requested', {
         toolCallId: 'dead-call',
@@ -1226,7 +1232,15 @@ describeIfDb('executeRun tool-loop persistence', () => {
         }),
         { type: 'text', text: 'After.' },
       ]);
-      expect(assistant?.usage).toBeNull();
+      // Terminal usage is written even with no telemetry: the expired status,
+      // incomplete, and the Run's identity, with no tokens.
+      expect(assistant?.usage).toMatchObject({
+        status: 'aborted',
+        complete: false,
+        runId: seeded.run.id,
+        modelId: seeded.run.modelId,
+      });
+      expect(assistant?.usage).not.toHaveProperty('inputTokens');
       expect(touchSpy).toHaveBeenCalledTimes(1);
       expect(touchSpy).toHaveBeenCalledWith(seeded.chatId, userId);
       expect(reindexChat).toHaveBeenCalledTimes(1);
@@ -1393,9 +1407,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
           resultProviderMetadata: { llame: { cancelled: true } },
         }),
       );
+      const dispatched = events.find(
+        (event) => event.eventType === 'model.requested',
+      )?.payload;
+      expect(dispatched).toMatchObject({ attemptId: expect.any(String) });
       expect(assistant?.usage).toEqual(
         expect.objectContaining({
           runId: seeded.run.id,
+          attemptId: isRecord(dispatched) ? dispatched.attemptId : undefined,
           status: 'error',
           complete: false,
         }),
@@ -2756,6 +2775,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
             outcome: 'success',
           },
         ],
+        // The model-switch baseline is this reply's recorded model.
+        usage: { status: 'completed', modelId: 'source-model' },
       });
       await messages.create({
         chatId,
@@ -5081,32 +5102,50 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
     );
 
-    it('publishes no in-Run item when the attempt fails after staging it', async () => {
+    /** The Run's reply row in any state, `running` included. */
+    async function replyRow(seeded: {
+      readonly chatId: string;
+      readonly userMessage: { readonly id: string };
+    }): Promise<schema.Message | undefined> {
+      const turn = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findTurnState(
+          seeded.chatId,
+          userId,
+          seeded.userMessage.id,
+        ),
+      );
+      return turn.assistantMessage;
+    }
+
+    it('keeps an in-Run item on the failed reply in position when the attempt fails after staging it', async () => {
       const seeded = await seedBoundRun(
         `in-run-item-failed-${crypto.randomUUID()}`,
       );
       const service = serviceWithTools({
         inRunProducer: syntheticItemProducer(),
       });
+      const replyAtRequest: Array<schema.Message | undefined> = [];
+      const historyAtFirstRequest: Array<string> = [];
       let turn = 0;
       const model = new MockLanguageModelV3({
-        doStream: () => {
+        doStream: async () => {
           turn += 1;
+          replyAtRequest.push(await replyRow(seeded));
           if (turn === 1) {
-            return Promise.resolve(
-              jsonToolCallResponse('call-1', 'search_conversations', {
-                mode: 'content',
-                query: 'budget',
-              }),
+            const history = await tenantDb.runAs(userId, (tx) =>
+              new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
             );
+            historyAtFirstRequest.push(...history.map(({ role }) => role));
+            return jsonToolCallResponse('call-1', 'search_conversations', {
+              mode: 'content',
+              query: 'budget',
+            });
           }
           if (turn === 2) {
-            return Promise.resolve(
-              jsonToolCallResponse('call-2', 'search_conversations', {
-                mode: 'content',
-                query: 'annual budget',
-              }),
-            );
+            return jsonToolCallResponse('call-2', 'search_conversations', {
+              mode: 'content',
+              query: 'annual budget',
+            });
           }
           const chunks: Array<LanguageModelV3StreamPart> = [
             { type: 'stream-start', warnings: [] },
@@ -5115,9 +5154,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
               error: new Error('provider dropped the stream'),
             },
           ];
-          return Promise.resolve({
-            stream: simulateReadableStream({ chunks }),
-          });
+          return { stream: simulateReadableStream({ chunks }) };
         },
       });
 
@@ -5135,33 +5172,74 @@ describeIfDb('executeRun tool-loop persistence', () => {
           return events.some((event) => event.eventType === 'run.failed');
         });
 
-        // The item was genuinely in flight: the failing step's own request
-        // carried it directly after call-1's tool result.
+        // The reply exists from the first request, empty and `running` for
+        // the dispatching attempt, and history does not show it yet.
+        const events = await tenantDb.runAs(userId, (tx) =>
+          new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+        );
+        const requested = events.find(
+          (event) => event.eventType === 'model.requested',
+        )?.payload;
+        const attemptId = isRecord(requested) ? requested.attemptId : undefined;
+        expect(attemptId).toEqual(expect.any(String));
+        expect(replyAtRequest[0]).toMatchObject({
+          role: 'assistant',
+          parts: [],
+          usage: {
+            status: 'running',
+            complete: false,
+            runId: seeded.run.id,
+            attemptId,
+            modelId: 'mock',
+          },
+        });
+        expect(replyAtRequest[0]?.usage).not.toHaveProperty('effort');
+        expect(replyAtRequest[0]?.usage).not.toHaveProperty('permissionMode');
+        expect(historyAtFirstRequest).toEqual(['user']);
+
+        // The item was written through with the reply's snapshot before the
+        // request that first carried it, after call-1's tool part.
+        const snapshot = (replyAtRequest[1]?.parts ?? []).filter(isTypedPart);
+        expect(snapshot.map((part) => part.type)).toEqual([
+          'tool-search_conversations',
+          'data-context',
+        ]);
+        expect(snapshot[0]).toMatchObject({ toolCallId: 'call-1' });
+        expect(replyAtRequest[1]?.usage).toMatchObject({
+          status: 'running',
+          attemptId,
+        });
         assertItemDirectlyAfterToolResult(
           model.doStreamCalls[2]?.prompt,
           'call-1',
         );
 
-        // A failed attempt publishes no item: the persisted transcript keeps
-        // only the tool activity that ran.
-        const messages = await tenantDb.runAs(userId, (tx) =>
-          new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
-        );
-        const assistant = messages.find(
-          (message) =>
-            message.role === 'assistant' &&
-            message.inReplyTo === seeded.userMessage.id,
-        );
+        // The failed reply keeps the item in position, between the step that
+        // triggered it and the next step's tool activity.
+        const assistant = await replyRow(seeded);
         const parts = (assistant?.parts ?? []).filter(isTypedPart);
         expect(parts.map((part) => part.type)).toEqual([
           'tool-search_conversations',
+          'data-context',
           'tool-search_conversations',
         ]);
+        expect(parts[0]).toMatchObject({ toolCallId: 'call-1' });
+        expect(parts[1]).toMatchObject({
+          data: { producer: 'workspace', text: IN_RUN_ITEM_TEXT },
+        });
+        expect(parts[2]).toMatchObject({ toolCallId: 'call-2' });
+        expect(assistant?.usage).toMatchObject({
+          status: 'error',
+          complete: false,
+          runId: seeded.run.id,
+          attemptId,
+          modelId: 'mock',
+        });
         expect(
           (await storedContextParts(seeded.chatId)).filter(
             ({ data }) => data.producer === 'workspace',
           ),
-        ).toEqual([]);
+        ).toHaveLength(1);
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
       }
@@ -6471,15 +6549,15 @@ describeIfDb('executeRun tool-loop persistence', () => {
       }
     });
 
-    it('leaves nothing seen when an attempt fails after loading', async () => {
+    it("keeps a failed attempt's in-Run bundle on its reply in position, and the next turn loads none of it again", async () => {
       const root = instructionFixture();
       const readPath = path.join(root, 'apps/api/src/x.ts');
       const seeded = await seedBoundRun(
         `instructions-attempt-failed-${crypto.randomUUID()}`,
       );
       const service = instructionsService();
-      // The first step triggers the load; the second drops the stream before
-      // the turn can publish.
+      // The first step triggers the load; the second drops the stream after
+      // its request carried the bundle.
       let step = 0;
       const failing = new MockLanguageModelV3({
         doStream: () => {
@@ -6523,16 +6601,35 @@ describeIfDb('executeRun tool-loop persistence', () => {
           return events.some((event) => event.eventType === 'run.failed');
         });
 
-        // The failed attempt published nothing: its bundle is not history.
-        expect(await instructionItems(seeded)).toEqual([]);
-        expect(await storedInstructionPart(seeded.chatId)).toBeUndefined();
-
-        // The retry's first trigger loads the same files again.
-        const retrySeeded = await seedRunOnChat(
-          seeded,
-          `instructions-attempt-retry-${crypto.randomUUID()}`,
+        // The bundle stays on the failed reply with the output it was produced
+        // under, directly after the read that triggered it.
+        expect(await instructionItems(seeded)).toHaveLength(1);
+        const messages = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
         );
-        const retry = firstStepThenAnswer(
+        const assistant = messages.find(
+          (message) =>
+            message.role === 'assistant' &&
+            message.inReplyTo === seeded.userMessage.id,
+        );
+        expect(assistant?.usage).toMatchObject({ status: 'error' });
+        const parts = (assistant?.parts ?? []).filter(isTypedPart);
+        expect(parts.map((part) => part.type)).toEqual([
+          'tool-read',
+          'data-context',
+        ]);
+        expect(parts[0]).toMatchObject({ toolCallId: 'read-x' });
+        expect(parts[1]).toMatchObject({
+          data: { producer: 'instructions', runId: seeded.run.id },
+        });
+
+        // The next turn's history names those files, so its trigger loads
+        // nothing for them.
+        const nextSeeded = await seedRunOnChat(
+          seeded,
+          `instructions-attempt-next-${crypto.randomUUID()}`,
+        );
+        const next = firstStepThenAnswer(
           [
             {
               toolCallId: 'read-y',
@@ -6540,16 +6637,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
               input: { path: readPath },
             },
           ],
-          'Retried.',
+          'Read again.',
         );
-        const retryExecution = await executeSeeded(
-          retrySeeded,
+        const nextExecution = await executeSeeded(
+          nextSeeded,
           service,
-          createMockModelClient(retry),
+          createMockModelClient(next),
         );
-        await retryExecution.consumeStream?.();
-        await waitForCompleted(retrySeeded.run.id);
-        expect(await instructionItems(retrySeeded)).toHaveLength(1);
+        await nextExecution.consumeStream?.();
+        await waitForCompleted(nextSeeded.run.id);
+        expect(await instructionItems(nextSeeded)).toEqual([]);
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         rmSync(root, { recursive: true, force: true });

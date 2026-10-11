@@ -31,7 +31,7 @@ import {
   type RunEvent,
   type RunStatus,
 } from '../db/schema';
-import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { type Db } from '../db/tenant-db.service';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 
 /** A completed run paired with the sequence of its triggering user message. */
@@ -533,32 +533,4 @@ export class RunEventsRepository {
 
     return rows.map((r) => r.run_events);
   }
-}
-
-/**
- * Mark a run failed and append its `run.failed` event, in one tenant-scoped
- * transaction. Shared by every failure origin that must produce the same
- * outcome — enqueue failure (RunDispatchService) and in-flight worker failure
- * (RunsWorkerService) — so the run row and its event log can never disagree
- * about why a run ended.
- */
-export async function failRunTransactionally(
-  tenantDb: TenantRunner,
-  job: { runId: string; userId: string },
-  message: string,
-): Promise<void> {
-  await tenantDb.runAs(job.userId, async (tx) => {
-    const failed = await new RunsRepository(tx).markFinished(
-      job.runId,
-      job.userId,
-      'failed',
-      { error: { message } },
-    );
-    if (failed) {
-      await new RunEventsRepository(tx).append(job.runId, 'run.failed', {
-        status: 'failed',
-        message,
-      });
-    }
-  });
 }

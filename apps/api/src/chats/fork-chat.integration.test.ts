@@ -16,7 +16,7 @@ import { NotFoundException } from '@nestjs/common';
  * TEST_DATABASE_URL-gated; run by test:integration.
  */
 
-import { sql as dsql } from 'drizzle-orm';
+import { asc, eq, sql as dsql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { type Sql } from 'postgres';
@@ -28,6 +28,7 @@ import * as schema from '../db/schema';
 import { type Chat, type Message } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { RunningReplyRepository } from './running-reply-repository';
 import { toSharedChatResponse } from './dto/chats.dto';
 import { ChatsService } from './chats.service';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
@@ -525,6 +526,135 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
 
     const bChats = await service.listChatsWithLastMessage(b);
     expect(bChats).toEqual([]);
+  });
+
+  // Source `U1 A1 U2 A2` plus an accepted `U3` whose Run has dispatched: its
+  // reply is `running`, with partial output and a stored in-Run item.
+  const seedInFlightRun = async () => {
+    const seeded = await seedChat(a);
+    return tenantDb.runAs(a, async (tx) => {
+      const messages = new MessagesRepository(tx);
+      const user3 = await messages.create({
+        chatId: seeded.chatId,
+        role: 'user',
+        senderUserId: a,
+        parts: [{ type: 'text', text: 'q3' }],
+      });
+      const replies = new RunningReplyRepository(tx);
+      const reply = await replies.upsertRunningReply({
+        chatId: seeded.chatId,
+        inReplyTo: user3.id,
+        usage: {
+          status: 'running',
+          complete: false,
+          runId: '33333333-3333-4333-8333-333333333333',
+          attemptId: '44444444-4444-4444-8444-444444444444',
+          modelId: 'model-a',
+        },
+      });
+      if (reply === undefined) expect.unreachable('expected a running reply');
+      const stored = await replies.updateRunningReplyParts({
+        chatId: seeded.chatId,
+        inReplyTo: user3.id,
+        attemptId: '44444444-4444-4444-8444-444444444444',
+        parts: [
+          {
+            type: 'data-context',
+            data: {
+              v: 1,
+              producer: 'instructions',
+              form: 'snapshot',
+              runId: '33333333-3333-4333-8333-333333333333',
+              payload: { files: [] },
+              text: 'IN_RUN_ITEM',
+            },
+          },
+          { type: 'text', text: 'PARTIAL_OUTPUT' },
+        ],
+      });
+      expect(stored).toBe(true);
+      return { ...seeded, user3Id: user3.id, replyId: reply.id };
+    });
+  };
+
+  it('a whole-chat fork during a Run copies the accepted user turn but not its running reply', async () => {
+    const source = await seedInFlightRun();
+
+    const forked = await service.forkChat(source.chatId, a, undefined);
+
+    const copied = await tenantDb.runAs(a, (tx) =>
+      new MessagesRepository(tx).findByChatId(forked.id, a),
+    );
+    expect(copied.map((m) => textOf(m.parts))).toEqual([
+      'q1',
+      'a1',
+      'q2',
+      'a2',
+      'q3',
+    ]);
+    // Not merely hidden on read: the destination holds no assistant row for U3.
+    const destinationRows = await tenantDb.runAs(a, (tx) =>
+      tx
+        .select({ role: schema.messages.role })
+        .from(schema.messages)
+        .where(eq(schema.messages.chatId, forked.id))
+        .orderBy(asc(schema.messages.seq)),
+    );
+    expect(destinationRows.map(({ role }) => role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+      'user',
+    ]);
+    expect(JSON.stringify(copied)).not.toContain('PARTIAL_OUTPUT');
+    expect(JSON.stringify(copied)).not.toContain('IN_RUN_ITEM');
+
+    // The Run's later settlement lands on the source reply only.
+    await tenantDb.runAs(a, (tx) =>
+      new MessagesRepository(tx).updateAssistantReply({
+        id: source.replyId,
+        chatId: source.chatId,
+        inReplyTo: source.user3Id,
+        parts: [{ type: 'text', text: 'a3' }],
+        usage: { status: 'completed', modelId: 'model-a' },
+      }),
+    );
+    const [sourceAfter, forkAfter] = await tenantDb.runAs(a, async (tx) => [
+      await new MessagesRepository(tx).findByChatId(source.chatId, a),
+      await new MessagesRepository(tx).findByChatId(forked.id, a),
+    ]);
+    expect(sourceAfter.map((m) => textOf(m.parts)).at(-1)).toBe('a3');
+    expect(forkAfter.map((m) => textOf(m.parts))).toEqual([
+      'q1',
+      'a1',
+      'q2',
+      'a2',
+      'q3',
+    ]);
+  });
+
+  it('an anchor naming a running reply is not found and creates nothing', async () => {
+    const source = await seedInFlightRun();
+    const readSource = () =>
+      tenantDb.runAs(a, async (tx) => ({
+        ownedChats: await tx
+          .select({ id: schema.chats.id })
+          .from(schema.chats)
+          .where(eq(schema.chats.ownerUserId, a)),
+        rows: await tx
+          .select()
+          .from(schema.messages)
+          .where(eq(schema.messages.chatId, source.chatId))
+          .orderBy(asc(schema.messages.seq)),
+      }));
+    const before = await readSource();
+
+    await expect(
+      service.forkChat(source.chatId, a, source.replyId),
+    ).rejects.toThrow('Fork-point message not found in this chat');
+
+    expect(await readSource()).toEqual(before);
   });
 
   it('forking an untitled chat keeps the fork untitled (nullable title, #78)', async () => {

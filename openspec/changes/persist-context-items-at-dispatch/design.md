@@ -311,13 +311,25 @@ The event rebuild and the open-tool settlement move with it, because
 - completion, failure, cancellation, and expiry by the worker;
 - retry exhaustion (dead letter) and cancellation before start;
 - native-recovery `outcome_unknown`;
-- pickup failure (`failRunTransactionally`);
+- pickup failure, settled through `settleTerminalRun` like retry exhaustion;
 - the claim-time `markFinished` paths;
 - expiry by a new message (admission expiry);
 - lost settlement, which finalizes a reply still `running` with the
   collector's parts instead of writing nothing.
 
 Each caller gets a focused test asserting the final status.
+
+A completed reply already holds the Run's answer, so the finalizer neither
+writes over it nor settles the tool calls its log left open; a Run whose
+salvaged answer completed the reply can then settle `completed`.
+
+A reply finalized in place keeps the `created_at` of its dispatch, while the
+search projection skipped it as `running`, so the message watermark alone
+cannot mark the chat stale. Every worker-side settler therefore touches the
+chat and reindexes it after its commit, as completion does. Admission expiry
+needs neither: its send transaction already touches the chat and adds the
+user message whose Run reindexes on settlement. `failRunTransactionally`
+remains only for enqueue failure, where no attempt dispatched a reply.
 
 ### D7: A retry resets the reply in its own dispatch transaction
 

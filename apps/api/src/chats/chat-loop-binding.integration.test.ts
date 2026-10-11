@@ -52,6 +52,7 @@ import {
   placeAcceptedTurnItems,
 } from './accepted-turn-parts.repository';
 import { type CheckpointMessage } from './messages-repository';
+import { RunningReplyRepository } from './running-reply-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type RunJob } from '../runs/run-queues';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
@@ -322,6 +323,30 @@ describe('ChatLoopService accept/worker context binding', () => {
       MessagesRepository.prototype,
       'createAssistantReplyIfAbsent',
     ).mockResolvedValue(undefined);
+    // The dispatch transaction creates the reply in the `running` state, and a
+    // staged in-Run item writes through to it.
+    vi.spyOn(
+      RunningReplyRepository.prototype,
+      'upsertRunningReply',
+    ).mockImplementation(({ chatId, inReplyTo, usage }) =>
+      Promise.resolve({
+        id: 'reply-id',
+        chatId,
+        seq: persistedMessage.current.seq + 1,
+        role: 'assistant',
+        senderUserId: null,
+        parts: [],
+        attachments: [],
+        absorbedThroughSeq: null,
+        usage,
+        inReplyTo,
+        createdAt: new Date(),
+      }),
+    );
+    vi.spyOn(
+      RunningReplyRepository.prototype,
+      'updateRunningReplyParts',
+    ).mockResolvedValue(true);
     vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
       () => Promise.resolve([persistedMessage.current]),
     );
@@ -332,13 +357,13 @@ describe('ChatLoopService accept/worker context binding', () => {
     vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
       undefined,
     );
-    const findPreviousRun = vi
-      .spyOn(RunsRepository.prototype, 'findMostRecentByMessageSequence')
-      .mockResolvedValue(
-        priorRun === undefined
-          ? undefined
-          : { run: priorRun, triggeringUserSeq: previousRunUserSeq },
-      );
+    // The model-switch baseline is the latest prior reply's recorded model;
+    // every dispatched prior Run has a reply carrying its model, whatever its
+    // status.
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findLatestReplyModelIdBefore',
+    ).mockResolvedValue(priorRun?.modelId);
     // The availability baseline and the epoch rule read the most recent
     // *dispatched* turn: the repository query only returns runs whose dispatch
     // stored an availability record, or that completed. Mirror that contract
@@ -623,7 +648,6 @@ describe('ChatLoopService accept/worker context binding', () => {
       dispatch,
       updateForAttempt,
       createReceipt,
-      findPreviousRun,
       findPreviousDispatchedRun,
       createRun,
       appendEvent,
