@@ -8,22 +8,18 @@
  * record survives a reload of the Chat.
  */
 
+import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 
 const PERMISSION_PROMPT =
   "Please demonstrate the permission rejection e2e fixture for this chat.";
-const E2E_MODEL_ID = "system:openai:gpt-5.4-mini";
 
 test("rejects a Bash call, continues with an allowed read, and persists the decision", async ({
   page,
 }) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await expect(
-    page.getByRole("combobox", { name: "Select model" }),
-  ).toContainText(E2E_MODEL_ID);
 
-  const composer = page.getByPlaceholder("What would you like to know?");
-  await expect(composer).toBeEditable();
+  const composer = await readyComposer(page);
   await composer.fill(PERMISSION_PROMPT);
   await page.getByRole("button", { name: "Send message" }).click();
 

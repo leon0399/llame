@@ -8,6 +8,7 @@
  * end-to-end from a real browser.
  */
 
+import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 
 const ANSWER = "Mocked answer from the e2e model server.";
@@ -18,7 +19,7 @@ test.describe("chat flow (worker execution mode)", () => {
   }) => {
     await page.goto("/");
 
-    const input = page.getByPlaceholder("What would you like to know?");
+    const input = await readyComposer(page);
     await input.fill("Hello from the browser e2e");
     await page.getByRole("button", { name: "Send message" }).click();
 
@@ -41,7 +42,7 @@ test.describe("chat flow (worker execution mode)", () => {
   }) => {
     await page.goto("/");
 
-    const input = page.getByPlaceholder("What would you like to know?");
+    const input = await readyComposer(page);
     // "SLOW" makes the mock drip tokens (~4s total) so the reload happens
     // mid-run — the run itself survives in the worker.
     await input.fill("SLOW please answer slowly");
@@ -79,7 +80,7 @@ test.describe("chat flow (worker execution mode)", () => {
     await page.goto("/");
 
     // Turn one completes normally and adopts the deep link.
-    const input = page.getByPlaceholder("What would you like to know?");
+    const input = await readyComposer(page);
     await input.fill("First turn");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByRole("log").getByText(ANSWER)).toBeVisible({
