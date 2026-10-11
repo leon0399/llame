@@ -115,7 +115,7 @@ export const Basic: Story = {
 
 /**
  * The arrow keys and the previous/next buttons move within the row and stop
- * at its ends.
+ * at its ends, where the button stays focusable but does nothing.
  *
  * @summary for moving between a row's images
  */
@@ -130,7 +130,7 @@ export const Navigation: Story = {
       name: "Previous image",
     });
     const next = within(dialog).getByRole("button", { name: "Next image" });
-    await expect(previous).toBeDisabled();
+    await expect(previous).toHaveAttribute("aria-disabled", "true");
 
     await userEvent.keyboard("{ArrowRight}");
     await expect(args.onOpenKeyChange).toHaveBeenLastCalledWith("1");
@@ -139,9 +139,47 @@ export const Navigation: Story = {
         "1600×900 PNG · docs/shot.png",
       ),
     );
-    await expect(next).toBeDisabled();
+    await expect(next).toHaveAttribute("aria-disabled", "true");
 
     await userEvent.click(previous);
+    await waitFor(() =>
+      expect(dialog).toHaveAccessibleDescription(SCREENSHOT_LOCATOR),
+    );
+  },
+};
+
+/**
+ * Stepping onto the row's last image with the next button keeps focus on
+ * that button, now a no-op, so the arrow keys still move within the row.
+ *
+ * @summary for keyboard focus at a row's end
+ */
+export const FocusAtRowEnd: Story = {
+  tags: ["ai-generated"],
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Open Dashboard screenshot" }),
+    );
+    const dialog = await openDialog();
+    const next = within(dialog).getByRole("button", { name: "Next image" });
+
+    await userEvent.click(next);
+    await waitFor(() =>
+      expect(dialog).toHaveAccessibleDescription(
+        "1600×900 PNG · docs/shot.png",
+      ),
+    );
+    await expect(next).toHaveAttribute("aria-disabled", "true");
+    await expect(next).toHaveFocus();
+
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onOpenKeyChange).toHaveBeenCalledTimes(1);
+    await expect(dialog.contains(dialog.ownerDocument.activeElement)).toBe(
+      true,
+    );
+
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect(args.onOpenKeyChange).toHaveBeenLastCalledWith("0");
     await waitFor(() =>
       expect(dialog).toHaveAccessibleDescription(SCREENSHOT_LOCATOR),
     );

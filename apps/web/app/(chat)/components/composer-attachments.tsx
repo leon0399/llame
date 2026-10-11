@@ -52,10 +52,9 @@ export function ComposerAttachmentRow({
           alt: item.file.name,
           status: item.status,
         }))}
-        // Only uploaded images open, so a key never waits for its upload.
-        onOpen={(key) => {
-          if (slides.some((slide) => slide.key === key)) setOpenKey(key);
-        }}
+        // The row opens only ready tiles, and a ready item has its upload
+        // descriptor, so every opened key has a slide.
+        onOpen={setOpenKey}
         onRemove={attachments.remove}
         onRetry={attachments.retry}
       />

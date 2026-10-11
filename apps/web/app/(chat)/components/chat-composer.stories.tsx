@@ -483,8 +483,9 @@ function storedDescriptor(file: File): MediaDescriptor {
 /**
  * Activating an uploaded thumbnail opens the lightbox over the composer's
  * uploaded images only, on that image's `/original`, captioned from its
- * upload descriptor; a thumbnail still uploading opens nothing. `Escape`
- * closes it and returns focus to the thumbnail.
+ * upload descriptor; a thumbnail still uploading opens nothing, not even
+ * once its upload finishes. `Escape` closes it and returns focus to the
+ * thumbnail.
  *
  * @summary a composer thumbnail opens a composer-only lightbox
  */
@@ -510,6 +511,7 @@ export const ComposerThumbnailOpensLightbox: Story = {
     const send = canvas.getByRole("button", { name: "Send message" });
     resolveHeldUpload(storedDescriptor(pngFile("b.png")));
     await waitFor(() => expect(send).toBeEnabled());
+    await expect(screen.queryByRole("dialog")).toBeNull();
     const opener = canvas.getByRole("button", { name: "b.png" });
     await userEvent.click(opener);
     const dialog = await screen.findByRole("dialog");

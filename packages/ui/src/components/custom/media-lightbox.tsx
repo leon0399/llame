@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, useState } from "react";
+import { useState } from "react";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -105,8 +105,8 @@ function ZoomableImage({
   );
 }
 
-/** The image over its toolbar: previous and next (only in a row of
- *  several), the caption, and the fit/100% toggle. */
+/** The image's dialog title and the image over its toolbar: previous and
+ *  next (only in a row of several), the caption, and the fit/100% toggle. */
 function LightboxSlideView({
   slide,
   previous,
@@ -121,6 +121,7 @@ function LightboxSlideView({
   const toggle = () => setActualSizeKey(actualSize ? null : slide.key);
   return (
     <>
+      <DialogTitle className="sr-only">{slide.alt}</DialogTitle>
       <ZoomableImage slide={slide} actualSize={actualSize} onToggle={toggle} />
       <div className="flex items-center gap-2">
         {several && (
@@ -164,7 +165,9 @@ function ActualSizeButton({
   );
 }
 
-/** The previous or next button, disabled at the row's end. */
+/** The previous or next button, a focusable no-op at the row's end, so a
+ *  step onto the last image keeps focus (and the arrow keys) in the
+ *  dialog. */
 function StepButton({
   direction,
   target,
@@ -180,7 +183,8 @@ function StepButton({
       variant="ghost"
       size="icon-sm"
       aria-label={direction === "previous" ? "Previous image" : "Next image"}
-      disabled={target === undefined}
+      aria-disabled={target === undefined}
+      className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
       onClick={() => target && onStep(target.key)}
     >
       {direction === "previous" ? <ArrowLeftIcon /> : <ArrowRightIcon />}
@@ -199,17 +203,6 @@ function slideAt(
     previous: index > 0 ? slides[index - 1] : undefined,
     next: index === -1 ? undefined : slides[index + 1],
   };
-}
-
-/** The neighbour an ArrowLeft/ArrowRight key press moves to, if any. */
-function arrowTarget(
-  event: KeyboardEvent,
-  previous: MediaLightboxSlide | undefined,
-  next: MediaLightboxSlide | undefined,
-): MediaLightboxSlide | undefined {
-  if (event.key === "ArrowLeft") return previous;
-  if (event.key === "ArrowRight") return next;
-  return undefined;
 }
 
 /**
@@ -241,23 +234,22 @@ export function MediaLightbox({
     >
       <DialogContent
         onKeyDown={(event) => {
-          const target = arrowTarget(event, previous, next);
-          if (target === undefined) return;
+          const target =
+            (event.key === "ArrowLeft" && previous) ||
+            (event.key === "ArrowRight" && next);
+          if (!target) return;
           event.preventDefault();
           onOpenKeyChange(target.key);
         }}
         className="flex max-h-[90vh] w-auto max-w-[90vw] flex-col gap-2 p-2 sm:max-w-[90vw]"
       >
         {shown && (
-          <>
-            <DialogTitle className="sr-only">{shown.alt}</DialogTitle>
-            <LightboxSlideView
-              slide={shown}
-              previous={previous}
-              next={next}
-              onOpenKeyChange={onOpenKeyChange}
-            />
-          </>
+          <LightboxSlideView
+            slide={shown}
+            previous={previous}
+            next={next}
+            onOpenKeyChange={onOpenKeyChange}
+          />
         )}
       </DialogContent>
     </Dialog>
