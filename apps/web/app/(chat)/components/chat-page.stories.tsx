@@ -450,10 +450,12 @@ export const RestoresLastModel: Story = {
 };
 
 /**
- * When the last reply's model is no longer in the catalog, the chat opens on
- * the default model instead of a dead model id.
+ * A chat whose last reply used a model no longer in the catalog opens on the
+ * default model. The selection's catalog check would repair a retired id on
+ * its own, so this documents the outcome; the last-turn fallback rule itself
+ * is pinned by resolveLastTurnModelEffort's unit test.
  *
- * @summary a retired last-reply model falls back to the default
+ * @summary a chat whose last model was retired opens on the default
  */
 export const RetiredModelFallsBack: Story = {
   tags: ["ai-generated"],
@@ -471,10 +473,11 @@ export const RetiredModelFallsBack: Story = {
 };
 
 /**
- * A chat whose last reply recorded no model (a legacy turn) keeps the
- * default model.
+ * A chat whose last reply recorded no model (a legacy turn) opens on the
+ * default model, the same outcome as a chat with no reply; like the retired
+ * case, this documents the outcome rather than the fallback rule.
  *
- * @summary no recorded model keeps the default
+ * @summary a chat whose last reply recorded no model opens on the default
  */
 export const UnrecordedModelKeepsDefault: Story = {
   tags: ["ai-generated"],
