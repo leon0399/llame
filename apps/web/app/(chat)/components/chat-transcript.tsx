@@ -225,11 +225,17 @@ function ChatTranscriptBody({
  * Lands a `#msg-N` open on its target row (#1237). Runs from the component
  * that owns the `Conversation`, so it fires on the commit that first mounts
  * the transcript — which waits for the Markdown renderers, so the row exists —
- * after the stick-to-bottom context has attached. `stopScroll` is the
- * library's own escape (what its wheel handler calls when the reader scrolls
- * up): without it the library's initial bottom snap and `ChatLoadOlder`'s
- * synchronous re-pin pull the reader back to the newest message straight
- * after the scroll. Ordinary opens (no target) keep the bottom pin.
+ * after the stick-to-bottom context has attached. Layout effects run child
+ * first, so `ChatLoadOlder`'s pre-paint bottom pin has already run (and
+ * latched) by then; this scroll simply overrides it. What pulls the reader
+ * back afterwards is every writer that runs on LATER frames while the lock
+ * holds: the library's content ResizeObserver (its initial bottom snap and
+ * each growth catch-up, a `scrollToBottom` whose rAF loop continues only
+ * while `state.isAtBottom`) and `ChatLoadOlder`'s synchronous re-pin on
+ * resize (gated on `isAtBottom` / `escapedFromLock`). `stopScroll` — the
+ * library's own escape, what its wheel handler calls when the reader scrolls
+ * up — clears `isAtBottom` and sets `escapedFromLock`, which disarms all of
+ * them. Ordinary opens (no target) keep the bottom pin.
  */
 function useTargetScroll(
   conversationRef: RefObject<StickToBottomContext | null>,
