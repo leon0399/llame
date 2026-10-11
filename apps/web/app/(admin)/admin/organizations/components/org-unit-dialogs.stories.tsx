@@ -31,7 +31,9 @@ function unit(
 
 // Acme
 // └─ Team A
+// Globex
 const acme = unit({ id: "org1", name: "Acme", type: "organization" });
+const globex = unit({ id: "org2", name: "Globex", type: "organization" });
 const teamA = unit({
   id: "teamA",
   name: "Team A",
@@ -345,7 +347,7 @@ export const RenameCancel: RenameStory = {
   },
 };
 
-const moveArgs = { ...unitArgs, units: [acme, teamA] };
+const moveArgs = { ...unitArgs, units: [acme, teamA, globex] };
 
 /**
  * The picker opens on the unit's current parent with Move disabled. Picking
@@ -379,6 +381,34 @@ export const Move: MoveStory = {
     await expect(sentRoutes()).toEqual(["PATCH /api/v1/org-units/teamA"]);
     await expect(request.clone().json()).resolves.toEqual({ parentId: null });
     await expect(args.onOpenChange).not.toHaveBeenCalled();
+
+    releaseUpdate();
+
+    await waitFor(() => expect(args.onOpenChange).toHaveBeenCalledWith(false));
+  },
+};
+
+/**
+ * Picking another organization as the parent PATCHes the unit with that
+ * parent's id.
+ *
+ * @summary move: picking another parent sends its id
+ */
+export const MoveUnderAnotherParent: MoveStory = {
+  tags: ["ai-generated"],
+  args: moveArgs,
+  render: (args) => <MoveOrgUnitDialog {...args} />,
+  play: async ({ args }) => {
+    const dialog = await openedDialog("Move “Team A”");
+    const globexOption = dialog.getByRole("option", { name: "Globex" });
+
+    await userEvent.click(globexOption);
+    await expect(globexOption).toHaveAttribute("aria-selected", "true");
+    await userEvent.click(dialog.getByRole("button", { name: "Move" }));
+
+    const request = await sentRequest();
+    await expect(sentRoutes()).toEqual(["PATCH /api/v1/org-units/teamA"]);
+    await expect(request.clone().json()).resolves.toEqual({ parentId: "org2" });
 
     releaseUpdate();
 
