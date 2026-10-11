@@ -80,9 +80,11 @@ const preBundledStoryDeps = [
   "@hookform/resolvers/zod",
   // apps/web stories render components whose data hooks pull in React Query.
   "@tanstack/react-query",
-  // The chat transcript row imports the AI SDK; pinned to apps/web's copy by
+  // The chat transcript row imports the AI SDK, and the chat page's useChat
+  // engine its React hooks; both pinned to apps/web's copies by
   // `configurePreBundledStoryDeps` below.
   "ai",
+  "@ai-sdk/react",
   // AI Elements stories: Streamdown markdown (message/reasoning), the
   // reasoning collapsible's controllable-state hook, framer-motion (Shimmer),
   // and Conversation's stick-to-bottom. Declared as storybook devDeps too so
@@ -131,11 +133,12 @@ function configurePreBundledStoryDeps(config: ViteFinalConfig): void {
     ...preBundledStoryDeps,
   ];
 
-  // The chat transcript row (an apps/web component) imports `ai`, which is
-  // installed for the app, not for this package. Pin the bare specifier to the
-  // app's copy so the pre-bundle entry resolves here; otherwise Vite discovers
-  // the SDK mid-run, re-optimizes, and the reload fails the first story run
-  // against a cold cache.
+  // The chat transcript row and chat page (apps/web components) import `ai`
+  // and `@ai-sdk/react`, which are installed for the app, not for this
+  // package. Pin the bare specifiers to the app's copies so the pre-bundle
+  // entries resolve here; otherwise Vite discovers the SDK mid-run,
+  // re-optimizes, and the reload fails the first story run against a cold
+  // cache.
   config.resolve ??= {};
   config.resolve.alias = [
     ...(Array.isArray(config.resolve.alias)
@@ -144,6 +147,10 @@ function configurePreBundledStoryDeps(config: ViteFinalConfig): void {
           ([find, replacement]) => ({ find, replacement }),
         )),
     { find: /^ai$/, replacement: resolveFromWeb.resolve("ai") },
+    {
+      find: /^@ai-sdk\/react$/,
+      replacement: resolveFromWeb.resolve("@ai-sdk/react"),
+    },
   ];
 }
 
