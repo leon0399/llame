@@ -50,17 +50,22 @@ const routerPush = fn().mockName("router.push");
 
 // Filing runs the REAL useFileChat — no module mock — against a stubbed
 // globalThis.fetch, so a pick is proved by the request it actually sends. The
-// chat's PATCH is the only routed request; any other request fails the story.
+// chat's PATCH is the only routed request. Any other request is recorded and
+// the meta's afterEach fails the story on it: the throw alone would only reach
+// useFileChat's onError toast.
 let fetchMock: Mock<typeof fetch>;
+let unrouted: Array<string> = [];
 
 function routeFileChat() {
   fetchMock = stubFetch();
+  unrouted = [];
   fetchMock.mockImplementation((input) => {
     const request = input instanceof Request ? input : new Request(input);
     const key = `${request.method} ${new URL(request.url).pathname}`;
     if (key === "PATCH /api/v1/chats/chat-1") {
       return Promise.resolve(emptyResponse());
     }
+    unrouted.push(key);
     throw new Error(`unrouted fetch in story: ${key}`);
   });
   return () => {
@@ -168,6 +173,11 @@ const meta = {
     });
     usePinItem.mockReturnValue({ mutate: pinMutate, isPending: false });
     pinMutate.mockClear();
+  },
+  afterEach: async () => {
+    const leaked = unrouted;
+    unrouted = [];
+    await expect(leaked).toEqual([]);
   },
   decorators: [
     (Story) => (
