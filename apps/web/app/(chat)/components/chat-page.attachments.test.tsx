@@ -21,6 +21,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
+  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -59,10 +60,11 @@ import { ActiveRunsProvider } from "@/contexts/active-runs-context";
 import { ChatProvider } from "@/contexts/chat-context";
 
 import { ChatPage } from "./chat-page";
-import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
+import { setChatMarkdownRenderersForTests } from "./use-chat-markdown-ready";
+import { installStubChatMarkdownRenderers } from "@/lib/test-support/chat-markdown";
 
-beforeAll(async () => {
-  await ensureChatMarkdownRenderersLoaded();
+beforeAll(() => {
+  installStubChatMarkdownRenderers();
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
@@ -84,6 +86,10 @@ beforeAll(async () => {
       revokeObjectURL: () => {},
     });
   }
+});
+
+afterAll(() => {
+  setChatMarkdownRenderersForTests(null);
 });
 
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
