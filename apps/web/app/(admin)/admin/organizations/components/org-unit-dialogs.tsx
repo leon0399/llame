@@ -123,10 +123,13 @@ function useCreateOrgUnitForm(
   };
 
   const onDialogOpenChange = (next: boolean) => {
-    if (!next) reset();
-    // Clear a previous attempt's error so reopening doesn't flash stale copy
-    // before this attempt has even run.
-    if (next) mutation.reset();
+    // Clear the draft and a previous attempt's error on close: the tree keeps
+    // this dialog mounted and opens it through its own state, which never
+    // reports an opening here, so the next open would show stale copy.
+    if (!next) {
+      reset();
+      mutation.reset();
+    }
     onOpenChange(next);
   };
 
