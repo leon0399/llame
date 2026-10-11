@@ -25,6 +25,22 @@ type Story = StoryObj<typeof meta>;
  */
 export const Collapsed: Story = {
   tags: ["ai-generated"],
+  play: async ({ canvas }) => {
+    // The accessible name carries both full ids, so a screen reader hears the
+    // whole change even where the visible ids are truncated.
+    const trigger = canvas.getByRole("button", {
+      name: "Model changed from system:openai:gpt-5.4-mini to custom:anthropic:claude-sonnet",
+    });
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(canvas.getByText("system:openai:gpt-5.4-mini")).toBeVisible();
+    await expect(
+      canvas.getByText("custom:anthropic:claude-sonnet"),
+    ).toBeVisible();
+    await expect(canvas.queryByText(/effective system prompt/i)).toBeNull();
+    await expect(
+      canvas.queryByRole("button", { name: "View effective context" }),
+    ).toBeNull();
+  },
 };
 
 /**
@@ -75,14 +91,16 @@ export const LongModelIds: Story = {
  */
 export const KeyboardDisclosure: Story = {
   tags: ["ai-generated"],
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ args, canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /model changed from/i });
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
     trigger.focus();
     await userEvent.keyboard("{Enter}");
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
-    await expect(
+    await expect(canvas.getByText(/effective system prompt/i)).toBeVisible();
+    await userEvent.click(
       canvas.getByRole("button", { name: "View effective context" }),
-    ).toBeVisible();
+    );
+    await expect(args.onInspectContext).toHaveBeenCalledTimes(1);
   },
 };
