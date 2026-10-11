@@ -29,7 +29,9 @@ disabled-button test, the Organizations `page.tsx` comment, and the
   confirmation that names the consequence. This is the parked panel, wired
   in rather than rebuilt.
 - A failed roster load shows its classified error with a Retry control.
-  Today's parked panel ignores the error and leaves the roster blank.
+  Today's parked panel ignores the error and leaves the roster blank. Rows
+  also wait for the caller's identity: the parked panel offers Revoke on the
+  caller's own row while `GET /auth/v1/me` is pending or has failed.
 - Role changes and revokes appear in the roster only after the server confirms
   them. Today's parked hooks update the roster optimistically, so a denied
   revoke briefly shows the member gone. Every membership write also refreshes
@@ -61,6 +63,18 @@ disabled-button test, the Organizations `page.tsx` comment, and the
   unit actions. The caller's displayed role cannot gate controls: it is
   nearest-wins reporting, while the datastore grants additively along the path
   (`org-memberships` "Nearest-wins effective-role resolution").
+- Demoting an owner applies at once, without a confirmation, as in the parked
+  panel; only granting or setting `owner`, revoking, and leaving confirm
+  first. A failed demotion shows its error in the member's row. Treating a
+  demotion as "ownership-affecting" under the "Unit management actions"
+  confirmation rule would add one more confirmation and is Leo's call.
+- A root's creator can grant themselves `owner` again at any time, even after
+  transferring ownership and leaving, and then revoke the new owner
+  (`memberships_insert` branch (a), migrations `0018`/`0019`; design
+  Threats). This change adds no capability, but the panel makes that request
+  a form away for a departed creator. Whether that right is intended is Leo's
+  decision: if it is, `org-memberships` "Owner bootstrap" should say so; if
+  not, an RLS fix needs its own issue before `panel` lands.
 - The implementation layer starts after #1222 and #1223 (the #860 org-tree and
   members-panel story moves) merge, because they replace the jsdom tests this
   change extends with the stories it builds on (design D7).

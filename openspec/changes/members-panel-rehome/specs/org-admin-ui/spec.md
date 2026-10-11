@@ -48,7 +48,7 @@ The web app SHALL provide instance administration in a **dedicated Administratio
 
 ### Requirement: Members panel opens from the selected-unit footer
 
-The selected-unit footer's "Manage members" control SHALL open and close a members panel for the selected unit, rendered directly after the footer and titled with the unit's name; the control SHALL report whether the panel is expanded. Only an open panel SHALL request a roster. Moving the selection to another unit, or the unit leaving the tree, SHALL close the panel, and only the control SHALL reopen it.
+The selected-unit footer's "Manage members" control SHALL open and close a members panel for the selected unit, rendered directly after the footer and titled with the unit's name; the control SHALL report whether the panel is expanded. Only an open panel SHALL request a roster, and every opening SHALL request it, even when a roster cached for that unit is still fresh. Moving the selection to another unit, or the unit leaving the tree, SHALL close the panel, and only the control SHALL reopen it.
 
 #### Scenario: Manage members opens the panel for the selected unit
 
@@ -59,6 +59,11 @@ The selected-unit footer's "Manage members" control SHALL open and close a membe
 
 - **WHEN** the panel is open and the user activates "Manage members" again
 - **THEN** the panel closes, the control reports it collapsed, and focus stays on the control
+
+#### Scenario: Reopening the same unit requests the roster again
+
+- **WHEN** the user opens the panel, closes it, and reopens it on the same unit within the app's 60-second query freshness window
+- **THEN** the second opening sends a second roster request for that unit
 
 #### Scenario: Selecting units sends no membership request
 
@@ -82,7 +87,7 @@ The selected-unit footer's "Manage members" control SHALL open and close a membe
 
 ### Requirement: Members panel roster
 
-The panel SHALL list the membership rows the API returns for the unit itself, each with the member's user id and a role control, and SHALL mark the caller's own row "(you)". Other rows SHALL offer Revoke; the caller's own row SHALL offer Leave instead. A `service_account` row SHALL show its role without a settable control. The panel SHALL show loading, empty, and failed-load states rather than a blank list.
+The panel SHALL list the membership rows the API returns for the unit itself, each with the member's user id and a role control, and SHALL mark the caller's own row "(you)". Other rows SHALL offer Revoke; the caller's own row SHALL offer Leave instead. A `service_account` row SHALL show its role without a settable control. Rows SHALL wait for the caller's identity as well as the roster. The panel SHALL show loading, empty, and failed-load states rather than a blank list.
 
 #### Scenario: Roster lists the unit's direct members
 
@@ -101,8 +106,13 @@ The panel SHALL list the membership rows the API returns for the unit itself, ea
 
 #### Scenario: Failed roster load is explained
 
-- **WHEN** the roster request fails
-- **THEN** the panel shows the classified error and a Retry control in place of the roster, and Retry requests the roster again
+- **WHEN** the roster request or the signed-in identity request fails
+- **THEN** the panel shows the classified error and a Retry control in place of the roster, and Retry repeats the failed request
+
+#### Scenario: Roster waits for the caller's identity
+
+- **WHEN** the roster arrives while the signed-in identity request is still pending
+- **THEN** the panel shows its loading state with no row and no Revoke or Leave control until the identity answers, and then marks the caller's row "(you)" with Leave
 
 ### Requirement: Grant from the members panel
 
@@ -130,7 +140,7 @@ The panel SHALL grant a membership from a user id and a role chosen among every 
 
 ### Requirement: Role change and departures from the members panel
 
-Picking a role other than `owner` SHALL change the member's role at once; picking `owner` SHALL first ask for confirmation. Revoke and Leave SHALL ask for confirmation naming the consequence. The roster SHALL show a role change or removal only after the API confirms it. A failed confirmed action SHALL keep its confirmation open with the classified error. Every success SHALL refresh the tree and footer.
+Picking a role other than `owner` SHALL change the member's role at once; picking `owner` SHALL first ask for confirmation. Revoke and Leave SHALL ask for confirmation naming the consequence. The roster SHALL show a role change or removal only after the API confirms it. A failed action SHALL show the classified error in its open confirmation, or in the member's row when it needed none. Every success SHALL refresh the tree and footer.
 
 #### Scenario: Role change applies after the server confirms
 
@@ -152,6 +162,11 @@ Picking a role other than `owner` SHALL change the member's role at once; pickin
 - **WHEN** the sole owner of a root organization confirms Leave on their own row
 - **THEN** the confirmation stays open with the last-owner explanation, which says to transfer ownership first through another member's role control, and the caller's row and role are unchanged
 
+#### Scenario: Last owner cannot step down
+
+- **WHEN** the sole owner of a root organization picks a non-owner role on their own row and the API answers 409
+- **THEN** the caller's row shows the last-owner explanation and keeps the `owner` role
+
 #### Scenario: Transfer ownership, then leave
 
 - **WHEN** the sole owner of a root organization they created makes another member owner and then confirms Leave on their own row
@@ -162,6 +177,11 @@ Picking a role other than `owner` SHALL change the member's role at once; pickin
 - **WHEN** a caller who did not create a unit leaves it while holding no other membership on its path, so they can no longer see it
 - **THEN** the unit leaves the tree, the panel closes, and focus moves to the newly selected row
 
+#### Scenario: Leaving the last visible unit
+
+- **WHEN** a caller who created no unit leaves the only unit they can see
+- **THEN** the tree shows its empty state, the panel closes, and focus moves to the empty state's "Create organization" control
+
 #### Scenario: Footer and tree follow a change to the caller's own role
 
 - **WHEN** the caller changes their own role on the selected unit and the API accepts it
@@ -169,7 +189,7 @@ Picking a role other than `owner` SHALL change the member's role at once; pickin
 
 ### Requirement: Membership denials name the required role
 
-When the API answers 403 to a membership write, the panel SHALL explain the role the write needs. A write that grants or sets `owner`, or that changes or revokes a member whose current role is `owner`, SHALL be explained as needing `owner` on the unit or an ancestor; any other denied membership write SHALL be explained as needing `admin` or `owner` there. A denied write SHALL leave the roster as it was.
+When the API answers 403 to a membership write, the panel SHALL explain the role the write needs. A write that grants or sets `owner`, or that changes or revokes a member the panel's roster shows as `owner`, SHALL be explained as needing `owner` on the unit or an ancestor; any other denied membership write SHALL be explained as needing `admin` or `owner` there. A denied write SHALL leave the roster as it was.
 
 #### Scenario: Admin cannot grant ownership
 
@@ -180,6 +200,11 @@ When the API answers 403 to a membership write, the panel SHALL explain the role
 
 - **WHEN** a caller whose best role on the path is `admin` confirms revoking an `owner` and the API answers 403
 - **THEN** the confirmation stays open explaining that only an owner can change or remove an owner, and the owner's row stays in the roster
+
+#### Scenario: Admin cannot demote an owner
+
+- **WHEN** a caller whose best role on the path is `admin` picks a non-owner role for an `owner` row and the API answers 403
+- **THEN** the owner's row explains that only an owner can change or remove an owner, and keeps the `owner` role
 
 #### Scenario: Member without admin rights is denied
 

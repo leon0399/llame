@@ -81,7 +81,11 @@ under #1255, therefore never reopens the panel or sends a roster request; only
 "Manage members" does. Because `MembersPanel` mounts only when open,
 `useMembershipsQuery` runs only then. Selecting units sends no membership
 request, and closing the panel unmounts the grant form, which discards a
-typed user id.
+typed user id. `ReactQueryClientProvider` gives every query a 60-second
+`staleTime`, so a panel closed and reopened on the same unit inside that
+window would reuse the cached roster and send nothing. `useMembershipsQuery`
+therefore sets `refetchOnMount: "always"`, as `useMe` and the active-runs
+query already do, and every opening requests the roster.
 
 Alternatives: (a) The panel follows the selection. Rejected: under #1255
 every arrow press would fetch a roster, and a typed user id plus role would
@@ -129,14 +133,23 @@ that write, and `classifyOrgUnitsError` keeps the existing admin-or-owner copy
 as the default. This is copy selection after the server's 403, not local
 authorization: no control is hidden or disabled because of it.
 
-Accepted limitation: the target's role comes from the cached roster. If
+The requirement is worded in terms of the role the panel's roster shows, which
+is the only role the web knows when it picks the copy. Accepted limitation: if
 another user made the target an owner after the roster loaded, an admin's
-denied write shows the admin-or-owner copy instead of the owner-only copy.
-The denied write's settle invalidation then refetches the roster, which
-shows the target as owner, so the panel ends up reflecting the server.
-Re-reading the roster before choosing the copy was rejected: it adds a
-request to every denial to fix the wording of a rare race, and it changes no
-outcome.
+denied write shows the admin-or-owner copy, which the requirement allows,
+since the roster still showed a non-owner. The denied write's settle
+invalidation then refetches the roster, which shows the target as owner, so
+the panel ends up reflecting the server. Re-reading the roster before choosing
+the copy was rejected: it adds a request to every denial to fix the wording
+of a rare race, and it changes no outcome.
+
+A role change that needs no confirmation (any pick other than `owner`) shows
+its error in the member's row, as the parked panel already does
+(`ApiErrorMessage` under the row while no owner confirmation is open). The
+two failures it can reach are an admin demoting an owner (403, owner-only
+copy, because the row shows `owner`) and the sole owner of a root demoting
+themselves (409 `LAST_OWNER`, whose copy in `errors.ts` already points at
+another member's role control).
 
 Alternative: an API error code for owner-tier denials. Rejected: the RLS
 check fails with one SQLSTATE for both tiers, so the API would need its own
@@ -202,19 +215,29 @@ The two changes are independent, and either can land first.
   (`AlertDialog` default). After a revoke removes that trigger's row,
   `finalFocus` targets the panel's titled region (`tabIndex={-1}`). When the
   panel's unit leaves the tree after Leave, the tree focuses the newly
-  selected row. #1255's "A removed focused row hands focus to the new
+  selected row, or, when no unit remains, the empty state's "Create
+  organization" button. #1255's "A removed focused row hands focus to the new
   selection" covers the row case, and whichever change lands second reuses
   the other's rescue rather than adding a second one.
 - Code: both edit `org-tree.tsx`. The second implementation rebases onto
   the first.
 
-### D9. A failed roster load is shown, with a retry
+### D9. A failed roster load is shown, with a retry, and rows wait for identity
 
 The parked panel never renders `membershipsQuery.error`, so a failed roster
 load ends as a blank list with no explanation. The panel renders the
 classified error through the existing `ApiErrorMessage` in place of the
 roster, with a Retry button that calls the query's `refetch()`. The grant
 form stays available, because a grant does not depend on the roster read.
+
+The parked panel also passes `me?.id` from `useMe()` as the caller's id. While
+`GET /auth/v1/me` is pending or after it fails, that id is `undefined`, so
+every row, the caller's own included, offers Revoke instead of Leave.
+Revoke and Leave send the same `DELETE …/memberships/:userId`, so confirming
+that mislabeled Revoke removes the caller. The roster therefore treats the
+identity query like the roster query: no rows render until both have data,
+the loading state shows until then, and a failed identity request shows its
+classified error with a Retry that calls `useMe`'s `refetch()`.
 
 ### D10. Test plan
 
@@ -233,12 +256,20 @@ form stays available, because a grant does not depend on the roster read.
     refetch is held;
   - a roster GET answered 500 shows the classified error and Retry, and
     Retry sends exactly one more roster GET;
+  - a roster that answers while `GET /auth/v1/me` is held shows the loading
+    state and no Revoke, and the caller's row shows "(you)" with Leave once
+    the identity is released; a failed identity request shows the error and
+    Retry;
+  - an admin's demotion of an owner answered 403 shows the owner-only copy in
+    the row, and the sole owner's self-demotion answered 409 shows the
+    last-owner copy in the row, each keeping the `owner` role;
   - write bodies are exactly `{ userId, role }` or empty;
   - a successful revoke moves focus to the panel;
   - the existing grant, duplicate, service-account, owner-confirmation, Leave,
     and last-owner stories stay. The role-line stories go with D5.
 - `org-tree.stories.tsx` (from #1222):
   - Manage members opens and closes the panel and reports `aria-expanded`;
+  - opening, closing, and reopening on the same unit sends two roster GETs;
   - opening sends only that unit's roster GET;
   - selecting several units sends no membership request;
   - selecting another unit closes the panel and reopening shows an empty
@@ -249,6 +280,8 @@ form stays available, because a grant does not depend on the roster read.
     and member count update;
   - Leave by a non-creator, after which the refetched list omits the unit,
     closes the panel and focuses the newly selected row;
+  - Leave by a non-creator of the only visible unit, after which the
+    refetched list is empty, focuses the empty state's "Create organization";
   - "A deeper low role does not hide management".
 - `mutations.test.ts` and `errors.test.ts`: no optimistic writes, the
   role-change cache write from the PATCH response, `lists` invalidation on all
@@ -277,8 +310,26 @@ form stays available, because a grant does not depend on the roster read.
 - Tenant isolation is enforced below the UI. Membership and org-unit tables
   use FORCE row-level security, and roster visibility needs a role on the
   path (`org-memberships`). The panel can only be opened for units the
-  RLS-scoped list returned, and a hand-crafted request is held by the same
-  RLS. This change adds no read or write surface.
+  RLS-scoped list returned, and it sends only requests the API already
+  accepts from any signed-in session, so it adds no capability. It does make
+  one existing capability easier to reach, below.
+- Creator re-claim of a root (pre-existing, not changed here). Branch (a) of
+  `memberships_insert` (migration `0018`, restated in `0019`; schema
+  `identity.ts`) admits a self-grant of `owner` on a root whose `created_by`
+  is the caller, with no condition that the root has no owner yet. The
+  last-owner trigger is `BEFORE UPDATE OR DELETE` and never sees the insert.
+  So a creator who transferred ownership and left, or was demoted and then
+  left, can grant themselves `owner` again and then revoke the owner they
+  handed over to. A throwaway integration test against the `0019` schema
+  confirmed both paths on 2026-10-11. The API has accepted this request since
+  `0018`, and the pre-#176 settings panel offered the same grant form. What
+  this change adds is reachability: `org_units_select` keeps the root in the
+  departed creator's tree, and the panel shows them an empty roster with the
+  grant form (D9, "A roster the API withholds stays empty"), where they need
+  only type their own user id and pick `owner`. Whether a creator keeps a
+  permanent re-claim right is a product decision for Leo (proposal
+  Assumptions). Closing it is an RLS change, which this change's Non-Goals
+  exclude, so it would be a separate issue landing before `panel`.
 - The UI must not imply authority it lacks. Writes appear only after the
   server confirms them (D3), and denials name the tier actually required
   (D4). Controls are not gated on the displayed role: that role is
