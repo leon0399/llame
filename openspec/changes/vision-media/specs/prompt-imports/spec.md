@@ -44,27 +44,27 @@ rereading.
 - **THEN** the item names that locator only as not imported
 - **AND** no image entry is produced for it
 
-### Requirement: Unstored image entries reach the model only in their Run
+### Requirement: Unstored image entries reach the model only in their attempt
 
 A target other than `media://` SHALL be imported without being stored: its entry carries no `media`
-locator, and the worker SHALL keep its decoded model variant in the Run's memory, keyed by the item
-entry, as `media-attachments` defines. The importing Run's requests SHALL carry the image's part or
-placeholder after the item's text, as the epoch window selects; any later request, a retry or a
-resume on another worker included, SHALL carry the not-retained placeholder.
+locator, and the importing attempt's memory SHALL keep it as `media-attachments` defines. That
+attempt's requests SHALL carry the image's part or placeholder after the item's text, as the epoch
+window selects. Every later request, a retry or resume included, SHALL carry the not-retained
+placeholder for a model that declares `image` input and the omitted placeholder otherwise.
 
 #### Scenario: A vision model receives the imported image after the item text
 
 - **WHEN** the Run's model declares `image` input and the request's epoch image window attaches the
   imported image
 - **THEN** the Run's requests carry the `prompt-imports` item's text followed immediately by an image
-  part built from the model variant the Run's memory holds for that entry
+  part built from the model variant the attempt's memory holds for that entry
 
 #### Scenario: A text-only model receives the placeholder
 
 - **WHEN** the Run's model declares text-only input and the prompt imported `@shot.png`, a 1600×900
   image
 - **THEN** the request carries, immediately after the item's text, the placeholder
-  `[image shot.png 1600×900, omitted: this model has no image input]`
+  `[image "shot.png" 1600×900, omitted: this model has no image input]`
 - **AND** the request carries no image part
 
 #### Scenario: A later turn receives the not-retained placeholder
@@ -72,16 +72,24 @@ resume on another worker included, SHALL carry the not-retained placeholder.
 - **WHEN** a later turn on a model that declares `image` input replays the user message whose
   `prompt-imports` item imported `@shot.png`, a 1600×900 image
 - **THEN** the request carries, immediately after the item's text, the placeholder
-  `[image shot.png 1600×900, not retained: read it again to view it]`
+  `[image "shot.png" 1600×900, not retained: read it again to view it]`
 - **AND** the request carries no image part for that entry
+
+#### Scenario: A later text-only turn receives the omitted placeholder
+
+- **WHEN** a later turn on a model that does not declare `image` input replays the user message
+  whose `prompt-imports` item imported `@shot.png`, a 1600×900 image
+- **THEN** the request carries, immediately after the item's text,
+  `[image "shot.png" 1600×900, omitted: this model has no image input]`
+- **AND** no placeholder in the request contains `not retained`
 
 #### Scenario: Recovery reuses the persisted entry
 
-- **WHEN** a worker resumes after an image target's import completed and the image file then changed
-  on disk
+- **WHEN** a worker resumes the Run as a new attempt on a model that declares `image` input after an
+  image target's import completed, and the image file then changed on disk
 - **THEN** the image entry is reused as persisted, and the target is neither read nor decoded again
   and no new audit event is recorded for it
-- **AND** the resumed Run's requests carry the not-retained placeholder for that entry
+- **AND** the new attempt's requests carry the not-retained placeholder for that entry
 
 #### Scenario: An imported image is not stored
 

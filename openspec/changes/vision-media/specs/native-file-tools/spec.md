@@ -70,9 +70,9 @@ signature, SVG included, SHALL stay on the text path unchanged and SHALL decode 
 
 An image detected on any source other than `media://` SHALL be decoded by the worker with the
 `media-store` image preparation and SHALL NOT be written to the media store, whether the model or a
-prompt import reads it. The worker SHALL keep the decoded model variant in the Run's memory only,
-keyed by the read's tool call id or the prompt-import entry, as `media-attachments` defines. Every
-such read SHALL decode its bytes afresh and SHALL reuse no image or identifier from an earlier read.
+prompt import reads it. The worker SHALL keep it only in the reading attempt's memory, as
+`media-attachments` defines. Every such read SHALL decode its bytes afresh and SHALL reuse no image
+or identifier from an earlier read.
 
 #### Scenario: A read image creates no media object
 

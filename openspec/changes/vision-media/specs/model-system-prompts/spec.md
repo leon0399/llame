@@ -79,7 +79,7 @@ Failed-attempt visible output and tool observations SHALL remain part of the com
 - **AND** the next turn selects a model whose declared input is text only
 - **THEN** that model receives the attachment, in its original position, as
   `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`, and the
-  read as `[image /work/shot.png <width>×<height>, omitted: this model has no image input]`
+  read as `[image "/work/shot.png" <width>×<height>, omitted: this model has no image input]`
 - **AND** the request carries no image part and the stored parts are unchanged
 
 #### Scenario: A switch to a vision model restores stored image parts
@@ -92,7 +92,7 @@ Failed-attempt visible output and tool observations SHALL remain part of the com
 - **AND** each stored image beyond the epoch's bounds replays as
   `[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`
 - **AND** the earlier read replays as
-  `[image /work/shot.png <width>×<height>, not retained: read it again to view it]`
+  `[image "/work/shot.png" <width>×<height>, not retained: read it again to view it]`
 
 #### Scenario: A switch between vision models keeps the attached set
 

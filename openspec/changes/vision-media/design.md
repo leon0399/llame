@@ -65,8 +65,8 @@ by editor marks; a browser `<textarea>` has no such marks.
 
 **Goals:** one owner-scoped media store for uploaded images, which every upload writes to and every
 `media://` replay reads from; one locator, `media://<id>`, the model and the owner both use for
-uploads; images the model or a prompt import reads elsewhere reach the model in that Run without
-being stored; provider image parts built at request time, never stored base64.
+uploads; images the model or a prompt import reads elsewhere reach the model in the reading attempt
+without being stored; provider image parts built at request time, never stored base64.
 
 **Non-Goals:** object storage, deletion, a media library view, PDF/audio/video, SVG rasterization
 (#1160), public-share media, per-provider image re-encoding beyond one model variant.
@@ -85,9 +85,11 @@ D7, D8, D9, and D11:
 - Host, `file:`, `kb://`, `skill://`, and `http(s)://` image reads, and prompt imports of those
   targets, decode the image with the upload pipeline and store nothing. Their result carries no
   `media` field (R1.3, R1.6).
-- The worker keeps each such decoded model variant in memory for that Run only, keyed by tool call id
-  or prompt-import entry. Later steps of that Run attach it under the unchanged epoch window. Any
-  other request gets `[image <locator> W×H, not retained: read it again to view it]` (R1.4).
+- The worker keeps each such decoded model variant in the reading attempt's memory only, keyed by
+  tool call id or prompt-import entry, and only while the epoch window admits it. Later steps of
+  that attempt attach it under the unchanged epoch window. Any other request on a vision model gets
+  `[image <locator> W×H, not retained: read it again to view it]`, with `<locator>` a JSON string
+  literal (R1.4); a text-only model gets the omitted placeholder.
 - Each unstored image result or prompt-import entry stores a display-only WebP `thumbnail` data URL
   that never reaches a model (R1.5). The read tool card and prompt-import chip render it, and the
   lightbox shows it as a single-variant slide (R1.7).
@@ -101,9 +103,10 @@ D7, D8, D9, and D11:
 format, original byte size and dimensions, model-variant format, byte size, and dimensions, SHA-256
 of the original, a single-line source label, and creation time. It records no provenance: every row
 is an upload. The label is the upload filename with control characters replaced by spaces, `[` and
-`]` replaced by `(` and `)`, reserved delimiters neutralized, and at most 256 characters; placeholders
-apply the same rules to the locator of an unstored image. `media_blobs` holds `(media_id, variant)`
-→ `bytea` for `original` and `model`. Both tables use enabled, forced RLS keyed on the authenticated
+`]` replaced by `(` and `)`, reserved delimiters neutralized, and at most 256 characters.
+Placeholders name a stored object by this label but write an unstored image's locator exactly, as a
+JSON string literal (D6). `media_blobs` holds `(media_id, variant)` → `bytea` for `original` and
+`model`. Both tables use enabled, forced RLS keyed on the authenticated
 owner, like every tenant table. The metadata/blob split lets a later object-storage move replace only
 `media_blobs` rows without changing any stored part.
 
@@ -219,37 +222,44 @@ The composer runs on every model request, whether or not it offers tools, as an 
 the resolver itself. `applyToolCallingOptions` returns early without tools
 (`openai-model-client.ts:149`), so only the step cap and the `onStepStart` override stay gated on
 tools; the composer runs on the final messages after that override, so the in-Run splice's recorded
-prefix index (`in-run-context-items.ts:154`) is computed before any transform. It takes a per-Run
-media resolver, passed on `ModelStreamInput` and loaded under the Run owner's identity, that returns
-each `media://` reference's descriptor (name, original and variant dimensions) and loads variant
-bytes on demand, and that also holds the Run's memory of unstored images (below). For each step:
+prefix index (`in-run-context-items.ts:154`) is computed before any transform. It takes a media
+resolver, built for each attempt, passed on `ModelStreamInput`, and loaded under the Run owner's
+identity, that returns each `media://` reference's descriptor (name, original and variant
+dimensions) and loads variant bytes on demand, and that also holds the attempt's memory of unstored
+images (below). For each step:
 
 - **Owner file parts.** Within one user message, after context rail items and the temporal row and
   before the owner's text, each file part becomes a label text part `Image n (media://<id>):` followed
   by an image part from the model variant; `n` counts that message's attachments from 1.
 - **Tool results.** A `read` image result becomes a tool output of type `content`: the text envelope
-  plus an image part, built from the stored variant for a `media://` result and from the Run's memory
-  for every other image result.
+  plus an image part, built from the stored variant for a `media://` result and from the attempt's
+  memory for every other image result.
 - **Prompt imports.** An image entry in a `prompt-imports` item becomes an image part after the item's
-  text, from the store for a `media://` entry and from the Run's memory otherwise.
+  text, from the store for a `media://` entry and from the attempt's memory otherwise.
 - **Attachment.** Each image reference takes exactly one form, in this order of precedence:
 
   - `[image media://<id> unavailable]` for a `media://` reference that does not resolve;
   - `[image <subject> <width>×<height>, omitted: this model has no image input]` for a model that
     does not declare `image`;
   - `[image <locator> <width>×<height>, not retained: read it again to view it]` for an unstored
-    image whose model variant the Run's memory does not hold;
+    image the attempt's memory holds no entry for;
   - an image part when the epoch window (below) attaches it, the only case whose bytes are loaded;
   - `[image <subject> <width>×<height>, not attached: this context's image limit is reached]`
     otherwise.
 
   `<subject>` is `media://<id> <name>` for a stored object, with `name` its single-line source
   label, and the submitted locator for an unstored image: the `read` path the model gave, or the
-  import marker's locator the owner wrote, under the same single-line rules. The dimensions are the
-  original's. Only the not-retained form invites a re-read, because a re-read in a later Run makes
-  the image available again; re-reading past the limit or on a text-only model would meet the same
-  limit or model. `conversation_read` and title lines keep the bare
-  `[image media://<id> <name> <width>×<height>]` form, which states no cause; they render owner
+  import marker's locator the owner wrote. That `<locator>` is a JSON string literal:
+  `JSON.stringify` of the locator, with U+007F–U+009F, U+2028, U+2029, `<`, and `>` also written as
+  `\uXXXX`, and never truncated, for example
+  `[image "app/[slug]/shot.png" 1600×900, not retained: read it again to view it]`. The source-label
+  rules would rewrite `[slug]` to `(slug)`, mangle `http://[::1]/x.png`, and cut long paths, so a
+  re-read or a summary copying the placeholder would name a different file. The literal is one line,
+  cannot close the placeholder early, and contains no tag form, while `JSON.parse` returns the exact
+  locator. The dimensions are the original's. Only the not-retained form invites a re-read, because
+  a re-read in a later attempt makes the image available again; re-reading past the limit or on a
+  text-only model would meet the same limit or model. `conversation_read` and title lines keep the
+  bare `[image media://<id> <name> <width>×<height>]` form, which states no cause; they render owner
   attachments only.
 
   Naming the cause follows the harnesses that handle non-vision models in source:
@@ -269,12 +279,30 @@ bytes on demand, and that also holds the Run's memory of unstored images (below)
   `(image attached below)`, and the images of consecutive tool results follow in one synthetic user
   message `Images from tool results:`, as OMP does. Every other tool message keeps its placeholder.
 
-**Run-scoped retention (R1.4).** The worker keeps the decoded model variant (bytes, media type, model
-width and height) of every unstored image read or imported in a Run, keyed by tool call id or
-prompt-import entry, in memory for that Run only, and drops it when the Run ends. Later steps of that
-Run attach it under the epoch window. A later turn, a retry, a resume on another worker, a compaction
-request, and a fork never hold it, so they get the not-retained placeholder. A text-only model still
-gets the omitted form, which takes precedence.
+**Attempt-scoped retention (R1.4).** The worker keeps an entry for every unstored image read or
+imported in an attempt, keyed by tool call id or prompt-import entry, in that attempt's memory only,
+and drops the memory when the attempt ends. Every attempt starts empty: a retry or a resume, on the
+same worker or another, is a new attempt and shares nothing with the attempt it supersedes, even
+while that one is still running in the same process. Keying by Run instead would let a same-process
+retry attach what a retry on another worker cannot, so the request would depend on which worker
+claimed the attempt; canonical per-attempt state already lives "only in the active attempt's
+memory" (`tool-calling`).
+
+An entry keeps the decoded model variant (bytes, media type, model width and height) only when the
+attempt's model declares `image` input and the epoch window admits the reference as it enters the
+attempt's requests: a `read` before the next step's request is composed, in tool-call order, and a
+prompt import when the attempt's first request is composed, after any compaction, so an import that
+triggered overflow compaction is admitted into the new epoch. Otherwise the entry keeps only what its
+placeholder needs (locator, original dimensions, media type). Admission is append-only within an
+attempt and compaction never runs inside one, so a reference the window refuses at entry can never
+be attached later in that attempt, and a text-only model always gets the omitted form; keeping its
+bytes would buy nothing. The retained variants of one attempt therefore never exceed the window's
+24 MiB of base64, however many steps it runs, although `maxSteps` defaults to no cap and several
+attempts share one worker process.
+
+A later turn, a new attempt, a compaction request, and a fork hold no entry, so a vision model gets
+the not-retained placeholder there. A text-only model still gets the omitted form, which takes
+precedence.
 
 Composing from references every step is idempotent: the SDK hands `prepareStep` the untransformed
 messages again on each step.
@@ -284,7 +312,7 @@ already leaves out reasoning metadata, and charges each image reference `ceil(wi
 tokens on its model variant's dimensions (Anthropic's documented formula; a 2000×1125 variant is
 3,000 tokens). Placeholders count as their text. The estimators (`estimateProjectionTokens`,
 `estimateContinuationTokens`, and the context-window fit check) receive the resolver's descriptor
-map and the Run's memory, because stored file parts and image envelopes do not carry variant
+map and the attempt's memory, because stored file parts and image envelopes do not carry variant
 dimensions.
 
 Stored parts never contain base64 model data; the only image data they hold is the display-only
@@ -297,18 +325,21 @@ falls under the epoch window.
 checkpoint is published. Within one compaction epoch (the rows after the active checkpoint, plus the
 current attempt), attachable image references are attached oldest first in request order while both
 bounds hold: at most 100 images and at most 24 MiB of summed base64 model variants. Attachable means
-a resolvable `media://` reference or an unstored image the Run's memory holds; not-retained and
-unavailable references never count. The first reference that would exceed either bound, and every
+a resolvable `media://` reference or an unstored image the attempt's memory holds an entry for; an
+entry without bytes marks where the window stopped, and not-retained and unavailable references
+never count. The first reference that would exceed either bound, and every
 newer one in that epoch, is not attached. Admission is append-only, so a new turn or a new step never
 changes whether an earlier image is attached, and the request prefix stays byte-identical for
 provider prompt caching. Anthropic invalidates cached message blocks when images are added or
 removed anywhere in the prompt
 ([prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)).
 
-R1 adds one exception: when a Run ends, its unstored images become not-retained in the next request
-and leave the window, and the references after them are admitted again oldest first. That next
-request misses the provider cache from the first such image on, once, because the image itself
-leaves the prompt; every later request is stable again.
+R1 adds two exceptions, both at an attempt boundary: when an attempt ends, and when a new attempt
+(a retry or a resume, on any worker) starts with empty memory, the unstored images an earlier
+attempt held become not-retained in later requests and leave the window, and the references after
+them are admitted again oldest first. The first request after the boundary misses the provider
+cache from the first such image on, once, because the image itself leaves the prompt; every later
+request is stable again.
 
 Before a Run's first model step, a vision-model request with an unattached image and at least one
 stored image in a row before the triggering user message counts as reaching the compaction
@@ -320,7 +351,7 @@ proceeds and the overflowing images keep the limit placeholder. The trigger is r
 every Run, so images left unattached are attached again by the next successful compaction. Absorbed
 images survive as the locators the summary keeps, `media://` or source locator, and the model
 re-reads them into the new epoch with `read`. Compaction never runs inside a Run, so an image read
-past the bounds mid-Run stays unattached for that Run and becomes not-retained in the next turn.
+past the bounds mid-Run stays unattached for that attempt and becomes not-retained in the next turn.
 Overflow inside the triggering message alone (ten maximum-size images exceed 24 MiB) does not
 compact, because compaction cannot absorb that message.
 
@@ -352,7 +383,7 @@ that already invalidates the cache.
 Every native `read` locator that yields bytes may yield an image: host paths and `file:` aliases,
 `kb://`, `skill://`, `http(s)://`, and `media://`. For a regular file (host, `kb://`, `skill://`),
 the reader checks the magic bytes of the first bytes before UTF-8 decoding. On a match, the worker
-prepares the image (D2) without storing it, keeps the model variant in the Run's memory (D6), and
+prepares the image (D2) without storing it, keeps an entry in the attempt's memory (D6), and
 returns an image result:
 
 ```json
@@ -368,9 +399,9 @@ returns an image result:
 
 The envelope keeps the source's existing attribution (host `path`, Knowledge Space and notice, web
 `finalUrl` and `method: "image"`). Its `mediaType`, `width`, and `height` describe the original. It
-has no `media` field and no `media://` id. The image itself reaches the model through D6 in that Run
-only. A model without `image` input receives the same envelope plus the omitted placeholder naming
-the read's locator.
+has no `media` field and no `media://` id. The image itself reaches the model through D6 in that
+attempt only. A model without `image` input receives the same envelope plus the omitted placeholder
+naming the read's locator.
 
 The tool part stores the envelope plus a display-only `thumbnail` (D2), which `toModelOutput` and
 the replay envelope strip. It is excluded from the observation budgets and the result truncation
@@ -407,11 +438,12 @@ bound, which measures the item's text. The entry body is the image result envelo
 returns, so "Imported results equal native read output" holds unchanged.
 
 A local, `kb://`, `skill://`, or web target is not stored. Its entry's private payload records the
-display-only `thumbnail` and no `media` key; the Run's memory holds its model variant, keyed by the
-entry, so the importing Run attaches it and every later request, including a retry or resume on
-another worker, gets the not-retained placeholder. Recovery reuses the persisted entry without
-rereading, as for a text result. An `@media://<id>` target records `media: "media://<id>"` instead
-and replays from the store in every later turn.
+display-only `thumbnail` and no `media` key; the importing attempt's memory keeps the image under
+that item entry, so the importing attempt attaches it when the window admits it, and every later
+request, including a retry or resume as a new attempt on any worker, gets the not-retained
+placeholder on a vision model and the omitted placeholder on a text-only one. Recovery reuses the
+persisted entry without rereading, as for a text result. An `@media://<id>` target records
+`media: "media://<id>"` instead and replays from the store in every later turn.
 
 The payload validator (`isPromptImportsPayloadEntry` in `apps/api/src/chats/prompt-imports-item.ts`,
 an exact-key check) accepts `thumbnail` (a `data:image/webp;base64,` URL within the 64 KiB cap) and
@@ -419,7 +451,7 @@ an exact-key check) accepts `thumbnail` (a `data:image/webp;base64,` URL within 
 `apps/web/lib/services/chat/history.ts`), or the owner chip disappears for the whole item. The
 Migration Plan states the rollback consequence for such items. The owner chip renders `thumbnail`
 directly and opens a `media` entry from the `/model` route. This delta ADDs five requirements to the
-`prompt-imports` capability: image entries, their Run-scoped model delivery, their private
+`prompt-imports` capability: image entries, their attempt-scoped model delivery, their private
 `thumbnail` or `media` payload field, its validation, and `media://` as a prompt-import target. It
 does not restate that capability's requirements.
 
@@ -470,9 +502,11 @@ sets `scrollToZoom: true` and `maxZoomPixelRatio: 8`. Clicking any thumbnail ope
   segmented control switches between `original` and `model`, and the caption shows the shown
   variant's dimensions and format and the `media://` locator.
 - **Unstored images.** A `read` or prompt-import image without `media` is a single-variant slide
-  showing its `thumbnail`, with no toggle and the caption `W×H FORMAT · <locator>` from the result.
-  The read tool card and the prompt-import chip render the same `thumbnail` as
-  `<img src="data:...">`.
+  showing its `thumbnail`, with no toggle and the caption `W×H FORMAT · <locator>`: the dimensions
+  and format from the result, and as plain text the same locator its placeholders name, the one the
+  model submitted to `read` (the tool call's input) or the owner wrote in the import marker (the
+  payload entry's `locator`), not the result's resolved `path`. The read tool card and the
+  prompt-import chip render the same `thumbnail` as `<img src="data:...">`.
 - **No provenance.** No caption shows a provenance (R1.1).
 
 Rejected: a hand-built viewer on the Base UI Dialog with `react-zoom-pan-pinch`, which would rebuild

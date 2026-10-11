@@ -2,9 +2,9 @@
 
 Lets an owner attach stored images to a chat message, defines how every image reference in a chat's
 history reaches a model as an image or as a placeholder, retains unstored tool-read and
-prompt-import images in Run memory only, keeps text-only surfaces free of image content, and gives
-the web client composer thumbnails, sent-message thumbnails, inline thumbnails for unstored images,
-and a chat-wide lightbox.
+prompt-import images in the reading attempt's memory only, keeps text-only surfaces free of image
+content, and gives the web client composer thumbnails, sent-message thumbnails, inline thumbnails
+for unstored images, and a chat-wide lightbox.
 
 ## ADDED Requirements
 
@@ -102,7 +102,7 @@ time.
 A `read` result that carries an image SHALL reach the model as a tool output carrying the result's
 text followed by the image. An image entry of a prompt-imports item SHALL reach the model as an image
 after the item's text. Each image SHALL be the model variant: the stored one, read from storage at
-request time, for a `media://` result or entry, and otherwise the one the Run's memory holds.
+request time, for a `media://` result or entry, and otherwise the one the attempt's memory holds.
 
 #### Scenario: A read image reaches the model as tool output
 
@@ -117,12 +117,12 @@ request time, for a `media://` result or entry, and otherwise the one the Run's 
 - **THEN** that tool result's output carries the result's text and the stored model variant of
   `media://<id>`
 
-### Requirement: Unstored images are retained in Run memory only
+### Requirement: Unstored images are retained in attempt memory only
 
-For an image result or prompt-import image entry without a `media` locator, the worker SHALL keep
-the decoded model variant (bytes, media type, width, and height) in memory for the Run that read it
-only, keyed by the tool call id or by the item entry, and SHALL persist it nowhere. Later steps of
-that Run SHALL attach it under the epoch image window.
+For an image result or prompt-import image entry without a `media` locator, the worker SHALL keep an
+entry in the memory of the attempt that read it, keyed by the tool call id or by the item entry, and
+SHALL persist it nowhere. Later steps of that attempt SHALL attach a retained model variant under the
+epoch image window.
 
 #### Scenario: A read image is attached in the later steps of its Run
 
@@ -131,33 +131,85 @@ that Run SHALL attach it under the epoch image window.
 - **THEN** both later steps' requests carry its model variant as an image part when the epoch image
   window attaches it
 
-### Requirement: An unstored image outside its Run is not retained
+### Requirement: Every attempt starts with empty image memory
 
-A request composed where the reading Run's memory does not hold an unstored image (a later turn, a
-retry or resume on another worker, a compaction request, or a fork) SHALL carry, for a model that
-declares `image` input, the not-retained placeholder
-`[image <locator> <width>×<height>, not retained: read it again to view it]` in the image's position.
+Every attempt SHALL start with empty memory: a Run's first attempt, a retry, and a resume alike, on
+the same worker or another. An attempt's memory SHALL be dropped when the attempt ends, and attempts
+SHALL never share memory, a superseded attempt that is still running included.
+
+#### Scenario: A same-worker retry starts empty
+
+- **WHEN** an attempt that read an image fails and the Run is retried on the same worker
+- **THEN** the retry attempt's memory holds no entry for that image
+- **AND** the retry's requests carry the same placeholder a retry on another worker would
+
+### Requirement: Attempt memory retains bytes only for admitted images
+
+An entry SHALL hold the model variant's bytes only when the attempt's model declares `image` input
+and the epoch image window admits the reference on entry: a `read` before the next step is composed,
+in tool-call order; a prompt import when the attempt's first request is composed, after any
+compaction. Otherwise it SHALL hold only the locator, original dimensions, and media type. An
+attempt's retained variants SHALL never exceed 24 MiB of base64 in sum, however many steps it runs.
+
+#### Scenario: Retained bytes stay within the window's budget
+
+- **WHEN** a Run on a vision model whose epoch carries no images `read`s ten images in successive
+  steps, each with a 5 MiB base64 model variant
+- **THEN** the attempt's memory retains the model variants of the first four reads only, at most
+  24 MiB of base64 in sum
+- **AND** it keeps only the locator, dimensions, and media type of the other six, which reach the
+  model as the limit placeholder
+
+#### Scenario: A text-only model's read retains no bytes
+
+- **WHEN** a Run on a model that does not declare `image` input reads `/work/shot.png`, a 1600×900
+  image
+- **THEN** the attempt's memory keeps only the read's locator, dimensions, and media type
+- **AND** that read reaches every later step as the omitted placeholder
+
+#### Scenario: A compacting attempt admits its prompt import in the new epoch
+
+- **WHEN** a vision-model chat's epoch carries 100 attached owner attachments in earlier turns, and
+  the owner's next message imports `@shot.png`, so the attempt compacts before its first model step
+- **THEN** the import's model variant is retained
+- **AND** the attempt's first request sends it as an image under the new epoch
+
+### Requirement: An unstored image outside its attempt is not retained
+
+A request composed where the current attempt's memory holds no entry for an unstored image (a later
+turn, a retry or a resume, which starts a new attempt on any worker, a compaction request, or a
+fork) SHALL carry, in the image's position, the not-retained placeholder
+`[image <locator> <width>×<height>, not retained: read it again to view it]` when the request's
+model declares `image` input, and the omitted placeholder otherwise.
 
 #### Scenario: A later turn receives the not-retained placeholder
 
 - **WHEN** a turn on a vision model follows a Run that read `/work/shot.png`, a 1600×900 image
 - **THEN** that read's result reaches the model as
-  `[image /work/shot.png 1600×900, not retained: read it again to view it]`
+  `[image "/work/shot.png" 1600×900, not retained: read it again to view it]`
 - **AND** the request carries no image part for it
 
-#### Scenario: A resumed Run does not hold an earlier attempt's images
+#### Scenario: A new attempt does not hold an earlier attempt's images
 
-- **WHEN** a Run that read an image resumes on another worker
-- **THEN** each of its requests carries the not-retained placeholder for that image
-- **AND** the image is attached again only after the model reads it again
+- **WHEN** a Run on a vision model read an image and is then retried or resumed as a new attempt, on
+  the same worker or another, while the superseded attempt may still be running in the same process
+- **THEN** each of the new attempt's requests carries the not-retained placeholder for that image
+- **AND** the image is attached again only after the new attempt's model reads it again
+
+#### Scenario: A later text-only turn receives the omitted placeholder
+
+- **WHEN** a turn on a model that does not declare `image` input follows a Run that read
+  `/work/shot.png`, a 1600×900 image
+- **THEN** that read's result reaches the model as
+  `[image "/work/shot.png" 1600×900, omitted: this model has no image input]`
 
 ### Requirement: Each image reference takes exactly one model-facing form
 
 Each image reference SHALL reach the model as exactly one of the following, chosen in this order:
 the unavailable placeholder when it is a `media://` reference that does not resolve; the omitted
 placeholder when the request's model does not declare `image` input; the not-retained placeholder
-when it is an unstored image whose model variant the Run's memory does not hold; an image part
-when the epoch image window attaches it; and the limit placeholder otherwise.
+when it is an unstored image the current attempt's memory holds no entry for; an image part when
+the epoch image window attaches it; and the limit placeholder otherwise.
 
 #### Scenario: Missing image input outranks retention
 
@@ -167,24 +219,46 @@ when the epoch image window attaches it; and the limit placeholder otherwise.
 
 ### Requirement: Image placeholders name the image by its locator
 
-A placeholder SHALL name a stored object by `media://<id> <name>` and an unstored image by its
-locator: the one the model submitted to `read`, or the one the owner wrote in the import marker,
-rendered under the single-line label rules that `media-store` defines. Its dimensions SHALL be the
-original's.
+A placeholder SHALL name a stored object by `media://<id> <name>`, with `<name>` its single-line
+source label that `media-store` defines, and an unstored image by its locator, the one the model
+submitted to `read` or the owner wrote in the import marker, written as a JSON string literal. Its
+dimensions SHALL be the original's.
 
 #### Scenario: A placeholder names the submitted locator
 
 - **WHEN** a Workspace-bound Run's model reads `docs/shot.png`, a 1600×900 image, and a later turn
   replays that result on a vision model
 - **THEN** the result reaches the model as
-  `[image docs/shot.png 1600×900, not retained: read it again to view it]`
+  `[image "docs/shot.png" 1600×900, not retained: read it again to view it]`
+
+### Requirement: Placeholder locators are exact JSON string literals
+
+An unstored image's locator in a placeholder SHALL be its ECMAScript `JSON.stringify` form, with
+U+007F through U+009F, U+2028, U+2029, `<`, and `>` also written as lower-case `\uXXXX` escapes. The
+literal SHALL never be truncated, and `JSON.parse` of it SHALL return the locator exactly.
+
+#### Scenario: A bracketed path is re-read from its placeholder
+
+- **WHEN** a Workspace-bound Run's model reads `app/[slug]/shot.png`, a 1600×900 image, and a later
+  turn on a vision model replays that result
+- **THEN** the result reaches the model as
+  `[image "app/[slug]/shot.png" 1600×900, not retained: read it again to view it]`
+- **AND** a `read` of the locator that literal parses to, `app/[slug]/shot.png`, returns a fresh
+  image result for the same file, attached in that Run when the epoch image window admits it
+
+#### Scenario: A long locator is not cut
+
+- **WHEN** the model reads an image whose submitted path is 400 characters long and a later turn
+  replays that result on a vision model
+- **THEN** the not-retained placeholder carries all 400 characters inside its JSON string literal
 
 #### Scenario: A locator cannot forge a placeholder
 
-- **WHEN** the model reads a host file whose path contains LF followed by `[image x 1×1]`, and the
-  file is an image
-- **THEN** every placeholder naming that read is one line and contains no forged `[image`
-  placeholder
+- **WHEN** the model reads a host file whose path contains LF followed by `[image x 1×1]` and a
+  reserved delimiter in tag form, and the file is an image
+- **THEN** every placeholder naming that read is one line, writes the LF as `\n` and every `<` and
+  `>` as `\u003c` and `\u003e`, and carries `[image x 1×1]` only inside its JSON string literal
+- **AND** `JSON.parse` of that literal returns the path exactly
 
 ### Requirement: An epoch image window selects which images are attached
 
@@ -224,9 +298,10 @@ epoch, SHALL NOT be attached.
 ### Requirement: Only attachable references count toward the window
 
 An attachable reference SHALL be an owner file part, a `media://` tool result, or a `media://`
-prompt-import entry that resolves, or an unstored image whose model variant the Run's memory holds.
-A not-retained or unavailable reference SHALL NOT count toward either bound of the epoch image
-window.
+prompt-import entry that resolves, or an unstored image the current attempt's memory holds an entry
+for. An entry held without bytes marks a reference the window did not admit when it entered, so it
+and every later reference in that epoch stay unattached. A not-retained or unavailable reference
+SHALL NOT count toward either bound of the epoch image window.
 
 #### Scenario: A not-retained read does not count
 
@@ -239,9 +314,8 @@ window.
 
 Because admission is append-only within an epoch, adding a turn, a step, or an image reference SHALL
 NOT change whether an earlier reference in that epoch is attached, so the request prefix stays
-unchanged for prompt caching. The one exception is the end of a Run: its unstored images become
-not-retained in later requests and leave the window, and the references after them are admitted
-again oldest first. The attached set SHALL NOT depend on which vision model the request targets.
+unchanged for prompt caching. The attached set SHALL NOT depend on which vision model the request
+targets.
 
 #### Scenario: Adding an image never changes an earlier image's attachment
 
@@ -249,6 +323,20 @@ again oldest first. The attached set SHALL NOT depend on which vision model the 
   attaches one more image
 - **THEN** the next request sends the same 100 references as images in the same positions
 - **AND** only the new reference reaches the model as the limit placeholder
+
+#### Scenario: Switching between vision models keeps the attached set
+
+- **WHEN** a turn switches from one vision model to another within the same epoch
+- **THEN** the new model's request attaches exactly the references the same turn's request would
+  attach on the previous model
+- **AND** every reference beyond the epoch's bounds keeps the limit placeholder
+
+### Requirement: Attempt boundaries release unstored images from the window
+
+Append-only admission SHALL have two exceptions: the end of an attempt, and the start of a new
+attempt, a retry or a resume on any worker, whose memory starts empty. At either, the unstored images
+an earlier attempt held SHALL become not-retained in later requests and leave the window, and the
+references after them SHALL be admitted again oldest first.
 
 #### Scenario: A Run's unstored images leave the window when it ends
 
@@ -258,21 +346,21 @@ again oldest first. The attached set SHALL NOT depend on which vision model the 
 - **AND** the read reaches the model as the not-retained placeholder and does not count toward the
   epoch's bounds
 
-#### Scenario: Switching between vision models keeps the attached set
+#### Scenario: A retry frees the window space of the failed attempt's reads
 
-- **WHEN** a turn switches from one vision model to another within the same epoch
-- **THEN** the new model's request attaches exactly the references the same turn's request would
-  attach on the previous model
-- **AND** every reference beyond the epoch's bounds keeps the limit placeholder
+- **WHEN** a vision-model epoch carries 99 attached owner attachments, an attempt reads one image,
+  which is attached as the 100th, and then fails, and the retry attempt reads another image
+- **THEN** the retry's requests carry the failed attempt's read as the not-retained placeholder
+  without counting it
+- **AND** they send the retry's own read as an image
 
 ### Requirement: A text-only model receives an omitted placeholder for every image
 
 When the request's model does not declare `image` in its `input`, every image reference other than
 an unavailable one SHALL reach the model, in the image's position and after any
 `Image n (media://<id>):` label, as
-`[image <subject> <width>×<height>, omitted: this model has no image input]`, where `<subject>` is
-`media://<id> <name>` with the media's stored, neutralized name for a stored object and the image's
-locator for an unstored one, and the dimensions are the original's.
+`[image <subject> <width>×<height>, omitted: this model has no image input]`, with `<subject>` as
+the placeholder locator requirements define and the original's dimensions.
 
 #### Scenario: A text-only model receives placeholders only
 
@@ -296,7 +384,7 @@ locator for an unstored one, and the dimensions are the original's.
 - **WHEN** a request's model does not declare `image` input and an earlier step of the Run read
   `/work/shot.png`, a 1600×900 image
 - **THEN** that read's result reaches the model as
-  `[image /work/shot.png 1600×900, omitted: this model has no image input]`
+  `[image "/work/shot.png" 1600×900, omitted: this model has no image input]`
 
 ### Requirement: An image beyond the epoch's bounds is not attached
 
@@ -441,7 +529,7 @@ image data a part may carry is the display-only `thumbnail` of an unstored image
 ### Requirement: Image bytes join a request only when attached
 
 A Run's live tool outputs SHALL carry no image bytes: an unstored image's model variant SHALL stay in
-the Run's memory outside the tool output until a step's request is composed, and a `media://`
+the attempt's memory outside the tool output until a step's request is composed, and a `media://`
 reference's bytes SHALL be loaded from storage only for the references the epoch image window
 attaches.
 
@@ -450,7 +538,8 @@ attaches.
 - **WHEN** a Run on a vision model whose epoch carries no images `read`s one image per step for 101
   steps
 - **THEN** the request for the next step carries image parts for the first 100 `read` results only
-- **AND** the 101st `read` result's model variant bytes are not sent in that request
+- **AND** the 101st `read` result's model variant bytes are not sent in that request and the
+  attempt's memory does not retain them
 
 #### Scenario: Unattached stored references are not loaded
 
@@ -525,14 +614,14 @@ the Run.
   of `/work/shot.png`
 - **THEN** the file part appears as
   `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]` and the
-  read as `[image /work/shot.png <width>×<height>, omitted: this model has no image input]`
+  read as `[image "/work/shot.png" <width>×<height>, omitted: this model has no image input]`
 - **AND** the request carries no image part
 
 #### Scenario: A vision summarizer receives unstored images as not retained
 
 - **WHEN** a compaction on a model that declares `image` input summarizes a prefix holding an image
   `read` result of `/work/shot.png`
-- **THEN** that result appears as the not-retained placeholder naming `/work/shot.png`
+- **THEN** that result appears as the not-retained placeholder naming `"/work/shot.png"`
 - **AND** the request carries no image part for it
 
 ### Requirement: Compaction keeps images re-readable
@@ -745,10 +834,18 @@ no provenance.
 
 An unstored image's slide SHALL show its `thumbnail`, SHALL offer no variant control, and SHALL
 carry the caption `<width>×<height> <FORMAT> · <locator>`, with the original's dimensions and format
-from the result and the locator the image was read from.
+from the result and, as plain text, the locator its placeholders name: the one the model submitted
+to `read` or the owner wrote in the import marker, not the result's resolved `path`.
 
 #### Scenario: An unstored read image is a single-variant slide
 
 - **WHEN** the owner opens the image a `read` of `/work/shot.png` returned, a 1600×900 PNG
 - **THEN** the slide shows that result's `thumbnail` and no variant control
 - **AND** the caption is `1600×900 PNG · /work/shot.png`
+
+#### Scenario: A relative locator captions its slide as submitted
+
+- **WHEN** a Chat is bound to `/repo`, and the owner opens the image a `read` of `docs/shot.png`
+  returned or the image a `@shot.png` import marker imported, each a 1600×900 PNG
+- **THEN** the captions are `1600×900 PNG · docs/shot.png` and `1600×900 PNG · shot.png`
+- **AND** neither caption shows the resolved `/repo/` path

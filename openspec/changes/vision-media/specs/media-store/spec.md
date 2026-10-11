@@ -47,7 +47,7 @@ The source label SHALL be the uploaded filename. Before it is stored, every cont
 and LF included, SHALL become a space, then `[` and `]` SHALL become `(` and `)`, then the
 reserved-delimiter rules the `instance-config` capability defines SHALL neutralize it, and it SHALL
 be cut to at most 256 UTF-16 code units at a code-point boundary, so every stored label is a single
-line. `media-attachments` reuses these rules for locators in image placeholders.
+line. Image placeholders name a stored object by this label.
 
 #### Scenario: A long source label is cut
 

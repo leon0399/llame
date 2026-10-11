@@ -55,14 +55,16 @@ client. On replay, the result's text SHALL follow the projection above, and the 
 provider image content, built at request time, only when the request's model declares `image`
 input, its model variant is available, and the epoch image window defined by `media-attachments`
 attaches that reference. The model variant is available from the media store for a `media://`
-result, and from the Run's memory, keyed by the tool call id, only within the Run that read it for
-every other image result. Otherwise the replayed result SHALL carry the image placeholder defined
-by `media-attachments` in its text: an image result whose model variant is not in memory, in a
-later turn, a retry or resume on another worker, a compaction request, or a fork, SHALL replay as
-the not-retained placeholder, and a `media://` reference that does not resolve to the Run owner's
-media SHALL replay as the unavailable placeholder, neither failing the request. Image content SHALL
-NOT count toward the UTF-16 budgets, and an image SHALL replay only together with its retained
-result payload: clearing a payload or dropping a pair also removes its image from the request.
+result, and for every other image result only from the memory of the attempt that read it, keyed by
+the tool call id, as `media-attachments` defines. Otherwise the replayed result SHALL carry the image
+placeholder defined by `media-attachments` in its text: an image result the current attempt's memory
+holds no entry for, in a later turn, a retry or resume (a new attempt on any worker), a compaction
+request, or a fork, SHALL replay as the not-retained placeholder for a model that declares `image`
+input and as the omitted placeholder otherwise, and a `media://` reference that does not resolve to
+the Run owner's media SHALL replay as the unavailable placeholder, neither failing the request.
+Image content SHALL NOT count toward the UTF-16 budgets, and an image SHALL replay only together
+with its retained result payload: clearing a payload or dropping a pair also removes its image from
+the request.
 
 Visible assistant text and retained tool occurrences SHALL keep their current
 chronology. Because ordinary stored messages do not prove parallel or step
@@ -228,7 +230,7 @@ that produced them.
 - **WHEN** a later step of the Run that read `/work/shot.png`, on a model that declares `image`
   input, replays its image result and the epoch image window attaches the reference
 - **THEN** the replayed result carries its text and the image as provider image content built from
-  the model variant held in the Run's memory
+  the model variant held in that attempt's memory
 - **AND** the call remains immediately paired with its result
 
 #### Scenario: A media read result replays from the store in a later turn
@@ -243,7 +245,7 @@ that produced them.
 - **WHEN** a later turn on a model that declares `image` input replays the stored image result of
   `read("/work/shot.png")` for a 1600×900 image
 - **THEN** the replayed result's text carries
-  `[image /work/shot.png 1600×900, not retained: read it again to view it]`
+  `[image "/work/shot.png" 1600×900, not retained: read it again to view it]`
 - **AND** the request carries no image content for that result
 
 #### Scenario: An unattached image result replays as a placeholder

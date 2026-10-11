@@ -44,11 +44,11 @@ a tool output of type `content` carrying the result's text followed by one image
 part built from the image's model variant when `media-attachments` selects an
 image part for that reference; otherwise its output SHALL carry the result's text
 followed by the image placeholder and no image part. The model variant is the
-stored object's for a `media://` result or image entry, and the one the Run's
-memory holds for every other image, which is available only within the Run that
-read it. The display-only `thumbnail` of an image result or image entry SHALL NOT
-cross the boundary. The transport of image outputs on Chat Completions wires is
-specified by `media-attachments`.
+stored object's for a `media://` result or image entry, and for every other
+image the one the current attempt's memory holds, which is available only within
+the attempt that read it. The display-only `thumbnail` of an image result or
+image entry SHALL NOT cross the boundary. The transport of image outputs on Chat
+Completions wires is specified by `media-attachments`.
 
 Media references SHALL resolve only within the Run owner's media. A `media://`
 reference that does not resolve for that owner SHALL contribute no byte or
@@ -127,7 +127,7 @@ no other stored form of superseded history is replayed.
 - **WHEN** a later step of the Run that read an image replays that `read` tool part, the request
   model declares `image` input, and the epoch image window attaches the reference
 - **THEN** the tool-result message carries an output of type `content` holding the result's text
-  followed by one image part built from the model variant the Run's memory holds
+  followed by one image part built from the model variant that attempt's memory holds
 - **AND** the output carries no `thumbnail`
 
 #### Scenario: An image read result for a text-only model carries a placeholder

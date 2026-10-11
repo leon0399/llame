@@ -27,16 +27,16 @@ holds owner uploads only, and images read from anywhere but `media://` are never
 - **Image window and placeholders.**
   - Within one compaction epoch, images are attached oldest first up to 100 images and 24 MiB of
     base64. Admission is append-only, so an earlier image never changes state and the provider prompt
-    cache survives every image turn, except that a Run's unstored images leave the window when it
-    ends.
+    cache survives every image turn, except that an attempt's unstored images leave the window when
+    it ends or a new attempt starts.
   - An image past the bounds becomes
     `[image media://<id> <name> <w>×<h>, not attached: this context's image limit is reached]`, and
     the next Run with such overflow compacts. Absorbed images survive as locators the model can
     re-read.
   - Every image sent to a model without `image` input becomes
     `[image media://<id> <name> <w>×<h>, omitted: this model has no image input]`.
-  - An unstored image names its submitted locator instead, for example
-    `[image /work/shot.png 1600×900, omitted: this model has no image input]`.
+  - An unstored image names its submitted locator instead, as an exact JSON string literal, for
+    example `[image "/work/shot.png" 1600×900, omitted: this model has no image input]`.
   - Admission and compaction estimates charge each image `ceil(width × height / 750)` tokens on its
     model variant instead of counting its base64.
 - **Native `read` of images.** Host paths, `file:`, `kb://`, `skill://`, `http(s)://`, and the new
@@ -44,17 +44,20 @@ holds owner uploads only, and images read from anywhere but `media://` are never
   - The result is a typed image envelope, and the image reaches the model as tool-result content.
   - Only `media://` reads resolve a stored upload and replay it from the store in later turns. Every
     other image read is decoded with the upload pipeline and stored nowhere. Its result carries no
-    `media` field, and its model variant stays in the worker's memory for that Run only.
-  - Later turns, retries and resumes on another worker, compaction, and forks get
-    `[image <locator> <w>×<h>, not retained: read it again to view it]`.
+    `media` field, and the reading attempt's memory keeps its model variant only while the image
+    window admits it, so one attempt retains at most the window's 24 MiB of base64.
+  - On a vision model, later turns, retries and resumes (new attempts on any worker), compaction,
+    and forks get `[image <locator> <w>×<h>, not retained: read it again to view it]`, for example
+    `[image "app/[slug]/shot.png" 1600×900, not retained: read it again to view it]`; a text-only
+    model gets the omitted placeholder.
   - The stored tool part keeps a display-only WebP `thumbnail` data URL of at most 256 px and
     64 KiB, which never reaches a model.
   - On Chat Completions wires, tool-result images move into a following user message.
   - Web reads accept those four image types and still refuse PDF and other binary types.
 - **Prompt imports.** An image target of a prompt import marker becomes an image entry in the
-  `prompt-imports` item. A local, `kb://`, `skill://`, or web target is attached in that Run from
-  memory and carries a `thumbnail`. An `@media://<id>` target keeps its `media` locator and replays
-  from the store.
+  `prompt-imports` item. A local, `kb://`, `skill://`, or web target is attached in the importing
+  attempt from memory and carries a `thumbnail`. An `@media://<id>` target keeps its `media` locator
+  and replays from the store.
 - **Text projections.**
   - `conversation_read` and title generation append image placeholders.
   - Compaction keeps image locators, `media://` or source locator, in its summary.
@@ -101,7 +104,7 @@ Revision R1, decided by Leo on 2026-10-11 after approval:
 - The media store holds owner uploads only, with no provenance (R1.1).
 - `media://` reads are unchanged (R1.2).
 - Other image reads and prompt imports decode without storing (R1.3, R1.6), and they are retained in
-  worker memory for their Run only (R1.4).
+  the reading attempt's memory only (R1.4).
 - Unstored images carry a display-only inline `thumbnail` (R1.5).
 - The lightbox shows unstored images as single-variant slides (R1.7).
 
@@ -123,8 +126,12 @@ Not asked directly, and following from those decisions:
 - `conversation_read` appends placeholders after the message text, so search line coordinates do not
   move. Compaction sends images as the Run would and asks the summarizer to keep image locators
   (D9).
-- An unstored image's placeholder names the locator the model or owner submitted, under the source
-  label's single-line rules (D6).
+- An unstored image's placeholder names the locator the model or owner submitted, exactly, as a JSON
+  string literal; the source label's rules would rewrite `[slug]` to `(slug)` and cut long paths
+  (D6).
+- Unstored image memory belongs to one attempt: every retry or resume starts empty on any worker,
+  and an attempt keeps bytes only for images the window admits, so its memory stays within the
+  window's 24 MiB of base64 although `maxSteps` defaults to no cap (D6).
 
 Known gap: nothing can delete an uploaded image. A pasted secret stays stored and readable through
 `media://` until the library ships a delete action. Read and prompt-imported images are never stored.
@@ -138,7 +145,7 @@ Known gap: nothing can delete an uploaded image. A pasted secret stays stored an
   routes with `ETag` revalidation, the `media://` grammar and its owner-only resolution, retention
   without deletion, and tenant isolation.
 - `media-attachments`: owner `file` parts on messages, image-only messages, the model projection
-  (ordering, labels, Run-scoped retention of unstored images, image window, placeholders, Chat
+  (ordering, labels, attempt-scoped retention of unstored images, image window, placeholders, Chat
   Completions transport), text-only projections, the composer thumbnails, sent-message thumbnails,
   inline thumbnails of unstored images, and the lightbox.
 
@@ -163,8 +170,9 @@ Known gap: nothing can delete an uploaded image. A pasted secret stays stored an
   are not `edit` targets and carry no `media://` locator.
 - `tool-calling`:
   - "Tool observations survive into later turns as stored UI parts" measures text only, stores a
-    display-only `thumbnail` for unstored images, replays them from Run memory or as the not-retained
-    placeholder, replays `media://` results from the store, and defers images to the image window.
+    display-only `thumbnail` for unstored images, replays them from attempt memory or as the
+    not-retained or omitted placeholder, replays `media://` results from the store, and defers
+    images to the image window.
   - "Tool failure is an observation, not a crash" never truncates a `media://` reference and keeps
     `thumbnail` outside the cap.
   - "Tool registry with mandatory safety classification" adds owner media authority.
@@ -181,7 +189,7 @@ Known gap: nothing can delete an uploaded image. A pasted secret stays stored an
   modalities".
 - `context-injection`:
   - "Stored parts cross a minimal SDK conversion boundary" maps file parts and image results, never
-    passes a `thumbnail`, and takes unstored images from Run memory.
+    passes a `thumbnail`, and takes unstored images from attempt memory.
   - "Every item declares metadata and persists its final model-facing text" lets a message with a
     surviving file part pass the service-level check.
 - `temporal-anchor`: "Only the system may author a temporal row" rejects a message only when neither
@@ -227,7 +235,7 @@ Deliberately unchanged:
 - `apps/api/src/media` (new): upload ingest, the shared image preparation and thumbnail encoder,
   routes, and the `media://` resolver.
 - `apps/api/src/chats`: DTO, loop validation, conversion boundary, tool observation replay, and the
-  Run-scoped memory of unstored images.
+  attempt-scoped memory of unstored images.
 - `apps/api/src/tools`: native read, web read, and `media://` dispatch.
 - `apps/api/src/models`: the Chat Completions tool-image transform.
 - `apps/api/src/instance-config`: `models[].input`, schema, and example.
@@ -268,9 +276,10 @@ Issue #935 (the capability, closed by `prompt-import-images`):
 - `read` of a PNG on the host, in Knowledge, behind an `https://` URL, and at `media://<id>` returns the
   image to a vision model on each provider wire. On Chat Completions wires the image arrives as an image
   part, not base64 text.
-- No `read` or prompt import other than `media://` creates a media object. A later turn receives
-  such an image as `[image <locator> W×H, not retained: read it again to view it]`, while a
-  `media://` read replays from the store.
+- No `read` or prompt import other than `media://` creates a media object. A later turn on a vision
+  model receives such an image as `[image <locator> W×H, not retained: read it again to view it]`,
+  with the submitted locator as a JSON string literal, while a `media://` read replays from the
+  store.
 - A text-only model receives every earlier image as its `omitted` placeholder, and the model can name
   its locator.
 - A prompt import of `@/path/to/shot.png` delivers the image inside the `prompt-imports` item.
