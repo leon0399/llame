@@ -266,7 +266,7 @@ moved again. The proposal layer itself touches no file in those PRs.
   away from the origin where hover would matter.
 - [Merged statement coverage dips on story-only paths (the #860 V8→istanbul
   duplicate statements)] → Report statements, lines, branches, and functions
-  together, with mutation evidence.
+  together from CI's web coverage leg, with mutation evidence.
 
 ## Migration Plan
 
