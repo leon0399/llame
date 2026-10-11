@@ -12,11 +12,7 @@ import {
 import { type MessagePart } from '../chats/context-builder';
 import { isContextItemPart } from '../chats/context-item';
 import { type TurnStatus, type TurnTelemetry } from '../chats/turn-telemetry';
-import {
-  type Message,
-  type Run,
-  type RunEvent,
-} from '../db/schema';
+import { type Message, type Run, type RunEvent } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import {
   type SystemModelCatalogEntry,
