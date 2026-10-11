@@ -25,8 +25,11 @@ import {
 // stubbed globalThis.fetch. The create POST and the delete DELETE are held
 // until a story releases them, so a story can observe the dialog while the
 // request is still in flight and prove what is (not yet) sent. The rename and
-// chat-filing PATCHes succeed at once. An unrouted request fails the story.
+// chat-filing PATCHes succeed at once. An unrouted request is recorded and the
+// meta's afterEach fails the story on it: the throw alone would only reach the
+// hook's onError toast.
 let fetchMock: Mock<typeof fetch>;
+let unrouted: Array<string>;
 let releaseCreate: () => void;
 let releaseDelete: () => void;
 
@@ -35,6 +38,7 @@ const project = { id: "p1", name: "Acme relaunch" };
 function routeFetch() {
   return () => {
     fetchMock = stubFetch();
+    unrouted = [];
     fetchMock.mockImplementation((input) => {
       const request = input instanceof Request ? input : new Request(input);
       const key = `${request.method} ${new URL(request.url).pathname}`;
@@ -55,6 +59,7 @@ function routeFetch() {
       if (key === "PATCH /api/v1/chats/c1") {
         return Promise.resolve(emptyResponse());
       }
+      unrouted.push(key);
       throw new Error(`unrouted fetch in story: ${key}`);
     });
     return () => {
@@ -97,6 +102,9 @@ const meta = {
     onOpenChange: fn(),
   },
   beforeEach: routeFetch(),
+  afterEach: async () => {
+    await expect(unrouted).toEqual([]);
+  },
 } satisfies Meta<typeof NewProjectDialog>;
 
 export default meta;
