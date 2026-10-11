@@ -846,6 +846,9 @@ describe('buildCompactionRequest', () => {
     expect(COMPACTION_INSTRUCTION).toContain(
       'Keep verbatim the locator of every image the summary mentions, whether a `media://` locator or the path or URL it was read from, so a later turn can read that image again.',
     );
+    expect(COMPACTION_INSTRUCTION).toContain(
+      'Redaction still wins inside a kept locator: a credential, token, or connection string in it still becomes `[REDACTED]`, so `https://example.test/a.png?token=secret` is kept as `https://example.test/a.png?token=[REDACTED]`.',
+    );
     expect(COMPACTION_INSTRUCTION).toContain('Output only the summary');
   });
 
