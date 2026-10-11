@@ -9,8 +9,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   model, permission mode, message target and compaction, the login and
   register forms', the model switch boundary's, the settings page's, the
   project page's, the sidebar row title's, the chat transcript's load-older
-  scroll, the primary rail's, the public shared chat page's, and the project
-  rail's rendering tests out of jsdom and into `org-tree.stories.tsx`,
+  scroll, the primary rail's, the public shared chat page's, the project
+  rail's, and the Personalization settings card's rendering tests out of
+  jsdom and into `org-tree.stories.tsx`,
   `members-panel.stories.tsx`, `command-palette.stories.tsx`,
   `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
   `project-dialogs.stories.tsx`, `org-unit-dialogs.stories.tsx`,
@@ -19,8 +20,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `model-switch-boundary.stories.tsx`, `settings-page.stories.tsx`,
   `project-page.stories.tsx`, `sidebar-row-title.stories.tsx`,
   `chat-load-older.stories.tsx`, `app-sidebar.stories.tsx`,
-  `shared-chat-page.stories.tsx`, and `project-list-sidebar.stories.tsx`,
-  whose play functions now run in Chromium (#860).
+  `shared-chat-page.stories.tsx`, `project-list-sidebar.stories.tsx`, and
+  `personalization-section.stories.tsx`, whose play functions now run in
+  Chromium (#860).
   The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -140,7 +142,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   with a card built from the row, and Unpin on a pinned project, each with the
   two list requests the rail sends. Stories see the pin hooks only through
   Storybook's mock, so the project pin's request and its card's optimistic write
-  into a never-fetched pins list moved to the pins hook test.
+  into a never-fetched pins list moved to the pins hook test. The
+  Personalization card stories cover its shorter description while the settings
+  load (held until released), then the form; turning personalization off, which
+  locks the fields before the server answers and sends `{ enabled: false }`; the
+  locked fields, an account sharing switch that ignores a click and a preview of
+  nothing while it is off; an edit marked Unsaved changes until a save lands
+  (Save busy while it is held, the field reading back trimmed, with the PATCH it
+  sends); a field one over its cap blocking Save; a rejected save keeping the
+  edit with Save enabled to retry; and showing and hiding the preview of what is
+  sent, each with the requests the card sends.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
