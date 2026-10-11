@@ -81,11 +81,14 @@ async function chunkLoad(attempt: number) {
 
 // The resume probe and the history re-read run through the REAL hooks against
 // a stubbed fetch, answering as the api does for a chat with no active run.
-// Any other request fails the story.
+// Any other request is recorded and the meta's afterEach fails the story on it:
+// the throw alone only becomes a query error.
 let fetchMock: Mock<typeof fetch>;
+let unrouted: Array<string> = [];
 
 function routeOpenChat() {
   fetchMock = stubFetch();
+  unrouted = [];
   fetchMock.mockImplementation((input) => {
     const request = input instanceof Request ? input : new Request(input);
     const key = `${request.method} ${new URL(request.url).pathname}`;
@@ -93,6 +96,7 @@ function routeOpenChat() {
       return Promise.resolve(jsonResponse({ messages: HISTORY }));
     }
     if (key === RESUME_ROUTE) return Promise.resolve(emptyResponse());
+    unrouted.push(key);
     throw new Error(`unrouted fetch in story: ${key}`);
   });
   return () => {
@@ -162,6 +166,9 @@ const meta = {
       restoreChunks();
       restoreFetch();
     };
+  },
+  afterEach: async () => {
+    await expect(unrouted).toEqual([]);
   },
   decorators: [
     (Story) => (
@@ -243,6 +250,7 @@ export const MarkdownUnavailable: Story = {
     (await chunkLoad(1)).reject(new Error("chunk failed"));
 
     await expect(await canvas.findByText("Messages unavailable")).toBeVisible();
+    await waitFor(() => expect(sentRoutes()).toEqual(OPEN_CHAT_ROUTES));
     await expect(canvas.queryByRole("status", { name: "Loading" })).toBeNull();
     await expect(canvas.queryByText("Hello from history")).toBeNull();
 
