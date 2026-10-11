@@ -5,13 +5,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move
-  dialogs', the rail's pinned section's, and the chat page's markdown loading
-  and model rendering tests out of jsdom and into `org-tree.stories.tsx`,
-  `members-panel.stories.tsx`, `command-palette.stories.tsx`,
-  `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
-  `project-dialogs.stories.tsx`, `org-unit-dialogs.stories.tsx`,
-  `app-sidebar-pinned.stories.tsx`, and `chat-page.stories.tsx`, whose
-  play functions now run in Chromium (#860). The tree stories cover collapse
+  dialogs', the rail's pinned section's, and the chat page's markdown loading,
+  model and permission mode rendering tests out of jsdom and into
+  `org-tree.stories.tsx`, `members-panel.stories.tsx`,
+  `command-palette.stories.tsx`, `share-chat-dialog.stories.tsx`,
+  `chat-item-dialogs.stories.tsx`, `project-dialogs.stories.tsx`,
+  `org-unit-dialogs.stories.tsx`, `app-sidebar-pinned.stories.tsx`, and
+  `chat-page.stories.tsx`, whose play functions now run in Chromium (#860).
+  The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
   states, granting, the owner confirmations (now driven through the real role
@@ -55,7 +56,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   loads; once it loads, the first message sends with the api's default model,
   checked in the request body) and opening a chat on its last reply's model
   and reasoning effort, falling back to the default when that model is retired
-  or was never recorded.
+  or was never recorded. They also cover the permission mode: opening a chat
+  restores its last reply's bypass, even when the mode listing arrives last
+  or while models still load; bypass picked in one chat does not follow the
+  user into another; a bypass the operator withdraws resets to default; and a
+  send the api rejects because bypass is no longer available (the request
+  body carries bypass) resets the chat to default and re-reads the listing.
+  The pure restore rules stay as unit tests in `use-chat-engine.test.ts`.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
