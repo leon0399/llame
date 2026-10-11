@@ -956,7 +956,6 @@ describe('RunStreamBridgeService', () => {
       workerId: null,
       cancelRequestedAt: new Date('2026-01-01T00:00:00.000Z'),
       error: null,
-      contextItems: null,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       startedAt: null,
       finishedAt: new Date('2026-01-01T00:00:00.000Z'),
