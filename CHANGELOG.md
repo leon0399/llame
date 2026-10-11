@@ -8,8 +8,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   dialogs', the rail's pinned section's, the chat page's markdown loading,
   model, permission mode, message target and compaction, the login and
   register forms', the model switch boundary's, the settings page's, the
-  project page's, the sidebar row title's, and the chat transcript's
-  load-older scroll rendering tests out of jsdom and into
+  project page's, the sidebar row title's, the chat transcript's load-older
+  scroll, and the primary rail's rendering tests out of jsdom and into
   `org-tree.stories.tsx`, `members-panel.stories.tsx`,
   `command-palette.stories.tsx`, `share-chat-dialog.stories.tsx`,
   `chat-item-dialogs.stories.tsx`, `project-dialogs.stories.tsx`,
@@ -17,9 +17,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `chat-page.stories.tsx`, `login-form.stories.tsx`,
   `register-form.stories.tsx`, `packages/ui`'s
   `model-switch-boundary.stories.tsx`, `settings-page.stories.tsx`,
-  `project-page.stories.tsx`, `sidebar-row-title.stories.tsx`, and
-  `chat-load-older.stories.tsx`, whose play functions now run in Chromium
-  (#860).
+  `project-page.stories.tsx`, `sidebar-row-title.stories.tsx`,
+  `chat-load-older.stories.tsx`, and `app-sidebar.stories.tsx`, whose play
+  functions now run in Chromium (#860).
   The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -122,7 +122,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   frame that first shows a code block growing: a reader at the newest message is
   already at the new bottom, while a reader who wheeled up, one selecting text
   in the message, and one whose selection runs backwards from outside the
-  transcript into it stay where they were.
+  transcript into it stay where they were. The rail stories, which render the
+  real pinned section the jsdom suite had to stub out, cover Administration as
+  its own group below the nav and the pinned chats, directly above the user
+  footer and in place while the pins scroll beneath it, appearing once; and the
+  user menu, which offers Settings but no Administration.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
