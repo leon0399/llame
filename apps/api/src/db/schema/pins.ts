@@ -21,6 +21,12 @@ import { users } from './auth';
 // `ALTER TYPE ... ADD VALUE` rides along at zero marginal migration cost.
 export const pinItemType = pgEnum('pin_item_type', ['chat', 'project']);
 
+// Shared INSERT/UPDATE WITH CHECK for pins (see the policies below).
+const pinWriteCheck = sql`user_id = current_setting('app.current_user_id', true) AND (
+        (item_type = 'chat' AND item_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true)))
+        OR (item_type = 'project' AND item_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting('app.current_user_id', true)))
+      )`;
+
 // A per-user pin: a reference from a user to a pinnable item, owned by the
 // pinning user. Pin state is a property of the (user, item) pair — never of the
 // item row — so two users hold independent pins for the same item, and true
@@ -62,22 +68,23 @@ export const pins = pgTable(
       for: 'delete',
       using: sql`user_id = current_setting('app.current_user_id', true)`,
     }),
+    // Write gate: a pin row may only ever reference an item the caller can
+    // currently access. The per-type subqueries run under the referenced
+    // table's own RLS, so "accessible" is exactly "the caller can see it"
+    // (owned, for this slice). No recursion — chats/projects never scan pins.
+    // This is the seam multi-user chats later widen (owner →
+    // owner-or-participant), mirroring chats.ts:85. INSERT and UPDATE share it:
+    // without it on UPDATE, re-pointing item_id would bypass the INSERT gate.
+    // Reorder only rewrites positions of hydratable (still-accessible) rows,
+    // so it always satisfies the check.
     pgPolicy('pins_owner_update', {
       for: 'update',
       using: sql`user_id = current_setting('app.current_user_id', true)`,
-      withCheck: sql`user_id = current_setting('app.current_user_id', true)`,
+      withCheck: pinWriteCheck,
     }),
-    // Write gate: a user may pin only an item they can currently access. The
-    // per-type subqueries run under the referenced table's own RLS, so
-    // "accessible" is exactly "the caller can see it" (owned, for this slice).
-    // No recursion — chats/projects never scan pins. This is the seam multi-user
-    // chats later widen (owner → owner-or-participant), mirroring chats.ts:85.
     pgPolicy('pins_owner_insert', {
       for: 'insert',
-      withCheck: sql`user_id = current_setting('app.current_user_id', true) AND (
-        (item_type = 'chat' AND item_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true)))
-        OR (item_type = 'project' AND item_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting('app.current_user_id', true)))
-      )`,
+      withCheck: pinWriteCheck,
     }),
   ],
 ).enableRLS();
