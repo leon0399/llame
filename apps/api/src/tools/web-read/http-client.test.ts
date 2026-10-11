@@ -928,6 +928,69 @@ describe('web fetch client', () => {
     });
   });
 
+  it.each([
+    ['ECONNREFUSED', 'The server refused the connection.'],
+    ['ECONNRESET', 'The connection was reset.'],
+    ['UND_ERR_CONNECT_TIMEOUT', 'The connection timed out.'],
+    ['EHOSTUNREACH', 'The host is unreachable.'],
+    ['CERT_HAS_EXPIRED', 'The TLS handshake failed (CERT_HAS_EXPIRED).'],
+    [
+      'ERR_TLS_CERT_ALTNAME_INVALID',
+      'The TLS handshake failed (ERR_TLS_CERT_ALTNAME_INVALID).',
+    ],
+  ])('names a %s failure nested under fetch failed', async (code, message) => {
+    // undici rejects with `fetch failed` and carries the socket error, whose
+    // message names the address, as its cause.
+    const cause = Object.assign(new Error(`connect ${code} 10.0.0.7:443`), {
+      code,
+    });
+    const deps: TestDeps = {
+      fetch: () => Promise.reject(new TypeError('fetch failed', { cause })),
+    };
+
+    expect(refusalOf(await fetchOne(deps))).toStrictEqual({
+      type: 'network_error',
+      message,
+    });
+  });
+
+  it('keeps the echoed message when the code names no known kind', async () => {
+    const cause = Object.assign(new Error('odd'), { code: 'EWHATEVER' });
+    const deps: TestDeps = {
+      fetch: () => Promise.reject(new TypeError('fetch failed', { cause })),
+    };
+
+    expect(refusalOf(await fetchOne(deps))).toStrictEqual({
+      type: 'network_error',
+      message: 'fetch failed',
+    });
+  });
+
+  it.each([
+    [3, 'The server refused the connection.'],
+    [4, 'fetch failed'],
+  ])(
+    'follows the cause chain %i links deep at most three',
+    async (depth, message) => {
+      // The code sits on the `depth`-th cause: three links are followed, a
+      // fourth is past the bound and falls back to the echoed message.
+      let cause: Error = Object.assign(new Error('refused'), {
+        code: 'ECONNREFUSED',
+      });
+      for (let link = 1; link < depth; link += 1) {
+        cause = new Error('wrapped', { cause });
+      }
+      const deps: TestDeps = {
+        fetch: () => Promise.reject(new TypeError('fetch failed', { cause })),
+      };
+
+      expect(refusalOf(await fetchOne(deps))).toStrictEqual({
+        type: 'network_error',
+        message,
+      });
+    },
+  );
+
   it('reports a caller abort as aborted', async () => {
     const controller = new AbortController();
     const pending = fetchOne(
@@ -2015,6 +2078,11 @@ describe('web fetch address admission', () => {
     expect(result).toHaveProperty('type', 'network_error');
     if (!('message' in result))
       throw new Error('Expected a transport failure.');
+    // The freed port can be reused by a parallel test before the request, so
+    // the socket is refused or reset; either way it is named, not echoed.
+    expect(result.message).toMatch(
+      /^The (server refused the connection|connection was reset)\.$/u,
+    );
     for (const secret of ['127.0.0.1', String(port), 'closed.test']) {
       expect(result.message).not.toContain(secret);
       expect(JSON.stringify(result)).not.toContain(secret);
