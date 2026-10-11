@@ -2386,6 +2386,9 @@
           "401": {
             "description": ""
           },
+          "403": {
+            "description": "Caller lacks admin-tier on the path of the parent unit"
+          },
           "404": {
             "description": "Parent unit not found / not visible"
           },
@@ -2493,13 +2496,13 @@
             "description": ""
           },
           "403": {
-            "description": "Caller lacks the admin-tier this update requires"
+            "description": "Caller lacks the admin-tier this update requires, or the owner tier on the source path that moving a unit out of its tree requires"
           },
           "404": {
             "description": "Org unit (or the target parentId) not found / not visible"
           },
           "409": {
-            "description": "Org tree changed concurrently — retry",
+            "description": "Org tree changed concurrently — retry; or a unit promoted to root would have no owner",
             "content": {
               "application/json": {
                 "schema": {

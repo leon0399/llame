@@ -145,6 +145,12 @@ export const orgUnits = pgTable(
       for: 'insert',
       withCheck: sql`created_by = ${currentUser} AND (parent_id IS NULL OR ${roleInPath('org_units.path', ADMIN_ROLES)})`,
     }),
+    // Admin tier on the old path (USING) and the new path (WITH CHECK). A
+    // policy cannot compare OLD with NEW, so migration
+    // 20261011193136_org_unit_move_authority adds triggers (#1260): moving a
+    // unit out of its tree (to root or into another tree) needs `owner` on
+    // its current path, a unit promoted to root must have an `owner`
+    // membership at commit, and `created_by` never changes.
     pgPolicy('org_units_update', {
       for: 'update',
       using: roleInPath('org_units.path', ADMIN_ROLES),

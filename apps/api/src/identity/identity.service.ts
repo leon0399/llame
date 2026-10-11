@@ -98,6 +98,77 @@ function rethrowMembershipWriteError(
   throw err;
 }
 
+/** Maps a caught `createChildOrg` failure to its HTTP contract. Always
+ * throws. */
+function rethrowChildCreateError(error: unknown): never {
+  if (error instanceof NotFoundException) {
+    throw error;
+  }
+  // The deferred path-integrity constraint trigger (D1) raises 23514 when a
+  // commit would leave this unit's path inconsistent with its parent's
+  // current path — the backstop behind the FOR UPDATE lock, for whatever
+  // residual race it doesn't close. Retryable, not a server error.
+  if (pgErrorCode(error) === '23514') {
+    throw new ConflictException(
+      conflictBody(
+        ORG_UNITS_ERROR_CODES.concurrentTreeChange,
+        'Org tree changed concurrently — retry the request',
+      ),
+    );
+  }
+  // RLS `org_units_insert` refuses a caller without admin tier on the
+  // parent's path (#1260 F4) — a denial, not a server error.
+  if (pgErrorCode(error) === '42501') {
+    throw new ForbiddenException(
+      'Not permitted to create a child under this org unit',
+    );
+  }
+  throw error;
+}
+
+/** Maps a caught `updateOrgUnit` failure to its HTTP contract. Always
+ * throws. */
+function rethrowOrgUnitUpdateError(error: unknown): never {
+  if (error instanceof HttpException) {
+    throw error;
+  }
+  // Move-into-own-subtree (repository guard) is a validation error, not an
+  // authorization or integrity outcome — 422 (spec: "Move into own subtree
+  // is rejected").
+  if (error instanceof MoveIntoOwnSubtreeError) {
+    throw new UnprocessableEntityException({
+      statusCode: 422,
+      error: 'Unprocessable Entity',
+      message: error.message,
+      code: ORG_UNITS_ERROR_CODES.moveIntoOwnSubtree,
+    });
+  }
+  if (isConcurrentTreeChange(error)) {
+    throw new ConflictException(
+      conflictBody(
+        ORG_UNITS_ERROR_CODES.concurrentTreeChange,
+        'Org tree changed concurrently — retry the request',
+      ),
+    );
+  }
+  // RLS, or the move-authority trigger: moving a unit out of its tree needs
+  // owner tier on its source path (#1260).
+  if (pgErrorCode(error) === '42501') {
+    throw new ForbiddenException('Not permitted to update this org unit');
+  }
+  // A unit promoted to root must have an `owner` membership at commit
+  // (#1260) — the same no-ownerless-root invariant as the last-owner guard.
+  if (pgErrorCode(error) === 'OW001') {
+    throw new ConflictException(
+      conflictBody(
+        ORG_UNITS_ERROR_CODES.lastOwner,
+        'A unit promoted to root needs an owner — grant owner on it first',
+      ),
+    );
+  }
+  throw error;
+}
+
 /** The summarize() missing-entry default, in one place (D3). */
 function enrich(
   unit: OrgUnit,
@@ -192,22 +263,7 @@ export class IdentityService {
         return this.withSummary(tx, input.userId, unit);
       });
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      // The deferred path-integrity constraint trigger (D1) raises 23514 when
-      // a commit would leave this unit's path inconsistent with its parent's
-      // current path — the backstop behind the FOR UPDATE lock above, for
-      // whatever residual race it doesn't close. Retryable, not a server error.
-      if (pgErrorCode(error) === '23514') {
-        throw new ConflictException(
-          conflictBody(
-            ORG_UNITS_ERROR_CODES.concurrentTreeChange,
-            'Org tree changed concurrently — retry the request',
-          ),
-        );
-      }
-      throw error;
+      rethrowChildCreateError(error);
     }
   }
 
@@ -292,32 +348,7 @@ export class IdentityService {
         this.applyOrgUnitUpdate(tx, input),
       );
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      // Move-into-own-subtree (repository guard) is a validation error, not
-      // an authorization or integrity outcome — 422 (spec: "Move into own
-      // subtree is rejected").
-      if (error instanceof MoveIntoOwnSubtreeError) {
-        throw new UnprocessableEntityException({
-          statusCode: 422,
-          error: 'Unprocessable Entity',
-          message: error.message,
-          code: ORG_UNITS_ERROR_CODES.moveIntoOwnSubtree,
-        });
-      }
-      if (isConcurrentTreeChange(error)) {
-        throw new ConflictException(
-          conflictBody(
-            ORG_UNITS_ERROR_CODES.concurrentTreeChange,
-            'Org tree changed concurrently — retry the request',
-          ),
-        );
-      }
-      if (pgErrorCode(error) === '42501') {
-        throw new ForbiddenException('Not permitted to update this org unit');
-      }
-      throw error;
+      rethrowOrgUnitUpdateError(error);
     }
   }
 

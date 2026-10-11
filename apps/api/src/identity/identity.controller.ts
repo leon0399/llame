@@ -83,6 +83,9 @@ export class IdentityController {
   @ApiBody({ type: CreateOrgUnitDto })
   @ApiCreatedResponse({ type: OrgUnitResponse })
   @ApiNotFoundResponse({ description: 'Parent unit not found / not visible' })
+  @ApiForbiddenResponse({
+    description: 'Caller lacks admin-tier on the path of the parent unit',
+  })
   @ApiConflictResponse({
     type: OrgUnitConflictErrorResponse,
     description: 'Org tree changed concurrently — retry',
@@ -139,11 +142,13 @@ export class IdentityController {
     description: 'Org unit (or the target parentId) not found / not visible',
   })
   @ApiForbiddenResponse({
-    description: 'Caller lacks the admin-tier this update requires',
+    description:
+      'Caller lacks the admin-tier this update requires, or the owner tier on the source path that moving a unit out of its tree requires',
   })
   @ApiConflictResponse({
     type: OrgUnitConflictErrorResponse,
-    description: 'Org tree changed concurrently — retry',
+    description:
+      'Org tree changed concurrently — retry; or a unit promoted to root would have no owner',
   })
   @ApiUnprocessableEntityResponse({
     type: OrgUnitValidationErrorResponse,
