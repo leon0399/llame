@@ -160,7 +160,9 @@ async function fetchAndRender(
     }
     const response = await fetchPage(context, session, locator.url, image);
     if ('type' in response) return { status: 'error', ...response };
-    if ('image' in response) return await readImage(locator, response, notes);
+    // Only a read with an image hook fetches a page that may return bytes.
+    if ('bytes' in response)
+      return await readImage(locator, response, image!, notes);
     const render = await deps.renderWebContent(
       response,
       { raw },
@@ -177,12 +179,6 @@ async function fetchAndRender(
   }
 }
 
-/** A page image body and the hook that decodes it. */
-type WebImagePage = {
-  readonly image: WebImageResponse;
-  readonly decode: ImageReadHook;
-};
-
 /** The page response, or the abort that landed while it arrived: neither a
  *  synchronous render nor a decode starts after a caller abort. Only a read
  *  with an image hook accepts an image; without one an image body stays
@@ -191,15 +187,12 @@ async function fetchPage(
   context: ToolContext,
   session: WebFetchSession,
   url: string,
-  decode: ImageReadHook | undefined,
-): Promise<WebResponse | WebImagePage | WebFetchFailure> {
-  let response: WebResponse | WebImagePage | WebFetchFailure;
-  if (decode === undefined) {
-    response = await session.fetch(url);
-  } else {
-    const page = await session.fetchPage(url);
-    response = 'bytes' in page ? { image: page, decode } : page;
-  }
+  image: ImageReadHook | undefined,
+): Promise<WebResponse | WebImageResponse | WebFetchFailure> {
+  const response =
+    image === undefined
+      ? await session.fetch(url)
+      : await session.fetchPage(url);
   if ('type' in response) return response;
   return context.abortSignal?.aborted === true ? ABORTED_FAILURE : response;
 }
@@ -210,7 +203,8 @@ async function fetchPage(
  *  whatever the declared type. */
 async function readImage(
   locator: WebLocator,
-  { image, decode }: WebImagePage,
+  page: WebImageResponse,
+  decode: ImageReadHook,
   notes: ReadonlyArray<string>,
 ): Promise<ToolResult> {
   if (locator.selector !== undefined) {
@@ -220,7 +214,7 @@ async function readImage(
       message: IMAGE_SELECTOR_MESSAGE,
     };
   }
-  const { bytes } = image;
+  const { bytes } = page;
   const decoded = await decode({
     byteSize: bytes.byteLength,
     readBytes: () =>
@@ -229,7 +223,7 @@ async function readImage(
       ),
   });
   if (decoded.status === 'error') return decoded;
-  return buildWebImageResult(locator, image.finalUrl, decoded, notes);
+  return buildWebImageResult(locator, page.finalUrl, decoded, notes);
 }
 
 function createSession(
