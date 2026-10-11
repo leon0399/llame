@@ -5,7 +5,8 @@
  * browser tests exercise the real loop end-to-end with zero provider spend and
  * a fully deterministic answer. Speaks the /chat/completions streaming SSE
  * protocol — the endpoint the api's model client targets, and the one every
- * OpenAI-compatible provider implements.
+ * OpenAI-compatible provider implements — except for structured title
+ * generation, which it answers with one non-streaming JSON completion.
  *
  * Behavior: answers with a fixed token sequence. A prompt containing "SLOW"
  * drips tokens over ~4s so tests can reload the page mid-answer (the resume
@@ -1140,17 +1141,6 @@ async function respondToChatCompletion(
 ): Promise<void> {
   const classification = classify(raw);
 
-  // The api's post-turn title generation hits this mock too — answer it with
-  // a distinct short title so tests can tell title from message.
-  if (raw.includes("Generate a short chat title")) {
-    writeSseHead(res);
-    res.write(chunk("E2E Mock Title", false));
-    res.write(chunk(undefined, true, classification.reportsUsage));
-    res.write("data: [DONE]\n\n");
-    res.end();
-    return;
-  }
-
   const holdToken = HOLD_TOKEN_RE.exec(classification.lastUserContent)?.[1];
   if (holdToken !== undefined) {
     await respondHeld(res, raw, classification, holdToken);
@@ -1189,6 +1179,62 @@ async function respondToChatCompletion(
 }
 
 const HOLD_CONTROL_RE = /^\/hold\/([A-Za-z0-9_-]+)(\/release)?$/;
+
+/** The title the mock returns for a structured title request. */
+const E2E_GENERATED_TITLE = "E2E Generated Title";
+
+/**
+ * Title generation forces the `generate_title` tool on a non-streaming
+ * request. Every other branch of this mock streams SSE, which the client
+ * rejects as "Invalid JSON response" and falls back to text titles, so the
+ * structured path would otherwise never run end to end.
+ */
+function respondToStructuredTitle(res: ServerResponse, raw: string): boolean {
+  let body: JsonValue;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  if (!isJsonObject(body)) return false;
+  const toolChoice = body["tool_choice"];
+  const forced = isJsonObject(toolChoice) ? toolChoice["function"] : undefined;
+  const forcedName = isJsonObject(forced) ? forced["name"] : undefined;
+  if (body["stream"] === true || forcedName !== "generate_title") {
+    return false;
+  }
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end(
+    JSON.stringify({
+      id: "chatcmpl-e2e-title",
+      object: "chat.completion",
+      created: Math.floor(Date.now() / 1000),
+      model: "e2e-model",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call_e2e_title",
+                type: "function",
+                function: {
+                  name: "generate_title",
+                  arguments: JSON.stringify({ title: E2E_GENERATED_TITLE }),
+                },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+    }),
+  );
+  return true;
+}
 
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/ready") {
@@ -1229,6 +1275,7 @@ const server = http.createServer((req, res) => {
       raw += part.toString();
     });
     req.on("end", () => {
+      if (respondToStructuredTitle(res, raw)) return;
       void respondToChatCompletion(res, raw);
     });
     return;
