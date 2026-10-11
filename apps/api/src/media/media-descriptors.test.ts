@@ -6,6 +6,9 @@ import { type TenantRunner } from '../db/tenant-db.service';
 import { composeStepMessages } from '../models/step-composer';
 import {
   createRunMediaResolver,
+  locatorLiteral,
+  notRetainedPlaceholder,
+  unstoredSubject,
   type MediaDescriptor,
 } from './media-descriptors';
 
@@ -232,5 +235,47 @@ describe('createRunMediaResolver loadModelBytes', () => {
 
     await expect(resolver.loadModelBytes([id])).resolves.toEqual(new Map());
     expect(owners).toEqual([]);
+  });
+});
+
+describe('createRunMediaResolver images', () => {
+  it('starts every attempt with empty memory, shared with no other attempt', () => {
+    const first = scriptedResolver([]).resolver;
+    const second = scriptedResolver([]).resolver;
+    first.images.hold('call-1', {
+      locator: '/work/shot.png',
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+    });
+
+    expect(first.images.get('call-1')).toBeDefined();
+    expect(second.images.get('call-1')).toBeUndefined();
+  });
+});
+
+describe('locatorLiteral', () => {
+  it.each([
+    ['a bracketed path', 'app/[slug]/shot.png', '"app/[slug]/shot.png"'],
+    ['an IPv6 URL', 'http://[::1]/x.png', '"http://[::1]/x.png"'],
+    [
+      'controls, separators, and delimiters',
+      'a\n\u0085\u2028\u2029<b>"\\',
+      String.raw`"a\n\u0085\u2028\u2029\u003cb\u003e\"\\"`,
+    ],
+  ])('writes %s as one exact JSON literal', (_, locator, literal) => {
+    expect(locatorLiteral(locator)).toBe(literal);
+    expect(JSON.parse(literal)).toBe(locator);
+  });
+
+  it('never cuts a long locator', () => {
+    const locator = `/work/${'a'.repeat(394)}`;
+    expect(
+      notRetainedPlaceholder(
+        unstoredSubject({ locator, width: 1600, height: 900 }),
+      ),
+    ).toBe(
+      `[image "${locator}" 1600×900, not retained: read it again to view it]`,
+    );
   });
 });

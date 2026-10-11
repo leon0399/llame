@@ -62,8 +62,9 @@ import {
   type CompactionPlan,
 } from '../compaction/compaction';
 import {
-  imageResultMediaId,
+  imageResultRef,
   loadMediaSizing,
+  submittedLocator,
   toolResultOutput,
   type MediaSizing,
 } from '../media/epoch-admission';
@@ -978,7 +979,8 @@ export class RunExecutionService {
     });
     // The attempt's view of its owner's media: admission, compaction, and the
     // step composer all read descriptors and bytes through it, each read in
-    // its own short owner-scoped transaction (vision-media D6).
+    // its own short owner-scoped transaction, and it holds the attempt's
+    // memory of unstored images, empty for every attempt (vision-media D6).
     const media = createRunMediaResolver(this.tenantDb, input.userId);
     // Prompt/catalog resolution, the single pre-step compaction trigger, and the
     // request this Run actually sends (design D4/D5): both prompt surfaces come
@@ -1203,11 +1205,13 @@ export class RunExecutionService {
       // calls, references and scripts included; a turn that did not name it
       // carries an empty set and refuses again.
       skillSelection,
-      // The Run owner's media, for image reads and `media://` (vision-media D7).
+      // The Run owner's media, for image reads and `media://` (vision-media
+      // D7); an image read is held in this attempt's memory only.
       media: createToolMediaStore(
         new MediaService(this.tenantDb),
         input.userId,
-        'read',
+        media.images,
+        input.client.input?.includes('image') ?? false,
       ),
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
@@ -1567,16 +1571,22 @@ export class RunExecutionService {
       if (initialExecutor === undefined) {
         throw new Error(`Tool "${declaration.id}" has no executor.`);
       }
-      // A native result reaches the model as its serialized text; an image
-      // result adds only its `media://` reference, which the step composer
-      // projects on every step (vision-media D6), so no bytes stay in the
-      // Run's response messages.
+      // A native result reaches the model as its serialized text, without an
+      // image's display-only thumbnail; an image result adds only its
+      // reference, which the step composer projects on every step
+      // (vision-media D6), so no bytes stay in the Run's response messages.
       const nativeOutput = isNativeFileTool(initialExecutor)
         ? {
-            toModelOutput: ({ output }: { output: unknown }) =>
+            toModelOutput: ({
+              input: call,
+              output,
+            }: {
+              input: unknown;
+              output: unknown;
+            }) =>
               toolResultOutput(
                 serializeNativeModelOutput(output),
-                imageResultMediaId(output),
+                imageResultRef(output, submittedLocator(call)),
               ),
           }
         : {};

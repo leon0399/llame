@@ -748,4 +748,59 @@ describe('image read result replay', () => {
     expect(output?.type).toBe('text');
     expect(JSON.stringify(output)).not.toContain(MEDIA);
   });
+
+  describe('an unstored image result', () => {
+    const THUMBNAIL = `data:image/webp;base64,${'A'.repeat(60_000)}`;
+    const unstoredPart = (): MessagePart =>
+      imagePart({
+        input: { path: 'app/[slug]/shot.png' },
+        output: {
+          status: 'success',
+          kind: 'image',
+          mediaType: 'image/png',
+          width: 1600,
+          height: 900,
+          path: '/work/app/[slug]/shot.png',
+          thumbnail: THUMBNAIL,
+        },
+      });
+
+    it('replays its text without the thumbnail, then its submitted locator and dimensions', () => {
+      const output = projectToolObservations([unstoredPart()])?.pairs[0]
+        ?.toolResultPart.output;
+
+      expect(output).toMatchObject({
+        type: 'content',
+        value: [
+          { type: 'text' },
+          {
+            type: 'custom',
+            providerOptions: {
+              llameUnstoredImage: {
+                locator: 'app/[slug]/shot.png',
+                width: 1600,
+                height: 900,
+              },
+            },
+          },
+        ],
+      });
+      expect(JSON.stringify(output)).toContain('/work/app/[slug]/shot.png');
+      expect(JSON.stringify(output)).not.toContain('thumbnail');
+      expect(JSON.stringify(output)).not.toContain('AAAA');
+    });
+
+    it('measures the pair without the thumbnail, so the thumbnail never clears it', () => {
+      const pair = projectToolObservations([unstoredPart()])?.pairs[0];
+      if (pair === undefined) throw new Error('Expected one projected pair');
+
+      expect(JSON.stringify(pair.toolResultPart.output)).toContain('Payload:');
+      expect(
+        JSON.stringify([
+          { role: 'assistant', content: [pair.toolCallPart] },
+          { role: 'tool', content: [pair.toolResultPart] },
+        ]).length,
+      ).toBeLessThan(TOOL_REPLAY_CALL_LIMIT);
+    });
+  });
 });

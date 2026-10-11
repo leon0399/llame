@@ -1,19 +1,28 @@
+import { isString } from '@workspace/runtime-safety';
 import type { ModelMessage, streamText, UserContent } from 'ai';
 
+import type { HeldImage } from '../media/attempt-images';
 import {
   collectMediaRefs,
   fileMediaRef,
   loadMediaSizing,
-  toolOutputMediaRef,
+  toolItemRef,
+  type MediaAdmission,
+  type MediaRef,
   type MediaSizing,
   type ToolContentPart,
   type ToolResultOutput,
+  type UnstoredRef,
 } from '../media/epoch-admission';
 import {
   completionsToolImagePlaceholder,
   limitPlaceholder,
+  notRetainedPlaceholder,
   omittedPlaceholder,
+  storedSubject,
   unavailablePlaceholder,
+  unstoredSubject,
+  type ImageSubject,
   type MediaDescriptor,
   type RunMediaResolver,
 } from '../media/media-descriptors';
@@ -44,17 +53,34 @@ export type ProjectedMedia =
   | { type: 'image'; image: Uint8Array; mediaType: string };
 
 /**
+ * An image the epoch window attaches: the subject its placeholders name, its
+ * model variant's dimensions and format, and where its bytes come from, the
+ * store for a stored object or the attempt's memory for an unstored image.
+ */
+export type AttachedImage = {
+  subject: ImageSubject;
+  modelWidth: number;
+  modelHeight: number;
+  modelMediaType: string;
+  source: { id: string } | { bytes: Uint8Array };
+};
+
+/** A resolvable reference: its subject, and its attachment when attachable. */
+type ResolvedImage = { subject: ImageSubject; attached?: AttachedImage };
+
+/**
  * The one place media references become what a model sees (vision-media D6).
  * Within each user message, its `media://` file parts are numbered from 1 and
  * each becomes the label `Image n (media://<id>):` followed by its projection;
  * a tool result's image reference becomes its projection after the result's
- * text. The projection is the model variant as an image when the model
- * declares `image` and the epoch window attaches it; the limit placeholder
- * when the window does not; the omitted placeholder for any resolvable image
- * on a text-only model; the unavailable placeholder when the owner's store
- * cannot resolve it. On a `placeholder` wire an attached tool-result image is
- * the interim Chat Completions placeholder. Only the bytes of images sent as
- * images are loaded.
+ * text. The forms are those of `projectMediaRefs`; an attached image is the
+ * model variant, loaded from the store for a `media://` reference and taken
+ * from the attempt's memory for an unstored image. Only the stored bytes of
+ * images sent as images are loaded.
+ *
+ * An unstored image enters the attempt's window when it is first composed, in
+ * request order, so in tool-call order: one the window refuses then is never
+ * attached later in the attempt, so its bytes are dropped for good (R1.4).
  *
  * Idempotent: the output carries no references, and messages without any are
  * returned as the same objects.
@@ -65,92 +91,164 @@ export async function composeStepMessages(
 ): Promise<Array<ModelMessage>> {
   const sizing = await loadMediaSizing(messages, resolver, imageInput);
   if (sizing.refs.length === 0) return messages;
-  const toolImagesAsContent = toolResultImages === 'content';
+  sizing.refs.forEach(({ image }, index) => {
+    if (!isString(image) && sizing.statuses[index] !== 'attached') {
+      resolver.images.release(image.key);
+    }
+  });
 
-  // One owner-scoped read for the step's sent images; the resolver caches
-  // loaded bytes, so later steps read only images not loaded yet.
+  // One owner-scoped read for the step's sent stored images; the resolver
+  // caches loaded bytes, so later steps read only images not loaded yet.
   const sent = imageInput
-    ? [
-        ...new Set(
-          sizing.refs.flatMap(({ id, tool }, index) =>
-            sizing.statuses[index] === 'attached' &&
-            (!tool || toolImagesAsContent)
-              ? [id]
-              : [],
-          ),
-        ),
-      ]
+    ? sizing.refs.flatMap(({ image, tool }, index) =>
+        isString(image) &&
+        sizing.statuses[index] === 'attached' &&
+        (!tool || toolResultImages === 'content')
+          ? [image]
+          : [],
+      )
     : [];
   const bytes =
     sent.length === 0
       ? new Map<string, Uint8Array>()
-      : await resolver.loadModelBytes(sent);
+      : await resolver.loadModelBytes([...new Set(sent)]);
 
-  return projectMediaRefs(messages, sizing, (id, descriptor, tool) => {
-    if (tool && !toolImagesAsContent) {
-      return [
-        { type: 'text', text: completionsToolImagePlaceholder(descriptor) },
-      ];
-    }
-    const image = bytes.get(id);
-    // A descriptor whose blob cannot be read is as unresolvable as a missing one.
-    return image === undefined
-      ? [{ type: 'text', text: unavailablePlaceholder(id) }]
-      : [{ type: 'image', image, mediaType: descriptor.modelMediaType }];
-  });
+  return projectMediaRefs(
+    messages,
+    sizing,
+    (image) => attachedVariant(image, bytes),
+    toolResultImages,
+  );
+}
+
+/**
+ * An attached image's model variant as an image: an unstored image's from the
+ * attempt's memory, a stored one's from `loaded`. A stored image whose blob
+ * could not be read is as unresolvable as a missing one.
+ */
+function attachedVariant(
+  { source, modelMediaType: mediaType }: AttachedImage,
+  loaded: ReadonlyMap<string, Uint8Array>,
+): Array<ProjectedMedia> {
+  if ('bytes' in source) {
+    return [{ type: 'image', image: source.bytes, mediaType }];
+  }
+  const image = loaded.get(source.id);
+  return image === undefined
+    ? [{ type: 'text', text: unavailablePlaceholder(source.id) }]
+    : [{ type: 'image', image, mediaType }];
 }
 
 /**
  * `messages` as the composer projects them under `sizing` (see `mapMediaRefs`
- * for the placement): each reference becomes the unavailable placeholder when
- * unresolvable, the omitted one on a text-only model, the limit one when the
- * window does not attach it, and `attach(id, descriptor, tool)` otherwise.
- * `sizing.statuses` is aligned to the end of `messages`' references, so a
- * continuation's trailing rows project with the whole request's admission.
+ * for the placement). Each reference takes one form, in this order: the
+ * unavailable placeholder for an unresolvable `media://` reference; the
+ * omitted one on a text-only model; the not-retained one for an unstored
+ * image the attempt holds no entry for; `attach(image)` when the window
+ * attaches it; and the limit one otherwise. On a `placeholder` wire a
+ * tool-result image that would be attached or re-read is the interim Chat
+ * Completions placeholder instead. `sizing.statuses` is aligned to the end of
+ * `messages`' references, so a continuation's trailing rows project with the
+ * whole request's admission.
  */
 export function projectMediaRefs(
   messages: Array<ModelMessage>,
   sizing: MediaSizing,
-  attach: (
-    id: string,
-    descriptor: MediaDescriptor,
-    tool: boolean,
-  ) => Array<ProjectedMedia>,
+  attach: (image: AttachedImage) => Array<ProjectedMedia>,
+  toolResultImages: ToolResultImages = 'content',
 ): Array<ModelMessage> {
   const offset = sizing.statuses.length - collectMediaRefs(messages).length;
-  return mapMediaRefs(messages, (id, index, tool) => {
-    const descriptor = sizing.descriptors.get(id);
-    if (descriptor === undefined) {
-      return [{ type: 'text', text: unavailablePlaceholder(id) }];
+  const project = (
+    { subject, attached }: ResolvedImage,
+    status: MediaAdmission | undefined,
+    tool: boolean,
+  ): Array<ProjectedMedia> => {
+    if (!sizing.imageInput) return textOf(omittedPlaceholder(subject));
+    const interim = tool && toolResultImages === 'placeholder';
+    if (status === 'not-retained') {
+      return textOf(
+        interim
+          ? completionsToolImagePlaceholder(subject)
+          : notRetainedPlaceholder(subject),
+      );
     }
-    if (!sizing.imageInput) {
-      return [{ type: 'text', text: omittedPlaceholder(descriptor) }];
+    if (status !== 'attached' || attached === undefined) {
+      return textOf(limitPlaceholder(subject));
     }
-    if (sizing.statuses[offset + index] !== 'attached') {
-      return [{ type: 'text', text: limitPlaceholder(descriptor) }];
+    return interim
+      ? textOf(completionsToolImagePlaceholder(subject))
+      : attach(attached);
+  };
+  return mapMediaRefs(messages, ({ image, tool }, index) => {
+    const status = sizing.statuses[offset + index];
+    if (!isString(image)) {
+      return project(unstoredImage(image, sizing.held), status, tool);
     }
-    return attach(id, descriptor, tool);
+    const descriptor = sizing.descriptors.get(image);
+    return descriptor === undefined
+      ? textOf(unavailablePlaceholder(image))
+      : project(storedImage(image, descriptor), status, tool);
   });
+}
+
+/** A placeholder as a reference's projection. */
+function textOf(text: string): Array<ProjectedMedia> {
+  return [{ type: 'text', text }];
+}
+
+function storedImage(id: string, d: MediaDescriptor): ResolvedImage {
+  const subject = storedSubject(d);
+  return {
+    subject,
+    attached: {
+      subject,
+      modelWidth: d.modelWidth,
+      modelHeight: d.modelHeight,
+      modelMediaType: d.modelMediaType,
+      source: { id },
+    },
+  };
+}
+
+/** An unstored image, attachable only while the attempt retains its variant. */
+function unstoredImage(
+  ref: UnstoredRef,
+  held: ReadonlyMap<string, HeldImage>,
+): ResolvedImage {
+  const subject = unstoredSubject(ref);
+  const model = held.get(ref.key)?.model;
+  return model === undefined
+    ? { subject }
+    : {
+        subject,
+        attached: {
+          subject,
+          modelWidth: model.width,
+          modelHeight: model.height,
+          modelMediaType: model.mediaType,
+          source: { bytes: model.bytes },
+        },
+      };
 }
 
 /**
  * Replace each media reference of `messages`, in request order, with
- * `project(id, index, tool)`, where `index` is the reference's position among
- * all of `messages`' references. A user message's `media://` file part is
+ * `project(ref, index)`, where `index` is the reference's position among all
+ * of `messages`' references. A user message's `media://` file part is
  * preceded by its label `Image n (media://<id>):` (n counting that message's
- * references from 1). A tool result's `image-url` reference is projected in
- * place after the result's text, an image becoming `image-data`; a result left
- * with text alone becomes a text output of those texts joined by newlines.
+ * references from 1). A tool result's image reference is projected in place
+ * after the result's text, an image becoming `image-data`; a result left with
+ * text alone becomes a text output of those texts joined by newlines.
  * Messages without references are returned as the same objects.
  */
 export function mapMediaRefs(
   messages: Array<ModelMessage>,
-  project: (id: string, index: number, tool: boolean) => Array<ProjectedMedia>,
+  project: (ref: MediaRef, index: number) => Array<ProjectedMedia>,
 ): Array<ModelMessage> {
   let index = 0;
-  const next: NextRef = (id, tool) => {
+  const next: NextRef = (ref) => {
     index += 1;
-    return project(id, index - 1, tool);
+    return project(ref, index - 1);
   };
   return messages.map((message) => {
     if (message.role === 'tool') {
@@ -171,22 +269,22 @@ export function mapMediaRefs(
       label += 1;
       return [
         { type: 'text', text: `Image ${label} (${mediaLocator(id)}):` },
-        ...next(id, false),
+        ...next({ image: id, tool: false }),
       ];
     });
     return label === 0 ? message : { ...message, content };
   });
 }
 
-type NextRef = (id: string, tool: boolean) => Array<ProjectedMedia>;
+type NextRef = (ref: MediaRef) => Array<ProjectedMedia>;
 type ToolMessagePart = Extract<
   ModelMessage,
   { role: 'tool' }
 >['content'][number];
 
 /**
- * A tool result with each `image-url` media reference projected in place by
- * `next` (see `mapMediaRefs`); a part without one is returned as is.
+ * A tool result with each image reference projected in place by `next` (see
+ * `mapMediaRefs`); a part without one is returned as is.
  */
 function mapToolResultRefs(
   part: ToolMessagePart,
@@ -196,13 +294,12 @@ function mapToolResultRefs(
     return part;
   }
   const items = part.output.value;
-  if (items.every((item) => toolOutputMediaRef(item) === undefined)) {
-    return part;
-  }
-  const value = items.flatMap((item): Array<ToolContentPart> => {
-    const id = toolOutputMediaRef(item);
-    if (id === undefined) return [item];
-    return next(id, true).map((projected) =>
+  const refs = items.map((item) => toolItemRef(item, part.toolCallId));
+  if (refs.every((ref) => ref === undefined)) return part;
+  const value = items.flatMap((item, at): Array<ToolContentPart> => {
+    const image = refs[at];
+    if (image === undefined) return [item];
+    return next({ image, tool: true }).map((projected) =>
       projected.type === 'text'
         ? projected
         : {

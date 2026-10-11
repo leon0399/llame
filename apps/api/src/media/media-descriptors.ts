@@ -4,6 +4,11 @@ import { z } from 'zod';
 import { mediaBlobs, mediaObjects } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import {
+  createAttemptImageMemory,
+  type AttemptImageMemory,
+  type UnstoredImage,
+} from './attempt-images';
+import {
   isCanonicalMediaId,
   mediaLocator,
   parseMediaLocator,
@@ -90,8 +95,11 @@ export async function loadMediaDescriptors(
  * `ModelStreamInput.media` and built anew for each attempt, so a retry or a
  * resume shares nothing with the attempt it supersedes. Every read runs in its
  * own short owner-scoped transaction, never one held across a model stream.
+ * It also holds the attempt's memory of the unstored images it read (R1.4).
  */
 export type RunMediaResolver = {
+  /** The attempt's unstored images, keyed by tool call id. */
+  readonly images: AttemptImageMemory;
   /** Owned descriptors among `ids`; unknown and foreign ids are absent. */
   describe(
     ids: ReadonlyArray<string>,
@@ -120,6 +128,7 @@ export function createRunMediaResolver(
   const known = new Map<string, MediaDescriptor | undefined>();
   const bytes = new Map<string, Uint8Array>();
   return {
+    images: createAttemptImageMemory(),
     async describe(ids) {
       const missing = ids.filter((id) => !known.has(id));
       if (missing.length > 0) {
@@ -212,9 +221,48 @@ export function fileImageLines(parts: ReadonlyArray<unknown>): Array<string> {
   );
 }
 
-function describe(d: MediaDescriptor): string {
-  return `image ${mediaLocator(d.id)} ${d.name} ${d.width}×${d.height}`;
+/**
+ * What a placeholder names (vision-media D6): `media://<id> <name>` for a
+ * stored object, or an unstored image's locator as an exact JSON string
+ * literal; and the original's dimensions.
+ */
+export type ImageSubject = { subject: string; width: number; height: number };
+
+export function storedSubject(d: MediaDescriptor): ImageSubject {
+  return {
+    subject: `${mediaLocator(d.id)} ${d.name}`,
+    width: d.width,
+    height: d.height,
+  };
 }
+
+export function unstoredSubject(image: UnstoredImage): ImageSubject {
+  return {
+    subject: locatorLiteral(image.locator),
+    width: image.width,
+    height: image.height,
+  };
+}
+
+/** Characters `JSON.stringify` leaves raw that a placeholder must not carry. */
+const LITERAL_ESCAPES = /[\u007f-\u009f\u2028\u2029<>]/gu;
+
+/**
+ * A locator as a one-line JSON string literal that `JSON.parse` returns
+ * exactly: never truncated, with C1 controls, U+2028, U+2029, `<`, and `>`
+ * also escaped, so it can neither close a placeholder early nor form a tag.
+ */
+export function locatorLiteral(locator: string): string {
+  return JSON.stringify(locator).replaceAll(
+    LITERAL_ESCAPES,
+    (char) => `\\u${(char.codePointAt(0) ?? 0).toString(16).padStart(4, '0')}`,
+  );
+}
+
+function describe(s: ImageSubject): string {
+  return `image ${s.subject} ${s.width}×${s.height}`;
+}
+
 
 /** A reference the owner's store cannot resolve. */
 export function unavailablePlaceholder(id: string): string {
@@ -222,20 +270,30 @@ export function unavailablePlaceholder(id: string): string {
 }
 
 /** A resolvable image sent to a model that does not declare `image` input. */
-export function omittedPlaceholder(d: MediaDescriptor): string {
-  return `[${describe(d)}, omitted: this model has no image input]`;
-}
-
-/** A resolvable image the epoch image window does not attach. */
-export function limitPlaceholder(d: MediaDescriptor): string {
-  return `[${describe(d)}, not attached: this context's image limit is reached]`;
+export function omittedPlaceholder(s: ImageSubject): string {
+  return `[${describe(s)}, omitted: this model has no image input]`;
 }
 
 /**
- * An attached tool-result image on a Chat Completions wire, which cannot carry
- * tool-result images yet (vision-media D6, interim until
- * `vision-read-completions`). Like the other causes it invites no re-read.
+ * An unstored image the current attempt's memory holds no entry for, on a
+ * model that declares `image` input: the only cause that invites a re-read,
+ * which makes the image available again in the re-reading attempt.
  */
-export function completionsToolImagePlaceholder(d: MediaDescriptor): string {
-  return `[${describe(d)}, omitted: this connection cannot carry tool-result images yet]`;
+export function notRetainedPlaceholder(s: ImageSubject): string {
+  return `[${describe(s)}, not retained: read it again to view it]`;
+}
+
+/** A resolvable image the epoch image window does not attach. */
+export function limitPlaceholder(s: ImageSubject): string {
+  return `[${describe(s)}, not attached: this context's image limit is reached]`;
+}
+
+/**
+ * A tool-result image a vision model would receive, or could re-read, on a
+ * Chat Completions wire, which cannot carry tool-result images yet
+ * (vision-media D6, interim until `vision-read-completions`). Like the other
+ * causes it invites no re-read.
+ */
+export function completionsToolImagePlaceholder(s: ImageSubject): string {
+  return `[${describe(s)}, omitted: this connection cannot carry tool-result images yet]`;
 }

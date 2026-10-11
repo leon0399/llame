@@ -161,6 +161,10 @@ function truncationNotice(
  * with their values shrunk in place; the model never receives a fragment of
  * the result's own serialization in place of the result.
  *
+ * An image result's display-only `thumbnail` never reaches the model, so it
+ * neither counts toward the cap nor is shortened: it is set aside and kept
+ * unchanged (vision-media D7).
+ *
  * Error results are never truncated — every error message this registry
  * produces is a short, statically-authored string (see refusalResult /
  * invalidCallResult and the runner's catch branches), so an oversized error
@@ -168,6 +172,11 @@ function truncationNotice(
  */
 export function truncateOversizedResult(result: ToolResult): ToolResult {
   if (result.status !== "success") return result;
+  const { thumbnail, ...shown } = result;
+  if (result.kind === "image" && isString(thumbnail)) {
+    const capped = truncateOversizedResult(shown);
+    return capped.status === "success" ? { ...capped, thumbnail } : capped;
+  }
   const json = JSON.stringify(result);
   if (json.length <= RESULT_TRUNCATE_CHARS) return result;
 

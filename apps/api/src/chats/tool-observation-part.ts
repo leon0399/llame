@@ -19,7 +19,12 @@ import { isRejectedHopUrl } from '../tools/permissions/messages';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import type { MessagePart } from './context-builder';
-import { imageResultMediaId, toolResultOutput } from '../media/epoch-admission';
+import {
+  imageResultRef,
+  submittedLocator,
+  toolResultOutput,
+  type ToolImageRef,
+} from '../media/epoch-admission';
 
 export const TOOL_PART_PREFIX = 'tool-';
 export const TOOL_REPLAY_CALL_LIMIT = 8000;
@@ -109,11 +114,13 @@ interface ObservationPayload {
   resultBody: string | null;
   clearedOutcome: string;
   /**
-   * The media id of a `read` image result. It replays only beside the
+   * The image a `read` image result names: its media id, or for an unstored
+   * image its submitted locator and dimensions. It replays only beside the
    * retained payload, as a reference the step composer projects, so the
-   * budgets measure the reference and never the image (vision-media D6).
+   * budgets measure the text without the `thumbnail` and never the image
+   * (vision-media D6).
    */
-  imageId: string | undefined;
+  image: ToolImageRef | undefined;
 }
 
 interface PairCandidate {
@@ -261,7 +268,7 @@ function makePair(
           cleared ? observation.clearedOutcome : observation.outcome,
           cleared ? null : observation.resultBody,
         ),
-        cleared ? undefined : observation.imageId,
+        cleared ? undefined : observation.image,
       ),
     },
   };
@@ -469,9 +476,9 @@ function storedObservations(
         isNativeToolName(toolName),
         isHopRejection(toolName, outcome),
       ),
-      imageId:
+      image:
         toolName === READ_TOOL_NAME && part.state === 'output-available'
-          ? imageResultMediaId(part.output)
+          ? imageResultRef(part.output, submittedLocator(part.input))
           : undefined,
     });
   });

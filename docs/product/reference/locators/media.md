@@ -15,16 +15,19 @@ configured_by:
 `media://<id>`, where `<id>` is a lower-case canonical UUID. The scheme is
 case-sensitive in the executor: `MEDIA://<id>` and an upper-case id are
 malformed. Bare `media://` is reserved and invalid until a library listing
-exists. The locator names one object in the Run owner's media store; image
-results and attachment labels (`Image n (media://<id>):`) carry it.
+exists. The locator names one image the Run owner uploaded; attachment labels
+(`Image n (media://<id>):`) and `media://` read results carry it. An image read
+from any other source has no `media://` locator.
 
 ## Read
 
 `read({ path: "media://<id>" })` returns the stored object's image result: `kind:
 "image"`, `media` and `path` both equal to the locator, and the stored
-original's `mediaType`, `width`, and `height`. It ingests nothing, changes
-nothing, and triggers no instruction chain. The image reaches the model as any
-other image result does; see [read](../tools/read.md#image-result).
+original's `mediaType`, `width`, and `height`, with no `thumbnail`. It stores
+nothing, changes nothing, and triggers no instruction chain. It is the only
+image read kept across turns: a later turn replays the image from the store
+under the epoch image window, where an image read from a path is not retained;
+see [read](../tools/read.md#image-result).
 
 ## Authority
 

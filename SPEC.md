@@ -201,11 +201,12 @@ the process has accepted native host authority or has a configured
 `knowledge.root`, and an absolute path on a process without accepted native
 authority fails closed with `executor_unavailable`. A `read` of a host,
 `kb://`, or `skill://` regular file whose leading bytes are a PNG, JPEG, GIF, or
-WebP image ingests it into the Run owner's media store (provenance `read`) and
-returns an image result naming its `media://<id>` locator instead of text; a
-selector on an image is refused. `media://<id>` reads the Run owner's stored
-image without an executor; it is read-only, takes no selector, and another
-owner's id is `not_found`.
+WebP image decodes it without storing it and returns an image result with its
+format, dimensions, and a display-only thumbnail instead of text; its model
+variant lives only in the reading Run attempt's memory, and a selector on an
+image is refused. `media://<id>` reads an image the Run owner uploaded without
+an executor; it is read-only, takes no selector, and another owner's id is
+`not_found`.
 
 The native host also exposes `enter_workspace({ path })` and
 `exit_workspace({})` when both tools are allowlisted with their own permission

@@ -555,4 +555,26 @@ describe("truncateOversizedResult image results", () => {
     expect(result).toMatchObject({ truncated: true });
     expect(result).not.toMatchObject({ media: "x".repeat(50_000) });
   });
+
+  it("neither counts nor shortens an image result's thumbnail", () => {
+    const thumbnail = `data:image/webp;base64,${"A".repeat(60_000)}`;
+    const fits = {
+      status: "success" as const,
+      kind: "image",
+      mediaType: "image/png",
+      width: 1600,
+      height: 900,
+      path: "/work/shot.png",
+      thumbnail,
+    };
+    expect(truncateOversizedResult(fits)).toEqual(fits);
+
+    const oversized = truncateOversizedResult({
+      ...fits,
+      path: `/work/${"a".repeat(50_000)}.png`,
+    });
+    expect(oversized).toMatchObject({ truncated: true, thumbnail });
+    const { thumbnail: _display, ...shown } = oversized;
+    expect(size(shown)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+  });
 });

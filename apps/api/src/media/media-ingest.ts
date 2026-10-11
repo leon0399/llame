@@ -20,6 +20,14 @@ export const MODEL_MAX_BYTES = 3_932_160;
 const MODEL_JPEG_QUALITY = 85;
 const MODEL_DOWNSCALE_STEP = 0.75;
 
+/** Longest side of an unstored image's display-only thumbnail. */
+export const THUMBNAIL_MAX_EDGE = 256;
+/** Largest thumbnail data URL, in characters. */
+export const THUMBNAIL_MAX_CHARS = 65_536;
+const THUMBNAIL_QUALITY = 70;
+const THUMBNAIL_QUALITY_STEP = 10;
+const THUMBNAIL_PREFIX = 'data:image/webp;base64,';
+
 export type MediaIngestErrorCode = 'image_too_large' | 'unsupported_media_type';
 
 /** A refused ingest input; nothing was stored. */
@@ -193,5 +201,29 @@ export async function encodeModelVariant(
     if (jpeg.length <= maxBytes || (width === 1 && height === 1)) {
       return { mediaType: 'image/jpeg', width, height, bytes: jpeg };
     }
+  }
+}
+
+/**
+ * The display-only thumbnail of an image read without being stored
+ * (vision-media D2): a WebP data URL of its model variant, the longest side at
+ * most 256 px without upscaling, at quality 70 and then lower qualities until
+ * the data URL is at most 65,536 characters. It never reaches a model.
+ */
+export async function encodeThumbnail(model: Buffer): Promise<string> {
+  const scaled = sharp(model).resize({
+    width: THUMBNAIL_MAX_EDGE,
+    height: THUMBNAIL_MAX_EDGE,
+    fit: 'inside',
+    withoutEnlargement: true,
+  });
+  for (
+    let quality = THUMBNAIL_QUALITY;
+    ;
+    quality = Math.max(1, quality - THUMBNAIL_QUALITY_STEP)
+  ) {
+    const webp = await scaled.clone().webp({ quality }).toBuffer();
+    const url = `${THUMBNAIL_PREFIX}${webp.toString('base64')}`;
+    if (url.length <= THUMBNAIL_MAX_CHARS || quality === 1) return url;
   }
 }

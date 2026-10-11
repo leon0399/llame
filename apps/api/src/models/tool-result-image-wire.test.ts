@@ -1,7 +1,8 @@
 /**
- * A replayed `read` image result on every wire (vision-media D6): the real
- * clients and provider adapters serialize the request, and only the transport
- * is stubbed, so each assertion reads the body a provider would receive.
+ * A `read` image result, stored or held by the attempt, on every wire
+ * (vision-media D6): the real clients and provider adapters serialize the
+ * request, and only the transport is stubbed, so each assertion reads the body
+ * a provider would receive.
  */
 import type { ModelMessage } from 'ai';
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
@@ -95,15 +96,51 @@ const base = {
   requestHeaders: {},
 };
 
+/** An unstored read image the current attempt holds, or does not. */
+const SHOT = { locator: '/work/shot.png', width: 1600, height: 900 };
+const UNSTORED_ENVELOPE =
+  '{"status":"success","kind":"image","mediaType":"image/png","width":1600,"height":900,"path":"/work/shot.png"}';
+const HELD_BYTES = new Uint8Array([1, 2, 3, 4]);
+const HELD_BASE64 = Buffer.from(HELD_BYTES).toString('base64');
+const HELD_IMAGE = {
+  ...SHOT,
+  mediaType: 'image/png',
+  model: {
+    bytes: HELD_BYTES,
+    mediaType: 'image/png' as const,
+    width: 1600,
+    height: 900,
+  },
+};
+const unstoredMessages: Array<ModelMessage> = messages.map((message) =>
+  message.role === 'tool'
+    ? {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'call-1',
+            toolName: 'read',
+            output: toolResultOutput(UNSTORED_ENVELOPE, SHOT),
+          },
+        ],
+      }
+    : message,
+);
+
+type Scenario = { messages: Array<ModelMessage>; held: boolean };
+
 /**
- * Streams `messages` with a vision `input` and the owner's media through a
- * client built after the transport stub is in place (the fixed transports
- * capture `globalThis.fetch` at construction), and returns the sent body.
+ * Streams a scenario's messages with a vision `input` and the owner's media
+ * through a client built after the transport stub is in place (the fixed
+ * transports capture `globalThis.fetch` at construction), and returns the
+ * sent body. A `held` scenario's attempt holds the read's model variant.
  */
 async function sentBody(
   build: (input: ReadonlyArray<ModelInput>) => ModelClient,
   response: () => Response,
   input: ReadonlyArray<ModelInput> = VISION,
+  scenario: Scenario = { messages, held: false },
 ): Promise<UnknownRecord> {
   const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
     Promise.resolve(response()),
@@ -112,8 +149,13 @@ async function sentBody(
   globalThis.fetch = fetchMock;
   try {
     const { resolver } = fakeResolver([descriptor(ID)]);
+    if (scenario.held) resolver.images.hold('call-1', HELD_IMAGE);
     await expect(
-      build(input).streamText({ chat: CHAT, messages, media: resolver }).text,
+      build(input).streamText({
+        chat: CHAT,
+        messages: scenario.messages,
+        media: resolver,
+      }).text,
     ).resolves.toBe('done');
     const [request, init] = fetchMock.mock.calls[0] ?? [];
     if (request === undefined) throw new Error('no request was sent');
@@ -240,4 +282,134 @@ describe('a replayed read image on each wire', () => {
       }),
     );
   });
+});
+
+describe('an unstored read image on each wire', () => {
+  const held = { messages: unstoredMessages, held: true };
+  const notHeld = { messages: unstoredMessages, held: false };
+
+  it.each([
+    [
+      'Responses',
+      (input: ReadonlyArray<ModelInput>) =>
+        createOpenAIModelClient({ ...base, input }),
+    ],
+    [
+      'Codex',
+      (input: ReadonlyArray<ModelInput>) =>
+        createOpenAICodexModelClient({ ...base, accountId: 'acct', input }),
+    ],
+  ])(
+    "sends the attempt's variant in the function call output on the %s wire",
+    async (_, build) => {
+      const body = await sentBody(build, RESPONSES_STREAM, VISION, held);
+
+      expect(body.input).toContainEqual(
+        expect.objectContaining({
+          type: 'function_call_output',
+          call_id: 'call-1',
+          output: [
+            { type: 'input_text', text: UNSTORED_ENVELOPE },
+            {
+              type: 'input_image',
+              image_url: `data:image/png;base64,${HELD_BASE64}`,
+            },
+          ],
+        }),
+      );
+      expect(JSON.stringify(body)).not.toContain('llameUnstoredImage');
+    },
+  );
+
+  it("sends the attempt's variant in the tool result on the Messages wire", async () => {
+    const body = await sentBody(
+      (input) =>
+        createAnthropicModelClient({
+          ...base,
+          baseUrl: ANTHROPIC_DEFAULT_BASE_URL,
+          reasoningDeclared: false,
+          input,
+        }),
+      MESSAGES_STREAM,
+      VISION,
+      held,
+    );
+
+    expect(body.messages).toContainEqual({
+      role: 'user',
+      content: [
+        expect.objectContaining({
+          type: 'tool_result',
+          tool_use_id: 'call-1',
+          content: [
+            { type: 'text', text: UNSTORED_ENVELOPE },
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/png',
+                data: HELD_BASE64,
+              },
+            },
+          ],
+        }),
+      ],
+    });
+  });
+
+  it('sends the not-retained placeholder when the attempt holds no entry', async () => {
+    const body = await sentBody(
+      (input) => createOpenAIModelClient({ ...base, input }),
+      RESPONSES_STREAM,
+      VISION,
+      notHeld,
+    );
+
+    expect(body.input).toContainEqual(
+      expect.objectContaining({
+        type: 'function_call_output',
+        call_id: 'call-1',
+        output: `${UNSTORED_ENVELOPE}\n[image "/work/shot.png" 1600×900, not retained: read it again to view it]`,
+      }),
+    );
+  });
+
+  it.each([
+    [
+      'openai-completions',
+      (input: ReadonlyArray<ModelInput>) =>
+        createOpenAICompletionsModelClient({
+          ...base,
+          baseUrl: 'https://api.example.test/v1',
+          input,
+        }),
+    ],
+    [
+      'opencode-go',
+      (input: ReadonlyArray<ModelInput>) =>
+        createOpenCodeGoModelClient({ ...base, input }),
+    ],
+  ])(
+    'sends neither image content nor a re-read hint in the %s tool message',
+    async (_, build) => {
+      for (const scenario of [held, notHeld]) {
+        const body = await sentBody(
+          build,
+          COMPLETIONS_STREAM,
+          VISION,
+          scenario,
+        );
+
+        expect(body.messages).toContainEqual({
+          role: 'tool',
+          tool_call_id: 'call-1',
+          content: `${UNSTORED_ENVELOPE}\n[image "/work/shot.png" 1600×900, omitted: this connection cannot carry tool-result images yet]`,
+        });
+        const serialized = JSON.stringify(body);
+        expect(serialized).not.toContain('image_url');
+        expect(serialized).not.toContain(HELD_BASE64);
+        expect(serialized).not.toContain('read it again');
+      }
+    },
+  );
 });

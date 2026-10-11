@@ -13,8 +13,8 @@ import { join } from 'node:path';
 import postgres, { type Sql } from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
-import { z } from 'zod';
 import * as schema from '../db/schema';
+import { createAttemptImageMemory } from '../media/attempt-images';
 import { randomPng } from '../media/media-fixtures';
 import { MediaService } from '../media/media.service';
 import { createToolMediaStore } from '../media/tool-media-store';
@@ -679,30 +679,47 @@ describe('native file authority and durable effects', () => {
     expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
   });
 
-  it("keeps image reads and media locators inside the reading owner's store", async () => {
+  it("stores no read image and keeps media locators inside the reading owner's store", async () => {
     const media = new MediaService(tenantDb);
     const ownerContext: ToolContext = {
       ...context,
-      media: createToolMediaStore(media, owner, 'read'),
+      media: createToolMediaStore(
+        media,
+        owner,
+        createAttemptImageMemory(),
+        true,
+      ),
     };
     const otherContext: ToolContext = {
       userId: otherOwner,
       chatId: randomUUID(),
       tenantDb,
       permissionPolicy: compileTestPermissionPolicy(),
-      media: createToolMediaStore(media, otherOwner, 'read'),
+      media: createToolMediaStore(
+        media,
+        otherOwner,
+        createAttemptImageMemory(),
+        true,
+      ),
     };
+    const ownedObjects = () =>
+      tenantDb.runAs(owner, (tx) =>
+        tx
+          .select()
+          .from(schema.mediaObjects)
+          .where(eq(schema.mediaObjects.ownerUserId, owner)),
+      );
     const image = join(directory, 'shot.png');
     const bytes = await randomPng();
     await writeFile(image, bytes);
 
-    const first = await runTool(
+    const read = await runTool(
       nativeReadTool,
       { path: image },
       ownerContext,
       5,
     );
-    expect(first).toMatchObject({
+    expect(read).toMatchObject({
       status: 'success',
       kind: 'image',
       mediaType: 'image/png',
@@ -710,27 +727,26 @@ describe('native file authority and durable effects', () => {
       height: 8,
       path: image,
     });
-    const locator = z.object({ media: z.string() }).parse(first).media;
-    const again = await runTool(
-      nativeReadTool,
-      { path: image },
-      { ...ownerContext, toolCallId: randomUUID() },
-      5,
-    );
-    expect(again).toEqual(first);
-    const stored = await tenantDb.runAs(owner, (tx) =>
-      tx
-        .select()
-        .from(schema.mediaObjects)
-        .where(eq(schema.mediaObjects.ownerUserId, owner)),
-    );
-    expect(stored).toHaveLength(1);
-    expect(stored[0]).toMatchObject({ provenance: 'read', name: image });
+    expect(read).not.toHaveProperty('media');
+    expect(await ownedObjects()).toEqual([]);
 
-    // Owner A's own media locator reads back; owner B's Run cannot see it.
+    // Owner A's upload reads back by its locator; owner B's Run cannot see it.
+    const { media: upload } = await media.ingest(owner, {
+      bytes,
+      source: 'shot.png',
+    });
+    const locator = `media://${upload.id}`;
     expect(
       await runTool(nativeReadTool, { path: locator }, ownerContext, 5),
-    ).toEqual({ ...first, path: locator });
+    ).toEqual({
+      status: 'success',
+      kind: 'image',
+      media: locator,
+      mediaType: 'image/png',
+      width: 8,
+      height: 8,
+      path: locator,
+    });
     const foreign = await runTool(
       nativeReadTool,
       { path: locator },
@@ -750,16 +766,7 @@ describe('native file authority and durable effects', () => {
         5,
       ),
     ).toEqual(foreign);
-
-    // The same bytes ingested for owner B become B's own object.
-    const otherIngest = await otherContext.media!.ingestImage(image)({
-      byteSize: bytes.length,
-      readBytes: () => Promise.resolve(bytes),
-    });
-    expect(otherIngest).toMatchObject({ status: 'success' });
-    expect(z.object({ media: z.string() }).parse(otherIngest).media).not.toBe(
-      locator,
-    );
+    expect(await ownedObjects()).toHaveLength(1);
   });
 });
 

@@ -88,7 +88,7 @@ function executeNative(
     if (scheme !== undefined) return executeLocator(context, call, scheme);
     hostCall = projectNativeCall(context, call);
   }
-  // The image source label is the path as submitted, not the host path.
+  // An image placeholder names the path as submitted, not the host path.
   if (hostCall.operation === 'read')
     return executeNativeBound(context, hostCall, call.input.path);
   return serializeMutation(() =>
@@ -210,7 +210,7 @@ async function executeSkill(
     reserveCodeUnits: serializeNativeModelOutput(envelope).length,
     followSymlinks: true,
     signal: context.abortSignal,
-    image: context.media?.ingestImage(call.input.path),
+    image: context.media?.readImage(call.input.path, context.toolCallId),
   };
   const result = await readResolvedFile(
     resolved.hostPath,
@@ -298,7 +298,7 @@ async function readKnowledge(
     // renders without its target.
     linkTargets: false,
     signal: context.abortSignal,
-    image: context.media?.ingestImage(submitted),
+    image: context.media?.readImage(submitted, context.toolCallId),
   };
   const result = await readResolvedFile(
     target.hostPath,
@@ -377,8 +377,8 @@ async function settleKnowledgeMutation(
 
 /**
  * `submitted` is the path as the model wrote it, before a `file:` alias is
- * decoded or a Workspace-relative path projected; a read labels an image it
- * ingests with it.
+ * decoded or a Workspace-relative path projected; an image read is held in
+ * the attempt's memory under it.
  */
 async function executeNativeBound(
   context: ToolContext,
@@ -428,7 +428,7 @@ function performNative(
     ? readFile(
         call.input,
         context.abortSignal,
-        context.media?.ingestImage(submitted),
+        context.media?.readImage(submitted, context.toolCallId),
       )
     : performMutation(call, call.input.path, { signal: context.abortSignal });
 }

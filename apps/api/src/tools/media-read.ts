@@ -14,7 +14,7 @@ function refusal(type: string, message: string): ToolResult {
 /**
  * A `media://<id>` read (vision-media D4, D7): the Run owner's stored image,
  * returned as an image result whose `media` and `path` are the locator. It
- * binds no executor, ingests nothing, and changes nothing. A malformed or bare
+ * binds no executor, stores nothing, and changes nothing. A malformed or bare
  * locator, then any selector, is refused before the lookup; another owner's
  * id and an unknown id are the same `not_found`. `edit` and `write` are
  * refused without a lookup.

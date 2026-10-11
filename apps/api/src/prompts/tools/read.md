@@ -60,8 +60,8 @@ Append `:<sel>` to `path` (e.g. `src/foo.ts:50-200`, `src/foo.ts:raw`{{!, `db.sq
 - Videos → preview grid plus metadata. TODO(#1072)
 - SVGs read as text unless `:img` is specified; TODO(#1160)
 --}}
-- Image → a local{{#if tools.knowledge_search}}, kb://,{{/if}} or skill:// file whose bytes are a PNG, JPEG, GIF, or WebP image (the bytes decide, never the extension; SVG stays text) is stored once and returned as `kind: image` with its `media` locator (media://<id>), mediaType, width, and height, and no content. A model with image input sees the image with the result; any other model gets a placeholder naming the locator. An image takes no selector, and one over 20 MiB or 40 megapixels fails with image_too_large.
-- media://<id> re-reads an image named in this conversation (an attachment's `Image n (media://<id>):` label or an earlier image result) and returns the same image result; it is read-only, takes no selector, and an id you do not hold is not_found.
+- Image → a local{{#if tools.knowledge_search}}, kb://,{{/if}} or skill:// file whose bytes are a PNG, JPEG, GIF, or WebP image (the bytes decide, never the extension; SVG stays text) is returned as `kind: image` with its mediaType, width, and height, and no content. A model with image input sees the image with the result for the rest of this turn only: it is not kept, so a later turn shows a `not retained` placeholder naming the path, and you read that path again to view it. Any other model gets a placeholder naming the path. An image takes no selector, and one over 20 MiB or 40 megapixels fails with image_too_large.
+- media://<id> reads an image stored for this conversation (an attachment's `Image n (media://<id>):` label or an earlier media:// result) and returns it with its `media` locator; it is the only image read kept across turns. It is read-only, takes no selector, and an id you do not hold is not_found.
 - Directory → depth-2 listing:
     - name/ directories
     - name files

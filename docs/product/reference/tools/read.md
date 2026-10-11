@@ -67,30 +67,38 @@ and neither does a `kb://` or `skill://` read.
 ### Image result
 
 A host, `file://`, Workspace-relative, `kb://`, or `skill://` regular file whose
-leading bytes are a PNG, JPEG, GIF, or WebP image is not decoded as text: it is
-ingested into the Run owner's media store with provenance `read` and the
-locator as submitted (a `file://` URL or Workspace-relative path as written,
-not the host path it resolves to) as its source label (re-reading the same
-bytes reuses the object), and the read returns an image result instead of
-`content`:
+leading bytes are a PNG, JPEG, GIF, or WebP image is not decoded as text: the
+worker decodes it with the same preparation as an upload, stores nothing, and
+the read returns an image result instead of `content`:
 
-| Field       | Meaning                                        |
-| ----------- | ---------------------------------------------- |
-| `kind`      | `image`                                        |
-| `media`     | the stored object's `media://<id>` locator     |
-| `mediaType` | the stored original's format                   |
-| `width`     | the original's width in pixels                 |
-| `height`    | the original's height in pixels                |
-| `path`      | the path as for a text read of the same source |
+| Field       | Meaning                                                             |
+| ----------- | ------------------------------------------------------------------- |
+| `kind`      | `image`                                                             |
+| `mediaType` | the original's format                                               |
+| `width`     | the original's width in pixels                                      |
+| `height`    | the original's height in pixels                                     |
+| `path`      | the path as for a text read of the same source                      |
+| `thumbnail` | a display-only WebP data URL, at most 256 px; never sent to a model |
 
 The source's attribution stays: `realPath` on a host path, the Space fields and
-notice on `kb://`, the skill fields on `skill://`. An image result has no line
-metadata and takes no selector. The extension never decides: an SVG, or any file
-matching no signature, stays on the text path whatever its size. A model that
-declares image input receives the image with the result, as the epoch image
-window in [media](../../operator/media.md) admits it; any other model receives a
-placeholder naming the locator. A [`media://`](../locators/media.md) read returns
-the same image result for an object the owner already holds.
+notice on `kb://`, the skill fields on `skill://`. The result has no `media`
+field, no line metadata, and takes no selector. The extension never decides: an
+SVG, or any file matching no signature, stays on the text path whatever its
+size. `thumbnail` is stored with the tool output for the chat UI only: the model
+receives the result without it, and it counts toward no result or replay
+budget.
+
+The decoded model variant lives only in the memory of the Run attempt that read
+it. A model that declares image input receives the image with the result in
+that attempt's later steps, as the epoch image window in
+[media](../../operator/media.md) admits it. Any later request, whether a later
+turn, a retry or resume, a compaction, or a fork, replays the result with
+`[image "<path>" W×H, not retained: read it again to view it]`, the path being
+the one the model submitted, as a JSON string literal; reading it again makes
+the image available in that attempt. A model without image input receives the
+omitted placeholder instead. A [`media://`](../locators/media.md) read returns
+a stored object with its `media` locator and no `thumbnail`, and is the only
+image read kept across turns.
 
 A multi-range read reports the plural `requestedRanges` (the merged request) and
 `shownRanges` (emitted lines); continuation and trimming are under
@@ -137,8 +145,8 @@ adapter document cut at the document bound fails as `representation_too_large`
 instead ([selectors](../selectors.md#media-types-and-errors)).
 A selector on an image is `invalid_selector` (`An image is read without a
 selector.`). An image over 20 MiB fails `image_too_large` before it is read
-whole, as does one over 40 megapixels; bytes the store cannot decode fail
-`unsupported_media_type`. Neither falls back to text.
+whole, as does one over 40 megapixels; bytes that match a signature but cannot
+be decoded fail `unsupported_media_type`. Neither falls back to text.
 `unsupported_operation` is a `skill://` or `media://` mutation refusal, and
 `skill_requires_explicit_selection` a manual-only package refusal; both are in
 [skill](../locators/skill.md#errors).

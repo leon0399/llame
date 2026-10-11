@@ -1,16 +1,27 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import sharp from 'sharp';
 import { IMAGE_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
+import { z } from 'zod';
 
 import * as schema from '../db/schema';
 import type { MediaObject } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
-import { MEDIA_MAX_BYTES, MediaIngestError } from '../media/media-ingest';
-import type { MediaIngestInput, MediaService } from '../media/media.service';
+import {
+  createAttemptImageMemory,
+  type AttemptImageMemory,
+} from '../media/attempt-images';
+import {
+  MEDIA_MAX_BYTES,
+  MediaIngestError,
+  prepareMedia,
+  THUMBNAIL_MAX_CHARS,
+} from '../media/media-ingest';
+import type { MediaService } from '../media/media.service';
 import { createToolMediaStore } from '../media/tool-media-store';
 import { SkillCatalog } from '../skills/skill-catalog';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -29,63 +40,79 @@ const OWNED = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
 const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
 const OTHER_SPACE = '11111111-2222-4333-8444-555555555555';
 
-const PNG = Buffer.concat([
-  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  Buffer.from('png body'),
-]);
+/** `result` with its thumbnail, checked to be a WebP data URL, set aside. */
+function shown(result: unknown) {
+  const { thumbnail, ...rest } = z
+    .looseObject({ thumbnail: z.string() })
+    .parse(result);
+  expect(thumbnail).toMatch(/^data:image\/webp;base64,/u);
+  return rest;
+}
+
+/** A solid PNG of the given size. */
+function png(width: number, height: number): Promise<Buffer> {
+  return sharp({
+    create: { width, height, channels: 3, background: '#3366cc' },
+  })
+    .png()
+    .toBuffer();
+}
 
 function mediaObject(id: string, ownerUserId: string): MediaObject {
   return {
     id,
     ownerUserId,
-    provenance: 'read',
     name: 'shot.png',
     mediaType: 'image/png',
     width: 1600,
     height: 900,
-    byteSize: PNG.length,
+    byteSize: 100,
     modelMediaType: 'image/png',
     modelWidth: 1600,
     modelHeight: 900,
-    modelByteSize: PNG.length,
+    modelByteSize: 100,
     sha256: 'digest',
     createdAt: new Date(0),
   };
 }
 
 type FakeMedia = {
-  service: Pick<MediaService, 'ingest' | 'findOwned'>;
-  ingested: Array<{ owner: string; input: MediaIngestInput }>;
+  service: Pick<MediaService, 'findOwned'>;
   lookups: Array<string>;
 };
 
 /**
- * The owner's media through a MediaService double: `owner` holds OWNED, and
- * every ingest stores OWNED for its caller.
+ * The owner's media through a MediaService double that can only look up:
+ * `owner` holds OWNED. A read has no way to store anything through it.
  */
 function fakeMedia(): FakeMedia {
-  const ingested: Array<{ owner: string; input: MediaIngestInput }> = [];
   const lookups: Array<string> = [];
   const objects = [mediaObject(OWNED, 'owner')];
-  const service: Pick<MediaService, 'ingest' | 'findOwned'> = {
-    ingest: (owner, input) => {
-      ingested.push({ owner, input });
-      return Promise.resolve({
-        media: mediaObject(OWNED, owner),
-        created: true,
-      });
-    },
-    findOwned: (owner, id) => {
-      lookups.push(id);
-      return Promise.resolve(
-        objects.find((entry) => entry.id === id && entry.ownerUserId === owner),
-      );
+  return {
+    lookups,
+    service: {
+      findOwned: (owner, id) => {
+        lookups.push(id);
+        return Promise.resolve(
+          objects.find(
+            (entry) => entry.id === id && entry.ownerUserId === owner,
+          ),
+        );
+      },
     },
   };
-  return { service, ingested, lookups };
 }
 
+/** The decoded image result of a 160×90 PNG, without attribution or thumbnail. */
 const IMAGE = {
+  status: 'success',
+  kind: 'image',
+  mediaType: 'image/png',
+  width: 160,
+  height: 90,
+};
+
+const STORED_IMAGE = {
   status: 'success',
   kind: 'image',
   media: `media://${OWNED}`,
@@ -97,6 +124,8 @@ const IMAGE = {
 describe('native image reads', () => {
   let directory: string;
   let media: FakeMedia;
+  let memory: AttemptImageMemory;
+  let shot: Buffer;
 
   function context(overrides: Partial<ToolContext> = {}): ToolContext {
     const db: Db = drizzle.mock({ schema });
@@ -112,14 +141,36 @@ describe('native image reads', () => {
         runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
           callback(db),
       },
-      media: createToolMediaStore(media.service, 'owner', 'read'),
+      media: createToolMediaStore(media.service, 'owner', memory, true),
       ...overrides,
     };
   }
 
+  /** The attempt memory's entry for `key`, its variant summarized. */
+  function held(key = 'call') {
+    const entry = memory.get(key);
+    if (entry === undefined) return undefined;
+    const { model, ...image } = entry;
+    return {
+      ...image,
+      ...(model && {
+        model: {
+          mediaType: model.mediaType,
+          width: model.width,
+          height: model.height,
+          retained: model.bytes.length > 0,
+        },
+      }),
+    };
+  }
+
+  beforeAll(async () => {
+    shot = await png(160, 90);
+  });
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), 'native-image-'));
     media = fakeMedia();
+    memory = createAttemptImageMemory();
     // A host read records its attempt before reading; no prior one exists.
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
@@ -130,88 +181,163 @@ describe('native image reads', () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  it('ingests a host image with read provenance and the read path as its source', async () => {
+  it('decodes a host image without storing it and holds it in the attempt', async () => {
     const path = join(directory, 'shot.png');
-    await writeFile(path, PNG);
+    await writeFile(path, shot);
 
-    expect(await runTool(nativeReadTool, { path }, context(), 5)).toEqual({
-      ...IMAGE,
-      path,
-    });
-    expect(media.ingested).toEqual([
-      {
-        owner: 'owner',
-        input: { bytes: PNG, provenance: 'read', source: path },
+    const result = await runTool(nativeReadTool, { path }, context(), 5);
+
+    expect(shown(result)).toEqual({ ...IMAGE, path });
+    expect(result).not.toHaveProperty('media');
+    expect(result).not.toHaveProperty('content');
+    expect(media.lookups).toEqual([]);
+    expect(held()).toEqual({
+      locator: path,
+      mediaType: 'image/png',
+      width: 160,
+      height: 90,
+      model: {
+        mediaType: 'image/png',
+        width: 160,
+        height: 90,
+        retained: true,
       },
-    ]);
+    });
   });
 
-  it('labels a Workspace-relative image with the submitted path and reports its projected path', async () => {
-    await writeFile(join(directory, 'shot.png'), PNG);
+  it('returns the same envelope to a model without image input and holds no variant', async () => {
+    const path = join(directory, 'shot.png');
+    await writeFile(path, shot);
+    const textOnly = context({
+      media: createToolMediaStore(media.service, 'owner', memory, false),
+    });
+
+    const result = await runTool(nativeReadTool, { path }, textOnly, 5);
+
+    expect(shown(result)).toEqual({ ...IMAGE, path });
+    expect(held()).toEqual({
+      locator: path,
+      mediaType: 'image/png',
+      width: 160,
+      height: 90,
+    });
+  });
+
+  it('prepares a read image like an upload, with a small thumbnail, and stores it nowhere', async () => {
+    const wide = await png(4000, 1000);
+    const path = join(directory, 'wide.png');
+    await writeFile(path, wide);
+
+    const result = await runTool(nativeReadTool, { path }, context(), 5);
+    const upload = await prepareMedia(wide);
+
+    expect(held()?.model).toMatchObject({
+      width: upload.model.width,
+      height: upload.model.height,
+    });
+    expect(upload.model).toMatchObject({ width: 2000, height: 500 });
+    const { thumbnail: url } = z
+      .object({ thumbnail: z.string() })
+      .parse(result);
+    expect(url.length).toBeLessThanOrEqual(THUMBNAIL_MAX_CHARS);
+    const thumbnail = await sharp(
+      Buffer.from(url.split(',')[1] ?? '', 'base64'),
+    ).metadata();
+    expect(thumbnail).toMatchObject({ format: 'webp', width: 256, height: 64 });
+    expect(media.lookups).toEqual([]);
+  });
+
+  it('holds a Workspace-relative image under the submitted path and reports its projected path', async () => {
+    await mkdir(join(directory, 'app', '[slug]'), { recursive: true });
+    await writeFile(join(directory, 'app', '[slug]', 'shot.png'), shot);
+
     const result = await runTool(
       nativeReadTool,
-      { path: 'shot.png' },
+      { path: 'app/[slug]/shot.png' },
       context({ workspaceRoot: createWorkspaceRootCell(directory) }),
       5,
     );
 
-    expect(result).toEqual({ ...IMAGE, path: join(directory, 'shot.png') });
-    expect(media.ingested[0]?.input.source).toBe('shot.png');
+    expect(shown(result)).toEqual({
+      ...IMAGE,
+      path: join(directory, 'app', '[slug]', 'shot.png'),
+    });
+    expect(held()?.locator).toBe('app/[slug]/shot.png');
   });
 
-  it('labels a file: alias image with the submitted URL and reports its host path', async () => {
+  it('holds a file: alias image under the submitted URL and reports its host path', async () => {
     const path = join(directory, 'shot.png');
-    await writeFile(path, PNG);
+    await writeFile(path, shot);
     const submitted = `file://${path}`;
 
     expect(
-      await runTool(nativeReadTool, { path: submitted }, context(), 5),
+      shown(await runTool(nativeReadTool, { path: submitted }, context(), 5)),
     ).toEqual({ ...IMAGE, path });
-    expect(media.ingested[0]?.input.source).toBe(submitted);
+    expect(held()?.locator).toBe(submitted);
   });
 
-  it('refuses an image over 20 MiB without reading it into the store', async () => {
+  it('decodes a re-read afresh under its own call', async () => {
+    const path = join(directory, 'shot.png');
+    await writeFile(path, shot);
+    await runTool(nativeReadTool, { path }, context({ toolCallId: 'one' }), 5);
+    await writeFile(path, await png(320, 180));
+
+    expect(
+      shown(
+        await runTool(
+          nativeReadTool,
+          { path },
+          context({ toolCallId: 'two' }),
+          5,
+        ),
+      ),
+    ).toEqual({ ...IMAGE, width: 320, height: 180, path });
+    expect(held('one')).toMatchObject({ width: 160, height: 90 });
+    expect(held('two')).toMatchObject({ width: 320, height: 180 });
+  });
+
+  it('refuses an image over 20 MiB without reading it', async () => {
     const path = join(directory, 'huge.png');
-    await writeFile(path, Buffer.concat([PNG, Buffer.alloc(21 * 2 ** 20)]));
+    await writeFile(path, Buffer.concat([shot, Buffer.alloc(21 * 2 ** 20)]));
 
     expect(await runTool(nativeReadTool, { path }, context(), 5)).toEqual({
       status: 'error',
       type: 'image_too_large',
       message: 'Image exceeds 20 MiB or 40 megapixels',
     });
-    expect(media.ingested).toEqual([]);
+    expect(held()).toBeUndefined();
   });
 
-  it.each(['image_too_large', 'unsupported_media_type'] as const)(
-    'fails the read with the store refusal %s and no text',
-    async (code) => {
-      const path = join(directory, 'shot.png');
-      await writeFile(path, PNG);
-      const refusing: Pick<MediaService, 'ingest' | 'findOwned'> = {
-        ...media.service,
-        ingest: () => Promise.reject(new MediaIngestError(code)),
-      };
+  it('refuses an image whose header declares more than 40 megapixels', async () => {
+    const path = join(directory, 'vast.png');
+    await writeFile(path, await png(8000, 5200));
 
-      expect(
-        await runTool(
-          nativeReadTool,
-          { path },
-          context({
-            media: createToolMediaStore(refusing, 'owner', 'read'),
-          }),
-          5,
-        ),
-      ).toEqual({
-        status: 'error',
-        type: code,
-        message: new MediaIngestError(code).message,
-      });
-    },
-  );
+    expect(await runTool(nativeReadTool, { path }, context(), 5)).toEqual({
+      status: 'error',
+      type: 'image_too_large',
+      message: new MediaIngestError('image_too_large').message,
+    });
+    expect(held()).toBeUndefined();
+  });
 
-  it('ingests nothing for a read the policy denies', async () => {
+  it('refuses an undecodable signature match with no text and no entry', async () => {
+    const path = join(directory, 'broken.png');
+    await writeFile(
+      path,
+      Buffer.concat([shot.subarray(0, 8), Buffer.from('x')]),
+    );
+
+    expect(await runTool(nativeReadTool, { path }, context(), 5)).toEqual({
+      status: 'error',
+      type: 'unsupported_media_type',
+      message: new MediaIngestError('unsupported_media_type').message,
+    });
+    expect(held()).toBeUndefined();
+  });
+
+  it('decodes nothing for a read the policy denies', async () => {
     const path = join(directory, 'shot.png');
-    await writeFile(path, PNG);
+    await writeFile(path, shot);
     const result = await runTool(
       nativeReadTool,
       { path },
@@ -228,7 +354,8 @@ describe('native image reads', () => {
       status: 'error',
       type: 'permission_denied',
     });
-    expect(media.ingested).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain('thumbnail');
+    expect(held()).toBeUndefined();
   });
 
   describe('Knowledge and skill images', () => {
@@ -255,10 +382,10 @@ describe('native image reads', () => {
 
     beforeEach(async () => {
       await mkdir(join(directory, SPACE, 'diagrams'), { recursive: true });
-      await writeFile(join(directory, SPACE, 'diagrams', 'flow.png'), PNG);
+      await writeFile(join(directory, SPACE, 'diagrams', 'flow.png'), shot);
     });
 
-    it('keeps the Knowledge attribution and notice and exposes no host path', async () => {
+    it('keeps the Knowledge attribution and notice, exposes no host path or media locator, and leaves the file unchanged', async () => {
       const locator = `kb://${SPACE}/diagrams/flow.png`;
       const result = await runTool(
         nativeReadTool,
@@ -267,7 +394,7 @@ describe('native image reads', () => {
         5,
       );
 
-      expect(result).toEqual({
+      expect(shown(result)).toEqual({
         ...IMAGE,
         path: locator,
         knowledgeSpaceId: SPACE,
@@ -275,10 +402,15 @@ describe('native image reads', () => {
         notice: KNOWLEDGE_CONTENT_NOTICE,
       });
       expect(JSON.stringify(result)).not.toContain(directory);
-      expect(media.ingested[0]?.input.source).toBe(locator);
+      expect(JSON.stringify(result)).not.toContain('media://');
+      expect(held()?.locator).toBe(locator);
+      expect(media.lookups).toEqual([]);
+      expect(
+        await readFile(join(directory, SPACE, 'diagrams', 'flow.png')),
+      ).toEqual(shot);
     });
 
-    it("ingests nothing for another owner's Space", async () => {
+    it("decodes nothing for another owner's Space", async () => {
       expect(
         await runTool(
           nativeReadTool,
@@ -287,7 +419,7 @@ describe('native image reads', () => {
           5,
         ),
       ).toMatchObject({ status: 'error', type: 'knowledge_space_not_found' });
-      expect(media.ingested).toEqual([]);
+      expect(held()).toBeUndefined();
     });
 
     it('keeps the skill envelope', async () => {
@@ -297,7 +429,7 @@ describe('native image reads', () => {
         join(source, 'pdf', 'SKILL.md'),
         '---\nname: pdf\ndescription: The pdf skill.\n---\n# pdf\n',
       );
-      await writeFile(join(source, 'pdf', 'assets', 'sample.png'), PNG);
+      await writeFile(join(source, 'pdf', 'assets', 'sample.png'), shot);
 
       const result = await runTool(
         nativeReadTool,
@@ -318,9 +450,8 @@ describe('native image reads', () => {
         skillDirectory: join(source, 'pdf'),
       });
       expect(result).not.toHaveProperty('content');
-      expect(media.ingested[0]?.input.source).toBe(
-        'skill://pdf/assets/sample.png',
-      );
+      expect(result).not.toHaveProperty('media');
+      expect(held()?.locator).toBe('skill://pdf/assets/sample.png');
     });
   });
 
@@ -334,7 +465,7 @@ describe('native image reads', () => {
         ...overrides,
       });
 
-    it("returns the owner's stored image without an executor or any ingest", async () => {
+    it("returns the owner's stored image without an executor, a thumbnail, or a memory entry", async () => {
       expect(
         await runTool(
           nativeReadTool,
@@ -342,8 +473,8 @@ describe('native image reads', () => {
           mediaContext(),
           5,
         ),
-      ).toEqual({ ...IMAGE, path: `media://${OWNED}` });
-      expect(media.ingested).toEqual([]);
+      ).toEqual({ ...STORED_IMAGE, path: `media://${OWNED}` });
+      expect(held()).toBeUndefined();
     });
 
     it.each([
@@ -372,7 +503,7 @@ describe('native image reads', () => {
           nativeReadTool,
           { path: `media://${id}` },
           mediaContext({
-            media: createToolMediaStore(media.service, 'other', 'read'),
+            media: createToolMediaStore(media.service, 'other', memory, true),
           }),
           5,
         ),
@@ -424,7 +555,6 @@ describe('native image reads', () => {
       });
       expect(write).toEqual(edit);
       expect(media.lookups).toEqual([]);
-      expect(media.ingested).toEqual([]);
     });
 
     it('rejects a media read under a policy without a media allow, before any lookup', async () => {
@@ -485,36 +615,54 @@ describe('native image reads', () => {
   });
 
   describe('tool media store', () => {
-    const read = (byteSize: number) => ({
-      byteSize,
-      readBytes: () => Promise.resolve(PNG),
-    });
-
-    it('ingests an image of exactly the byte bound', async () => {
-      const store = createToolMediaStore(media.service, 'owner', 'read');
+    it('decodes an image of exactly the byte bound', async () => {
+      const store = createToolMediaStore(media.service, 'owner', memory, true);
 
       expect(
-        await store.ingestImage('shot.png')(read(MEDIA_MAX_BYTES)),
+        shown(
+          await store.readImage(
+            'shot.png',
+            'call',
+          )({
+            byteSize: MEDIA_MAX_BYTES,
+            readBytes: () => Promise.resolve(shot),
+          }),
+        ),
       ).toEqual({
         status: 'success',
-        media: `media://${OWNED}`,
         mediaType: 'image/png',
-        width: 1600,
-        height: 900,
+        width: 160,
+        height: 90,
       });
-      expect(media.ingested).toHaveLength(1);
+      expect(held()?.locator).toBe('shot.png');
     });
 
-    it('propagates a failure that is not an ingest refusal', async () => {
-      const failure = new Error('store unavailable');
-      const store = createToolMediaStore(
-        { ...media.service, ingest: () => Promise.reject(failure) },
-        'owner',
-        'read',
-      );
+    it('holds nothing for a read without a tool call id', async () => {
+      const store = createToolMediaStore(media.service, 'owner', memory, true);
+
+      await store.readImage(
+        'shot.png',
+        undefined,
+      )({
+        byteSize: shot.length,
+        readBytes: () => Promise.resolve(shot),
+      });
+
+      expect(held()).toBeUndefined();
+    });
+
+    it('propagates a failure that is not a preparation refusal', async () => {
+      const failure = new Error('disk unavailable');
+      const store = createToolMediaStore(media.service, 'owner', memory, true);
 
       await expect(
-        store.ingestImage('shot.png')(read(PNG.length)),
+        store.readImage(
+          'shot.png',
+          'call',
+        )({
+          byteSize: shot.length,
+          readBytes: () => Promise.reject(failure),
+        }),
       ).rejects.toBe(failure);
     });
   });

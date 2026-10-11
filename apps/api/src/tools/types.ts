@@ -104,8 +104,8 @@ export interface ToolContext {
    */
   readonly skillSelection?: ReadonlySet<string>;
   /**
-   * The Run owner's media store, bound to that owner and the read's
-   * provenance by the Run (vision-media D7). Absent means a local read never
+   * The Run owner's media store, bound to that owner and the Run attempt
+   * (vision-media D7). Absent means a local read never
    * detects images and `media://` fails closed.
    */
   readonly media?: ToolMediaStore;

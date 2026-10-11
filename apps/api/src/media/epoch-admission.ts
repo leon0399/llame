@@ -1,6 +1,8 @@
 import { isRecord, isString } from '@workspace/runtime-safety';
 import type { FilePart, ModelMessage, ToolResultPart } from 'ai';
+import { z } from 'zod';
 
+import type { HeldImage, UnstoredImage } from './attempt-images';
 import type { MediaDescriptor, RunMediaResolver } from './media-descriptors';
 import { mediaLocator, parseMediaLocator } from './media-locator';
 
@@ -100,52 +102,117 @@ export function toolOutputMediaRef(part: ToolContentPart): string | undefined {
   return part.type === 'image-url' ? parseMediaLocator(part.url) : undefined;
 }
 
+const unstoredImageSchema = z.object({
+  locator: z.string(),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+});
+
+/** The provider-options key of an unstored image's reference part. */
+const UNSTORED_IMAGE_OPTION = 'llameUnstoredImage';
+
 /**
- * The media id a native `read` image result names (vision-media D7), or
- * undefined for every other result.
+ * The unstored image a tool output's `custom` reference part names, or
+ * undefined. The part is llame's own: the step composer replaces it on every
+ * step, so it never reaches a provider adapter.
  */
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- a stored or live tool result is arbitrary JSON; `isRecord` and the field checks below narrow it.
-export function imageResultMediaId(result: unknown): string | undefined {
-  return isRecord(result) &&
-    result.status === 'success' &&
-    result.kind === 'image' &&
-    isString(result.media)
-    ? parseMediaLocator(result.media)
-    : undefined;
+export function toolOutputUnstoredImage(
+  part: ToolContentPart,
+): UnstoredImage | undefined {
+  if (part.type !== 'custom') return undefined;
+  const parsed = unstoredImageSchema.safeParse(
+    part.providerOptions?.[UNSTORED_IMAGE_OPTION],
+  );
+  return parsed.success ? parsed.data : undefined;
 }
 
 /**
- * A tool output of `text`, followed for an image result by its `media://`
- * reference as an `image-url` part. Live and replayed results both carry the
- * reference only, never bytes: the step composer alone turns it into an image
- * or a placeholder on every step (vision-media D6).
+ * The image a `read` result names: a stored object's media id, or an unstored
+ * image by its submitted locator and original dimensions.
+ */
+export type ToolImageRef = string | UnstoredImage;
+
+/** The locator a native `read` call submitted, or undefined. */
+export function submittedLocator(input: unknown): string | undefined {
+  if (!isRecord(input)) return undefined;
+  return isString(input.path) ? input.path : undefined;
+}
+
+/**
+ * The image a native `read` result names (vision-media D7): the media id of a
+ * `media://` result, or for any other image result `locator`, the one its call
+ * submitted, with the original's dimensions; undefined for every other result.
+ */
+export function imageResultRef(
+  result: unknown,
+  locator: string | undefined,
+): ToolImageRef | undefined {
+  if (!isRecord(result)) return undefined;
+  if (result.status !== 'success' || result.kind !== 'image') return undefined;
+  if (result.media !== undefined) {
+    return isString(result.media) ? parseMediaLocator(result.media) : undefined;
+  }
+  const parsed = unstoredImageSchema.safeParse({
+    locator,
+    width: result.width,
+    height: result.height,
+  });
+  return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * A tool output of `text`, followed for an image result by its reference: an
+ * `image-url` part for a `media://` image, a `custom` part for an unstored
+ * one. Live and replayed results both carry the reference only, never bytes:
+ * the step composer alone turns it into an image or a placeholder on every
+ * step (vision-media D6).
  */
 export function toolResultOutput(
   text: string,
-  imageId: string | undefined,
+  image: ToolImageRef | undefined,
 ): ToolResultOutput {
-  return imageId === undefined
-    ? { type: 'text', value: text }
-    : {
-        type: 'content',
-        value: [
-          { type: 'text', text },
-          { type: 'image-url', url: mediaLocator(imageId) },
-        ],
-      };
+  if (image === undefined) return { type: 'text', value: text };
+  return {
+    type: 'content',
+    value: [
+      { type: 'text', text },
+      isString(image)
+        ? { type: 'image-url', url: mediaLocator(image) }
+        : {
+            type: 'custom',
+            providerOptions: { [UNSTORED_IMAGE_OPTION]: image },
+          },
+    ],
+  };
+}
+
+/** An unstored image reference of a request, keyed by its tool call id. */
+export type UnstoredRef = UnstoredImage & { key: string };
+
+/**
+ * One media reference of a request: a media id or an unstored image, and
+ * whether a tool result rather than an owner file part carries it.
+ */
+export type MediaRef = { image: string | UnstoredRef; tool: boolean };
+
+/**
+ * The reference one item of the tool result with call id `key` carries: a
+ * `media://` id, an unstored image, or undefined.
+ */
+export function toolItemRef(
+  item: ToolContentPart,
+  key: string,
+): string | UnstoredRef | undefined {
+  const unstored = toolOutputUnstoredImage(item);
+  return unstored === undefined
+    ? toolOutputMediaRef(item)
+    : { ...unstored, key };
 }
 
 /**
- * One media reference of a request: its id, and whether a tool result rather
- * than an owner file part carries it.
- */
-export type MediaRef = { id: string; tool: boolean };
-
-/**
  * Every media reference of a request, in request order: the `media://` file
- * parts of user messages (owner attachments, `buildContext`) and the
- * `media://` image references of tool results (`read` image results, live or
- * replayed).
+ * parts of user messages (owner attachments, `buildContext`) and the image
+ * references of tool results (`read` image results, live or replayed).
  */
 export function collectMediaRefs(
   messages: ReadonlyArray<ModelMessage>,
@@ -154,15 +221,15 @@ export function collectMediaRefs(
     if (message.role === 'user' && Array.isArray(message.content)) {
       return message.content.flatMap((part) => {
         const id = part.type === 'file' ? fileMediaRef(part) : undefined;
-        return id === undefined ? [] : [{ id, tool: false }];
+        return id === undefined ? [] : [{ image: id, tool: false }];
       });
     }
     if (message.role !== 'tool') return [];
     return message.content.flatMap((part) =>
       part.type === 'tool-result' && part.output.type === 'content'
         ? part.output.value.flatMap((item) => {
-            const id = toolOutputMediaRef(item);
-            return id === undefined ? [] : [{ id, tool: true }];
+            const image = toolItemRef(item, part.toolCallId);
+            return image === undefined ? [] : [{ image, tool: true }];
           })
         : [],
     );
@@ -171,22 +238,25 @@ export function collectMediaRefs(
 
 /**
  * How a request's media references are projected (vision-media D6): the
- * owner's descriptors for them and their epoch admission, in request order,
- * for a model that does or does not declare `image` input. The step composer
- * projects a request from it; the estimators size one with it.
+ * owner's descriptors for its stored references, the attempt's entries for
+ * its unstored ones, and their epoch admission, in request order, for a model
+ * that does or does not declare `image` input. The step composer projects a
+ * request from it; the estimators size one with it.
  *
  * A continuation estimate sizes only the request's trailing rows, so its
  * consumers align `statuses` to the END of the messages they project.
  */
 export type MediaSizing = {
   descriptors: ReadonlyMap<string, MediaDescriptor>;
+  held: ReadonlyMap<string, HeldImage>;
   statuses: ReadonlyArray<MediaAdmission>;
   imageInput: boolean;
 };
 
 /**
- * Collect `messages`' references, describe them, and admit them; `refs` are
- * the references `statuses` are aligned with.
+ * Collect `messages`' references, describe the stored ones, look the unstored
+ * ones up in the attempt's memory, and admit them; `refs` are the references
+ * `statuses` are aligned with.
  */
 export async function loadMediaSizing(
   messages: ReadonlyArray<ModelMessage>,
@@ -194,12 +264,35 @@ export async function loadMediaSizing(
   imageInput: boolean,
 ): Promise<MediaSizing & { refs: ReadonlyArray<MediaRef> }> {
   const refs = collectMediaRefs(messages);
-  const ids = refs.map((ref) => ref.id);
-  const descriptors = await resolver.describe(ids);
+  const descriptors = await resolver.describe(
+    refs.flatMap(({ image }) => (isString(image) ? [image] : [])),
+  );
+  const held = new Map<string, HeldImage>();
+  for (const { image } of refs) {
+    if (isString(image)) continue;
+    const entry = resolver.images.get(image.key);
+    if (entry !== undefined) held.set(image.key, entry);
+  }
   return {
     refs,
     descriptors,
-    statuses: admitEpochImages(ids, descriptors),
+    held,
+    statuses: admitEpochImages(
+      refs.map(({ image }) => epochRef(image, held)),
+      descriptors,
+    ),
     imageInput,
   };
+}
+
+/** A request reference as the epoch window sees it. */
+function epochRef(
+  image: string | UnstoredRef,
+  held: ReadonlyMap<string, HeldImage>,
+): EpochImageRef {
+  if (isString(image)) return image;
+  const model = held.get(image.key)?.model;
+  return model === undefined
+    ? { unstored: 'not-retained' }
+    : { unstored: 'held', modelByteSize: model.bytes.byteLength };
 }

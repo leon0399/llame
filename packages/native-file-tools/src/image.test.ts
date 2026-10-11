@@ -19,22 +19,22 @@ const WEBP = Buffer.concat([
   Buffer.from("WEBPVP8 body"),
 ]);
 
-const STORED = {
+const DECODED = {
   status: "success" as const,
-  media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
   mediaType: "image/png",
   width: 1600,
   height: 900,
+  thumbnail: "data:image/webp;base64,UklGRg==",
 };
 
-/** A hook that stores whatever it is given and records what it was given. */
-function storingHook() {
-  const ingested: Array<{ byteSize: number; bytes: Buffer }> = [];
+/** A hook that decodes whatever it is given and records what it was given. */
+function decodingHook() {
+  const handed: Array<{ byteSize: number; bytes: Buffer }> = [];
   const hook: ImageReadHook = async ({ byteSize, readBytes }) => {
-    ingested.push({ byteSize, bytes: await readBytes() });
-    return STORED;
+    handed.push({ byteSize, bytes: await readBytes() });
+    return DECODED;
   };
-  return { hook, ingested };
+  return { hook, handed };
 }
 
 describe("native image reads", () => {
@@ -46,13 +46,14 @@ describe("native image reads", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  it("returns the stored image for a host PNG, with no content or line metadata", async () => {
+  it("returns the decoded image for a host PNG, with no content or line metadata", async () => {
     const path = join(directory, "shot.png");
     await writeFile(path, PNG);
-    const { hook, ingested } = storingHook();
+    const { hook, handed } = decodingHook();
     const result = await readFile({ path }, undefined, hook);
-    expect(result).toEqual({ ...STORED, kind: "image", path });
-    expect(ingested).toEqual([{ byteSize: PNG.length, bytes: PNG }]);
+    expect(result).toEqual({ ...DECODED, kind: "image", path });
+    expect(result).not.toHaveProperty("media");
+    expect(handed).toEqual([{ byteSize: PNG.length, bytes: PNG }]);
   });
 
   it.each([
@@ -64,12 +65,12 @@ describe("native image reads", () => {
     async (_, bytes) => {
       const path = join(directory, "diagram.dat");
       await writeFile(path, bytes);
-      const { hook, ingested } = storingHook();
+      const { hook, handed } = decodingHook();
       expect(await readFile({ path }, undefined, hook)).toMatchObject({
         status: "success",
         kind: "image",
       });
-      expect(ingested).toHaveLength(1);
+      expect(handed).toHaveLength(1);
     },
   );
 
@@ -83,33 +84,33 @@ describe("native image reads", () => {
   ])("keeps %s on the text path", async (_, name, text) => {
     const path = join(directory, name);
     await writeFile(path, text);
-    const { hook, ingested } = storingHook();
+    const { hook, handed } = decodingHook();
     expect(await readFile({ path }, undefined, hook)).toMatchObject({
       status: "success",
       kind: "file",
       content: `1: ${text}`,
     });
-    expect(ingested).toEqual([]);
+    expect(handed).toEqual([]);
   });
 
   it("reads a 25 MiB text file as text, never handing it to the hook", async () => {
     const path = join(directory, "app.log");
     await writeFile(path, "log line\n".repeat(Math.ceil((25 * 2 ** 20) / 9)));
-    const { hook, ingested } = storingHook();
+    const { hook, handed } = decodingHook();
     expect(await readFile({ path }, undefined, hook)).toMatchObject({
       status: "success",
       kind: "file",
       truncated: true,
     });
-    expect(ingested).toEqual([]);
+    expect(handed).toEqual([]);
   });
 
   it.each([":1-10", ":raw", ":outline", ":-20", ":2-", ":raw:1-2"])(
-    "refuses the %s selector on an image before any count or ingest",
+    "refuses the %s selector on an image before any count or decode",
     async (selector) => {
       const path = join(directory, "shot.png");
       await writeFile(path, JPEG);
-      const { hook, ingested } = storingHook();
+      const { hook, handed } = decodingHook();
       expect(
         await readFile({ path: `${path}${selector}` }, undefined, hook),
       ).toEqual({
@@ -117,11 +118,11 @@ describe("native image reads", () => {
         type: "invalid_selector",
         message: IMAGE_SELECTOR_MESSAGE,
       });
-      expect(ingested).toEqual([]);
+      expect(handed).toEqual([]);
     },
   );
 
-  it("returns an ingest refusal as the read's failure, never as text", async () => {
+  it("returns a decode refusal as the read's failure, never as text", async () => {
     const path = join(directory, "huge.png");
     await writeFile(path, PNG);
     const hook: ImageReadHook = ({ byteSize }) => {
@@ -144,9 +145,9 @@ describe("native image reads", () => {
     const link = join(directory, "link.png");
     await writeFile(target, PNG);
     await symlink(target, link);
-    const { hook } = storingHook();
+    const { hook } = decodingHook();
     expect(await readFile({ path: link }, undefined, hook)).toEqual({
-      ...STORED,
+      ...DECODED,
       kind: "image",
       path: link,
       realPath: await realpath(target),
@@ -156,13 +157,13 @@ describe("native image reads", () => {
   it("reports a resolved image at the display path, never the host path", async () => {
     const path = join(directory, "flow.png");
     await writeFile(path, PNG);
-    const { hook } = storingHook();
+    const { hook } = decodingHook();
     const result = await readResolvedFile(path, {
       displayPath: "kb://space/diagrams/flow.png",
       image: hook,
     });
     expect(result).toEqual({
-      ...STORED,
+      ...DECODED,
       kind: "image",
       path: "kb://space/diagrams/flow.png",
     });
@@ -172,7 +173,7 @@ describe("native image reads", () => {
   it("refuses a selector a resolver split off", async () => {
     const path = join(directory, "flow.png");
     await writeFile(path, PNG);
-    const { hook, ingested } = storingHook();
+    const { hook, handed } = decodingHook();
     expect(
       await readResolvedFile(path, {
         displayPath: "kb://space/diagrams/flow.png",
@@ -180,7 +181,7 @@ describe("native image reads", () => {
         image: hook,
       }),
     ).toMatchObject({ status: "error", type: "invalid_selector" });
-    expect(ingested).toEqual([]);
+    expect(handed).toEqual([]);
   });
 
   it("keeps an image on the text path when no hook is given", async () => {

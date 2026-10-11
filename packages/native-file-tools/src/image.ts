@@ -9,33 +9,34 @@ const SIGNATURE_BYTES = 12;
 export const IMAGE_SELECTOR_MESSAGE = "An image is read without a selector.";
 
 /**
- * The image an owner's media store holds for the bytes a read handed it: the
- * object's `media://` locator and the stored original's format and size.
+ * An image a read decoded without storing it (vision-media D7): the original's
+ * format and size, and the display-only `thumbnail` data URL its stored tool
+ * output carries and no model ever receives.
  */
-export type ImageIngestSuccess = {
+export type ImageDecodeSuccess = {
   status: "success";
-  media: string;
   mediaType: string;
   width: number;
   height: number;
+  thumbnail: string;
 };
 
 /**
  * What a reader does with a regular file whose leading bytes are an image
  * (vision-media D7). It is given the file's size before any byte is read, so
- * a file over the store's bound is refused without being read whole; it reads
- * the bytes only through `readBytes`. The caller binds the source label, the
- * locator as submitted, when it builds the hook. A refusal is a structured
+ * a file over the byte bound is refused without being read whole; it reads
+ * the bytes only through `readBytes`, and stores nothing. The caller binds
+ * the locator as submitted when it builds the hook. A refusal is a structured
  * failure, never a fallback to text. A reader without a hook keeps every file
  * on the text path.
  */
 export type ImageReadHook = (file: {
   byteSize: number;
   readBytes: () => Promise<Buffer>;
-}) => Promise<ImageIngestSuccess | FileFailure>;
+}) => Promise<ImageDecodeSuccess | FileFailure>;
 
-/** A read whose bytes were an image: the stored object, no content. */
-export type ImageReadSuccess = ImageIngestSuccess & {
+/** A read whose bytes were an image: the decoded image, no content. */
+export type ImageReadSuccess = ImageDecodeSuccess & {
   kind: "image";
   path: string;
   /** Host paths only, as on a text read. */
@@ -63,7 +64,7 @@ function isImageSignature(head: Buffer): boolean {
  * no image hook or the file's leading bytes match no image signature, and the
  * text path applies. The probe is a positional read, so it leaves the handle
  * where the text readers start. A selector is refused before anything is
- * counted or ingested.
+ * counted or decoded.
  */
 export async function readImage(
   file: FileHandle,
@@ -90,13 +91,13 @@ export async function readImage(
     target.pending !== undefined
   )
     throw new NativeFileError("invalid_selector", IMAGE_SELECTOR_MESSAGE);
-  const ingested = await image({
+  const decoded = await image({
     byteSize,
     readBytes: () => file.readFile({ signal }),
   });
-  if (ingested.status === "error") return ingested;
+  if (decoded.status === "error") return decoded;
   return {
-    ...ingested,
+    ...decoded,
     kind: "image",
     path: target.path,
     ...(target.realPath !== undefined && { realPath: target.realPath }),

@@ -1,30 +1,47 @@
-import type {
-  ImageIngestSuccess,
-  ImageReadHook,
-} from '@workspace/native-file-tools';
+import type { ImageReadHook } from '@workspace/native-file-tools';
 
-import type { MediaObject, MediaProvenance } from '../db/schema';
-import { MEDIA_MAX_BYTES, MediaIngestError } from './media-ingest';
+import type { MediaObject } from '../db/schema';
+import type { AttemptImageMemory } from './attempt-images';
+import {
+  encodeThumbnail,
+  MEDIA_MAX_BYTES,
+  MediaIngestError,
+  prepareMedia,
+} from './media-ingest';
 import { mediaLocator } from './media-locator';
 import type { MediaService } from './media.service';
 
+/** The owner's stored image a `media://` read returns. */
+export type StoredImage = {
+  status: 'success';
+  media: string;
+  mediaType: string;
+  width: number;
+  height: number;
+};
+
 /**
  * The Run owner's media as native `read` sees it (vision-media D7), bound at
- * construction to one owner and one provenance, so nothing a model supplies
- * can widen either.
+ * construction to one owner and one attempt, so nothing a model supplies can
+ * widen either.
  */
 export type ToolMediaStore = {
   /**
-   * The image hook of one read, labelling what it ingests with `source`, the
-   * locator as the model submitted it. A file over the byte bound is refused
-   * before it is read; every ingest refusal is the read's structured failure.
+   * The image hook of one read of `locator`, the path as the model submitted
+   * it. It decodes the image with the upload preparation and stores nothing;
+   * the attempt's memory keeps an entry under `key`, the read's tool call id.
+   * A file over the byte bound is refused before it is read; every
+   * preparation refusal is the read's structured failure.
    */
-  readonly ingestImage: (source: string) => ImageReadHook;
+  readonly readImage: (
+    locator: string,
+    key: string | undefined,
+  ) => ImageReadHook;
   /** The owner's image, or undefined for a foreign or unknown id alike. */
-  readonly findImage: (id: string) => Promise<ImageIngestSuccess | undefined>;
+  readonly findImage: (id: string) => Promise<StoredImage | undefined>;
 };
 
-function imageOf(stored: MediaObject): ImageIngestSuccess {
+function imageOf(stored: MediaObject): StoredImage {
   return {
     status: 'success',
     media: mediaLocator(stored.id),
@@ -34,25 +51,41 @@ function imageOf(stored: MediaObject): ImageIngestSuccess {
   };
 }
 
+/**
+ * The store of one attempt. Its memory keeps the decoded model variant only
+ * when the attempt's model declares `image` input (`imageInput`); otherwise
+ * an entry keeps what its placeholder needs. The step composer admits a kept
+ * variant into the epoch window when the next step is composed (R1.4).
+ */
 export function createToolMediaStore(
-  media: Pick<MediaService, 'ingest' | 'findOwned'>,
+  media: Pick<MediaService, 'findOwned'>,
   ownerUserId: string,
-  provenance: MediaProvenance,
+  images: AttemptImageMemory,
+  imageInput: boolean,
 ): ToolMediaStore {
   return {
-    ingestImage:
-      (source) =>
+    readImage:
+      (locator, key) =>
       async ({ byteSize, readBytes }) => {
         try {
           if (byteSize > MEDIA_MAX_BYTES) {
             throw new MediaIngestError('image_too_large');
           }
-          const { media: stored } = await media.ingest(ownerUserId, {
-            bytes: await readBytes(),
-            provenance,
-            source,
-          });
-          return imageOf(stored);
+          const { original, model } = await prepareMedia(await readBytes());
+          const thumbnail = await encodeThumbnail(model.bytes);
+          const image = {
+            mediaType: original.mediaType,
+            width: original.width,
+            height: original.height,
+          };
+          if (key !== undefined) {
+            images.hold(key, {
+              ...image,
+              locator,
+              ...(imageInput && { model }),
+            });
+          }
+          return { status: 'success', ...image, thumbnail };
         } catch (error) {
           if (!(error instanceof MediaIngestError)) throw error;
           return { status: 'error', type: error.code, message: error.message };
