@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-11
 
+- Moved the admin organization tree's rendering tests out of jsdom and into
+  `org-tree.stories.tsx`, whose play functions now run in Chromium (#860).
+  The stories cover collapse and expand, keyboard selection, the leaf-first
+  delete check, the move picker, and the selected-unit footer. The delete
+  story still asserts the real `DELETE` request.
+
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
   longer cancelled by the next merge, so every merged commit gets a complete
