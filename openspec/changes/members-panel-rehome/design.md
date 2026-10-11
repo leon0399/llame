@@ -236,8 +236,11 @@ every row, the caller's own included, offers Revoke instead of Leave.
 Revoke and Leave send the same `DELETE …/memberships/:userId`, so confirming
 that mislabeled Revoke removes the caller. The roster therefore treats the
 identity query like the roster query: no rows render until both have data,
-the loading state shows until then, and a failed identity request shows its
-classified error with a Retry that calls `useMe`'s `refetch()`.
+the loading state shows until then, and a failed identity request shows a
+Retry that calls `useMe`'s `refetch()`. That failure is not an org-units
+error, so `ApiErrorMessage` renders its generic "Something went wrong. Please
+try again." rather than routing it through `classifyOrgUnitsError`, whose 403
+copy names unit permissions.
 
 ### D10. Test plan
 
@@ -258,8 +261,8 @@ classified error with a Retry that calls `useMe`'s `refetch()`.
     Retry sends exactly one more roster GET;
   - a roster that answers while `GET /auth/v1/me` is held shows the loading
     state and no Revoke, and the caller's row shows "(you)" with Leave once
-    the identity is released; a failed identity request shows the error and
-    Retry;
+    the identity is released; a failed identity request shows the generic
+    "Something went wrong. Please try again." and Retry;
   - an admin's demotion of an owner answered 403 shows the owner-only copy in
     the row, and the sole owner's self-demotion answered 409 shows the
     last-owner copy in the row, each keeping the `owner` role;

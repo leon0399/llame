@@ -106,8 +106,13 @@ The panel SHALL list the membership rows the API returns for the unit itself, ea
 
 #### Scenario: Failed roster load is explained
 
-- **WHEN** the roster request or the signed-in identity request fails
-- **THEN** the panel shows the classified error and a Retry control in place of the roster, and Retry repeats the failed request
+- **WHEN** the roster request fails
+- **THEN** the panel shows the classified error and a Retry control in place of the roster, and Retry repeats the roster request
+
+#### Scenario: Failed identity load is explained
+
+- **WHEN** the signed-in identity request fails
+- **THEN** the panel shows "Something went wrong. Please try again." and a Retry control in place of the roster, and Retry repeats the identity request
 
 #### Scenario: Roster waits for the caller's identity
 
