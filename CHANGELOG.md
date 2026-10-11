@@ -4,10 +4,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
-  dialogs', and the project dialogs' rendering tests out of jsdom and into
-  `org-tree.stories.tsx`, `members-panel.stories.tsx`,
-  `command-palette.stories.tsx`, `share-chat-dialog.stories.tsx`,
-  `chat-item-dialogs.stories.tsx`, and `project-dialogs.stories.tsx`, whose
+  dialogs', the project dialogs', and the org unit create, rename and move
+  dialogs' rendering tests out of jsdom and into `org-tree.stories.tsx`,
+  `members-panel.stories.tsx`, `command-palette.stories.tsx`,
+  `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
+  `project-dialogs.stories.tsx`, and `org-unit-dialogs.stories.tsx`, whose
   play functions now run in Chromium (#860). The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -26,7 +27,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   via Enter, a blank field on reopen, filing a chat into the project created
   for it (moved only after the project exists), renaming unchanged and to a
   new name, reopening rename from the current name, and deleting (closed
-  only once the DELETE lands).
+  only once the DELETE lands). The org unit dialog stories cover creating a
+  root organization (closed only once the POST lands), never sending a blank
+  name and trimming one sent via Enter, creating a child unit with its picked
+  type under the parent, renaming unchanged, to a new name, and via Enter,
+  moving to a new parent (Move disabled until one is picked), and cancelling
+  each dialog without a request.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
