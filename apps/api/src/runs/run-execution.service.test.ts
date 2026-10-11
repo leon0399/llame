@@ -2334,13 +2334,10 @@ describe('RunExecutionService executeRun', () => {
       expect.objectContaining({ userText }),
     );
   });
-  it('completes the Run when the title media lookup fails', async () => {
+  it('titles from the turn text and each file part image line', async () => {
     const imageId = '0192f3a4-5b6c-7d8e-9f01-0000000000c1';
-    const spies = mockNormalExecutionRepositories();
+    mockNormalExecutionRepositories();
     const execution = makeExecutionService();
-    const select = vi.spyOn(execution.db, 'select').mockImplementation(() => {
-      throw new Error('media lookup failed');
-    });
 
     const result = await execution.service.executeRun({
       runId,
@@ -2350,25 +2347,22 @@ describe('RunExecutionService executeRun', () => {
         id: messageId,
         seq: 1,
         parts: [
-          { type: 'file', mediaType: 'image/png', url: `media://${imageId}` },
-          { type: 'text', text: 'look' },
+          {
+            type: 'file',
+            mediaType: 'image/png',
+            url: `media://${imageId}`,
+            filename: 'shot.png',
+          },
+          { type: 'text', text: 'look ' },
         ],
       },
       client: execution.client,
     });
 
     await expect(result.text).resolves.toBe('answer');
-    expect(select).toHaveBeenCalled();
-    expect(spies.markFinished).toHaveBeenCalledTimes(1);
-    expect(spies.markFinished).toHaveBeenCalledWith(
-      runId,
-      userId,
-      'completed',
-      expect.objectContaining({ attemptId: testAttemptId }),
-    );
     expect(execution.titles.maybeGenerateTitle).toHaveBeenCalledWith(
       expect.objectContaining({
-        userText: `look\n[image media://${imageId} unavailable]`,
+        userText: `look\n[image media://${imageId} shot.png]`,
       }),
     );
   });

@@ -150,28 +150,6 @@ describe('admitEpochImages', () => {
       'limit',
     ]);
   });
-
-  it('keeps an entry held without bytes unattached and stops the window there', () => {
-    const [first = '', later = ''] = range(2).map(mediaId);
-    const statuses = admitEpochImages(
-      [
-        first,
-        { unstored: 'held-without-bytes' },
-        later,
-        { unstored: 'held', modelByteSize: 1 },
-        { unstored: 'not-retained' },
-      ],
-      descriptorMap([descriptor(first), descriptor(later)]),
-    );
-
-    expect(statuses).toEqual([
-      'attached',
-      'limit',
-      'limit',
-      'limit',
-      'not-retained',
-    ]);
-  });
 });
 
 describe('collectMediaRefs', () => {

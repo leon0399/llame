@@ -8,6 +8,7 @@ import {
   mediaLocator,
   parseMediaLocator,
 } from './media-locator';
+import { mediaSourceLabel } from './media-source-label';
 
 /** The formats ingest writes for a model variant (vision-media D2). */
 const modelMediaTypeSchema = z.enum(['image/png', 'image/jpeg']);
@@ -174,45 +175,49 @@ function loadModelVariants(
     );
 }
 
+/** The canonical `media://` file parts of `parts`, raw persisted JSON. */
+function storedFileRefs(
+  parts: ReadonlyArray<unknown>,
+): Array<{ id: string; filename: string | undefined }> {
+  return parts.flatMap((part) => {
+    const parsed = storedFilePartSchema.safeParse(part);
+    if (!parsed.success) return [];
+    const id = parseMediaLocator(parsed.data.url);
+    return id === undefined ? [] : [{ id, filename: parsed.data.filename }];
+  });
+}
+
 /**
  * The media ids of the stored owner `file` parts in `parts`, in stored order,
  * repeats kept. Parts are raw persisted JSON, so each is parsed; a file part
  * whose `url` is not a canonical `media://` reference is skipped.
  */
 export function fileMediaIds(parts: ReadonlyArray<unknown>): Array<string> {
-  return parts.flatMap((part) => {
-    const parsed = storedFilePartSchema.safeParse(part);
-    const id = parsed.success ? parseMediaLocator(parsed.data.url) : undefined;
-    return id === undefined ? [] : [id];
-  });
+  return storedFileRefs(parts).map((ref) => ref.id);
+}
+
+/**
+ * The cause-free line of each stored owner `file` part (`conversation_read`,
+ * title input), in stored order: `[image media://<id> <name>]`, rendered from
+ * the part alone. `<name>` is its `filename` through the source-label
+ * sanitizer, so a forged part cannot break the line; a part without one
+ * renders `[image media://<id>]`.
+ */
+export function fileImageLines(parts: ReadonlyArray<unknown>): Array<string> {
+  return storedFileRefs(parts).map(({ id, filename }) =>
+    filename === undefined
+      ? `[image ${mediaLocator(id)}]`
+      : `[image ${mediaLocator(id)} ${mediaSourceLabel(filename)}]`,
+  );
 }
 
 function describe(d: MediaDescriptor): string {
   return `image ${mediaLocator(d.id)} ${d.name} ${d.width}×${d.height}`;
 }
 
-/** The cause-free form used by `conversation_read` and title input. */
-export function barePlaceholder(d: MediaDescriptor): string {
-  return `[${describe(d)}]`;
-}
-
 /** A reference the owner's store cannot resolve. */
 export function unavailablePlaceholder(id: string): string {
   return `[image ${mediaLocator(id)} unavailable]`;
-}
-
-/**
- * The cause-free line of one stored file part (`conversation_read`, title
- * input): bare when the owner's store resolves `id`, unavailable otherwise.
- */
-export function filePlaceholder(
-  id: string,
-  descriptors: ReadonlyMap<string, MediaDescriptor>,
-): string {
-  const descriptor = descriptors.get(id);
-  return descriptor === undefined
-    ? unavailablePlaceholder(id)
-    : barePlaceholder(descriptor);
 }
 
 /** A resolvable image sent to a model that does not declare `image` input. */

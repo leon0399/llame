@@ -15,12 +15,7 @@ import {
 } from '../chats/conversation-logical-lines';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { type Db } from '../db/tenant-db.service';
-import {
-  fileMediaIds,
-  filePlaceholder,
-  loadMediaDescriptors,
-  type MediaDescriptor,
-} from '../media/media-descriptors';
+import { fileImageLines } from '../media/media-descriptors';
 import {
   conversationSourceChatIdSchema,
   conversationSourceLimitSchema,
@@ -117,8 +112,7 @@ function limitExceededResult(): ConversationReadError {
 /**
  * Read one trusted owner-scoped conversation source. The caller supplies a
  * transaction already bound to the owner; this function accepts no owner
- * identity from model arguments and performs one repository lookup, plus one
- * owner-scoped media lookup when the message carries `file` parts.
+ * identity from model arguments and performs one repository lookup.
  */
 export async function executeConversationRead(
   db: Db,
@@ -136,30 +130,21 @@ export async function executeConversationRead(
   );
   if (source === undefined) return sourceNotFoundResult();
 
-  return renderConversationRead(
-    source,
-    parsed.data,
-    await loadMediaDescriptors(db, ownerUserId, fileMediaIds(source.parts)),
-  );
+  return renderConversationRead(source, parsed.data);
 }
 
-/**
- * Render a validated source lookup without rereading or altering its bytes.
- * `descriptors` holds the owner-resolved media of the message's `file` parts;
- * a part whose id is absent renders as unavailable.
- */
+/** Render a validated source lookup without rereading or altering its bytes. */
 export function renderConversationRead(
   source: ConversationMessageLookup,
   input: ConversationReadArguments,
-  descriptors: ReadonlyMap<string, MediaDescriptor> = new Map(),
 ): ConversationReadResult {
   const visibleText = visibleMessageText(source.parts);
   const lines = scanConversationLogicalLines(visibleText);
   // One LF-terminated placeholder line per `file` part, in stored order. These
   // lines sit outside the visible text: they are never line-numbered and count
   // toward no line coordinate or line bound, only the structured-result bound.
-  const placeholders = fileMediaIds(source.parts)
-    .map((id) => `${filePlaceholder(id, descriptors)}\n`)
+  const placeholders = fileImageLines(source.parts)
+    .map((line) => `${line}\n`)
     .join('');
   const { offset } = input;
 

@@ -226,7 +226,9 @@ Admission and compaction estimates leave image bytes out and charge each image
 ### Text-only views
 
 `conversation_read` follows a message's text with one
-`[image media://<id> <name> <width>×<height>]` line per attached image. Search
+`[image media://<id> <name>]` line per attached image, and title generation
+receives the same lines after the turn's text. Both read the stored filename
+from the message alone, without a media lookup. Search
 indexes no image data. Public shares and shared forks carry only text parts:
 a shared fork drops a message whose only content was images, and its new owner
 gains no access to the source owner's media.

@@ -37,9 +37,9 @@ closest currently readable messages; never infer them with sequence
 arithmetic, because system, tool, and retryable rows may be ineligible.
 
 A message's attached images follow its numbered lines, one unnumbered
-`[image media://<id> <name> <width>×<height>]` line each in stored order, or
-`[image media://<id> unavailable]` for an image the owner's store cannot
-resolve. Only the result that reaches the end of the text, the one without
+`[image media://<id> <name>]` line each in stored order, where `<name>` is the
+attachment's stored filename. The lines come from the message alone, with no
+media lookup. Only the result that reaches the end of the text, the one without
 `nextOffset`, carries them. They count toward no line offset or line bound,
 but their size is reserved inside the 15,000-code-unit bound, so search
 coordinates are unaffected and an image-only message reads as zero lines plus

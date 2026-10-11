@@ -64,10 +64,8 @@ import {
 import { loadMediaSizing, type MediaSizing } from '../media/epoch-admission';
 import {
   createRunMediaResolver,
+  fileImageLines,
   fileMediaIds,
-  filePlaceholder,
-  loadMediaDescriptors,
-  type MediaDescriptor,
   type RunMediaResolver,
 } from '../media/media-descriptors';
 import { SearchIndexService } from '../search/search-index.service';
@@ -216,7 +214,6 @@ import type { ReadPage } from '../instructions/instruction-files';
 import { instructionsSeenPaths } from '../chats/instructions-item';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { TitleService, type TitleCapability } from '../titles/title.service';
-import { titleInputWithLines } from '../titles/title';
 import {
   aggregateTurnTelemetry,
   emitCompletedTurnTelemetryLog,
@@ -3550,40 +3547,9 @@ export class RunExecutionService {
       await this.titles.maybeGenerateTitle({
         chatId: input.chatId,
         userId: input.userId,
-        userText: await this.titleInputText(input.userId, input.userMessage),
+        userText: titleInputText(input.userMessage),
       });
     }
-  }
-
-  /**
-   * The titled turn's text followed by one bare placeholder line per file part
-   * (vision-media D9), so an image-only message can still be titled. Titling is
-   * best-effort, so a failed descriptor lookup never fails the completed Run:
-   * it is logged and every line falls back to the unavailable placeholder.
-   */
-  private async titleInputText(
-    userId: string,
-    userMessage: RunUserMessage,
-  ): Promise<string> {
-    const text = partsToText(userMessage.parts).trim();
-    const ids = fileMediaIds(userMessage.parts);
-    if (ids.length === 0) return text;
-    let descriptors: ReadonlyMap<string, MediaDescriptor> = new Map();
-    try {
-      descriptors = await this.tenantDb.runAs(userId, (tx) =>
-        loadMediaDescriptors(tx, userId, ids),
-      );
-    } catch (error) {
-      this.logger.warn(
-        `Title media lookup failed; titling with unavailable placeholders: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
-    return titleInputWithLines(
-      text,
-      ids.map((id) => filePlaceholder(id, descriptors)),
-    );
   }
 
   /**
@@ -4782,4 +4748,18 @@ function deriveRecencyDigestItems(input: {
     );
   }
   return items;
+}
+
+/**
+ * The titled turn's text followed by one image line per file part
+ * (vision-media D9), so an image-only message can still be titled. Titling
+ * bounds the result like any other title input.
+ */
+function titleInputText(userMessage: RunUserMessage): string {
+  return [
+    partsToText(userMessage.parts).trim(),
+    ...fileImageLines(userMessage.parts),
+  ]
+    .join('\n')
+    .trim();
 }
