@@ -23,6 +23,8 @@ On a wire the bound applies to, when a request that continues a Chat would not f
 
 - **WHEN** no output tokens are reserved and the model declares no explicit compaction threshold
 - **AND** a request that continues a Chat exceeds the target model's context window only because of its replayed reasoning
+- **AND** no earlier completed Run supplies a measured context size, so the measured context size is the bounded request's estimate
+- **AND** every reply whose reasoning the bound leaves out holds less than a fifth of the window in reasoning
 - **THEN** the bounded request fits the window and its measured context size reaches the default threshold
 - **AND** the threshold variant publishes a checkpoint summarized by the target model, and the previous completed Run's model is not invoked
 

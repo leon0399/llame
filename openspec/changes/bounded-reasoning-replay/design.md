@@ -266,7 +266,7 @@ same-model fall is also short-lived. A bounded request sits near the window
 and is then usually compacted by the threshold variant (D1), which removes
 every earlier block. Rejected: persisting a per-Chat floor (new durable state
 for a rare degrade), which is the alternative if Leo prefers strict
-monotonicity.
+monotonicity. **OPEN for Leo** (proposal.md, question 5).
 
 ### D9: Recording the trigger D11 names
 
@@ -329,7 +329,7 @@ because nothing was persisted, nothing needs cleanup.
 
 ## Open Questions
 
-None that can be deferred. The four in proposal.md change the specs or tasks
+None that can be deferred. The five in proposal.md change the specs or tasks
 and need Leo's answer before approval.
 
 ## Revision history
@@ -347,3 +347,15 @@ and need Leo's answer before approval.
     - D5 names the default summarized display as the main underweighting
       case.
     - D4 keeps a latest reply that ends on a tool pair, marked [INFERENCE].
+- Round 2 (pull request review):
+  - One P1 finding accepted. "Under the default reserve and threshold the
+    target model compacts" now requires that no earlier completed Run
+    supplies a measured context size and that each reply the bound leaves out
+    holds less than a fifth of the window in reasoning, the conditions under
+    which D1's bounded estimate reaches the default threshold. Task 2.5 cases
+    (a) and (c) carry the same setup.
+  - One P1 finding left for Leo. Replaying a previously omitted Anthropic
+    block on a manual-budget, disabled, or reasoning-less entry can be
+    rejected; D8 is now an open question (proposal.md, question 5).
+  - One P2 finding accepted. Task 1.3 names the word-level diff it records
+    instead of a skill the repository does not have.
