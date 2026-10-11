@@ -34,18 +34,22 @@
 A migration adds `llame_prunable_delta_runs(cutoff timestamptz, max_rows
 integer)`, `SECURITY DEFINER`, owned by `app_rls` after provisioning, returning
 `(run_id, owner_user_id)` for Runs whose status is terminal, whose `finished_at`
-is before the cutoff, whose triggering message has an assistant reply, and that
-still have at least one delta event. The job deletes each Run's delta events
+is before the cutoff, whose triggering message's assistant reply has finalized
+usage naming this Run (`usage->>'runId' = runs.id::text` and a status other
+than `running`), and that still have at least one delta event. The job deletes each Run's delta events
 under `runAs(owner)`, in bounded batches per tick.
 
 ### D2. A DELETE policy scoped to prunable deltas
 
 A new `run_events_owner_delete_delta` policy admits `DELETE` only for rows whose
 `event_type` is `model.delta` or `reasoning.delta`, of a Run owned by the
-current identity, terminal, finished before the configured cutoff, with an
-assistant reply. The cutoff reaches the policy through a transaction-local
-setting the job sets (`app.delta_prune_cutoff`), so no application path that
-does not set it can delete anything. Every other event type stays undeletable.
+current identity, terminal, finished before the configured cutoff, whose own
+finalized reply exists by the same test as D1. The cutoff reaches the policy
+through a transaction-local setting the job sets, read as
+`NULLIF(current_setting('app.delta_prune_cutoff', true), '')::timestamptz` so
+an unset or pooled-empty value denies rather than errors; no application path
+that does not set it can delete anything. The database enforces the shape of a
+prunable row; the window itself is the job's input. Every other event type stays undeletable.
 
 - Alternative: a cross-tenant delete function. Rejected: it breaks P3, which
   limits such functions to returning identifiers.
@@ -54,7 +58,7 @@ does not set it can delete anything. Every other event type stays undeletable.
 
 A `RunEventRetentionService` registers a `run-event-retention` queue and an
 hourly cron off the hour, gated by a new `run-event-retention` worker profile
-consumer, and logs counts only. `runs.deltaRetentionDays: null` registers
+consumer, and logs counts only. An unset `runs.deltaRetentionDays` registers
 nothing.
 
 ## Risks / Trade-offs

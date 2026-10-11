@@ -3,20 +3,21 @@
 ### Requirement: Operators set the delta retention window
 
 `runs.deltaRetentionDays` SHALL be an optional positive integer, or a
-whole-value interpolation token resolving to one, that sets the retention window
-for delta events of finished Runs. Absent, it SHALL default to `7`. An explicit
-`null` SHALL disable pruning. Zero, a negative number, or a fraction SHALL fail
-startup naming the path.
+whole-value interpolation token resolving to one, that enables pruning of delta
+events of finished Runs older than that many days. Absent or `null`, it SHALL be
+unset and nothing is pruned, consistent with every other nullable `runs.*`
+setting. Zero, a negative number, or a fraction SHALL fail startup naming the
+path.
 
-#### Scenario: The default window applies
+#### Scenario: Pruning is opt-in
 
-- **WHEN** the file omits `runs.deltaRetentionDays`
-- **THEN** delta events of finished Runs are pruned after seven days
-
-#### Scenario: Null disables pruning
-
-- **WHEN** the file sets `runs.deltaRetentionDays` to `null`
+- **WHEN** the file omits `runs.deltaRetentionDays` or sets it to `null`
 - **THEN** no delta event is deleted
+
+#### Scenario: A window enables pruning
+
+- **WHEN** the file sets `runs.deltaRetentionDays` to `7`
+- **THEN** delta events of finished Runs are pruned after seven days
 
 #### Scenario: An invalid window fails startup
 
