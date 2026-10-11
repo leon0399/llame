@@ -12,12 +12,7 @@ import {
 import { type MessagePart } from '../chats/context-builder';
 import { isContextItemPart } from '../chats/context-item';
 import { type TurnStatus, type TurnTelemetry } from '../chats/turn-telemetry';
-import {
-  type Message,
-  type Run,
-  type RunEvent,
-  type RunStatus,
-} from '../db/schema';
+import { type Message, type Run, type RunEvent } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import {
   type SystemModelCatalogEntry,
@@ -28,12 +23,8 @@ import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { reconstructDurableAssistant } from './assistant-transcript';
 import { NativeFilesRepository } from './native-files-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { type TerminalRunStatus } from './run-status';
 import { toolTerminationResult } from './tool-settlement';
-
-export type TerminalRunStatus = Extract<
-  RunStatus,
-  'completed' | 'failed' | 'cancelled' | 'expired'
->;
 
 /** The usage an executing attempt measured, stored on its reply. */
 export type AssistantTurnTelemetry = TurnTelemetry & {
