@@ -131,13 +131,18 @@ export const KeyboardShortcut: Story = {
   tags: ["ai-generated"],
   beforeEach: routeFetch({}),
   play: async () => {
+    // The chord the component listens for on this browser's platform.
+    const isMac = /Mac|iPod|iPhone|iPad/.test(
+      navigator.platform || navigator.userAgent || "",
+    );
     await expect(screen.queryByPlaceholderText(PLACEHOLDER)).toBeNull();
 
     // A repeat keydown alone, as the browser sends while the chord is held.
     document.dispatchEvent(
       new KeyboardEvent("keydown", {
         key: "k",
-        ctrlKey: true,
+        metaKey: isMac,
+        ctrlKey: !isMac,
         repeat: true,
         bubbles: true,
       }),
@@ -148,7 +153,8 @@ export const KeyboardShortcut: Story = {
     await new Promise((resolve) => setTimeout(resolve, 50));
     await expect(screen.queryByPlaceholderText(PLACEHOLDER)).toBeNull();
 
-    await userEvent.keyboard("{Control>}k{/Control}");
+    const modifier = isMac ? "Meta" : "Control";
+    await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
     await expect(
       await screen.findByPlaceholderText(PLACEHOLDER),
     ).toBeInTheDocument();
