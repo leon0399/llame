@@ -5,11 +5,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move
-  dialogs', and the rail's pinned section's rendering tests out of jsdom and
-  into `org-tree.stories.tsx`, `members-panel.stories.tsx`,
-  `command-palette.stories.tsx`, `share-chat-dialog.stories.tsx`,
-  `chat-item-dialogs.stories.tsx`, `project-dialogs.stories.tsx`,
-  `org-unit-dialogs.stories.tsx`, and `app-sidebar-pinned.stories.tsx`, whose
+  dialogs', the rail's pinned section's, and the chat page's markdown loading
+  rendering tests out of jsdom and into `org-tree.stories.tsx`,
+  `members-panel.stories.tsx`, `command-palette.stories.tsx`,
+  `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
+  `project-dialogs.stories.tsx`, `org-unit-dialogs.stories.tsx`,
+  `app-sidebar-pinned.stories.tsx`, and `chat-page.stories.tsx`, whose
   play functions now run in Chromium (#860). The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -42,7 +43,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   dialogs. The chat row stories now also cover filing a chat into a project,
   moving it to another, and unfiling it by re-picking its project, each with
   the one PATCH it sends. They run the real `useFileChat` against a stubbed
-  fetch, so the row needed no preview mock for it.
+  fetch, so the row needed no preview mock for it. The chat page stories cover
+  the spinner and disabled composer while the markdown renderer loads (for an
+  opened chat and a fresh draft), the transcript and an enabled composer once
+  it loads, and the Messages unavailable alert with Try again. They render the
+  real page, with its real `useChat` engine, against a stubbed fetch that
+  answers the resume probe with 204, and assert the requests the page sends.
+  Storybook now pre-bundles `@ai-sdk/react` from apps/web's copy so the first
+  story run on a cold cache does not reload.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
