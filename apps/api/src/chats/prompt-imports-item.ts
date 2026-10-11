@@ -13,11 +13,11 @@
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import {
-  isBoolean,
   isRecord,
   isString,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
+import { z } from 'zod';
 
 import type { MediaRef } from '../media/epoch-admission';
 import {
@@ -59,14 +59,6 @@ export type PromptImportImage =
       readonly mediaType: OriginalMediaType;
     };
 
-const IMAGE_KEYS = [
-  'media',
-  'thumbnail',
-  'width',
-  'height',
-  'mediaType',
-] as const;
-
 /** One bounded prompt marker and the result of its admission/read attempt. */
 export type PromptImportOutcome = {
   readonly locator: string;
@@ -100,34 +92,43 @@ export interface PromptImportsPayload extends UnknownRecord {
   readonly omitted?: ReadonlyArray<string>;
 }
 
-function isPromptImportOutcome(
-  value: unknown,
-): value is PromptImportOutcomeKind {
-  return (
-    isString(value) &&
-    PROMPT_IMPORT_OUTCOMES.some((outcome) => outcome === value)
-  );
-}
+/** The two exact forms of `PromptImportImage`. */
+const storedImageFields = { media: z.string().regex(MEDIA_LOCATOR_PATTERN) };
+const unstoredImageFields = {
+  thumbnail: z.string().refine(isThumbnailDataUrl),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  mediaType: z.enum(ORIGINAL_MEDIA_TYPES),
+};
 
-function isPositiveInteger(value: unknown): value is number {
-  return Number.isInteger(value) && Number(value) > 0;
-}
+const promptImportImageSchema = z.union([
+  z.strictObject(storedImageFields),
+  z.strictObject(unstoredImageFields),
+]);
 
-/** Whether `value` is exactly one form of `PromptImportImage`. */
-function isPromptImportImage(value: unknown): value is PromptImportImage {
-  if (isExactRecord(value, ['media'])) {
-    return (
-      isString(value['media']) && MEDIA_LOCATOR_PATTERN.test(value['media'])
-    );
-  }
-  return (
-    isExactRecord(value, ['thumbnail', 'width', 'height', 'mediaType']) &&
-    isThumbnailDataUrl(value['thumbnail']) &&
-    isPositiveInteger(value['width']) &&
-    isPositiveInteger(value['height']) &&
-    ORIGINAL_MEDIA_TYPES.some((type) => type === value['mediaType'])
-  );
-}
+const entryFields = {
+  locator: z.string().refine(isNonEmptyString),
+  resolved: z.string().refine(isNonEmptyString).exactOptional(),
+  truncated: z.boolean().exactOptional(),
+};
+
+/**
+ * One payload entry, exactly: an outcome with the optional `resolved` and
+ * `truncated` fields, and on an `imported` entry at most one image form.
+ */
+const payloadEntrySchema = z.union([
+  z.strictObject({ ...entryFields, outcome: z.enum(PROMPT_IMPORT_OUTCOMES) }),
+  z.strictObject({
+    ...entryFields,
+    outcome: z.literal('imported'),
+    ...storedImageFields,
+  }),
+  z.strictObject({
+    ...entryFields,
+    outcome: z.literal('imported'),
+    ...unstoredImageFields,
+  }),
+]);
 
 /**
  * The private record of a native image read result, or undefined for any
@@ -141,40 +142,13 @@ export function promptImportImage(
   const image = isString(media)
     ? { media }
     : { thumbnail, width, height, mediaType };
-  return isPromptImportImage(image) ? image : undefined;
-}
-
-/**
- * An entry's image keys hold one `PromptImportImage` form on an `imported`
- * entry, or are absent.
- */
-function hasValidImage(value: UnknownRecord, keys: Array<string>): boolean {
-  if (keys.length === 0) return true;
-  const image = Object.fromEntries(keys.map((key) => [key, value[key]]));
-  return value['outcome'] === 'imported' && isPromptImportImage(image);
+  return promptImportImageSchema.safeParse(image).data;
 }
 
 function isPromptImportsPayloadEntry(
   value: unknown,
 ): value is PromptImportsPayloadEntry {
-  if (!isRecord(value)) return false;
-  const hasResolved = Object.hasOwn(value, 'resolved');
-  const hasTruncated = Object.hasOwn(value, 'truncated');
-  const imageKeys = IMAGE_KEYS.filter((key) => Object.hasOwn(value, key));
-  return (
-    isExactRecord(value, [
-      'locator',
-      'outcome',
-      ...(hasResolved ? ['resolved'] : []),
-      ...(hasTruncated ? ['truncated'] : []),
-      ...imageKeys,
-    ]) &&
-    isNonEmptyString(value['locator']) &&
-    isPromptImportOutcome(value['outcome']) &&
-    (!hasResolved || isNonEmptyString(value['resolved'])) &&
-    (!hasTruncated || isBoolean(value['truncated'])) &&
-    hasValidImage(value, imageKeys)
-  );
+  return payloadEntrySchema.safeParse(value).success;
 }
 
 /** Validates the exact metadata shape persisted with a prompt-import item. */
