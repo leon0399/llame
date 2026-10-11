@@ -183,7 +183,12 @@ export const PinAnUnpinnedProject: Story = {
     await waitFor(() =>
       expect(sentRoutes()).toEqual([PINNED_ROUTE, UNPINNED_ROUTE]),
     );
-    await expect(canvas.getAllByRole("listitem")).toHaveLength(5);
+    // That placeholder rows show, not how many: the count is the shared
+    // skeleton's default, which the chats rail owns as much as this one.
+    await expect(
+      canvasElement.querySelectorAll('[data-slot="sidebar-menu-skeleton"]')
+        .length,
+    ).toBeGreaterThan(0);
     await expect(
       canvas.queryByRole("button", { name: "Pin" }),
     ).not.toBeInTheDocument();
