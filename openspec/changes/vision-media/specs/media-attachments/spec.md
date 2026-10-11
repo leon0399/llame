@@ -588,6 +588,13 @@ the lowest quality, at a halved longest side until it fits.
 - **THEN** the stored tool output's `thumbnail` is a `data:image/webp;base64,` URL of a 256×64 WebP
   of at most 65,536 characters
 
+#### Scenario: A noisy image halves its thumbnail edge
+
+- **WHEN** the model reads a 256×256 PNG of random RGBA noise, whose WebP is still over 65,536
+  characters at quality 1
+- **THEN** the stored tool output's `thumbnail` is a `data:image/webp;base64,` URL of at most 65,536
+  characters, encoded at a halved longest side
+
 ### Requirement: Thumbnails are display-only
 
 `thumbnail` SHALL never be sent to a model, SHALL be excluded from every observation, truncation,
