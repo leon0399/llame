@@ -99,36 +99,61 @@ placeholder for a model that declares `image` input and the omitted placeholder 
 
 ### Requirement: Image entries record a thumbnail or a media locator privately
 
-Each image entry's private payload entry SHALL record outcome `imported` and exactly one of two
-keys: `thumbnail`, the display-only thumbnail that `media-attachments` defines, for an entry
-imported without being stored, or `media: "media://<id>"` for an entry imported from a `media://`
-target. A client SHALL never supply either key.
+Each image entry's private payload entry SHALL record outcome `imported` and one of two forms. An
+entry imported without being stored SHALL carry `thumbnail`, the display-only thumbnail that
+`media-attachments` defines, together with the original's `width`, `height`, and `mediaType`. An
+entry imported from a `media://` target SHALL carry `media: "media://<id>"` and none of those four
+keys. A client SHALL never supply any of these keys.
 
-#### Scenario: The payload records an unstored image's thumbnail
+#### Scenario: The payload records an unstored image's thumbnail and dimensions
 
-- **WHEN** `@/repo/shot.png` is imported as an image
-- **THEN** its private payload entry records outcome `imported` and a `thumbnail` that is a
-  `data:image/webp;base64,` URL, and no `media` key
+- **WHEN** `@/repo/shot.png` is imported as a 1600×900 PNG image
+- **THEN** its private payload entry records outcome `imported`, a `thumbnail` that is a
+  `data:image/webp;base64,` URL, `width` 1600, `height` 900, and `mediaType` `image/png`
+- **AND** it records no `media` key
 
 #### Scenario: The payload records a stored image's media locator
 
 - **WHEN** `@media://<id>` is imported as an image
-- **THEN** its private payload entry records outcome `imported` and `media` `media://<id>`, and no
-  `thumbnail`
+- **THEN** its private payload entry records outcome `imported` and `media` `media://<id>`
+- **AND** it records no `thumbnail`, `width`, `height`, or `mediaType`
 
-### Requirement: Image entry payloads are validated and never sent to a model
+### Requirement: Image entry payloads are validated exactly
 
 The payload validators SHALL accept `thumbnail` only as a `data:image/webp;base64,` URL within the
-thumbnail size cap, and SHALL reject an entry carrying both keys like any other malformed entry. The
-conversion boundary SHALL take the image part or placeholder from the entry, never from the item's
-text, and SHALL never send a `thumbnail` to a model. The owner chip SHALL render a `thumbnail`
-directly and SHALL open a `media` locator's image from the media routes.
+thumbnail size cap, `width` and `height` only as positive integers, and `mediaType` only as
+`image/png`, `image/jpeg`, `image/gif`, or `image/webp`. They SHALL require those four keys together
+whenever any of them is present, and SHALL reject an entry carrying `media` with any of them like any
+other malformed entry.
 
 #### Scenario: A malformed image entry is rejected
 
 - **WHEN** a stored payload entry carries both `thumbnail` and `media`, or a `thumbnail` that is not
   a `data:image/webp;base64,` URL
 - **THEN** both payload validators reject that payload as malformed
+
+#### Scenario: An unstored image entry without its dimensions is rejected
+
+- **WHEN** a stored payload entry carries `thumbnail` but lacks `width`, `height`, or `mediaType`,
+  or carries `width`, `height`, or `mediaType` without `thumbnail`
+- **THEN** both payload validators reject that payload as malformed
+
+#### Scenario: Out-of-range image entry fields are rejected
+
+- **WHEN** a stored payload entry carries `thumbnail` with `width` 0, a non-integer `height`, or
+  `mediaType` `image/svg+xml`
+- **THEN** both payload validators reject that payload as malformed
+
+#### Scenario: A media entry with dimensions is rejected
+
+- **WHEN** a stored payload entry carries `media` together with `width`, `height`, or `mediaType`
+- **THEN** both payload validators reject that payload as malformed
+
+### Requirement: Image entry payloads are never sent to a model
+
+The conversion boundary SHALL take the image part or placeholder from the entry, never from the
+item's text, and SHALL never send a `thumbnail` to a model. The owner chip SHALL render a `thumbnail`
+directly and SHALL open a `media` locator's image from the media routes.
 
 #### Scenario: A thumbnail never reaches the model
 

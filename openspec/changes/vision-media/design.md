@@ -438,22 +438,25 @@ bound, which measures the item's text. The entry body is the image result envelo
 returns, so "Imported results equal native read output" holds unchanged.
 
 A local, `kb://`, `skill://`, or web target is not stored. Its entry's private payload records the
-display-only `thumbnail` and no `media` key; the importing attempt's memory keeps the image under
-that item entry, so the importing attempt attaches it when the window admits it, and every later
-request, including a retry or resume as a new attempt on any worker, gets the not-retained
-placeholder on a vision model and the omitted placeholder on a text-only one. Recovery reuses the
-persisted entry without rereading, as for a text result. An `@media://<id>` target records
-`media: "media://<id>"` instead and replays from the store in every later turn.
+display-only `thumbnail` with the original's `width`, `height`, and `mediaType`, which the lightbox
+caption needs and the payload otherwise lacks, and no `media` key; the importing attempt's memory
+keeps the image under that item entry, so the importing attempt attaches it when the window admits
+it, and every later request, including a retry or resume as a new attempt on any worker, gets the
+not-retained placeholder on a vision model and the omitted placeholder on a text-only one. Recovery
+reuses the persisted entry without rereading, as for a text result. An `@media://<id>` target
+records `media: "media://<id>"` alone instead and replays from the store in every later turn.
 
 The payload validator (`isPromptImportsPayloadEntry` in `apps/api/src/chats/prompt-imports-item.ts`,
-an exact-key check) accepts `thumbnail` (a `data:image/webp;base64,` URL within the 64 KiB cap) and
-`media`, never both, as must the web client's own exact-key check (`isPromptImportEntry` in
-`apps/web/lib/services/chat/history.ts`), or the owner chip disappears for the whole item. The
-Migration Plan states the rollback consequence for such items. The owner chip renders `thumbnail`
-directly and opens a `media` entry from the `/model` route. This delta ADDs five requirements to the
-`prompt-imports` capability: image entries, their attempt-scoped model delivery, their private
-`thumbnail` or `media` payload field, its validation, and `media://` as a prompt-import target. It
-does not restate that capability's requirements.
+an exact-key check) accepts two image forms: `thumbnail` (a `data:image/webp;base64,` URL within the
+64 KiB cap) together with `width` and `height` (positive integers) and `mediaType` (`image/png`,
+`image/jpeg`, `image/gif`, or `image/webp`), all four or none; or `media` alone. The web client's own
+exact-key check (`isPromptImportEntry` in `apps/web/lib/services/chat/history.ts`) must accept the
+same forms, or the owner chip disappears for the whole item. The Migration Plan states the rollback
+consequence for such items. The owner chip renders `thumbnail` directly and opens a `media` entry
+from the `/model` route. This delta ADDs six requirements to the `prompt-imports` capability: image
+entries, their attempt-scoped model delivery, their private `thumbnail` or `media` payload record,
+its validation, keeping it from the model, and `media://` as a prompt-import target. It does not
+restate that capability's requirements.
 
 ### D9: Text-only projections (Q16)
 
@@ -557,8 +560,8 @@ navigation, preloading, and zoom reset.
   only text and context parts), so the model silently stops seeing those images while the tables
   remain.
 - A rollback also degrades `prompt-imports` items that carry an image entry. The old exact-key
-  validator rejects the whole payload on its `thumbnail` or `media` key, and
-  `PromptImportPartsRepository.findForRun` keeps it as `undefined`
+  validator rejects the whole payload on its `thumbnail`, `width`, `height`, `mediaType`, or
+  `media` key, and `PromptImportPartsRepository.findForRun` keeps it as `undefined`
   (`apps/api/src/chats/prompt-import-parts.repository.ts:57-59`). The item text still replays, but
   every derived state of that item is lost, including `derivePromptImportTriggers`. The
   instruction-file loads for the text imports in the same item are therefore skipped on recovery.

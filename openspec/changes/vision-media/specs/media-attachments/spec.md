@@ -833,9 +833,10 @@ no provenance.
 ### Requirement: An unstored image is a single-variant lightbox slide
 
 An unstored image's slide SHALL show its `thumbnail`, SHALL offer no variant control, and SHALL
-carry the caption `<width>×<height> <FORMAT> · <locator>`, with the original's dimensions and format
-from the result and, as plain text, the locator its placeholders name: the one the model submitted
-to `read` or the owner wrote in the import marker, not the result's resolved `path`.
+carry the caption `<width>×<height> <FORMAT> · <locator>`, with the original's dimensions and
+format, taken from the `read` result or, for a prompt-import image, from its payload entry's
+`width`, `height`, and `mediaType`, and, as plain text, the locator its placeholders name: the one
+the model submitted to `read` or the owner wrote in the import marker, not the resolved `path`.
 
 #### Scenario: An unstored read image is a single-variant slide
 
@@ -848,4 +849,5 @@ to `read` or the owner wrote in the import marker, not the result's resolved `pa
 - **WHEN** a Chat is bound to `/repo`, and the owner opens the image a `read` of `docs/shot.png`
   returned or the image a `@shot.png` import marker imported, each a 1600×900 PNG
 - **THEN** the captions are `1600×900 PNG · docs/shot.png` and `1600×900 PNG · shot.png`
-- **AND** neither caption shows the resolved `/repo/` path
+- **AND** neither caption shows the resolved `/repo/` path, and the import's dimensions and format
+  come from its payload entry's `width`, `height`, and `mediaType`
