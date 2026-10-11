@@ -104,10 +104,10 @@ export const RenameUnchanged: Story = {
 };
 
 /**
- * Saving a new title PATCHes the chat with it and closes the dialog once the
- * server accepts it.
+ * Pressing Enter on a new title PATCHes the chat with it and closes the dialog
+ * once the server accepts it.
  *
- * @summary rename: Save with a new title sends it and closes on success
+ * @summary rename: Enter on a new title sends it and closes on success
  */
 export const RenameChanged: Story = {
   tags: ["ai-generated"],
@@ -116,8 +116,7 @@ export const RenameChanged: Story = {
     const field = dialog.getByLabelText("Chat title");
 
     await userEvent.clear(field);
-    await userEvent.type(field, "Trip to Porto");
-    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await userEvent.type(field, "Trip to Porto{Enter}");
 
     await waitFor(() => expect(args.onOpenChange).toHaveBeenCalledWith(false));
     const request = await sentRequest();
