@@ -857,7 +857,7 @@ describe('media sizing (vision-media D6)', () => {
       ],
     });
 
-    it('is sized in the form the Chat Completions wires move it to, on every wire', () => {
+    it('is sized in the form the Chat Completions wires move it to, labels included, on every wire', () => {
       expect(
         estimateModelRequestTokens({
           ...request([
@@ -881,10 +881,13 @@ describe('media sizing (vision-media D6)', () => {
         estimateModelRequestTokens(
           request([
             call,
-            result({ type: 'text', value: 'envelope\n(image attached below)' }),
+            result({ type: 'text', value: 'envelope' }),
             {
               role: 'user',
-              content: [{ type: 'text', text: 'Images from tool results:' }],
+              content: [
+                { type: 'text', text: 'Images from tool results:' },
+                { type: 'text', text: `Image from read "media://${A}":` },
+              ],
             },
           ]),
         ) + 3000,

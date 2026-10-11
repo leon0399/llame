@@ -296,7 +296,7 @@ describe('a replayed read image on each wire', () => {
         : [];
     };
 
-    it('moves the images of consecutive tool results into one following user message as image_url parts', async () => {
+    it('moves the labelled images of consecutive tool results into one following user message as image_url parts', async () => {
       const body = await sentBody(build, COMPLETIONS_STREAM, VISION, {
         messages: twoReads,
         held: false,
@@ -306,21 +306,23 @@ describe('a replayed read image on each wire', () => {
         {
           role: 'tool',
           tool_call_id: 'call-1',
-          content: `${ENVELOPE}\n(image attached below)`,
+          content: ENVELOPE,
         },
         {
           role: 'tool',
           tool_call_id: 'call-2',
-          content: `${ENVELOPE2}\n(image attached below)`,
+          content: ENVELOPE2,
         },
         {
           role: 'user',
           content: [
             { type: 'text', text: 'Images from tool results:' },
+            { type: 'text', text: `Image from read "media://${ID}":` },
             {
               type: 'image_url',
               image_url: { url: `data:image/png;base64,${VARIANT_BASE64}` },
             },
+            { type: 'text', text: `Image from read "media://${ID2}":` },
             {
               type: 'image_url',
               image_url: { url: `data:image/png;base64,${VARIANT2_BASE64}` },
@@ -342,7 +344,7 @@ describe('a replayed read image on each wire', () => {
       ]);
       const serialized = JSON.stringify(body);
       for (const absent of [
-        '(image attached below)',
+        'Image from',
         'Images from tool results:',
         'image_url',
       ]) {
@@ -474,19 +476,20 @@ describe('an unstored read image on each wire', () => {
         createOpenCodeGoModelClient({ ...base, input }),
     ],
   ])('on the %s wire', (_, build) => {
-    it("moves the attempt's variant into the following user message as an image_url part", async () => {
+    it("moves the attempt's variant, labelled by its submitted locator, into the following user message as an image_url part", async () => {
       const body = await sentBody(build, COMPLETIONS_STREAM, VISION, held);
 
       expect(Array.isArray(body.messages) && body.messages.slice(2)).toEqual([
         {
           role: 'tool',
           tool_call_id: 'call-1',
-          content: `${UNSTORED_ENVELOPE}\n(image attached below)`,
+          content: UNSTORED_ENVELOPE,
         },
         {
           role: 'user',
           content: [
             { type: 'text', text: 'Images from tool results:' },
+            { type: 'text', text: 'Image from read "/work/shot.png":' },
             {
               type: 'image_url',
               image_url: { url: `data:image/png;base64,${HELD_BASE64}` },
@@ -509,7 +512,7 @@ describe('an unstored read image on each wire', () => {
       ]);
       const serialized = JSON.stringify(body);
       for (const absent of [
-        '(image attached below)',
+        'Image from',
         'Images from tool results:',
         'image_url',
       ]) {

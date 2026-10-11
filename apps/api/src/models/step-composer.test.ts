@@ -289,13 +289,14 @@ describe('composeStepMessages', () => {
     describe('on a Chat Completions wire', () => {
       const image = (byte: number) => ({
         type: 'image',
-        image: Buffer.from([byte]).toString('base64'),
+        image: new Uint8Array([byte]),
         mediaType: 'image/png',
       });
-      const moved = {
+      const label = (id: string) => ({
         type: 'text',
-        value: `${ENVELOPE}\n(image attached below)`,
-      };
+        text: `Image from read "media://${id}":`,
+      });
+      const moved = { type: 'text', value: ENVELOPE };
       const call = (toolCallId: string): ModelMessage => ({
         role: 'assistant',
         content: [
@@ -303,7 +304,7 @@ describe('composeStepMessages', () => {
         ],
       });
 
-      it('moves the images of consecutive tool results into one following user message', async () => {
+      it('moves the labelled images of consecutive tool results into one following user message', async () => {
         const { resolver, loads } = fakeResolver([
           descriptor(A),
           descriptor(B),
@@ -327,7 +328,9 @@ describe('composeStepMessages', () => {
           role: 'user',
           content: [
             { type: 'text', text: 'Images from tool results:' },
+            label(A),
             image(0x61),
+            label(B),
             image(0x62),
           ],
         });
@@ -337,6 +340,7 @@ describe('composeStepMessages', () => {
           role: 'user',
           content: [
             { type: 'text', text: 'Images from tool results:' },
+            label(A),
             image(0x61),
           ],
         });
@@ -368,7 +372,9 @@ describe('composeStepMessages', () => {
             role: 'user',
             content: [
               { type: 'text', text: 'Images from tool results:' },
+              label(B),
               image(0x62),
+              label(A),
               image(0x61),
             ],
           },
@@ -406,9 +412,40 @@ describe('composeStepMessages', () => {
             role: 'user',
             content: [
               { type: 'text', text: 'Images from tool results:' },
+              label(A),
               image(0x61),
             ],
           },
+        ]);
+      });
+
+      it('says the image follows when the tool message would carry no text', async () => {
+        const { resolver } = fakeResolver([descriptor(A)]);
+        const composed = await composeStepMessages(
+          [
+            {
+              role: 'tool',
+              content: [
+                {
+                  type: 'tool-result',
+                  toolCallId: 'call-1',
+                  toolName: 'view',
+                  output: toolResultOutput('', A),
+                },
+              ],
+            },
+          ],
+          { resolver, imageInput: true, moveToolImages: true },
+        );
+
+        expect(outputOf(composed[0])).toEqual({
+          type: 'text',
+          value: 'The image follows in the next message.',
+        });
+        expect(composed[1]?.content).toEqual([
+          { type: 'text', text: 'Images from tool results:' },
+          { type: 'text', text: `Image from view "media://${A}":` },
+          image(0x61),
         ]);
       });
 
@@ -636,7 +673,7 @@ describe('composeStepMessages', () => {
       expect(JSON.stringify(composed)).not.toContain('not retained');
     });
 
-    it('moves a held read image into the image message and keeps the not-retained placeholder in place on a Chat Completions wire', async () => {
+    it('moves a held read image, labelled by its submitted locator, into the image message and keeps the not-retained placeholder in place on a Chat Completions wire', async () => {
       const { resolver } = fakeResolver([]);
       resolver.images.set('call-1', held(variant()));
 
@@ -646,7 +683,7 @@ describe('composeStepMessages', () => {
       );
 
       expect(composed.map(outputOf)).toEqual([
-        { type: 'text', value: `${ENVELOPE}\n(image attached below)` },
+        { type: 'text', value: ENVELOPE },
         { type: 'text', value: `${ENVELOPE}\n${NOT_RETAINED}` },
         undefined,
       ]);
@@ -654,11 +691,8 @@ describe('composeStepMessages', () => {
         role: 'user',
         content: [
           { type: 'text', text: 'Images from tool results:' },
-          {
-            type: 'image',
-            image: Buffer.from(variant().bytes).toString('base64'),
-            mediaType: 'image/png',
-          },
+          { type: 'text', text: 'Image from read "/work/shot.png":' },
+          { type: 'image', image: variant().bytes, mediaType: 'image/png' },
         ],
       });
     });
@@ -1179,9 +1213,10 @@ describe('installStepPreparation', () => {
         role: 'user',
         content: [
           { type: 'text', text: 'Images from tool results:' },
+          { type: 'text', text: `Image from noop "media://${id}":` },
           expect.objectContaining({
             type: 'file',
-            data: Buffer.from([id.codePointAt(35) ?? 0]).toString('base64'),
+            data: new Uint8Array([id.codePointAt(35) ?? 0]),
             mediaType: 'image/png',
           }),
         ],
@@ -1207,7 +1242,7 @@ describe('installStepPreparation', () => {
           type: 'text',
           value:
             index < 4
-              ? 'envelope\n(image attached below)'
+              ? 'envelope'
               : `envelope\n[image media://${id} a5.png 1600×900, not attached: this context's image limit is reached]`,
         })),
       );
