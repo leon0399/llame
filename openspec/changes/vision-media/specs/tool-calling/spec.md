@@ -34,7 +34,7 @@ The ordinary projection SHALL remain:
   structural boundary;
 - bounded in JavaScript UTF-16 code units over the exact serialized text of the
   pair, at 8,000 per pair and 32,000 per stored assistant turn, where an image
-  in a result counts only as its stored media reference;
+  in a result counts only as its stored result text, without its `thumbnail`;
 - reduced by preserving pairing before budget, newer observations before older
   ones, and identity/outcome before payload; and
 - stable for the same unmodified stored turn under the current explicit
@@ -46,15 +46,23 @@ dropped atomically until the projection fits, with one bounded omission count
 and marker. An unmatched call or result SHALL never be emitted.
 
 An image in a tool result SHALL be stored in the tool part as the native image result that produced
-it, which names the image by its `media://` locator in `media`, and never as the `media-store` media
-descriptor, image bytes, or base64. On replay, the result's text SHALL follow
-the projection above, and the image SHALL become provider image content, built at request time from
-the stored model variant, only when the request's model declares `image` input and the epoch image
-window defined by `media-attachments` attaches that reference. Otherwise the replayed result SHALL carry the image placeholder
-defined by `media-attachments` in its text, and a reference that does not resolve to the Run owner's
-media SHALL replay as the unavailable placeholder without failing the request. Image content SHALL
-NOT count toward the UTF-16 budgets, and an image SHALL replay only together with its retained result
-payload: clearing a payload or dropping a pair also removes its image from the request.
+it, and never as the `media-store` media descriptor, image bytes, or base64 model content. Only a
+`media://` read's result names its image by a `media://` locator in `media`; every other image
+result carries no `media` field and is stored with the display-only `thumbnail` that
+`media-attachments` defines. `thumbnail` SHALL be stripped from the model-facing output and from
+every replayed result, SHALL NOT count toward the UTF-16 budgets, and SHALL never be accepted from a
+client. On replay, the result's text SHALL follow the projection above, and the image SHALL become
+provider image content, built at request time, only when the request's model declares `image`
+input, its model variant is available, and the epoch image window defined by `media-attachments`
+attaches that reference. The model variant is available from the media store for a `media://`
+result, and from the Run's memory, keyed by the tool call id, only within the Run that read it for
+every other image result. Otherwise the replayed result SHALL carry the image placeholder defined
+by `media-attachments` in its text: an image result whose model variant is not in memory, in a
+later turn, a retry or resume on another worker, a compaction request, or a fork, SHALL replay as
+the not-retained placeholder, and a `media://` reference that does not resolve to the Run owner's
+media SHALL replay as the unavailable placeholder, neither failing the request. Image content SHALL
+NOT count toward the UTF-16 budgets, and an image SHALL replay only together with its retained
+result payload: clearing a payload or dropping a pair also removes its image from the request.
 
 Visible assistant text and retained tool occurrences SHALL keep their current
 chronology. Because ordinary stored messages do not prove parallel or step
@@ -201,27 +209,48 @@ that produced them.
 - **WHEN** a tool executes during a Run
 - **THEN** its result remains available within that same Run's tool loop
 
-#### Scenario: An image result is stored as a media reference
+#### Scenario: An image result is stored without image data
 
 - **WHEN** a `read` of `/work/shot.png` returns an image result
-- **THEN** the stored tool part carries that native image result, with `kind: "image"`, its
-  `media://` locator in `media`, `mediaType`, `width`, `height`, and `path`
-- **AND** it carries no `provenance`, `byteSize`, or `model` descriptor field, no image bytes, and no
-  base64 data
+- **THEN** the stored tool part carries that native image result, with `kind: "image"`,
+  `mediaType`, `width`, `height`, and `path`, and no `media` field
+- **AND** its stored output carries the display-only `thumbnail` and no other image data, and no
+  `provenance`, `byteSize`, or `model` descriptor field
+
+#### Scenario: A media read result is stored as a media reference
+
+- **WHEN** a `read` of `media://<id>` returns an image result
+- **THEN** the stored tool part carries that native image result with `media` `media://<id>`
+- **AND** it carries no `thumbnail`, no image bytes, and no base64 data
 
 #### Scenario: An attached image result replays as image content
 
-- **WHEN** a later request on a model that declares `image` input replays a stored image result whose
-  reference the epoch image window attaches
+- **WHEN** a later step of the Run that read `/work/shot.png`, on a model that declares `image`
+  input, replays its image result and the epoch image window attaches the reference
+- **THEN** the replayed result carries its text and the image as provider image content built from
+  the model variant held in the Run's memory
+- **AND** the call remains immediately paired with its result
+
+#### Scenario: A media read result replays from the store in a later turn
+
+- **WHEN** a later turn on a model that declares `image` input replays a stored `media://<id>` image
+  result whose reference the epoch image window attaches
 - **THEN** the replayed result carries its text and the image as provider image content built from
   the stored model variant
-- **AND** the call remains immediately paired with its result
+
+#### Scenario: An earlier turn's image read replays as not retained
+
+- **WHEN** a later turn on a model that declares `image` input replays the stored image result of
+  `read("/work/shot.png")` for a 1600×900 image
+- **THEN** the replayed result's text carries
+  `[image /work/shot.png 1600×900, not retained: read it again to view it]`
+- **AND** the request carries no image content for that result
 
 #### Scenario: An unattached image result replays as a placeholder
 
-- **WHEN** a later request replays a stored image result whose reference is beyond the epoch image
-  window's bounds, or the request's model does not declare `image` input
-- **THEN** the replayed result's text carries the image placeholder with the image's `media://`
+- **WHEN** a request replays an image result whose reference is beyond the epoch image window's
+  bounds, or the request's model does not declare `image` input
+- **THEN** the replayed result's text carries the matching image placeholder with the image's
   locator
 - **AND** the request carries no image content for that result
 
@@ -230,7 +259,13 @@ that produced them.
 - **WHEN** a replayed image result's model variant would serialize as base64 longer than 8,000 UTF-16
   code units, and the pair's text fits within the budget
 - **THEN** the pair's payload is neither cleared nor dropped on account of the image
-- **AND** the budgets measure only the pair's text, including the stored media reference
+- **AND** the budgets measure only the pair's text, without the `thumbnail`
+
+#### Scenario: A thumbnail never reaches the model
+
+- **WHEN** an image result stored with a `thumbnail` reaches the model live in its Run or replayed
+  in a later request
+- **THEN** no part of any request carries the `thumbnail` or any part of its data URL
 
 #### Scenario: A dropped pair carries no image
 
@@ -255,10 +290,12 @@ A tool that throws, times out, becomes unavailable, dynamically loses its truste
 
 Oversized tool results SHALL be truncated to a documented cap, measured in JavaScript UTF-16 code units over the serialized result, after secret redaction. Truncation SHALL operate on the tool's own payload rather than on the result envelope: the `status` discriminant and every top-level field the tool declared SHALL survive, with values shrunk in place. Where the declared field names alone exceed the cap, the cap SHALL win over the declared shape — trailing fields SHALL be omitted and the marker SHALL state how many of how many — so a result above the cap is never emitted. A string value SHALL be cut only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate. Truncation SHALL NOT re-serialize any part of the payload into a string field, so redaction performed before truncation cannot be defeated by an alternate typed representation. A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. When truncation shortens a list, the marker SHALL also state how many elements of that list survived out of how many it held, naming the lists that lost the most and counting any remainder, so a count read off a shortened list is not mistaken for a complete one. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.
 
-An image in a tool result SHALL be carried by its media reference, never by image bytes, so the cap
-measures only the reference text. Truncation SHALL NOT cut, shorten, or omit the media reference of
-an image result: other values SHALL be shrunk and, at the floor, other fields omitted in its place,
-so a recorded image result always names the complete `media://` locator of the image it carries.
+An image in a tool result SHALL be carried without image bytes, so the cap measures only the
+result's text; the display-only `thumbnail` SHALL sit outside the cap and SHALL be recorded
+unchanged. Truncation SHALL NOT cut, shorten, or omit the `media` locator of a `media://` image
+result: other values SHALL be shrunk and, at the floor, other fields omitted in its place, so a
+recorded `media://` image result always names the complete `media://` locator of the image it
+carries.
 
 A code-owned tool whose executor is inconsistent with its admitted in-memory id/schema/classification SHALL fail attempt preparation before a provider request. Fresh attempts SHALL resolve from the executing worker's trusted registry; no historical description or template hash SHALL be required. A dynamic source tool that loses its executor, disconnects, or drifts after attempt preparation SHALL instead retain its attempt-local model-facing declaration with an unavailable executor for that Run, so a requested call settles non-fatally without substituting a changed contract.
 
@@ -339,15 +376,22 @@ A code-owned tool whose executor is inconsistent with its admitted in-memory id/
 
 #### Scenario: Truncation keeps an image result's media reference
 
-- **WHEN** a result carrying an image serializes above the cap because another field is oversized
+- **WHEN** a `media://` image result serializes above the cap because another field is oversized
 - **THEN** the recorded result carries the complete `media://` locator unchanged
 - **AND** the oversized field is shrunk in place and the marker states the omitted characters
 
 #### Scenario: The floor omits other fields before the media reference
 
-- **WHEN** an image result's top-level field names alone serialize above the cap
+- **WHEN** a `media://` image result's top-level field names alone serialize above the cap
 - **THEN** fields other than the one carrying the media reference are omitted until the result fits
 - **AND** the recorded result still carries the complete `media://` locator
+
+#### Scenario: A thumbnail does not count toward the cap
+
+- **WHEN** an image result's text fits the cap and its `thumbnail` would push the serialized output
+  above it
+- **THEN** the result is recorded without truncation
+- **AND** its `thumbnail` is recorded unchanged
 
 ### Requirement: Tool registry with mandatory safety classification
 

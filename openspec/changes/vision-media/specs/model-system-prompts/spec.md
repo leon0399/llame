@@ -74,28 +74,32 @@ Failed-attempt visible output and tool observations SHALL remain part of the com
 
 #### Scenario: A switch to a text-only model replays images as placeholders
 
-- **WHEN** earlier turns carry an owner `file` part and an image `read` result that a vision model
-  received as image parts
+- **WHEN** earlier turns carry an owner `file` part and an image `read` result of `/work/shot.png`
+  that a vision model received as image parts
 - **AND** the next turn selects a model whose declared input is text only
-- **THEN** that model receives each earlier image, in the image's original position, as its
-  placeholder `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`
+- **THEN** that model receives the attachment, in its original position, as
+  `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`, and the
+  read as `[image /work/shot.png <width>×<height>, omitted: this model has no image input]`
 - **AND** the request carries no image part and the stored parts are unchanged
 
-#### Scenario: A switch to a vision model restores image parts
+#### Scenario: A switch to a vision model restores stored image parts
 
 - **WHEN** earlier turns of the current epoch ran on a text-only model and carry owner `file` parts
-  and an image `read` result
+  and an image `read` result of `/work/shot.png`
 - **AND** the next turn selects a model that declares `image` input
-- **THEN** that model receives each image the epoch image window attaches as an image part built from
-  its model variant
-- **AND** each image beyond the epoch's bounds replays as
+- **THEN** that model receives each stored image the epoch image window attaches as an image part
+  built from its model variant
+- **AND** each stored image beyond the epoch's bounds replays as
   `[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`
+- **AND** the earlier read replays as
+  `[image /work/shot.png <width>×<height>, not retained: read it again to view it]`
 
 #### Scenario: A switch between vision models keeps the attached set
 
 - **WHEN** a turn switches from one model that declares `image` input to another within the same
   epoch
-- **THEN** the target's request attaches exactly the references the previous request attached
+- **THEN** the target's request attaches exactly the references the same turn's request would
+  attach on the previous model
 - **AND** every reference beyond the epoch's bounds keeps the limit placeholder
 
 #### Scenario: A public-chat fork replays none of the source owner's media
@@ -121,7 +125,8 @@ variant. No request SHALL be compacted by both variants.
 A prepared request on a model that declares `image` input SHALL also count as
 reaching the Run model's threshold when it carries an image reference that
 `media-attachments` does not attach because its epoch's image bounds are reached
-and an image reference in a row before the triggering user message. Image
+and a stored image reference in a row before the triggering user message; an
+unstored image in an earlier row is never attached and never counts. Image
 overflow SHALL therefore select the threshold variant on the attempt's own
 model, because that request fits; a request that also does not fit SHALL select
 the window variant as above.
@@ -430,7 +435,7 @@ work.
 
 - **WHEN** a prepared request on a model that declares `image` input fits that
   model's window and its measured context size is below the threshold, but it
-  carries an image reference beyond its epoch's image bounds and an image
+  carries an image reference beyond its epoch's image bounds and a stored image
   reference in a row before the triggering user message
 - **THEN** the threshold variant runs before the Run's first model step, with
   that attempt's own model client, system prompt, schema-only tool declarations,
@@ -441,7 +446,7 @@ work.
 #### Scenario: Image overflow in the triggering message alone does not compact
 
 - **WHEN** only the triggering user message's own images exceed the epoch's image
-  bounds and no row before it carries an image reference
+  bounds and no row before it carries a stored image reference
 - **THEN** no checkpoint is published
 - **AND** the overflowing images keep the limit placeholder and the attempt
   proceeds

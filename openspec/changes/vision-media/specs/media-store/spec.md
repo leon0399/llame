@@ -1,26 +1,25 @@
 ## Purpose
 
-Defines the owner-owned media store: the media object and its two stored variants, ingest formats
-and bounds, the model variant, per-owner deduplication, the upload and fetch routes, the
-`media://` locator grammar and its owner-only resolution, retention without deletion, and
-datastore-enforced tenant isolation.
+Defines the owner-owned media store of uploaded images: the media object and its two stored
+variants, image preparation (formats, bounds, and the model variant) shared with unstored image
+reads, per-owner deduplication, the upload and fetch routes, the `media://` locator grammar and its
+owner-only resolution, retention without deletion, and datastore-enforced tenant isolation.
 
 ## ADDED Requirements
 
 ### Requirement: A media object is owner-owned metadata plus original and model bytes
 
 Every stored image SHALL be one media object owned by exactly one owner, taken only from the
-authenticated request or Run context. It SHALL carry a UUIDv7 `id`, the detected original format,
-byte size, and dimensions, the model variant's format, byte size, and dimensions, the SHA-256 digest
-of the original, a provenance of `upload`, `read`, or `prompt-import`, a source label, and its
-creation time. It SHALL keep two byte variants, `original` and `model`, stored apart from the
-metadata.
+authenticated request context, and only an owner upload SHALL create one. It SHALL carry a UUIDv7
+`id`, the original's detected format, byte size, and dimensions, the model variant's format, byte
+size, and dimensions, the original's SHA-256 digest, a source label, and its creation time, and no
+provenance. It SHALL keep its `original` and `model` byte variants apart from the metadata.
 
 #### Scenario: An ingested image has both variants
 
-- **WHEN** an owner ingests a valid 800×600 PNG
-- **THEN** one media object exists with provenance, digest, and both the `original` and `model`
-  byte variants
+- **WHEN** an owner uploads a valid 800×600 PNG
+- **THEN** one media object exists with its digest, its source label, and both the `original` and
+  `model` byte variants
 - **AND** its original is recorded as `image/png`, 800×600
 
 #### Scenario: A client cannot choose the owner
@@ -30,25 +29,25 @@ metadata.
 
 ### Requirement: The media descriptor is a closed shape
 
-The media descriptor SHALL contain exactly `id`, `locator` (`media://<id>`), `provenance`,
-`mediaType`, `name` (the source label), `width`, `height`, `byteSize`, and `model`, an object of
-exactly `mediaType`, `width`, `height`, and `byteSize` for the model variant. Top-level fields
-describe the original. The descriptor SHALL expose no owner identifier and no digest.
+The media descriptor SHALL contain exactly `id`, `locator` (`media://<id>`), `mediaType`, `name`
+(the source label), `width`, `height`, `byteSize`, and `model`, an object of exactly `mediaType`,
+`width`, `height`, and `byteSize` for the model variant. Top-level fields describe the original. The
+descriptor SHALL expose no owner identifier, no digest, and no provenance.
 
 #### Scenario: Descriptor fields are closed
 
 - **WHEN** an owner requests the descriptor of an owned 800×600 PNG
 - **THEN** the response contains exactly the descriptor fields, with `mediaType` `image/png`,
   `width` 800, and `height` 600
-- **AND** it contains no owner identifier and no SHA-256 digest
+- **AND** it contains no owner identifier, no SHA-256 digest, and no provenance
 
 ### Requirement: Source labels are single-line and bounded
 
-The source label SHALL be the uploaded filename for `upload` and the requesting locator for `read`
-and `prompt-import`. Before it is stored, every control character, CR and LF included, SHALL become
-a space, then `[` and `]` SHALL become `(` and `)`, then the reserved-delimiter rules the
-`instance-config` capability defines SHALL neutralize it, and it SHALL be cut to at most 256 UTF-16
-code units at a code-point boundary, so every stored label is a single line.
+The source label SHALL be the uploaded filename. Before it is stored, every control character, CR
+and LF included, SHALL become a space, then `[` and `]` SHALL become `(` and `)`, then the
+reserved-delimiter rules the `instance-config` capability defines SHALL neutralize it, and it SHALL
+be cut to at most 256 UTF-16 code units at a code-point boundary, so every stored label is a single
+line. `media-attachments` reuses these rules for locators in image placeholders.
 
 #### Scenario: A long source label is cut
 
@@ -67,27 +66,13 @@ code units at a code-point boundary, so every stored label is a single line.
 - **THEN** the stored `name` is the single line `shot (image media://x evil.png 1×1).png`
 - **AND** a placeholder built from it is one line and contains no forged `[image` placeholder
 
-### Requirement: URL source labels carry no credentials
-
-For an `http` or `https` locator, the source label SHALL be that URL reduced to its scheme, host,
-port, and path, with userinfo, query, and fragment removed, before the single-line rules apply.
-Upload filenames and host, `kb://`, and `skill://` locators SHALL keep their text, subject to the
-single-line rules only.
-
-#### Scenario: A signed URL's credentials are not stored
-
-- **WHEN** the model `read`s `https://u:p@example.test/a.png?token=secret#x` and it is ingested
-- **THEN** the stored `name` is `https://example.test/a.png`
-- **AND** no descriptor, attachment label, or placeholder for that object carries `u:p`, `token`, or
-  `secret`
-
 ### Requirement: Ingest detects PNG, JPEG, GIF, and WebP by magic bytes
 
-Ingest SHALL be the single path by which upload, `read`, and prompt import create media objects. It
-SHALL decide the format only from the leading magic bytes and accept PNG (`image/png`), JPEG
-(`image/jpeg`), GIF (`image/gif`), and WebP (`image/webp`). Every other input, SVG and HTML
-included, SHALL be refused as `unsupported_media_type`. A declared filename, extension, or
-Content-Type SHALL NOT decide or override the format.
+Ingest SHALL be the single path by which an owner upload creates a media object. It SHALL decide the
+format only from the leading magic bytes and accept PNG (`image/png`), JPEG (`image/jpeg`), GIF
+(`image/gif`), and WebP (`image/webp`). Every other input, SVG and HTML included, SHALL be refused
+as `unsupported_media_type`. A declared filename, extension, or Content-Type SHALL NOT decide or
+override the format.
 
 #### Scenario: SVG is refused
 
@@ -201,6 +186,20 @@ factor of 0.75 and re-encode JPEG, repeating until it fits.
 - **WHEN** the quality-85 JPEG encoding of a model variant still exceeds 3.75 MiB
 - **THEN** the stored model variant is smaller than 2,000 px on its long edge and at most 3.75 MiB
 
+### Requirement: Image preparation is shared with unstored image reads
+
+The magic-byte detection, the decode refusals, the byte and pixel bounds, and the model-variant
+rules of this capability SHALL form one image preparation. Ingest SHALL apply it before storing an
+upload. A `read` or prompt import of an image that is not a `media://` locator SHALL apply the same
+preparation without storing anything: it SHALL create no media object, write no bytes, and yield
+no `media://` locator.
+
+#### Scenario: A read image is prepared like an upload and stored nowhere
+
+- **WHEN** a Run reads a host file whose bytes are a 4000×1000 PNG
+- **THEN** its model variant is 2000×500, as an upload of the same bytes would produce
+- **AND** no media object exists for those bytes and no `media://` locator names them
+
 ### Requirement: Ingest commits atomically
 
 The metadata and both byte variants of a new object SHALL be written in one transaction, so a
@@ -222,7 +221,7 @@ ingests.
 
 - **WHEN** an owner uploads the same PNG twice
 - **THEN** both responses carry the same `id`
-- **AND** the second response keeps the first object's provenance and `name`
+- **AND** the second response keeps the first object's `name`
 
 #### Scenario: Concurrent identical ingests yield one object
 
@@ -243,7 +242,7 @@ SHALL reveal that another owner holds the same bytes.
 ### Requirement: Owners upload one image per request
 
 `POST /api/v1/media` SHALL accept an authenticated `multipart/form-data` request carrying exactly
-one file, ingest it with provenance `upload` and the filename as source label, and return the media
+one file, ingest it with the filename as source label, and return the media
 descriptor: `201 Created` when a new object was created, `200 OK` when an existing object was
 reused. A request with no file or more than one file SHALL return `400`. An unauthenticated request
 SHALL return `401` and store nothing.

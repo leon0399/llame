@@ -10,9 +10,9 @@ returns to the provider for the Chat that stores them, and map each surviving
 `data-context` part on a user message to one
 ordinary SDK text part containing `data.text`, followed, for each image entry
 that `prompt-imports` attaches to that item, by either one image part built from
-the referenced object's model variant or the image placeholder text part, chosen
-by the epoch image window and the request model's declared input as `media-attachments`
-requires. A `data-context`
+the image's model variant or the image placeholder text part, chosen by the
+variant's availability, the epoch image window, and the request model's declared
+input as `media-attachments` requires. A `data-context`
 part stored on an
 assistant message SHALL be mapped to one user-role message containing one text
 part with `data.text`, emitted directly after the tool-result message of the
@@ -41,15 +41,19 @@ declared input as `media-attachments` requires.
 
 A stored tool part whose result is an image result (`kind: "image"`) SHALL map to
 a tool output of type `content` carrying the result's text followed by one image
-part built from the referenced object's model variant when `media-attachments`
-selects an image part for that reference; otherwise its output SHALL carry the
-result's text followed by the image placeholder and no image part. The transport
-of image outputs on Chat Completions wires is specified by `media-attachments`.
+part built from the image's model variant when `media-attachments` selects an
+image part for that reference; otherwise its output SHALL carry the result's text
+followed by the image placeholder and no image part. The model variant is the
+stored object's for a `media://` result or image entry, and the one the Run's
+memory holds for every other image, which is available only within the Run that
+read it. The display-only `thumbnail` of an image result or image entry SHALL NOT
+cross the boundary. The transport of image outputs on Chat Completions wires is
+specified by `media-attachments`.
 
-Media references SHALL resolve only within the Run owner's media. A reference that
-does not resolve for that owner SHALL contribute no byte or descriptor field of
-any media object to the request and SHALL map to the unavailable placeholder that
-`media-attachments` defines.
+Media references SHALL resolve only within the Run owner's media. A `media://`
+reference that does not resolve for that owner SHALL contribute no byte or
+descriptor field of any media object to the request and SHALL map to the
+unavailable placeholder that `media-attachments` defines.
 
 This SHALL be an application-level best-effort invariant, not a promise of
 provider-wire byte identity. SDK conversion, role grouping, and provider
@@ -120,10 +124,11 @@ no other stored form of superseded history is replayed.
 
 #### Scenario: An image read result crosses as tool content
 
-- **WHEN** a stored assistant message holds a `read` tool part whose result is an image result, the
-  request model declares `image` input, and the epoch image window attaches the reference
+- **WHEN** a later step of the Run that read an image replays that `read` tool part, the request
+  model declares `image` input, and the epoch image window attaches the reference
 - **THEN** the tool-result message carries an output of type `content` holding the result's text
-  followed by one image part built from the referenced object's model variant
+  followed by one image part built from the model variant the Run's memory holds
+- **AND** the output carries no `thumbnail`
 
 #### Scenario: An image read result for a text-only model carries a placeholder
 
@@ -131,20 +136,28 @@ no other stored form of superseded history is replayed.
 - **THEN** the tool output carries the result's text followed by the image placeholder
 - **AND** it carries no image part
 
+#### Scenario: An earlier turn's image read result carries the not-retained placeholder
+
+- **WHEN** a later turn on a model declaring `image` input replays a stored `read` tool part whose
+  result is an image result without a `media` field
+- **THEN** the tool output carries the result's text followed by the not-retained placeholder
+- **AND** it carries no image part
+
 #### Scenario: A prompt-import image crosses as an image part or a placeholder
 
 - **WHEN** a stored user message holds a `data-context` item to which `prompt-imports` attaches one
-  image entry, and the request is replayed once to a model declaring `image` input with the
-  reference attached by the epoch image window and once to a model whose `input` lacks `image`
+  image entry, and the Run that imported it sends a request to a model declaring `image` input with
+  the reference attached by the epoch image window, and a later Run replays it to a model whose
+  `input` lacks `image`
 - **THEN** the first request supplies the item's text followed by one image part built from the
-  referenced object's model variant
+  image's model variant
 - **AND** the second supplies the item's text followed by the image placeholder text part and no
   image part for that entry
 
 #### Scenario: Another owner's media never enters the request
 
-- **WHEN** a stored file part or image result in owner A's chat references a media object owned by
-  owner B
+- **WHEN** a stored file part or `media://` image result in owner A's chat references a media
+  object owned by owner B
 - **THEN** no byte, dimension, name, or media type of B's object appears in A's request
 - **AND** the reference maps to the unavailable placeholder
 
@@ -181,7 +194,7 @@ semantic form.
 
 `data.text` SHALL be the sole replay authority, except that the conversion
 boundary emits the image parts or placeholders of a `prompt-imports` item from
-the `media` locators in its payload, after `data.text`. Producer, form, Run linkage,
+the image entries in its payload, after `data.text`. Producer, form, Run linkage,
 and payload SHALL remain non-rendering metadata for validated machine behavior,
 owner UI, provenance, and inspection. A metadata/text disagreement SHALL NOT
 cause text to be regenerated: text wins for model replay, while metadata
