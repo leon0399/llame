@@ -126,6 +126,13 @@ export function ensureChatMarkdownRenderersLoaded(): Promise<ChatMarkdownRendere
   return loadChatMarkdownRenderers();
 }
 
+/**
+ * Test-only hook timeout for `ensureChatMarkdownRenderersLoaded`. The first
+ * call transforms and imports the Streamdown chunks, which on a loaded machine
+ * running the suite in parallel exceeds Vitest's 10 s hook default.
+ */
+export const CHAT_MARKDOWN_WARMUP_TIMEOUT_MS = 60_000;
+
 /** Test-only: replace the dynamic import with a controllable promise. */
 export function setChatMarkdownLoadForTests(
   override: (() => Promise<ChatMarkdownRenderers>) | null,

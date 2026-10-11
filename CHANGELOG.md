@@ -8,6 +8,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   modes alike, matching proactive skill reads, prompt imports, and
   instruction loading.
 
+- Fixed a load-dependent web unit-test flake where the four `chat-page.*`
+  suites failed in their `beforeAll`. The first
+  `ensureChatMarkdownRenderersLoaded()` call transforms and imports the
+  Streamdown chunks, which on a loaded machine running the suite in parallel
+  exceeded Vitest's 10 s hook default. That warm-up hook now gets a 60 s
+  timeout; every other hook keeps the default.
+
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move

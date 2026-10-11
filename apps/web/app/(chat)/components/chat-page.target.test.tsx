@@ -69,7 +69,10 @@ import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
 import type { ChatMessagesResponse } from "@/lib/services/chat/history";
 
 import { ChatPage } from "./chat-page";
-import { ensureChatMarkdownRenderersLoaded } from "./use-chat-markdown-ready";
+import {
+  CHAT_MARKDOWN_WARMUP_TIMEOUT_MS,
+  ensureChatMarkdownRenderersLoaded,
+} from "./use-chat-markdown-ready";
 
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 
@@ -143,7 +146,7 @@ beforeAll(async () => {
       },
     );
   }
-});
+}, CHAT_MARKDOWN_WARMUP_TIMEOUT_MS);
 
 beforeEach(() => {
   stubChatNetwork();
