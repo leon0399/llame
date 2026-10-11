@@ -1,5 +1,12 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-11
+
+- Fixed load-dependent story-test flakes where a play function's `waitFor` or
+  `findBy*` gave up after Testing Library's 1 s default while a dialog was
+  still opening or closing. Story tests now use the 5 s async budget the jsdom
+  suites already use.
+
 # 2026-10-10
 
 - Fixed load-dependent product E2E flakes where a chat spec typed into the
