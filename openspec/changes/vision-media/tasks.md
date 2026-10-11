@@ -81,7 +81,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 1.4 Write `docs/product/operator/media.md` (storage in Postgres of owner uploads only, growth and backup cost, bounds, formats, `sharp` platform support, the no-deletion gap) and link it from the operator index; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 1.5 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites
 - [x] 1.6 SR: self-review the parent-relative diff against `REVIEW_GUIDE.md` and this layer's tasks, fix accepted findings, then mark ready
-- [ ] 1.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 1.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 2. `vision-media/model-input` — input declaration and owner-attachment projections (design D6, D9)
 
