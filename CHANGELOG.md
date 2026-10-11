@@ -3,10 +3,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 # 2026-10-11
 
 - Moved the admin organization tree's, the parked members panel's, the chat
-  command palette's, the share chat dialog's, and the chat rename and delete
-  dialogs' rendering tests out of jsdom and into `org-tree.stories.tsx`,
-  `members-panel.stories.tsx`, `command-palette.stories.tsx`,
-  `share-chat-dialog.stories.tsx`, and `chat-item-dialogs.stories.tsx`, whose
+  command palette's, the share chat dialog's, the chat rename and delete
+  dialogs', and the project dialogs' rendering tests out of jsdom and into
+  `org-tree.stories.tsx`, `members-panel.stories.tsx`,
+  `command-palette.stories.tsx`, `share-chat-dialog.stories.tsx`,
+  `chat-item-dialogs.stories.tsx`, and `project-dialogs.stories.tsx`, whose
   play functions now run in Chromium (#860). The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -20,7 +21,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   The rename and delete dialog stories cover saving an unchanged and a new
   title (with the PATCH it sends), reopening from the chat's current title,
   and deleting the open chat (home first, while the DELETE is still pending)
-  or another chat (no navigation).
+  or another chat (no navigation). The project dialog stories cover creating
+  a project (closed only once the POST lands), never sending a blank name even
+  via Enter, a blank field on reopen, filing a chat into the project created
+  for it (moved only after the project exists), renaming unchanged and to a
+  new name, reopening rename from the current name, and deleting (closed
+  only once the DELETE lands).
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
