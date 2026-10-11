@@ -441,5 +441,7 @@ export const Empty: Story = {
         screen.getByRole("heading", { name: "New organization" }),
       ).toBeVisible(),
     );
+    await cancelDialog("New organization");
+    await expect(canvas.getByText("No organizations yet")).toBeVisible();
   },
 };
