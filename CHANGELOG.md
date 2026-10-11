@@ -9,17 +9,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   model, permission mode, message target and compaction, the login and
   register forms', the model switch boundary's, the settings page's, the
   project page's, the sidebar row title's, the chat transcript's load-older
-  scroll, and the primary rail's rendering tests out of jsdom and into
-  `org-tree.stories.tsx`, `members-panel.stories.tsx`,
-  `command-palette.stories.tsx`, `share-chat-dialog.stories.tsx`,
-  `chat-item-dialogs.stories.tsx`, `project-dialogs.stories.tsx`,
-  `org-unit-dialogs.stories.tsx`, `app-sidebar-pinned.stories.tsx`,
-  `chat-page.stories.tsx`, `login-form.stories.tsx`,
-  `register-form.stories.tsx`, `packages/ui`'s
+  scroll, the primary rail's, and the public shared chat page's rendering
+  tests out of jsdom and into `org-tree.stories.tsx`,
+  `members-panel.stories.tsx`, `command-palette.stories.tsx`,
+  `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
+  `project-dialogs.stories.tsx`, `org-unit-dialogs.stories.tsx`,
+  `app-sidebar-pinned.stories.tsx`, `chat-page.stories.tsx`,
+  `login-form.stories.tsx`, `register-form.stories.tsx`, `packages/ui`'s
   `model-switch-boundary.stories.tsx`, `settings-page.stories.tsx`,
   `project-page.stories.tsx`, `sidebar-row-title.stories.tsx`,
-  `chat-load-older.stories.tsx`, and `app-sidebar.stories.tsx`, whose play
-  functions now run in Chromium (#860).
+  `chat-load-older.stories.tsx`, `app-sidebar.stories.tsx`, and
+  `shared-chat-page.stories.tsx`, whose play functions now run in Chromium
+  (#860).
   The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -126,7 +127,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   real pinned section the jsdom suite had to stub out, cover Administration as
   its own group below the nav and the pinned chats, directly above the user
   footer and in place while the pins scroll beneath it, appearing once; and the
-  user menu, which offers Settings but no Administration.
+  user menu, which offers Settings but no Administration. The shared chat page
+  stories cover a signed-out visitor reading the conversation under its title
+  with a login link back to the share and no fork, the loading note while the
+  chat is held, the untitled placeholder heading, the unavailable note for a
+  link that no longer resolves, and a signed-in visitor's fork, whose button
+  reads Forking… and is disabled until the server answers and then opens the new
+  chat, each with the requests the page sends.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
