@@ -525,7 +525,7 @@ export const AttachedImageWithText: Story = {
       ),
     );
     await expect(images[0]).toHaveAttribute("loading", "lazy");
-    // Read-only: nothing to remove, retry, or reorder.
+    // Read-only: nothing to remove or retry.
     await expect(within(list).queryAllByRole("button")).toHaveLength(0);
     // The thumbnails come before the bubble.
     await expect(

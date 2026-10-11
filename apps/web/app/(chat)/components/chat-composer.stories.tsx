@@ -3,6 +3,8 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, screen, waitFor, within } from "storybook/test";
 import { vi } from "vitest";
 
+import { Toaster } from "@workspace/ui/components/sonner";
+
 import { ChatProvider, useChatContext } from "@/contexts/chat-context";
 import * as uploads from "@/lib/services/media/uploads";
 import type { MediaDescriptor } from "@/lib/services/media/uploads";
@@ -48,9 +50,9 @@ const NO_ATTACHMENTS: ComposerAttachments = {
   add: fn(),
   remove: fn(),
   retry: fn(),
-  reorder: fn(),
   clear: fn(),
   restore: fn(),
+  attachDisabled: false,
   blockReason: null,
   sendBlocked: false,
 };
@@ -372,42 +374,40 @@ export const EleventhImageIgnored: Story = {
 };
 
 /**
- * With a text-only model selected, a pasted image is refused: no thumbnail,
- * no upload, and the composer names the model that has no image input. The
- * message goes once another model is selected and stays gone on switching
- * back.
+ * With a text-only model selected, the picker is disabled and a pasted image
+ * is refused: no thumbnail, no upload, and a toast names the model that has
+ * no image input. Nothing is attached, so no inline reason shows.
  *
  * @summary a text-only model refuses attachments
  */
 export const TextOnlyModelRefusesAttach: Story = {
   tags: ["ai-generated"],
-  // Base UI's portalled model picker leaves aria-hidden focus guards that
-  // axe's aria-hidden-focus rule misreads (as in project-item.stories.tsx).
-  parameters: {
-    a11y: {
-      config: { rules: [{ id: "aria-hidden-focus", enabled: false }] },
-    },
-  },
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        <Toaster />
+      </>
+    ),
+  ],
   beforeEach: resolveUploads,
   render: attachingStory(TEXT_MODEL_ID),
   play: async ({ canvas, userEvent }) => {
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Attach images" }),
+      ).toBeDisabled(),
+    );
     await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
     await userEvent.paste(filesTransfer([pngFile("shot.png")]));
 
-    await expect(
-      await canvas.findByText("Model One has no image input"),
-    ).toBeVisible();
+    const shown = await canvas.findAllByText("Model One has no image input");
+    await expect(shown).toHaveLength(1);
+    await expect(shown[0]!.closest("[data-sonner-toast]")).not.toBeNull();
     await expect(
       canvas.queryByRole("list", { name: "Attached images" }),
     ).toBeNull();
     await expect(uploadImage).not.toHaveBeenCalled();
-
-    await chooseModel(canvas, userEvent, /Vision One/);
-    await waitFor(() =>
-      expect(canvas.queryByText("Model One has no image input")).toBeNull(),
-    );
-    await chooseModel(canvas, userEvent, /Model One/);
-    await expect(canvas.queryByText("Model One has no image input")).toBeNull();
   },
 };
 
@@ -423,7 +423,8 @@ async function chooseModel(
 
 /**
  * Switching to a text-only model keeps the attached thumbnails in order but
- * disables send; switching back to a vision model enables it again.
+ * disables send and the picker; switching back to a vision model enables
+ * them again.
  *
  * @summary a text-only model blocks sending attached images
  */
@@ -449,6 +450,9 @@ export const SwitchingToTextOnlyBlocksSend: Story = {
       await canvas.findByText("Model One has no image input"),
     ).toBeVisible();
     await expect(send).toBeDisabled();
+    await expect(
+      canvas.getByRole("button", { name: "Attach images" }),
+    ).toBeDisabled();
     const list = canvas.getByRole("list", { name: "Attached images" });
     await expect(
       within(list)
@@ -458,6 +462,9 @@ export const SwitchingToTextOnlyBlocksSend: Story = {
 
     await chooseModel(canvas, userEvent, /Vision One/);
     await waitFor(() => expect(send).toBeEnabled());
+    await expect(
+      canvas.getByRole("button", { name: "Attach images" }),
+    ).toBeEnabled();
     await expect(canvas.queryByText("Model One has no image input")).toBeNull();
   },
 };

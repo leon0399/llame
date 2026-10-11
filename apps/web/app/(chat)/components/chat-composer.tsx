@@ -166,8 +166,13 @@ function preventWhenDisabled(
 
 type ChatComposerToolbarProps = Pick<
   ChatComposerFormProps,
-  "status" | "onStop" | "modelReadyForSend" | "pendingStop" | "chatId"
-> & { onAttachFiles: (files: Iterable<File>) => void };
+  | "status"
+  | "onStop"
+  | "modelReadyForSend"
+  | "pendingStop"
+  | "chatId"
+  | "attachments"
+>;
 
 /** The toolbar under the textarea: the image picker and permission mode on
  *  the left, the model/effort selectors and send/stop on the right. */
@@ -177,12 +182,15 @@ function ChatComposerToolbar({
   modelReadyForSend,
   pendingStop,
   chatId,
-  onAttachFiles,
+  attachments,
 }: ChatComposerToolbarProps) {
   return (
     <PromptInputToolbar>
       <div className="flex items-center gap-1">
-        <AttachImagesButton onFiles={onAttachFiles} />
+        <AttachImagesButton
+          onFiles={attachments.add}
+          disabled={attachments.attachDisabled}
+        />
         <PermissionModeSelector chatId={chatId} />
       </div>
       <ChatComposerControls
@@ -230,7 +238,7 @@ function ChatComposerForm({
           modelReadyForSend={
             modelReadyForSend && !disabled && !attachments.sendBlocked
           }
-          onAttachFiles={attachments.add}
+          attachments={attachments}
         />
       </PromptInput>
     </fieldset>

@@ -8,6 +8,7 @@ import {
 
 import type { FileUIPart } from "ai";
 import type { ImageThumbnailStatus } from "@workspace/ui/components/custom/image-thumbnail";
+import { toast } from "@workspace/ui/components/sonner";
 
 import { useChatContext } from "@/contexts/chat-context";
 import {
@@ -49,23 +50,24 @@ interface AttachmentListState {
 
 /** The composer's attachment state and actions. */
 export interface ComposerAttachments {
-  /** Attached images in thumbnail (and send) order. */
+  /** Attached images in thumbnail (and send) order, which is add order. */
   items: AttachmentList;
-  /** Attaches the files of an attachable image type, up to the cap. */
+  /** Attaches the files of an attachable image type, up to the cap. Under a
+   *  model without image input it attaches nothing and toasts why. */
   add: (files: Iterable<File>) => void;
   remove: (key: string) => void;
   /** Uploads a failed image's same file again. */
   retry: (key: string) => void;
-  reorder: (from: number, to: number) => void;
   /** Empties the composer for a send, leaving the taken images' previews
-   *  live until the send settles. Clears a refused-attach message. */
+   *  live until the send settles. */
   clear: () => void;
   /** Puts a failed send's images back ahead of any attached while it was
    *  pending, up to the cap; revokes the previews the cap drops. */
   restore: (sent: AttachmentList) => void;
+  /** The selected model has no image input: the picker is disabled. */
+  attachDisabled: boolean;
   /** `<model label> has no image input` while the selected model refuses
-   *  images and some are attached, or an attach was refused under the
-   *  current selection since the last send. */
+   *  images and some are attached. */
   blockReason: string | null;
   /** Send must wait: an upload is unfinished or failed, or the selected
    *  model cannot take the attached images. */
@@ -98,14 +100,13 @@ export function attachmentFileParts(
 }
 
 /** Whether the selected model publishes no `image` input, and its label for
- *  the block message (`name`, else `id`). Unknown models block nothing: send
- *  is already gated on an available model. */
+ *  the refusal message (`name`, else `id`). Unknown models block nothing:
+ *  send is already gated on an available model. */
 function useImageInputSupport() {
   const { selectedModel } = useChatContext();
   const models = useModelsQuery().data?.models;
   const model = models?.find((candidate) => candidate.id === selectedModel);
   return {
-    selectedModel,
     imageInputMissing: model !== undefined && !model.input.includes("image"),
     label: model ? modelDisplayName(model.id, models) : "",
   };
@@ -148,7 +149,7 @@ function useAttachmentEdits(
   itemsRef: RefObject<AttachmentList>,
   update: UpdateAttachments,
   upload: UploadAttachment,
-): Pick<ComposerAttachments, "remove" | "retry" | "reorder" | "restore"> {
+): Pick<ComposerAttachments, "remove" | "retry" | "restore"> {
   return {
     remove: (key) => {
       revokePreviews(itemsRef.current.filter((item) => item.key === key));
@@ -158,33 +159,11 @@ function useAttachmentEdits(
       const item = itemsRef.current.find((candidate) => candidate.key === key);
       if (item) upload(key, item.file);
     },
-    reorder: (from, to) =>
-      update((current) => {
-        const next = [...current];
-        const [moved] = next.splice(from, 1);
-        if (moved) next.splice(to, 0, moved);
-        return next;
-      }),
     restore: (sent) => {
       const merged = [...sent, ...itemsRef.current];
       revokePreviews(merged.slice(MAX_COMPOSER_ATTACHMENTS));
       update(() => merged.slice(0, MAX_COMPOSER_ATTACHMENTS));
     },
-  };
-}
-
-/** Whether an attach was refused under `selectedModel`. Selecting another
- *  model drops the refusal, so switching back does not bring the message
- *  back; `clear` drops it on a send. */
-function useAttachRefusal(selectedModel: string | null | undefined) {
-  const [refusedFor, setRefusedFor] = useState<string | null>(null);
-  if (refusedFor !== null && refusedFor !== selectedModel) {
-    setRefusedFor(null);
-  }
-  return {
-    refused: refusedFor !== null,
-    refuse: () => setRefusedFor(selectedModel ?? null),
-    clear: () => setRefusedFor(null),
   };
 }
 
@@ -199,7 +178,7 @@ export function useComposerAttachments(): ComposerAttachments {
   const upload = useUploader(update);
   const edits = useAttachmentEdits(itemsRef, update, upload);
   const support = useImageInputSupport();
-  const refusal = useAttachRefusal(support.selectedModel);
+  const blockReason = `${support.label} has no image input`;
 
   const add = (files: Iterable<File>) => {
     const images = Array.from(files).filter((file) =>
@@ -207,7 +186,7 @@ export function useComposerAttachments(): ComposerAttachments {
     );
     if (images.length === 0) return;
     if (support.imageInputMissing) {
-      refusal.refuse();
+      toast(blockReason);
       return;
     }
     const room = MAX_COMPOSER_ATTACHMENTS - itemsRef.current.length;
@@ -222,17 +201,13 @@ export function useComposerAttachments(): ComposerAttachments {
   };
 
   const imagesRefused = support.imageInputMissing && items.length > 0;
-  const blocked =
-    imagesRefused || (support.imageInputMissing && refusal.refused);
   return {
     items,
     add,
     ...edits,
-    clear: () => {
-      refusal.clear();
-      update(() => []);
-    },
-    blockReason: blocked ? `${support.label} has no image input` : null,
+    clear: () => update(() => []),
+    attachDisabled: support.imageInputMissing,
+    blockReason: imagesRefused ? blockReason : null,
     sendBlocked: imagesRefused || items.some((item) => item.status !== "ready"),
   };
 }

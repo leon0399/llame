@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fireEvent, fn, waitFor, within } from "storybook/test";
+import { expect, fn, waitFor, within } from "storybook/test";
 
 import {
   ImageThumbnailRow,
@@ -39,30 +39,20 @@ const meta = {
     "aria-label": "Attached images",
     onRemove: fn(),
     onRetry: fn(),
-    onReorder: fn(),
   },
 } satisfies Meta<typeof ImageThumbnailRow>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Applies `onReorder`, `onRemove`, and `onRetry` (the tile goes back to
- *  `uploading`) to local state so edit stories show the result. */
+/** Applies `onRemove` and `onRetry` (the tile goes back to `uploading`) to
+ *  local state so edit stories show the result. */
 function EditableRow(args: ImageThumbnailRowProps) {
   const [items, setItems] = React.useState(args.items);
   return (
     <ImageThumbnailRow
       {...args}
       items={items}
-      onReorder={(from, to) => {
-        args.onReorder?.(from, to);
-        setItems((current) => {
-          const next = [...current];
-          const [moved] = next.splice(from, 1);
-          if (moved) next.splice(to, 0, moved);
-          return next;
-        });
-      }}
       onRemove={(key) => {
         args.onRemove?.(key);
         setItems((current) => current.filter((item) => item.key !== key));
@@ -87,7 +77,7 @@ function imageOrder(canvasElement: HTMLElement): Array<string> {
 
 /**
  * Use the editable row in the composer once every upload has finished: each
- * tile can be removed, and the row can be reordered.
+ * tile can be removed. Tiles keep the order they were added in.
  *
  * @summary for uploaded composer attachments
  */
@@ -115,8 +105,7 @@ export const Uploading: Story = {
 
 /**
  * A failed upload shows an error overlay whose retry action uploads the same
- * file again; keyboard focus stays on the retried tile once the overlay
- * gives way to the upload spinner.
+ * file again; the overlay then gives way to the upload spinner.
  *
  * @summary for an attachment whose upload failed
  */
@@ -126,24 +115,20 @@ export const FailedWithRetry: Story = {
   render: (args) => <EditableRow {...args} />,
   play: async ({ args, canvas, userEvent }) => {
     await expect(canvas.getByText("Upload failed")).toBeInTheDocument();
-    canvas.getByRole("button", { name: "b.png" }).focus();
-    await userEvent.tab();
-    await expect(
-      canvas.getByRole("button", { name: "Retry upload" }),
-    ).toHaveFocus();
-    await userEvent.keyboard("{Enter}");
+    await userEvent.click(canvas.getByRole("button", { name: "Retry upload" }));
     await expect(args.onRetry).toHaveBeenCalledWith("b");
     await expect(
       canvas.queryByRole("button", { name: "Retry upload" }),
     ).toBeNull();
-    await expect(canvas.getByRole("button", { name: "b.png" })).toHaveFocus();
+    await expect(
+      canvas.getByRole("status", { name: "Uploading" }),
+    ).toBeInTheDocument();
   },
 };
 
 /**
- * Keyboard users reach the remove action by focusing a tile: it becomes
- * visible on focus and removes that tile when activated. Focus then moves to
- * the next tile, or to the previous one when the last tile goes.
+ * Keyboard users reach a tile's remove action with Tab: it becomes visible
+ * on focus and removes that tile when activated.
  *
  * @summary for removing an attachment with the keyboard
  */
@@ -153,86 +138,19 @@ export const KeyboardRemove: Story = {
   play: async ({ args, canvas, canvasElement, userEvent }) => {
     const remove = canvas.getByRole("button", { name: "Remove b.png" });
     await expect(remove).toHaveStyle({ opacity: "0" });
-    canvas.getByRole("button", { name: "b.png" }).focus();
-    await waitFor(() => expect(remove).toHaveStyle({ opacity: "1" }));
+    canvas.getByRole("button", { name: "Remove a.png" }).focus();
     await userEvent.tab();
     await expect(remove).toHaveFocus();
+    await waitFor(() => expect(remove).toHaveStyle({ opacity: "1" }));
     await userEvent.keyboard("{Enter}");
     await expect(args.onRemove).toHaveBeenCalledWith("b");
     await expect(imageOrder(canvasElement)).toEqual(["a.png", "c.png"]);
-    await expect(canvas.getByRole("button", { name: "c.png" })).toHaveFocus();
-
-    await userEvent.tab();
-    await expect(
-      canvas.getByRole("button", { name: "Remove c.png" }),
-    ).toHaveFocus();
-    await userEvent.keyboard("{Enter}");
-    await expect(imageOrder(canvasElement)).toEqual(["a.png"]);
-    await expect(canvas.getByRole("button", { name: "a.png" })).toHaveFocus();
   },
 };
 
 /**
- * `Alt+ArrowLeft` and `Alt+ArrowRight` move the focused tile one position and
- * keep focus on it.
- *
- * @summary for reordering attachments with the keyboard
- */
-export const KeyboardReorder: Story = {
-  tags: ["ai-generated"],
-  render: (args) => <EditableRow {...args} />,
-  play: async ({ args, canvas, canvasElement, userEvent }) => {
-    canvas.getByRole("button", { name: "b.png" }).focus();
-    await userEvent.keyboard("{Alt>}{ArrowLeft}{/Alt}");
-    await expect(args.onReorder).toHaveBeenLastCalledWith(1, 0);
-    await expect(imageOrder(canvasElement)).toEqual([
-      "b.png",
-      "a.png",
-      "c.png",
-    ]);
-    await expect(canvas.getByRole("button", { name: "b.png" })).toHaveFocus();
-
-    await userEvent.keyboard("{Alt>}{ArrowRight}{ArrowRight}{/Alt}");
-    await expect(imageOrder(canvasElement)).toEqual([
-      "a.png",
-      "c.png",
-      "b.png",
-    ]);
-    await expect(canvas.getByRole("button", { name: "b.png" })).toHaveFocus();
-
-    // The last tile has nowhere further right to go.
-    await userEvent.keyboard("{Alt>}{ArrowRight}{/Alt}");
-    await expect(args.onReorder).toHaveBeenCalledTimes(3);
-  },
-};
-
-/**
- * Pointer users drag a tile onto another tile's position.
- *
- * @summary for reordering attachments by dragging
- */
-export const DragReorder: Story = {
-  tags: ["ai-generated"],
-  render: (args) => <EditableRow {...args} />,
-  play: async ({ args, canvas, canvasElement }) => {
-    const [first, , third] = canvas.getAllByRole("listitem");
-    const dataTransfer = new DataTransfer();
-    fireEvent.dragStart(first!, { dataTransfer });
-    fireEvent.dragOver(third!, { dataTransfer });
-    fireEvent.drop(third!, { dataTransfer });
-    fireEvent.dragEnd(first!, { dataTransfer });
-    await expect(args.onReorder).toHaveBeenCalledWith(0, 2);
-    await expect(imageOrder(canvasElement)).toEqual([
-      "b.png",
-      "c.png",
-      "a.png",
-    ]);
-  },
-};
-
-/**
- * A sent message shows its images read-only: no remove, retry, or reorder,
- * and each image loads lazily.
+ * A sent message shows its images read-only: no remove or retry, and each
+ * image loads lazily.
  *
  * @summary for the images of a sent message
  */
@@ -242,7 +160,6 @@ export const ReadOnly: Story = {
     "aria-label": "Message images",
     onRemove: undefined,
     onRetry: undefined,
-    onReorder: undefined,
   },
   play: async ({ canvas, canvasElement }) => {
     await expect(canvas.queryAllByRole("button")).toHaveLength(0);
@@ -254,8 +171,5 @@ export const ReadOnly: Story = {
     for (const image of canvas.getAllByRole("img")) {
       await expect(image).toHaveAttribute("loading", "lazy");
     }
-    await expect(canvas.getAllByRole("listitem")[0]).not.toHaveAttribute(
-      "draggable",
-    );
   },
 };

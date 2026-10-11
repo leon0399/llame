@@ -171,12 +171,8 @@ describe("ChatPage image attachments", () => {
       },
     ],
   };
-  const LOCATOR_A = "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01";
-  const LOCATOR_B = "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02";
-
-  /** Answers uploads in request order: the first gets `LOCATOR_A` and
-   *  `a.png`, the second `LOCATOR_B` and `b.png`, later ones the next
-   *  locators and `image-n.png`. */
+  /** Answers uploads in request order under sequential `media://` ids: the
+   *  first is `a.png`, the second `b.png`, later ones `image-n.png`. */
   function answerUploads(): void {
     let count = 0;
     mediaUploadHandler = () => {
@@ -239,27 +235,6 @@ describe("ChatPage image attachments", () => {
     expect((send as HTMLButtonElement).disabled).toBe(false);
     return { input, send };
   }
-
-  it("sends file parts in the order the keyboard reorder left them", async () => {
-    const user = userEvent.setup();
-    const { input, send } = await pasteTwoImages();
-
-    screen.getByRole("button", { name: "b.png" }).focus();
-    await user.keyboard("{Alt>}{ArrowLeft}{/Alt}");
-    expect(screen.getByRole("button", { name: "b.png" })).toBe(
-      document.activeElement,
-    );
-    await user.type(input, "Compare these");
-    await user.click(send);
-
-    expect(sendMessage).toHaveBeenCalledWith({
-      text: "Compare these",
-      files: [
-        expect.objectContaining({ url: LOCATOR_B }),
-        expect.objectContaining({ url: LOCATOR_A }),
-      ],
-    });
-  });
 
   /** Holds the next send pending until the returned `fail` rejects it. */
   function holdSend() {

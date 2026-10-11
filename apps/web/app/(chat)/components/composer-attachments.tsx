@@ -29,17 +29,19 @@ export function ComposerAttachmentRow({
       }))}
       onRemove={attachments.remove}
       onRetry={attachments.retry}
-      onReorder={attachments.reorder}
     />
   );
 }
 
 /** The toolbar's file picker: a button opening a hidden multi-file input
- *  limited to the attachable image types. */
+ *  limited to the attachable image types; `disabled` while the selected
+ *  model has no image input. */
 export function AttachImagesButton({
   onFiles,
+  disabled,
 }: {
   onFiles: (files: Iterable<File>) => void;
+  disabled: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
@@ -48,6 +50,7 @@ export function AttachImagesButton({
         variant="ghost"
         size="icon"
         aria-label="Attach images"
+        disabled={disabled}
         onClick={() => inputRef.current?.click()}
       >
         <ImagePlusIcon size={16} />
@@ -81,8 +84,7 @@ export function pasteImagesInto(add: (files: Iterable<File>) => void) {
   };
 }
 
-/** Drop target handlers for the input card: dropped files attach. Thumbnail
- *  drags carry no files and are left to the thumbnail row. */
+/** Drop target handlers for the input card: dropped files attach. */
 export function dropImagesInto(add: (files: Iterable<File>) => void) {
   return {
     onDragOver: (event: React.DragEvent<HTMLFormElement>) => {

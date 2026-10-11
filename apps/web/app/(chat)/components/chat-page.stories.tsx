@@ -497,7 +497,7 @@ function uploaded(id: string, name: string): MediaDescriptor {
 /**
  * On a vision model, two pasted images upload, and a message of images alone
  * goes out as their file parts, in paste order and without a text part; the
- * attached row clears once it is sent.
+ * composer's attached row clears once it is sent.
  *
  * @summary an image-only message sends its file parts
  */
@@ -533,7 +533,11 @@ export const SendsImageOnlyMessage: Story = {
     }
     await userEvent.click(input);
     await userEvent.paste(files);
-    const list = await canvas.findByRole("list", { name: "Attached images" });
+    const form = input.closest("form");
+    if (form === null) throw new Error("expected the composer form");
+    const list = await within(form).findByRole("list", {
+      name: "Attached images",
+    });
     await waitFor(() =>
       expect(within(list).queryAllByRole("status")).toEqual([]),
     );
@@ -562,9 +566,9 @@ export const SendsImageOnlyMessage: Story = {
     });
     await expect(body.message.parts).toHaveLength(2);
     await waitFor(() =>
-      expect(canvas.queryByRole("list", { name: "Attached images" })).toBe(
-        null,
-      ),
+      expect(
+        within(form).queryByRole("list", { name: "Attached images" }),
+      ).toBe(null),
     );
   },
 };
