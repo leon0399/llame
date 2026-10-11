@@ -4,9 +4,9 @@
 
 A worker claims a Run when it assigns an attempt by transitioning a non-terminal Run into execution: for a `queued` Run that is `queued` → `running_model`, and for crash-recovery reclaim that is `running_model` → `running_model` with a new attempt. A Run whose cancellation is recorded before that claim SHALL NOT be claimed and SHALL be settled `cancelled` without any model request, in every deployment topology.
 
-After the claim, the process executing the Run SHALL act on a recorded cancellation in every deployment topology: at once when that process received the cancellation request, and otherwise within 5 seconds of the cancellation being recorded. When it acts, attempt preparation continues to its next abort checkpoint (no further model request), any in-flight compaction request SHALL be aborted, and the Run SHALL be settled `cancelled`. When that process cannot read the Run's recorded cancellation within that bound, the cancellation SHALL take effect at its first successful read. An attempt whose Run a same-message retry superseded SHALL stop within the same bound, at once when the process that accepted the retry is executing it, and the Run SHALL keep its terminal state.
+After the claim, the process executing the Run SHALL act on a recorded cancellation in every deployment topology: at once when that process received the cancellation request, and otherwise within 5 seconds of the cancellation being recorded. When it acts, attempt preparation continues to its next abort checkpoint (no further model request), any in-flight compaction request SHALL be aborted, and the Run SHALL be settled `cancelled`. When that process cannot read the Run's recorded cancellation within that bound, the cancellation SHALL take effect at its first successful read.
 
-Settlement SHALL append the terminal `run.cancelled` event and SHALL follow the first-writer-wins terminal rule of `durable-runs`, so a Run that reached another terminal state first keeps it. A Run deleted together with its Chat leaves no Run to settle and is outside this requirement.
+Settlement SHALL append the terminal `run.cancelled` event and SHALL follow the first-writer-wins terminal rule of `durable-runs`, so a Run that reached another terminal state first keeps it. A Run deleted together with its Chat leaves no Run to settle; the process executing it SHALL still abort its in-flight model or compaction request and make no further model request for it, at once when that process received the deletion request and otherwise within 5 seconds of the deletion being committed, or at its first successful read when it cannot read the Run within that bound.
 
 A Run settled `cancelled` before its model request is recorded as sent (`model.requested`) SHALL persist no assistant message. A Run cancelled after that point SHALL persist its assistant turn with the output observed before cancellation, as `durable-runs` specifies for partial output; when no output was observed, that turn SHALL have no parts. Tool calls open at cancellation SHALL be settled as `tool-calling` specifies. The usage recorded on a cancelled turn is outside this capability.
 
@@ -58,11 +58,11 @@ A Run settled `cancelled` before its model request is recorded as sent (`model.r
 - **THEN** the failed read neither settles nor aborts the Run
 - **AND** the Run is settled `cancelled` once that process reads the recorded cancellation
 
-#### Scenario: A superseded Run executing elsewhere stops
+#### Scenario: Deleting a Chat stops its Run executing elsewhere
 
-- **WHEN** a same-message retry supersedes a Run whose model request is in flight in a different process
-- **THEN** that process aborts the superseded Run's model request within 5 seconds and makes no further model request for it
-- **AND** the superseded Run stays `cancelled` with no second terminal event
+- **WHEN** a Chat is deleted through one process while its Run's model request is in flight in a different process
+- **THEN** the executing process aborts that model request within 5 seconds of the deletion being committed
+- **AND** it makes no further model request for that Run
 
 #### Scenario: Cancelling one owner's Run does not stop another owner's Run
 
