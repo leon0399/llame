@@ -579,7 +579,8 @@ attaches.
 Each image result without a `media` locator, and each prompt-import image entry without one, SHALL
 be stored with a `thumbnail`: a `data:image/webp;base64,` URL of a WebP derived from the model
 variant, whose longest side is at most 256 px, without upscaling, encoded at quality 70 and at lower
-qualities until the data URL is at most 65,536 characters.
+qualities until the data URL is at most 65,536 characters, and, if it is still over that cap at
+the lowest quality, at a halved longest side until it fits.
 
 #### Scenario: A large image yields a small thumbnail
 

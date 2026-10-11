@@ -140,7 +140,8 @@ both blobs in one short transaction, after all decoding and encoding. A pooled c
 A read or prompt import of an image that is not `media://` runs steps 1–4 in the worker (the header
 check of `prepareMedia` plus the model-variant derivation) and writes nothing. It also encodes the
 display-only thumbnail from the model variant: WebP, longest side at most 256 px, quality 70, and
-lower qualities until the data URL is at most 64 KiB (65,536 characters); a screenshot thumbnail is
+lower qualities until the data URL is at most 64 KiB (65,536 characters), halving the longest side
+when quality 1 is still over the cap (lossless WebP alpha can be); a screenshot thumbnail is
 typically under 20 KB.
 
 The original keeps its EXIF, because it is only ever served to its owner; only the model variant leaves
