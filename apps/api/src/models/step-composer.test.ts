@@ -477,7 +477,7 @@ describe('composeStepMessages', () => {
 
     it('attaches a read image from the attempt memory without any store read', async () => {
       const { resolver, loads } = fakeResolver([]);
-      resolver.images.hold('call-1', held(variant()));
+      resolver.images.set('call-1', held(variant()));
 
       const [composed] = await composeStepMessages([unstoredResult('call-1')], {
         resolver,
@@ -512,7 +512,7 @@ describe('composeStepMessages', () => {
 
     it('gives a text-only model the omitted placeholder whether or not the attempt holds the image', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.images.hold('call-1', held(undefined));
+      resolver.images.set('call-1', held(undefined));
 
       const composed = await composeStepMessages(
         [unstoredResult('call-1'), unstoredResult('call-2')],
@@ -528,7 +528,7 @@ describe('composeStepMessages', () => {
 
     it('sends no image content and no not-retained placeholder on a Chat Completions wire', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.images.hold('call-1', held(variant()));
+      resolver.images.set('call-1', held(variant()));
 
       const composed = await composeStepMessages(
         [unstoredResult('call-1'), unstoredResult('call-2')],
@@ -578,7 +578,7 @@ describe('composeStepMessages', () => {
       expect(JSON.parse(literal)).toBe(bracketed.locator);
 
       // A read of the locator the literal parses to is held and attached.
-      resolver.images.hold('call-2', held(variant(), bracketed));
+      resolver.images.set('call-2', held(variant(), bracketed));
       const composed = await composeStepMessages(
         [
           unstoredResult('call-1', bracketed),
@@ -596,8 +596,8 @@ describe('composeStepMessages', () => {
     it('drops for good the bytes of a read the window refuses on entry', async () => {
       const { resolver } = fakeResolver([]);
       const half = variant((EPOCH_MAX_BASE64_BYTES * 3) / 8 + 3);
-      resolver.images.hold('call-1', held(half));
-      resolver.images.hold('call-2', held(half));
+      resolver.images.set('call-1', held(half));
+      resolver.images.set('call-2', held(half));
       const messages = [unstoredResult('call-1'), unstoredResult('call-2')];
 
       const first = await composeStepMessages(messages, {
@@ -626,7 +626,7 @@ describe('composeStepMessages', () => {
 
     it('gives an attached entry without bytes the not-retained placeholder rather than failing', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.images.hold('call-1', { ...SHOT, modelByteSize: 3 });
+      resolver.images.set('call-1', { ...SHOT, modelByteSize: 3 });
 
       const [composed] = await composeStepMessages([unstoredResult('call-1')], {
         resolver,
@@ -641,7 +641,7 @@ describe('composeStepMessages', () => {
 
     it('holds none of a superseded attempt in a new one, even in the same process', async () => {
       const failed = fakeResolver([]).resolver;
-      failed.images.hold('call-1', held(variant()));
+      failed.images.set('call-1', held(variant()));
       const retry = fakeResolver([]).resolver;
       const messages = [unstoredResult('call-1')];
 
@@ -653,7 +653,7 @@ describe('composeStepMessages', () => {
         resolver: retry,
         ...vision,
       });
-      retry.images.hold('call-2', held(variant()));
+      retry.images.set('call-2', held(variant()));
       const reread = await composeStepMessages(
         [...messages, unstoredResult('call-2')],
         { resolver: retry, ...vision },
@@ -677,7 +677,7 @@ describe('composeStepMessages', () => {
         (_, n) => `0192f3a4-5b6c-7d8e-9f01-${String(n).padStart(12, '0')}`,
       );
       const { resolver } = fakeResolver(owner.map((id) => descriptor(id)));
-      resolver.images.hold('call-2', held(variant()));
+      resolver.images.set('call-2', held(variant()));
 
       const composed = await composeStepMessages(
         [
@@ -988,7 +988,7 @@ describe('installStepPreparation', () => {
             inputSchema: z.object({}),
             // What the read hook does: hold the decoded variant in the attempt.
             execute: (_, { toolCallId }) => {
-              resolver.images.hold(toolCallId, {
+              resolver.images.set(toolCallId, {
                 ...image(toolCallId),
                 model: {
                   bytes: Buffer.alloc(modelByteSize),

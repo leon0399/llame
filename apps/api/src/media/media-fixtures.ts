@@ -5,7 +5,6 @@
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 
-import { createAttemptImageMemory } from './attempt-images';
 import type { MediaDescriptor, RunMediaResolver } from './media-descriptors';
 
 /** A 1600×900 PNG descriptor named after the id's last two characters. */
@@ -35,7 +34,7 @@ export function fakeResolver(descriptors: ReadonlyArray<MediaDescriptor>) {
   const known = new Map(descriptors.map((entry) => [entry.id, entry]));
   const loads: Array<string> = [];
   const resolver: RunMediaResolver = {
-    images: createAttemptImageMemory(),
+    images: new Map(),
     describe: (ids) =>
       Promise.resolve(
         new Map(

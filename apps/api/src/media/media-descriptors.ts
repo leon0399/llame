@@ -3,11 +3,7 @@ import { z } from 'zod';
 
 import { mediaBlobs, mediaObjects } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
-import {
-  createAttemptImageMemory,
-  type AttemptImageMemory,
-  type UnstoredImage,
-} from './attempt-images';
+import type { HeldImage, UnstoredImage } from './attempt-images';
 import {
   isCanonicalMediaId,
   mediaLocator,
@@ -99,7 +95,7 @@ export async function loadMediaDescriptors(
  */
 export type RunMediaResolver = {
   /** The attempt's unstored images, keyed by tool call id. */
-  readonly images: AttemptImageMemory;
+  readonly images: Map<string, HeldImage>;
   /** Owned descriptors among `ids`; unknown and foreign ids are absent. */
   describe(
     ids: ReadonlyArray<string>,
@@ -128,7 +124,7 @@ export function createRunMediaResolver(
   const known = new Map<string, MediaDescriptor | undefined>();
   const bytes = new Map<string, Uint8Array>();
   return {
-    images: createAttemptImageMemory(),
+    images: new Map(),
     async describe(ids) {
       const missing = ids.filter((id) => !known.has(id));
       if (missing.length > 0) {
@@ -238,18 +234,10 @@ export function storedSubject(d: MediaDescriptor): ImageSubject {
 
 export function unstoredSubject(image: UnstoredImage): ImageSubject {
   return {
-    subject: locatorLiteral(image.locator),
+    subject: JSON.stringify(image.locator),
     width: image.width,
     height: image.height,
   };
-}
-
-/**
- * A locator as its `JSON.stringify` string literal: one line, never
- * truncated, and `JSON.parse` returns it exactly.
- */
-export function locatorLiteral(locator: string): string {
-  return JSON.stringify(locator);
 }
 
 function describe(s: ImageSubject): string {

@@ -11,10 +11,7 @@ import type { MediaObject } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
-import {
-  createAttemptImageMemory,
-  type AttemptImageMemory,
-} from '../media/attempt-images';
+import type { HeldImage } from '../media/attempt-images';
 import {
   MEDIA_MAX_BYTES,
   MediaIngestError,
@@ -124,7 +121,7 @@ const STORED_IMAGE = {
 describe('native image reads', () => {
   let directory: string;
   let media: FakeMedia;
-  let memory: AttemptImageMemory;
+  let memory: Map<string, HeldImage>;
   let shot: Buffer;
 
   function context(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -170,7 +167,7 @@ describe('native image reads', () => {
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), 'native-image-'));
     media = fakeMedia();
-    memory = createAttemptImageMemory();
+    memory = new Map();
     // A host read records its attempt before reading; no prior one exists.
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,

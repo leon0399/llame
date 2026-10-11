@@ -14,7 +14,6 @@ import postgres, { type Sql } from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
-import { createAttemptImageMemory } from '../media/attempt-images';
 import { randomPng } from '../media/media-fixtures';
 import { MediaService } from '../media/media.service';
 import { createToolMediaStore } from '../media/tool-media-store';
@@ -683,24 +682,14 @@ describe('native file authority and durable effects', () => {
     const media = new MediaService(tenantDb);
     const ownerContext: ToolContext = {
       ...context,
-      media: createToolMediaStore(
-        media,
-        owner,
-        createAttemptImageMemory(),
-        true,
-      ),
+      media: createToolMediaStore(media, owner, new Map(), true),
     };
     const otherContext: ToolContext = {
       userId: otherOwner,
       chatId: randomUUID(),
       tenantDb,
       permissionPolicy: compileTestPermissionPolicy(),
-      media: createToolMediaStore(
-        media,
-        otherOwner,
-        createAttemptImageMemory(),
-        true,
-      ),
+      media: createToolMediaStore(media, otherOwner, new Map(), true),
     };
     const ownedObjects = () =>
       tenantDb.runAs(owner, (tx) =>

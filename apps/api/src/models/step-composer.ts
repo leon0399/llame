@@ -1,7 +1,7 @@
 import { isString } from '@workspace/runtime-safety';
 import type { ModelMessage, streamText, UserContent } from 'ai';
 
-import type { HeldImage } from '../media/attempt-images';
+import { releaseImage, type HeldImage } from '../media/attempt-images';
 import {
   collectMediaRefs,
   fileMediaRef,
@@ -92,14 +92,14 @@ export async function composeStepMessages(
 ): Promise<Array<ModelMessage>> {
   if (toolResultImages === 'placeholder') {
     for (const { image } of collectMediaRefs(messages)) {
-      if (!isString(image)) resolver.images.forget(image.key);
+      if (!isString(image)) resolver.images.delete(image.key);
     }
   }
   const sizing = await loadMediaSizing(messages, resolver, imageInput);
   if (sizing.refs.length === 0) return messages;
   sizing.refs.forEach(({ image }, index) => {
     if (!isString(image) && sizing.statuses[index] !== 'attached') {
-      resolver.images.release(image.key);
+      releaseImage(resolver.images, image.key);
     }
   });
 
@@ -171,25 +171,21 @@ export function projectMediaRefs(
   ): Array<ProjectedMedia> => {
     if (!sizing.imageInput) return textOf(omittedPlaceholder(subject));
     const interim = tool && toolResultImages === 'placeholder';
-    // An unstored image the window attaches always has its bytes (a released
-    // entry is only ever re-derived as `limit`); if it ever has none, it is
-    // as not retained rather than an error.
-    if (
-      status === 'not-retained' ||
-      (status === 'attached' && attached === undefined)
-    ) {
+    if (status === 'attached' && attached !== undefined) {
+      return interim
+        ? textOf(completionsToolImagePlaceholder(subject))
+        : attach(attached);
+    }
+    // A window-attached unstored image always has its bytes (a released entry
+    // re-derives `limit`); one without them is as not retained, not an error.
+    if (status === 'not-retained' || status === 'attached') {
       return textOf(
         interim
           ? completionsToolImagePlaceholder(subject)
           : notRetainedPlaceholder(subject),
       );
     }
-    if (status !== 'attached' || attached === undefined) {
-      return textOf(limitPlaceholder(subject));
-    }
-    return interim
-      ? textOf(completionsToolImagePlaceholder(subject))
-      : attach(attached);
+    return textOf(limitPlaceholder(subject));
   };
   return mapMediaRefs(messages, ({ image, tool }, index) => {
     const status = sizing.statuses[offset + index];

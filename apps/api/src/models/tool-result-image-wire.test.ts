@@ -148,7 +148,7 @@ async function sentBody(
   globalThis.fetch = fetchMock;
   try {
     const { resolver } = fakeResolver([descriptor(ID)]);
-    if (scenario.held) resolver.images.hold('call-1', HELD_IMAGE);
+    if (scenario.held) resolver.images.set('call-1', HELD_IMAGE);
     await expect(
       build(input).streamText({
         chat: CHAT,

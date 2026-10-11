@@ -344,8 +344,8 @@ describe('loadMediaSizing', () => {
       width: 1600,
       height: 900,
     };
-    resolver.images.hold('c1', { ...SHOT, model });
-    resolver.images.hold('c2', { ...SHOT, model });
+    resolver.images.set('c1', { ...SHOT, model });
+    resolver.images.set('c2', { ...SHOT, model });
     const result = (toolCallId: string): ModelMessage => ({
       role: 'tool',
       content: [

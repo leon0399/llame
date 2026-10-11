@@ -25,46 +25,23 @@ export type HeldImage = UnstoredImage & {
 };
 
 /**
- * The memory of one attempt (vision-media R1.4), keyed by tool call id. Every
- * attempt builds its own, empty, with its media resolver, so a retry or a
- * resume, on any worker, shares nothing with the attempt it supersedes, and
- * the memory goes when the attempt ends. Nothing in it is persisted.
+ * Drop the model variant bytes of the attempt's image under `key` for the
+ * rest of the attempt, keeping their size: the epoch window refused it on
+ * entry, so no later step of the attempt attaches it.
  *
- * It holds whatever it is given and counts nothing: the step composer
- * releases every variant the epoch window does not attach, so after each
- * compose it retains only what the window attached.
+ * An attempt's images (vision-media R1.4) are a `Map` keyed by tool call id.
+ * Every attempt builds its own, empty, with its media resolver, so a retry or
+ * a resume, on any worker, shares nothing with the attempt it supersedes, and
+ * the map goes when the attempt ends. Nothing in it is persisted. The step
+ * composer releases every variant the epoch window does not attach, so after
+ * each compose the map retains only what the window attached.
  */
-export type AttemptImageMemory = {
-  hold(key: string, image: HeldImage): void;
-  get(key: string): HeldImage | undefined;
-  /**
-   * Drop an entry's model variant bytes for the rest of the attempt, keeping
-   * their size: the epoch window refused it on entry, so no later step of the
-   * attempt attaches it.
-   */
-  release(key: string): void;
-  /**
-   * Remove an entry, so the image counts as not retained: a wire that never
-   * sends tool-result images keeps none of them.
-   */
-  forget(key: string): void;
-};
-
-export function createAttemptImageMemory(): AttemptImageMemory {
-  const entries = new Map<string, HeldImage>();
-  return {
-    hold: (key, image) => {
-      entries.set(key, image);
-    },
-    get: (key) => entries.get(key),
-    release: (key) => {
-      const entry = entries.get(key);
-      if (entry?.model === undefined) return;
-      const { model, ...kept } = entry;
-      entries.set(key, { ...kept, modelByteSize: model.bytes.byteLength });
-    },
-    forget: (key) => {
-      entries.delete(key);
-    },
-  };
+export function releaseImage(
+  images: Map<string, HeldImage>,
+  key: string,
+): void {
+  const entry = images.get(key);
+  if (entry?.model === undefined) return;
+  const { model, ...kept } = entry;
+  images.set(key, { ...kept, modelByteSize: model.bytes.byteLength });
 }

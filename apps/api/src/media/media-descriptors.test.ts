@@ -6,7 +6,6 @@ import { type TenantRunner } from '../db/tenant-db.service';
 import { composeStepMessages } from '../models/step-composer';
 import {
   createRunMediaResolver,
-  locatorLiteral,
   notRetainedPlaceholder,
   unstoredSubject,
   type MediaDescriptor,
@@ -242,7 +241,7 @@ describe('createRunMediaResolver images', () => {
   it('starts every attempt with empty memory, shared with no other attempt', () => {
     const first = scriptedResolver([]).resolver;
     const second = scriptedResolver([]).resolver;
-    first.images.hold('call-1', {
+    first.images.set('call-1', {
       locator: '/work/shot.png',
       width: 1600,
       height: 900,
@@ -253,13 +252,15 @@ describe('createRunMediaResolver images', () => {
   });
 });
 
-describe('locatorLiteral', () => {
+describe('unstoredSubject', () => {
   it.each([
     ['a bracketed path', 'app/[slug]/shot.png', '"app/[slug]/shot.png"'],
     ['an IPv6 URL', 'http://[::1]/x.png', '"http://[::1]/x.png"'],
     ['line breaks and quotes', 'a\n\r"\\', String.raw`"a\n\r\"\\"`],
   ])('writes %s as one exact JSON literal', (_, locator, literal) => {
-    expect(locatorLiteral(locator)).toBe(literal);
+    expect(unstoredSubject({ locator, width: 1, height: 1 }).subject).toBe(
+      literal,
+    );
     expect(JSON.parse(literal)).toBe(locator);
   });
 

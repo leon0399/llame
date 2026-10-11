@@ -1,7 +1,7 @@
 import type { ImageReadHook } from '@workspace/native-file-tools';
 
 import type { MediaObject } from '../db/schema';
-import type { AttemptImageMemory } from './attempt-images';
+import type { HeldImage } from './attempt-images';
 import {
   encodeThumbnail,
   MEDIA_MAX_BYTES,
@@ -60,7 +60,7 @@ function imageOf(stored: MediaObject): StoredImage {
  * the window does not attach it (R1.4).
  */
 function unstoredRead(
-  memory: { images: AttemptImageMemory; imageInput: boolean },
+  memory: { images: Map<string, HeldImage>; imageInput: boolean },
   locator: string,
   key: string | undefined,
 ): ImageReadHook {
@@ -73,15 +73,20 @@ function unstoredRead(
       const thumbnail = await encodeThumbnail(model.bytes);
       const { mediaType, width, height } = original;
       if (key !== undefined) {
-        memory.images.hold(key, {
+        memory.images.set(key, {
           locator,
           width,
           height,
           ...(memory.imageInput && { model }),
         });
       }
-      const image = { status: 'success' as const, mediaType, width, height };
-      return thumbnail === undefined ? image : { ...image, thumbnail };
+      return {
+        status: 'success',
+        mediaType,
+        width,
+        height,
+        ...(thumbnail !== undefined && { thumbnail }),
+      };
     } catch (error) {
       if (!(error instanceof MediaIngestError)) throw error;
       return { status: 'error', type: error.code, message: error.message };
@@ -93,7 +98,7 @@ function unstoredRead(
 export function createToolMediaStore(
   media: Pick<MediaService, 'findOwned'>,
   ownerUserId: string,
-  images: AttemptImageMemory,
+  images: Map<string, HeldImage>,
   imageInput: boolean,
 ): ToolMediaStore {
   return {
