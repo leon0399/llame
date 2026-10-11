@@ -143,7 +143,7 @@ export class IdentityController {
   })
   @ApiForbiddenResponse({
     description:
-      'Caller lacks the admin-tier this update requires, or the owner tier on the source path that moving a unit out of its tree requires',
+      'Caller lacks the admin-tier this update requires, or is not an owner of the source tree root, which moving a unit out of its tree requires',
   })
   @ApiConflictResponse({
     type: OrgUnitConflictErrorResponse,

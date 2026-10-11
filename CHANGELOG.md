@@ -6,13 +6,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   (#1260). An admin could promote a unit to root and leave it with no owner,
   then mint `owner` on it, or move a unit into another tree they own and gain
   owner rights over it and its owners. Moving a unit to root or into another
-  tree now needs `owner` on its current path, and a unit promoted to root must
-  have an `owner` by the end of the move (the API answers 409 otherwise).
-  Moves within one tree still need only `admin`. A unit's `created_by` can no
-  longer be changed, and the sole owner of a root can no longer move their
-  owner row to another unit. The database enforces all of this, so direct SQL
-  is blocked too. Creating a child without admin rights now returns 403
-  instead of 500.
+  tree now needs the caller to be an `owner` of the source tree's root; owning
+  the unit or a unit between it and the root is not enough. A unit promoted to
+  root must have an `owner` by the end of the move (the API answers 409
+  otherwise). Moves within one tree still need only `admin`. A unit's
+  `created_by` can no longer be changed, and the sole owner of a root can no
+  longer move their owner row to another unit. The database enforces all of
+  this, so direct SQL is blocked too. Creating a child without admin rights
+  now returns 403 instead of 500.
 
 - Fixed a root org's creator being able to grant themselves `owner` again
   after transferring ownership and leaving, or after being demoted and

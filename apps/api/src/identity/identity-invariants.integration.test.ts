@@ -719,6 +719,18 @@ describeIfDb(
         await tx`UPDATE org_units SET parent_id = NULL WHERE id = ${unit.id}`;
       }
 
+      /** The two statements of `OrgUnitsRepository.move`, as raw SQL. */
+      async function moveIn(
+        tx: SqlClient,
+        unit: { id: string; path: string },
+        newParent: { id: string; path: string },
+      ): Promise<void> {
+        await tx`UPDATE org_units
+          SET path = ${`${newParent.path}/${unit.id}`} || substr(path, ${unit.path.length + 1}::int)
+          WHERE path = ${unit.path} OR path LIKE ${`${unit.path}/%`}`;
+        await tx`UPDATE org_units SET parent_id = ${newParent.id} WHERE id = ${unit.id}`;
+      }
+
       const placeOf = (viewer: string, unitId: string) =>
         asUser(
           viewer,
@@ -761,7 +773,7 @@ describeIfDb(
           ).rejects.toMatchObject({ code: '42501' });
         }
 
-        // Moving C out of Alice's tree needs owner tier on its source path.
+        // Moving C out of Alice's tree needs owner on the tree's root.
         await expect(
           asUser(bob, (tx) => promoteIn(tx, child)),
         ).rejects.toMatchObject({ code: '42501' });
@@ -924,20 +936,26 @@ describeIfDb(
         });
         rootIds.push(rootB.id);
 
-        const moveUnder = (
-          userId: string,
-          newParent: { id: string; path: string },
-        ) =>
-          asUser(userId, async (tx) => {
-            await tx`UPDATE org_units
-              SET path = ${`${newParent.path}/${y.id}`} || substr(path, ${y.path.length + 1}::int)
-              WHERE path = ${y.path} OR path LIKE ${`${y.path}/%`}`;
-            await tx`UPDATE org_units SET parent_id = ${newParent.id} WHERE id = ${y.id}`;
-          });
+        await expect(
+          asUser(admin, (tx) => moveIn(tx, y, rootB)),
+        ).rejects.toMatchObject({ code: '42501' });
+        expect(await placeOf(owner, y.id)).toEqual([
+          { parent_id: rootA.id, path: y.path, created_by: owner },
+        ]);
 
-        await expect(moveUnder(admin, rootB)).rejects.toMatchObject({
-          code: '42501',
+        // Owning Y itself is not owning its tree: the unit's own owner can
+        // take it neither to root nor into a tree they own.
+        const rootS = await identity.createRootOrg({
+          userId: subOwner,
+          name: 'S',
         });
+        rootIds.push(rootS.id);
+        await expect(
+          asUser(subOwner, (tx) => promoteIn(tx, y)),
+        ).rejects.toMatchObject({ code: '42501' });
+        await expect(
+          asUser(subOwner, (tx) => moveIn(tx, y, rootS)),
+        ).rejects.toMatchObject({ code: '42501' });
         expect(await placeOf(owner, y.id)).toEqual([
           { parent_id: rootA.id, path: y.path, created_by: owner },
         ]);
@@ -948,13 +966,73 @@ describeIfDb(
           orgUnitId: rootB.id,
           role: 'admin',
         });
-        await moveUnder(owner, rootB);
+        await asUser(owner, (tx) => moveIn(tx, y, rootB));
         expect(await placeOf(owner, y.id)).toEqual([
           {
             parent_id: rootB.id,
             path: `${rootB.id}/${y.id}`,
             created_by: owner,
           },
+        ]);
+      });
+
+      it('F2: an admin cannot launder owner tier by moving their own root into the tree first', async () => {
+        const owner = await makeUser('Chain Source Owner');
+        const admin = await makeUser('Chain Admin');
+        const rootA = await identity.createRootOrg({
+          userId: owner,
+          name: 'A',
+        });
+        rootIds.push(rootA.id);
+        const c = await identity.createChildOrg({
+          userId: owner,
+          parentId: rootA.id,
+          name: 'C',
+        });
+        await identity.grantMembership({
+          callerId: owner,
+          userId: admin,
+          orgUnitId: rootA.id,
+          role: 'admin',
+        });
+        const rootB = await identity.createRootOrg({
+          userId: admin,
+          name: 'B',
+        });
+        rootIds.push(rootB.id);
+        const rootD = await identity.createRootOrg({
+          userId: admin,
+          name: 'D',
+        });
+        rootIds.push(rootD.id);
+
+        // 1. Moving your own root into another tree is still allowed: B's
+        //    source tree is B itself, which the admin owns.
+        await asUser(admin, (tx) => moveIn(tx, rootB, rootA));
+        const bInA = { id: rootB.id, path: `${rootA.id}/${rootB.id}` };
+        expect(await placeOf(owner, rootB.id)).toEqual([
+          { parent_id: rootA.id, path: bInA.path, created_by: admin },
+        ]);
+        // 2. A same-tree move under B needs only admin tier.
+        await asUser(admin, (tx) => moveIn(tx, c, bInA));
+        const cUnderB = { id: c.id, path: `${bInA.path}/${c.id}` };
+
+        // 3. Owner of B is now owner on C's path, but not of A's root, so C
+        //    can leave A neither into D nor to root.
+        await expect(
+          asUser(admin, (tx) => moveIn(tx, cUnderB, rootD)),
+        ).rejects.toMatchObject({ code: '42501' });
+        await identity.grantMembership({
+          callerId: admin,
+          userId: admin,
+          orgUnitId: c.id,
+          role: 'owner',
+        });
+        await expect(
+          asUser(admin, (tx) => promoteIn(tx, cUnderB)),
+        ).rejects.toMatchObject({ code: '42501' });
+        expect(await placeOf(owner, c.id)).toEqual([
+          { parent_id: rootB.id, path: cUnderB.path, created_by: owner },
         ]);
       });
 

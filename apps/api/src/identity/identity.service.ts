@@ -152,7 +152,7 @@ function rethrowOrgUnitUpdateError(error: unknown): never {
     );
   }
   // RLS, or the move-authority trigger: moving a unit out of its tree needs
-  // owner tier on its source path (#1260).
+  // an `owner` of the source tree's root (#1260).
   if (pgErrorCode(error) === '42501') {
     throw new ForbiddenException('Not permitted to update this org unit');
   }

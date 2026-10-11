@@ -263,7 +263,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     expect(intoOwnSubtree.status).toBe(422);
   });
 
-  it('PATCH { parentId: null } promotes to root — needs owner tier on the source path and an owner ON THE UNIT ITSELF (#1260)', async () => {
+  it('PATCH { parentId: null } promotes to root — needs owner of the source tree root and an owner ON THE UNIT ITSELF (#1260)', async () => {
     const root = await createRoot(a, 'Acme');
     const team = await createChild(a, root.id, 'Team');
 
@@ -290,7 +290,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     expect(ownerless.status).toBe(409);
     expect(ownerless.body.code).toBe('LAST_OWNER');
 
-    // Owner tier on the source path (root) mints `owner` on the unit, and
+    // An owner of the source tree's root mints `owner` on the unit, and
     // the promotion then lands with the new root owned.
     const promote = await request(http)
       .patch(`/api/v1/org-units/${team.id}/memberships/${a.id}`)

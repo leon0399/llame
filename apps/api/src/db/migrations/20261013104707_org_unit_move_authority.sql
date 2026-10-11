@@ -23,9 +23,13 @@
 --      the RI trigger, so pg_trigger_depth() > 1, which a caller's own
 --      statement can never reach.
 --    * A row whose path changes its first segment (its root) leaves its
---      tree: the caller needs `owner` on the row's current path. Every row
---      of a moved subtree takes this branch, and the moved unit's own row
---      needs owner on its source path. Moves inside one tree keep the
+--      tree: the caller needs `owner` on the SOURCE TREE'S ROOT, the first
+--      segment of the row's current path. Owner anywhere lower on the path
+--      is not enough: an admin who owns their own root could move it into
+--      the tree (allowed: they own its root), move a unit under it with
+--      admin tier, and would then hold owner on that unit's path. Every row
+--      of a moved subtree takes this branch with the same root. Moving a
+--      root itself needs owner on that root. Moves inside one tree keep the
 --      admin-tier policy. 42501 like any RLS denial, so the API maps it to
 --      403.
 -- 2. `org_units_promoted_root_owned` (deferred constraint trigger): a unit
@@ -52,9 +56,9 @@ BEGIN
        SELECT 1 FROM memberships m
        WHERE m.user_id = current_setting('app.current_user_id', true)
          AND m.role = 'owner'
-         AND m.org_unit_id::text = ANY(string_to_array(OLD.path, '/'))
+         AND m.org_unit_id = split_part(OLD.path, '/', 1)::uuid
      ) THEN
-    RAISE EXCEPTION 'moving org unit % out of its tree requires owner on its current path', OLD.id
+    RAISE EXCEPTION 'moving org unit % out of its tree requires owner on the tree''s root', OLD.id
       USING ERRCODE = '42501';
   END IF;
 
