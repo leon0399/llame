@@ -10,8 +10,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   register forms', the model switch boundary's, the settings page's, the
   project page's, the sidebar row title's, the chat transcript's load-older
   scroll, the primary rail's, the public shared chat page's, the project
-  rail's, and the Personalization settings card's rendering tests out of
-  jsdom and into `org-tree.stories.tsx`,
+  rail's, the Personalization settings card's, and the chats rail's rendering
+  tests out of jsdom and into `org-tree.stories.tsx`,
   `members-panel.stories.tsx`, `command-palette.stories.tsx`,
   `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
   `project-dialogs.stories.tsx`, `org-unit-dialogs.stories.tsx`,
@@ -20,9 +20,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `model-switch-boundary.stories.tsx`, `settings-page.stories.tsx`,
   `project-page.stories.tsx`, `sidebar-row-title.stories.tsx`,
   `chat-load-older.stories.tsx`, `app-sidebar.stories.tsx`,
-  `shared-chat-page.stories.tsx`, `project-list-sidebar.stories.tsx`, and
-  `personalization-section.stories.tsx`, whose play functions now run in
-  Chromium (#860).
+  `shared-chat-page.stories.tsx`, `project-list-sidebar.stories.tsx`,
+  `personalization-section.stories.tsx`, and `chat-list.stories.tsx`, whose
+  play functions now run in Chromium (#860).
   The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -151,7 +151,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   (Save busy while it is held, the field reading back trimmed, with the PATCH it
   sends); a field one over its cap blocking Save; a rejected save keeping the
   edit with Save enabled to retry; and showing and hiding the preview of what is
-  sent, each with the requests the card sends.
+  sent, each with the requests the card sends. The chats rail stories cover a
+  chat filed into a project listed under Today with no group for the project,
+  chats still listed when the projects request fails or is still held,
+  placeholder rows under Today while both chat lists are held and then the
+  chats, the pinned chats under Pinned above the time groups (measured top to
+  bottom), no Pinned group when nothing is pinned, and the empty-state note when
+  there are no chats, each with the four requests the rail sends.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
