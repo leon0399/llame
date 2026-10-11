@@ -177,15 +177,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   a thumbnail for an image result and the prompt-imports chip one per imported
   image, beside the attachment thumbnails above a sent message; an image read
   or imported without being stored shows the small inline thumbnail saved with
-  its result. Activating any of them opens a full-screen viewer over every
-  image of the loaded chat in transcript order, moved through with the arrow
-  keys and zoomed with the wheel or a pinch; opened from the composer it spans
-  the unsent images only. For a stored image a toggle switches between the
-  `model` and `original` variants and the caption names the shown variant's
-  size and format and the `media://` locator. An unstored image shows its
-  inline thumbnail with no toggle, captioned with the original's size and
-  format and the locator as submitted, such as `1600×900 PNG · docs/shot.png`.
-  `Escape` returns focus to the thumbnail.
+  its result, or its size alone when no thumbnail fit the cap. Activating a
+  thumbnail opens a dialog over the images of that message, `read` result,
+  import chip, or the composer's uploaded images, moved through with the arrow
+  keys and switched between fit and 100% by clicking the image. A stored image
+  shows its original captioned with its `media://` locator; an unstored image
+  shows its inline thumbnail, captioned with the original's size and format and
+  the locator as submitted, such as `1600×900 PNG · docs/shot.png`. `Escape`
+  returns focus to the thumbnail.
 
 - The chat composer now attaches images (#1166). Paste a PNG, JPEG, GIF, or
   WebP image, choose files with the new image button, or drop them onto the

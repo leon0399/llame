@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType, ReactElement } from "react";
+import { type ComponentType, type ReactElement, useState } from "react";
 import { z } from "zod";
 
 import {
@@ -12,6 +12,13 @@ import {
   type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
 import { ImageThumbnail } from "@workspace/ui/components/custom/image-thumbnail";
+import {
+  ImageDimensionsTile,
+  imageSizeLabel,
+  MediaLightbox,
+  type MediaLightboxSlide,
+  mediaCaption,
+} from "@workspace/ui/components/custom/media-lightbox";
 import { SearchLink } from "@workspace/ui/components/custom/web-search";
 import { inlineThumbnailSchema } from "@workspace/ui/lib/inline-thumbnail";
 
@@ -58,7 +65,8 @@ const textOutputSchema = z.looseObject({
 /** A read whose bytes were an image, with the original's type and size and no
  *  content: a `media://` read carries the stored object's locator, any other
  *  read the display-only inline `thumbnail` (used only when it is a valid
- *  WebP data URL). Loose for the same scheme envelopes as a text read. */
+ *  WebP data URL; absent when it would exceed the cap). Loose for the same
+ *  scheme envelopes as a text read. */
 export const imageOutputSchema = z.looseObject({
   ...readSourceFields,
   kind: z.literal("image"),
@@ -85,13 +93,17 @@ export type ReadToolProps = {
   state: ToolHeaderState;
   /** Markdown renderer supplied by the chat so web links use link safety. */
   Markdown: ComponentType<{ children?: string }>;
-  /** Thumbnail URL for an image result's `media://` locator, or `null` when
-   *  it has none. An unstored image result shows its inline `thumbnail`
-   *  instead; without either it shows no thumbnail. */
-  imageSrc?: (media: string) => string | null;
-  /** Opens an image result's thumbnail (the chat's lightbox). */
-  onOpenImage?: () => void;
+  /** The thumbnail and full-size URLs of an image result's `media://`
+   *  locator, or `null` when it has none. An unstored image result shows its
+   *  inline `thumbnail` instead; without either it shows its size only. */
+  mediaSources?: (media: string) => MediaSources | null;
 };
+
+/** Where a stored image's thumbnail and its lightbox image load from. */
+export type MediaSources = { thumbnail: string; original: string };
+
+/** The locator the model submitted to `read`: its input `path`. */
+const submittedPathSchema = z.object({ path: z.string() });
 
 function formatRanges(
   ranges: ReadonlyArray<LineRange> | undefined,
@@ -164,9 +176,8 @@ function metadataRows(output: ReadOutput): Array<[string, string]> {
 /** An image result's rows: the original's size and format, the stored
  *  locator a later turn can read again (if any), and the shared source rows. */
 function imageMetadataRows(output: ImageReadOutput): Array<[string, string]> {
-  const format = output.mediaType.replace(/^image\//, "").toUpperCase();
   const rows: Array<[string, string | undefined]> = [
-    ["Image", `${output.width}×${output.height} ${format}`],
+    ["Image", imageSizeLabel(output)],
     ["Media", output.media],
     ["Method", methodLabel(output)],
     ...(output.notes ?? []).map((note): [string, string] => ["Note", note]),
@@ -240,49 +251,99 @@ function ReadBody({
   );
 }
 
-function ReadImageBody({
-  output,
-  Markdown,
-  imageSrc,
-  onOpenImage,
-}: {
+type ReadImageProps = Pick<ReadToolProps, "input" | "mediaSources"> & {
   output: ImageReadOutput;
-  Markdown: ComponentType<{ children?: string }>;
-  imageSrc: ReadToolProps["imageSrc"];
-  onOpenImage: ReadToolProps["onOpenImage"];
-}) {
-  const src =
-    inlineThumbnailSchema.safeParse(output.thumbnail).data ??
-    (output.media === undefined ? null : (imageSrc?.(output.media) ?? null));
+};
+
+/** The thumbnail and lightbox slide of an image result, or `null` when there
+ *  is no thumbnail: a stored image opens its original, an unstored one its
+ *  inline thumbnail captioned with the locator the model submitted. */
+function readImageSlide({
+  output,
+  input,
+  mediaSources,
+}: ReadImageProps): { thumbnail: string; slide: MediaLightboxSlide } | null {
+  const key = "image";
+  if (output.media !== undefined) {
+    const sources = mediaSources?.(output.media);
+    if (!sources) return null;
+    const caption = mediaCaption(output.media, output);
+    return {
+      thumbnail: sources.thumbnail,
+      slide: { key, src: sources.original, alt: output.path, caption },
+    };
+  }
+  const thumbnail = inlineThumbnailSchema.safeParse(output.thumbnail).data;
+  if (thumbnail === undefined) return null;
+  const locator = submittedPathSchema.safeParse(input).data?.path;
+  const caption = mediaCaption(locator ?? output.path, output);
+  return {
+    thumbnail,
+    slide: { key, src: thumbnail, alt: output.path, caption },
+  };
+}
+
+/** The result's thumbnail opening it in a lightbox, or its size alone. */
+function ReadImagePreview(props: ReadImageProps) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const preview = readImageSlide(props);
+  const { width, height, mediaType } = props.output;
+  if (preview === null) {
+    return (
+      <ImageDimensionsTile
+        width={width}
+        height={height}
+        mediaType={mediaType}
+      />
+    );
+  }
+  return (
+    <>
+      <ImageThumbnail
+        src={preview.thumbnail}
+        alt={preview.slide.alt}
+        onOpen={() => setOpenKey(preview.slide.key)}
+      />
+      <MediaLightbox
+        slides={[preview.slide]}
+        openKey={openKey}
+        onOpenKeyChange={setOpenKey}
+      />
+    </>
+  );
+}
+
+function ReadImageBody({
+  Markdown,
+  ...props
+}: ReadImageProps & { Markdown: ComponentType<{ children?: string }> }) {
   return (
     <div className="space-y-4">
-      <ReadSource output={output} Markdown={Markdown} />
-      {src !== null && (
-        <div className="px-4">
-          <ImageThumbnail src={src} alt={output.path} onOpen={onOpenImage} />
-        </div>
-      )}
-      <ReadMetadata rows={imageMetadataRows(output)} />
+      <ReadSource output={props.output} Markdown={Markdown} />
+      <div className="px-4">
+        <ReadImagePreview {...props} />
+      </div>
+      <ReadMetadata rows={imageMetadataRows(props.output)} />
     </div>
   );
 }
 
 function ReadResult({
+  input,
   output,
   Markdown,
-  imageSrc,
-  onOpenImage,
-}: Pick<ReadToolProps, "output" | "Markdown" | "imageSrc" | "onOpenImage">) {
+  mediaSources,
+}: Pick<ReadToolProps, "input" | "output" | "Markdown" | "mediaSources">) {
   const textOutput = textOutputSchema.safeParse(output).data;
   if (textOutput) return <ReadBody output={textOutput} Markdown={Markdown} />;
   const imageOutput = imageOutputSchema.safeParse(output).data;
   if (imageOutput) {
     return (
       <ReadImageBody
+        input={input}
         output={imageOutput}
         Markdown={Markdown}
-        imageSrc={imageSrc}
-        onOpenImage={onOpenImage}
+        mediaSources={mediaSources}
       />
     );
   }
@@ -295,8 +356,9 @@ function ReadResult({
 /**
  * Renders a native `read` invocation: the source it identified, the content
  * as the model received it, and how much of the source that content covers.
- * An image result shows a thumbnail instead of content: its inline
- * `thumbnail`, or the stored image for a `media://` read.
+ * An image result shows a thumbnail instead of content (its inline
+ * `thumbnail`, or the stored image for a `media://` read) that opens it in a
+ * lightbox, or only its size when it has neither.
  *
  * @summary displays a file, directory, image, or web read inside a collapsible tool row
  */
@@ -306,8 +368,7 @@ export function ReadTool({
   errorText,
   state,
   Markdown,
-  imageSrc,
-  onOpenImage,
+  mediaSources,
 }: ReadToolProps): ReactElement {
   return (
     <Tool>
@@ -322,10 +383,10 @@ export function ReadTool({
           />
         ) : (
           <ReadResult
+            input={input}
             output={output}
             Markdown={Markdown}
-            imageSrc={imageSrc}
-            onOpenImage={onOpenImage}
+            mediaSources={mediaSources}
           />
         )}
       </ToolContent>

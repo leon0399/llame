@@ -71,20 +71,28 @@ references the same images, so its thumbnails show them too.
 
 An image `read` or imported from any other locator is not stored. Its tool
 card or import chip shows the small inline thumbnail saved with the result
-instead, without loading any media route.
+instead, without loading any media route. When that thumbnail would have
+exceeded its size cap, none was saved, and the card or chip shows a tile
+naming the image's dimensions and format that opens nothing.
 
-Activating a thumbnail opens a lightbox over every image of the loaded
-transcript, in transcript order, starting at the activated one. Opened from
-the composer, it shows only the images not yet sent.
+Activating a thumbnail opens a lightbox over the images of that one place,
+starting at the activated one: the attachments of one message, the image of
+one `read` result, the images of one prompt-imports chip, or the uploaded
+images in the composer. A composer image still uploading or whose upload
+failed opens nothing. The arrow keys and the previous and next buttons move
+within those images. Clicking the image or the actual-size button switches
+between fitting the window and 100%, where you scroll to pan. `Escape` closes
+the lightbox and returns focus to the thumbnail.
 
-- A stored image has a toggle that switches the shown image between the model
-  variant and the stored original; the lightbox opens on the model variant.
-  Its caption names the shown variant's dimensions and format and the
-  `media://` locator, for example `2000×1500 PNG · media://<id>`.
-- An unstored image shows its inline thumbnail with no toggle. Its caption
-  names the original's dimensions and format and the locator as it was
-  submitted: the path the model passed to `read` or the target you wrote after
-  `@`, for example `1600×900 PNG · docs/shot.png`.
+- A stored image shows its original from `/api/v1/media/<id>/original`. Its
+  caption is the `media://` locator. When the original's dimensions and format
+  are already known, they come first, for example
+  `1600×900 PNG · media://<id>` for a `media://` `read` result or a composer
+  upload.
+- An unstored image shows its inline thumbnail. Its caption names the
+  original's dimensions and format and the locator as it was submitted: the
+  path the model passed to `read` or the target you wrote after `@`, for
+  example `1600×900 PNG · docs/shot.png`.
 
 ## Errors
 

@@ -481,10 +481,10 @@ const SECOND_IMAGE_PART: UIMessage["parts"][number] = {
 };
 
 /**
- * An owner message with two attached images and a prompt: read-only
- * thumbnails sit above the bubble in stored order, each lazily loading the
- * image's `/model` route, and the `file` parts never reach the
- * "unsupported part type" fallback.
+ * An owner message with two attached images and a prompt: thumbnails sit
+ * above the bubble in stored order, each lazily loading the image's `/model`
+ * route, and the `file` parts never reach the "unsupported part type"
+ * fallback.
  *
  * @summary attached images render as thumbnails above their text
  */
@@ -525,12 +525,58 @@ export const AttachedImageWithText: Story = {
       ),
     );
     await expect(images[0]).toHaveAttribute("loading", "lazy");
-    // Read-only: nothing to remove or retry.
-    await expect(within(list).queryAllByRole("button")).toHaveLength(0);
+    // Nothing to remove or retry.
+    await expect(
+      within(list).queryByRole("button", { name: /^(Remove|Retry)/ }),
+    ).toBeNull();
     // The thumbnails come before the bubble.
     await expect(
       list.compareDocumentPosition(caption) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  },
+};
+
+/**
+ * Activating an attached thumbnail opens a lightbox over this message's
+ * attachments only, on the stored original captioned with its `media://`
+ * locator; the arrow keys move between them and `Escape` returns focus to
+ * the thumbnail.
+ *
+ * @summary an attached image opens the message's lightbox
+ */
+export const AttachedImageOpensLightbox: Story = {
+  tags: ["ai-generated"],
+  args: AttachedImageWithText.args,
+  play: async ({ canvas }) => {
+    const list = await waitFor(
+      () => canvas.getByRole("list", { name: "Attached images" }),
+      { timeout: 15_000 },
+    );
+    const opener = within(list).getByRole("button", { name: "photo.jpg" });
+    await userEvent.click(opener);
+    const dialog = await screen.findByRole("dialog", { name: "photo.jpg" });
+    await waitFor(() => expect(dialog).toBeVisible());
+    await expect(dialog).toHaveAccessibleDescription(
+      "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8c",
+    );
+    await expect(
+      within(dialog).getByRole("img", { name: "photo.jpg" }),
+    ).toHaveAttribute(
+      "src",
+      expect.stringMatching(
+        /\/api\/v1\/media\/0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8c\/original$/,
+      ),
+    );
+
+    await userEvent.keyboard("{ArrowLeft}");
+    await waitFor(() =>
+      expect(dialog).toHaveAccessibleDescription(
+        "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8b",
+      ),
+    );
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(opener).toHaveFocus());
   },
 };
 

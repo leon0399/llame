@@ -1,243 +1,283 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import Lightbox, { type SlotStyles } from "yet-another-react-lightbox";
-import Zoom from "yet-another-react-lightbox/plugins/zoom";
-
+import { type KeyboardEvent, useState } from "react";
 import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@workspace/ui/components/toggle-group";
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  Maximize2Icon,
+  Minimize2Icon,
+} from "lucide-react";
 
-/** Which stored variant of an image the lightbox shows. */
-export type MediaLightboxVariant = "original" | "model";
+import { Button } from "@workspace/ui/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@workspace/ui/components/dialog";
+import { cn } from "@workspace/ui/lib/utils";
 
-/** One stored variant of an image: its URL, pixel size, and media type, so
- *  the shown image and its caption always describe the same bytes. */
-export type MediaLightboxImage = {
-  src: string;
+/** An image's pixel size and type, as a row already knows them. */
+export type MediaImageSize = {
   width: number;
   height: number;
   /** e.g. `image/png`. */
   mediaType: string;
 };
 
-/** A stored image: both variants, switched by the variant control. */
-type MediaLightboxStoredSlide = {
-  kind: "stored";
-  /** The original bytes. */
-  original: MediaLightboxImage;
-  /** The model variant (the bytes the model receives). */
-  model: MediaLightboxImage;
-  /** The image's `media://` locator. */
-  locator: string;
+/** `W×H FORMAT`, e.g. `1600×900 PNG`. */
+export function imageSizeLabel({
+  width,
+  height,
+  mediaType,
+}: MediaImageSize): string {
+  const format = mediaType.replace(/^image\//, "").toUpperCase();
+  return `${width}×${height} ${format}`;
+}
+
+/** A lightbox caption: the locator, prefixed with `W×H FORMAT · ` when the
+ *  original's size is known. */
+export function mediaCaption(locator: string, size?: MediaImageSize): string {
+  return size ? `${imageSizeLabel(size)} · ${locator}` : locator;
+}
+
+/** One image in a {@link MediaLightbox}. */
+export type MediaLightboxSlide = {
+  /** Identity within the row, the same key the row's thumbnail opens. */
+  key: string;
+  /** The image shown. */
+  src: string;
   /** Accessible description of the image. */
   alt: string;
+  /** Text under the image, usually from {@link mediaCaption}. */
+  caption: string;
 };
-
-/** An image llame did not store: its inline thumbnail is all there is to
- *  show, so the slide has one variant. */
-type MediaLightboxUnstoredSlide = {
-  kind: "unstored";
-  /** The display-only thumbnail data URL the slide shows. */
-  thumbnail: string;
-  /** The original's width in pixels, for the caption. */
-  width: number;
-  /** The original's height in pixels, for the caption. */
-  height: number;
-  /** The original's media type, for the caption. */
-  mediaType: string;
-  /** The locator as the model or owner submitted it. */
-  locator: string;
-  /** Accessible description of the image. */
-  alt: string;
-};
-
-/** One image in the lightbox. */
-export type MediaLightboxSlide =
-  | MediaLightboxStoredSlide
-  | MediaLightboxUnstoredSlide;
 
 /** Props for {@link MediaLightbox}. */
 export type MediaLightboxProps = {
-  /** Every image the lightbox can move between, in display order. */
+  /** The row's images, in display order. */
   slides: ReadonlyArray<MediaLightboxSlide>;
-  /** Slide to open on; `null` keeps the lightbox closed. */
-  index: number | null;
-  /** Called once the lightbox has closed (Escape, close button, backdrop). */
-  onClose: () => void;
+  /** The shown slide's key; `null`, or a key no slide has, keeps it closed. */
+  openKey: string | null;
+  /** Called with the neighbour's key on navigation and `null` on close. */
+  onOpenKeyChange: (key: string | null) => void;
 };
 
-// The library's colors resolved to the system's semantic tokens, so the
-// lightbox follows light/dark mode like every other overlay. Its default
-// drop-shadow on buttons is dropped (DESIGN.md §5: no heavy shadows).
-const lightboxStyles: SlotStyles = {
-  root: {
-    "--yarl__color_backdrop": "var(--background)",
-    "--yarl__color_button": "var(--muted-foreground)",
-    "--yarl__color_button_active": "var(--foreground)",
-    "--yarl__color_button_disabled":
-      "color-mix(in oklab, var(--muted-foreground) 40%, transparent)",
-    "--yarl__button_filter": "none",
-    "--yarl__slide_icon_loading_color": "var(--muted-foreground)",
-    "--yarl__slide_icon_error_color": "var(--destructive)",
-  },
-};
-
-const zoomSettings = { scrollToZoom: true, maxZoomPixelRatio: 8 };
-
-/** `W×H FORMAT · <locator>`, e.g. `1600×900 PNG · /work/shot.png`. */
-function caption(
-  { width, height, mediaType }: Omit<MediaLightboxImage, "src">,
-  locator: string,
-): string {
-  const format = mediaType.replace(/^image\//, "").toUpperCase();
-  return `${width}×${height} ${format} · ${locator}`;
-}
-
-type VariantToggleProps = {
-  variant: MediaLightboxVariant;
-  onVariantChange: (variant: MediaLightboxVariant) => void;
-};
-
-/** The segmented control switching a stored image's shown variant. */
-function VariantToggle({ variant, onVariantChange }: VariantToggleProps) {
-  return (
-    <ToggleGroup
-      aria-label="Image variant"
-      variant="outline"
-      size="sm"
-      spacing={0}
-      value={[variant]}
-      onValueChange={(value: Array<unknown>) => {
-        const next = value[0];
-        if (next === "original" || next === "model") onVariantChange(next);
-      }}
-      // Arrow keys inside the segmented control move between its items; stop
-      // them here so the lightbox does not also change slides.
-      onKeyDown={(event) => {
-        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-          event.stopPropagation();
-        }
-      }}
-    >
-      <ToggleGroupItem value="original">Original</ToggleGroupItem>
-      <ToggleGroupItem value="model">Model</ToggleGroupItem>
-    </ToggleGroup>
-  );
-}
-
-type MediaLightboxControlsProps = VariantToggleProps & {
+type LightboxSlideViewProps = {
   slide: MediaLightboxSlide;
+  previous: MediaLightboxSlide | undefined;
+  next: MediaLightboxSlide | undefined;
+  onOpenKeyChange: (key: string) => void;
 };
 
-function MediaLightboxControls({
+/** The image as a button toggling between fit and 100%, where the panel
+ *  scrolls to pan. */
+function ZoomableImage({
   slide,
-  variant,
-  onVariantChange,
-}: MediaLightboxControlsProps) {
+  actualSize,
+  onToggle,
+}: {
+  slide: MediaLightboxSlide;
+  actualSize: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <div className="absolute inset-x-0 bottom-0 flex justify-center p-4">
-      <div className="flex max-w-full flex-col items-center gap-2 rounded-xl border bg-popover px-3 py-2 text-popover-foreground shadow-sm">
-        {slide.kind === "stored" && (
-          <VariantToggle variant={variant} onVariantChange={onVariantChange} />
+    <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          "block rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          actualSize ? "cursor-zoom-out" : "mx-auto cursor-zoom-in",
         )}
-        <p
-          aria-live="polite"
-          className="text-center font-mono text-xs break-all text-muted-foreground"
-        >
-          {caption(
-            slide.kind === "stored" ? slide[variant] : slide,
-            slide.locator,
-          )}
-        </p>
-      </div>
+      >
+        <img
+          src={slide.src}
+          alt={slide.alt}
+          className={
+            actualSize
+              ? "max-w-none"
+              : "max-h-[calc(90vh-5rem)] max-w-[calc(90vw-1rem)] object-contain"
+          }
+        />
+      </button>
     </div>
   );
 }
 
-/** The library's slide for `slide`: the shown variant of a stored image, or
- *  an unstored image's thumbnail. The thumbnail gets no size, so the library
- *  zooms it against its natural pixels rather than the original's. */
-function librarySlide(
-  slide: MediaLightboxSlide,
-  variant: MediaLightboxVariant,
-) {
-  return slide.kind === "stored"
-    ? { ...slide[variant], alt: slide.alt }
-    : { src: slide.thumbnail, alt: slide.alt };
+/** The image over its toolbar: previous and next (only in a row of
+ *  several), the caption, and the fit/100% toggle. */
+function LightboxSlideView({
+  slide,
+  previous,
+  next,
+  onOpenKeyChange,
+}: LightboxSlideViewProps) {
+  // Keyed by slide, so moving to another image starts it fitted again
+  // without remounting the toolbar (which would drop focus).
+  const [actualSizeKey, setActualSizeKey] = useState<string | null>(null);
+  const actualSize = actualSizeKey === slide.key;
+  const several = previous !== undefined || next !== undefined;
+  const toggle = () => setActualSizeKey(actualSize ? null : slide.key);
+  return (
+    <>
+      <ZoomableImage slide={slide} actualSize={actualSize} onToggle={toggle} />
+      <div className="flex items-center gap-2">
+        {several && (
+          <StepButton
+            direction="previous"
+            target={previous}
+            onStep={onOpenKeyChange}
+          />
+        )}
+        <DialogDescription className="flex-1 text-center font-mono text-xs break-all">
+          {slide.caption}
+        </DialogDescription>
+        <ActualSizeButton pressed={actualSize} onToggle={toggle} />
+        {several && (
+          <StepButton direction="next" target={next} onStep={onOpenKeyChange} />
+        )}
+      </div>
+    </>
+  );
 }
 
-type OpenMediaLightboxProps = Omit<MediaLightboxProps, "index"> & {
-  initialIndex: number;
-};
-
-function OpenMediaLightbox({
-  slides,
-  initialIndex,
-  onClose,
-}: OpenMediaLightboxProps) {
-  const [variant, setVariant] = useState<MediaLightboxVariant>("model");
-  const [viewIndex, setViewIndex] = useState(initialIndex);
-  const librarySlides = useMemo(
-    () => slides.map((slide) => librarySlide(slide, variant)),
-    [slides, variant],
-  );
-  // The library resets to its `index` prop whenever `slides` changes, so the
-  // viewed index is fed back in; toggling the variant keeps the current slide.
-  const current = Math.min(viewIndex, slides.length - 1);
-  const slide = slides[current];
-  if (!slide) return null;
+/** The fit/100% toggle beside the caption. */
+function ActualSizeButton({
+  pressed,
+  onToggle,
+}: {
+  pressed: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <Lightbox
-      open
-      close={onClose}
-      index={current}
-      slides={librarySlides}
-      plugins={[Zoom]}
-      zoom={zoomSettings}
-      carousel={{ finite: true }}
-      on={{ view: ({ index }) => setViewIndex(index) }}
-      styles={lightboxStyles}
-      render={{
-        controls: () => (
-          <MediaLightboxControls
-            slide={slide}
-            variant={variant}
-            onVariantChange={setVariant}
-          />
-        ),
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      aria-label="Actual size"
+      aria-pressed={pressed}
+      onClick={onToggle}
+    >
+      {pressed ? <Minimize2Icon /> : <Maximize2Icon />}
+    </Button>
+  );
+}
+
+/** The previous or next button, disabled at the row's end. */
+function StepButton({
+  direction,
+  target,
+  onStep,
+}: {
+  direction: "previous" | "next";
+  target: MediaLightboxSlide | undefined;
+  onStep: (key: string) => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      aria-label={direction === "previous" ? "Previous image" : "Next image"}
+      disabled={target === undefined}
+      onClick={() => target && onStep(target.key)}
+    >
+      {direction === "previous" ? <ArrowLeftIcon /> : <ArrowRightIcon />}
+    </Button>
+  );
+}
+
+/** The slide `openKey` names and its neighbours. */
+function slideAt(
+  slides: ReadonlyArray<MediaLightboxSlide>,
+  openKey: string | null,
+) {
+  const index = slides.findIndex((slide) => slide.key === openKey);
+  return {
+    slide: slides[index],
+    previous: index > 0 ? slides[index - 1] : undefined,
+    next: index === -1 ? undefined : slides[index + 1],
+  };
+}
+
+/** The neighbour an ArrowLeft/ArrowRight key press moves to, if any. */
+function arrowTarget(
+  event: KeyboardEvent,
+  previous: MediaLightboxSlide | undefined,
+  next: MediaLightboxSlide | undefined,
+): MediaLightboxSlide | undefined {
+  if (event.key === "ArrowLeft") return previous;
+  if (event.key === "ArrowRight") return next;
+  return undefined;
+}
+
+/**
+ * MediaLightbox shows one row's images (a message's attachments, a read
+ * result, a prompt-import chip, the composer's uploads) in a wide dialog,
+ * with the caption under the image. ArrowLeft/ArrowRight and the arrow
+ * buttons move within the row; clicking the image or the "Actual size"
+ * button toggles between fitting the viewport and 100%, where the panel
+ * scrolls to pan. Escape, the close button, or the backdrop close it, and
+ * focus returns to the thumbnail that opened it.
+ *
+ * @summary for viewing a row of chat images in a dialog
+ */
+export function MediaLightbox({
+  slides,
+  openKey,
+  onOpenKeyChange,
+}: MediaLightboxProps) {
+  const { slide, previous, next } = slideAt(slides, openKey);
+  // The last shown slide stays rendered while the dialog animates out.
+  const [shown, setShown] = useState(slide);
+  if (slide !== undefined && slide !== shown) setShown(slide);
+  return (
+    <Dialog
+      open={slide !== undefined}
+      onOpenChange={(open) => {
+        if (!open) onOpenKeyChange(null);
       }}
-    />
+    >
+      <DialogContent
+        onKeyDown={(event) => {
+          const target = arrowTarget(event, previous, next);
+          if (target === undefined) return;
+          event.preventDefault();
+          onOpenKeyChange(target.key);
+        }}
+        className="flex max-h-[90vh] w-auto max-w-[90vw] flex-col gap-2 p-2 sm:max-w-[90vw]"
+      >
+        {shown && (
+          <>
+            <DialogTitle className="sr-only">{shown.alt}</DialogTitle>
+            <LightboxSlideView
+              slide={shown}
+              previous={previous}
+              next={next}
+              onOpenKeyChange={onOpenKeyChange}
+            />
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
 /**
- * MediaLightbox shows chat images full-screen with wheel and pinch zoom and
- * arrow key navigation. A stored image has a segmented control that switches
- * between its `original` and `model` variants, and its caption names the
- * shown variant's dimensions and format and the `media://` locator. An
- * unstored image shows its inline thumbnail with no control, captioned with
- * the original's dimensions and format and the locator as submitted. Escape
- * closes it and returns focus to the element that opened it, so open it from
- * a focusable control such as a thumbnail button.
+ * A thumbnail-sized tile naming an image's size and format, for an image
+ * shown without a thumbnail (its inline thumbnail would have exceeded the
+ * cap). It opens nothing.
  *
- * Wraps [yet-another-react-lightbox](https://yet-another-react-lightbox.com)
- * and its Zoom plugin (`scrollToZoom`, `maxZoomPixelRatio: 8`, so images
- * smaller than the viewport still zoom). Each open starts on the `model`
- * variant.
- *
- * @summary for viewing chat images full-screen with zoom and variant switching
+ * @summary for an image that has no thumbnail to show
  */
-export function MediaLightbox({ slides, index, onClose }: MediaLightboxProps) {
-  if (index === null) return null;
-  // Keyed by the opening index so every open starts fresh on that slide.
+export function ImageDimensionsTile(size: MediaImageSize) {
   return (
-    <OpenMediaLightbox
-      key={index}
-      slides={slides}
-      initialIndex={index}
-      onClose={onClose}
-    />
+    <div
+      data-slot="image-dimensions-tile"
+      className="flex size-16 shrink-0 items-center justify-center rounded-xl border bg-muted p-1 text-center font-mono text-[10px] break-all text-foreground"
+    >
+      {imageSizeLabel(size)}
+    </div>
   );
 }

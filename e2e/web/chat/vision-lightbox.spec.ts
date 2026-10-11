@@ -3,11 +3,11 @@
  *
  * A pasted image uploads through `POST /api/v1/media`, rides the sent message
  * to a model declaring image input (the mock answers with the number of
- * images its request carried), survives a reload as a sent thumbnail, and
- * opens in the lightbox, whose toggle switches between the stored `model`
- * and `original` variants. A message carrying only an image, attached
- * through the file picker, sends the same way, and an owner fork of its chat
- * opens the same stored image in its own lightbox.
+ * images its request carried), survives a reload as a sent thumbnail loaded
+ * from the `model` variant, and opens in the message's lightbox on the stored
+ * `original`, captioned with its `media://` locator. A message carrying only
+ * an image, attached through the file picker, sends the same way, and an
+ * owner fork of its chat opens the same stored image in its own lightbox.
  */
 
 import { expect, test, type Page } from "../../support/fixtures";
@@ -20,6 +20,7 @@ const IMAGE_ONLY_NAME = "image-only.png";
 const LOCATOR = "media://[0-9a-f-]{36}";
 const CHAT_URL = /\/chat\/[0-9a-f-]{36}$/;
 const MODEL_SRC = /\/api\/v1\/media\/([0-9a-f-]{36})\/model$/;
+const ORIGINAL_SRC = /\/api\/v1\/media\/[0-9a-f-]{36}\/original$/;
 
 async function selectVisionModel(page: Page): Promise<void> {
   // The client-fetched catalog is the hydration barrier (see
@@ -84,21 +85,10 @@ test("a pasted image reaches a vision model and opens in the lightbox after relo
   await expect(thumbnail).toBeVisible({ timeout: 15_000 });
   await thumbnail.click();
 
-  const lightbox = page.getByRole("dialog", { name: "Lightbox" });
-  const shown = lightbox.locator(".yarl__slide_current img");
-  await expect(
-    lightbox.getByText(new RegExp(`^2000×500 PNG · ${LOCATOR}$`)),
-  ).toBeVisible();
-  await expect(shown).toHaveAttribute("src", MODEL_SRC);
-
-  await lightbox.getByRole("button", { name: "Original" }).click();
-  await expect(
-    lightbox.getByText(new RegExp(`^2400×600 PNG · ${LOCATOR}$`)),
-  ).toBeVisible();
-  await expect(shown).toHaveAttribute(
-    "src",
-    /\/api\/v1\/media\/[0-9a-f-]{36}\/original$/,
-  );
+  const lightbox = page.getByRole("dialog", { name: IMAGE_NAME });
+  const shown = lightbox.getByRole("img", { name: IMAGE_NAME });
+  await expect(lightbox.getByText(new RegExp(`^${LOCATOR}$`))).toBeVisible();
+  await expect(shown).toHaveAttribute("src", ORIGINAL_SRC);
   // The route serves the stored original to the cookie-authenticated page.
   await expect
     .poll(() => shown.evaluate((image: HTMLImageElement) => image.naturalWidth))
@@ -183,14 +173,15 @@ test("an image-only message sends and opens the same image in an owner fork", as
   await forkThumbnail.click();
 
   // The fork references the stored image, not a copy.
-  const lightbox = page.getByRole("dialog", { name: "Lightbox" });
+  const lightbox = page.getByRole("dialog", { name: IMAGE_ONLY_NAME });
   await expect(
-    lightbox.getByText(`1200×800 PNG · media://${mediaId}`, {
-      exact: true,
-    }),
+    lightbox.getByText(`media://${mediaId}`, { exact: true }),
   ).toBeVisible();
-  const shown = lightbox.locator(".yarl__slide_current img");
-  await expect(shown).toHaveAttribute("src", sourceSrc ?? "");
+  const shown = lightbox.getByRole("img", { name: IMAGE_ONLY_NAME });
+  await expect(shown).toHaveAttribute(
+    "src",
+    new RegExp(`/api/v1/media/${mediaId}/original$`),
+  );
   await expect
     .poll(() => shown.evaluate((image: HTMLImageElement) => image.naturalWidth))
     .toBe(1200);

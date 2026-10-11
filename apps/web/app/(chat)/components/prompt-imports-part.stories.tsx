@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, waitFor, within } from "storybook/test";
+import { expect, screen, waitFor, within } from "storybook/test";
 
 import {
   Message,
@@ -122,9 +122,9 @@ const MEDIA_LOCATOR = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
 /**
  * A prompt that imported images beside the other outcomes. Every outcome is
  * still listed as a chip, the images as imported prompt files, and each image
- * also shows a thumbnail that opens the chat lightbox: an unstored image its
- * inline thumbnail, with no media route, and a `media://` import its `/model`
- * route.
+ * also shows a thumbnail: an unstored image its inline thumbnail, with no
+ * media route, and a `media://` import its `/model` route. An unstored image
+ * whose thumbnail exceeded the cap shows only its size.
  *
  * @summary image entries with thumbnails beside denied, failed, and omitted prompt files
  */
@@ -143,13 +143,19 @@ export const WithImageEntry: Story = {
         mediaType: "image/png",
       },
       { locator: MEDIA_LOCATOR, outcome: "imported", media: MEDIA_LOCATOR },
+      {
+        locator: "poster.png",
+        outcome: "imported",
+        width: 8000,
+        height: 6000,
+        mediaType: "image/png",
+      },
       { locator: "/srv/secret.png", outcome: "denied" },
       { locator: "missing.png", outcome: "failed" },
     ],
     omitted: ["extra.png"],
-    onOpenImage: fn(),
   },
-  play: async ({ args, canvas, userEvent }) => {
+  play: async ({ canvas }) => {
     const thumbnails = canvas.getByRole("list", { name: "Imported images" });
     await expect(
       within(thumbnails).getByRole("img", { name: "shot.png" }),
@@ -163,29 +169,60 @@ export const WithImageEntry: Story = {
       ),
     );
     await expect(within(thumbnails).getAllByRole("img")).toHaveLength(2);
-    await userEvent.click(
-      within(thumbnails).getByRole("button", { name: "shot.png" }),
-    );
-    // The unstored image is the payload's second entry.
-    await expect(args.onOpenImage).toHaveBeenCalledWith(1);
+    await expect(canvas.getByText("8000×6000 PNG")).toBeVisible();
 
+    for (const label of [
+      `Imported prompt file: ${MEDIA_LOCATOR}`,
+      "Imported prompt file: shot.png",
+      "Imported prompt file: poster.png",
+      "Imported prompt file: docs/GUIDE.md",
+      "Denied prompt file: /srv/secret.png",
+      "Failed prompt file: missing.png",
+      "Omitted prompt file: extra.png",
+    ]) {
+      await expect(canvas.getByLabelText(label)).toBeVisible();
+    }
+  },
+};
+
+/**
+ * An imported image's thumbnail opens a lightbox over this chip's images
+ * only. The unstored image shows its inline thumbnail captioned with the
+ * original's size and the locator as written; the arrow keys move to the
+ * stored import, which loads its `/original` route captioned with its
+ * `media://` locator. `Escape` returns focus to the thumbnail.
+ *
+ * @summary an imported image opens the chip's lightbox
+ */
+export const ImportedImageOpensLightbox: Story = {
+  tags: ["ai-generated"],
+  args: WithImageEntry.args,
+  play: async ({ canvas, userEvent }) => {
+    const thumbnails = canvas.getByRole("list", { name: "Imported images" });
+    const opener = within(thumbnails).getByRole("button", { name: "shot.png" });
+    await userEvent.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toBeVisible());
     await expect(
-      canvas.getByLabelText(`Imported prompt file: ${MEDIA_LOCATOR}`),
-    ).toBeVisible();
+      within(dialog).getByRole("img", { name: "shot.png" }),
+    ).toHaveAttribute("src", SHOT_THUMBNAIL);
+    await expect(dialog).toHaveAccessibleDescription("1600×900 PNG · shot.png");
+
+    await userEvent.keyboard("{ArrowRight}");
+    await waitFor(() =>
+      expect(dialog).toHaveAccessibleDescription(MEDIA_LOCATOR),
+    );
     await expect(
-      canvas.getByLabelText("Imported prompt file: shot.png"),
-    ).toBeVisible();
-    await expect(
-      canvas.getByLabelText("Imported prompt file: docs/GUIDE.md"),
-    ).toBeVisible();
-    await expect(
-      canvas.getByLabelText("Denied prompt file: /srv/secret.png"),
-    ).toBeVisible();
-    await expect(
-      canvas.getByLabelText("Failed prompt file: missing.png"),
-    ).toBeVisible();
-    await expect(
-      canvas.getByLabelText("Omitted prompt file: extra.png"),
-    ).toBeVisible();
+      within(dialog).getByRole("img", { name: MEDIA_LOCATOR }),
+    ).toHaveAttribute(
+      "src",
+      expect.stringMatching(
+        /\/api\/v1\/media\/0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f\/original$/,
+      ),
+    );
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(opener).toHaveFocus());
   },
 };

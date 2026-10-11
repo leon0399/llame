@@ -29,3 +29,15 @@ export function mediaVariantUrl(
     variant === "model" ? getGetMediaModelUrl(id) : getGetMediaOriginalUrl(id);
   return `${getApiUrl()}${path}`;
 }
+
+/** A stored image's thumbnail (`/model`) and lightbox (`/original`) URLs, or
+ *  `null` when `locator` is not a `media://` locator. */
+export function storedImageSources(
+  locator: string,
+): { thumbnail: string; original: string } | null {
+  const thumbnail = mediaVariantUrl(locator, "model");
+  const original = mediaVariantUrl(locator, "original");
+  return thumbnail === null || original === null
+    ? null
+    : { thumbnail, original };
+}
