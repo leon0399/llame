@@ -4,7 +4,7 @@
 
 A worker claims a Run when it assigns an attempt by transitioning a non-terminal Run into execution: for a `queued` Run that is `queued` → `running_model`, and for crash-recovery reclaim that is `running_model` → `running_model` with a new attempt. A Run whose cancellation is recorded before that claim SHALL NOT be claimed and SHALL be settled `cancelled` without any model request, in every deployment topology.
 
-After the claim, the process executing the Run SHALL act on a recorded cancellation in every deployment topology: at once when that process received the cancellation request, and otherwise within 5 seconds of the cancellation being recorded. When it acts, attempt preparation continues to its next abort checkpoint (no further model request), any in-flight compaction request SHALL be aborted, and the Run SHALL be settled `cancelled`. While that process cannot read the Run's recorded cancellation, the cancellation SHALL take effect at its first successful read. An attempt whose Run a same-message retry superseded SHALL stop within the same bound, and the Run SHALL keep its terminal state.
+After the claim, the process executing the Run SHALL act on a recorded cancellation in every deployment topology: at once when that process received the cancellation request, and otherwise within 5 seconds of the cancellation being recorded. When it acts, attempt preparation continues to its next abort checkpoint (no further model request), any in-flight compaction request SHALL be aborted, and the Run SHALL be settled `cancelled`. When that process cannot read the Run's recorded cancellation within that bound, the cancellation SHALL take effect at its first successful read. An attempt whose Run a same-message retry superseded SHALL stop within the same bound, at once in the process that accepted the retry, and the Run SHALL keep its terminal state.
 
 Settlement SHALL append the terminal `run.cancelled` event and SHALL follow the first-writer-wins terminal rule of `durable-runs`, so a Run that reached another terminal state first keeps it. A Run deleted together with its Chat leaves no Run to settle and is outside this requirement.
 
@@ -55,7 +55,7 @@ A Run settled `cancelled` before its model request is recorded as sent (`model.r
 #### Scenario: An unreadable cancellation takes effect at the next successful read
 
 - **WHEN** cancellation is recorded after the claim while the process executing the Run cannot read the Run
-- **THEN** that failure neither settles nor aborts the Run
+- **THEN** the failed read neither settles nor aborts the Run
 - **AND** the Run is settled `cancelled` once that process reads the recorded cancellation
 
 #### Scenario: A superseded Run executing elsewhere stops
