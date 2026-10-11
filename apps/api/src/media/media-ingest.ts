@@ -24,8 +24,7 @@ const MODEL_DOWNSCALE_STEP = 0.75;
 export const THUMBNAIL_MAX_EDGE = 256;
 /** Largest thumbnail data URL, in characters. */
 export const THUMBNAIL_MAX_CHARS = 65_536;
-const THUMBNAIL_QUALITY = 70;
-const THUMBNAIL_QUALITY_STEP = 10;
+const THUMBNAIL_QUALITY = 60;
 const THUMBNAIL_PREFIX = 'data:image/webp;base64,';
 
 export type MediaIngestErrorCode = 'image_too_large' | 'unsupported_media_type';
@@ -206,38 +205,24 @@ export async function encodeModelVariant(
 
 /**
  * The display-only thumbnail of an image read without being stored
- * (vision-media D2): a WebP data URL of its model variant, the longest side at
- * most 256 px without upscaling, at quality 70 and then lower qualities until
- * the data URL is at most 65,536 characters. Noise (an alpha channel above
- * all, which WebP keeps lossless) can stay over the cap at quality 1, so the
- * edge then halves until it fits; a 1 px image always does. It never reaches
- * a model.
+ * (vision-media D2): one WebP encode of its model variant, alpha flattened
+ * onto white, the longest side at most 256 px without upscaling, at quality
+ * 60. A data URL over 65,536 characters is no thumbnail: undefined. It never
+ * reaches a model.
  */
-export async function encodeThumbnail(model: Buffer): Promise<string> {
-  for (let edge = THUMBNAIL_MAX_EDGE; ; edge = Math.ceil(edge / 2)) {
-    const url = await thumbnailWithin(model, edge);
-    if (url !== undefined) return url;
-  }
-}
-
-async function thumbnailWithin(
+export async function encodeThumbnail(
   model: Buffer,
-  edge: number,
 ): Promise<string | undefined> {
-  const scaled = sharp(model).resize({
-    width: edge,
-    height: edge,
-    fit: 'inside',
-    withoutEnlargement: true,
-  });
-  for (
-    let quality = THUMBNAIL_QUALITY;
-    ;
-    quality = Math.max(1, quality - THUMBNAIL_QUALITY_STEP)
-  ) {
-    const webp = await scaled.clone().webp({ quality }).toBuffer();
-    const url = `${THUMBNAIL_PREFIX}${webp.toString('base64')}`;
-    if (url.length <= THUMBNAIL_MAX_CHARS || edge === 1) return url;
-    if (quality === 1) return undefined;
-  }
+  const webp = await sharp(model)
+    .flatten({ background: '#ffffff' })
+    .resize({
+      width: THUMBNAIL_MAX_EDGE,
+      height: THUMBNAIL_MAX_EDGE,
+      fit: 'inside',
+      withoutEnlargement: true,
+    })
+    .webp({ quality: THUMBNAIL_QUALITY })
+    .toBuffer();
+  const url = `${THUMBNAIL_PREFIX}${webp.toString('base64')}`;
+  return url.length <= THUMBNAIL_MAX_CHARS ? url : undefined;
 }

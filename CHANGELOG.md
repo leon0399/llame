@@ -176,8 +176,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Added image reads to the native `read` tool (#935).
   A host, `file://`, Workspace-relative, `kb://`, or `skill://` file whose
   leading bytes are a PNG, JPEG, GIF, or WebP image is decoded without being
-  stored and returned as `kind: "image"` with its format, dimensions, and a
-  display-only WebP `thumbnail` the model never receives, instead of text; SVG
+  stored and returned as `kind: "image"` with its format, dimensions, and,
+  unless its data URL exceeds 65,536 characters, a display-only WebP
+  `thumbnail` the model never receives, instead of text; SVG
   and other files stay text, a selector on an image is `invalid_selector`, and
   an image over 20 MiB or 40 megapixels is `image_too_large`. Vision models
   receive the image in that Run attempt's later steps under the epoch image

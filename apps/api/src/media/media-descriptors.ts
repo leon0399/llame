@@ -244,25 +244,17 @@ export function unstoredSubject(image: UnstoredImage): ImageSubject {
   };
 }
 
-/** Characters `JSON.stringify` leaves raw that a placeholder must not carry. */
-const LITERAL_ESCAPES = /[\u007f-\u009f\u2028\u2029<>]/gu;
-
 /**
- * A locator as a one-line JSON string literal that `JSON.parse` returns
- * exactly: never truncated, with C1 controls, U+2028, U+2029, `<`, and `>`
- * also escaped, so it can neither close a placeholder early nor form a tag.
+ * A locator as its `JSON.stringify` string literal: one line, never
+ * truncated, and `JSON.parse` returns it exactly.
  */
 export function locatorLiteral(locator: string): string {
-  return JSON.stringify(locator).replaceAll(
-    LITERAL_ESCAPES,
-    (char) => `\\u${(char.codePointAt(0) ?? 0).toString(16).padStart(4, '0')}`,
-  );
+  return JSON.stringify(locator);
 }
 
 function describe(s: ImageSubject): string {
   return `image ${s.subject} ${s.width}×${s.height}`;
 }
-
 
 /** A reference the owner's store cannot resolve. */
 export function unavailablePlaceholder(id: string): string {

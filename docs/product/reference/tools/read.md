@@ -84,7 +84,9 @@ The source's attribution stays: `realPath` on a host path, the Space fields and
 notice on `kb://`, the skill fields on `skill://`. The result has no `media`
 field, no line metadata, and takes no selector. The extension never decides: an
 SVG, or any file matching no signature, stays on the text path whatever its
-size. `thumbnail` is stored with the tool output for the chat UI only: the model
+size. `thumbnail` is one WebP encode at quality 60, transparency flattened onto
+white; an image whose data URL would exceed 65,536 characters has no
+`thumbnail`. It is stored with the tool output for the chat UI only: the model
 receives the result without it, and it counts toward no result or replay
 budget.
 

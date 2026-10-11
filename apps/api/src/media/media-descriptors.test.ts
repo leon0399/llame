@@ -257,11 +257,7 @@ describe('locatorLiteral', () => {
   it.each([
     ['a bracketed path', 'app/[slug]/shot.png', '"app/[slug]/shot.png"'],
     ['an IPv6 URL', 'http://[::1]/x.png', '"http://[::1]/x.png"'],
-    [
-      'controls, separators, and delimiters',
-      'a\n\u0085\u2028\u2029<b>"\\',
-      String.raw`"a\n\u0085\u2028\u2029\u003cb\u003e\"\\"`,
-    ],
+    ['line breaks and quotes', 'a\n\r"\\', String.raw`"a\n\r\"\\"`],
   ])('writes %s as one exact JSON literal', (_, locator, literal) => {
     expect(locatorLiteral(locator)).toBe(literal);
     expect(JSON.parse(literal)).toBe(locator);

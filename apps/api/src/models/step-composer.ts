@@ -171,7 +171,13 @@ export function projectMediaRefs(
   ): Array<ProjectedMedia> => {
     if (!sizing.imageInput) return textOf(omittedPlaceholder(subject));
     const interim = tool && toolResultImages === 'placeholder';
-    if (status === 'not-retained') {
+    // An unstored image the window attaches always has its bytes (a released
+    // entry is only ever re-derived as `limit`); if it ever has none, it is
+    // as not retained rather than an error.
+    if (
+      status === 'not-retained' ||
+      (status === 'attached' && attached === undefined)
+    ) {
       return textOf(
         interim
           ? completionsToolImagePlaceholder(subject)

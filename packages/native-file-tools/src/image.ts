@@ -11,14 +11,15 @@ export const IMAGE_SELECTOR_MESSAGE = "An image is read without a selector.";
 /**
  * An image a read decoded without storing it (vision-media D7): the original's
  * format and size, and the display-only `thumbnail` data URL its stored tool
- * output carries and no model ever receives.
+ * output carries and no model ever receives. An image whose thumbnail would
+ * exceed the cap has none.
  */
 export type ImageDecodeSuccess = {
   status: "success";
   mediaType: string;
   width: number;
   height: number;
-  thumbnail: string;
+  thumbnail?: string;
 };
 
 /**

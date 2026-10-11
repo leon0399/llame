@@ -1,8 +1,3 @@
-import {
-  base64Size,
-  EPOCH_MAX_BASE64_BYTES,
-  EPOCH_MAX_IMAGES,
-} from './epoch-admission';
 import type { PreparedMedia } from './media-ingest';
 
 /**
@@ -20,9 +15,14 @@ export type RetainedVariant = PreparedMedia['model'];
 
 /**
  * One attempt's entry for an unstored image it read: what its placeholder
- * needs, plus the model variant while the epoch image window admits it.
+ * needs, plus the model variant until the epoch image window refuses it.
+ * A released entry keeps the variant's byte size (`modelByteSize`) without
+ * its bytes, so the window keeps sizing it as it did when it refused it.
  */
-export type HeldImage = UnstoredImage & { model?: RetainedVariant };
+export type HeldImage = UnstoredImage & {
+  model?: RetainedVariant;
+  modelByteSize?: number;
+};
 
 /**
  * The memory of one attempt (vision-media R1.4), keyed by tool call id. Every
@@ -30,16 +30,17 @@ export type HeldImage = UnstoredImage & { model?: RetainedVariant };
  * resume, on any worker, shares nothing with the attempt it supersedes, and
  * the memory goes when the attempt ends. Nothing in it is persisted.
  *
- * The variants it retains never exceed the epoch window's bounds, 100 images
- * and 24 MiB of base64, even between steps: an entry whose variant would
- * exceed either is held without it, as one the window refused on entry.
+ * It holds whatever it is given and counts nothing: the step composer
+ * releases every variant the epoch window does not attach, so after each
+ * compose it retains only what the window attached.
  */
 export type AttemptImageMemory = {
   hold(key: string, image: HeldImage): void;
   get(key: string): HeldImage | undefined;
   /**
-   * Drop an entry's model variant for the rest of the attempt: the epoch
-   * window refused it on entry, so no later step of the attempt attaches it.
+   * Drop an entry's model variant bytes for the rest of the attempt, keeping
+   * their size: the epoch window refused it on entry, so no later step of the
+   * attempt attaches it.
    */
   release(key: string): void;
   /**
@@ -51,39 +52,18 @@ export type AttemptImageMemory = {
 
 export function createAttemptImageMemory(): AttemptImageMemory {
   const entries = new Map<string, HeldImage>();
-  let retained = 0;
-  let retainedBase64 = 0;
-  /** `key`'s entry without its variant, uncounted, or undefined. */
-  const unretain = (key: string): UnstoredImage | undefined => {
-    const entry = entries.get(key);
-    if (entry === undefined) return undefined;
-    const { model, ...kept } = entry;
-    if (model !== undefined) {
-      retained -= 1;
-      retainedBase64 -= base64Size(model.bytes.byteLength);
-    }
-    return kept;
-  };
   return {
-    hold: (key, { model, ...image }) => {
-      unretain(key);
-      const size = model && base64Size(model.bytes.byteLength);
-      const fits =
-        size !== undefined &&
-        retained < EPOCH_MAX_IMAGES &&
-        retainedBase64 + size <= EPOCH_MAX_BASE64_BYTES;
-      entries.set(key, fits ? { ...image, model } : image);
-      if (!fits) return;
-      retained += 1;
-      retainedBase64 += size;
+    hold: (key, image) => {
+      entries.set(key, image);
     },
     get: (key) => entries.get(key),
     release: (key) => {
-      const kept = unretain(key);
-      if (kept !== undefined) entries.set(key, kept);
+      const entry = entries.get(key);
+      if (entry?.model === undefined) return;
+      const { model, ...kept } = entry;
+      entries.set(key, { ...kept, modelByteSize: model.bytes.byteLength });
     },
     forget: (key) => {
-      unretain(key);
       entries.delete(key);
     },
   };

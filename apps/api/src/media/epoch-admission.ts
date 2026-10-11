@@ -290,14 +290,20 @@ export async function loadMediaSizing(
   };
 }
 
-/** A request reference as the epoch window sees it. */
+/**
+ * A request reference as the epoch window sees it. A released entry keeps its
+ * variant's byte size, so the append-only window re-derives the `limit` it
+ * gave the entry when it refused it; an entry that never held a variant (a
+ * text-only model's) is `not-retained`.
+ */
 function epochRef(
   image: string | UnstoredRef,
   held: ReadonlyMap<string, HeldImage>,
 ): EpochImageRef {
   if (isString(image)) return image;
-  const model = held.get(image.key)?.model;
-  return model === undefined
+  const entry = held.get(image.key);
+  const modelByteSize = entry?.model?.bytes.byteLength ?? entry?.modelByteSize;
+  return modelByteSize === undefined
     ? { unstored: 'not-retained' }
-    : { unstored: 'held', modelByteSize: model.bytes.byteLength };
+    : { unstored: 'held', modelByteSize };
 }

@@ -360,17 +360,33 @@ describe('encodeModelVariant', () => {
 });
 
 describe('encodeThumbnail', () => {
-  it('stays within the cap when noise keeps quality 1 over it', async () => {
-    // Random alpha stays lossless in WebP: about 102,000 characters at 256 px, quality 1.
-    const noise = await sharp(randomBytes(256 * 256 * 4), {
-      raw: { width: 256, height: 256, channels: 4 },
+  it('flattens a transparent image onto white as one WebP within the cap', async () => {
+    const clear = await sharp({
+      create: {
+        width: 400,
+        height: 100,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
     })
       .png()
       .toBuffer();
 
-    const url = await encodeThumbnail(noise);
+    const url = await encodeThumbnail(clear);
 
-    expect(url.startsWith('data:image/webp;base64,')).toBe(true);
-    expect(url.length).toBeLessThanOrEqual(THUMBNAIL_MAX_CHARS);
+    expect(url?.length).toBeLessThanOrEqual(THUMBNAIL_MAX_CHARS);
+    const [, base64] = url?.split('data:image/webp;base64,') ?? [];
+    const thumbnail = sharp(Buffer.from(base64 ?? '', 'base64'));
+    expect(await thumbnail.metadata()).toMatchObject({
+      format: 'webp',
+      width: 256,
+      height: 64,
+      hasAlpha: false,
+    });
+    const { data } = await thumbnail
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    // Lossy WebP keeps white within a step; unflattened, it would be black.
+    expect(Math.min(...data.subarray(0, 3))).toBeGreaterThanOrEqual(250);
   });
 });

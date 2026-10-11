@@ -52,12 +52,44 @@ function imageOf(stored: MediaObject): StoredImage {
 }
 
 /**
- * The store of one attempt. Its memory keeps the decoded model variant only
- * when the attempt's model declares `image` input (`imageInput`) and the
- * memory's bounds allow it; otherwise an entry keeps what its placeholder
- * needs. The step composer admits a kept variant into the epoch window when
- * the next step is composed (R1.4).
+ * The image hook of one read of `locator`: it decodes the image and holds the
+ * attempt's memory entry under `key`, with the model variant whenever the
+ * attempt's model declares `image` input (`imageInput`); otherwise the entry
+ * keeps what its placeholder needs. The step composer admits a kept variant
+ * into the epoch window when the next step is composed, and releases it when
+ * the window does not attach it (R1.4).
  */
+function unstoredRead(
+  memory: { images: AttemptImageMemory; imageInput: boolean },
+  locator: string,
+  key: string | undefined,
+): ImageReadHook {
+  return async ({ byteSize, readBytes }) => {
+    try {
+      if (byteSize > MEDIA_MAX_BYTES) {
+        throw new MediaIngestError('image_too_large');
+      }
+      const { original, model } = await prepareMedia(await readBytes());
+      const thumbnail = await encodeThumbnail(model.bytes);
+      const { mediaType, width, height } = original;
+      if (key !== undefined) {
+        memory.images.hold(key, {
+          locator,
+          width,
+          height,
+          ...(memory.imageInput && { model }),
+        });
+      }
+      const image = { status: 'success' as const, mediaType, width, height };
+      return thumbnail === undefined ? image : { ...image, thumbnail };
+    } catch (error) {
+      if (!(error instanceof MediaIngestError)) throw error;
+      return { status: 'error', type: error.code, message: error.message };
+    }
+  };
+}
+
+/** The store of one attempt, reading into `images`. */
 export function createToolMediaStore(
   media: Pick<MediaService, 'findOwned'>,
   ownerUserId: string,
@@ -65,30 +97,8 @@ export function createToolMediaStore(
   imageInput: boolean,
 ): ToolMediaStore {
   return {
-    readImage:
-      (locator, key) =>
-      async ({ byteSize, readBytes }) => {
-        try {
-          if (byteSize > MEDIA_MAX_BYTES) {
-            throw new MediaIngestError('image_too_large');
-          }
-          const { original, model } = await prepareMedia(await readBytes());
-          const thumbnail = await encodeThumbnail(model.bytes);
-          const { mediaType, width, height } = original;
-          if (key !== undefined) {
-            images.hold(key, {
-              locator,
-              width,
-              height,
-              ...(imageInput && { model }),
-            });
-          }
-          return { status: 'success', mediaType, width, height, thumbnail };
-        } catch (error) {
-          if (!(error instanceof MediaIngestError)) throw error;
-          return { status: 'error', type: error.code, message: error.message };
-        }
-      },
+    readImage: (locator, key) =>
+      unstoredRead({ images, imageInput }, locator, key),
     async findImage(id) {
       const stored = await media.findOwned(ownerUserId, id);
       return stored && imageOf(stored);
