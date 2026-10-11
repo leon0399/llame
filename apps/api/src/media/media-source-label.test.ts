@@ -21,22 +21,6 @@ describe('mediaSourceLabel', () => {
       "Screenshot 2026-10-10 at 09.41's.png",
       "Screenshot 2026-10-10 at 09.41's.png",
     ],
-    // http(s) locators keep scheme, host, port, and path only.
-    [
-      'https://u:p@example.test/a.png?token=secret#x',
-      'https://example.test/a.png',
-    ],
-    [
-      'http://user@Example.test:8080/dir/b.png#frag',
-      'http://Example.test:8080/dir/b.png',
-    ],
-    ['HTTPS://example.test?x=1', 'HTTPS://example.test'],
-    // The single-line rules apply after the URL reduction.
-    ['https://example.test/[a]\n.png?q=[b]', 'https://example.test/(a) .png'],
-    // Host, kb://, and skill:// locators change only under the single-line rules.
-    ['/home/u/shots/a?b#c.png', '/home/u/shots/a?b#c.png'],
-    ['kb://notes/user@host/x.png?v=1', 'kb://notes/user@host/x.png?v=1'],
-    ['skill://draw/assets/[x].png', 'skill://draw/assets/(x).png'],
     // A long name is cut to 256 UTF-16 code units...
     [`${'a'.repeat(396)}.png`, 'a'.repeat(256)],
     // ...never inside a surrogate pair.

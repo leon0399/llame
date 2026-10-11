@@ -74,7 +74,7 @@ describe('RLS integration — media store tenancy', () => {
     });
 
   const ingestAs = async (userId: string, bytes: Buffer) =>
-    media.ingest(userId, { bytes, provenance: 'read', source: 'kb://a.png' });
+    media.ingest(userId, { bytes, source: 'a.png' });
 
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
@@ -184,11 +184,11 @@ describe('RLS integration — media store tenancy', () => {
         userBId,
         (tx) => tx`
           INSERT INTO media_objects (
-            id, owner_user_id, provenance, name, media_type, width, height,
+            id, owner_user_id, name, media_type, width, height,
             byte_size, model_media_type, model_width, model_height,
             model_byte_size, sha256
           ) VALUES (
-            ${randomUUID()}, ${userAId}, 'upload', 'forged.png', 'image/png',
+            ${randomUUID()}, ${userAId}, 'forged.png', 'image/png',
             1, 1, 1, 'image/png', 1, 1, 1, ${'f'.repeat(64)}
           )`,
       ),
@@ -224,7 +224,7 @@ describe('RLS integration — media store tenancy', () => {
     }
     expect(await media.findOwned(userAId, objectAId)).toMatchObject({
       id: objectAId,
-      name: 'kb://a.png',
+      name: 'a.png',
     });
   });
 
@@ -288,7 +288,6 @@ describe('RLS integration — media store tenancy', () => {
     await expect(
       new MediaService(failingBlobWrites).ingest(userAId, {
         bytes,
-        provenance: 'upload',
         source: 'atomic.png',
       }),
     ).rejects.toThrow('blob write failed');

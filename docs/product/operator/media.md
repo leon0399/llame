@@ -23,8 +23,8 @@ Two tenant tables hold the store:
 
 - `media_objects`: one row per image with its id, owner, detected format,
   original byte size and dimensions, the model variant's format, byte size,
-  and dimensions, the SHA-256 digest of the original, provenance (`upload`,
-  `read`, or `prompt-import`), a source label, and creation time.
+  and dimensions, the SHA-256 digest of the original, a source label, and
+  creation time.
 - `media_blobs`: one `bytea` row per `(media_id, variant)`, for the `original`
   and `model` variants.
 
@@ -98,11 +98,9 @@ sent to a model provider:
 
 ### Source labels
 
-Each object keeps a single-line source label: the upload filename, or the
-locator an image was read from. Control characters become spaces, `[` and `]`
-become `(` and `)`, reserved delimiters are neutralized, and the label is cut
-to 256 UTF-16 code units. A web locator keeps only its scheme, host, port, and
-path, so URL credentials, query tokens, and fragments are never stored.
+Each object keeps a single-line source label: the upload filename. Control
+characters become spaces, `[` and `]` become `(` and `)`, reserved delimiters
+are neutralized, and the label is cut to 256 UTF-16 code units.
 
 ## Routes
 
@@ -129,14 +127,14 @@ curl -b "$SESSION_COOKIE" -F file=@screenshot.png https://llame.example/api/v1/m
 
 It returns `201` with the descriptor for a new object and `200` with the
 existing descriptor when the owner already stored the same bytes; the reused
-object keeps its first provenance and name. No file or more than one file is
-`400`. An unsupported or undecodable image is `415` with `code`
-`unsupported_media_type`; a file over 20 MiB or 40 megapixels is `413` with
-`code` `image_too_large`, whether the upload limit or ingest detects it. The
-JSON body limit of other routes is unchanged.
+object keeps its first name. No file or more than one file is `400`. An
+unsupported or undecodable image is `415` with `code` `unsupported_media_type`;
+a file over 20 MiB or 40 megapixels is `413` with `code` `image_too_large`,
+whether the upload limit or ingest detects it. The JSON body limit of other
+routes is unchanged.
 
-The descriptor has exactly `id`, `locator`, `provenance`, `mediaType`, `name`,
-`width`, `height`, `byteSize`, and `model`, an object with the model variant's
+The descriptor has exactly `id`, `locator`, `mediaType`, `name`, `width`,
+`height`, `byteSize`, and `model`, an object with the model variant's
 `mediaType`, `width`, `height`, and `byteSize`. Top-level fields describe the
 original. It exposes no owner identifier and no digest.
 

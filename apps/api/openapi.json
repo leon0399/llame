@@ -4493,10 +4493,6 @@
             "type": "string",
             "example": "media://01920000-0000-7000-8000-000000000000"
           },
-          "provenance": {
-            "type": "string",
-            "enum": ["upload", "read", "prompt-import"]
-          },
           "mediaType": {
             "type": "string",
             "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"]
@@ -4521,7 +4517,6 @@
         "required": [
           "id",
           "locator",
-          "provenance",
           "mediaType",
           "name",
           "width",

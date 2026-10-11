@@ -1,5 +1,5 @@
 {
-  "id": "fb38f657-07d4-4276-a395-1f8670fe07a1",
+  "id": "fa5bdfac-63b7-4e34-875b-cadd06bd0596",
   "prevId": "8142b42e-b84a-4ee4-93cd-4e0b7880d773",
   "version": "7",
   "dialect": "postgresql",
@@ -1851,13 +1851,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "provenance": {
-          "name": "provenance",
-          "type": "media_provenance",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
         "name": {
           "name": "name",
           "type": "text",
@@ -3047,11 +3040,6 @@
       "name": "org_unit_type",
       "schema": "public",
       "values": ["organization", "group", "team", "department"]
-    },
-    "public.media_provenance": {
-      "name": "media_provenance",
-      "schema": "public",
-      "values": ["upload", "read", "prompt-import"]
     },
     "public.media_variant": {
       "name": "media_variant",

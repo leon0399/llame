@@ -6,7 +6,6 @@ import {
   mediaBlobs,
   mediaObjects,
   type MediaObject,
-  type MediaProvenance,
   type MediaVariant,
 } from '../db/schema';
 import {
@@ -20,8 +19,7 @@ import { mediaSourceLabel } from './media-source-label';
 
 export type MediaIngestInput = {
   bytes: Buffer;
-  provenance: MediaProvenance;
-  /** Upload filename, or the requesting locator for `read`/`prompt-import`. */
+  /** Upload filename. */
   source: string;
 };
 
@@ -42,7 +40,6 @@ function toMediaRow(
   return {
     id: uuidv7(),
     ownerUserId,
-    provenance: input.provenance,
     name: mediaSourceLabel(input.source),
     mediaType: prepared.original.mediaType,
     width: prepared.original.width,
@@ -110,7 +107,7 @@ export class MediaService {
   ) {}
 
   /**
-   * The single ingest path for upload, `read`, and prompt import. Throws
+   * The ingest path of `POST /api/v1/media`. Throws
    * `MediaIngestError` (`image_too_large` | `unsupported_media_type`) and then
    * stores nothing. Image work finishes before the transaction opens; the
    * object and both variants commit together.

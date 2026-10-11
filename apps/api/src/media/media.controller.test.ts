@@ -17,7 +17,6 @@ const SHA = 'a'.repeat(64);
 const stored: MediaObject = {
   id: ID,
   ownerUserId: OWNER,
-  provenance: 'upload',
   name: 'shot.gif',
   mediaType: 'image/gif',
   width: 8,

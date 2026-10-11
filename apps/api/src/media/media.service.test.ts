@@ -55,7 +55,6 @@ function stored(sha256: string): MediaObject {
   return {
     id: ID,
     ownerUserId: OWNER,
-    provenance: 'upload',
     name: 'shot.png',
     mediaType: 'image/png',
     width: 3,
@@ -76,7 +75,6 @@ const upload = async () => ({
   })
     .png()
     .toBuffer(),
-  provenance: 'upload' as const,
   source: 'shot.png',
 });
 
@@ -104,7 +102,6 @@ describe('MediaService authorization', () => {
     await expect(
       media.ingest('owner', {
         bytes: Buffer.from('<svg/>'),
-        provenance: 'upload',
         source: 'x.svg',
       }),
     ).rejects.toBeInstanceOf(MediaIngestError);

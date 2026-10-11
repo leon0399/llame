@@ -22,7 +22,6 @@ vi.setConfig({ testTimeout: 30_000 });
 const descriptorSchema = z.strictObject({
   id: z.string(),
   locator: z.string(),
-  provenance: z.enum(['upload', 'read', 'prompt-import']),
   mediaType: z.string(),
   name: z.string(),
   width: z.number(),
@@ -138,7 +137,6 @@ describe('/api/v1/media (HTTP)', () => {
       expect(descriptor).toEqual({
         id: descriptor.id,
         locator: `media://${descriptor.id}`,
-        provenance: 'upload',
         mediaType: 'image/png',
         name: 'shot.png',
         width: 800,
@@ -167,7 +165,7 @@ describe('/api/v1/media (HTTP)', () => {
       expect(await countOwned(userAId, bytes)).toBe(0);
     });
 
-    it('reuses the object for the same bytes with 200, keeping the first provenance and name', async () => {
+    it('reuses the object for the same bytes with 200, keeping the first name', async () => {
       const bytes = await uniquePng();
       const first = await uploaded(cookieA, bytes, 'first.png');
 

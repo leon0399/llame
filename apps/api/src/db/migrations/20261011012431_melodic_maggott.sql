@@ -3,7 +3,6 @@
 -- FORCE ROW LEVEL SECURITY, and the serving role owns both tenant tables, so
 -- without FORCE it would bypass every owner policy. Regeneration must
 -- re-append them (src/db/AGENTS.md P1).
-CREATE TYPE "public"."media_provenance" AS ENUM('upload', 'read', 'prompt-import');--> statement-breakpoint
 CREATE TYPE "public"."media_variant" AS ENUM('original', 'model');--> statement-breakpoint
 CREATE TABLE "media_blobs" (
 	"media_id" uuid NOT NULL,
@@ -16,7 +15,6 @@ ALTER TABLE "media_blobs" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE TABLE "media_objects" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"owner_user_id" text NOT NULL,
-	"provenance" "media_provenance" NOT NULL,
 	"name" text NOT NULL,
 	"media_type" text NOT NULL,
 	"width" integer NOT NULL,

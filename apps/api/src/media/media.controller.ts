@@ -160,7 +160,6 @@ export class MediaController {
     try {
       const { media, created } = await this.media.ingest(userId, {
         bytes: file.buffer,
-        provenance: 'upload',
         source: file.originalname,
       });
       res.status(created ? HttpStatus.CREATED : HttpStatus.OK);

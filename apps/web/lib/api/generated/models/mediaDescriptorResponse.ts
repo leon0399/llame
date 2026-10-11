@@ -6,13 +6,11 @@
  * OpenAPI spec version: 0.1
  */
 import type { MediaDescriptorResponseMediaType } from "./mediaDescriptorResponseMediaType";
-import type { MediaDescriptorResponseProvenance } from "./mediaDescriptorResponseProvenance";
 import type { MediaModelVariantResponse } from "./mediaModelVariantResponse";
 
 export interface MediaDescriptorResponse {
   id: string;
   locator: string;
-  provenance: MediaDescriptorResponseProvenance;
   mediaType: MediaDescriptorResponseMediaType;
   /** Single-line source label */
   name: string;

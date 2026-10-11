@@ -63,7 +63,6 @@ export * from "./listSkillsParams";
 export * from "./loginDto";
 export * from "./mediaDescriptorResponse";
 export * from "./mediaDescriptorResponseMediaType";
-export * from "./mediaDescriptorResponseProvenance";
 export * from "./mediaModelVariantResponse";
 export * from "./mediaModelVariantResponseMediaType";
 export * from "./mediaTooLargeErrorResponse";
