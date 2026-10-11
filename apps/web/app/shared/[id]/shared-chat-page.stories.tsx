@@ -113,7 +113,6 @@ function routeFetch() {
 const meta = {
   component: SharedChatPage,
   tags: ["autodocs"],
-  args: { params: PARAMS },
   parameters: {
     layout: "fullscreen",
     nextjs: {
@@ -135,16 +134,18 @@ const meta = {
     };
   },
   // The App Router wraps a client page in a Suspense boundary; `use(params)`
-  // suspends on the first render even for a settled promise.
-  render: (args) => (
+  // suspends on the first render even for a settled promise. `params` stays
+  // off `args`: Storybook's args serializer warns about a cycle in a Promise.
+  render: () => (
     <Suspense fallback={null}>
-      <SharedChatPage {...args} />
+      <SharedChatPage params={PARAMS} />
     </Suspense>
   ),
 } satisfies Meta<typeof SharedChatPage>;
 
 export default meta;
-type Story = StoryObj<typeof meta>;
+// The meta's render supplies `params`, so no story sets args.
+type Story = StoryObj<typeof SharedChatPage>;
 
 /**
  * A signed-out visitor reads the shared conversation under its title, marked
