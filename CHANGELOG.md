@@ -2,11 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
-- Fixed a web `read` ending as `headers_timeout` when one probe (an announced
-  alternate, the `.md` suffix, or `llms.txt`) sent no response headers within
-  10 seconds (#948). The header bound now aborts only that probe's request,
-  which disqualifies its candidate; the 30-second call bound and caller
-  cancellation still end the whole call.
+- Fixed intermittent Storybook failures in the regex tester stories (#353).
+  Their play functions checked the tester popup's `Match` and `No match`
+  values for visibility once, while the popup can still be fading in from
+  `opacity: 0` or its subtree can be replaced; every popup visibility check now
+  retries inside `waitFor`, and the match lists re-resolve on every attempt.
 
 - **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
   `runs.context_items` column are removed. The transcript's persisted
@@ -30,6 +30,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   model of the latest earlier reply in the Chat, whatever its outcome and
   even when a checkpoint absorbed it, so a failed Run's switch is not
   announced twice. Closes #1177.
+
+- Fixed a web `read` ending as `headers_timeout` when one probe (an announced
+  alternate, the `.md` suffix, or `llms.txt`) sent no response headers within
+  10 seconds (#948). The header bound now aborts only that probe's request,
+  which disqualifies its candidate; the 30-second call bound and caller
+  cancellation still end the whole call.
 
 - Fixed `search_conversations` accepting a whitespace-only content-mode
   `query` and returning an empty page (#1066). Such a query is now refused as
