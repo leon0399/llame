@@ -6,8 +6,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move
   dialogs', the rail's pinned section's, and the chat page's markdown loading,
-  model and permission mode rendering tests out of jsdom and into
-  `org-tree.stories.tsx`, `members-panel.stories.tsx`,
+  model, permission mode and message target rendering tests out of jsdom and
+  into `org-tree.stories.tsx`, `members-panel.stories.tsx`,
   `command-palette.stories.tsx`, `share-chat-dialog.stories.tsx`,
   `chat-item-dialogs.stories.tsx`, `project-dialogs.stories.tsx`,
   `org-unit-dialogs.stories.tsx`, `app-sidebar-pinned.stories.tsx`, and
@@ -63,6 +63,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   send the api rejects because bypass is no longer available (the request
   body carries bypass) resets the chat to default and re-reads the listing.
   The pure restore rules stay as unit tests in `use-chat-engine.test.ts`.
+  They also cover `#msg-N` links: the page mounts nothing until the target's
+  window arrives and never shows the newest page meanwhile; a missing or
+  failed target, even in a chat that does not exist, closes on Message
+  unavailable without a composer; clearing the fragment opens the newest
+  page; a send from the window drops the fragment at once and keeps the
+  window while the reply is in flight; a finished reply opens the newest page
+  without restoring the stale snapshot's model and mode (#1084); and an
+  error, a dropped connection or Stop keeps the sent-draft route and probes
+  for the run. Replies stream through the AI SDK's own UI message stream
+  encoder. A rejected send stays in `chat-page.target.test.tsx`, because the
+  real `useChat` never rejects one.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
