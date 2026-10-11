@@ -25,6 +25,25 @@ describe('sanitizeTitle', () => {
     expect(sanitizeTitle("'Quoted Title'")).toBe('Quoted Title');
   });
 
+  it('strips a blockquote marker before a "Title:" prefix, but not a mid-title ">"', () => {
+    expect(sanitizeTitle('> Title: Budget Review')).toBe('Budget Review');
+    expect(sanitizeTitle('> > Title: Nested Quote')).toBe('Nested Quote');
+    expect(sanitizeTitle('>Title: Tight Quote')).toBe('Tight Quote');
+    expect(sanitizeTitle('Title: > Quoted After Prefix')).toBe(
+      'Quoted After Prefix',
+    );
+    expect(sanitizeTitle('Postgres -> SQLite Migration')).toBe(
+      'Postgres -> SQLite Migration',
+    );
+  });
+
+  it('removes only a leading "Title:" prefix, with or without spacing around the colon', () => {
+    expect(sanitizeTitle('Title:NoSpace Again')).toBe('NoSpace Again');
+    expect(sanitizeTitle('Title : Spaced Colon')).toBe('Spaced Colon');
+    expect(sanitizeTitle('Subtitle: Ideas')).toBe('Subtitle: Ideas');
+    expect(sanitizeTitle('Retitle: Plans')).toBe('Retitle: Plans');
+  });
+
   it('collapses internal whitespace and trims', () => {
     expect(sanitizeTitle('  Weather   in\nNYC  ')).toBe('Weather in NYC');
   });

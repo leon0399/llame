@@ -167,6 +167,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Fixed generated chat titles keeping a `Title:` prefix when the model wrapped
+  it in a Markdown blockquote (`> Title: …`). Leading blockquote markers are now
+  stripped with the other leading Markdown before the prefix (#125).
+
 - Fixed load-dependent product E2E flakes where a chat spec typed into the
   composer before it was ready, so the typed prompt was discarded and the click
   sent nothing (#350). The composer remounts when the markdown renderer finishes
@@ -175,29 +179,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   after that remount and the model selector names a resolved model, so Send is
   enabled. Every chat spec that fills the composer right after navigation uses
   it.
-
-- **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
-  `runs.context_items` column are removed. The transcript's persisted
-  context-item parts record what each request carried (refs #1177). Stop
-  every API and Runs-worker process of the previous revision before running
-  this migration: an older worker still writes the dropped column and would
-  fail its Runs.
-
-- Accepted-turn context items are now stored on the user message when the
-  Run's first model request dispatches, whatever the Run's outcome, so a failed
-  or crashed Run's rules, timestamp, Workspace, digest, skill-catalog, and
-  tool-availability items are not repeated on the next turn or retry. These
-  items now follow producer rank around `$skill` and `@import` facts instead
-  of preceding them (refs #1177).
-
-- The assistant reply now exists from the Run's first model request and keeps
-  its in-Run instruction bundles and partial output when the Run fails, is
-  cancelled, expires, or its worker crashes, so the next turn does not load
-  those rules again. History, shares, forks, and the chat list show the reply
-  once it is finalized. The model-switch notice now compares against the
-  model of the latest earlier reply in the Chat, whatever its outcome and
-  even when a checkpoint absorbed it, so a failed Run's switch is not
-  announced twice. Closes #1177.
 
 - Changed a web `read`'s `network_error` message to name the failure's kind
   instead of forwarding the platform's `fetch failed` (part of #930): the server
@@ -252,6 +233,29 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Fixed `search_conversations` accepting a whitespace-only content-mode
   `query` and returning an empty page (#1066). Such a query is now refused as
   `invalid_input`, as the chat-search spec requires.
+
+- **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
+  `runs.context_items` column are removed. The transcript's persisted
+  context-item parts record what each request carried (refs #1177). Stop
+  every API and Runs-worker process of the previous revision before running
+  this migration: an older worker still writes the dropped column and would
+  fail its Runs.
+
+- Accepted-turn context items are now stored on the user message when the
+  Run's first model request dispatches, whatever the Run's outcome, so a failed
+  or crashed Run's rules, timestamp, Workspace, digest, skill-catalog, and
+  tool-availability items are not repeated on the next turn or retry. These
+  items now follow producer rank around `$skill` and `@import` facts instead
+  of preceding them (refs #1177).
+
+- The assistant reply now exists from the Run's first model request and keeps
+  its in-Run instruction bundles and partial output when the Run fails, is
+  cancelled, expires, or its worker crashes, so the next turn does not load
+  those rules again. History, shares, forks, and the chat list show the reply
+  once it is finalized. The model-switch notice now compares against the
+  model of the latest earlier reply in the Chat, whatever its outcome and
+  even when a checkpoint absorbed it, so a failed Run's switch is not
+  announced twice. Closes #1177.
 
 # 2026-10-09
 
