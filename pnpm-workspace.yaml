@@ -167,3 +167,8 @@ enableGlobalVirtualStore: false
 
 patchedDependencies:
   "@orval/fetch@8.24.0": patches/@orval__fetch@8.24.0.patch
+  # Backport of vitest-dev/vitest#11531 (not yet released): a tested file whose
+  # path holds glob characters, like Next's `(chat)` route groups, was re-added
+  # as an all-zero "uncovered" placeholder, doubling its statements in the
+  # merged web coverage report. Drop this when vitest ships the fix.
+  "vitest@4.1.11": patches/vitest@4.1.11.patch

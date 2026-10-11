@@ -8,6 +8,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   modes alike, matching proactive skill reads, prompt imports, and
   instruction loading.
 
+- Fixed the merged web coverage report counting a story-covered file twice
+  when it lives under a Next route group such as `app/(chat)/`. Vitest 4.1.11
+  passed tested file paths to its untested-file glob as patterns, so the
+  parentheses never matched and each such file was also added as an all-zero
+  "uncovered" copy whose statement locations differed from the browser's. A
+  pnpm patch backports the upstream fix (vitest-dev/vitest#11531). Master's
+  numbers are unchanged, since every file a story executes there is also
+  loaded by a unit test; on the #860 story stack, statements read 90.27%
+  instead of 85.24%. Files no test loads, such as `app/(chat)/layout.tsx`,
+  still report 0%.
+
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move
