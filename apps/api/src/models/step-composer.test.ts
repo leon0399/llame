@@ -364,7 +364,7 @@ describe('composeStepMessages', () => {
         itemText,
         {
           type: 'text',
-          text: '[image "shot.png" 1600×900, not retained: read it again to view it]',
+          text: '[image "shot.png" 1600×900, not retained]',
         },
         shotImage(new Uint8Array([0x61])),
       ]);

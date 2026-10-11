@@ -143,8 +143,8 @@ part in that attempt's requests, if the epoch image window admits it when the
 attempt's first request is composed (after any compaction); otherwise it gets
 the `not attached` placeholder. Every later request, whether a later turn, a
 retry or resume, a compaction, or a fork, gets
-`[image "shot.png" W×H, not retained: read it again to view it]`, naming the
-locator as you wrote it as a JSON string literal. A text-only model always gets
+`[image "shot.png" W×H, not retained]`, naming the locator as you wrote it as a
+JSON string literal. A text-only model always gets
 `[image "shot.png" W×H, omitted: this model has no image input]`.
 
 An `@media://<id>` import names an image you

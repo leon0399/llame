@@ -12773,7 +12773,7 @@ describe('RunExecutionService prompt imports', () => {
         expect(importEvents(events)).toEqual([]);
         expect((await afterItemText(stream, true)).next).toEqual({
           type: 'text',
-          text: '[image "shot.png" 160×90, not retained: read it again to view it]',
+          text: '[image "shot.png" 160×90, not retained]',
         });
       } finally {
         rmSync(root, { recursive: true, force: true });
