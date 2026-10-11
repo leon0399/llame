@@ -35,16 +35,20 @@ A migration adds `llame_prunable_delta_runs(cutoff timestamptz, max_rows
 integer)`, `SECURITY DEFINER`, owned by `app_rls` after provisioning, returning
 `(run_id, owner_user_id)` for Runs whose status is terminal, whose `finished_at`
 is before the cutoff, whose triggering message's assistant reply has finalized
-usage naming this Run (`usage->>'runId' = runs.id::text` and a status other
-than `running`), and that still have at least one delta event. The job deletes each Run's delta events
+usage naming this Run (`usage->>'runId' = runs.id::text` and
+`usage->>'status' IN ('completed', 'aborted', 'error')`), and that still have
+a delta event in that reply's attempt window. The window is the one
+`attemptWindow` uses: from the `model.requested` event whose payload names the
+reply's `usage->>'attemptId'` up to the next `run.started`. A legacy reply with
+no `attemptId` was built from the whole log, so its window is the whole log. The job deletes each Run's delta events
 under `runAs(owner)`, in bounded batches per tick.
 
 ### D2. A DELETE policy scoped to prunable deltas
 
 A new `run_events_owner_delete_delta` policy admits `DELETE` only for rows whose
 `event_type` is `model.delta` or `reasoning.delta`, of a Run owned by the
-current identity, terminal, finished before the configured cutoff, whose own
-finalized reply exists by the same test as D1. The cutoff reaches the policy
+current identity, terminal, finished before the configured cutoff, and inside the
+finalizing attempt's window, by the same tests as D1. The cutoff reaches the policy
 through a transaction-local setting the job sets, read as
 `NULLIF(current_setting('app.delta_prune_cutoff', true), '')::timestamptz` so
 an unset or pooled-empty value denies rather than errors; no application path
@@ -63,8 +67,7 @@ nothing.
 
 ## Risks / Trade-offs
 
-- [A deleted delta was needed] → Only finished Runs with an assistant reply
-  past the window qualify; their answer and tool activity remain. Raw-stream
+- [A deleted delta was needed] → Only the finalizing attempt's deltas of a Run past the window qualify, and its reply holds their content; earlier attempts keep theirs. Raw-stream
   debugging is limited to the window, documented in the scaling runbook.
 - [The DELETE policy is a new write path] → It admits only delta rows of the
   owner's own prunable Runs and only inside a transaction that set the cutoff;
@@ -72,3 +75,7 @@ nothing.
   undeletable.
 - [Long deletes hold locks] → Batches are bounded per tick; a backlog drains
   over successive ticks.
+- [The discovery function lists Runs across tenants] → It returns only
+  identifiers, as P3 allows, and `app` holds EXECUTE; the cutoff is clamped to
+  at least one day in the past inside the function, so a caller cannot widen
+  it to recent Runs.

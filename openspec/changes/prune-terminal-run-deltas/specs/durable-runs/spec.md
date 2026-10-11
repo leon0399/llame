@@ -3,9 +3,9 @@
 ### Requirement: Delta events of finished Runs are pruned after a retention window
 
 When `runs.deltaRetentionDays` is set, a scheduled job SHALL delete the
-`model.delta` and `reasoning.delta` events of a terminal Run that finished
-longer ago than that window and whose own finalized assistant reply exists.
-Every other event SHALL be kept. No request SHALL delete an individual event;
+`model.delta` and `reasoning.delta` events of the attempt that produced a
+terminal Run's finalized reply, once the Run finished longer ago than that
+window. Deltas of earlier attempts and every other event SHALL be kept. No request SHALL delete an individual event;
 deleting a Chat still removes its Runs' events.
 
 #### Scenario: An old finished Run loses only its deltas
@@ -18,6 +18,12 @@ deleting a Chat still removes its Runs' events.
 
 - **WHEN** a terminal Run finished eight days ago with recorded deltas, and no assistant reply names it as its finalized producer
 - **THEN** none of its events are deleted
+
+#### Scenario: An earlier attempt's deltas are kept
+
+- **WHEN** a Run's first attempt streamed deltas and stopped with its worker, and a second attempt produced the finalized reply eight days ago
+- **THEN** only the second attempt's delta events are deleted
+- **AND** reconnect replay still includes every delta of the first attempt
 
 #### Scenario: Recent and active Runs are untouched
 
@@ -48,12 +54,12 @@ A user message SHALL become a worker-processed **run** whose progress is an appe
 #### Scenario: A finished Run past retention replays without deltas
 
 - **WHEN** a client replays a terminal Run whose delta events the retention job deleted
-- **THEN** the replay carries its lifecycle and tool events and no `model.delta` or `reasoning.delta` event
+- **THEN** the replay carries its lifecycle and tool events, any earlier attempt's deltas, and no delta event of the attempt that produced its reply
 - **AND** the Run's answer is read from its assistant message
 
 ### Requirement: Received reasoning is durable before browser delivery
 
-Each normalized reasoning delta received by llame SHALL be durably recorded before it is forwarded to a browser stream. The run transcript SHALL retain deltas received before either a worker failure or an upstream provider failure, and SHALL project them on both successful and failed terminal runs; once projected, a terminal Run's reasoning is retained as the reasoning parts of its assistant message, and its reasoning delta events may be pruned under "Delta events of finished Runs are pruned after a retention window".
+Each normalized reasoning delta received by llame SHALL be durably recorded before it is forwarded to a browser stream. The run transcript SHALL retain deltas received before either a worker failure or an upstream provider failure, and SHALL project them on both successful and failed terminal runs; once projected, a terminal Run's reasoning is retained as the reasoning parts of its assistant message, and the reasoning delta events of the attempt that produced that reply may be pruned under "Delta events of finished Runs are pruned after a retention window".
 
 #### Scenario: Successful run retains streamed reasoning
 
@@ -68,4 +74,4 @@ Each normalized reasoning delta received by llame SHALL be durably recorded befo
 #### Scenario: Worker failure never contradicts prior browser output
 
 - **WHEN** llame has forwarded a reasoning delta to the browser and the worker subsequently fails
-- **THEN** reconnect replay includes that delta
+- **THEN** reconnect replay includes that delta until the retention job prunes it with the reply that holds it

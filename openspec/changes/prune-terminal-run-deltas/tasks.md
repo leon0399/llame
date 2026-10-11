@@ -24,7 +24,7 @@ master
 ## 0. proposal
 
 - [ ] 0.1 Run adversarial review with two independent reviewers, one security-focused on the new DELETE policy; verify findings against code and specs; commit each round separately.
-- [ ] 0.2 Prove the final revision: `pnpm exec openspec validate prune-terminal-run-deltas --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`, and a whitespace-normalized diff of the MODIFIED block against canonical keeping every canonical scenario in order; record Leo's approval, including decisions E1-E3.
+- [ ] 0.2 Prove the final revision: `pnpm exec openspec validate prune-terminal-run-deltas --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`, and a whitespace-normalized diff of both MODIFIED blocks against canonical keeping every canonical scenario in order; record Leo's approval, including decisions E1-E3.
 - [ ] 0.3 Self-review the proposal diff before marking the PR ready.
 - [ ] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
@@ -32,7 +32,7 @@ master
 
 - [ ] 1.1 Add `runs.deltaRetentionDays` to the loader, the JSON Schema, and `llame.config.jsonc.example`; verify `config-loader.test.ts` cases for absent and `null` (unset), `7`, an interpolation token, and `0`, `-1`, `1.5` failing startup; the example config shows `7` commented as the suggested window.
 - [ ] 1.2 Add the discovery function and the `run_events_owner_delete_delta` policy in a migration that follows `apps/api/src/db/AGENTS.md` (P1 `FORCE`, P3 ownership and grants in `docker/postgres/rls-function-owner.sql`, including the re-`GRANT EXECUTE` to `app` after the ownership transfer, a manual-SQL header); verify the migration on a fresh database and `pnpm db:check`.
-- [ ] 1.3 Add `RunEventRetentionService` on a `run-event-retention` queue and worker-profile consumer (design D3); verify an integration test with Runs of two owners covering every scenario of the ADDED `durable-runs` requirement, including a superseded Run that shares its message with a later finalized Run and keeps its deltas, and an RLS test that another owner's rows, non-delta events, and deletes without the cutoff setting are undeletable.
+- [ ] 1.3 Add `RunEventRetentionService` on a `run-event-retention` queue and worker-profile consumer (design D3), registering the group in `WORKER_GROUPS`, the closed `workers` profile schema, and the scaling runbook's group list; verify an integration test with Runs of two owners covering every scenario of the ADDED `durable-runs` requirement, including a superseded Run that shares its message with a later finalized Run and keeps its deltas, a retried Run whose first attempt's deltas survive while the finalizing attempt's are deleted, and a legacy reply with no `attemptId`, a replay test for the MODIFIED scenario "A finished Run past retention replays without deltas", and an RLS test that another owner's rows, non-delta events, and deletes without the cutoff setting are undeletable.
 - [ ] 1.4 Update `docs/product/operator/scaling.md` (remove the #119 open constraint, document the window) and add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
 - [ ] 1.5 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/runs src/instance-config`, the new integration and RLS tests, `pnpm typecheck`, `pnpm lint`, and the changed-lines mutation gate; at the root, `pnpm format:check` and `git diff --check`.
 - [ ] 1.6 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.

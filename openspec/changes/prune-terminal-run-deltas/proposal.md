@@ -11,19 +11,22 @@ dominated by rows nothing reads again: the chat UI renders finished turns from
 ## What Changes
 
 - A scheduled maintenance job deletes the `model.delta` and `reasoning.delta`
-  events of Runs that finished more than a retention window ago and whose own
-  finalized assistant reply exists, in bounded batches.
+  events of the attempt that produced a finished Run's finalized reply, once
+  the Run is older than a retention window, in bounded batches. An earlier
+  attempt's deltas are kept: a retry resets the reply, so they exist only in
+  the event log.
 - Every other event is kept forever: lifecycle (`run.*`, `model.requested`,
   `model.completed`), tool activity (`tool.*`), native attempts and results,
   and the step-cap event.
-- A finished Run whose output was never projected into its own finalized reply
-  keeps its deltas, because they are then its only copy. The reply's usage
-  names the Run that finalized it, so a superseded Run sharing a message with a
-  later one is never mistaken for it.
+- Only deltas that the Run's own finalized reply holds are deleted: those of
+  the attempt the reply names. Deltas of a superseded Run, of an earlier
+  attempt, or of a Run whose reply is not finalized are their only copy and are
+  kept. The reply's usage names both the Run and the attempt that finalized it.
 - `runs.deltaRetentionDays` enables pruning with a window in days. Unset, the
   default, prunes nothing.
 - Replay of a finished Run older than the window carries its lifecycle and tool
-  events without deltas; its answer is read from the assistant message.
+  events and any earlier attempt's deltas, but not the finalizing attempt's;
+  its answer is read from the assistant message.
 
 ## Capabilities
 
@@ -50,8 +53,8 @@ None.
 
 ## Acceptance
 
-- A finished Run older than the window, with an assistant message, loses its
-  delta events and keeps every other event.
+- A finished Run older than the window loses its finalizing attempt's delta
+  events and keeps every other event, including an earlier attempt's deltas.
 - A Run inside the window, a non-terminal Run, and a finished Run without its
   own finalized reply keep their deltas.
 - An unset `runs.deltaRetentionDays` deletes nothing.
@@ -68,8 +71,7 @@ None.
   `SECURITY DEFINER` functions to returning identifiers. The job therefore
   discovers prunable Runs with a P3-conformant function returning
   `(run id, owner id)`, then deletes under each owner's tenant identity through
-  a new DELETE policy that admits only delta events of that owner's finished
-  Runs past the cutoff with an assistant message. No application path deletes
+  a new DELETE policy that admits only delta events of that owner's finished Runs past the cutoff, inside the window of the attempt that produced the Run's own finalized reply. No application path deletes
   events other than this job. The alternative, a cross-tenant delete function,
   breaks P3.
 - **E2 Opt-in, no default window.** Every nullable `runs.*` setting is unset by
@@ -80,9 +82,10 @@ None.
   today.
 - **E3 Key prunability on the Run's own finalized reply.** Every terminal
   path now finalizes the reply with usage naming its Run (`SPEC.md` §9.3), so
-  the job deletes only deltas whose content that reply already holds. A Run
-  superseded on the same message, or one whose reply is still `running`, keeps
-  its deltas.
+  the job deletes only the deltas of the attempt that reply names, whose content
+  it holds; the finalizer rebuilds a reply from exactly that attempt's window.
+  Earlier attempts of the same Run, a Run superseded on the same message, and a
+  Run whose reply is still `running` keep their deltas.
 
 ## Non-goals
 
