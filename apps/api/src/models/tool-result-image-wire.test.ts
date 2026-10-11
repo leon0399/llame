@@ -504,7 +504,7 @@ describe('an unstored read image on each wire', () => {
         {
           role: 'tool',
           tool_call_id: 'call-1',
-          content: `${UNSTORED_ENVELOPE}\n[image "/work/shot.png" 1600×900, not retained: read it again to view it]`,
+          content: `${UNSTORED_ENVELOPE}\n[image "/work/shot.png" 1600×900, not retained]`,
         },
       ]);
       const serialized = JSON.stringify(body);
