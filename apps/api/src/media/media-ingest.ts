@@ -208,12 +208,25 @@ export async function encodeModelVariant(
  * The display-only thumbnail of an image read without being stored
  * (vision-media D2): a WebP data URL of its model variant, the longest side at
  * most 256 px without upscaling, at quality 70 and then lower qualities until
- * the data URL is at most 65,536 characters. It never reaches a model.
+ * the data URL is at most 65,536 characters. Noise (an alpha channel above
+ * all, which WebP keeps lossless) can stay over the cap at quality 1, so the
+ * edge then halves until it fits; a 1 px image always does. It never reaches
+ * a model.
  */
 export async function encodeThumbnail(model: Buffer): Promise<string> {
+  for (let edge = THUMBNAIL_MAX_EDGE; ; edge = Math.ceil(edge / 2)) {
+    const url = await thumbnailWithin(model, edge);
+    if (url !== undefined) return url;
+  }
+}
+
+async function thumbnailWithin(
+  model: Buffer,
+  edge: number,
+): Promise<string | undefined> {
   const scaled = sharp(model).resize({
-    width: THUMBNAIL_MAX_EDGE,
-    height: THUMBNAIL_MAX_EDGE,
+    width: edge,
+    height: edge,
     fit: 'inside',
     withoutEnlargement: true,
   });
@@ -224,6 +237,7 @@ export async function encodeThumbnail(model: Buffer): Promise<string> {
   ) {
     const webp = await scaled.clone().webp({ quality }).toBuffer();
     const url = `${THUMBNAIL_PREFIX}${webp.toString('base64')}`;
-    if (url.length <= THUMBNAIL_MAX_CHARS || quality === 1) return url;
+    if (url.length <= THUMBNAIL_MAX_CHARS || edge === 1) return url;
+    if (quality === 1) return undefined;
   }
 }

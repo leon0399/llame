@@ -4,10 +4,12 @@ import sharp from 'sharp';
 
 import {
   encodeModelVariant,
+  encodeThumbnail,
   MEDIA_MAX_BYTES,
   MediaIngestError,
   type MediaIngestErrorCode,
   prepareMedia,
+  THUMBNAIL_MAX_CHARS,
 } from './media-ingest';
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -355,4 +357,20 @@ describe('encodeModelVariant', () => {
       });
     },
   );
+});
+
+describe('encodeThumbnail', () => {
+  it('stays within the cap when noise keeps quality 1 over it', async () => {
+    // Random alpha stays lossless in WebP: about 102,000 characters at 256 px, quality 1.
+    const noise = await sharp(randomBytes(256 * 256 * 4), {
+      raw: { width: 256, height: 256, channels: 4 },
+    })
+      .png()
+      .toBuffer();
+
+    const url = await encodeThumbnail(noise);
+
+    expect(url.startsWith('data:image/webp;base64,')).toBe(true);
+    expect(url.length).toBeLessThanOrEqual(THUMBNAIL_MAX_CHARS);
+  });
 });
