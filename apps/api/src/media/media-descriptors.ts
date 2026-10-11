@@ -269,4 +269,3 @@ export function notRetainedPlaceholder(s: ImageSubject): string {
 export function limitPlaceholder(s: ImageSubject): string {
   return `[${describe(s)}, not attached: this context's image limit is reached]`;
 }
-
