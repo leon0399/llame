@@ -48,6 +48,9 @@ delta events under `runAs(owner)` in statements bounded by event rows: each
 `sequence` first, and the tick stops once a per-tick row budget is spent. A Run
 left partly pruned still has a delta in its window, so the next tick discovers
 it again; the row budget, not the number of discovered Runs, bounds a tick.
+Until then a replay of that attempt carries its surviving, higher-`sequence`
+deltas, as the `durable-runs` scenario "A partly pruned Run replays the deltas
+still retained" states.
 
 ### D2. A DELETE policy scoped to prunable deltas
 

@@ -16,6 +16,12 @@ still removes its Runs' events.
 - **THEN** its delta events are deleted on the next run of the job
 - **AND** its lifecycle, tool, and native events remain
 
+#### Scenario: A partly pruned Run replays the deltas still retained
+
+- **WHEN** the job has deleted only the lowest-`sequence` delta events of a Run's finalizing attempt, and the rest await a later run of the job
+- **THEN** replay of that attempt carries the delta events still retained
+- **AND** the Run's answer is read from its assistant message
+
 #### Scenario: A Run without its own finalized reply keeps its deltas
 
 - **WHEN** a terminal Run finished eight days ago with recorded deltas, and no assistant reply names it as its finalized producer
@@ -63,7 +69,7 @@ every delta event of the Run belongs to that attempt.
 
 ### Requirement: Every message executes as a durable, resumable run
 
-A user message SHALL become a worker-processed **run** whose progress is an append-only, replayable event log, except that the retention job deletes the delta events "Delta events of finished Runs are pruned after a retention window" names; a client SHALL be a subscriber to that log, not the holder of run state, so a page refresh or reconnect resumes an in-flight run and replays a completed one without loss until those delta events are deleted; the finished Run's answer remains readable from its assistant message after that. There SHALL be no inline (request-thread) execution path — the worker is the sole executor.
+A user message SHALL become a worker-processed **run** whose progress is an append-only, replayable event log, except that the retention job deletes the delta events "Delta events of finished Runs are pruned after a retention window" names; a client SHALL be a subscriber to that log, not the holder of run state, so a page refresh or reconnect resumes an in-flight run and replays a completed one without loss until the retention job starts deleting those delta events; the finished Run's answer remains readable from its assistant message after that. There SHALL be no inline (request-thread) execution path — the worker is the sole executor.
 
 #### Scenario: Refresh mid-run resumes from the event log
 
