@@ -4,7 +4,7 @@ import {
 } from "@/app/(chat)/components/use-chat-markdown-ready";
 
 /** Pass-through renderers that write a part's text as-is. */
-export const STUB_CHAT_MARKDOWN_RENDERERS: ChatMarkdownRenderers = {
+const STUB_CHAT_MARKDOWN_RENDERERS: ChatMarkdownRenderers = {
   MessageResponse: ({ children }) => <>{children}</>,
   ReasoningContent: ({ children }) => <>{children}</>,
 };
