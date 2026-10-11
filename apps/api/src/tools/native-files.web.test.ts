@@ -187,28 +187,28 @@ function webContext(overrides: Partial<ToolContext> = {}): ToolContext {
   };
 }
 
-const STORED_IMAGE = {
+const DECODED_IMAGE = {
   status: 'success',
-  media: 'media://0190f5a4-0000-7000-8000-000000000001',
   mediaType: 'image/png',
   width: 4,
   height: 3,
+  thumbnail: 'data:image/webp;base64,AAAA',
 } as const;
 
-/** A media store that records each ingest and stores every body it is given. */
+/** A media store that records each decode and decodes every body it is given. */
 function imageStore() {
-  const ingested: Array<{ byteSize: number; bytes: Buffer }> = [];
+  const decoded: Array<{ byteSize: number; bytes: Buffer }> = [];
   const media = {
-    ingestImage: vi.fn<ToolMediaStore['ingestImage']>(
+    readImage: vi.fn<ToolMediaStore['readImage']>(
       () =>
         async ({ byteSize, readBytes }) => {
-          ingested.push({ byteSize, bytes: await readBytes() });
-          return STORED_IMAGE;
+          decoded.push({ byteSize, bytes: await readBytes() });
+          return DECODED_IMAGE;
         },
     ),
     findImage: () => Promise.resolve(undefined),
   } satisfies ToolMediaStore;
-  return { media, ingested };
+  return { media, decoded };
 }
 
 let fixture: WebFixture;
@@ -803,29 +803,29 @@ describe('web locator dispatch', () => {
       );
     });
 
-    it('stores the body and returns the stored image', async () => {
-      const { media, ingested } = imageStore();
+    it('decodes the body under the call id and returns the image', async () => {
+      const { media, decoded } = imageStore();
 
-      const result = await webReadExecutor()(webContext({ media }), {
-        operation: 'read',
-        input: { path: IMAGE_URL },
-      });
+      const result = await webReadExecutor()(
+        webContext({ media, toolCallId: 'call-1' }),
+        { operation: 'read', input: { path: IMAGE_URL } },
+      );
 
       expect(result).toStrictEqual({
-        ...STORED_IMAGE,
+        ...DECODED_IMAGE,
         kind: 'image',
         path: IMAGE_URL,
         finalUrl: IMAGE_URL,
         method: 'image',
       });
-      expect(media.ingestImage).toHaveBeenCalledWith(IMAGE_URL);
-      expect(ingested).toStrictEqual([
+      expect(media.readImage).toHaveBeenCalledWith(IMAGE_URL, 'call-1');
+      expect(decoded).toStrictEqual([
         { byteSize: IMAGE_BYTES.byteLength, bytes: Buffer.from(IMAGE_BYTES) },
       ]);
     });
 
-    it('refuses a selector before anything is stored', async () => {
-      const { media } = imageStore();
+    it('refuses a selector before anything is decoded', async () => {
+      const { media, decoded } = imageStore();
 
       const result = await webReadExecutor()(webContext({ media }), {
         operation: 'read',
@@ -837,7 +837,7 @@ describe('web locator dispatch', () => {
         type: 'invalid_selector',
         message: IMAGE_SELECTOR_MESSAGE,
       });
-      expect(media.ingestImage).not.toHaveBeenCalled();
+      expect(decoded).toStrictEqual([]);
     });
   });
 });

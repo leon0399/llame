@@ -1,9 +1,11 @@
 import { promises as dns } from 'node:dns';
 
-import { IMAGE_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
+import {
+  IMAGE_SELECTOR_MESSAGE,
+  type ImageReadHook,
+} from '@workspace/native-file-tools';
 import { fetch as undiciFetch } from 'undici';
 
-import { type ToolMediaStore } from '../../media/tool-media-store';
 import { type ToolContext, type ToolResult } from '../types';
 import {
   createAddressAdmission,
@@ -111,17 +113,32 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
           'A web read needs the instance identity this process sends as its User-Agent, which instance configuration did not resolve.',
       };
     }
-    return fetchAndRender(context, locator, userAgent, deps);
+    return fetchAndRender(
+      context,
+      {
+        locator,
+        userAgent,
+        image: context.media?.readImage(call.input.path, context.toolCallId),
+      },
+      deps,
+    );
   };
 }
 
 export const executeWebRead: WebReadExecutor =
   createWebReadExecutor(realWebReadDeps);
 
+/** One web read: its parsed locator, the User-Agent it sends, and the image
+ *  hook bound to the locator as submitted and the read's tool call id. */
+type WebPageRead = {
+  readonly locator: WebLocator;
+  readonly userAgent: string;
+  readonly image: ImageReadHook | undefined;
+};
+
 async function fetchAndRender(
   context: ToolContext,
-  locator: WebLocator,
-  userAgent: string,
+  { locator, userAgent, image }: WebPageRead,
   deps: WebReadDeps,
 ): Promise<ToolResult> {
   const admit = createDerivedAdmission(context);
@@ -141,7 +158,7 @@ async function fetchAndRender(
         );
       notes = adapters.notes;
     }
-    const response = await fetchPage(context, session, locator.url);
+    const response = await fetchPage(context, session, locator.url, image);
     if ('type' in response) return { status: 'error', ...response };
     if ('image' in response) return await readImage(locator, response, notes);
     const render = await deps.renderWebContent(
@@ -160,39 +177,40 @@ async function fetchAndRender(
   }
 }
 
-/** A page image body and the store that ingests it. */
+/** A page image body and the hook that decodes it. */
 type WebImagePage = {
   readonly image: WebImageResponse;
-  readonly media: ToolMediaStore;
+  readonly decode: ImageReadHook;
 };
 
 /** The page response, or the abort that landed while it arrived: neither a
- *  synchronous render nor an ingest starts after a caller abort. Only a read
- *  that can store an image accepts one; without a media store an image body
- *  stays `unsupported_content_type`. */
+ *  synchronous render nor a decode starts after a caller abort. Only a read
+ *  with an image hook accepts an image; without one an image body stays
+ *  `unsupported_content_type`. */
 async function fetchPage(
   context: ToolContext,
   session: WebFetchSession,
   url: string,
+  decode: ImageReadHook | undefined,
 ): Promise<WebResponse | WebImagePage | WebFetchFailure> {
-  const { media } = context;
   let response: WebResponse | WebImagePage | WebFetchFailure;
-  if (media === undefined) {
+  if (decode === undefined) {
     response = await session.fetch(url);
   } else {
     const page = await session.fetchPage(url);
-    response = 'bytes' in page ? { image: page, media } : page;
+    response = 'bytes' in page ? { image: page, decode } : page;
   }
   if ('type' in response) return response;
   return context.abortSignal?.aborted === true ? ABORTED_FAILURE : response;
 }
 
-/** An image page is stored, never rendered (vision-media D7). A selector is
- *  refused before anything is ingested, `:raw` included, and the store refuses
- *  bytes that match no image format, whatever the declared type. */
+/** An image page is decoded like a local image and never rendered or stored
+ *  (vision-media D7). A selector is refused before anything is decoded,
+ *  `:raw` included, and the decode refuses bytes that match no image format,
+ *  whatever the declared type. */
 async function readImage(
   locator: WebLocator,
-  { image, media }: WebImagePage,
+  { image, decode }: WebImagePage,
   notes: ReadonlyArray<string>,
 ): Promise<ToolResult> {
   if (locator.selector !== undefined) {
@@ -203,15 +221,15 @@ async function readImage(
     };
   }
   const { bytes } = image;
-  const ingested = await media.ingestImage(locator.url)({
+  const decoded = await decode({
     byteSize: bytes.byteLength,
     readBytes: () =>
       Promise.resolve(
         Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
       ),
   });
-  if (ingested.status === 'error') return ingested;
-  return buildWebImageResult(locator, image.finalUrl, ingested, notes);
+  if (decoded.status === 'error') return decoded;
+  return buildWebImageResult(locator, image.finalUrl, decoded, notes);
 }
 
 function createSession(

@@ -958,24 +958,24 @@ describe('buildWebReadResult', () => {
 describe('buildWebImageResult', () => {
   const IMAGE_URL = 'https://example.test/shot.png';
   const FINAL_URL = 'https://cdn.example.test/shot.png';
-  const stored = {
+  const decoded = {
     status: 'success',
-    media: 'media://0190f5a4-0000-7000-8000-000000000001',
     mediaType: 'image/png',
     width: 4,
     height: 3,
+    thumbnail: 'data:image/webp;base64,AAAA',
   } as const;
 
-  it('returns the stored image with the web envelope and no notes', () => {
+  it('returns the decoded image with the web envelope and no notes', () => {
     const result = buildWebImageResult(
       { url: IMAGE_URL },
       FINAL_URL,
-      stored,
+      decoded,
       [],
     );
 
     expect(result).toStrictEqual({
-      ...stored,
+      ...decoded,
       kind: 'image',
       path: IMAGE_URL,
       finalUrl: FINAL_URL,
@@ -988,12 +988,12 @@ describe('buildWebImageResult', () => {
     const result = buildWebImageResult(
       { url: IMAGE_URL },
       FINAL_URL,
-      stored,
+      decoded,
       notes,
     );
 
     expect(result).toStrictEqual({
-      ...stored,
+      ...decoded,
       kind: 'image',
       path: IMAGE_URL,
       finalUrl: FINAL_URL,

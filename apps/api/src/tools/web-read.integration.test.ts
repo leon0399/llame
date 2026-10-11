@@ -10,13 +10,10 @@ import { type Socket } from 'node:net';
 import { IMAGE_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
 import { isString } from '@workspace/runtime-safety';
 import sharp from 'sharp';
+import { z } from 'zod';
 
-import { type MediaObject } from '../db/schema';
-import { prepareMedia } from '../media/media-ingest';
-import {
-  type MediaIngestInput,
-  type MediaService,
-} from '../media/media.service';
+import type { HeldImage } from '../media/attempt-images';
+import { type MediaService } from '../media/media.service';
 import { createToolMediaStore } from '../media/tool-media-store';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { nativeReadTool } from './native-files';
@@ -1794,7 +1791,7 @@ describe('web read address admission over loopback fixtures', () => {
 });
 
 describe('web image reads over loopback fixtures', () => {
-  const MEDIA_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  const CALL_ID = 'call-web-image';
   const HTML_AS_IMAGE =
     '<!doctype html><html><body><p>HTML_UNDER_AN_IMAGE_TYPE</p></body></html>';
   const SVG_BODY =
@@ -1809,36 +1806,23 @@ describe('web image reads over loopback fixtures', () => {
 
   let fixture: AddressFixture;
   let images: Images;
-  let attempts: Array<MediaIngestInput>;
-  let stored: Array<MediaObject>;
+  let memory: Map<string, HeldImage>;
 
-  /** A media service whose ingest runs the real format detection, so the
-   *  bytes, not the declared type, decide the result, and a refused body
-   *  creates nothing. */
-  const mediaService: Pick<MediaService, 'ingest' | 'findOwned'> = {
-    async ingest(ownerUserId, input) {
-      attempts.push(input);
-      const prepared = await prepareMedia(input.bytes);
-      const media: MediaObject = {
-        id: MEDIA_ID,
-        ownerUserId,
-        provenance: input.provenance,
-        name: input.source,
-        mediaType: prepared.original.mediaType,
-        width: prepared.original.width,
-        height: prepared.original.height,
-        byteSize: prepared.original.bytes.length,
-        modelMediaType: prepared.model.mediaType,
-        modelWidth: prepared.model.width,
-        modelHeight: prepared.model.height,
-        modelByteSize: prepared.model.bytes.length,
-        sha256: prepared.sha256,
-        createdAt: new Date(0),
-      };
-      stored.push(media);
-      return { media, created: true };
-    },
-    findOwned: () => Promise.resolve(undefined),
+  /** The owner's store: a web image never reaches it, so any lookup fails the
+   *  test. */
+  const mediaService: Pick<MediaService, 'findOwned'> = {
+    findOwned: vi.fn<MediaService['findOwned']>(() =>
+      Promise.reject(new Error('A web image read looked up the store.')),
+    ),
+  };
+
+  /** `result` with its thumbnail, checked to be a WebP data URL, set aside. */
+  const shown = (result: ToolResult) => {
+    const { thumbnail, ...rest } = z
+      .looseObject({ thumbnail: z.string() })
+      .parse(result);
+    expect(thumbnail).toMatch(/^data:image\/webp;base64,/u);
+    return rest;
   };
 
   const route: AddressFixtureRoute = (address, request, response) => {
@@ -1932,7 +1916,8 @@ describe('web image reads over loopback fixtures', () => {
   const urlOf = (path: string): string =>
     `http://example.test:${fixture.port}${path}`;
 
-  /** A read with the Run owner's media store bound, as a model read has. */
+  /** A read with the Run's media store and attempt memory bound, as a model
+   *  read has, under one tool call id. */
   const read = (
     path: string,
     overrides: Partial<ToolContext> = {},
@@ -1940,7 +1925,8 @@ describe('web image reads over loopback fixtures', () => {
     execute(
       webContext({
         permissionPolicy: ADMIT_EVERY_LOCATOR,
-        media: createToolMediaStore(mediaService, 'owner', 'read'),
+        media: createToolMediaStore(mediaService, 'owner', memory, true),
+        toolCallId: CALL_ID,
         ...overrides,
       }),
       { operation: 'read', input: { path } },
@@ -1973,17 +1959,15 @@ describe('web image reads over loopback fixtures', () => {
 
   beforeEach(() => {
     fixture.requests.length = 0;
-    attempts = [];
-    stored = [];
+    memory = new Map();
   });
 
-  it('returns a PNG body as an image result of the Run owner', async () => {
+  it('returns a PNG body as an image result decoded without storing it', async () => {
     const result = await read(urlOf('/shot.png'));
 
-    expect(result).toStrictEqual({
+    expect(shown(result)).toStrictEqual({
       status: 'success',
       kind: 'image',
-      media: `media://${MEDIA_ID}`,
       mediaType: 'image/png',
       width: 1600,
       height: 900,
@@ -1991,12 +1975,20 @@ describe('web image reads over loopback fixtures', () => {
       finalUrl: urlOf('/shot.png'),
       method: 'image',
     });
-    expect(attempts).toEqual([
-      { bytes: images.png, provenance: 'read', source: urlOf('/shot.png') },
-    ]);
-    expect(stored).toEqual([
-      expect.objectContaining({ ownerUserId: 'owner', mediaType: 'image/png' }),
-    ]);
+    // The attempt keeps the model variant under the call id; nothing else
+    // holds the image.
+    const { model, ...held } = memory.get(CALL_ID) ?? {};
+    expect(held).toStrictEqual({
+      locator: urlOf('/shot.png'),
+      width: 1600,
+      height: 900,
+    });
+    expect(model).toMatchObject({
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+    });
+    expect(mediaService.findOwned).not.toHaveBeenCalled();
     expect(requested()).toEqual([{ address: '127.0.0.1', path: '/shot.png' }]);
   });
 
@@ -2029,17 +2021,17 @@ describe('web image reads over loopback fixtures', () => {
     });
   });
 
-  it('refuses a declared image type over HTML bytes without storing or returning them', async () => {
+  it('refuses a declared image type over HTML bytes without decoding or returning them', async () => {
     const result = await read(urlOf('/html-as-png'));
     const error = errorOf(result);
 
     expect(error.type).toBe('unsupported_media_type');
-    expect(stored).toEqual([]);
+    expect(memory.get(CALL_ID)).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain('HTML_UNDER_AN_IMAGE_TYPE');
   });
 
   it.each([':raw', ':1-5'])(
-    'refuses the %s selector on an image before anything is stored',
+    'refuses the %s selector on an image before anything is decoded',
     async (selector) => {
       const result = await read(`${urlOf('/shot.png')}${selector}`);
 
@@ -2048,7 +2040,7 @@ describe('web image reads over loopback fixtures', () => {
         type: 'invalid_selector',
         message: IMAGE_SELECTOR_MESSAGE,
       });
-      expect(attempts).toEqual([]);
+      expect(memory.get(CALL_ID)).toBeUndefined();
       expect(JSON.stringify(result)).not.toContain('PNG');
       expect(requested()).toEqual([
         { address: '127.0.0.1', path: '/shot.png' },
@@ -2061,15 +2053,15 @@ describe('web image reads over loopback fixtures', () => {
 
     expect(result).toMatchObject({ status: 'success', method: 'text' });
     expect(contentOf(result)).toContain('<svg xmlns=');
-    expect(attempts).toEqual([]);
+    expect(memory.get(CALL_ID)).toBeUndefined();
   });
 
-  it('refuses an image body past the 5 MiB bound before storing it', async () => {
+  it('refuses an image body past the 5 MiB bound before decoding it', async () => {
     const result = await read(urlOf('/huge.png'));
     const error = errorOf(result);
 
     expect(error.type).toBe('body_too_large');
-    expect(attempts).toEqual([]);
+    expect(memory.get(CALL_ID)).toBeUndefined();
   });
 
   it.each([
@@ -2084,17 +2076,16 @@ describe('web image reads over loopback fixtures', () => {
       expect(error.type).toBe('unsupported_content_type');
       expect(error.message).toContain(mediaType);
       expect(JSON.stringify(result)).not.toContain('%PDF');
-      expect(attempts).toEqual([]);
+      expect(memory.get(CALL_ID)).toBeUndefined();
     },
   );
 
-  it('reports where a redirected image came from', async () => {
+  it('reports where a redirected image came from under the submitted locator', async () => {
     const result = await read(urlOf('/shot'));
 
-    expect(result).toStrictEqual({
+    expect(shown(result)).toStrictEqual({
       status: 'success',
       kind: 'image',
-      media: `media://${MEDIA_ID}`,
       mediaType: 'image/png',
       width: 1600,
       height: 900,
@@ -2102,6 +2093,7 @@ describe('web image reads over loopback fixtures', () => {
       finalUrl: `http://cdn.example.test:${fixture.port}/shot.png`,
       method: 'image',
     });
+    expect(memory.get(CALL_ID)?.locator).toBe(urlOf('/shot'));
     expect(requested()).toEqual([
       { address: '127.0.0.1', path: '/shot' },
       { address: '127.0.0.2', path: '/shot.png' },
@@ -2135,7 +2127,7 @@ describe('web image reads over loopback fixtures', () => {
         { address: '127.0.0.1', path: '/guides/llms.txt' },
       ]),
     );
-    expect(attempts).toEqual([]);
+    expect(memory.get(CALL_ID)).toBeUndefined();
   });
 
   it('disqualifies an adapter whose origin answers with an image', async () => {
@@ -2150,10 +2142,9 @@ describe('web image reads over loopback fixtures', () => {
       ],
     });
 
-    expect(result).toStrictEqual({
+    expect(shown(result)).toStrictEqual({
       status: 'success',
       kind: 'image',
-      media: `media://${MEDIA_ID}`,
       mediaType: 'image/png',
       width: 1600,
       height: 900,
@@ -2162,9 +2153,7 @@ describe('web image reads over loopback fixtures', () => {
       method: 'image',
       notes: ['web adapter "reader" fell through: content_type'],
     });
-    expect(attempts.map(({ source }) => source)).toEqual([
-      urlOf('/claimed.png'),
-    ]);
+    expect(memory.get(CALL_ID)?.locator).toBe(urlOf('/claimed.png'));
     expect(requested()).toEqual([
       { address: '127.0.0.2', path: '/claimed.png' },
       { address: '127.0.0.1', path: '/claimed.png' },

@@ -127,11 +127,14 @@ native read object — `content`, the requested and shown range or ranges,
 `contentType`, `markdownTokens`, `realPath`, text header, or frontmatter block.
 
 A page whose response, after any redirects, declares `image/png`, `image/jpeg`,
-`image/gif`, or `image/webp` is not rendered: its body is stored as a media
-object of the Run owner, and the read returns the
-[image result](../tools/read.md#image-result) with `path`, `finalUrl`,
+`image/gif`, or `image/webp` is not rendered: its body is decoded like a local
+image and stored nowhere, so it creates no media object and gets no `media://`
+id. The read returns the [image result](../tools/read.md#image-result), with
+its display-only `thumbnail` and no `media` field, plus `path`, `finalUrl`,
 `method: "image"`, and `notes` only when non-empty, and no content or range
-fields. The bytes decide the format, so a JPEG declared as `image/png` reports
+fields. The decoded image lives only in the memory of the Run attempt that read
+it; later requests replay the result with the not-retained placeholder. The
+bytes decide the format, so a JPEG declared as `image/png` reports
 `image/jpeg`, and bytes that are no PNG, JPEG, GIF, or WebP image fail with
 `unsupported_media_type`. Any selector on an image, `:raw` included, fails with
 `invalid_selector`. An adapter response or an alternate, suffix, or `llms.txt`
@@ -150,7 +153,7 @@ The full order is:
 | `method`      | Source of the content                                                                                           |
 | ------------- | --------------------------------------------------------------------------------------------------------------- |
 | `adapter`     | a configured adapter's rendered content, with structured provenance and notes                                   |
-| `image`       | a PNG, JPEG, GIF, or WebP page body, returned as the stored image with no content, before any probe             |
+| `image`       | a PNG, JPEG, GIF, or WebP page body, returned as the decoded image with no content, before any probe            |
 | `negotiated`  | the first response itself: `text/markdown` or `text/plain`, returned as served                                  |
 | `alternate`   | a Markdown URL announced by a `Link` header or a head `<link rel="alternate" type="text/markdown">`             |
 | `md-suffix`   | the publisher's `.md` suffix probe: `/a/b.html` → `/a/b.html.md`, `/a/b` → `/a/b.md`, `/a/b/` → `/a/b/index.md` |
@@ -274,9 +277,9 @@ refused ([selectors](../selectors.md#media-types-and-errors)).
 | `body_too_large`           | the body declared or streamed more than 5 MiB                                                                                                                                                                                                         |
 | `representation_too_large` | a `-K` member or `:outline` on an adapter document cut at the 5 MiB rendered-document bound                                                                                                                                                           |
 | `http_status`              | a non-2xx, non-redirect status on the first response or a hop; a 429 also carries `Retry-After`, and the body is not returned                                                                                                                         |
-| `unsupported_content_type` | the response is neither a text body nor, on the page response of a read with the owner's media store, an accepted image type, or it declares no content type                                                                                          |
-| `unsupported_media_type`   | the response declared an accepted image type, but its bytes are no PNG, JPEG, GIF, or WebP image; nothing is stored                                                                                                                                   |
-| `image_too_large`          | the page image passed the 5 MiB body bound but is over 40 megapixels; the shared message also names the 20 MiB store bound, which a web read never reaches                                                                                            |
+| `unsupported_content_type` | the response is neither a text body nor, on the page response of a read with the Run's media store, an accepted image type, or it declares no content type                                                                                            |
+| `unsupported_media_type`   | the response declared an accepted image type, but its bytes are no PNG, JPEG, GIF, or WebP image; nothing is decoded                                                                                                                                  |
+| `image_too_large`          | the page image passed the 5 MiB body bound but is over 40 megapixels; the shared message also names the 20 MiB image bound, which a web read never reaches                                                                                            |
 | `invalid_redirect`         | a redirect status without a parsable `Location`, or a hop with userinfo or a non-web scheme; the target is never named; a fragment is dropped, not refused                                                                                            |
 | `too_many_redirects`       | the call exceeded 20 redirects                                                                                                                                                                                                                        |
 | `permission_denied`        | the `read` group refused the submitted locator or a hop, or every address was refused — a hop rejection carries `rejectedUrl`                                                                                                                         |
