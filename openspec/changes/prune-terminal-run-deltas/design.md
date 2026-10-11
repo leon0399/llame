@@ -39,8 +39,10 @@ usage naming this Run (`usage->>'runId' = runs.id::text` and
 `usage->>'status' IN ('completed', 'aborted', 'error')`), and that still have
 a delta event in that reply's attempt window. The window is the one
 `attemptWindow` uses: from the `model.requested` event whose payload names the
-reply's `usage->>'attemptId'` up to the next `run.started`. A legacy reply with
-no `attemptId` was built from the whole log, so its window is the whole log. The job deletes each Run's delta events
+reply's `usage->>'attemptId'` up to the next `run.started`. A reply with no
+`attemptId` predates per-attempt replies: it may hold only the last attempt's
+live parts, so its Run qualifies only when its log has exactly one
+`run.started`, and its window is then the whole log. The job deletes each Run's delta events
 under `runAs(owner)`, in bounded batches per tick.
 
 ### D2. A DELETE policy scoped to prunable deltas
@@ -53,7 +55,8 @@ through a transaction-local setting the job sets, read as
 `NULLIF(current_setting('app.delta_prune_cutoff', true), '')::timestamptz` so
 an unset or pooled-empty value denies rather than errors; no application path
 that does not set it can delete anything. The database enforces the shape of a
-prunable row; the window itself is the job's input. Every other event type stays undeletable.
+prunable row; the retention cutoff itself is the job's input, and the policy
+applies the same one-day floor to it as the discovery function. Every other event type stays undeletable.
 
 - Alternative: a cross-tenant delete function. Rejected: it breaks P3, which
   limits such functions to returning identifiers.

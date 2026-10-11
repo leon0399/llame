@@ -74,12 +74,22 @@ None.
   a new DELETE policy that admits only delta events of that owner's finished Runs past the cutoff, inside the window of the attempt that produced the Run's own finalized reply. No application path deletes
   events other than this job. The alternative, a cross-tenant delete function,
   breaks P3.
-- **E2 Opt-in, no default window.** Every nullable `runs.*` setting is unset by
-  default, and the canonical configuration rule makes an explicit `null` equal
-  to an absent key, so a `null` cannot mean "off" while absence means "seven
-  days". Pruning is therefore enabled by setting a window; the example config
-  suggests `7`. The trade-off: instances that never set it keep growing, as
-  today.
+- **E2 Default window — open, awaiting approval.** The canonical configuration
+  rule makes an explicit `null` equal to an absent key, so the round-0 shape
+  (default seven days, `null` disables) is not available. Two options remain:
+
+  - **E2a Opt-in (as drafted).** Unset prunes nothing; the example config
+    suggests `7`. Matches every other nullable `runs.*` setting and changes
+    nothing on upgrade, but instances that never set it keep growing.
+  - **E2b Seven-day default with an explicit off value** (for example
+    `runs.deltaRetentionDays: "off"` or a separate `runs.pruneDeltas: false`).
+    Bounds growth everywhere on upgrade, deleting existing deltas older than
+    seven days on the first job, at the cost of a second shape for one
+    setting.
+
+  The deltas and tasks are written for E2a; choosing E2b changes the
+  instance-config requirement, its scenarios, and task 1.1.
+
 - **E3 Key prunability on the Run's own finalized reply.** Every terminal
   path now finalizes the reply with usage naming its Run (`SPEC.md` §9.3), so
   the job deletes only the deltas of the attempt that reply names, whose content
