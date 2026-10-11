@@ -77,7 +77,7 @@ The Organizations tree SHALL put exactly one row in the page's Tab sequence: the
 
 ### Requirement: Arrow keys navigate the org tree per the APG tree pattern
 
-While a row itself has focus, the tree SHALL handle Up, Down, Right, Left, Home, and End per the WAI-ARIA APG tree pattern over the rendered rows, moving focus, and with it the selection, to the target row, and SHALL prevent page scrolling for a handled key. Navigation SHALL NOT wrap. A key pressed while focus is on a control inside a row SHALL keep that control's own behavior. The tree SHALL NOT provide type-ahead.
+While a row itself has focus, the tree SHALL handle Up, Down, Right, Left, Home, and End per the WAI-ARIA APG tree pattern over the rendered rows, moving focus, and with it the selection, to the target row, and SHALL prevent page scrolling for a handled key. Navigation SHALL NOT wrap. A key pressed while focus is on a control inside a row SHALL keep that control's own behavior.
 
 #### Scenario: Down and Up move between rendered rows
 
@@ -134,14 +134,9 @@ While a row itself has focus, the tree SHALL handle Up, Down, Right, Left, Home,
 - **WHEN** focus is on a row's action button or expand/collapse control and the user presses Enter or an arrow key
 - **THEN** Enter activates that control without selecting the row, and the arrow key does not move tree focus
 
-#### Scenario: Typing a character does not navigate
-
-- **WHEN** a row has focus and the user types a letter
-- **THEN** focus and selection do not change
-
 ### Requirement: The org tree keeps a rendered selection
 
-When the selected row stops rendering, because an ancestor collapses (by its control, by Left, or by Collapse all), or because the unit is deleted, moved under a collapsed parent, or removed by a refresh, the selection and Tab stop SHALL move to its nearest still-rendered ancestor row, or to the first row when none renders. Re-expanding SHALL NOT move the selection back. If the vanished row held focus, focus SHALL move to the new selected row.
+When the selected row stops rendering (an ancestor collapses, or the unit is deleted, moved under a collapsed parent, or removed by a refresh), the selection and Tab stop SHALL move to the nearest still-rendered ancestor of its current position (its last known position once it has left the unit list), or to the first row. Re-expanding SHALL NOT move the selection back. If the vanished row held focus, focus SHALL follow.
 
 #### Scenario: Collapsing an ancestor selects the ancestor
 
@@ -157,6 +152,11 @@ When the selected row stops rendering, because an ancestor collapses (by its con
 
 - **WHEN** the user activates Expand all
 - **THEN** the selected row does not change
+
+#### Scenario: Moving the selected unit under a collapsed parent selects the new ancestor
+
+- **WHEN** the selected unit is moved under a parent that is collapsed
+- **THEN** the nearest rendered ancestor at the unit's new position is selected, never an ancestor of its old position
 
 #### Scenario: Deleting the selected unit selects its parent
 

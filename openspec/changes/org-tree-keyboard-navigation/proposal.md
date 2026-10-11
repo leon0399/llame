@@ -23,15 +23,15 @@ repository's `Command` (cmdk) list, as the model selector does.
 - Up and Down move between visible rows. Right expands a collapsed parent, or
   moves to the first child of an expanded one. Left collapses an expanded
   parent, or moves to the parent row. Home and End go to the first and last
-  visible rows. Arrow keys do not wrap, and the tree has no type-ahead.
+  visible rows. Arrow keys do not wrap. Type-ahead is deferred.
 - Expand/collapse chevrons leave the Tab sequence; pointer users still click
   them. The selected row's add-child, rename, move, and delete actions stay
   reachable by Tab from that row, and other rows' actions leave the Tab
   sequence.
 - When the selected row stops rendering (an ancestor collapses, or the unit is
   deleted or moved out of view), selection moves to its nearest rendered
-  ancestor row, or to the first row. If the vanished row held focus, focus
-  follows.
+  ancestor row, or to the first row. A moved unit's ancestors are those at its
+  new position. If the vanished row held focus, focus follows.
 - A unit dialog opened from a row action returns focus, when it closes, to the
   control that opened it. If that control is gone, focus goes to the selected
   row, and if no units remain, to the New organization button.
@@ -51,8 +51,11 @@ repository's `Command` (cmdk) list, as the model selector does.
   keyboard shortcuts (F2, Delete) or a context menu. Tab is discoverable and
   reuses the existing focus-within reveal; shortcuts would need new UI to
   advertise them.
-- Type-ahead is not provided in the tree. The APG marks it optional, and the
-  move picker's filter covers finding a unit by name.
+- Type-ahead in the tree is deferred, not rejected. The APG recommends it for
+  every tree, and only `*` is optional. It is still left out here because #177
+  does not ask for it, and the move picker's filter already covers finding a
+  unit by name. The spec does not forbid it, so a later change can add it
+  without amending these requirements.
 - In the move picker, Enter does not submit the move. Committing a structural
   change takes the Move button, so a keystroke in the filter cannot reparent a
   unit by accident.
@@ -100,7 +103,8 @@ None.
   `DialogContent`'s uniform `p-6`/`gap-4`. It is a design-fidelity call.
 - #190 item 3, a visible "Name" label in the rename dialog. It is a product
   call.
-- Tree type-ahead, `*` (expand all siblings), multi-select, and drag-and-drop.
+- Tree type-ahead (APG-recommended; deferred to a follow-up issue), `*`
+  (expand all siblings), multi-select, and drag-and-drop.
 - Moving focus to a newly created unit after create-child or create-root.
 - Changing which units the picker offers or how the server authorizes a move.
 

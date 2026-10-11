@@ -81,22 +81,31 @@ child only when the parent is open, and Left goes to a rendered parent. So
 focus moves synchronously, with no effect or retry.
 
 Alternative: put the logic inline in the row's key handler. Rejected: it can
-only be tested through a browser, and the key-by-row-shape matrix (12
+only be tested through a browser, and the key-by-row-shape matrix (11
 scenarios) is cheaper and more exhaustive as unit tests.
 
 ### D3. The selection adjusts during render when its row is not rendered
 
-`useOrgTreeNavigation` stores the selection as `{ id, path }`. It records the
-unit's id-path (`OrgUnitResponse.path`, ancestor ids `root/…/self` per
-`org-units`) at selection time and refreshes it from `unitsById` while the
-unit exists. During render, when `id` has no row in `rows`, it walks `path`
-from the deepest ancestor upward to the first id that has a row, falling back
-to `rows[0]`, and commits that as the new selection with React's adjust state
-during render pattern. Guarded by "differs from the current id", it settles in
-one extra render. Because the adjusted id is stored, expanding the ancestor
-again does not move the selection back. One rule covers chevron collapse,
-Left, Collapse all, delete, a move under a collapsed parent, and a refresh,
-so the collapse handlers need no special cases.
+`useOrgTreeNavigation` stores the selection as `{ id, ancestorIds }`, where
+`ancestorIds` is the unit's ancestor chain, nearest first. While the unit is
+in `unitsById`, the chain is derived on every render from `parentId` edges,
+the same edges `buildRows` nests by (as `visibleAncestorChain` walks them).
+The stored copy is only the last chain derived, kept for when the unit has
+left the list after a delete or refresh. During render, when `id` has no row
+in `rows`, the first id in the chain that has a row becomes the new
+selection, falling back to `rows[0]`. It is committed with React's adjust
+state during render pattern, together with any refresh of the stored chain.
+Guarded by "differs from the stored value", it settles in one extra render.
+Because the adjusted id is stored, expanding the ancestor again does not move
+the selection back. One rule covers chevron collapse, Collapse all, delete, a
+move under a collapsed parent, and a refresh, so the collapse handlers need
+no special cases.
+
+The chain must not come from `OrgUnitResponse.path`. An optimistic move
+patches only `parentId` (`applyOrgUnitPatch` in
+`apps/web/lib/services/org-units/mutations.ts`), and `path` stays stale until
+the `onSettled` refetch. A walk over `path` would select, and D5 would focus,
+an ancestor of the old position.
 
 Alternatives: compute the fallback at render without storing it, which
 re-selects the hidden unit when it reappears and contradicts the spec; or
@@ -122,7 +131,8 @@ its `DialogContent` or `AlertDialogContent`, which the tree supplies as
 `() => invoker?.isConnected ? invoker : selectedRowElement() ??
 newOrganizationButton`. The function runs at close. The optimistic
 `onMutate` re-render has already happened by then, so D3 has already moved the
-selection off a deleted or re-parented unit. Create-root keeps Base UI's
+selection off a deleted unit, or off a re-parented one onto an ancestor at its
+new position. Create-root keeps Base UI's
 default, which returns focus to the New organization or Create organization
 button that opened it.
 
@@ -148,9 +158,13 @@ the markup and the e2e queries.
 
 ### D7. Move picker on `Command`, with selection following the highlight
 
-`MoveTargetList` becomes `Command` (`label="New parent"`, which keeps the
-listbox's accessible name), `CommandInput`, `CommandList`, `CommandEmpty`
-("No matching units"), and one `CommandItem` per option. Each item has
+`MoveTargetList` becomes `Command`, `CommandInput`, `CommandList`,
+`CommandEmpty` ("No matching units"), and one `CommandItem` per option. In
+cmdk 1.1.1 the root `Command`'s `label` names the input (through a hidden
+label element), while `Command.List` sets its own `aria-label`, which defaults
+to "Suggestions". So `CommandList` gets `label="New parent"`, which keeps the
+listbox name that #1222's `MovePicker` story and today's `org-tree.test.tsx`
+query, and `Command` gets `label="Filter units"` for the input. Each item has
 `value` set to the unit id, or a fixed sentinel for "make root" (ids are
 UUIDs), and `keywords` set to `[name]`.
 
@@ -197,8 +211,10 @@ dialog already has an explicit commit (Move).
 - **Unit tests** (`org-tree-keyboard.test.ts`, the same project as
   `org-tree-utils.test.ts`) cover the D2 resolver for every key and row shape
   in the spec, including a top-level row whose parent the caller cannot see,
-  and the D3 ancestor walk: a deleted unit, a moved unit, and no rendered
-  ancestor.
+  and the D3 ancestor walk: a deleted unit (stored chain), no rendered
+  ancestor, and an optimistically moved unit whose fixture keeps the old
+  `path` with a new `parentId`. That last case selects an ancestor at the new
+  position and fails if the walk reads `path`.
 - **`org-tree.stories.tsx`** gets real keyboard stories using `userEvent.tab`
   and `userEvent.keyboard` against the real component and fetch stub: roving
   Tab stop, Up/Down/Home/End, Right/Left, row-action Tab walk and keyboard
