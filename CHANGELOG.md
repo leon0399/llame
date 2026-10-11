@@ -4,11 +4,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
-  dialogs', the project dialogs', and the org unit create, rename and move
-  dialogs' rendering tests out of jsdom and into `org-tree.stories.tsx`,
-  `members-panel.stories.tsx`, `command-palette.stories.tsx`,
-  `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
-  `project-dialogs.stories.tsx`, and `org-unit-dialogs.stories.tsx`, whose
+  dialogs', the project dialogs', the org unit create, rename and move
+  dialogs', and the rail's pinned section's rendering tests out of jsdom and
+  into `org-tree.stories.tsx`, `members-panel.stories.tsx`,
+  `command-palette.stories.tsx`, `share-chat-dialog.stories.tsx`,
+  `chat-item-dialogs.stories.tsx`, `project-dialogs.stories.tsx`,
+  `org-unit-dialogs.stories.tsx`, and `app-sidebar-pinned.stories.tsx`, whose
   play functions now run in Chromium (#860). The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -32,7 +33,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   name and trimming one sent via Enter, creating a child unit with its picked
   type under the parent, renaming unchanged, to a new name, and via Enter,
   moving to a new parent (Move disabled until one is picked), and cancelling
-  each dialog without a request.
+  each dialog without a request. The pinned section stories cover rendering
+  nothing while pins load or when there are none, chats and projects mixed in
+  server order with their links, the untitled-chat placeholder, each row's
+  Unpin, Rename, Archive and Delete menu (without the chat actions that need
+  the full chat), unpinning, archiving (the row shows Archived once the
+  refetch lands, with the PATCH it sends), and opening the rename and delete
+  dialogs.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
