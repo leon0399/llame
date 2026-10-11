@@ -71,7 +71,6 @@ function descriptorFor(file: File): MediaDescriptor {
   return {
     id: "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8b",
     locator: "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8b",
-    provenance: "upload",
     mediaType: "image/png",
     name: file.name,
     width: 1,
