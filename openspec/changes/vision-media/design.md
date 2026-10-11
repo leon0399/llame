@@ -88,7 +88,7 @@ D7, D8, D9, and D11:
 - The worker keeps each such decoded model variant in the reading attempt's memory only, keyed by
   tool call id or prompt-import entry, and only while the epoch window admits it. Later steps of
   that attempt attach it under the unchanged epoch window. Any other request on a vision model gets
-  `[image <locator> W×H, not retained: read it again to view it]`, with `<locator>` a JSON string
+  `[image <locator> W×H, not retained]`, with `<locator>` a JSON string
   literal (R1.4); a text-only model gets the omitted placeholder.
 - Each unstored image result or prompt-import entry stores a display-only WebP `thumbnail` data URL
   that never reaches a model (R1.5). The read tool card and prompt-import chip render it, and the
@@ -204,6 +204,9 @@ not-attached result the request will carry; the step composer calls the same fun
 references. Because admission is oldest first and append-only, both calls agree on every reference
 the earlier call saw. The conversion boundary (`buildContext`) keeps media references as stored and
 maps none of them to bytes; the composer is the only place that emits image parts or placeholders.
+The `context-injection` and `prompt-imports` requirements state the mapping for request assembly as
+a whole, `buildContext` and the composer together, so their scenarios are verified on the composed
+request, never on `buildContext` output alone.
 
 One step composer builds every Run request and compaction request, including each step of a Run.
 Title generation calls `generateText` directly (`generateToolBoundObject`,
@@ -225,12 +228,14 @@ tools; the composer runs on the final messages after that override, so the in-Ru
 prefix index (`in-run-context-items.ts:154`) is computed before any transform. It takes a media
 resolver, built for each attempt, passed on `ModelStreamInput`, and loaded under the Run owner's
 identity, that returns each `media://` reference's descriptor (name, original and variant
-dimensions) and loads variant bytes on demand, and that also holds the attempt's memory of unstored
+dimensions, variant byte size) and loads variant bytes on demand, and that also holds the attempt's memory of unstored
 images (below). For each step:
 
-- **Owner file parts.** Within one user message, after context rail items and the temporal row and
-  before the owner's text, each file part becomes a label text part `Image n (media://<id>):` followed
-  by an image part from the model variant; `n` counts that message's attachments from 1.
+- **Owner file parts.** Within one user message, the file parts are inserted in stored order
+  immediately after the last context rail item (the temporal row included), or at the start of a
+  message without one, every other part keeping its stored relative order. Each becomes a label text
+  part `Image n (media://<id>):` followed by an image part from the model variant; `n` counts that
+  message's attachments from 1.
 - **Tool results.** A `read` image result becomes a tool output of type `content`: the text envelope
   plus an image part, built from the stored variant for a `media://` result and from the attempt's
   memory for every other image result.
@@ -241,7 +246,7 @@ images (below). For each step:
   - `[image media://<id> unavailable]` for a `media://` reference that does not resolve;
   - `[image <subject> <width>×<height>, omitted: this model has no image input]` for a model that
     does not declare `image`;
-  - `[image <locator> <width>×<height>, not retained: read it again to view it]` for an unstored
+  - `[image <locator> <width>×<height>, not retained]` for an unstored
     image the attempt's memory holds no entry for;
   - an image part when the epoch window (below) attaches it, the only case whose bytes are loaded;
   - `[image <subject> <width>×<height>, not attached: this context's image limit is reached]`
@@ -252,13 +257,15 @@ images (below). For each step:
   import marker's locator the owner wrote. That `<locator>` is a JSON string literal:
   `JSON.stringify` of the locator, with U+007F–U+009F, U+2028, U+2029, `<`, and `>` also written as
   `\uXXXX`, and never truncated, for example
-  `[image "app/[slug]/shot.png" 1600×900, not retained: read it again to view it]`. The source-label
+  `[image "app/[slug]/shot.png" 1600×900, not retained]`. The source-label
   rules would rewrite `[slug]` to `(slug)`, mangle `http://[::1]/x.png`, and cut long paths, so a
   re-read or a summary copying the placeholder would name a different file. The literal is one line,
   cannot close the placeholder early, and contains no tag form, while `JSON.parse` returns the exact
-  locator. The dimensions are the original's. Only the not-retained form invites a re-read, because
-  a re-read in a later attempt makes the image available again; re-reading past the limit or on a
-  text-only model would meet the same limit or model. `conversation_read` and title lines keep the
+  locator. The dimensions are the original's. No placeholder directs the model to read the image
+  again: a compaction request, the step at the step cap, and a Run whose `tools.allowed` omits
+  `read` cannot act on such a directive, and the `read` tool description already tells the model
+  that an image read outside `media://` must be read again in a later turn. The not-retained form
+  names the exact locator, so a model that can `read` re-reads it. `conversation_read` and title lines keep the
   bare `[image media://<id> <name> <width>×<height>]` form, which states no cause; they render owner
   attachments only.
 
@@ -293,7 +300,7 @@ attempt's model declares `image` input and the epoch window admits the reference
 attempt's requests: a `read` before the next step's request is composed, in tool-call order, and a
 prompt import when the attempt's first request is composed, after any compaction, so an import that
 triggered overflow compaction is admitted into the new epoch. Otherwise the entry keeps only what its
-placeholder needs (locator, original dimensions, media type). Admission is append-only within an
+placeholder needs (locator and original dimensions). Admission is append-only within an
 attempt and compaction never runs inside one, so a reference the window refuses at entry can never
 be attached later in that attempt, and a text-only model always gets the omitted form; keeping its
 bytes would buy nothing. The retained variants of one attempt therefore never exceed the window's
@@ -324,7 +331,10 @@ falls under the epoch window.
 ("Compaction is the rail's re-baseline boundary", `context-injection`): it changes only when a
 checkpoint is published. Within one compaction epoch (the rows after the active checkpoint, plus the
 current attempt), attachable image references are attached oldest first in request order while both
-bounds hold: at most 100 images and at most 24 MiB of summed base64 model variants. Attachable means
+bounds hold: at most 100 images and at most 24 MiB of summed base64 model variants. A variant's
+base64 size is `4 × ceil(byteSize / 3)`, from the descriptor's `model.byteSize` for a stored object
+and from the retained variant's byte length for an unstored image, so the sum is known before any
+bytes load; the dimension-based token estimate above plays no part in it. Attachable means
 a resolvable `media://` reference or an unstored image the attempt's memory holds an entry for; an
 entry without bytes marks where the window stopped, and not-retained and unavailable references
 never count. The first reference that would exceed either bound, and every
@@ -470,7 +480,11 @@ restate that capability's requirements.
   model's own `input`), so unstored images in the prefix appear as their not-retained or omitted
   placeholder. The summarization instruction tells the summarizer to keep every image locator it
   mentions, `media://` or source locator, so a later turn can re-read an image after its message is
-  absorbed.
+  absorbed. That rule defers to the instruction's existing redaction rule, which already states that
+  redaction takes precedence over verbatim quoting: a credential in a locator, such as a URL's
+  `?token=secret`, is written `[REDACTED]`. An unstored image's locator passes through no
+  source-label sanitizing (R1 stores no read image, so `media-store`'s URL-label rule went with
+  them), so this redaction is the only guard keeping such a secret out of the durable summary.
 - Search indexes nothing from images; the recency digest keeps its rule that a first message without
   text renders no excerpt; public shares and shared forks omit file parts and keep text.
 
@@ -522,8 +536,9 @@ navigation, preloading, and zoom reset.
   limits the gap to owner uploads: read and imported images are never stored.
 - [Unstored images leave the prompt after their Run] A later turn sees a read image only as the
   not-retained placeholder, and the first request after the Run misses the provider cache from that
-  image on → the placeholder names the locator and asks for a re-read, which attaches the image in
-  that Run; an image the owner wants kept is uploaded instead.
+  image on → the placeholder names the exact locator, and the `read` tool description tells the
+  model to read such an image again, which attaches it in that Run; an image the owner wants kept
+  is uploaded instead.
 - [Thumbnails in stored parts] Each unstored image adds up to 64 KiB of data URL to its tool part or
   prompt-import payload → capped, excluded from every model budget, and stripped from every model
   request.

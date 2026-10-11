@@ -31,10 +31,11 @@ to the AI SDK rather than manually constructing a joined transcript.
 Each owner `file` part on a user message SHALL be mapped at request time from the
 media object it references; a stored part SHALL carry only its `media://`
 reference and never image bytes. Within that message, the mapped file parts SHALL
-follow every mapped `data-context` part, the temporal row included, and precede
-the message's first text part, in the file parts' stored order, while every other
-part keeps its stored relative order. Each file part SHALL map to one text part
-`Image n (media://<id>):`, with `n` counting that message's file parts from 1,
+be inserted, in their stored order, immediately after the last mapped
+`data-context` part, the temporal row included, or at the start of the message
+when it has none, while every other part keeps its stored relative order. Each
+file part SHALL map to one text part `Image n (media://<id>):`, with `n` counting
+that message's file parts from 1,
 followed by either one image part built from the object's model variant or the
 image placeholder text part, chosen by the epoch image window and the request model's
 declared input as `media-attachments` requires.
@@ -192,8 +193,8 @@ carry the complete final canonical envelope beneath `data.text` like every
 other persisted item. It SHALL NOT need a second storage shape to preserve its
 semantic form.
 
-`data.text` SHALL be the sole replay authority, except that the conversion
-boundary emits the image parts or placeholders of a `prompt-imports` item from
+`data.text` SHALL be the sole replay authority, except that request assembly
+emits the image parts or placeholders of a `prompt-imports` item from
 the image entries in its payload, after `data.text`. Producer, form, Run linkage,
 and payload SHALL remain non-rendering metadata for validated machine behavior,
 owner UI, provenance, and inspection. A metadata/text disagreement SHALL NOT

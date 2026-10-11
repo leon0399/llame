@@ -148,7 +148,7 @@ SHALL never share memory, a superseded attempt that is still running included.
 An entry SHALL hold the model variant's bytes only when the attempt's model declares `image` input
 and the epoch image window admits the reference on entry: a `read` before the next step is composed,
 in tool-call order; a prompt import when the attempt's first request is composed, after any
-compaction. Otherwise it SHALL hold only the locator, original dimensions, and media type. An
+compaction. Otherwise it SHALL hold only the locator and original dimensions. An
 attempt's retained variants SHALL never exceed 24 MiB of base64 in sum, however many steps it runs.
 
 #### Scenario: Retained bytes stay within the window's budget
@@ -157,14 +157,14 @@ attempt's retained variants SHALL never exceed 24 MiB of base64 in sum, however 
   steps, each with a 5 MiB base64 model variant
 - **THEN** the attempt's memory retains the model variants of the first four reads only, at most
   24 MiB of base64 in sum
-- **AND** it keeps only the locator, dimensions, and media type of the other six, which reach the
+- **AND** it keeps only the locator and dimensions of the other six, which reach the
   model as the limit placeholder
 
 #### Scenario: A text-only model's read retains no bytes
 
 - **WHEN** a Run on a model that does not declare `image` input reads `/work/shot.png`, a 1600×900
   image
-- **THEN** the attempt's memory keeps only the read's locator, dimensions, and media type
+- **THEN** the attempt's memory keeps only the read's locator and dimensions
 - **AND** that read reaches every later step as the omitted placeholder
 
 #### Scenario: A compacting attempt admits its prompt import in the new epoch
@@ -179,14 +179,14 @@ attempt's retained variants SHALL never exceed 24 MiB of base64 in sum, however 
 A request composed where the current attempt's memory holds no entry for an unstored image (a later
 turn, a retry or a resume, which starts a new attempt on any worker, a compaction request, or a
 fork) SHALL carry, in the image's position, the not-retained placeholder
-`[image <locator> <width>×<height>, not retained: read it again to view it]` when the request's
+`[image <locator> <width>×<height>, not retained]` when the request's
 model declares `image` input, and the omitted placeholder otherwise.
 
 #### Scenario: A later turn receives the not-retained placeholder
 
 - **WHEN** a turn on a vision model follows a Run that read `/work/shot.png`, a 1600×900 image
 - **THEN** that read's result reaches the model as
-  `[image "/work/shot.png" 1600×900, not retained: read it again to view it]`
+  `[image "/work/shot.png" 1600×900, not retained]`
 - **AND** the request carries no image part for it
 
 #### Scenario: A new attempt does not hold an earlier attempt's images
@@ -202,6 +202,20 @@ model declares `image` input, and the omitted placeholder otherwise.
   `/work/shot.png`, a 1600×900 image
 - **THEN** that read's result reaches the model as
   `[image "/work/shot.png" 1600×900, omitted: this model has no image input]`
+
+### Requirement: No placeholder directs the model to read an image again
+
+No image placeholder SHALL direct the model to read the image again. A compaction request, the step
+at the step cap, and a Run whose `tools.allowed` omits `read` cannot act on such a directive, and
+the `read` tool description tells the model that an image read outside `media://` is read again in
+a later turn; the not-retained placeholder names the exact locator for that read.
+
+#### Scenario: A compaction request carries no re-read directive
+
+- **WHEN** a compaction request on a vision model summarizes a row whose `read` result is an
+  unstored 1600×900 image of `/work/shot.png`
+- **THEN** that result reaches the summarizer as `[image "/work/shot.png" 1600×900, not retained]`
+- **AND** no placeholder in the request tells the model to read an image again
 
 ### Requirement: Each image reference takes exactly one model-facing form
 
@@ -229,7 +243,7 @@ dimensions SHALL be the original's.
 - **WHEN** a Workspace-bound Run's model reads `docs/shot.png`, a 1600×900 image, and a later turn
   replays that result on a vision model
 - **THEN** the result reaches the model as
-  `[image "docs/shot.png" 1600×900, not retained: read it again to view it]`
+  `[image "docs/shot.png" 1600×900, not retained]`
 
 ### Requirement: Placeholder locators are exact JSON string literals
 
@@ -242,7 +256,7 @@ literal SHALL never be truncated, and `JSON.parse` of it SHALL return the locato
 - **WHEN** a Workspace-bound Run's model reads `app/[slug]/shot.png`, a 1600×900 image, and a later
   turn on a vision model replays that result
 - **THEN** the result reaches the model as
-  `[image "app/[slug]/shot.png" 1600×900, not retained: read it again to view it]`
+  `[image "app/[slug]/shot.png" 1600×900, not retained]`
 - **AND** a `read` of the locator that literal parses to, `app/[slug]/shot.png`, returns a fresh
   image result for the same file, attached in that Run when the epoch image window admits it
 
@@ -294,6 +308,21 @@ epoch, SHALL NOT be attached.
   steps, each with a 5 MiB base64 model variant
 - **THEN** the request for the next step sends the first four `read` results as images
 - **AND** the fifth `read` result is sent as the limit placeholder
+
+### Requirement: The byte bound is summed from variant sizes before loading
+
+A reference's base64 size SHALL be `4 × ceil(byteSize / 3)` of its model variant's byte size: the
+media descriptor's `model.byteSize` for a stored object, and the retained variant's byte length for
+an unstored image. The epoch image window SHALL sum these sizes from descriptors and attempt memory
+before any image bytes are loaded, independently of the dimension-based token estimate.
+
+#### Scenario: Equal dimensions do not hide a byte overflow
+
+- **WHEN** a vision-model epoch carries five owner attachments of identical 2000×2000 dimensions
+  whose model variants' `model.byteSize` are each 3,900,000 bytes
+- **THEN** the window counts each as 5,200,000 base64 bytes from its descriptor, before loading any
+  variant
+- **AND** the first four are sent as images and the fifth reaches the model as the limit placeholder
 
 ### Requirement: Only attachable references count toward the window
 
@@ -391,8 +420,7 @@ the placeholder locator requirements define and the original's dimensions.
 For a model that declares `image`, an attachable reference the epoch image window does not attach
 SHALL reach the model, in the image's position and after any label, as
 `[image <subject> <width>×<height>, not attached: this context's image limit is reached]`, with
-`<subject>` as for the omitted placeholder. Neither the limit nor the omitted placeholder SHALL
-invite a re-read, which would meet the same limit or model; only the not-retained placeholder does.
+`<subject>` as for the omitted placeholder.
 
 #### Scenario: A vision model receives the limit placeholder
 
@@ -644,6 +672,21 @@ locator returns a fresh image result in the new epoch.
   vision model `read`s that locator
 - **THEN** the `read` returns a fresh image result
 - **AND** that result is sent as an image when the new epoch's bounds admit it
+
+### Requirement: Kept image locators yield to redaction
+
+The image-locator rule of the summarization instruction SHALL defer to the instruction's redaction
+rule in `model-system-prompts`: a credential, token, or other secret inside a locator, such as a URL
+query parameter, becomes `[REDACTED]`, because redaction takes precedence over verbatim quoting. An
+unstored image's locator passes through no source-label sanitizing, so redaction is the only guard
+keeping such a secret out of the summary.
+
+#### Scenario: A credential in a kept locator is redacted
+
+- **WHEN** the summarization instruction is rendered
+- **THEN** it states that the image-locator rule yields to redaction, so a kept locator such as
+  `https://example.test/a.png?token=secret` is written as `https://example.test/a.png?token=[REDACTED]`
+- **AND** it still states that redaction takes precedence over verbatim quoting
 
 ### Requirement: Image parts are sized by dimensions, not bytes
 

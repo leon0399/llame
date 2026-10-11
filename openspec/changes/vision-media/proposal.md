@@ -30,9 +30,11 @@ holds owner uploads only, and images read from anywhere but `media://` are never
     cache survives every image turn, except that an attempt's unstored images leave the window when
     it ends or a new attempt starts.
   - An image past the bounds becomes
-    `[image media://<id> <name> <w>×<h>, not attached: this context's image limit is reached]`, and
-    the next Run with such overflow compacts. Absorbed images survive as locators the model can
-    re-read.
+    `[image media://<id> <name> <w>×<h>, not attached: this context's image limit is reached]`. The
+    next Run on a vision model whose request carries such overflow and a stored image in an earlier
+    row compacts on its own model first; overflow inside the triggering message alone does not
+    compact, and a failed overflow-only compaction lets the Run proceed with the limit placeholder.
+    Absorbed images survive as locators the model can re-read.
   - Every image sent to a model without `image` input becomes
     `[image media://<id> <name> <w>×<h>, omitted: this model has no image input]`.
   - An unstored image names its submitted locator instead, as an exact JSON string literal, for
@@ -47,8 +49,8 @@ holds owner uploads only, and images read from anywhere but `media://` are never
     `media` field, and the reading attempt's memory keeps its model variant only while the image
     window admits it, so one attempt retains at most the window's 24 MiB of base64.
   - On a vision model, later turns, retries and resumes (new attempts on any worker), compaction,
-    and forks get `[image <locator> <w>×<h>, not retained: read it again to view it]`, for example
-    `[image "app/[slug]/shot.png" 1600×900, not retained: read it again to view it]`; a text-only
+    and forks get `[image <locator> <w>×<h>, not retained]`, for example
+    `[image "app/[slug]/shot.png" 1600×900, not retained]`; a text-only
     model gets the omitted placeholder.
   - The stored tool part keeps a display-only WebP `thumbnail` data URL of at most 256 px and
     64 KiB, which never reaches a model.
@@ -277,7 +279,7 @@ Issue #935 (the capability, closed by `prompt-import-images`):
   image to a vision model on each provider wire. On Chat Completions wires the image arrives as an image
   part, not base64 text.
 - No `read` or prompt import other than `media://` creates a media object. A later turn on a vision
-  model receives such an image as `[image <locator> W×H, not retained: read it again to view it]`,
+  model receives such an image as `[image <locator> W×H, not retained]`,
   with the submitted locator as a JSON string literal, while a `media://` read replays from the
   store.
 - A text-only model receives every earlier image as its `omitted` placeholder, and the model can name
@@ -285,11 +287,13 @@ Issue #935 (the capability, closed by `prompt-import-images`):
 - A prompt import of `@/path/to/shot.png` delivers the image inside the `prompt-imports` item.
 - Another owner's media id is `404` on every route, `not_found` through `read`, and rejected in a
   message, enforced by RLS with a negative isolation test.
-- An SVG, an HTML file renamed `.png`, a 41-megapixel image, and a 21 MiB file are refused at upload. At
-  read, the first two return text and the last two fail with `image_too_large`.
+- An SVG, an HTML file renamed `.png`, a 41-megapixel image, and a 21 MiB PNG are refused at upload.
+  At read, the first two return text and the last two fail with `image_too_large`, while a 21 MiB
+  text file still reads as text.
 - Adding an image never changes whether an earlier image is attached, except that a Run's unstored
   images leave the window when it ends. A Run that reads past the bounds gets the limit placeholder
-  for the newest images, and attachments past the bounds make the next Run compact. One maximum-size
+  for the newest images, and attachments past the bounds make the next Run compact when an earlier
+  row carries a stored image; overflow inside the triggering message alone does not. One maximum-size
   screenshot is admitted on a 200k-token model without compaction.
 
 Issue [#1166](https://github.com/leon0399/llame/issues/1166) (the web UI, closed by `previews-lightbox`):

@@ -72,7 +72,7 @@ placeholder for a model that declares `image` input and the omitted placeholder 
 - **WHEN** a later turn on a model that declares `image` input replays the user message whose
   `prompt-imports` item imported `@shot.png`, a 1600×900 image
 - **THEN** the request carries, immediately after the item's text, the placeholder
-  `[image "shot.png" 1600×900, not retained: read it again to view it]`
+  `[image "shot.png" 1600×900, not retained]`
 - **AND** the request carries no image part for that entry
 
 #### Scenario: A later text-only turn receives the omitted placeholder
@@ -151,7 +151,7 @@ other malformed entry.
 
 ### Requirement: Image entry payloads are never sent to a model
 
-The conversion boundary SHALL take the image part or placeholder from the entry, never from the
+Request assembly SHALL take the image part or placeholder from the entry, never from the
 item's text, and SHALL never send a `thumbnail` to a model. The owner chip SHALL render a `thumbnail`
 directly and SHALL open a `media` locator's image from the media routes.
 

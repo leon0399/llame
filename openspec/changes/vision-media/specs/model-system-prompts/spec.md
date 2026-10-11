@@ -92,7 +92,7 @@ Failed-attempt visible output and tool observations SHALL remain part of the com
 - **AND** each stored image beyond the epoch's bounds replays as
   `[image media://<id> <name> <width>×<height>, not attached: this context's image limit is reached]`
 - **AND** the earlier read replays as
-  `[image "/work/shot.png" <width>×<height>, not retained: read it again to view it]`
+  `[image "/work/shot.png" <width>×<height>, not retained]`
 
 #### Scenario: A switch between vision models keeps the attached set
 

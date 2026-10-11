@@ -509,8 +509,8 @@ Markdown-only or per-file byte policy SHALL apply to `kb://` operations, except
 that the explicit `outline` representation is available only for content the
 representation requirements identify as Markdown, and that a file whose leading
 bytes match an accepted image signature is bounded by the media store's bounds
-under "Image decode refusals fail the read"; text and raw reads, edits, and
-writes are unaffected.
+under "Image decode refusals fail the read" and takes no selector; text and raw
+reads of other files, edits, and writes are unaffected.
 
 Every `kb://` result SHALL identify the target by its locator and SHALL carry
 the response-time Knowledge Space identifier and display name. It SHALL expose

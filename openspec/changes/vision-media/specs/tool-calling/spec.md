@@ -245,7 +245,7 @@ that produced them.
 - **WHEN** a later turn on a model that declares `image` input replays the stored image result of
   `read("/work/shot.png")` for a 1600×900 image
 - **THEN** the replayed result's text carries
-  `[image "/work/shot.png" 1600×900, not retained: read it again to view it]`
+  `[image "/work/shot.png" 1600×900, not retained]`
 - **AND** the request carries no image content for that result
 
 #### Scenario: An unattached image result replays as a placeholder
