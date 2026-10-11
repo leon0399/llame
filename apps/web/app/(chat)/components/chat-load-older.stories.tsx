@@ -38,15 +38,19 @@ async function landedAtBottom(scroller: HTMLElement) {
  * The position is read from a ResizeObserver created after the transcript's
  * own, so its callback runs after theirs in that same frame: before the
  * browser paints it, and before the stick-to-bottom library's
- * requestAnimationFrame-deferred catch-up runs in the next frame.
+ * requestAnimationFrame-deferred catch-up runs in the next frame. A newly
+ * observed element always gets one report, so a report that shows no growth
+ * is ignored: without a growth the promise never resolves and the story fails.
  */
 function growCodeAndMeasure(
   content: HTMLElement,
   code: HTMLElement,
   scroller: HTMLElement,
 ) {
+  const heightBefore = content.getBoundingClientRect().height;
   return new Promise<{ scrollTop: number; distance: number }>((resolve) => {
     const observer = new ResizeObserver(() => {
+      if (content.getBoundingClientRect().height <= heightBefore) return;
       observer.disconnect();
       resolve({
         scrollTop: scroller.scrollTop,
