@@ -53,9 +53,10 @@ function imageOf(stored: MediaObject): StoredImage {
 
 /**
  * The store of one attempt. Its memory keeps the decoded model variant only
- * when the attempt's model declares `image` input (`imageInput`); otherwise
- * an entry keeps what its placeholder needs. The step composer admits a kept
- * variant into the epoch window when the next step is composed (R1.4).
+ * when the attempt's model declares `image` input (`imageInput`) and the
+ * memory's bounds allow it; otherwise an entry keeps what its placeholder
+ * needs. The step composer admits a kept variant into the epoch window when
+ * the next step is composed (R1.4).
  */
 export function createToolMediaStore(
   media: Pick<MediaService, 'findOwned'>,
@@ -73,19 +74,16 @@ export function createToolMediaStore(
           }
           const { original, model } = await prepareMedia(await readBytes());
           const thumbnail = await encodeThumbnail(model.bytes);
-          const image = {
-            mediaType: original.mediaType,
-            width: original.width,
-            height: original.height,
-          };
+          const { mediaType, width, height } = original;
           if (key !== undefined) {
             images.hold(key, {
-              ...image,
               locator,
+              width,
+              height,
               ...(imageInput && { model }),
             });
           }
-          return { status: 'success', ...image, thumbnail };
+          return { status: 'success', mediaType, width, height, thumbnail };
         } catch (error) {
           if (!(error instanceof MediaIngestError)) throw error;
           return { status: 'error', type: error.code, message: error.message };

@@ -339,13 +339,13 @@ describe('loadMediaSizing', () => {
   it("admits unstored references by what the attempt's memory holds for them", async () => {
     const { resolver } = fakeResolver([]);
     const model = {
-      bytes: new Uint8Array((EPOCH_MAX_BASE64_BYTES * 3) / 4),
+      bytes: Buffer.alloc((EPOCH_MAX_BASE64_BYTES * 3) / 4),
       mediaType: 'image/png' as const,
       width: 1600,
       height: 900,
     };
-    resolver.images.hold('c1', { ...SHOT, mediaType: 'image/png', model });
-    resolver.images.hold('c2', { ...SHOT, mediaType: 'image/png', model });
+    resolver.images.hold('c1', { ...SHOT, model });
+    resolver.images.hold('c2', { ...SHOT, model });
     const result = (toolCallId: string): ModelMessage => ({
       role: 'tool',
       content: [

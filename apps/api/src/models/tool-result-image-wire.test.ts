@@ -100,11 +100,10 @@ const base = {
 const SHOT = { locator: '/work/shot.png', width: 1600, height: 900 };
 const UNSTORED_ENVELOPE =
   '{"status":"success","kind":"image","mediaType":"image/png","width":1600,"height":900,"path":"/work/shot.png"}';
-const HELD_BYTES = new Uint8Array([1, 2, 3, 4]);
-const HELD_BASE64 = Buffer.from(HELD_BYTES).toString('base64');
+const HELD_BYTES = Buffer.from([1, 2, 3, 4]);
+const HELD_BASE64 = HELD_BYTES.toString('base64');
 const HELD_IMAGE = {
   ...SHOT,
-  mediaType: 'image/png',
   model: {
     bytes: HELD_BYTES,
     mediaType: 'image/png' as const,

@@ -448,7 +448,7 @@ describe('composeStepMessages', () => {
     const INTERIM =
       '[image "/work/shot.png" 1600×900, omitted: this connection cannot carry tool-result images yet]';
     const variant = (byteLength = 3): RetainedVariant => ({
-      bytes: new Uint8Array(byteLength).fill(7),
+      bytes: Buffer.alloc(byteLength, 7),
       mediaType: 'image/png',
       width: 1600,
       height: 900,
@@ -456,11 +456,7 @@ describe('composeStepMessages', () => {
     const held = (
       model: RetainedVariant | undefined,
       image = SHOT,
-    ): HeldImage => ({
-      ...image,
-      mediaType: 'image/png',
-      ...(model && { model }),
-    });
+    ): HeldImage => ({ ...image, ...(model && { model }) });
     const unstoredResult = (
       toolCallId: string,
       image = SHOT,
@@ -546,6 +542,8 @@ describe('composeStepMessages', () => {
         { type: 'text', value: `${ENVELOPE}\n${INTERIM}` },
       ]);
       expect(JSON.stringify(composed)).not.toContain('read it again');
+      // The wire never sends the image, so the attempt keeps none of it.
+      expect(resolver.images.get('call-1')).toBeUndefined();
     });
 
     it.each([
@@ -975,9 +973,8 @@ describe('installStepPreparation', () => {
             execute: (_, { toolCallId }) => {
               resolver.images.hold(toolCallId, {
                 ...image(toolCallId),
-                mediaType: 'image/png',
                 model: {
-                  bytes: new Uint8Array(modelByteSize),
+                  bytes: Buffer.alloc(modelByteSize),
                   mediaType: 'image/png',
                   width: 1600,
                   height: 900,
@@ -1036,6 +1033,98 @@ describe('installStepPreparation', () => {
       );
       expect(JSON.stringify(next).match(/not retained/gu)).toHaveLength(10);
       expect(JSON.stringify(next)).not.toContain('image-data');
+    });
+
+    it('never retains more than the window bounds while one step reads in parallel', async () => {
+      const { resolver } = fakeResolver([]);
+      const calls = Array.from({ length: 6 }, (_, n) => `call-${n + 1}`);
+      let steps = 0;
+      const model = new MockLanguageModelV3({
+        doStream: () =>
+          Promise.resolve({
+            stream: simulateReadableStream({
+              chunks:
+                steps++ === 0
+                  ? [
+                      ...calls.map(
+                        (toolCallId): LanguageModelV3StreamPart => ({
+                          type: 'tool-call',
+                          toolCallId,
+                          toolName: 'noop',
+                          input: '{}',
+                        }),
+                      ),
+                      {
+                        type: 'finish',
+                        finishReason: { unified: 'tool-calls', raw: undefined },
+                        usage: ZERO_USAGE,
+                      },
+                    ]
+                  : TEXT_STEP,
+            }),
+          }),
+      });
+      const retained = () =>
+        calls.flatMap((call) => {
+          const bytes = resolver.images.get(call)?.model?.bytes;
+          return bytes === undefined ? [] : [4 * Math.ceil(bytes.length / 3)];
+        });
+      // The memory as each read leaves it, and as the next step starts.
+      const observed: Array<ReadonlyArray<number>> = [];
+      const image = (toolCallId: string) => ({
+        locator: `/work/${toolCallId}.png`,
+        width: 1600,
+        height: 900,
+      });
+      const input: ModelStreamInput = {
+        chat: CHAT,
+        messages: [{ role: 'user', content: 'read them' }],
+        tools: {
+          noop: tool({
+            inputSchema: z.object({}),
+            execute: async (_, { toolCallId }) => {
+              await Promise.resolve();
+              resolver.images.hold(toolCallId, {
+                ...image(toolCallId),
+                model: {
+                  bytes: Buffer.alloc(modelByteSize),
+                  mediaType: 'image/png',
+                  width: 1600,
+                  height: 900,
+                },
+              });
+              observed.push(retained());
+              return 'read';
+            },
+            toModelOutput: ({ toolCallId }) =>
+              toolResultOutput('envelope', image(toolCallId)),
+          }),
+        },
+        media: resolver,
+        onStepStart: ({ stepNumber }) => {
+          if (stepNumber === 1) observed.push(retained());
+          return undefined;
+        },
+      };
+      const streamOptions = {
+        model,
+        messages: input.messages,
+        tools: input.tools,
+        stopWhen: stepCountIs(2),
+      };
+      installStepPreparation(streamOptions, input, ['text', 'image']);
+      await expect(streamText(streamOptions).text).resolves.toBe('ok');
+
+      // Six 5 MiB variants would retain 30 MiB; the memory never holds more
+      // than four, 20 MiB, before the next step is composed.
+      expect(observed).toHaveLength(calls.length + 1);
+      for (const sizes of observed) {
+        expect(sizes.length).toBeLessThanOrEqual(4);
+        expect(sizes.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(
+          EPOCH_MAX_BASE64_BYTES,
+        );
+      }
+      expect(observed.at(-1)).toHaveLength(4);
     });
   });
 

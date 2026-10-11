@@ -193,7 +193,6 @@ describe('native image reads', () => {
     expect(media.lookups).toEqual([]);
     expect(held()).toEqual({
       locator: path,
-      mediaType: 'image/png',
       width: 160,
       height: 90,
       model: {
@@ -217,7 +216,6 @@ describe('native image reads', () => {
     expect(shown(result)).toEqual({ ...IMAGE, path });
     expect(held()).toEqual({
       locator: path,
-      mediaType: 'image/png',
       width: 160,
       height: 90,
     });

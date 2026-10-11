@@ -53,12 +53,11 @@ export type ProjectedMedia =
   | { type: 'image'; image: Uint8Array; mediaType: string };
 
 /**
- * An image the epoch window attaches: the subject its placeholders name, its
- * model variant's dimensions and format, and where its bytes come from, the
- * store for a stored object or the attempt's memory for an unstored image.
+ * An image the epoch window attaches: its model variant's dimensions and
+ * format, and where its bytes come from, the store for a stored object or the
+ * attempt's memory for an unstored image.
  */
 export type AttachedImage = {
-  subject: ImageSubject;
   modelWidth: number;
   modelHeight: number;
   modelMediaType: string;
@@ -80,7 +79,9 @@ type ResolvedImage = { subject: ImageSubject; attached?: AttachedImage };
  *
  * An unstored image enters the attempt's window when it is first composed, in
  * request order, so in tool-call order: one the window refuses then is never
- * attached later in the attempt, so its bytes are dropped for good (R1.4).
+ * attached later in the attempt, so its bytes are dropped for good (R1.4). A
+ * `placeholder` wire never sends a tool-result image, so the attempt keeps no
+ * unstored one there: each is forgotten before the window admits anything.
  *
  * Idempotent: the output carries no references, and messages without any are
  * returned as the same objects.
@@ -89,6 +90,11 @@ export async function composeStepMessages(
   messages: Array<ModelMessage>,
   { resolver, imageInput, toolResultImages }: ComposeStepOptions,
 ): Promise<Array<ModelMessage>> {
+  if (toolResultImages === 'placeholder') {
+    for (const { image } of collectMediaRefs(messages)) {
+      if (!isString(image)) resolver.images.forget(image.key);
+    }
+  }
   const sizing = await loadMediaSizing(messages, resolver, imageInput);
   if (sizing.refs.length === 0) return messages;
   sizing.refs.forEach(({ image }, index) => {
@@ -197,11 +203,9 @@ function textOf(text: string): Array<ProjectedMedia> {
 }
 
 function storedImage(id: string, d: MediaDescriptor): ResolvedImage {
-  const subject = storedSubject(d);
   return {
-    subject,
+    subject: storedSubject(d),
     attached: {
-      subject,
       modelWidth: d.modelWidth,
       modelHeight: d.modelHeight,
       modelMediaType: d.modelMediaType,
@@ -222,7 +226,6 @@ function unstoredImage(
     : {
         subject,
         attached: {
-          subject,
           modelWidth: model.width,
           modelHeight: model.height,
           modelMediaType: model.mediaType,

@@ -244,7 +244,6 @@ describe('createRunMediaResolver images', () => {
     const second = scriptedResolver([]).resolver;
     first.images.hold('call-1', {
       locator: '/work/shot.png',
-      mediaType: 'image/png',
       width: 1600,
       height: 900,
     });

@@ -17,6 +17,11 @@ export const EPOCH_MAX_IMAGES = 100;
 /** Summed base64 size of the attached model variants: 24 MiB. */
 export const EPOCH_MAX_BASE64_BYTES = 25_165_824;
 
+/** The base64 length of `byteSize` bytes, as the window counts a variant. */
+export function base64Size(byteSize: number): number {
+  return 4 * Math.ceil(byteSize / 3);
+}
+
 /**
  * An unstored image as the window sees it (vision-media R1.4), by what the
  * current attempt's memory holds for it: no entry (`not-retained`), or an
@@ -60,7 +65,7 @@ export function admitEpochImages(
     if (counted === 'unavailable' || counted === 'not-retained') {
       return counted;
     }
-    const size = 4 * Math.ceil(counted / 3);
+    const size = base64Size(counted);
     if (
       full ||
       images === EPOCH_MAX_IMAGES ||

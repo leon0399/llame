@@ -804,9 +804,8 @@ describe('media sizing (vision-media D6)', () => {
               'call-1',
               {
                 ...SHOT,
-                mediaType: 'image/png',
                 model: {
-                  bytes: new Uint8Array(model.bytes),
+                  bytes: Buffer.alloc(model.bytes),
                   mediaType: 'image/png',
                   width: model.width,
                   height: model.height,
