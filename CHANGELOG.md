@@ -181,9 +181,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   placeholder, right after the notice's text when the epoch image window admits
   it as the attempt's first request is composed. Later turns, retries, and
   resumes get the not-retained placeholder naming the locator as written, and
-  a text-only model the omitted one. Its private metadata records a
-  display-only `thumbnail` with the original's width, height, and format, never
-  sent to a model. `@media://<id>` is a target too: an image you stored imports
+  a text-only model the omitted one. Its private metadata records the
+  original's width, height, and format with a display-only `thumbnail`, left
+  out when it would exceed its cap and never sent to a model. `@media://<id>`
+  is a target too: an image you stored imports
   by its locator alone and replays from the store in every turn, while an
   unknown id or another owner's stays prose. Image entries count toward the
   8-read bound, but their bytes and thumbnails never count toward the 128 KiB

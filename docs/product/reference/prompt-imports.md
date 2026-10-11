@@ -198,10 +198,11 @@ retry keeps the bundle an earlier attempt stored and loads only unseen files.
 Your message shows a chip listing each import locator as imported, truncated,
 denied, failed, or omitted, an image entry among them as imported; hovering
 shows the resolved path when it differs. The chip reads the item's private
-metadata, which also records an image entry's display-only thumbnail with the
-original's width, height, and format, or its `media://<id>` locator; the
-thumbnail never reaches a model. Other owners, public shares, transcript
-exports, and search see neither the item's text nor its metadata.
+metadata, which also records an image entry's original width, height, and
+format with its display-only thumbnail, left out when it would exceed its cap,
+or its `media://<id>` locator; the thumbnail never reaches a model. Other
+owners, public shares, transcript exports, and search see neither the item's
+text nor its metadata.
 
 ## Configured by
 

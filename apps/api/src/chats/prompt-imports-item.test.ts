@@ -164,6 +164,34 @@ describe('prompt imports item', () => {
     ]);
   });
 
+  it('records an unstored image entry over the thumbnail cap by its size alone', () => {
+    const { thumbnail: _thumbnail, ...original } = UNSTORED;
+    const item = createPromptImportsItem({
+      runId: RUN_ID,
+      outcomes: [
+        {
+          locator: 'noise.png',
+          outcome: 'imported',
+          body: IMAGE_BODY,
+          image: original,
+        },
+      ],
+      omitted: [],
+    });
+
+    expect(item.data.payload).toEqual({
+      imports: [{ locator: 'noise.png', outcome: 'imported', ...original }],
+    });
+    expect(promptImportImageRefs(item)).toEqual([
+      {
+        locator: 'noise.png',
+        width: 1600,
+        height: 900,
+        key: promptImportImageKey(RUN_ID, 'noise.png'),
+      },
+    ]);
+  });
+
   it('records a media entry locator alone and refers to it by its id', () => {
     const item = createPromptImportsItem({
       runId: RUN_ID,
@@ -241,6 +269,18 @@ describe('promptImportImage', () => {
         path: '/repo/shot.png',
       }),
     ).toEqual(UNSTORED);
+  });
+
+  it('records an unstored image result without a thumbnail by its original alone', () => {
+    const { thumbnail: _thumbnail, ...original } = UNSTORED;
+    expect(
+      promptImportImage({
+        status: 'success',
+        kind: 'image',
+        ...original,
+        path: '/repo/noise.png',
+      }),
+    ).toEqual(original);
   });
 
   it('records a media image result by its locator alone', () => {
@@ -326,6 +366,12 @@ describe('prompt imports payload validation', () => {
   const { height: _height, ...withoutHeight } = image;
   const { mediaType: _mediaType, ...withoutMediaType } = image;
   const { thumbnail: _thumbnail, ...withoutThumbnail } = image;
+  const { width: _sizeWidth, ...sizeWithoutWidth } = withoutThumbnail;
+  const { mediaType: _sizeType, ...sizeWithoutMediaType } = withoutThumbnail;
+
+  it('accepts an unstored entry whose thumbnail exceeded the cap and was left out', () => {
+    expect(isPromptImportsPayload({ imports: [withoutThumbnail] })).toBe(true);
+  });
 
   it.each([
     [
@@ -406,7 +452,12 @@ describe('prompt imports payload validation', () => {
     ['a thumbnail without its width', { imports: [withoutWidth] }],
     ['a thumbnail without its height', { imports: [withoutHeight] }],
     ['a thumbnail without its media type', { imports: [withoutMediaType] }],
-    ['dimensions without a thumbnail', { imports: [withoutThumbnail] }],
+    ['a width without the media type', { imports: [sizeWithoutMediaType] }],
+    ['a media type without the width', { imports: [sizeWithoutWidth] }],
+    [
+      'dimensions on an entry that was not imported',
+      { imports: [{ ...withoutThumbnail, outcome: 'failed' }] },
+    ],
     ['a zero width', { imports: [{ ...image, width: 0 }] }],
     ['a non-integer height', { imports: [{ ...image, height: 1.5 }] }],
     [

@@ -785,6 +785,32 @@ describe('resolvePromptImports image entries', () => {
     ]);
   });
 
+  it('keeps the size and type of an image read whose thumbnail exceeded the cap', async () => {
+    const { thumbnail: _thumbnail, ...original } = UNSTORED;
+    const { run } = createHarness({
+      existing: ['/repo/noise.png'],
+      result: (path) => ({
+        status: 'success',
+        kind: 'image',
+        ...original,
+        path,
+      }),
+      body: envelope,
+    });
+
+    const result = await run('see @noise.png');
+
+    expect(result.outcomes).toEqual([
+      {
+        locator: 'noise.png',
+        resolved: '/repo/noise.png',
+        outcome: 'imported',
+        body: envelope('/repo/noise.png'),
+        image: original,
+      },
+    ]);
+  });
+
   it('counts an image entry toward the eight-target bound', async () => {
     const { calls, run } = createHarness({
       existing: ['/repo/shot.png'],

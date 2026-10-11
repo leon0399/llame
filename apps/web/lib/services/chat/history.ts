@@ -143,9 +143,9 @@ export type PromptImportOutcome = "imported" | "denied" | "failed";
  * import markers in the prompt resolved. `imports` lists each marker's
  * locator as written with its outcome (`resolved` is the path it resolved
  * to, `truncated` marks a file cut at the cap, `media` names an imported
- * image's `media://` locator, `thumbnail` is the display-only inline
- * thumbnail of an image that was not stored, with the original's `width`,
- * `height`, and `mediaType`); `omitted` lists the locators
+ * image's `media://` locator, and an image that was not stored carries the
+ * original's `width`, `height`, and `mediaType` with its display-only inline
+ * `thumbnail`, absent when it would exceed the cap); `omitted` lists the locators
  * past the per-prompt marker cap, present only when non-empty. The model-visible
  * text names denied/failed targets only as not imported and lists omitted
  * locators; outcome detail and resolved paths are owner-only metadata.
@@ -167,11 +167,12 @@ export type PromptImportsPart = {
           /** The `media://` locator of an imported image entry. */
           media?: string;
         } & (
-          | { thumbnail?: undefined }
+          | { thumbnail?: undefined; width?: undefined }
           | {
               /** The inline WebP data URL of an image imported without
-               *  being stored; the rest describe the original. */
-              thumbnail: string;
+               *  being stored, when it fits the cap; the rest describe the
+               *  original. */
+              thumbnail?: string;
               width: number;
               height: number;
               mediaType: string;
@@ -400,8 +401,8 @@ const promptImportEntryFields = {
 /** One `payload.imports` entry, exactly: a non-empty locator, a known
  *  outcome, and the optional `resolved` / `truncated` fields. An imported
  *  image entry carries either its `media://` locator as `media`, or, when it
- *  was not stored, its inline `thumbnail` with the original's `width`,
- *  `height`, and `mediaType`; never both. */
+ *  was not stored, the original's `width`, `height`, and `mediaType` with its
+ *  inline `thumbnail` when that fit the cap; never both. */
 const promptImportEntrySchema = z.union([
   z.strictObject({
     ...promptImportEntryFields,
@@ -415,7 +416,7 @@ const promptImportEntrySchema = z.union([
   z.strictObject({
     ...promptImportEntryFields,
     outcome: z.literal("imported"),
-    thumbnail: inlineThumbnailSchema,
+    thumbnail: inlineThumbnailSchema.optional(),
     width: z.number().int().positive(),
     height: z.number().int().positive(),
     mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),

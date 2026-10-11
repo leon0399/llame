@@ -5,9 +5,10 @@
  * bodies are model-facing data and are neutralized before they enter a file
  * element; the payload deliberately records metadata only. An image entry's
  * body is its native image result; its payload entry records either the
- * `media://` locator of a stored image or the display-only thumbnail and the
- * original's size and type of an unstored one, from which the conversion
- * boundary attaches the image after the item's text (vision-media D8).
+ * `media://` locator of a stored image or the original's size and type of an
+ * unstored one with its display-only thumbnail when that fit the cap, from
+ * which the conversion boundary attaches the image after the item's text
+ * (vision-media D8).
  */
 
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
@@ -48,12 +49,13 @@ type PromptImportOutcomeKind = (typeof PROMPT_IMPORT_OUTCOMES)[number];
 /**
  * The private record of an imported image (vision-media D8): the `media://`
  * locator of a stored image alone, or, for an image imported without being
- * stored, its display-only `thumbnail` with the original's size and type.
+ * stored, the original's size and type with its display-only `thumbnail`,
+ * absent when it would exceed the cap.
  */
 export type PromptImportImage =
   | { readonly media: string }
   | {
-      readonly thumbnail: string;
+      readonly thumbnail?: string;
       readonly width: number;
       readonly height: number;
       readonly mediaType: OriginalMediaType;
@@ -95,7 +97,7 @@ export interface PromptImportsPayload extends UnknownRecord {
 /** The two exact forms of `PromptImportImage`. */
 const storedImageFields = { media: z.string().regex(MEDIA_LOCATOR_PATTERN) };
 const unstoredImageFields = {
-  thumbnail: z.string().refine(isThumbnailDataUrl),
+  thumbnail: z.string().refine(isThumbnailDataUrl).exactOptional(),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   mediaType: z.enum(ORIGINAL_MEDIA_TYPES),
@@ -141,7 +143,12 @@ export function promptImportImage(
   const { media, thumbnail, width, height, mediaType } = result;
   const image = isString(media)
     ? { media }
-    : { thumbnail, width, height, mediaType };
+    : {
+        ...(thumbnail !== undefined && { thumbnail }),
+        width,
+        height,
+        mediaType,
+      };
   return promptImportImageSchema.safeParse(image).data;
 }
 

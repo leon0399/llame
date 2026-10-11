@@ -817,6 +817,18 @@ describe("prompt-imports context items", () => {
     expect(isPromptImportsPart(withPayload({ imports: [image] }))).toBe(true);
   });
 
+  it("accepts an unstored image entry whose thumbnail exceeded the cap and was left out", () => {
+    const image = {
+      locator: "shot.png",
+      outcome: "imported" as const,
+      width: 8000,
+      height: 6000,
+      mediaType: "image/png",
+    };
+
+    expect(isPromptImportsPart(withPayload({ imports: [image] }))).toBe(true);
+  });
+
   it("rejects a malformed unstored image entry or one carrying both thumbnail and media", () => {
     const image = {
       locator: "shot.png",
@@ -846,6 +858,7 @@ describe("prompt-imports context items", () => {
       { ...image, mediaType: "image/svg+xml" },
       { ...image, outcome: "failed" },
       withoutWidth,
+      { locator: image.locator, outcome: image.outcome, width: image.width },
     ]) {
       expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
     }
