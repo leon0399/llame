@@ -47,13 +47,22 @@ all of them. What fails is a gap". (Design D2 cites the sources.)
   soon as the request fits, or once no droppable reasoning remains. The bound
   is the share of the window left after the rest of the request; there is no
   configured number (design D1, D3). Compaction selection then runs on the
-  bounded request, unchanged. If it still does not fit, the window variant and
-  its existing failures apply.
+  bounded request, unchanged. Because the bound stops just inside the
+  admission line, and the default threshold is 80% of the window with no
+  reserved output, the measured size normally still reaches the threshold.
+  The threshold variant then summarizes the history with the target model
+  itself. The gain is therefore a target-model checkpoint, or none when the
+  measured size stays below the threshold, in place of a summary by the
+  previous Run's model or a `context_incompatible` failure. If the request
+  still does not fit, the window variant and its existing failures apply.
 - A part is never truncated, edited, re-ordered, or split from the rest of its
   reply. A kept part is replayed byte-identically with its metadata. Only
   replies before the triggering user message are droppable. The turn in
   progress, whose reasoning the provider requires within a tool-use loop,
-  lives in the SDK's step messages and is never touched (design D4).
+  lives in the SDK's step messages and is never touched. The most recent
+  prior reply is never droppable when it ends on a tool call and its result,
+  because its replay then has the wire shape of an open tool-use turn
+  (design D4).
 - The bound weighs reasoning with the existing admission estimate: text
   counts, opaque provider metadata does not. The metadata privacy boundary is
   unchanged (design D5).
@@ -77,16 +86,16 @@ all of them. What fails is a gap". (Design D2 cites the sources.)
 Each is recommended in `design.md`, and the delta specs follow the
 recommendation. A different answer revises the specs before approval.
 
-| Question                                  | Recommended                                                                                                                                                                                       | Alternative                                                                                                                                                                                                                                            |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Bound per Chat, per turn, or window share | The share of the target window left after the non-reasoning request: drop until the existing admission check passes (D1)                                                                          | A per-turn or per-Chat cap, or a fixed fraction of the window: these invent a number with no evidence, and D11 rejects a per-turn total                                                                                                                |
-| Persist, replay, or compaction time       | Replay time, before compaction selection (D1, D16)                                                                                                                                                | Persist time discards reasoning a larger-window model could use. Compaction time is already covered, since a checkpoint absorbs everything. Bounding only as a fallback after the window variant fails keeps the lossy summary where eviction suffices |
-| Unit of eviction                          | All reasoning of one assistant reply, oldest reply first (D3)                                                                                                                                     | Per part or per run of parts: keeps more reasoning, but needs guards for Responses items that span parts and for Anthropic's consecutive-blocks rule                                                                                                   |
-| Evicted parts in the Thinking panel       | Stay visible and exportable, display-only, with storage unchanged (D7)                                                                                                                            | Remove them from history: this destroys data that a later request, or another model, can still replay                                                                                                                                                  |
-| Owner signal                              | None (D7). **OPEN for Leo**                                                                                                                                                                       | A count on `model.requested` or a "not sent" marker in the panel                                                                                                                                                                                       |
-| Wire scope                                | Messages, Responses, Codex; completions excluded (D6). **OPEN for Leo**                                                                                                                           | Bound the completions wire too and accept DeepSeek's 400, or synthesize empty `reasoning_content` placeholders as opencode does                                                                                                                        |
-| Remember what was dropped                 | No: each request derives its own bound (D8)                                                                                                                                                       | Record a per-Chat floor so a dropped block never comes back, which Anthropic's "once you remove a block, leave it out" favors                                                                                                                          |
-| Eviction before window compaction         | Yes: a request that fits once older reasoning is dropped is not summarized, and the threshold trigger is unchanged (D1). **OPEN for Leo** to confirm that reasoning yields before visible history | Keep compaction first and bound only when compaction cannot run                                                                                                                                                                                        |
+| Question                                  | Recommended                                                                                                                                                                                                                                                                                                                | Alternative                                                                                                                                                                                                                                            |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bound per Chat, per turn, or window share | The share of the target window left after the non-reasoning request: drop until the existing admission check passes (D1)                                                                                                                                                                                                   | A per-turn or per-Chat cap, or a fixed fraction of the window: these invent a number with no evidence, and D11 rejects a per-turn total                                                                                                                |
+| Persist, replay, or compaction time       | Replay time, before compaction selection (D1, D16)                                                                                                                                                                                                                                                                         | Persist time discards reasoning a larger-window model could use. Compaction time is already covered, since a checkpoint absorbs everything. Bounding only as a fallback after the window variant fails keeps the lossy summary where eviction suffices |
+| Unit of eviction                          | All reasoning of one assistant reply, oldest reply first (D3)                                                                                                                                                                                                                                                              | Per part or per run of parts: keeps more reasoning, but needs guards for Responses items that span parts and for Anthropic's consecutive-blocks rule                                                                                                   |
+| Evicted parts in the Thinking panel       | Stay visible and exportable, display-only, with storage unchanged (D7)                                                                                                                                                                                                                                                     | Remove them from history: this destroys data that a later request, or another model, can still replay                                                                                                                                                  |
+| Owner signal                              | None (D7). **OPEN for Leo**                                                                                                                                                                                                                                                                                                | A count on `model.requested` or a "not sent" marker in the panel                                                                                                                                                                                       |
+| Wire scope                                | Messages, Responses, Codex; completions excluded (D6). **OPEN for Leo**                                                                                                                                                                                                                                                    | Bound the completions wire too and accept DeepSeek's 400, or synthesize empty `reasoning_content` placeholders as opencode does                                                                                                                        |
+| Remember what was dropped                 | No: each request derives its own bound (D8)                                                                                                                                                                                                                                                                                | Record a per-Chat floor so a dropped block never comes back, which Anthropic's "once you remove a block, leave it out" favors                                                                                                                          |
+| Eviction before window compaction         | Yes: a request that fits once older reasoning is dropped is not summarized by the previous Run's model (window variant). It normally reaches the threshold and is summarized by the target model instead, or is sent as is when below it (D1). **OPEN for Leo** to confirm that reasoning yields before the window variant | Keep compaction first and bound only when compaction cannot run                                                                                                                                                                                        |
 
 ## Open for Leo
 
@@ -110,20 +119,23 @@ None.
 ### Modified Capabilities
 
 - `reasoning-output`: new requirements bound replayed reasoning by whole
-  replies, oldest first, before compaction selection; keep the in-progress
-  turn and the Chat Completions wire out of the bound; and keep dropped
+  replies, oldest first, before compaction selection, on the wires that
+  tolerate it; keep the in-progress turn, a latest reply that ends on a tool
+  pair, and the Chat Completions wire out of the bound; and keep dropped
   reasoning stored and displayed. "Reasoning is an ordered private assistant
   part" and "Reasoning parts carry durable provider metadata" name the bound as
-  the one exception to replaying every stored part.
+  the one exception to replaying every stored part, including a reasoning-only
+  reply that the bound leaves out entirely.
 - `anthropic-messages-provider`: "Thinking blocks are persisted and replayed
   complete and unmodified" allows the oldest-first bound as the one exception
   to "SHALL NOT prune", with a scenario that the kept blocks form an unbroken
   run of the original sequence.
 - `model-system-prompts`: "A model switch replaces the top-level prompt and
   preserves portable history" drops "pruning" from what the switch forbids
-  except under the bound. A switch to a smaller-window model now compacts only
-  when the request does not fit even with every droppable reply's reasoning
-  left out.
+  except under the bound. A switch to a smaller-window model compacts with the
+  source model, or fails for want of one, only when the request does not fit
+  even with every droppable reply's reasoning left out. Otherwise the target
+  model's own threshold compaction may still run.
 
 Deliberately unchanged: the compaction trigger requirement (it evaluates the
 prepared request, which the bound now shapes), `owner-chat-forks` (a fork
@@ -170,7 +182,10 @@ replays its stored parts under the same bound), `chat-search`, and
   over the window only because of replayed reasoning, and the window variant
   cannot run.
 - A smaller-window model switch that fits once older reasoning is dropped is
-  not compacted.
+  not compacted by the source model. It proceeds on the target model, which
+  compacts the history itself when the measured size reaches its threshold.
+  An integration test covers this under the default reserved output and
+  threshold.
 - On the Chat Completions wire, the same request keeps today's behavior.
 - The Thinking panel and markdown export keep showing parts that a request
   dropped.

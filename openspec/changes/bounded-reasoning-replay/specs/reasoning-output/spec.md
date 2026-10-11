@@ -2,7 +2,7 @@
 
 ### Requirement: Replayed reasoning is bounded by dropping whole replies, oldest first
 
-When a request that continues a Chat would not fit the target model's context window and reserved output budget, the system SHALL stop replaying reasoning one earlier assistant reply at a time, oldest first, leaving out all of that reply's reasoning parts with their provider metadata, until the request fits or no droppable reasoning remains. This SHALL happen before compaction is selected.
+On a wire the bound applies to, when a request that continues a Chat would not fit the target model's context window and reserved output budget, the system SHALL stop replaying reasoning one earlier assistant reply at a time, oldest first, leaving out all of that reply's reasoning parts with their provider metadata, until the request fits or no droppable reasoning remains. This SHALL happen before compaction is selected.
 
 #### Scenario: A request that fits replays every part
 
@@ -15,8 +15,16 @@ When a request that continues a Chat would not fit the target model's context wi
 - **WHEN** a request that continues a Chat exceeds the target model's context window only because of its replayed reasoning
 - **AND** the window compaction cannot run, for example because the previous completed Run's model can no longer execute
 - **THEN** the oldest replies' reasoning is left out until the request fits
-- **AND** the target model is invoked with that request
-- **AND** the run does not fail `context_incompatible` and the window compaction variant is not selected
+- **AND** the window compaction variant is not selected and the run does not fail `context_incompatible`
+- **AND** when the measured context size is below the target model's compaction threshold, the target model is invoked with that request
+- **AND** when it reaches the threshold, the threshold variant summarizes the history with the target model's own client and the target model is invoked after it, under the existing checkpoint contract
+
+#### Scenario: Under the default reserve and threshold the target model compacts
+
+- **WHEN** no output tokens are reserved and the model declares no explicit compaction threshold
+- **AND** a request that continues a Chat exceeds the target model's context window only because of its replayed reasoning
+- **THEN** the bounded request fits the window and its measured context size reaches the default threshold
+- **AND** the threshold variant publishes a checkpoint summarized by the target model, and the previous completed Run's model is not invoked
 
 #### Scenario: Reasoning yields before visible history is summarized
 
@@ -59,15 +67,28 @@ When a request that continues a Chat would not fit the target model's context wi
 - **WHEN** a compaction request is built
 - **THEN** it carries no reasoning, as before, and the bound does not apply
 
+#### Scenario: A reasoning-only reply left out contributes nothing
+
+- **WHEN** an earlier assistant reply holds only reasoning parts and the bound leaves out its reasoning
+- **THEN** that reply contributes no message to the request
+- **AND** every other row keeps its place in the request
+
 ### Requirement: The reasoning bound never drops reasoning a provider requires
 
-The bound SHALL leave out only reasoning of assistant replies that precede the request's triggering user message; reasoning of the turn in progress SHALL never be left out. The bound SHALL apply only on the `anthropic-messages`, `openai-responses`, and `openai-codex` wires, which tolerate omitting earlier turns' reasoning. On other wires every stored part SHALL replay as before under the existing compaction and failure contract.
+The bound SHALL leave out only reasoning of assistant replies that precede the request's triggering user message, and SHALL NOT leave out the reasoning of the turn in progress, or of the most recent prior reply when that reply ends on a tool call and its result. It SHALL apply only on the `anthropic-messages`, `openai-responses`, and `openai-codex` wires; on other wires every stored part SHALL replay as before.
 
 #### Scenario: The turn in progress keeps its reasoning
 
 - **WHEN** a Run whose request left out earlier replies' reasoning continues its tool loop after a tool result within the same turn
 - **THEN** the continuation carries that turn's own reasoning with its provider metadata, unchanged
 - **AND** only replies that precede the triggering user message were ever left out
+
+#### Scenario: A latest reply that ends on a tool pair keeps its reasoning
+
+- **WHEN** the most recent assistant reply before the triggering user message ends on a tool call and its result, for example because its Run was cancelled, failed, or reached its step limit after a tool completed
+- **AND** the request would still not fit once every older reply's reasoning is left out
+- **THEN** that reply's reasoning is replayed with its provider metadata
+- **AND** only older replies' reasoning is left out, and the request proceeds to compaction selection if it still does not fit
 
 #### Scenario: Replayed Messages-wire thinking stays an unbroken run
 
@@ -106,7 +127,7 @@ Leaving reasoning out of a request SHALL NOT change what is stored. The parts le
 
 ### Requirement: Reasoning is an ordered private assistant part
 
-Displayable reasoning SHALL persist as display-only `{ type: "reasoning", text }` assistant parts, each optionally carrying opaque provider metadata, in the exact occurrence order in which it appeared relative to text and tool parts. The same order SHALL be reconstructed by live streaming, reconnect replay, and historical chat loading. Persisted reasoning text SHALL be the text the provider produced, unmodified and untruncated, and SHALL be retained with the chat until normal deletion. Reasoning parts SHALL be excluded from chat search and public shares, and from the history a compaction request summarizes. Replay is a property of the request kind, not of the projection: when a request is built to continue a Chat, that Chat's stored reasoning parts SHALL be offered to the provider in their occurrence position, except the parts of whole earlier replies that the bound in "Replayed reasoning is bounded by dropping whole replies, oldest first" drops, each with its text and any provider metadata byte-identical to what was persisted; the selected adapter carries every part its wire can represent (Chat Completions: the text as `reasoning_content`; Responses: parts that carry an item id or encrypted content) and omits the rest without failing the request. An assistant message whose only parts are reasoning SHALL still enter model context. The metadata SHALL stay opaque and SHALL NOT be rendered, exported, indexed, or published. This narrows exactly one exclusion — reuse by the Chat's own provider requests — and leaves the parts' privacy posture unchanged everywhere else.
+Displayable reasoning SHALL persist as display-only `{ type: "reasoning", text }` assistant parts, each optionally carrying opaque provider metadata, in the exact occurrence order in which it appeared relative to text and tool parts. The same order SHALL be reconstructed by live streaming, reconnect replay, and historical chat loading. Persisted reasoning text SHALL be the text the provider produced, unmodified and untruncated, and SHALL be retained with the chat until normal deletion. Reasoning parts SHALL be excluded from chat search and public shares, and from the history a compaction request summarizes. Replay is a property of the request kind, not of the projection: when a request is built to continue a Chat, that Chat's stored reasoning parts SHALL be offered to the provider in their occurrence position, except the parts of whole earlier replies that the bound in "Replayed reasoning is bounded by dropping whole replies, oldest first" drops, each with its text and any provider metadata byte-identical to what was persisted; the selected adapter carries every part its wire can represent (Chat Completions: the text as `reasoning_content`; Responses: parts that carry an item id or encrypted content) and omits the rest without failing the request. An assistant message whose only parts are reasoning SHALL still enter model context, unless that bound leaves out all of its reasoning, in which case it contributes nothing to that request. The metadata SHALL stay opaque and SHALL NOT be rendered, exported, indexed, or published. This narrows exactly one exclusion — reuse by the Chat's own provider requests — and leaves the parts' privacy posture unchanged everywhere else.
 
 #### Scenario: Interleaved output survives reload faithfully
 

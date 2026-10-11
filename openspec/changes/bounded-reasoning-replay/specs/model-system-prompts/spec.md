@@ -45,11 +45,14 @@ Tool observations are no longer display-only. They are replayed in the conventio
   invoked
 - **AND** model `B` receives the portable history with only those replies'
   reasoning left out
-- **AND** the threshold condition is still evaluated on that request
+- **AND** the threshold condition is still evaluated on that request, so when
+  its measured size reaches `B`'s threshold, `B` summarizes the history itself
+  before answering
 
 #### Scenario: No capable source model is available
 
-- **WHEN** the target request does not fit and the prior model or its successful
+- **WHEN** the target request does not fit once `reasoning-output`'s reasoning
+  bound is applied, and the prior model or its successful
   system-prompt receipt is unavailable or the source-model compaction fails
 - **THEN** the run fails before the target provider call with
   `context_incompatible`

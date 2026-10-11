@@ -95,15 +95,33 @@ reply's reasoning left out. The rebuild after a published checkpoint goes
 through the same assembly, where the bound is a no-op because a checkpoint
 leaves no replayed reasoning.
 
-The threshold trigger is unchanged and still measures reasoning. A bounded
-request close to the window can therefore still cross the threshold, and then
-the threshold variant compacts with the target model itself. That outcome is
-intended: it uses the cache-aligned path, and it no longer depends on a source
-model that may be gone. Evicting down to the threshold instead was rejected.
-In a long reasoning-heavy chat it would evict the next-oldest reply on every
-turn, and since the evicted reply is always at the front of the history, every
-turn would restart the provider prompt cache from that point. Compaction
-restarts it once.
+The threshold trigger is unchanged and still measures reasoning, and it
+normally fires right after the bound. The bound takes the smallest floor that
+fits, so the bounded estimate lands within one reply's reasoning of the
+admission line. With the default `runs.maxOutputTokens: null` the reserve is 0
+(`compaction.ts:226-237`), so that line is the full window, while the default
+threshold is `0.8 × window` (`compaction.ts:36`, `:259`). The measured size
+(`run-execution.service.ts:2896-2934`) is either that bounded estimate, when
+no counted reply exists, or the previous reply's provider-counted context,
+which already included the reasoning the provider kept. Either way it is
+usually at or above the threshold. The measured size stays below it only when
+one reply's reasoning exceeds about a fifth of the window, when a configured
+reserve or explicit threshold leaves room, or when the provider stripped
+earlier thinking from its count.
+
+So the real gain over master is not "no compaction". It is which compaction
+runs and whether the turn fails at all. Master either summarizes with the
+previous Run's model (the window variant) or fails `context_incompatible`
+when that model or its receipt is gone. With the bound, the threshold variant
+summarizes with the target model's own client, using the cache-aligned path
+and needing no source model. If that summary fails or comes back empty, the
+attempt proceeds on the bounded request (`compaction.service.ts:151-223`). The
+summary request itself carries no reasoning (D16), so it is smaller than the
+bounded request and fits. Evicting down to the threshold instead was
+rejected. In a long reasoning-heavy chat it would evict the next-oldest reply
+on every turn, and because the evicted reply is always at the front of the
+history, every turn would restart the provider prompt cache from that point.
+Compaction restarts it once.
 
 Rejected:
 
@@ -142,6 +160,9 @@ smallest floor that brings the estimate within the window is taken, and the
 request is built once and confirmed with `requestFitsContextWindow`. If the
 confirmation still fails because a wrapper message disappeared or rounding
 differed, the floor advances one reply and the request is confirmed again.
+The floor never rises above the most recent prior reply when that reply ends
+on a tool call and its result (D4). That reply's reasoning is the last kept,
+so the kept blocks are still a suffix.
 
 Why a reply rather than a part or a run: one Responses item spans several
 parts, and only the last carries `encrypted_content`. Anthropic forbids
@@ -151,7 +172,7 @@ blocks an unbroken suffix. It drops at most one reply's reasoning more than a
 per-part bound would. Rejected: per-part or per-run eviction, which keeps
 more reasoning but needs item grouping and latest-message guards.
 
-### D4: The turn in progress is never droppable
+### D4: The turn in progress, and a latest reply that ends on a tool pair, are never droppable
 
 Every reply the bound can drop precedes the request's triggering user
 message, because the worker builds history only through that message. The
@@ -160,18 +181,46 @@ to be passed "untouched" within a tool loop, exists only in the SDK's step
 messages. The bound never sees it. The requirement still states the rule, so
 that a future mid-turn resume cannot silently inherit the bound.
 
+One earlier reply looks like an open turn on the wire. A Run cancelled,
+failed, or stopped at its step limit after a tool completed leaves a reply
+whose last replayed content is a tool call and its result. `@ai-sdk/anthropic`
+groups a `tool` message and the following `user` message into one user block
+(`convert-to-anthropic-messages-prompt.ts:1271-1325`). The request then ends
+with an assistant `tool_use`, followed by one user message holding the
+`tool_result` and the triggering text. That is the shape of a tool-use turn in
+progress, where Anthropic requires the assistant message's thinking blocks.
+Dropping them there may be rejected, or may silently disable thinking for the
+request ("the API may strip thinking blocks that would create an invalid turn
+structure, or disable thinking"). [INFERENCE: not exercised against the API;
+task 2.6 probes it.] The bound therefore never drops the most recent prior
+reply's reasoning when that reply ends on a tool pair, on any bounded wire. On
+Responses the same reply ends with a `function_call_output` directly before
+the user message, which matches OpenAI's "items between the last user message
+and your function call output" only loosely, so the same rule is kept for
+simplicity.
+
 ### D5: Reasoning is weighed by the existing estimate
 
 The bound fixes llame's own admission, so it uses the admission estimate:
 text counts and opaque metadata does not. Changing that would be a change to
 the metadata boundary, which the issue puts out of scope. Known ceiling:
-reasoning whose cost travels in metadata has near-empty text. Two cases are
-Anthropic `display: "omitted"` blocks on models that keep prior thinking, and
-Codex encrypted items on GPT-5.6. Such reasoning weighs almost nothing here,
-while the provider counts it. Those requests stay governed, as today, by the
-threshold trigger's provider-counted measurement and by the provider's own
-context error. A reply whose text is empty is still dropped in its turn,
-which costs nothing and keeps the suffix property.
+reasoning whose provider cost travels in metadata weighs less here than at
+the provider. This is the default, not an edge case. llame asks the Messages
+wire for `thinking: { type: 'adaptive', display: 'summarized' }`
+(`anthropic-model-client.ts:81-84`), so the stored text is a summary, while
+"the server decrypts the `signature` to reconstruct the original thinking for
+prompt construction"
+([thinking](https://platform.claude.com/docs/en/build-with-claude/thinking)).
+On models that keep prior thinking, every kept block therefore costs more at
+the provider than the bound estimates. `display: "omitted"` blocks, with empty
+text, and Codex encrypted items on GPT-5.6 are the extreme case. The
+threshold trigger covers the gap only when a counted reply exists, meaning the
+previous completed reply answered a user turn above the active checkpoint. Its
+provider-counted context then includes those blocks at their real size.
+Without a counted reply, the measurement is the same text-only estimate, and
+only the provider's own context-length error catches an overrun, loudly, as
+today. A reply whose text is empty is still dropped in its turn, which costs
+nothing and keeps the suffix property.
 
 ### D6: Each model client declares whether its wire tolerates the bound
 
@@ -282,3 +331,19 @@ because nothing was persisted, nothing needs cleanup.
 
 None that can be deferred. The four in proposal.md change the specs or tasks
 and need Leo's answer before approval.
+
+## Revision history
+
+- Round 1 (spec-consistency and implementability reviewers):
+  - Two P1 findings accepted. The threshold variant normally fires after the
+    bound, so the specs, the proposal, and D1 now state the gain as a
+    target-model checkpoint rather than "no compaction", and task 2.5 tests
+    the default reserve and threshold. A reasoning-only reply left out
+    entirely now contributes nothing, as an explicit exception in "Reasoning
+    is an ordered private assistant part".
+  - Four P2 findings accepted:
+    - The first ADDED requirement is scoped to the bounded wires.
+    - "No capable source model is available" is qualified by the bound.
+    - D5 names the default summarized display as the main underweighting
+      case.
+    - D4 keeps a latest reply that ends on a tool pair, marked [INFERENCE].
