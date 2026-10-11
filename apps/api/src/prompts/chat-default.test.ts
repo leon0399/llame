@@ -33,7 +33,7 @@ const render = (user?: PromptUserInput, chats?: PromptChatsInput) =>
     anchor: TEST_ANCHOR,
     user,
     chats,
-  });
+  }).text;
 
 describe('packaged default prompt — recalled conversation evidence', () => {
   it('distinguishes bounded discovery from exact numbered reads', () => {
@@ -295,7 +295,7 @@ describe('packaged default prompt — chat recency digest', () => {
         template: removeDigestBlock(source),
         model: MODEL,
         anchor: TEST_ANCHOR,
-      }),
+      }).text,
     );
   });
 

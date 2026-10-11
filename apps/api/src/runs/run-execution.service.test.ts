@@ -2414,7 +2414,6 @@ describe('RunExecutionService executeRun', () => {
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline,
-        told: [],
         candidates: [],
       });
     const getForOwnerForBinding = vi
@@ -2459,7 +2458,7 @@ describe('RunExecutionService executeRun', () => {
     };
     const resolveCandidate = vi
       .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({ baseline, told: [], candidates: [] });
+      .mockResolvedValue({ baseline, candidates: [] });
     const getForOwnerForBinding = vi
       .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
       .mockResolvedValue({ shareRecentChats: true });
@@ -2557,7 +2556,6 @@ describe('RunExecutionService executeRun', () => {
         recentShown: 1,
         recentTotal: 1,
       },
-      told,
       candidates: [
         {
           chatId: 'resurfaced',
@@ -2585,7 +2583,10 @@ describe('RunExecutionService executeRun', () => {
       .mockResolvedValue(undefined);
     const render = vi
       .spyOn(SystemPromptsService.prototype, 'render')
-      .mockReturnValue('Stable system prompt');
+      .mockReturnValue({
+        text: 'Stable system prompt',
+        chatsDisclosure: { pinned: new Set(), recent: new Set() },
+      });
     const repositories = mockNormalExecutionRepositories();
     const findById = vi
       .spyOn(ChatsRepository.prototype, 'findById')
@@ -2636,6 +2637,207 @@ describe('RunExecutionService executeRun', () => {
     expect(updateRecencyDigestTold.mock.invocationCallOrder[0]).toBeLessThan(
       repositories.markFinished.mock.invocationCallOrder[0] ?? -Infinity,
     );
+  });
+  describe('recency digest told-set records only rendered entries', () => {
+    const pinnedEntry = {
+      title: 'Pinned plan',
+      date: '2026-09-01',
+      messageCount: 4,
+      excerpt: 'pinned opening',
+    };
+    const recentEntry = {
+      title: 'Recent notes',
+      date: '2026-09-02',
+      messageCount: 2,
+      excerpt: 'recent opening',
+    };
+    const resolution: RecencyDigestResolution = {
+      baseline: {
+        pinned: [pinnedEntry],
+        recent: [recentEntry],
+        pinnedShown: 1,
+        pinnedTotal: 1,
+        recentShown: 1,
+        recentTotal: 1,
+        compiledOn: '2026-09-03',
+      },
+      candidates: [
+        { chatId: 'pinned-chat', pinned: true, entry: pinnedEntry },
+        { chatId: 'recent-chat', pinned: false, entry: recentEntry },
+      ],
+    };
+    const toldPinned = {
+      chatId: 'pinned-chat',
+      pinned: true,
+      title: 'Pinned plan',
+    };
+    const toldRecent = {
+      chatId: 'recent-chat',
+      pinned: false,
+      title: 'Recent notes',
+    };
+
+    function sharingOptions(
+      systemPromptTemplate: string,
+      extra: ExecutionServiceOptions = {},
+    ): ExecutionServiceOptions {
+      return {
+        ...extra,
+        model: { ...testModelEntry, systemPromptTemplate },
+        memory: {
+          getForOwnerForBinding: vi
+            .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+            .mockResolvedValue({ shareRecentChats: true }),
+        },
+        recencyDigest: {
+          resolveCandidate: vi
+            .fn<RecencyDigestResolver['resolveCandidate']>()
+            .mockResolvedValue(resolution),
+        },
+      };
+    }
+
+    async function initialize(options: ExecutionServiceOptions) {
+      const setBaseline = vi
+        .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+        .mockResolvedValue(undefined);
+      mockNormalExecutionRepositories();
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        undefined,
+        options,
+      );
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      expect(setBaseline).toHaveBeenCalledTimes(1);
+      return setBaseline.mock.calls[0];
+    }
+
+    it('initializes an empty told-set when neither surface renders the digest', async () => {
+      const [, , baseline, told] = await initialize(
+        sharingOptions('Stable system prompt'),
+      );
+
+      expect(baseline).toEqual(resolution.baseline);
+      expect(told).toEqual([]);
+    });
+
+    it('initializes no told entry from aggregate counts alone', async () => {
+      const [, , , told] = await initialize(
+        sharingOptions(
+          'Shows {{chats.pinnedShown}} of {{chats.pinnedTotal}} pinned.{{#if chats.recent}} Some are recent.{{/if}}',
+        ),
+      );
+
+      expect(told).toEqual([]);
+    });
+
+    it('initializes the told-set from the entries the system prompt emitted', async () => {
+      const [, , , told] = await initialize(
+        sharingOptions('Base.{{#each chats.recent}} {{title}}{{/each}}'),
+      );
+
+      expect(told).toEqual([toldRecent]);
+    });
+
+    it('initializes the told-set from a tool description when it is the only disclosure', async () => {
+      const tmpDir = mkdtempSync(path.join(tmpdir(), 'digest-tool-only-'));
+      writeFileSync(
+        path.join(tmpDir, 'bash-digest.md'),
+        'Run commands.{{#each chats.pinned}} Related: {{title}}.{{/each}}',
+      );
+
+      const [, , , told] = await initialize(
+        sharingOptions('Stable system prompt', {
+          allowed: ['bash'],
+          configPath: path.join(tmpDir, 'llame.config.json'),
+          toolPromptFiles: { bash: 'bash-digest.md' },
+        }),
+      );
+
+      expect(told).toEqual([toldPinned]);
+    });
+
+    async function continueRefreshedEpoch(
+      systemPromptTemplate: string,
+      state: {
+        told?: NonNullable<Chat['recencyDigestTold']>;
+        pinnedChatIds?: ReadonlyArray<string>;
+      } = {},
+    ) {
+      const repositories = mockNormalExecutionRepositories();
+      // A checkpoint refresh published this baseline and reset the told-set;
+      // unless `state.told` says otherwise, nothing was dispatched against it.
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        recencyDigestBaseline: resolution.baseline,
+        recencyDigestTold: state.told ?? [],
+        recencyDigestRebakedFrom: '55555555-5555-4555-8555-555555555555',
+      });
+      vi.spyOn(
+        ChatsRepository.prototype,
+        'findPinnedChatIds',
+      ).mockResolvedValue(new Set(state.pinnedChatIds ?? ['pinned-chat']));
+      const updateRecencyDigestTold = vi
+        .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
+        .mockResolvedValue(undefined);
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        undefined,
+        sharingOptions(systemPromptTemplate),
+      );
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      const digestItems = stagedItemsOf(
+        repositories.storeAtDispatch,
+        'recency-digest',
+      );
+      return { updateRecencyDigestTold, digestItems };
+    }
+
+    it('does not re-announce a refreshed baseline the request renders, and advances nothing', async () => {
+      const { updateRecencyDigestTold, digestItems } =
+        await continueRefreshedEpoch(
+          'Base.{{#each chats.pinned}} {{title}}{{/each}}{{#each chats.recent}} {{title}}{{/each}}',
+        );
+
+      expect(digestItems).toEqual([]);
+      expect(updateRecencyDigestTold).not.toHaveBeenCalled();
+    });
+
+    it('appends only the refreshed entries the request did not render, with its rendered ones', async () => {
+      const { updateRecencyDigestTold, digestItems } =
+        await continueRefreshedEpoch(
+          'Base.{{#each chats.pinned}} {{title}}{{/each}}',
+        );
+
+      expect(digestItems).toHaveLength(1);
+      expect(JSON.stringify(digestItems)).toContain('Recent notes');
+      expect(JSON.stringify(digestItems)).not.toContain('Pinned plan');
+      expect(updateRecencyDigestTold).toHaveBeenCalledWith(chatId, userId, [
+        toldPinned,
+        toldRecent,
+      ]);
+    });
+
+    it('keeps the pin state an earlier append told over the baseline it contradicts', async () => {
+      // An earlier append told the model the pinned chat was unpinned; the
+      // immutable baseline still lists it as pinned.
+      const { updateRecencyDigestTold, digestItems } =
+        await continueRefreshedEpoch(
+          'Base.{{#each chats.pinned}} {{title}}{{/each}}{{#each chats.recent}} {{title}}{{/each}}',
+          { told: [{ ...toldPinned, pinned: false }], pinnedChatIds: [] },
+        );
+
+      expect(digestItems).toEqual([]);
+      expect(updateRecencyDigestTold).not.toHaveBeenCalled();
+    });
   });
   it('freezes the resolved skill baseline and records its told set when the turn completes', async () => {
     const baseline: SkillCatalogBaseline = {
@@ -6638,7 +6840,7 @@ describe('RunExecutionService executeRun — context preparation', () => {
       {
         model: {
           ...testModelEntry,
-          systemPromptTemplate: '{{#if user}}Never{{/if}}',
+          systemPromptTemplate: ' \n{{#if user}}Never{{/if}}\n ',
         },
       },
     );
@@ -6680,7 +6882,7 @@ describe('RunExecutionService executeRun — context preparation', () => {
     };
     const resolveCandidate = vi
       .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({ baseline, told: [], candidates: [] });
+      .mockResolvedValue({ baseline, candidates: [] });
     const getForOwnerForBinding = vi
       .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
       .mockResolvedValue({ shareRecentChats: true });
@@ -7621,7 +7823,6 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [],
         candidates: [],
       });
     const rebakedChat = {
@@ -7654,7 +7855,6 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [],
         candidates: [],
       });
     await executeTriggerCase({
@@ -7669,21 +7869,34 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     expect(setRecencyDigest).not.toHaveBeenCalled();
   });
 
-  it('rebakes a recency digest baseline after checkpoint publication', async () => {
+  it('rebakes a recency digest baseline after checkpoint publication without pre-marking it told', async () => {
     const setRecencyDigest = vi
       .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
+      .mockResolvedValue(undefined);
+    const updateRecencyDigestTold = vi
+      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
       .mockResolvedValue(undefined);
     const rebakedChat = {
       ...chat,
       recencyDigestBaseline: digestBaseline,
       recencyDigestTold: [],
     };
+    const entry = {
+      title: 'Fresh source',
+      date: '2026-09-02',
+      messageCount: 3,
+    };
+    const refreshed = {
+      ...digestBaseline,
+      recent: [entry],
+      recentShown: 1,
+      recentTotal: 1,
+    };
     const resolveCandidate = vi
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
-        baseline: digestBaseline,
-        told: [],
-        candidates: [],
+        baseline: refreshed,
+        candidates: [{ chatId: 'fresh-source', pinned: false, entry }],
       });
     await executeTriggerCase({
       historyRows: publicationHistory(),
@@ -7694,13 +7907,20 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       recencyDigest: { resolveCandidate },
     });
 
+    // The checkpoint precedes the request that may disclose the refreshed
+    // baseline, so the new epoch starts with nothing told.
     expect(setRecencyDigest).toHaveBeenCalledWith({
       chatId,
       ownerUserId: userId,
-      baseline: digestBaseline,
+      baseline: refreshed,
       told: [],
       rebakedFrom: publishedCheckpointId,
     });
+    // This prompt renders no digest, so the entry stays eligible and enters
+    // through the request's own append instead.
+    expect(updateRecencyDigestTold).toHaveBeenCalledWith(chatId, userId, [
+      { chatId: 'fresh-source', pinned: false, title: 'Fresh source' },
+    ]);
   });
 
   it('rebakes the skill baseline and copies its told names after publication', async () => {
@@ -9714,7 +9934,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [],
         candidates: [],
       });
     const execution = makeExecutionService(
@@ -9762,7 +9981,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [],
         candidates: [],
       });
     const execution = makeExecutionService(
@@ -9793,7 +10011,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [],
         candidates: [],
       });
     const getForOwnerForBinding = vi
@@ -9849,7 +10066,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       .fn<RecencyDigestResolver['resolveCandidate']>()
       .mockResolvedValue({
         baseline: digestBaseline,
-        told: [{ chatId: 'a', pinned: true, title: 'Earlier chat' }],
         candidates: [
           {
             chatId: 'b',
@@ -9880,10 +10096,14 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     );
     await expect(result.text).resolves.toBe('answer');
 
-    // The epoch still initializes from the candidate...
-    expect(setBaseline).toHaveBeenCalledWith(chatId, userId, digestBaseline, [
-      { chatId: 'a', pinned: true, title: 'Earlier chat' },
-    ]);
+    // The epoch still initializes from the candidate, telling only what its
+    // renders disclosed: this baseline lists no entry...
+    expect(setBaseline).toHaveBeenCalledWith(
+      chatId,
+      userId,
+      digestBaseline,
+      [],
+    );
     // ...but with no baseline to diff against, nothing is disclosed as a delta.
     expect(updateRecencyDigestTold).not.toHaveBeenCalled();
   });

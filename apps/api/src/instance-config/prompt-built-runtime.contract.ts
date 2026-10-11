@@ -34,7 +34,7 @@ if (
     template: resolved.systemPromptTemplate,
     model,
     anchor: contractAnchor,
-  }).trim().length === 0
+  }).text.trim().length === 0
 ) {
   throw new Error(
     'Built runtime failed to load and render the packaged default system prompt',

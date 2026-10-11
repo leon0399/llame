@@ -429,7 +429,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       ...(chat.skillCatalogBaseline !== null && {
         skills: chat.skillCatalogBaseline,
       }),
-    });
+    }).text;
 
   // A first turn through the REAL skill resolver, with the live catalog a
   // re-resolution would reach. The reuse path returns before the catalog is

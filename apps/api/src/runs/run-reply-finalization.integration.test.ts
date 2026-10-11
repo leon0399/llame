@@ -615,7 +615,10 @@ describeIfDb(
         settle: async (died) => {
           const render = vi
             .spyOn(SystemPromptsService.prototype, 'render')
-            .mockReturnValue('');
+            .mockReturnValue({
+              text: '',
+              chatsDisclosure: { pinned: new Set(), recent: new Set() },
+            });
           try {
             await expect(
               execute(

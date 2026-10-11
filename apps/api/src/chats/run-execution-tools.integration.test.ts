@@ -1556,7 +1556,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       model: testModelEntry,
       anchor: formatTemporalAnchor(chat.createdAt, resolveInstanceTimezone()),
       admittedToolIds: ['search_conversations'],
-    });
+    }).text;
     expect(advertised?.description).toBe(expectedDescription);
     // Independent of the renderer round-trip above: the equality check compares
     // two calls to the same renderer, so a renderer-level regression that

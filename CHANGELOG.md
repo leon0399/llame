@@ -8,6 +8,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   modes alike, matching proactive skill reads, prompt imports, and
   instruction loading.
 
+- Fixed the recency digest marking chats as told that the model never saw
+  (#1206). Both prompt renders now report which digest entries they actually
+  emitted, and the told-set records only those. An operator template that
+  leaves the digest out of the system prompt and every tool description no
+  longer marks the baseline's chats told, so they reach the model through
+  appends instead of never. A checkpoint refresh now starts the new epoch with
+  nothing told. The next request still does not re-announce the entries it
+  renders, and appends the ones it does not.
+
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move
