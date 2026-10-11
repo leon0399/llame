@@ -2,6 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-11
 
+- The search embed worker now copies an existing vector instead of calling
+  the embedding provider when the same owner already has a valid one for
+  byte-identical chunk content under the current model key and input version
+  (#597). A forked chat, whose messages get fresh ids and so new content
+  hashes, is now embedded with no provider calls for its copied transcript.
+  Reuse stays inside the owner's row-level-security scope and never crosses
+  users. A new partial `md5(content)` index narrows candidates, and the copy
+  still requires the content bytes to match. Failed (tombstoned) documents are
+  never reused.
+
 - Fixed an org `admin` being able to take a unit out of its owners' control
   (#1260). An admin could promote a unit to root and leave it with no owner,
   then mint `owner` on it, or move a unit into another tree they own and gain

@@ -173,6 +173,15 @@ export const searchChatDocuments = pgTable(
     index('search_chat_documents_embedding_backlog_idx')
       .on(t.chatId, t.ownerUserId)
       .where(sql`embedding IS NULL AND embedding_fail_reason IS NULL`),
+    // Candidate filter for the embed worker's identical-input reuse (#597):
+    // an owner's existing valid vector for byte-identical `content` under the
+    // current model key and input version is copied instead of calling the
+    // provider. `md5` is built in and only narrows candidates; the lookup
+    // rechecks `content` byte-equality, so a collision can never match.
+    // Partial: only rows that carry a vector can be a reuse source.
+    index('search_chat_documents_embed_reuse_idx')
+      .on(sql`md5(${t.content})`)
+      .where(sql`embedding IS NOT NULL`),
     // The Chat owner is the authorization boundary. Using the parent Chat here
     // lets an owner-scoped reindex repair a derived row whose duplicated owner
     // metadata was corrupted, while the WITH CHECK restores that metadata to

@@ -17,6 +17,8 @@
  */
 import { Logger } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { getTableName, type SQL, sql } from 'drizzle-orm';
+import { PgDialect, type PgTable } from 'drizzle-orm/pg-core';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import {
@@ -42,6 +44,7 @@ import {
 } from './core';
 import { EmbeddingBackendError } from './openai-embedding-backend';
 import {
+  EMBED_INPUT_VERSION,
   EMBED_MAX_BATCHES_PER_JOB,
   resolveEmbeddingBackendConfig,
   SearchEmbedWorker,
@@ -139,15 +142,29 @@ type FakeInsertBuilder = {
   onConflictDoNothing: () => Promise<void>;
 };
 
+/** The values `reuseIdenticalEmbeddings` hands to `set()`. */
+type ReuseSetValues = Readonly<Record<string, SQL | string | number | null>>;
+
+/** `reuseIdenticalEmbeddings`'s `update().set().from().where().returning()`
+ *  chain; resolves to the ids the harness says took an existing vector. */
+type FakeUpdateBuilder = {
+  set: (values: ReuseSetValues) => FakeUpdateBuilder;
+  from: (source: PgTable) => FakeUpdateBuilder;
+  where: (condition: SQL | undefined) => FakeUpdateBuilder;
+  returning: () => Promise<ReadonlyArray<{ id: string }>>;
+};
+
 type FakeEmbedTransaction = {
   select: () => FakeSelectQuery;
   execute: () => Promise<{ count: number }>;
   insert: () => FakeInsertBuilder;
+  update: (table: PgTable) => FakeUpdateBuilder;
 };
 
 type FakeTransactionResult =
   | ReadonlyArray<EmbedRow>
   | ReadonlyArray<Record<string, never>>
+  | ReadonlySet<string>
   | void;
 
 function dataWorkerHarness(options: {
@@ -156,6 +173,7 @@ function dataWorkerHarness(options: {
   updateCounts?: ReadonlyArray<number>;
   binding?: boolean;
   model?: EmbeddingModelCatalogEntry;
+  reusedIds?: ReadonlyArray<string>;
 }) {
   const updateCounts = [...(options.updateCounts ?? [])];
   const nextOutstanding =
@@ -164,8 +182,14 @@ function dataWorkerHarness(options: {
     ? [{}]
     : [];
   let selectedTable: FakeTable | undefined;
+  // The reuse UPDATE only ever touches the batch it was handed, so the fake
+  // returns `reusedIds` intersected with the most recently read batch.
+  let lastBatch: ReadonlyArray<EmbedRow> = [];
   const whereResult = {
-    limit: vi.fn(() => Promise.resolve(nextOutstanding())),
+    limit: vi.fn(() => {
+      lastBatch = nextOutstanding();
+      return Promise.resolve(lastBatch);
+    }),
   };
   const selectBuilder: FakeSelectQuery = {
     from: vi.fn((table: FakeTable) => {
@@ -186,10 +210,26 @@ function dataWorkerHarness(options: {
     values: vi.fn(() => conflictBuilder),
     onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
   };
+  const reuse = {
+    set: vi.fn((_values: ReuseSetValues) => updateBuilder),
+    from: vi.fn((_source: PgTable) => updateBuilder),
+    where: vi.fn((_condition: SQL | undefined) => updateBuilder),
+  };
+  const updateBuilder: FakeUpdateBuilder = {
+    ...reuse,
+    returning: vi.fn(() =>
+      Promise.resolve(
+        lastBatch
+          .filter((batchRow) => options.reusedIds?.includes(batchRow.id))
+          .map((batchRow) => ({ id: batchRow.id })),
+      ),
+    ),
+  };
   const tx: FakeEmbedTransaction = {
     select: vi.fn(() => selectBuilder),
     execute: vi.fn(() => Promise.resolve({ count: updateCounts.shift() ?? 0 })),
     insert: vi.fn(() => insertBuilder),
+    update: vi.fn((_table: PgTable) => updateBuilder),
   };
   const tenantDb = {
     runAs: vi.fn(
@@ -236,6 +276,7 @@ function dataWorkerHarness(options: {
     moduleRefPromise,
     tenantDb,
     tx,
+    reuse,
   };
 }
 
@@ -632,6 +673,194 @@ describe('SearchEmbedWorker.embedChat', () => {
       ),
     ).resolves.toBeUndefined();
     expect(harness.enqueueChatEmbed).not.toHaveBeenCalled();
+  });
+
+  it('sends only the rows that took no existing vector to the provider', async () => {
+    const harness = dataWorkerHarness({
+      outstanding: [row('doc-1'), row('doc-2')],
+      reusedIds: ['doc-1'],
+      updateCounts: [1],
+    });
+    const worker = await harness.moduleRefPromise.then((moduleRef) =>
+      moduleRef.get(SearchEmbedWorker),
+    );
+    const embedDocuments = vi.fn(
+      (documents: ReadonlyArray<EmbeddingDocumentInput>) =>
+        Promise.resolve(documents.map(resultFor)),
+    );
+
+    await worker.embedChat(
+      'chat-1',
+      'owner-1',
+      harness.model,
+      fakeEmbeddingBackend(embedDocuments),
+    );
+
+    expect(embedDocuments).toHaveBeenCalledTimes(1);
+    expect(embedDocuments).toHaveBeenCalledWith([
+      {
+        documentId: 'doc-2',
+        contentHash: 'hash-doc-2',
+        content: 'content-doc-2',
+      },
+    ]);
+    expect(harness.tx.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls no provider when every outstanding row took an existing vector, and writes the ledger row', async () => {
+    const harness = dataWorkerHarness({
+      outstanding: [row('doc-1'), row('doc-2')],
+      reusedIds: ['doc-1', 'doc-2'],
+    });
+    const worker = await harness.moduleRefPromise.then((moduleRef) =>
+      moduleRef.get(SearchEmbedWorker),
+    );
+    const embedDocuments = vi.fn(() => Promise.resolve([]));
+
+    await worker.embedChat(
+      'chat-1',
+      'owner-1',
+      harness.model,
+      fakeEmbeddingBackend(embedDocuments),
+    );
+
+    expect(embedDocuments).not.toHaveBeenCalled();
+    expect(harness.tx.update).toHaveBeenCalledTimes(1);
+    expect(harness.tx.insert).toHaveBeenCalledTimes(1);
+    expect(harness.tx.execute).not.toHaveBeenCalled();
+    expect(harness.tenantDb.runAs).toHaveBeenCalledWith(
+      'owner-1',
+      expect.any(Function),
+    );
+  });
+
+  // Literal pin of the reuse statement: owner-scoped, current model key and
+  // input version, a valid source stamp, md5 as a candidate filter plus a
+  // byte recheck, and the destination's OWN content hash as the new stamp.
+  // The integration suite proves each term's behavior against Postgres.
+  it('issues the reuse statement for exactly this batch under the current model and version', async () => {
+    const harness = dataWorkerHarness({
+      outstanding: [row('doc-1'), row('doc-2')],
+      reusedIds: ['doc-1', 'doc-2'],
+    });
+    const worker = await harness.moduleRefPromise.then((moduleRef) =>
+      moduleRef.get(SearchEmbedWorker),
+    );
+
+    await worker.embedChat(
+      'chat-1',
+      'owner-1',
+      harness.model,
+      fakeEmbeddingBackend(() => Promise.resolve([])),
+    );
+
+    const dialect = new PgDialect();
+    const [[table]] = vi.mocked(harness.tx.update).mock.calls;
+    const [[values]] = harness.reuse.set.mock.calls;
+    const [[source]] = harness.reuse.from.mock.calls;
+    const [[condition]] = harness.reuse.where.mock.calls;
+    expect(getTableName(table)).toBe('search_chat_documents');
+    expect(getTableName(source)).toBe('reuse_source');
+    const { embedding, embeddedContentHash, ...literals } = values;
+    expect(literals).toEqual({
+      embeddingModelKey: 'embed-a',
+      embedInputVersion: EMBED_INPUT_VERSION,
+      embeddingFailReason: null,
+    });
+    expect(
+      dialect.sqlToQuery(sql`${embedding} / ${embeddedContentHash}`).sql,
+    ).toBe(
+      '"reuse_source"."embedding" / "search_chat_documents"."content_hash"',
+    );
+    const where = dialect.sqlToQuery(condition ?? sql``);
+    expect(where.sql).toBe(
+      [
+        '("search_chat_documents"."id" in ($1, $2)',
+        'and "reuse_source"."owner_user_id" = $3',
+        'and "reuse_source"."embedding" is not null',
+        'and "reuse_source"."embedding_model_key" = $4',
+        'and "reuse_source"."embed_input_version" = $5',
+        'and "reuse_source"."embedded_content_hash" = "reuse_source"."content_hash"',
+        'and md5("reuse_source"."content") = md5("search_chat_documents"."content")',
+        'and "reuse_source"."content" = "search_chat_documents"."content")',
+      ].join(' '),
+    );
+    expect(where.params).toEqual([
+      'doc-1',
+      'doc-2',
+      'owner-1',
+      'embed-a',
+      EMBED_INPUT_VERSION,
+    ]);
+  });
+
+  it('keeps paging through batches that were reused whole, with no provider call', async () => {
+    const model = { ...MODEL, batchSize: 1 };
+    let batch = 0;
+    const harness = dataWorkerHarness({
+      model,
+      outstanding: [],
+      nextOutstanding: () => {
+        batch += 1;
+        return [row(`doc-${batch}`)];
+      },
+      reusedIds: Array.from(
+        { length: EMBED_MAX_BATCHES_PER_JOB },
+        (_, index) => `doc-${index + 1}`,
+      ),
+    });
+    const worker = await harness.moduleRefPromise.then((moduleRef) =>
+      moduleRef.get(SearchEmbedWorker),
+    );
+    const embedDocuments = vi.fn(() => Promise.resolve([]));
+
+    await worker.embedChat(
+      'chat-1',
+      'owner-1',
+      model,
+      fakeEmbeddingBackend(embedDocuments),
+    );
+
+    expect(embedDocuments).not.toHaveBeenCalled();
+    expect(harness.tx.update).toHaveBeenCalledTimes(EMBED_MAX_BATCHES_PER_JOB);
+    expect(harness.enqueueChatEmbed).toHaveBeenCalledWith('chat-1', 'owner-1');
+  });
+
+  it('counts reused and provider-embedded rows together as one batch of progress', async () => {
+    const model = { ...MODEL, batchSize: 2 };
+    let batch = 0;
+    const harness = dataWorkerHarness({
+      model,
+      outstanding: [],
+      // Each full batch: one row takes an existing vector, one goes to the
+      // provider — equal counts, so any accounting that nets them cancels.
+      nextOutstanding: () => {
+        batch += 1;
+        return [row(`reused-${batch}`), row(`fresh-${batch}`)];
+      },
+      reusedIds: Array.from(
+        { length: EMBED_MAX_BATCHES_PER_JOB },
+        (_, index) => `reused-${index + 1}`,
+      ),
+      updateCounts: Array.from({ length: EMBED_MAX_BATCHES_PER_JOB }, () => 1),
+    });
+    const worker = await harness.moduleRefPromise.then((moduleRef) =>
+      moduleRef.get(SearchEmbedWorker),
+    );
+    const embedDocuments = vi.fn(
+      (documents: ReadonlyArray<EmbeddingDocumentInput>) =>
+        Promise.resolve(documents.map(resultFor)),
+    );
+
+    await worker.embedChat(
+      'chat-1',
+      'owner-1',
+      model,
+      fakeEmbeddingBackend(embedDocuments),
+    );
+
+    expect(embedDocuments).toHaveBeenCalledTimes(EMBED_MAX_BATCHES_PER_JOB);
+    expect(harness.enqueueChatEmbed).toHaveBeenCalledWith('chat-1', 'owner-1');
   });
 });
 
