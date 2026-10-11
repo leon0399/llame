@@ -131,7 +131,7 @@ typecheck ----> mutation
 ## Tracked follow-ups
 
 - Move the remaining story-eligible web component tests under rule 5; delete
-  jsdom coverage only after equivalent story assertions exist. Twenty-eight
+  jsdom coverage only after equivalent story assertions exist. Twenty-nine
   pairs are done (`chat-item`, `effort-selector`, `effective-context-inspector`,
   `tool-cap-notice-part`, `memory-section`, `app-sidebar-admin-entry`,
   `org-tree`, `members-panel`, `command-palette`, `share-chat-dialog`,
@@ -140,9 +140,9 @@ typecheck ----> mutation
   `chat-page.permission-mode`, `chat-page.target`, `chat-page.compaction`,
   `login-form`, `register-form`, `model-switch-boundary`, `settings-page`,
   `project-page`, `sidebar-row-title`, `chat-load-older`, `app-sidebar`,
-  `shared-chat-page`), which completes the `chat-page.*` suites.
-  `chat-page.target` keeps only its rejected-send case in jsdom, since the real
-  `useChat` never rejects a send, and `sidebar-row-title` keeps its
+  `shared-chat-page`, `project-list-sidebar`), which completes the `chat-page.*`
+  suites. `chat-page.target` keeps only its rejected-send case in jsdom, since
+  the real `useChat` never rejects a send, and `sidebar-row-title` keeps its
   no-`ResizeObserver` case there, since Chromium always has one.
   `model-switch-boundary` renders a `packages/ui` component, so its story stays
   beside it there. The remaining candidates need a story written first.

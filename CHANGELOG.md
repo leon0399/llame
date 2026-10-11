@@ -9,8 +9,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   model, permission mode, message target and compaction, the login and
   register forms', the model switch boundary's, the settings page's, the
   project page's, the sidebar row title's, the chat transcript's load-older
-  scroll, the primary rail's, and the public shared chat page's rendering
-  tests out of jsdom and into `org-tree.stories.tsx`,
+  scroll, the primary rail's, the public shared chat page's, and the project
+  rail's rendering tests out of jsdom and into `org-tree.stories.tsx`,
   `members-panel.stories.tsx`, `command-palette.stories.tsx`,
   `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
   `project-dialogs.stories.tsx`, `org-unit-dialogs.stories.tsx`,
@@ -18,9 +18,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `login-form.stories.tsx`, `register-form.stories.tsx`, `packages/ui`'s
   `model-switch-boundary.stories.tsx`, `settings-page.stories.tsx`,
   `project-page.stories.tsx`, `sidebar-row-title.stories.tsx`,
-  `chat-load-older.stories.tsx`, `app-sidebar.stories.tsx`, and
-  `shared-chat-page.stories.tsx`, whose play functions now run in Chromium
-  (#860).
+  `chat-load-older.stories.tsx`, `app-sidebar.stories.tsx`,
+  `shared-chat-page.stories.tsx`, and `project-list-sidebar.stories.tsx`,
+  whose play functions now run in Chromium (#860).
   The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -133,7 +133,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   chat is held, the untitled placeholder heading, the unavailable note for a
   link that no longer resolves, and a signed-in visitor's fork, whose button
   reads Forking… and is disabled until the server answers and then opens the new
-  chat, each with the requests the page sends.
+  chat, each with the requests the page sends. The project rail stories cover
+  the pinned projects under Pinned above the rest under All projects (measured
+  top to bottom), one unlabelled list when nothing is pinned, the placeholder
+  rows while both lists are held and then Pin on an unpinned project pinning it
+  with a card built from the row, and Unpin on a pinned project, each with the
+  two list requests the rail sends. Stories see the pin hooks only through
+  Storybook's mock, so the project pin's request and its card's optimistic write
+  into a never-fetched pins list moved to the pins hook test.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no

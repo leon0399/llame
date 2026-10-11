@@ -129,6 +129,40 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
     });
   });
 
+  it("pins a project with its row's card before the pins list was ever fetched", async () => {
+    // Held, so the cache read below can only be the optimistic write.
+    fetchMock.mockReturnValue(new Promise<Response>(() => {}));
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+
+    const { result } = renderHook(() => usePinItem(), {
+      wrapper: wrapper(queryClient),
+    });
+
+    result.current.mutate({
+      itemType: "project",
+      itemId: "p1",
+      card: { id: "p1", name: "Acme", archivedAt: null },
+    });
+
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list()),
+      ).toMatchObject([
+        {
+          itemType: "project",
+          itemId: "p1",
+          item: { id: "p1", name: "Acme", archivedAt: null },
+        },
+      ]),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("PUT");
+    expect(new URL(request.url).pathname).toBe("/api/v1/pins/project/p1");
+  });
+
   it("rolls back the optimistic insert and toasts on failure", async () => {
     fetchMock.mockRejectedValue(new Error("down"));
     const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
