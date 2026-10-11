@@ -85,6 +85,9 @@ const preBundledStoryDeps = [
   // `configurePreBundledStoryDeps` below.
   "ai",
   "@ai-sdk/react",
+  // The settings page's AppearanceProvider keeps the chosen fonts in cookies;
+  // pinned to apps/web's copy below.
+  "js-cookie",
   // AI Elements stories: Streamdown markdown (message/reasoning), the
   // reasoning collapsible's controllable-state hook, framer-motion (Shimmer),
   // and Conversation's stick-to-bottom. Declared as storybook devDeps too so
@@ -134,11 +137,11 @@ function configurePreBundledStoryDeps(config: ViteFinalConfig): void {
   ];
 
   // The chat transcript row and chat page (apps/web components) import `ai`
-  // and `@ai-sdk/react`, which are installed for the app, not for this
-  // package. Pin the bare specifiers to the app's copies so the pre-bundle
-  // entries resolve here; otherwise Vite discovers the SDK mid-run,
-  // re-optimizes, and the reload fails the first story run against a cold
-  // cache.
+  // and `@ai-sdk/react`, and the settings page's AppearanceProvider imports
+  // `js-cookie`, which are installed for the app, not for this package. Pin
+  // the bare specifiers to the app's copies so the pre-bundle entries resolve
+  // here; otherwise Vite discovers them mid-run, re-optimizes, and the reload
+  // fails the first story run against a cold cache.
   config.resolve ??= {};
   config.resolve.alias = [
     ...(Array.isArray(config.resolve.alias)
@@ -151,6 +154,7 @@ function configurePreBundledStoryDeps(config: ViteFinalConfig): void {
       find: /^@ai-sdk\/react$/,
       replacement: resolveFromWeb.resolve("@ai-sdk/react"),
     },
+    { find: /^js-cookie$/, replacement: resolveFromWeb.resolve("js-cookie") },
   ];
 }
 

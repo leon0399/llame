@@ -131,16 +131,16 @@ typecheck ----> mutation
 ## Tracked follow-ups
 
 - Move the remaining story-eligible web component tests under rule 5; delete
-  jsdom coverage only after equivalent story assertions exist. Twenty-two
+  jsdom coverage only after equivalent story assertions exist. Twenty-three
   pairs are done (`chat-item`, `effort-selector`, `effective-context-inspector`,
   `tool-cap-notice-part`, `memory-section`, `app-sidebar-admin-entry`,
   `org-tree`, `members-panel`, `command-palette`, `share-chat-dialog`,
   `chat-item-dialogs`, `project-dialogs`, `org-unit-dialogs`,
   `app-sidebar-pinned`, `chat-page.markdown-loading`, `chat-page.models`,
   `chat-page.permission-mode`, `chat-page.target`, `chat-page.compaction`,
-  `login-form`, `register-form`, `model-switch-boundary`), which completes
-  the `chat-page.*` suites. `chat-page.target` keeps only its rejected-send
-  case in jsdom, since the real `useChat` never rejects a send.
+  `login-form`, `register-form`, `model-switch-boundary`, `settings-page`),
+  which completes the `chat-page.*` suites. `chat-page.target` keeps only its
+  rejected-send case in jsdom, since the real `useChat` never rejects a send.
   `model-switch-boundary` renders a `packages/ui` component, so its story
   stays beside it there. The remaining candidates need a story written first.
 - Remove dead in-file DB guards when touching those suites.
