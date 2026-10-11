@@ -83,9 +83,10 @@ export async function loadMediaDescriptors(
 }
 
 /**
- * One Run's view of its owner's media (vision-media D6), passed on
- * `ModelStreamInput.media`. Every read runs in its own short owner-scoped
- * transaction, never one held across a model stream.
+ * One Run attempt's view of its owner's media (vision-media D6), passed on
+ * `ModelStreamInput.media` and built anew for each attempt, so a retry or a
+ * resume shares nothing with the attempt it supersedes. Every read runs in its
+ * own short owner-scoped transaction, never one held across a model stream.
  */
 export type RunMediaResolver = {
   /** Owned descriptors among `ids`; unknown and foreign ids are absent. */

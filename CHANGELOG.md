@@ -181,9 +181,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   labelled image parts, oldest first within 100 images and 24 MiB per
   compaction epoch, and as `[image media://<id> …]` placeholders otherwise;
   images are sized by their dimensions in context estimates. `conversation_read`
-  lists a message's images after its text, compaction summaries keep their
-  `media://` locators, and public shares and shared forks omit them. Messages
-  cannot carry images until a later release. See
+  lists a message's images after its text, compaction summaries keep the
+  locators of the images they mention, and public shares and shared forks omit
+  them. Messages cannot carry images until a later release. See
   [media store](docs/product/operator/media.md#model-image-input).
 
 - Added the media store for owner images (#935). `POST /api/v1/media` uploads

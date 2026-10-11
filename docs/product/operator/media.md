@@ -213,10 +213,11 @@ Attachment never changes for an earlier image, so the request prefix stays
 stable for provider prompt caching.
 
 Before a Run's first step, unattached images on a vision model count as
-reaching the compaction threshold when an earlier message carries an image.
-The summary keeps the `media://` locator of every image it mentions, and the
-new epoch attaches images again from the start. A failed compaction never
-fails the Run; the placeholders stay until a later compaction succeeds.
+reaching the compaction threshold when an earlier message carries a stored
+image. The summary keeps the locator of every image it mentions, `media://` or
+the path or URL it was read from, and the new epoch attaches images again from
+the start. A failed compaction never fails the Run; the placeholders stay until
+a later compaction succeeds.
 
 Admission and compaction estimates leave image bytes out and charge each image
 `ceil(width × height / 750)` tokens on its model variant's dimensions, so a

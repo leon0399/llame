@@ -107,10 +107,12 @@ export function normalizeCompactionSummary(value: unknown): string | null {
  * Whether a prepared request's image overflow counts as reaching the
  * compaction threshold (vision-media D6): its model declares `image` input,
  * some reference is not attached because the epoch window is full, and a
- * resolvable image sits in a row before the triggering user message. Overflow
- * inside that message alone does not count: compaction cannot absorb it.
- * `triggerRefCount` is how many references the triggering message carries,
- * which are the request's last ones.
+ * resolvable stored image sits in a row before the triggering user message.
+ * Before a Run's first step, an unstored image in an earlier row is
+ * not-retained, so it never counts. Overflow inside that message alone does
+ * not count: compaction cannot absorb it. `triggerRefCount` is how many
+ * references the triggering message carries, which are the request's last
+ * ones.
  */
 export function imageOverflowCompacts(
   media: MediaSizing,
@@ -119,7 +121,7 @@ export function imageOverflowCompacts(
   if (!media.imageInput || !media.statuses.includes('limit')) return false;
   return media.statuses
     .slice(0, Math.max(0, media.statuses.length - triggerRefCount))
-    .some((status) => status !== 'unavailable');
+    .some((status) => status === 'attached' || status === 'limit');
 }
 
 /**

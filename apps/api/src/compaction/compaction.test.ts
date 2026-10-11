@@ -28,6 +28,7 @@ import {
 } from './compaction';
 import type { ModelMessage } from 'ai';
 import { descriptor } from '../media/media-fixtures';
+import type { MediaAdmission } from '../media/epoch-admission';
 import { createToolAvailabilityItem } from '../chats/context-item-producers';
 import type { StoredMessage } from '../chats/context-builder';
 import { isRecord, isString } from '@workspace/runtime-safety';
@@ -701,10 +702,7 @@ describe('media sizing (vision-media D6)', () => {
   });
 
   describe('imageOverflowCompacts', () => {
-    const sizing = (
-      statuses: Array<'attached' | 'limit' | 'unavailable'>,
-      imageInput = true,
-    ) => ({
+    const sizing = (statuses: Array<MediaAdmission>, imageInput = true) => ({
       descriptors: new Map([[A, screenshot(1000)]]),
       statuses,
       imageInput,
@@ -725,8 +723,11 @@ describe('media sizing (vision-media D6)', () => {
       ).toBe(false);
     });
 
-    it('does not count an unresolvable earlier reference as an image', () => {
+    it('does not count an unresolvable or not-retained earlier reference as an image', () => {
       expect(imageOverflowCompacts(sizing(['unavailable', 'limit']), 1)).toBe(
+        false,
+      );
+      expect(imageOverflowCompacts(sizing(['not-retained', 'limit']), 1)).toBe(
         false,
       );
     });
@@ -843,7 +844,7 @@ describe('buildCompactionRequest', () => {
       'Omit a field rather than invent it; never shorten or reconstruct an identifier.',
     );
     expect(COMPACTION_INSTRUCTION).toContain(
-      'Keep verbatim the `media://` locator of every image the summary mentions, so a later turn can read that image again.',
+      'Keep verbatim the locator of every image the summary mentions, whether a `media://` locator or the path or URL it was read from, so a later turn can read that image again.',
     );
     expect(COMPACTION_INSTRUCTION).toContain('Output only the summary');
   });

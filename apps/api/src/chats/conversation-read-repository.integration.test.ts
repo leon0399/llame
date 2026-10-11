@@ -380,12 +380,10 @@ describe('conversation source repository lookup', () => {
     const media = new MediaService(tenantDb);
     const { media: own } = await media.ingest(ownerA, {
       bytes: await randomPng(16, 9),
-      provenance: 'upload',
       source: 'shot.png',
     });
     const { media: foreign } = await media.ingest(ownerB, {
       bytes: await randomPng(12, 12),
-      provenance: 'upload',
       source: 'private-other-owner.png',
     });
     const chat = await createChat(ownerA, 'Attachments');

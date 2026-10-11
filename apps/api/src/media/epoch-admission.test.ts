@@ -118,6 +118,60 @@ describe('admitEpochImages', () => {
     expect(statuses.slice(1, 101)).toEqual(range(100).map(() => 'attached'));
     expect(statuses[101]).toBe('unavailable');
   });
+
+  it('never counts a not-retained read: 99 attachments, an earlier read, and one more attach all 100', () => {
+    const owner = range(100).map(mediaId);
+    const statuses = admitEpochImages(
+      [...owner.slice(0, 99), { unstored: 'not-retained' }, ...owner.slice(99)],
+      descriptorMap(owner.map((id) => descriptor(id))),
+    );
+
+    expect(statuses[99]).toBe('not-retained');
+    expect(statuses.filter((status) => status === 'attached')).toHaveLength(
+      100,
+    );
+  });
+
+  it('sizes an unstored image held with bytes like a stored one', () => {
+    const held = {
+      unstored: 'held',
+      modelByteSize: FIVE_MIB_BASE64_RAW,
+    } as const;
+    const statuses = admitEpochImages(
+      range(5).map(() => held),
+      new Map(),
+    );
+
+    expect(statuses).toEqual([
+      'attached',
+      'attached',
+      'attached',
+      'attached',
+      'limit',
+    ]);
+  });
+
+  it('keeps an entry held without bytes unattached and stops the window there', () => {
+    const [first = '', later = ''] = range(2).map(mediaId);
+    const statuses = admitEpochImages(
+      [
+        first,
+        { unstored: 'held-without-bytes' },
+        later,
+        { unstored: 'held', modelByteSize: 1 },
+        { unstored: 'not-retained' },
+      ],
+      descriptorMap([descriptor(first), descriptor(later)]),
+    );
+
+    expect(statuses).toEqual([
+      'attached',
+      'limit',
+      'limit',
+      'limit',
+      'not-retained',
+    ]);
+  });
 });
 
 describe('collectMediaRefs', () => {

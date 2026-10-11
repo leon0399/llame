@@ -9,31 +9,57 @@ export const EPOCH_MAX_IMAGES = 100;
 /** Summed base64 size of the attached model variants: 24 MiB. */
 export const EPOCH_MAX_BASE64_BYTES = 25_165_824;
 
-export type MediaAdmission = 'attached' | 'limit' | 'unavailable';
+/**
+ * An unstored image as the window sees it (vision-media R1.4), by what the
+ * current attempt's memory holds for it: no entry (`not-retained`), an entry
+ * the window refused when it entered (`held-without-bytes`), or an entry
+ * holding its model variant (`held`), sized like a stored one.
+ */
+export type UnstoredImageRef =
+  | { readonly unstored: 'not-retained' }
+  | { readonly unstored: 'held-without-bytes' }
+  | { readonly unstored: 'held'; readonly modelByteSize: number };
+
+/** One image reference of a request: a `media://` id or an unstored image. */
+export type EpochImageRef = string | UnstoredImageRef;
+
+export type MediaAdmission =
+  | 'attached'
+  | 'limit'
+  | 'unavailable'
+  | 'not-retained';
 
 /**
  * The epoch image window (vision-media D6, Q22): references in request order,
- * oldest first, a repeated id counting again. An unresolvable reference is
- * `unavailable` and counts toward nothing. Resolvable references attach while
- * at most 100 images and 24 MiB of base64 model variants hold; the first one
- * that would exceed either bound, and every later resolvable one, is `limit`.
+ * oldest first, a repeated id counting again. Only attachable references
+ * count: a `media://` id the owner's store resolves, or an unstored image the
+ * attempt's memory holds an entry for. An unresolvable id is `unavailable` and
+ * an unstored image without an entry is `not-retained`; neither counts toward
+ * anything. Attachable references attach while at most 100 images and 24 MiB
+ * of base64 model variants hold; the first one that would exceed either bound,
+ * and every later attachable one, is `limit`. An entry held without bytes
+ * marks where the window stopped when it entered, so it and every later
+ * attachable reference are `limit` too.
  *
  * Append-only: the statuses of a prefix of `refs` never depend on what follows
  * it, so a request prefix keeps its attachments as turns and steps are added.
  */
 export function admitEpochImages(
-  refs: ReadonlyArray<string>,
+  refs: ReadonlyArray<EpochImageRef>,
   descriptors: ReadonlyMap<string, MediaDescriptor>,
 ): ReadonlyArray<MediaAdmission> {
   let images = 0;
   let base64Bytes = 0;
   let full = false;
-  return refs.map((id) => {
-    const descriptor = descriptors.get(id);
-    if (descriptor === undefined) return 'unavailable';
-    if (full) return 'limit';
-    const size = 4 * Math.ceil(descriptor.modelByteSize / 3);
+  return refs.map((ref) => {
+    const counted = countedBytes(ref, descriptors);
+    if (counted === 'unavailable' || counted === 'not-retained') {
+      return counted;
+    }
+    const size = counted === 'limit' ? 0 : 4 * Math.ceil(counted / 3);
     if (
+      full ||
+      counted === 'limit' ||
       images === EPOCH_MAX_IMAGES ||
       base64Bytes + size > EPOCH_MAX_BASE64_BYTES
     ) {
@@ -44,6 +70,27 @@ export function admitEpochImages(
     base64Bytes += size;
     return 'attached';
   });
+}
+
+/**
+ * The model variant byte size an attachable reference counts, `limit` for an
+ * entry held without bytes, or the status of a reference that never counts.
+ */
+function countedBytes(
+  ref: EpochImageRef,
+  descriptors: ReadonlyMap<string, MediaDescriptor>,
+): number | Exclude<MediaAdmission, 'attached'> {
+  if (isString(ref)) {
+    return descriptors.get(ref)?.modelByteSize ?? 'unavailable';
+  }
+  switch (ref.unstored) {
+    case 'not-retained':
+      return 'not-retained';
+    case 'held-without-bytes':
+      return 'limit';
+    case 'held':
+      return ref.modelByteSize;
+  }
 }
 
 /**

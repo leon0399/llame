@@ -1138,7 +1138,6 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         (
           await media.ingest(a, {
             bytes: await randomPng(),
-            provenance: 'upload',
             source,
           })
         ).media.id;
