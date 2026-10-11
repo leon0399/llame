@@ -711,7 +711,6 @@ describe('ChatsService message windows, updates and forks', () => {
       turnToolAvailability: null,
       cancelRequestedAt: null,
       error: null,
-      contextItems: null,
       createdAt: new Date('2026-08-28T00:00:00.000Z'),
       startedAt: new Date('2026-08-28T00:00:00.000Z'),
       finishedAt: null,

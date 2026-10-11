@@ -7,7 +7,6 @@ import {
   isContextItemPart,
   isRecognizedProducer,
   renderContextItem,
-  resolveForm,
   sanitizeClientMessageParts,
 } from './context-item';
 
@@ -135,7 +134,7 @@ describe('client message sanitization', () => {
 });
 
 describe('vocabulary tolerance', () => {
-  it('treats an unrecognized form as absent rather than rejecting the item', () => {
+  it('parses an unrecognized form rather than rejecting the item', () => {
     const part = validPart();
     const withUnknownForm = {
       ...part,
@@ -143,8 +142,6 @@ describe('vocabulary tolerance', () => {
     };
     // Parses: rejecting it would make adding a form a coordinated boundary.
     expect(isContextItemPart(withUnknownForm)).toBe(true);
-    if (!isContextItemPart(withUnknownForm)) throw new Error('unreachable');
-    expect(resolveForm(withUnknownForm)).toBeUndefined();
   });
 
   it('parses an unrecognized producer while refusing to recognize it', () => {

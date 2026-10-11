@@ -449,6 +449,13 @@
       "when": 1791312334557,
       "tag": "20261006184534_special_warbound",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1791597006243,
+      "tag": "20261010015006_fixed_captain_flint",
+      "breakpoints": true
     }
   ]
 }

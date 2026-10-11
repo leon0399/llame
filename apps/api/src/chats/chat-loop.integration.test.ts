@@ -23,7 +23,7 @@
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { streamText } from 'ai';
-import { expectMessageParts } from '../testing/support';
+import { contentBlockTexts, expectMessageParts } from '../testing/support';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -112,7 +112,11 @@ const workerDynamicToolResolver: DynamicToolExecutorResolver = {
   resolveDynamicTool: () => ({ state: 'unavailable' }),
 };
 
-function workerModelClient(modelId: string, fail = false): ModelClient {
+function workerModelClient(
+  modelId: string,
+  fail = false,
+  onRequest?: (messages: ModelStreamInput['messages']) => void,
+): ModelClient {
   const chunks: Array<LanguageModelV3StreamPart> = fail
     ? [
         { type: 'stream-start', warnings: [] },
@@ -141,6 +145,7 @@ function workerModelClient(modelId: string, fail = false): ModelClient {
     provider: 'test',
     contextWindowTokens: 128_000,
     streamText(input: ModelStreamInput) {
+      onRequest?.(input.messages);
       return streamText({
         model,
         system: input.system,
@@ -178,6 +183,7 @@ describeIfDb(
     let systemPrompt: string;
     let allowedTools: Array<string>;
     let runExecution: RunExecutionService;
+    let requestTexts: Map<string, Array<string>>;
 
     type AvailabilityState =
       | { id: string; state: 'available' }
@@ -236,7 +242,6 @@ describeIfDb(
     type PersistResult = {
       runId: string;
       userMessage: RunJob['userMessage'];
-      run: Run;
     };
 
     const executeWorker = async (
@@ -248,7 +253,12 @@ describeIfDb(
         chatId: job.chatId,
         userId: job.userId,
         userMessage: job.userMessage,
-        client: workerModelClient(job.modelId, options.fail),
+        client: workerModelClient(job.modelId, options.fail, (messages) => {
+          requestTexts.set(
+            job.runId,
+            messages.flatMap(({ content }) => contentBlockTexts(content)),
+          );
+        }),
       });
       if (options.consume !== false) {
         await result.consumeStream?.();
@@ -286,21 +296,30 @@ describeIfDb(
           .then(() => undefined);
         const job = dispatchCalls.at(-1);
         if (!job) throw new Error('Expected accepted Run dispatch');
-        const run = await executeWorker(job, { consume: false });
+        await executeWorker(job, { consume: false });
         return {
           runId: job.runId,
           userMessage: job.userMessage,
-          run,
         };
       } finally {
         resolve.mockRestore();
       }
     };
 
-    const availabilityRunItem = (run: Run) =>
-      run.contextItems?.find(
-        ({ producer }) => producer === 'tool-availability',
+    /**
+     * The tool-availability block one Run's request carried. These Runs are
+     * settled by hand, so the accepted-turn items they stage never reach the
+     * stored user message; the request is where the item is observable.
+     */
+    const availabilityRequestItem = (runId: string) => {
+      const texts = requestTexts.get(runId);
+      if (!texts) throw new Error(`Expected a model request for Run ${runId}`);
+      return texts.find((text) =>
+        text.startsWith(
+          '<system-reminder producer="tool-availability" form="notice">',
+        ),
       );
+    };
 
     const finish = (
       runId: string,
@@ -345,6 +364,7 @@ describeIfDb(
 
     beforeEach(async () => {
       dispatchCalls = [];
+      requestTexts = new Map();
       systemPrompt = 'Chat-loop integration prompt';
       allowedTools = [];
       await new MemoryService(tenantDb).updateForOwner(userId, {
@@ -1346,14 +1366,9 @@ describeIfDb(
         'first degraded turn',
         degraded,
       );
-      const firstAvailability = availabilityRunItem(first.run);
-      expect(firstAvailability).toMatchObject({
-        producer: 'tool-availability',
-        form: 'notice',
-        residency: 'rail',
-      });
-      expect(firstAvailability?.text).toContain('mcp__docs__lookup');
-      expect(firstAvailability?.text).toContain('server disconnected');
+      const firstAvailability = availabilityRequestItem(first.runId);
+      expect(firstAvailability).toContain('mcp__docs__lookup');
+      expect(firstAvailability).toContain('server disconnected');
       await finish(first.runId, 'failed');
 
       const unchangedOutage = await persistWithContext(
@@ -1361,16 +1376,11 @@ describeIfDb(
         'same outage with a changed internal reason',
         changedDiagnostic,
       );
-      const unchangedOutageAvailability = availabilityRunItem(
-        unchangedOutage.run,
+      const unchangedOutageAvailability = availabilityRequestItem(
+        unchangedOutage.runId,
       );
-      expect(unchangedOutageAvailability).toMatchObject({
-        producer: 'tool-availability',
-        form: 'notice',
-        residency: 'rail',
-      });
-      expect(unchangedOutageAvailability?.text).toContain('mcp__docs__lookup');
-      expect(unchangedOutageAvailability?.text).toContain('server connecting');
+      expect(unchangedOutageAvailability).toContain('mcp__docs__lookup');
+      expect(unchangedOutageAvailability).toContain('server connecting');
       await finish(unchangedOutage.runId, 'completed', [
         { id: 'mcp__docs__lookup', state: 'unavailable' },
       ]);
@@ -1380,14 +1390,9 @@ describeIfDb(
         'tool recovered',
         healthy,
       );
-      const recoveredAvailability = availabilityRunItem(recovered.run);
-      expect(recoveredAvailability).toMatchObject({
-        producer: 'tool-availability',
-        form: 'notice',
-        residency: 'rail',
-      });
-      expect(recoveredAvailability?.text).toContain('mcp__docs__lookup');
-      expect(recoveredAvailability?.text).toContain('tool restored');
+      const recoveredAvailability = availabilityRequestItem(recovered.runId);
+      expect(recoveredAvailability).toContain('mcp__docs__lookup');
+      expect(recoveredAvailability).toContain('tool restored');
       await finish(recovered.runId, 'completed', [
         { id: 'mcp__docs__lookup', state: 'available' },
       ]);
@@ -1397,21 +1402,16 @@ describeIfDb(
         'disconnect and reconnect between attempts',
         healthy,
       );
-      expect(availabilityRunItem(transientFlap.run)).toBeUndefined();
+      expect(availabilityRequestItem(transientFlap.runId)).toBeUndefined();
       await finish(transientFlap.runId, 'expired');
 
       const removed = await persistWithContext(chatId, 'tool removed', empty);
-      const removedAvailability = availabilityRunItem(removed.run);
+      const removedAvailability = availabilityRequestItem(removed.runId);
       // The expired predecessor is skipped, not treated as a fresh epoch: the
       // last successful turn observed the tool as available, so dropping it
       // from the eligible set is an observable removal.
-      expect(removedAvailability).toMatchObject({
-        producer: 'tool-availability',
-        form: 'notice',
-        residency: 'rail',
-      });
-      expect(removedAvailability?.text).toContain('mcp__docs__lookup');
-      expect(removedAvailability?.text).toContain('Removed tools');
+      expect(removedAvailability).toContain('mcp__docs__lookup');
+      expect(removedAvailability).toContain('Removed tools');
       await finish(removed.runId, 'completed', []);
 
       const newlyUnavailable = await persistWithContext(
@@ -1419,15 +1419,10 @@ describeIfDb(
         'newly eligible but unavailable',
         degraded,
       );
-      const newlyUnavailableAvailability = availabilityRunItem(
-        newlyUnavailable.run,
+      const newlyUnavailableAvailability = availabilityRequestItem(
+        newlyUnavailable.runId,
       );
-      expect(newlyUnavailableAvailability).toMatchObject({
-        producer: 'tool-availability',
-        form: 'notice',
-        residency: 'rail',
-      });
-      expect(newlyUnavailableAvailability?.text).toContain('mcp__docs__lookup');
+      expect(newlyUnavailableAvailability).toContain('mcp__docs__lookup');
 
       const receipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
@@ -1538,16 +1533,11 @@ describeIfDb(
           ({ userMessage }) => userMessage.id === recoveredMessageId,
         );
         if (!recoveredJob) throw new Error('Expected recovered Run dispatch');
-        const preparedRecovered = await executeWorker(recoveredJob, {
-          consume: false,
-        });
-        const recoveredAvailability = availabilityRunItem(preparedRecovered);
-        expect(recoveredAvailability).toMatchObject({
-          producer: 'tool-availability',
-          form: 'notice',
-          residency: 'rail',
-        });
-        expect(recoveredAvailability?.text).toContain('tool restored');
+        await executeWorker(recoveredJob, { consume: false });
+        const recoveredAvailability = availabilityRequestItem(
+          recoveredJob.runId,
+        );
+        expect(recoveredAvailability).toContain('tool restored');
         await finish(recoveredJob.runId);
       } finally {
         releaseFirst.release();
@@ -1587,7 +1577,7 @@ describeIfDb(
         'first observed healthy turn',
         healthy,
       );
-      expect(availabilityRunItem(afterLegacy.run)).toBeUndefined();
+      expect(availabilityRequestItem(afterLegacy.runId)).toBeUndefined();
       const observedReceipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           afterLegacy.runId,
@@ -1627,16 +1617,11 @@ describeIfDb(
         'degraded after compaction',
         degraded,
       );
-      const firstAfterAvailability = availabilityRunItem(
-        firstAfterCompaction.run,
+      const firstAfterAvailability = availabilityRequestItem(
+        firstAfterCompaction.runId,
       );
-      expect(firstAfterAvailability).toMatchObject({
-        producer: 'tool-availability',
-        form: 'notice',
-        residency: 'rail',
-      });
-      expect(firstAfterAvailability?.text).toContain('mcp__docs__lookup');
-      expect(firstAfterAvailability?.text).toContain('server disconnected');
+      expect(firstAfterAvailability).toContain('mcp__docs__lookup');
+      expect(firstAfterAvailability).toContain('server disconnected');
       await finish(firstAfterCompaction.runId, 'completed', [
         { id: 'mcp__docs__lookup', state: 'unavailable' },
       ]);
@@ -1645,7 +1630,7 @@ describeIfDb(
         'unchanged after new epoch baseline',
         degraded,
       );
-      expect(availabilityRunItem(repeated.run)).toBeUndefined();
+      expect(availabilityRequestItem(repeated.runId)).toBeUndefined();
 
       const healthyChatId = crypto.randomUUID();
       const degradedBefore = await persistWithContext(
@@ -1668,7 +1653,9 @@ describeIfDb(
         'healthy after compaction',
         healthy,
       );
-      expect(availabilityRunItem(healthyAfterCompaction.run)).toBeUndefined();
+      expect(
+        availabilityRequestItem(healthyAfterCompaction.runId),
+      ).toBeUndefined();
     });
 
     it('does not commit a prospective availability baseline when the worker fails, then commits it on success', async () => {

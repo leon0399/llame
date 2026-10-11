@@ -267,8 +267,8 @@ export interface InRunStepContext {
   readonly messages: ReadonlyArray<ModelMessage>;
   readonly stepNumber: number;
   /**
-   * Stages one item for this step: records it, appends it to the assistant
-   * transcript, and includes it in the Run record.
+   * Stages one item for this step: records it and appends it to the assistant
+   * transcript.
    */
   readonly stage: (part: AuthoredContextItemPart) => void;
 }

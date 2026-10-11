@@ -233,22 +233,6 @@ describe('temporal rows in assembled context', () => {
     );
   });
 
-  it('records each row in the run record', () => {
-    const { contextItems } = buildContext(conversation, {
-      systemPrompt,
-      requestKind: 'continuation',
-    });
-    expect(contextItems).toHaveLength(2);
-    for (const item of contextItems) {
-      expect(item).toMatchObject({
-        producer: 'temporal',
-        form: 'snapshot',
-        residency: 'rail',
-      });
-      expect(item.text).toContain('Message received:');
-    }
-  });
-
   it('leaves a turn that predates the feature untouched', () => {
     const legacy = msg({
       seq: 1,
@@ -266,7 +250,6 @@ describe('temporal rows in assembled context', () => {
     expect(contentBlockTexts(result.messages[0].content)).toEqual([
       'sent before rows existed',
     ]);
-    expect(result.contextItems).toEqual([]);
   });
 
   it('states a receipt, never the present instant', () => {
@@ -281,7 +264,7 @@ describe('temporal rows in assembled context', () => {
   });
 
   it('drops rows superseded by a compaction along with their turns', () => {
-    const { contextItems } = buildContext(conversation, {
+    const { messages } = buildContext(conversation, {
       systemPrompt,
       requestKind: 'continuation',
       checkpoint: {
@@ -290,7 +273,9 @@ describe('temporal rows in assembled context', () => {
       },
     });
     expect(
-      contextItems.filter((item) => item.producer === 'temporal'),
+      messages.filter((m) =>
+        contentText(m.content).includes('Message received:'),
+      ),
     ).toHaveLength(1);
   });
 });
