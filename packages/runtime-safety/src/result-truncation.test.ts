@@ -574,7 +574,8 @@ describe("truncateOversizedResult image results", () => {
       path: `/work/${"a".repeat(50_000)}.png`,
     });
     expect(oversized).toMatchObject({ truncated: true, thumbnail });
-    const { thumbnail: _display, ...shown } = oversized;
-    expect(size(shown)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
+    // JSON.stringify omits undefined, so this measures everything but the thumbnail.
+    const shown = JSON.stringify({ ...oversized, thumbnail: undefined });
+    expect(shown.length).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
 });
