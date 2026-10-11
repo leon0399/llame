@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
 import { SidebarMenu, SidebarProvider } from "@workspace/ui/components/sidebar";
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test";
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 
 // Import the mocked context via the REAL specifier (not the __mocks__ file
 // directly): sb.mock (preview.tsx) redirects it to the mock, so overriding
@@ -27,6 +27,11 @@ import * as fork from "@/lib/services/chat/fork";
 import { forkMutate } from "@/lib/services/chat/__mocks__/fork";
 import type { ChatResponse } from "@/lib/services/chat/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
+import {
+  emptyResponse,
+  requestFromCall,
+  stubFetch,
+} from "@/lib/test-support/fetch-stub";
 import { ChatItem } from "./chat-item";
 
 // The real-specifier hooks are redirected to Storybook mocks. Injecting the
@@ -42,6 +47,55 @@ const useActiveRuns = vi.mocked(activeRunsContext.useActiveRuns, {
 // provides `useRouter()` from the story's own `nextjs.router` parameter, so a
 // story can hand the framework this spy and then assert the destination.
 const routerPush = fn().mockName("router.push");
+
+// Filing runs the REAL useFileChat — no module mock — against a stubbed
+// globalThis.fetch, so a pick is proved by the request it actually sends. The
+// chat's PATCH is the only routed request; any other request fails the story.
+let fetchMock: Mock<typeof fetch>;
+
+function routeFileChat() {
+  fetchMock = stubFetch();
+  fetchMock.mockImplementation((input) => {
+    const request = input instanceof Request ? input : new Request(input);
+    const key = `${request.method} ${new URL(request.url).pathname}`;
+    if (key === "PATCH /api/v1/chats/chat-1") {
+      return Promise.resolve(emptyResponse());
+    }
+    throw new Error(`unrouted fetch in story: ${key}`);
+  });
+  return () => {
+    vi.unstubAllGlobals();
+  };
+}
+
+/** "METHOD /path" of every request sent so far, in order. */
+function sentRoutes() {
+  return fetchMock.mock.calls.map(([input]) => {
+    const request = input instanceof Request ? input : new Request(input);
+    return `${request.method} ${new URL(request.url).pathname}`;
+  });
+}
+
+/** Opens the row menu, then its project submenu by the trigger's label. */
+async function openProjectSubmenu(
+  canvasElement: HTMLElement,
+  trigger: "Add to project" | "Change project",
+) {
+  await userEvent.click(
+    within(canvasElement).getByRole("button", { name: /more/i }),
+  );
+  // Radix menus portal to the document body — query from screen, not canvas.
+  await userEvent.hover(await screen.findByRole("menuitem", { name: trigger }));
+}
+
+/** Picks a project in the open submenu; returns the one request it sent. */
+async function pickProject(name: string) {
+  await userEvent.click(await screen.findByRole("menuitemradio", { name }));
+  const request = await waitFor(() => requestFromCall(fetchMock));
+  // One pick, one request: the chat's own PATCH and nothing else.
+  await expect(sentRoutes()).toEqual(["PATCH /api/v1/chats/chat-1"]);
+  return request;
+}
 
 // Separate guard rather than an inline `typeof`: the mutation's success
 // callback is destructured from a mock call, and the repo forbids runtime
@@ -588,6 +642,69 @@ export const ProjectMenuFiled: Story = {
     await expect(
       screen.queryByRole("menuitem", { name: /remove from project/i }),
     ).toBeNull();
+  },
+};
+
+/**
+ * Picking a project in an unfiled chat's submenu files the chat into it: the
+ * row sends the chat's own update carrying the picked project.
+ *
+ * @summary picking a project files an unfiled chat into it
+ */
+export const ProjectMenuFile: Story = {
+  args: { projects },
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  beforeEach: routeFileChat,
+  play: async ({ canvasElement }) => {
+    await openProjectSubmenu(canvasElement, "Add to project");
+
+    const request = await pickProject("Research");
+    await expect(request.clone().json()).resolves.toEqual({
+      projectId: "p2",
+    });
+  },
+};
+
+/**
+ * Picking a different project in a filed chat's submenu moves the chat there —
+ * one update naming the new project, not an unfile followed by a file.
+ *
+ * @summary picking another project moves a filed chat
+ */
+export const ProjectMenuRefile: Story = {
+  args: { chat: { ...baseChat, projectId: "p1" }, projects },
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  beforeEach: routeFileChat,
+  play: async ({ canvasElement }) => {
+    await openProjectSubmenu(canvasElement, "Change project");
+
+    const request = await pickProject("Research");
+    await expect(request.clone().json()).resolves.toEqual({
+      projectId: "p2",
+    });
+  },
+};
+
+/**
+ * Re-picking the checked project is how a chat leaves its project: the update
+ * clears the project rather than re-sending the current one.
+ *
+ * @summary re-picking the checked project unfiles the chat
+ */
+export const ProjectMenuUnfile: Story = {
+  args: { chat: { ...baseChat, projectId: "p1" }, projects },
+  parameters: { ...menuPortalA11y },
+  tags: ["ai-generated"],
+  beforeEach: routeFileChat,
+  play: async ({ canvasElement }) => {
+    await openProjectSubmenu(canvasElement, "Change project");
+
+    const request = await pickProject("Work");
+    await expect(request.clone().json()).resolves.toEqual({
+      projectId: null,
+    });
   },
 };
 

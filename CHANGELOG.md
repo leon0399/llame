@@ -39,7 +39,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Unpin, Rename, Archive and Delete menu (without the chat actions that need
   the full chat), unpinning, archiving (the row shows Archived once the
   refetch lands, with the PATCH it sends), and opening the rename and delete
-  dialogs.
+  dialogs. The chat row stories now also cover filing a chat into a project,
+  moving it to another, and unfiling it by re-picking its project, each with
+  the one PATCH it sends. They run the real `useFileChat` against a stubbed
+  fetch, so the row needed no preview mock for it.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no

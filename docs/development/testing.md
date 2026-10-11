@@ -136,9 +136,7 @@ typecheck ----> mutation
   `tool-cap-notice-part`, `memory-section`, `app-sidebar-admin-entry`,
   `org-tree`, `members-panel`, `command-palette`, `share-chat-dialog`,
   `chat-item-dialogs`, `project-dialogs`, `org-unit-dialogs`,
-  `app-sidebar-pinned`); the next candidates need a story written first, and
-  `chat-item`'s project-filing assertions need a routed `stubFetch` plus file
-  and unfile stories before they can move.
+  `app-sidebar-pinned`); the next candidates need a story written first.
 - Remove dead in-file DB guards when touching those suites.
 - Add CRAP to `packages/ui`'s `test:coverage` once `MessageAttachment`,
   `rewriteChildrenByValue`, `detectPrimaryModifier` and `getTimeOfDay` are
