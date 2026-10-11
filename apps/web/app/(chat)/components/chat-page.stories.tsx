@@ -1,11 +1,19 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 import { ReasoningContent } from "@workspace/ui/components/ai-elements/reasoning-content";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query";
+import { useState, type ComponentProps } from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { vi, type Mock } from "vitest";
 
 import { ChatProvider } from "@/contexts/chat-context";
+import { createAuthenticatedBrowserFetch } from "@/lib/api/fetch";
+import { listPermissionModes } from "@/lib/api/generated/permission-modes/permission-modes";
 import type { ChatMessageResponse } from "@/lib/services/chat/history";
 import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
 import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
@@ -14,6 +22,7 @@ import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
 import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import * as permissionModeQueries from "@/lib/services/permission-modes/queries";
+import type { PermissionModesResponse } from "@/lib/services/permission-modes/queries";
 import {
   emptyResponse,
   jsonResponse,
@@ -116,18 +125,24 @@ async function chunkLoad(attempt: number) {
 
 // The resume probe and the history re-read run through the REAL hooks against
 // a stubbed fetch, answering as the api does for a chat with no active run. A
-// send is held unanswered: the stories assert only what it carries. Any other
-// request is recorded and the meta's afterEach fails the story on it: the throw
-// alone only becomes a query error.
+// send is held unanswered: the stories assert only what it carries. A story
+// can answer more routes with `routeAlso`. Any other request is recorded and
+// the meta's afterEach fails the story on it: the throw alone only becomes a
+// query error.
 let fetchMock: Mock<typeof fetch>;
 let unrouted: Array<string> = [];
+
+/** The "METHOD /path" a fetch call targets. */
+function routeOf(input: RequestInfo | URL) {
+  const request = input instanceof Request ? input : new Request(input);
+  return `${request.method} ${new URL(request.url).pathname}`;
+}
 
 function routeOpenChat(history: Array<ChatMessageResponse>) {
   fetchMock = stubFetch();
   unrouted = [];
   fetchMock.mockImplementation((input) => {
-    const request = input instanceof Request ? input : new Request(input);
-    const key = `${request.method} ${new URL(request.url).pathname}`;
+    const key = routeOf(input);
     if (key === HISTORY_ROUTE) {
       return Promise.resolve(jsonResponse({ messages: history }));
     }
@@ -141,12 +156,19 @@ function routeOpenChat(history: Array<ChatMessageResponse>) {
   };
 }
 
+/** Answers `routes` ahead of the opened chat's own routes. */
+function routeAlso(routes: Record<string, () => Promise<Response>>) {
+  const openChat = fetchMock.getMockImplementation();
+  if (openChat === undefined) throw new Error("routeOpenChat must run first");
+  fetchMock.mockImplementation((input, init) => {
+    const answer = routes[routeOf(input)];
+    return answer === undefined ? openChat(input, init) : answer();
+  });
+}
+
 /** "METHOD /path" of every request sent so far, in order. */
 function sentRoutes() {
-  return fetchMock.mock.calls.map(([input]) => {
-    const request = input instanceof Request ? input : new Request(input);
-    return `${request.method} ${new URL(request.url).pathname}`;
-  });
+  return fetchMock.mock.calls.map(([input]) => routeOf(input));
 }
 
 /** The JSON body of the first request sent to `route`. */
@@ -415,9 +437,12 @@ function serveTwoModelCatalog(gpt54: AvailableModel = GPT_5_4) {
   });
 }
 
-/** Waits until the opened chat's history shows and the page's requests
- *  settle, then returns the model selector. */
-async function settledModelSelector(canvasElement: HTMLElement) {
+/** Waits until the opened chat's history shows and the page has sent exactly
+ *  `routes` (default: the opened chat's own). */
+async function settledChat(
+  canvasElement: HTMLElement,
+  routes: Array<string> = OPEN_CHAT_ROUTES,
+) {
   const canvas = within(canvasElement);
   await readyComposer(canvasElement);
   await waitFor(() =>
@@ -425,8 +450,15 @@ async function settledModelSelector(canvasElement: HTMLElement) {
       within(canvas.getByRole("log")).getByText("Reply from history"),
     ).toBeVisible(),
   );
-  await waitFor(() => expect(sentRoutes()).toEqual(OPEN_CHAT_ROUTES));
-  return canvas.getByRole("combobox", { name: /^Select model/ });
+  await waitFor(() => expect(sentRoutes()).toEqual(routes));
+}
+
+/** Waits for the settled chat, then returns the model selector. */
+async function settledModelSelector(canvasElement: HTMLElement) {
+  await settledChat(canvasElement);
+  return within(canvasElement).getByRole("combobox", {
+    name: /^Select model/,
+  });
 }
 
 /**
@@ -525,5 +557,336 @@ export const RestoresLastEffort: Story = {
     await expect(
       canvas.getByRole("button", { name: "Reasoning effort, High" }),
     ).toBeVisible();
+  },
+};
+
+const MODES_ROUTE = "GET /api/v1/permission-modes";
+const BOTH_MODES: PermissionModesResponse = {
+  modes: [{ value: "default" }, { value: "bypass" }],
+};
+const DEFAULT_ONLY: PermissionModesResponse = { modes: [{ value: "default" }] };
+const BYPASS_HISTORY = historyWithUsage({
+  modelId: GPT_5_4_MINI.id,
+  status: "completed",
+  permissionMode: "bypass",
+});
+// #232 — the bypass trigger's destructive treatment falls below WCAG AA
+// color-contrast until the token fix; every other a11y rule still runs.
+const BYPASS_CHAT = {
+  ...contrastKnownIssue232,
+  history: BYPASS_HISTORY,
+} satisfies ChatPageParameters;
+
+/** Offers both permission modes from an already-loaded listing. */
+function offerBothModes() {
+  usePermissionModesQuery.mockReturnValue({
+    data: BOTH_MODES,
+    isError: false,
+    isPending: false,
+  });
+}
+
+/** The real hook's query — the preview sb.mocks the module that declares it —
+ *  so a story can hold, change and refetch the listing the api serves. */
+function useListedPermissionModes() {
+  return useQuery({
+    queryKey: permissionModeQueries.permissionModesQueryKey,
+    queryFn: () =>
+      listPermissionModes(
+        undefined,
+        createAuthenticatedBrowserFetch(globalThis.fetch),
+      ),
+    staleTime: 60_000,
+  });
+}
+
+/** Fetches the listing from the api, which answers it with `answer`. */
+function listModesFromApi(answer: () => Promise<Response>) {
+  usePermissionModesQuery.mockImplementation(useListedPermissionModes);
+  routeAlso({ [MODES_ROUTE]: answer });
+}
+
+/** Picks bypass from the composer's permission-mode menu. */
+async function selectBypass(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement);
+  await userEvent.click(
+    await canvas.findByRole("button", { name: "Permission mode, Default" }),
+  );
+  await userEvent.click(
+    await within(document.body).findByRole("menuitemradio", {
+      name: /Bypass/,
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      canvas.getByRole("button", { name: "Permission mode, Bypass" }),
+    ).toBeVisible(),
+  );
+}
+
+/**
+ * Opening a chat whose last reply ran in bypass restores bypass while the
+ * operator still offers it.
+ *
+ * @summary the last reply's bypass mode is restored
+ */
+export const RestoresBypass: Story = {
+  tags: ["ai-generated"],
+  parameters: BYPASS_CHAT,
+  beforeEach: offerBothModes,
+  play: async ({ canvasElement }) => {
+    await settledChat(canvasElement);
+    await expect(
+      await within(canvasElement).findByRole("button", {
+        name: "Permission mode, Bypass",
+      }),
+    ).toBeVisible();
+  },
+};
+
+// The held permission-mode listing, answered by the story.
+let answerModes: (response: Response) => void = () => {};
+
+/**
+ * When the mode listing arrives after the history and the model catalog, the
+ * page shows no mode until it does, then restores bypass rather than having
+ * settled on default meanwhile.
+ *
+ * @summary bypass is restored once a late mode listing arrives
+ */
+export const RestoresBypassAfterLateListing: Story = {
+  tags: ["ai-generated"],
+  parameters: BYPASS_CHAT,
+  beforeEach: () =>
+    listModesFromApi(
+      () =>
+        new Promise<Response>((resolve) => {
+          answerModes = resolve;
+        }),
+    ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await settledChat(canvasElement, [MODES_ROUTE, ...OPEN_CHAT_ROUTES]);
+    await expect(
+      canvas.queryByRole("button", { name: /^Permission mode/ }),
+    ).toBeNull();
+
+    answerModes(jsonResponse(BOTH_MODES));
+
+    await expect(
+      await canvas.findByRole("button", { name: "Permission mode, Bypass" }),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * The bypass restore does not wait for the model catalog: while models still
+ * load, the chat already shows bypass next to the loading model selector.
+ *
+ * @summary bypass is restored while the model catalog loads
+ */
+export const RestoresBypassWhileModelsLoad: Story = {
+  tags: ["ai-generated"],
+  parameters: BYPASS_CHAT,
+  beforeEach: () => {
+    offerBothModes();
+    useModelsQuery.mockReturnValue({
+      data: undefined,
+      isError: false,
+      isPending: true,
+      isSuccess: false,
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await settledChat(canvasElement);
+    await expect(
+      await canvas.findByRole("button", { name: "Permission mode, Bypass" }),
+    ).toBeVisible();
+    await expect(canvas.getByRole("combobox")).toHaveAccessibleName(
+      "Select model",
+    );
+  },
+};
+
+const OTHER_CHAT_ID = "b6ed346f-2ef9-4bbe-95f9-f1f358c7b246";
+const OTHER_RESUME_ROUTE = `GET /api/v1/chats/${OTHER_CHAT_ID}/stream`;
+const OTHER_HISTORY_ROUTE = `GET /api/v1/chats/${OTHER_CHAT_ID}/messages`;
+
+/** The page plus a stand-in for the sidebar link to another chat, which
+ *  re-renders the page under the same chat context with that chat's id. */
+function ChatSwitcher(props: ComponentProps<typeof ChatPage>) {
+  const [chatId, setChatId] = useState(props.chatId);
+  return (
+    <>
+      <button type="button" onClick={() => setChatId(OTHER_CHAT_ID)}>
+        Open another chat
+      </button>
+      <ChatPage {...props} chatId={chatId} />
+    </>
+  );
+}
+
+/**
+ * Bypass picked in one chat stays with that chat: opening another chat shows
+ * the default mode.
+ *
+ * @summary bypass does not follow the user into another chat
+ */
+export const BypassStaysWithItsChat: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: historyWithUsage({ status: "completed" }),
+  } satisfies ChatPageParameters,
+  render: (args) => <ChatSwitcher {...args} />,
+  beforeEach: () => {
+    offerBothModes();
+    seedChatMessagesQueryData(queryClient, OTHER_CHAT_ID, {
+      messages: [],
+      compaction: null,
+    });
+    routeAlso({
+      [OTHER_RESUME_ROUTE]: () => Promise.resolve(emptyResponse()),
+      [OTHER_HISTORY_ROUTE]: () =>
+        Promise.resolve(jsonResponse({ messages: [] })),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await settledChat(canvasElement);
+    await selectBypass(canvasElement);
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Open another chat" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Permission mode, Default" }),
+      ).toBeVisible(),
+    );
+    await waitFor(() =>
+      expect(sentRoutes()).toEqual([
+        ...OPEN_CHAT_ROUTES,
+        OTHER_RESUME_ROUTE,
+        OTHER_HISTORY_ROUTE,
+      ]),
+    );
+  },
+};
+
+// The listing the api serves, changed by the story between refetches.
+let listedModes = BOTH_MODES;
+
+/**
+ * When the operator withdraws bypass while a chat has it selected, the
+ * selection resets: the control disappears with the withdrawn choice, and when
+ * bypass is offered again the chat is back on default, not silently on bypass.
+ *
+ * @summary a withdrawn bypass selection resets to default
+ */
+export const WithdrawnBypassResets: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: historyWithUsage({ status: "completed" }),
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    listedModes = BOTH_MODES;
+    listModesFromApi(() => Promise.resolve(jsonResponse(listedModes)));
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await settledChat(canvasElement, [MODES_ROUTE, ...OPEN_CHAT_ROUTES]);
+    await selectBypass(canvasElement);
+
+    // A refetch (window focus, staleness) picks up the operator's change.
+    listedModes = DEFAULT_ONLY;
+    await queryClient.invalidateQueries({
+      queryKey: permissionModeQueries.permissionModesQueryKey,
+    });
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("button", { name: /^Permission mode/ }),
+      ).toBeNull(),
+    );
+
+    listedModes = BOTH_MODES;
+    await queryClient.invalidateQueries({
+      queryKey: permissionModeQueries.permissionModesQueryKey,
+    });
+    await expect(
+      await canvas.findByRole("button", { name: "Permission mode, Default" }),
+    ).toBeVisible();
+  },
+};
+
+// The held send, answered by the story.
+let answerSend: (response: Response) => void = () => {};
+
+/**
+ * A send carries the chat's bypass selection; when the api rejects it because
+ * bypass is no longer available, the chat falls back to default and re-reads
+ * the mode listing.
+ *
+ * @summary a rejected bypass send resets to default and refetches the modes
+ */
+export const UnavailableBypassResets: Story = {
+  tags: ["ai-generated"],
+  // #232 — the transcript's destructive error alert falls below WCAG AA
+  // color-contrast until the token fix; every other a11y rule still runs.
+  parameters: {
+    ...contrastKnownIssue232,
+    history: historyWithUsage({ status: "completed" }),
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    listModesFromApi(() => Promise.resolve(jsonResponse(BOTH_MODES)));
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        new Promise<Response>((resolve) => {
+          answerSend = resolve;
+        }),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const opened = [MODES_ROUTE, ...OPEN_CHAT_ROUTES];
+    await settledChat(canvasElement, opened);
+    await selectBypass(canvasElement);
+
+    await userEvent.type(composer(canvasElement), "follow-up");
+    const send = canvas.getByRole("button", { name: "Send message" });
+    await waitFor(() => expect(send).toBeEnabled());
+    await userEvent.click(send);
+    await waitFor(() => expect(sentRoutes()).toEqual([...opened, SEND_ROUTE]));
+    await expect(await sentBody(SEND_ROUTE)).toMatchObject({
+      permissionMode: "bypass",
+    });
+
+    answerSend(
+      jsonResponse(
+        {
+          statusCode: 422,
+          error: "Unprocessable Entity",
+          message: "Permission mode is no longer available",
+          code: "permission_mode_not_available",
+        },
+        422,
+      ),
+    );
+
+    await expect(
+      await canvas.findByRole("button", { name: "Permission mode, Default" }),
+    ).toBeVisible();
+    // The rejection re-reads the listing, then the history — once for the
+    // error and once for the errored finish.
+    await waitFor(() =>
+      expect(sentRoutes()).toEqual([
+        ...opened,
+        SEND_ROUTE,
+        MODES_ROUTE,
+        HISTORY_ROUTE,
+        HISTORY_ROUTE,
+      ]),
+    );
   },
 };
