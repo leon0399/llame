@@ -44,6 +44,50 @@ function rowCentreInScroller(page: Page, selector: string) {
   );
 }
 
+// A landed target must STAY landed: the stick-to-bottom pin's writers (the
+// library's content ResizeObserver, ChatLoadOlder's synchronous re-pin) run
+// on later frames, after any single sample. Samples the row every animation
+// frame until the scroller's geometry has held still for SETTLE_FRAMES
+// consecutive frames (late Markdown/highlight growth restarts the count) and
+// counts the frames in which the row's centre was outside the scroller.
+const SETTLE_FRAMES = 60;
+const MAX_FRAMES = 900;
+function rowCentreStaysInScroller(page: Page, selector: string) {
+  return page.evaluate(
+    async ({ row, scrollerSelector, settleFrames, maxFrames }) => {
+      let frames = 0;
+      let stableFrames = 0;
+      let framesOut = 0;
+      let lastGeometry = "";
+      while (stableFrames < settleFrames && frames < maxFrames) {
+        await new Promise(requestAnimationFrame);
+        frames += 1;
+        const element = document.querySelector(row);
+        const scroller = document.querySelector(scrollerSelector);
+        if (!element || !scroller) {
+          framesOut += 1;
+          stableFrames = 0;
+          continue;
+        }
+        const box = element.getBoundingClientRect();
+        const view = scroller.getBoundingClientRect();
+        const centre = (box.top + box.bottom) / 2;
+        if (centre < view.top || centre > view.bottom) framesOut += 1;
+        const geometry = `${scroller.scrollTop}:${scroller.scrollHeight}`;
+        stableFrames = geometry === lastGeometry ? stableFrames + 1 : 0;
+        lastGeometry = geometry;
+      }
+      return { settled: stableFrames >= settleFrames, framesOut };
+    },
+    {
+      row: selector,
+      scrollerSelector: SCROLLER,
+      settleFrames: SETTLE_FRAMES,
+      maxFrames: MAX_FRAMES,
+    },
+  );
+}
+
 function distanceFromBottom(page: Page) {
   return page.evaluate((scrollerSelector) => {
     const scroller = document.querySelector(scrollerSelector);
@@ -89,6 +133,10 @@ test.describe("message target scroll (#1237)", () => {
     await expect
       .poll(() => rowCentreInScroller(page, "#msg-1"), { timeout: 10_000 })
       .toBe(true);
+    expect(await rowCentreStaysInScroller(page, "#msg-1")).toEqual({
+      settled: true,
+      framesOut: 0,
+    });
 
     // A reload of the targeted URL lands the same way.
     await page.reload();
@@ -98,6 +146,10 @@ test.describe("message target scroll (#1237)", () => {
     await expect
       .poll(() => rowCentreInScroller(page, "#msg-1"), { timeout: 10_000 })
       .toBe(true);
+    expect(await rowCentreStaysInScroller(page, "#msg-1")).toEqual({
+      settled: true,
+      framesOut: 0,
+    });
 
     // An ordinary open of the same Chat still lands at the newest message.
     await page.goto(`/chat/${chatId}`);
