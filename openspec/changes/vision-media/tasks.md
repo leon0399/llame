@@ -92,7 +92,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 2.5 Document `models[].input` in `README.md` and the operator media runbook; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 2.6 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the touched integration suites
 - [x] 2.7 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 3. `vision-media/attachments-api` — owner file parts (design D5)
 
