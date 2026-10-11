@@ -9,10 +9,11 @@ on:
   push:
     branches: [master]
 
-# Pull request runs supersede each other; master runs always finish.
+# Pull request runs supersede each other; each master run has its own group,
+# so none is cancelled or replaced while pending.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 permissions: {}
 
