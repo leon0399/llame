@@ -3,9 +3,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 # 2026-10-11
 
 - Moved the admin organization tree's, the parked members panel's, the chat
-  command palette's, and the share chat dialog's rendering tests out of jsdom
-  and into `org-tree.stories.tsx`, `members-panel.stories.tsx`,
-  `command-palette.stories.tsx`, and `share-chat-dialog.stories.tsx`, whose
+  command palette's, the share chat dialog's, and the chat rename and delete
+  dialogs' rendering tests out of jsdom and into `org-tree.stories.tsx`,
+  `members-panel.stories.tsx`, `command-palette.stories.tsx`,
+  `share-chat-dialog.stories.tsx`, and `chat-item-dialogs.stories.tsx`, whose
   play functions now run in Chromium (#860). The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -16,6 +17,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   closing before navigating, the kept query, and the clear button. The share
   dialog stories cover the private state, turning sharing on and off while the
   request is still pending (with the request it sends), and copying the link.
+  The rename and delete dialog stories cover saving an unchanged and a new
+  title (with the PATCH it sends), reopening from the chat's current title,
+  and deleting the open chat (home first, while the DELETE is still pending)
+  or another chat (no navigation).
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
