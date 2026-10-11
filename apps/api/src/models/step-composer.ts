@@ -182,12 +182,12 @@ function moveResultImages(
     return part;
   }
   const value = part.output.value;
-  const kept = value.filter((item) => item.type !== 'image-data');
-  if (kept.length === value.length) return part;
-  for (const item of value) {
-    if (item.type !== 'image-data') continue;
-    images.push({ type: 'image', image: item.data, mediaType: item.mediaType });
+  const found = value.filter((item) => item.type === 'image-data');
+  if (found.length === 0) return part;
+  for (const { data, mediaType } of found) {
+    images.push({ type: 'image', image: data, mediaType });
   }
+  const kept = value.filter((item) => item.type !== 'image-data');
   kept.push({ type: 'text', text: '(image attached below)' });
   return { ...part, output: toolOutput(kept) };
 }
