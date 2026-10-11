@@ -5,9 +5,9 @@ import { releaseImage, type HeldImage } from '../media/attempt-images';
 import {
   collectMediaRefs,
   fileMediaRef,
-  imageMediaRef,
   loadMediaSizing,
   toolItemRef,
+  userImageRef,
   type MediaAdmission,
   type MediaRef,
   type MediaSizing,
@@ -76,8 +76,10 @@ type ResolvedImage = { subject: ImageSubject; attached?: AttachedImage };
  * Only the stored bytes of images sent as images are loaded.
  *
  * An unstored image enters the attempt's window when it is first composed, in
- * request order, so in tool-call order: one the window refuses then is never
- * attached later in the attempt, so its bytes are dropped for good (R1.4).
+ * request order: a `read` in tool-call order, a prompt import with the
+ * attempt's first request, after any compaction. One the window refuses then
+ * is never attached later in the attempt, so its bytes are dropped for good
+ * (R1.4).
  *
  * Idempotent: the output carries no references, and a request without any is
  * returned as is; otherwise messages without any keep their identity.
@@ -270,11 +272,11 @@ const IMAGE_FOLLOWS = 'The image follows in the next message.';
  * `project(ref, index)`, where `index` is the reference's position among all
  * of `messages`' references. A user message's `media://` file part is
  * preceded by its label `Image n (media://<id>):` (n counting that message's
- * file references from 1); its `media://` image part (a prompt-import image)
- * is projected in place, unlabelled, right after the item's text. A tool
- * result's image reference is projected in place after the result's text, an
- * image becoming `image-data`; a result left with text alone becomes a text
- * output of those texts joined by newlines.
+ * file references from 1); its image reference part (a prompt-import image,
+ * stored or unstored) is projected in place, unlabelled, right after the
+ * item's text. A tool result's image reference is projected in place after
+ * the result's text, an image becoming `image-data`; a result left with text
+ * alone becomes a text output of those texts joined by newlines.
  *
  * With `moveToolImages`, for the Chat Completions wires (vision-media D6,
  * after OMP's `openai-completions`), a tool result's projected images leave
@@ -346,10 +348,10 @@ function mapUserContentRefs(
   let label = 0;
   let mapped = false;
   const content = parts.flatMap((part): Array<UserContentPart> => {
-    const imageId = part.type === 'image' ? imageMediaRef(part) : undefined;
-    if (imageId !== undefined) {
+    const image = part.type === 'image' ? userImageRef(part) : undefined;
+    if (image !== undefined) {
       mapped = true;
-      return next(imageId);
+      return next(image);
     }
     const id = part.type === 'file' ? fileMediaRef(part) : undefined;
     if (id === undefined) return [part];

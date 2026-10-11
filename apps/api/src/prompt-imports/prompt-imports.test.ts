@@ -44,6 +44,8 @@ function createHarness(options: HarnessOptions = {}) {
     knowledgeProbes: new Array<string>(),
     mediaProbes: new Array<string>(),
     reads: new Array<{ path: string; ordinal: number }>(),
+    /** The entry locator each read was issued for, in read order. */
+    readLocators: new Array<string>(),
   };
   const existing = new Set(options.existing ?? []);
   const controller = new AbortController();
@@ -80,8 +82,9 @@ function createHarness(options: HarnessOptions = {}) {
           options.media?.includes(locator) === true ? locator : undefined,
         );
       },
-      readImport: (path, ordinal) => {
+      readImport: (path, ordinal, locator) => {
         calls.reads.push({ path, ordinal });
+        calls.readLocators.push(locator);
         now += options.readCostMs ?? 0;
         options.onRead?.(path, controller);
         return Promise.resolve({
@@ -731,36 +734,53 @@ describe('resolvePromptImports abort', () => {
 describe('resolvePromptImports image entries', () => {
   const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
   const FOREIGN = 'media://0190f5e2-7c1a-7b3e-9d4f-00000000000b';
-  /** The native image result `read` returns for `path`. */
+  /** A thumbnail near its 64 KiB cap, so counting it would close the bound. */
+  const THUMBNAIL = `data:image/webp;base64,${'A'.repeat(60_000)}`;
+  const UNSTORED = {
+    thumbnail: THUMBNAIL,
+    width: 1600,
+    height: 900,
+    mediaType: 'image/png',
+  } as const;
+  /** The native image result `read` returns for an unstored `path`. */
   const imageResult = (path: string): ToolResult => ({
+    status: 'success',
+    kind: 'image',
+    ...UNSTORED,
+    path,
+  });
+  /** The native image result `read` returns for the owner's `MEDIA`. */
+  const mediaResult: ToolResult = {
     status: 'success',
     kind: 'image',
     media: MEDIA,
     mediaType: 'image/png',
     width: 1600,
     height: 900,
-    path,
-  });
-  const isImage = (path: string) =>
-    path.endsWith('.png') || path.startsWith('media://');
+  };
+  /** The model-facing envelope of an image result: no thumbnail. */
+  const envelope = (path: string) =>
+    JSON.stringify({ ...imageResult(path), thumbnail: undefined });
+  const isImage = (path: string) => path.endsWith('.png');
 
-  it('turns an image read into an image entry whose body is the read envelope', async () => {
+  it('turns an image read into an unstored image entry whose body is the read envelope', async () => {
     const { calls, run } = createHarness({
       existing: ['/repo/shot.png'],
       result: imageResult,
-      body: (path) => JSON.stringify(imageResult(path)),
+      body: envelope,
     });
 
     const result = await run('see @shot.png');
 
     expect(calls.reads).toEqual([{ path: '/repo/shot.png', ordinal: 0 }]);
+    expect(calls.readLocators).toEqual(['shot.png']);
     expect(result.outcomes).toEqual([
       {
         locator: 'shot.png',
         resolved: '/repo/shot.png',
         outcome: 'imported',
-        body: JSON.stringify(imageResult('/repo/shot.png')),
-        media: MEDIA,
+        body: envelope('/repo/shot.png'),
+        image: UNSTORED,
       },
     ]);
   });
@@ -779,20 +799,17 @@ describe('resolvePromptImports image entries', () => {
       '/repo/shot.png',
       ...Array.from({ length: 7 }, (_, index) => `https://x.test/${index}`),
     ]);
-    expect(result.outcomes[0]).toMatchObject({ media: MEDIA });
+    expect(result.outcomes[0]).toMatchObject({ image: UNSTORED });
     expect(result.omitted).toEqual(['https://x.test/7']);
   });
 
-  it('counts only the image envelope toward the output bound', async () => {
+  it('counts only the image envelope toward the output bound, never its thumbnail', async () => {
     // The envelope is all the text an image contributes; its model variant
-    // never enters the item, however large it is.
+    // and thumbnail never enter the item, however large they are.
     const { run } = createHarness({
       existing: ['/repo/shot.png'],
       result: (path) => (isImage(path) ? imageResult(path) : OK),
-      body: (path) =>
-        isImage(path)
-          ? JSON.stringify(imageResult(path))
-          : 'a'.repeat(120 * 1024),
+      body: (path) => (isImage(path) ? envelope(path) : 'a'.repeat(120 * 1024)),
     });
 
     const result = await run('@shot.png @https://x.test/long');
@@ -820,7 +837,7 @@ describe('resolvePromptImports image entries', () => {
     ]);
   });
 
-  it('records an image the ingest refused as not imported', async () => {
+  it('records an image the decode refused as not imported', async () => {
     const { run } = createHarness({
       existing: ['/repo/huge.png'],
       result: () => ({
@@ -842,7 +859,7 @@ describe('resolvePromptImports image entries', () => {
       hostAvailable: false,
       knowledgeAvailable: false,
       media: [MEDIA],
-      result: imageResult,
+      result: () => mediaResult,
     });
 
     const result = await run(`look at @${MEDIA}`);
@@ -856,7 +873,7 @@ describe('resolvePromptImports image entries', () => {
         resolved: MEDIA,
         outcome: 'imported',
         body: `body of ${MEDIA}`,
-        media: MEDIA,
+        image: { media: MEDIA },
       },
     ]);
   });

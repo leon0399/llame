@@ -175,15 +175,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Prompt imports now import images (#935). A marker whose `read` returns an
   image, such as `@shot.png`, becomes an image entry of the `prompt-imports`
-  notice whose body is the image result `read` returns, stored in the owner's
-  media under provenance `prompt-import`; its private metadata records the
-  `media://<id>` locator, and the request carries the image part, or its
-  placeholder, right after the notice's text under the epoch image window.
-  Image entries count toward the 8-read bound but their bytes never count
-  toward the 128 KiB output bound, and a retry reuses the stored `media://<id>`
-  without reading again. `@media://<id>` is a target too: an image you stored
-  imports without a new ingest, while an unknown id or another owner's stays
-  prose. See [prompt imports](docs/product/reference/prompt-imports.md).
+  notice whose body is the image result `read` returns. A file, Knowledge,
+  skill, or URL image is not stored: the importing attempt keeps its model
+  variant in memory, and the request carries the image part, or its
+  placeholder, right after the notice's text when the epoch image window admits
+  it as the attempt's first request is composed. Later turns, retries, and
+  resumes get the not-retained placeholder naming the locator as written, and
+  a text-only model the omitted one. Its private metadata records a
+  display-only `thumbnail` with the original's width, height, and format, never
+  sent to a model. `@media://<id>` is a target too: an image you stored imports
+  by its locator alone and replays from the store in every turn, while an
+  unknown id or another owner's stays prose. Image entries count toward the
+  8-read bound, but their bytes and thumbnails never count toward the 128 KiB
+  output bound. See [prompt imports](docs/product/reference/prompt-imports.md).
 
 - Web `read` now accepts image pages (#935). A page whose response, after
   redirects, declares `image/png`, `image/jpeg`, `image/gif`, or `image/webp`

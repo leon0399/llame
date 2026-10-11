@@ -102,15 +102,6 @@ export function fileMediaRef(part: FilePart): string | undefined {
   return isString(part.data) ? parseMediaLocator(part.data) : undefined;
 }
 
-/**
- * The media id a model-message image part references, or undefined: only the
- * `media://` string `buildContext` emits after a prompt-imports item's text
- * (vision-media D8) is a reference; projected images carry bytes.
- */
-export function imageMediaRef(part: ImagePart): string | undefined {
-  return isString(part.image) ? parseMediaLocator(part.image) : undefined;
-}
-
 /** The media id a tool output's `image-url` part references, or undefined. */
 export function toolOutputMediaRef(part: ToolContentPart): string | undefined {
   return part.type === 'image-url' ? parseMediaLocator(part.url) : undefined;
@@ -122,8 +113,40 @@ const unstoredImageSchema = z.object({
   height: z.number().int().positive(),
 });
 
+const unstoredRefSchema = unstoredImageSchema.extend({ key: z.string() });
+
 /** The provider-options key of an unstored image's reference part. */
 const UNSTORED_IMAGE_OPTION = 'llameUnstoredImage';
+
+/**
+ * The reference a model-message image part carries, or undefined: the
+ * unstored image or `media://` id `buildContext` emits after a prompt-imports
+ * item's text (vision-media D8, see `userImagePart`); projected images carry
+ * bytes.
+ */
+export function userImageRef(part: ImagePart): MediaRef | undefined {
+  const unstored = unstoredRefSchema.safeParse(
+    part.providerOptions?.[UNSTORED_IMAGE_OPTION],
+  );
+  if (unstored.success) return unstored.data;
+  return isString(part.image) ? parseMediaLocator(part.image) : undefined;
+}
+
+/**
+ * The image part referencing `ref` in a user message: a `media://` string, or
+ * an unstored image, keyed by its prompt-import entry, in llame's own provider
+ * option. The step composer replaces it on every step, so it never reaches a
+ * provider adapter.
+ */
+export function userImagePart(ref: MediaRef): ImagePart {
+  return isString(ref)
+    ? { type: 'image', image: mediaLocator(ref) }
+    : {
+        type: 'image',
+        image: '',
+        providerOptions: { [UNSTORED_IMAGE_OPTION]: ref },
+      };
+}
 
 /**
  * The unstored image a tool output's `custom` reference part names, or
@@ -200,7 +223,10 @@ export function toolResultOutput(
   };
 }
 
-/** An unstored image reference of a request, keyed by its tool call id. */
+/**
+ * An unstored image reference of a request, keyed by its tool call id or its
+ * prompt-import entry.
+ */
 export type UnstoredRef = UnstoredImage & { key: string };
 
 /** One media reference of a request: a media id or an unstored image. */
@@ -222,9 +248,10 @@ export function toolItemRef(
 
 /**
  * Every media reference of a request, in request order: the `media://` file
- * parts of user messages (owner attachments, `buildContext`), the `media://`
- * image parts of user messages (prompt-import images), and the image
- * references of tool results (`read` image results, live or replayed).
+ * parts of user messages (owner attachments, `buildContext`), the image
+ * references of user messages (prompt-import images, stored or unstored), and
+ * the image references of tool results (`read` image results, live or
+ * replayed).
  */
 export function collectMediaRefs(
   messages: ReadonlyArray<ModelMessage>,
@@ -232,13 +259,13 @@ export function collectMediaRefs(
   return messages.flatMap((message): Array<MediaRef> => {
     if (message.role === 'user' && Array.isArray(message.content)) {
       return message.content.flatMap((part) => {
-        const id =
+        const ref =
           part.type === 'file'
             ? fileMediaRef(part)
             : part.type === 'image'
-              ? imageMediaRef(part)
+              ? userImageRef(part)
               : undefined;
-        return id === undefined ? [] : [id];
+        return ref === undefined ? [] : [ref];
       });
     }
     if (message.role !== 'tool') return [];

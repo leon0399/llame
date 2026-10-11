@@ -10,12 +10,14 @@ import {
   splitSelectorSuffix,
 } from '@workspace/native-file-tools';
 
-import type { PromptImportOutcome } from '../chats/prompt-imports-item';
+import {
+  promptImportImage,
+  type PromptImportOutcome,
+} from '../chats/prompt-imports-item';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import { importTargets } from '../import-markers/import-markers';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
-import { imageResultMediaId } from '../media/epoch-admission';
-import { MEDIA_LOCATOR_SCHEME, mediaLocator } from '../media/media-locator';
+import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { type ToolResult } from '../tools/types';
@@ -67,13 +69,15 @@ export type PromptImportRequest = {
   ) => Promise<string | undefined>;
   /**
    * One audited read. `ordinal` is the target's position among the distinct
-   * markers, so a target keeps its call identity across retries. `admission`
-   * is the decision the read group reached, absent when the call never got
-   * that far.
+   * markers, so a target keeps its call identity across retries; `locator` is
+   * the target as written, its entry's locator, which keys an unstored image
+   * in the attempt's memory (vision-media D8). `admission` is the decision the
+   * read group reached, absent when the call never got that far.
    */
   readonly readImport: (
     path: string,
     ordinal: number,
+    locator: string,
   ) => Promise<{
     result: ToolResult;
     text: string;
@@ -200,7 +204,7 @@ async function handleTarget(
   if (workExpired(run)) return;
   if (!run.request.admitsRead(plan.readPath)) {
     // The audited denial runs without a probe, so existence never shows.
-    await run.request.readImport(plan.readPath, ordinal);
+    await run.request.readImport(plan.readPath, ordinal, target);
     run.outcomes.push({ locator: target, outcome: 'denied' });
     return;
   }
@@ -288,8 +292,9 @@ function recordUnsuccessfulRead(
 
 /**
  * One read of a probe survivor or no-probe target, unless a bound closed. An
- * image result counts as a read; only its serialized envelope counts toward
- * the output bound, never the image bytes.
+ * image result counts as a read and records its image (vision-media D8); only
+ * its serialized envelope counts toward the output bound, never the image
+ * bytes or its thumbnail.
  */
 async function attemptRead(
   run: ImportRun,
@@ -304,7 +309,11 @@ async function attemptRead(
     return;
   }
   run.reads += 1;
-  const read = await run.request.readImport(attempt.readPath, attempt.ordinal);
+  const read = await run.request.readImport(
+    attempt.readPath,
+    attempt.ordinal,
+    attempt.target,
+  );
   const base = outcomeBase(attempt);
   if (read.result.status !== 'success') {
     recordUnsuccessfulRead(run, attempt, read.admission);
@@ -317,13 +326,13 @@ async function attemptRead(
     return;
   }
   run.bytes += size;
-  const imageId = imageResultMediaId(read.result);
+  const image = promptImportImage(read.result);
   run.outcomes.push({
     ...base,
     outcome: 'imported',
     body: read.text,
     ...(read.result['truncated'] === true && { truncated: true }),
-    ...(imageId !== undefined && { media: mediaLocator(imageId) }),
+    ...(image !== undefined && { image }),
   });
 }
 

@@ -28,7 +28,10 @@ import {
   TOOL_REPLAY_CALL_LIMIT,
   TOOL_REPLAY_TURN_LIMIT,
 } from './tool-observation-part';
-import { createPromptImportsItem } from './prompt-imports-item';
+import {
+  createPromptImportsItem,
+  promptImportImageKey,
+} from './prompt-imports-item';
 import {
   isRecord,
   isString,
@@ -412,16 +415,28 @@ describe('buildContext', () => {
     });
 
     it('follows a prompt-imports item text with one image reference per image entry', () => {
+      const runId = '11111111-2222-4333-8444-555555555555';
       const imported = '0192f3a4-5b6c-7d8e-9f01-000000000004';
       const owner = '0192f3a4-5b6c-7d8e-9f01-000000000005';
       const item = createPromptImportsItem({
-        runId: '11111111-2222-4333-8444-555555555555',
+        runId,
         outcomes: [
           {
             locator: 'shot.png',
             outcome: 'imported',
             body: '{"status":"success","kind":"image"}',
-            media: `media://${imported}`,
+            image: {
+              thumbnail: 'data:image/webp;base64,UklGRg==',
+              width: 1600,
+              height: 900,
+              mediaType: 'image/png',
+            },
+          },
+          {
+            locator: `media://${imported}`,
+            outcome: 'imported',
+            body: '{"status":"success","kind":"image"}',
+            image: { media: `media://${imported}` },
           },
           { locator: 'notes.md', outcome: 'imported', body: 'notes' },
         ],
@@ -445,6 +460,18 @@ describe('buildContext', () => {
           role: 'user',
           content: [
             { type: 'text', text: item.data.text },
+            {
+              type: 'image',
+              image: '',
+              providerOptions: {
+                llameUnstoredImage: {
+                  locator: 'shot.png',
+                  width: 1600,
+                  height: 900,
+                  key: promptImportImageKey(runId, 'shot.png'),
+                },
+              },
+            },
             { type: 'image', image: `media://${imported}` },
             { type: 'file', data: `media://${owner}`, mediaType: 'image/png' },
             { type: 'text', text: 'compare' },

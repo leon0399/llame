@@ -3,16 +3,26 @@ import { describe, expect, it } from 'vitest';
 import {
   createPromptImportsItem,
   isPromptImportsPayload,
-  promptImportMediaLocators,
+  promptImportImage,
+  promptImportImageKey,
+  promptImportImageRefs,
 } from './prompt-imports-item';
 
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
-const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+const MEDIA_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+const MEDIA = `media://${MEDIA_ID}`;
+const THUMBNAIL = 'data:image/webp;base64,UklGRg==';
+/** The unstored image record of a 1600×900 PNG. */
+const UNSTORED = {
+  thumbnail: THUMBNAIL,
+  width: 1600,
+  height: 900,
+  mediaType: 'image/png',
+} as const;
 /** The serialized native image result `read("/repo/shot.png")` returns. */
 const IMAGE_BODY = JSON.stringify({
   status: 'success',
   kind: 'image',
-  media: MEDIA,
   mediaType: 'image/png',
   width: 1600,
   height: 900,
@@ -115,7 +125,7 @@ describe('prompt imports item', () => {
     expect(JSON.stringify(item.data.payload)).not.toContain('Private body.');
   });
 
-  it('records an image entry media locator privately beside the envelope body', () => {
+  it('records an unstored image entry thumbnail and size privately beside the envelope body', () => {
     const item = createPromptImportsItem({
       runId: RUN_ID,
       outcomes: [
@@ -124,7 +134,7 @@ describe('prompt imports item', () => {
           resolved: '/repo/shot.png',
           outcome: 'imported',
           body: IMAGE_BODY,
-          media: MEDIA,
+          image: UNSTORED,
         },
       ],
       omitted: [],
@@ -136,33 +146,71 @@ describe('prompt imports item', () => {
           locator: 'shot.png',
           resolved: '/repo/shot.png',
           outcome: 'imported',
-          media: MEDIA,
+          ...UNSTORED,
         },
       ],
     });
     expect(item.data.text).toContain(
       `<file path="shot.png">\n${IMAGE_BODY}\n</file>`,
     );
-    expect(promptImportMediaLocators(item)).toEqual([MEDIA]);
+    expect(item.data.text).not.toContain(THUMBNAIL);
+    expect(promptImportImageRefs(item)).toEqual([
+      {
+        locator: 'shot.png',
+        width: 1600,
+        height: 900,
+        key: promptImportImageKey(RUN_ID, 'shot.png'),
+      },
+    ]);
   });
 
-  it('lists no media locators for another producer or an invalid payload', () => {
+  it('records a media entry locator alone and refers to it by its id', () => {
     const item = createPromptImportsItem({
       runId: RUN_ID,
       outcomes: [
-        { locator: 'a.png', outcome: 'imported', body: 'x', media: MEDIA },
+        {
+          locator: MEDIA,
+          resolved: MEDIA,
+          outcome: 'imported',
+          body: '{"status":"success","kind":"image"}',
+          image: { media: MEDIA },
+        },
+        { locator: 'notes.md', outcome: 'imported', body: 'Notes.' },
+      ],
+      omitted: [],
+    });
+
+    expect(item.data.payload).toEqual({
+      imports: [
+        { locator: MEDIA, resolved: MEDIA, outcome: 'imported', media: MEDIA },
+        { locator: 'notes.md', outcome: 'imported' },
+      ],
+    });
+    expect(promptImportImageRefs(item)).toEqual([MEDIA_ID]);
+  });
+
+  it('lists no image references for another producer or an invalid payload', () => {
+    const item = createPromptImportsItem({
+      runId: RUN_ID,
+      outcomes: [
+        {
+          locator: 'a.png',
+          outcome: 'imported',
+          body: 'x',
+          image: UNSTORED,
+        },
       ],
       omitted: [],
     });
 
     expect(
-      promptImportMediaLocators({
+      promptImportImageRefs({
         ...item,
         data: { ...item.data, producer: 'instructions' },
       }),
     ).toEqual([]);
     expect(
-      promptImportMediaLocators({
+      promptImportImageRefs({
         ...item,
         data: {
           ...item.data,
@@ -174,6 +222,44 @@ describe('prompt imports item', () => {
         },
       }),
     ).toEqual([]);
+  });
+
+  it('keys unstored entries by their Run and locator', () => {
+    expect(promptImportImageKey(RUN_ID, 'shot.png')).not.toBe(
+      promptImportImageKey('22222222-2222-4333-8444-555555555555', 'shot.png'),
+    );
+  });
+});
+
+describe('promptImportImage', () => {
+  it('records an unstored image result by its thumbnail and original', () => {
+    expect(
+      promptImportImage({
+        status: 'success',
+        kind: 'image',
+        ...UNSTORED,
+        path: '/repo/shot.png',
+      }),
+    ).toEqual(UNSTORED);
+  });
+
+  it('records a media image result by its locator alone', () => {
+    expect(
+      promptImportImage({
+        status: 'success',
+        kind: 'image',
+        media: MEDIA,
+        mediaType: 'image/png',
+        width: 1600,
+        height: 900,
+      }),
+    ).toEqual({ media: MEDIA });
+  });
+
+  it('records nothing for a text result', () => {
+    expect(
+      promptImportImage({ status: 'success', path: '/repo/a.md', text: 'a' }),
+    ).toBeUndefined();
   });
 });
 
@@ -203,6 +289,43 @@ describe('prompt imports payload validation', () => {
       }),
     ).toBe(true);
   });
+
+  it.each(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])(
+    'accepts an imported entry carrying a thumbnail, its size, and %s',
+    (mediaType) => {
+      expect(
+        isPromptImportsPayload({
+          imports: [
+            {
+              locator: 'shot.png',
+              resolved: '/repo/shot.png',
+              outcome: 'imported',
+              ...UNSTORED,
+              mediaType,
+            },
+          ],
+        }),
+      ).toBe(true);
+    },
+  );
+
+  it('accepts a thumbnail of exactly the size cap', () => {
+    const prefix = 'data:image/webp;base64,';
+    const thumbnail = `${prefix}${'A'.repeat(65_536 - prefix.length)}`;
+    expect(
+      isPromptImportsPayload({
+        imports: [
+          { locator: 'a.png', outcome: 'imported', ...UNSTORED, thumbnail },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  const image = { locator: 'a.png', outcome: 'imported', ...UNSTORED };
+  const { width: _width, ...withoutWidth } = image;
+  const { height: _height, ...withoutHeight } = image;
+  const { mediaType: _mediaType, ...withoutMediaType } = image;
+  const { thumbnail: _thumbnail, ...withoutThumbnail } = image;
 
   it.each([
     [
@@ -241,6 +364,58 @@ describe('prompt imports payload validation', () => {
     [
       'a media locator on an entry that was not imported',
       { imports: [{ locator: 'a.png', outcome: 'failed', media: MEDIA }] },
+    ],
+    [
+      'both a thumbnail and a media locator',
+      { imports: [{ ...image, media: MEDIA }] },
+    ],
+    [
+      'a media locator with dimensions',
+      {
+        imports: [
+          {
+            locator: 'a.png',
+            outcome: 'imported',
+            media: MEDIA,
+            width: 1600,
+            height: 900,
+            mediaType: 'image/png',
+          },
+        ],
+      },
+    ],
+    [
+      'a thumbnail that is not a WebP data URL',
+      {
+        imports: [
+          { ...image, thumbnail: 'data:image/png;base64,iVBORw0KGgo=' },
+        ],
+      },
+    ],
+    [
+      'a thumbnail over the size cap',
+      {
+        imports: [
+          {
+            ...image,
+            thumbnail: `data:image/webp;base64,${'A'.repeat(65_536)}`,
+          },
+        ],
+      },
+    ],
+    ['a thumbnail without its width', { imports: [withoutWidth] }],
+    ['a thumbnail without its height', { imports: [withoutHeight] }],
+    ['a thumbnail without its media type', { imports: [withoutMediaType] }],
+    ['dimensions without a thumbnail', { imports: [withoutThumbnail] }],
+    ['a zero width', { imports: [{ ...image, width: 0 }] }],
+    ['a non-integer height', { imports: [{ ...image, height: 1.5 }] }],
+    [
+      'an SVG media type',
+      { imports: [{ ...image, mediaType: 'image/svg+xml' }] },
+    ],
+    [
+      'a thumbnail on an entry that was not imported',
+      { imports: [{ ...image, outcome: 'denied' }] },
     ],
   ] as const)('rejects %s', (_description, value) => {
     expect(isPromptImportsPayload(value)).toBe(false);

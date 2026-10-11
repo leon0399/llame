@@ -23,10 +23,11 @@ import type {
   ProviderMetadata,
 } from 'ai';
 
+import { userImagePart } from '../media/epoch-admission';
 import { storedFilePartSchema } from '../media/media-descriptors';
 import { parseMediaLocator } from '../media/media-locator';
 import { isContextItemPart, type ContextItemPart } from './context-item';
-import { promptImportMediaLocators } from './prompt-imports-item';
+import { promptImportImageRefs } from './prompt-imports-item';
 import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
   projectToolObservations,
@@ -193,12 +194,12 @@ export interface ModelRequestContext {
  * items and text keep their stored relative order, and the owner `file` parts,
  * in their stored order, follow every context item (the temporal row
  * included) and so precede the owner's text, wherever they were stored. A
- * `prompt-imports` item's text is followed by one `media://` image reference
- * per image entry of its payload (vision-media D8).
- * References stay `media://` references here; only the step composer turns
- * them into image parts or placeholders (vision-media D6). Exported for the
- * run worker, which sets the triggering message's content from the parts its
- * dispatch stored.
+ * `prompt-imports` item's text is followed by one image reference per image
+ * entry of its payload: its `media://` locator, or an unstored image keyed by
+ * the entry (vision-media D8). References stay references here; only the step
+ * composer turns them into image parts or placeholders (vision-media D6).
+ * Exported for the run worker, which sets the triggering message's content
+ * from the parts its dispatch stored.
  */
 export function userPartsToModelContent(
   parts: ReadonlyArray<unknown>,
@@ -216,10 +217,7 @@ export function userPartsToModelContent(
       if (text !== undefined && text.length > 0) {
         content.push(
           { type: 'text', text },
-          ...promptImportMediaLocators(part).map((image) => ({
-            type: 'image' as const,
-            image,
-          })),
+          ...promptImportImageRefs(part).map(userImagePart),
         );
       }
       afterLastItem = content.length;

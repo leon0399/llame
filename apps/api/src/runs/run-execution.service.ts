@@ -70,6 +70,7 @@ import {
 } from '../media/epoch-admission';
 import { parseMediaLocator } from '../media/media-locator';
 import { MediaService } from '../media/media.service';
+import { type HeldImage, releaseImage } from '../media/attempt-images';
 import { createToolMediaStore } from '../media/tool-media-store';
 import {
   createRunMediaResolver,
@@ -175,7 +176,8 @@ import {
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import {
   createPromptImportsItem,
-  promptImportMediaLocators,
+  promptImportImageKey,
+  promptImportImageRefs,
 } from '../chats/prompt-imports-item';
 import {
   PROMPT_IMPORT_KNOWLEDGE_CANCELLED,
@@ -335,6 +337,8 @@ type PromptImportStep = {
   readonly effectivePermissionMode: PermissionMode;
   readonly skillSelection: ReadonlySet<string>;
   readonly detaching: boolean;
+  /** The attempt's memory of unstored images (vision-media R1.4). */
+  readonly images: Map<string, HeldImage>;
 };
 
 type WorkspaceStagedContext = {
@@ -969,6 +973,12 @@ export class RunExecutionService {
       workspaceRoot,
       effectivePermissionMode,
     );
+    // The attempt's view of its owner's media: prompt imports, admission,
+    // compaction, and the step composer all read descriptors and bytes through
+    // it, each read in its own short owner-scoped transaction, and it holds the
+    // attempt's memory of unstored images, empty for every attempt
+    // (vision-media D6, R1.4).
+    const media = createRunMediaResolver(this.tenantDb, input.userId);
     // Prompt imports run right after explicit activation, on the same binding
     // re-check: a detaching attempt imports nothing, and their item persists on
     // the user message before context assembly like the activation items.
@@ -980,12 +990,8 @@ export class RunExecutionService {
       effectivePermissionMode,
       skillSelection,
       detaching: workspacePreparation.detaching,
+      images: media.images,
     });
-    // The attempt's view of its owner's media: admission, compaction, and the
-    // step composer all read descriptors and bytes through it, each read in
-    // its own short owner-scoped transaction, and it holds the attempt's
-    // memory of unstored images, empty for every attempt (vision-media D6).
-    const media = createRunMediaResolver(this.tenantDb, input.userId);
     // Prompt/catalog resolution, the single pre-step compaction trigger, and the
     // request this Run actually sends (design D4/D5): both prompt surfaces come
     // from the current owner state, admitted catalog, and boot-loaded
@@ -2426,6 +2432,11 @@ export class RunExecutionService {
     const { outcomes, omitted } = await resolvePromptImportTargets(
       this.promptImportRequest(step),
     );
+    // An image read and then omitted at the output bound has no entry to
+    // attach it, so it keeps no bytes (vision-media R1.4).
+    for (const locator of omitted) {
+      releaseImage(step.images, promptImportImageKey(input.runId, locator));
+    }
     // An aborted attempt publishes nothing; the abort settles the Run.
     if (input.abortSignal?.aborted) return;
     if (outcomes.length === 0 && omitted.length === 0) return;
@@ -2443,8 +2454,9 @@ export class RunExecutionService {
    * The ports the resolution module runs against, all built from the system
    * read context: the same silent `read` pre-evaluation the instruction loader
    * uses, the same native-executor and Knowledge-root gates, an owner-scoped
-   * Knowledge probe, and the owner's media under provenance `prompt-import`,
-   * which also answers the `media://` probe (vision-media D8).
+   * Knowledge probe, and the owner's media, which answers the `media://` probe
+   * and decodes an image target without storing it, holding it in the
+   * attempt's memory under its entry's key (vision-media D8).
    */
   private promptImportRequest(step: PromptImportStep): PromptImportRequest {
     const { input } = step;
@@ -2457,7 +2469,8 @@ export class RunExecutionService {
     const media = createToolMediaStore(
       new MediaService(this.tenantDb),
       input.userId,
-      'prompt-import',
+      step.images,
+      input.client.input?.includes('image') ?? false,
     );
     const context: ToolContext = {
       ...this.buildSystemReadContext(
@@ -2489,10 +2502,17 @@ export class RunExecutionService {
           ? undefined
           : (await media.findImage(id))?.media;
       },
-      readImport: async (path, ordinal) => {
+      readImport: async (path, ordinal, locator) => {
+        const key = promptImportImageKey(input.runId, locator);
         const { result, admission } = await this.readTurnInstructionPage(
           input,
-          context,
+          {
+            ...context,
+            media: {
+              ...media,
+              readImage: (submitted) => media.readImage(submitted, key),
+            },
+          },
           path,
           ['prompt-import', input.runId, step.attemptId, ordinal].join('-'),
           ORIGIN_PROMPT_IMPORT,
@@ -2954,7 +2974,7 @@ export class RunExecutionService {
         input.media,
         fileMediaIds(triggerParts).length +
           triggerParts.flatMap((part) =>
-            isContextItemPart(part) ? promptImportMediaLocators(part) : [],
+            isContextItemPart(part) ? promptImportImageRefs(part) : [],
           ).length,
       )
     ) {

@@ -130,17 +130,28 @@ authorization. A denied or failed target is named only as not imported, with no
 content.
 
 A target whose `read` returns an image, such as `@shot.png` or
-`@media://<id>`, becomes an image entry. Its file block holds exactly the image
-result `read` returns: `kind: "image"`, the `media://<id>` locator, format,
-dimensions, and path, never the image bytes. An image the import reads from a
-file or URL is stored in your media under provenance `prompt-import`, and
-identical bytes reuse the image you already hold; an image the store refuses,
-such as one over 40 megapixels, is reported as not imported. Right after the
-notice's text, a
-[vision model](../operator/media.md#model-image-input) receives each imported
-image as an image part, under the same epoch image window as message
-attachments; a text-only model, or an image outside the window, gets the
-matching `[image media://<id> …]` placeholder instead.
+`@media://<id>`, becomes an image entry. Its file block holds exactly the
+[image result](tools/read.md#image-result) `read` returns, format, dimensions,
+and path, never the image bytes or its thumbnail. An image `read` refuses,
+such as one over 40 megapixels, is reported as not imported.
+
+An image read from a file, Knowledge, a skill, or a URL is not stored. The
+worker decodes it and keeps the model variant only in the memory of the Run
+attempt that imported it. Right after the notice's text, a
+[vision model](../operator/media.md#model-image-input) receives it as an image
+part in that attempt's requests, if the epoch image window admits it when the
+attempt's first request is composed (after any compaction); otherwise it gets
+the `not attached` placeholder. Every later request, whether a later turn, a
+retry or resume, a compaction, or a fork, gets
+`[image "shot.png" W×H, not retained: read it again to view it]`, naming the
+locator as you wrote it as a JSON string literal. A text-only model always gets
+`[image "shot.png" W×H, omitted: this model has no image input]`.
+
+An `@media://<id>` import names an image you
+[stored](locators/media.md) and stores nothing new. A vision model receives it
+from the store in that turn and every later one, under the same window; a
+text-only model, or an image outside the window, gets the matching
+`[image media://<id> …]` placeholder.
 
 Imported files are data. Markers inside them are not followed, so imports do not
 nest. `@skill://review` reads that skill's `SKILL.md` as data and activates
@@ -152,7 +163,7 @@ nothing; activation stays the `$review` form.
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | markers considered | 64, in first-occurrence order; later ones are prose                                                                                                                                             |
 | reads per message  | 8 admitted targets that survive the probe or need none, images included; a denied host, Knowledge, or `media://` target (within the 64-marker cap) is audited without a read and does not count |
-| output             | 128 KiB for the whole item; each result keeps `read`'s own truncation; an image counts only as its result text, never its bytes                                                                 |
+| output             | 128 KiB for the whole item; each result keeps `read`'s own truncation; an image counts only as its result text, never its bytes or thumbnail                                                    |
 | work               | 30 s, probes included, or the Run's remaining deadline                                                                                                                                          |
 
 A target past the count or output bound, or one that survived probing when the
@@ -167,7 +178,9 @@ further read: a target cut off that way is omitted, never reported as failed.
 A retry or worker resumption reuses the stored item and reads nothing that
 completed, in the original order; a target whose read started but did not
 complete is admitted and read afresh. A file edited after the turn is not read
-again, and an image entry keeps the `media://<id>` it was stored with.
+again. An image entry is reused as stored, so a new attempt gets the
+not-retained placeholder for an image that was not stored, and a `media://`
+entry still replays from the store.
 
 Imports run after the attempt's Workspace binding re-check. An attempt that
 detaches the Workspace imports nothing and its markers stay prose; an item an
@@ -185,9 +198,10 @@ retry keeps the bundle an earlier attempt stored and loads only unseen files.
 Your message shows a chip listing each import locator as imported, truncated,
 denied, failed, or omitted, an image entry among them as imported; hovering
 shows the resolved path when it differs. The chip reads the item's private
-metadata, which also records an image entry's `media://<id>` locator. Other
-owners, public shares, transcript exports, and search see neither the item's
-text nor its metadata.
+metadata, which also records an image entry's display-only thumbnail with the
+original's width, height, and format, or its `media://<id>` locator; the
+thumbnail never reaches a model. Other owners, public shares, transcript
+exports, and search see neither the item's text nor its metadata.
 
 ## Configured by
 

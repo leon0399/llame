@@ -803,6 +803,54 @@ describe("prompt-imports context items", () => {
     ]);
   });
 
+  it("accepts an imported image entry carrying its inline thumbnail and the original's size and type", () => {
+    const image = {
+      locator: "shot.png",
+      resolved: "/home/u/repo/shot.png",
+      outcome: "imported" as const,
+      thumbnail: "data:image/webp;base64,UklGRg==",
+      width: 1600,
+      height: 900,
+      mediaType: "image/png",
+    };
+
+    expect(isPromptImportsPart(withPayload({ imports: [image] }))).toBe(true);
+  });
+
+  it("rejects a malformed unstored image entry or one carrying both thumbnail and media", () => {
+    const image = {
+      locator: "shot.png",
+      outcome: "imported",
+      thumbnail: "data:image/webp;base64,UklGRg==",
+      width: 1600,
+      height: 900,
+      mediaType: "image/png",
+    };
+    const withoutWidth = {
+      locator: image.locator,
+      outcome: image.outcome,
+      thumbnail: image.thumbnail,
+      height: image.height,
+      mediaType: image.mediaType,
+    };
+    for (const bad of [
+      { ...image, media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f" },
+      { ...image, thumbnail: "data:image/png;base64,iVBORw0KGgo=" },
+      { ...image, thumbnail: "https://example.com/shot.webp" },
+      {
+        ...image,
+        thumbnail: `data:image/webp;base64,${"A".repeat(65_536)}`,
+      },
+      { ...image, width: 0 },
+      { ...image, height: 1.5 },
+      { ...image, mediaType: "image/svg+xml" },
+      { ...image, outcome: "failed" },
+      withoutWidth,
+    ]) {
+      expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
+    }
+  });
+
   it("accepts empty imports only beside a non-empty omitted list", () => {
     expect(
       isPromptImportsPart(withPayload({ imports: [], omitted: ["a.md"] })),
@@ -826,6 +874,13 @@ describe("prompt-imports context items", () => {
         ...entry,
         outcome: "failed",
         media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+      },
+      {
+        ...entry,
+        media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+        width: 1600,
+        height: 900,
+        mediaType: "image/png",
       },
     ]) {
       expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
