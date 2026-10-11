@@ -74,11 +74,14 @@ selected-unit slot. A modal hides the tree, which is the context for
 ### D2. The panel belongs to one unit and closes when the selection moves
 
 The tree keeps `membersOpenFor: string | null`, the id the panel was opened
-for. The panel renders only while it equals the selected unit's id, so a
-selection change, or the unit leaving the list after a refetch, closes it.
-Because `MembersPanel` mounts only when open, `useMembershipsQuery` runs only
-then. Selecting units sends no membership request, and closing it unmounts
-the grant form, which discards a typed user id.
+for. The panel renders only while it equals the selected unit's id. Every
+selection change sets `membersOpenFor` back to `null`, and so does the unit
+leaving the list after a refetch. Returning to the unit, or arrowing over it
+under #1255, therefore never reopens the panel or sends a roster request; only
+"Manage members" does. Because `MembersPanel` mounts only when open,
+`useMembershipsQuery` runs only then. Selecting units sends no membership
+request, and closing the panel unmounts the grant form, which discards a
+typed user id.
 
 Alternatives: (a) The panel follows the selection. Rejected: under #1255
 every arrow press would fetch a roster, and a typed user id plus role would
@@ -101,6 +104,17 @@ the dialog meant to show the denial. The #1223 story
 `LeaveBlockedAsLastOwner` passes today, so this is a structural hazard removed
 rather than an observed failure [INFERENCE].
 
+Two ordering rules keep the server-confirmed flow from flickering or
+unmounting too early:
+
+- After a confirmed role change, `useChangeMembershipRole` writes the PATCH
+  response (`MembershipResponse`) into the cached roster with
+  `setQueryData`, then invalidates. The picker shows the new role at once
+  instead of the old one while the refetch is in flight.
+- `useRevokeMembership` does not await its invalidations (`void`, as today).
+  The confirmation's own `onSuccess` closes it first. The refetch that then
+  drops the row would otherwise unmount the dialog before it closed.
+
 Alternative: keep optimism and move the dialogs out of the rows. Rejected:
 that is more code, and it still flashes authority the caller may lack.
 
@@ -115,6 +129,15 @@ that write, and `classifyOrgUnitsError` keeps the existing admin-or-owner copy
 as the default. This is copy selection after the server's 403, not local
 authorization: no control is hidden or disabled because of it.
 
+Accepted limitation: the target's role comes from the cached roster. If
+another user made the target an owner after the roster loaded, an admin's
+denied write shows the admin-or-owner copy instead of the owner-only copy.
+The denied write's settle invalidation then refetches the roster, which
+shows the target as owner, so the panel ends up reflecting the server.
+Re-reading the roster before choosing the copy was rejected: it adds a
+request to every denial to fix the wording of a rare race, and it changes no
+outcome.
+
 Alternative: an API error code for owner-tier denials. Rejected: the RLS
 check fails with one SQLSTATE for both tiers, so the API would need its own
 pre-check, which is an API and authorization change with no new safety.
@@ -122,12 +145,17 @@ pre-check, which is an API and authorization change with no new safety.
 ### D5. The footer is the only display of the caller's role
 
 The panel's "Your role here" line, `myRoleDescription`, the `viaUnit` lookup,
-`useMyEffectiveRoleQuery`, `orgUnitsQueryKeys.myRole`, and every `myRole`
-invalidation are deleted, with their tests. The footer shows the same
-nearest-wins role, direct or "inherited from" its source unit, and D3's
-`lists` invalidation keeps it current. That leaves one source instead of two
-that could disagree for a render. `GET …/memberships/me` stays in the API,
-since it is the API's contract and is covered there.
+`useMyEffectiveRoleQuery`, `fetchMyEffectiveRole`, `orgUnitsQueryKeys.myRole`,
+and every `myRole` invalidation are deleted, with their tests. So are the
+imports in `queries.ts` that only they used (`getMyOrgUnitEffectiveRole`,
+`getApiErrorStatus`, `classifyOrgUnitsError`, and the `EffectiveRoleResponse`
+type), and the `EffectiveRoleResponse` alias in `types.ts`, which then has no
+consumer. `classifyOrgUnitsError` stays exported from `errors.ts`, where
+`withOrgUnitsErrors` uses it. The footer shows the same nearest-wins role,
+direct or "inherited from" its source unit, and D3's `lists` invalidation
+keeps it current. That leaves one source instead of two that could disagree
+for a render. `GET …/memberships/me` stays in the API, since it is the API's
+contract and is covered there.
 
 Alternative: keep the panel's own role line. Rejected: it repeats the footer
 right above it, and it costs a second request per opening.
@@ -137,16 +165,16 @@ right above it, and it costs a second request per opening.
 `git mv` `members-panel.tsx`, `member-confirm-dialogs.tsx`, `role-picker.tsx`,
 and `members-panel.stories.tsx` (from #1223) into
 `organizations/components/`, so review sees renames. The `parked/` directory
-and every PARKED and fast-follow comment go, and so do the D7 notes in
-`organizations/page.tsx` and the e2e header. If `org-tree.tsx` would pass the
-500-line `max-lines` cap, `OrgTreeSelectedFooter` and the disclosure move into
-`org-tree-selected-footer.tsx`.
+and every PARKED and fast-follow comment go, and so does the D7 note in
+`organizations/page.tsx`; the `e2e` layer rewrites the e2e spec's D7 header. If
+`org-tree.tsx` would pass the 500-line `max-lines` cap, `OrgTreeSelectedFooter`
+and the disclosure move into `org-tree-selected-footer.tsx`.
 
 ### D7. Delivery follows #1222 and #1223 instead of stacking on them
 
-The implementation layer is created from this proposal after both #1222 and
-PR #1223 merge to `master` and the proposal is rebased onto that `master` with
-`$gh-stack`. Those PRs replace the jsdom tests this change must extend:
+The implementation layers are created from this proposal after both #1222
+and PR #1223 merge to `master` and the proposal is rebased onto that `master`
+with `$gh-stack`. Those PRs replace the jsdom tests this change must extend:
 `org-tree.test.tsx` becomes `org-tree.stories.tsx`, and
 `parked/members-panel.test.tsx` becomes `parked/members-panel.stories.tsx`,
 which D6 moves. Stacking on them would put a feature
@@ -164,7 +192,7 @@ The two changes are independent, and either can land first.
   changes "clicking a row moves the selection"; this change replaces the
   placeholder clause. Whichever change runs `$openspec-sync-specs` second
   re-copies the canonical block it finds, which includes the other's edit,
-  before applying its own (finalize task 3.2).
+  before applying its own (finalize task 4.2).
 - Behavior: #1255 D1 relies on selection having no side effect. D2 keeps
   that true for requests. The only effect of a selection change is closing an
   open panel, which is UI state.
@@ -180,7 +208,15 @@ The two changes are independent, and either can land first.
 - Code: both edit `org-tree.tsx`. The second implementation rebases onto
   the first.
 
-### D9. Test plan
+### D9. A failed roster load is shown, with a retry
+
+The parked panel never renders `membershipsQuery.error`, so a failed roster
+load ends as a blank list with no explanation. The panel renders the
+classified error through the existing `ApiErrorMessage` in place of the
+roster, with a Retry button that calls the query's `refetch()`. The grant
+form stays available, because a grant does not depend on the roster read.
+
+### D10. Test plan
 
 - `members-panel.stories.tsx` (moved from #1223), with the real hooks on
   `stubFetch`, an unrouted request failing the story, and exact request
@@ -189,8 +225,14 @@ The two changes are independent, and either can land first.
     row;
   - an admin's revoke of an owner answered 403 keeps the dialog open with the
     owner-only copy, and the row stays;
-  - a non-admin revoke answered 403 shows the admin-or-owner copy;
-  - a revoke held pending keeps the row until the DELETE resolves;
+  - a non-admin revoke of a non-owner member answered 403 shows the
+    admin-or-owner copy;
+  - a revoke held pending keeps the row until the DELETE resolves, and the
+    dialog closes before the row leaves;
+  - a confirmed role change shows the PATCH response's role while the roster
+    refetch is held;
+  - a roster GET answered 500 shows the classified error and Retry, and
+    Retry sends exactly one more roster GET;
   - write bodies are exactly `{ userId, role }` or empty;
   - a successful revoke moves focus to the panel;
   - the existing grant, duplicate, service-account, owner-confirmation, Leave,
@@ -201,18 +243,27 @@ The two changes are independent, and either can land first.
   - selecting several units sends no membership request;
   - selecting another unit closes the panel and reopening shows an empty
     form;
+  - opening on unit A, selecting B, then selecting A again sends no roster
+    request after the first and leaves the panel closed;
   - a grant or own-role change refetches the unit list, and the footer role
     and member count update;
-  - Leave that removes the unit focuses the newly selected row;
+  - Leave by a non-creator, after which the refetched list omits the unit,
+    closes the panel and focuses the newly selected row;
   - "A deeper low role does not hide management".
-- `mutations.test.ts` and `errors.test.ts`: no optimistic writes,
-  `lists` invalidation on all three hooks, owner-tier copy selection.
-- `e2e/web/org-units/org-units.spec.ts`: the members flow restored against the
-  real stack (second account via `registerAccount`; grant; member count;
-  duplicate grant; Member to Admin; blocked last-owner leave; Make owner;
-  Leave), and its D7 header rewritten. The admin-versus-owner denials stay in
-  stories plus the API's existing RLS integration tests, because the e2e would
-  need a second browser login for no new server coverage.
+- `mutations.test.ts` and `errors.test.ts`: no optimistic writes, the
+  role-change cache write from the PATCH response, `lists` invalidation on all
+  three hooks, owner-tier copy selection.
+- `e2e/web/org-units/org-units.spec.ts`, in its own `e2e` layer: the members
+  flow restored against the real stack (second account via `registerAccount`;
+  grant; member count; duplicate grant; Member to Admin; blocked last-owner
+  leave; Make owner; Leave), and its D7 header rewritten. The leaver created
+  the root, and `org_units_select` keeps a unit visible to its creator
+  (migration `0018`), so after Leave the e2e expects the unit to stay in the
+  tree with an empty roster and no role in the footer. "Leaving a unit that
+  disappears from view" applies only to a non-creator, so it is proved by the
+  `org-tree` story above. The admin-versus-owner denials stay in stories plus
+  the API's existing RLS integration tests, because the e2e would need a
+  second browser login for no new server coverage.
 - Mutation proof before ready: at least two temporary user-visible mutations
   (the panel following the selection; optimistic revoke restored), each
   failing a named story, recorded verbatim in the PR body.
@@ -248,13 +299,17 @@ The two changes are independent, and either can land first.
 - [Grant by raw user id is unfriendly] → This is the shipped pre-#176
   behavior. A directory is a separate API and tenancy change (Non-Goals).
 - [Spec overlap with #1255] → The second sync re-copies the canonical block
-  (D8, finalize task 3.2).
+  (D8, finalize task 4.2).
+- [Owner-tier copy chosen from a stale roster] → Accepted (D4): a rare race
+  picks the admin-or-owner wording, and the settle refetch then shows the
+  target's current role.
 - [#1222 and #1223 still open at approval] → Implementation waits (D7). The
   proposal layer touches none of their files.
 - [`org-tree.tsx` near `max-lines`] → Extract the footer (D6).
 
 ## Migration Plan
 
-Web-only, with no data or API change. Deploying the layer makes members
-management available in the UI again. Rolling back is reverting the layer,
-which returns to the accepted API-only window and loses no data.
+Web-only, with no data or API change. Deploying the `panel` layer makes
+members management available in the UI again. Rolling back is reverting the
+`panel` and `e2e` layers, which returns to the accepted API-only window and
+loses no data.

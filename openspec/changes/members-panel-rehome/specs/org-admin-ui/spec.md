@@ -48,7 +48,7 @@ The web app SHALL provide instance administration in a **dedicated Administratio
 
 ### Requirement: Members panel opens from the selected-unit footer
 
-The selected-unit footer's "Manage members" control SHALL open and close a members panel for the selected unit, rendered directly after the footer and titled with the unit's name; the control SHALL report whether the panel is expanded. Only an open panel SHALL request a roster. Moving the selection to another unit, or the unit leaving the tree, SHALL close the panel.
+The selected-unit footer's "Manage members" control SHALL open and close a members panel for the selected unit, rendered directly after the footer and titled with the unit's name; the control SHALL report whether the panel is expanded. Only an open panel SHALL request a roster. Moving the selection to another unit, or the unit leaving the tree, SHALL close the panel, and only the control SHALL reopen it.
 
 #### Scenario: Manage members opens the panel for the selected unit
 
@@ -70,6 +70,11 @@ The selected-unit footer's "Manage members" control SHALL open and close a membe
 - **WHEN** the panel is open, with a user id typed into its grant form, and the user selects a different unit
 - **THEN** the panel closes without sending a request, and reopening it for the new unit shows an empty grant form
 
+#### Scenario: Returning to the unit does not reopen the panel
+
+- **WHEN** the panel was opened on one unit, the user selects another unit, and then selects the first unit again
+- **THEN** the panel stays closed and no further roster request is sent until the user activates "Manage members"
+
 #### Scenario: Keyboard order follows the footer
 
 - **WHEN** the panel is open and the user tabs forward from "Manage members"
@@ -77,7 +82,7 @@ The selected-unit footer's "Manage members" control SHALL open and close a membe
 
 ### Requirement: Members panel roster
 
-The panel SHALL list the membership rows the API returns for the unit itself, each with the member's user id and a role control, and SHALL mark the caller's own row "(you)". Other rows SHALL offer Revoke; the caller's own row SHALL offer Leave instead. A `service_account` row SHALL show its role without a settable control. The panel SHALL show loading and empty states rather than a blank list.
+The panel SHALL list the membership rows the API returns for the unit itself, each with the member's user id and a role control, and SHALL mark the caller's own row "(you)". Other rows SHALL offer Revoke; the caller's own row SHALL offer Leave instead. A `service_account` row SHALL show its role without a settable control. The panel SHALL show loading, empty, and failed-load states rather than a blank list.
 
 #### Scenario: Roster lists the unit's direct members
 
@@ -93,6 +98,11 @@ The panel SHALL list the membership rows the API returns for the unit itself, ea
 
 - **WHEN** the API returns no membership rows for the unit
 - **THEN** the panel says no members are visible there yet
+
+#### Scenario: Failed roster load is explained
+
+- **WHEN** the roster request fails
+- **THEN** the panel shows the classified error and a Retry control in place of the roster, and Retry requests the roster again
 
 ### Requirement: Grant from the members panel
 
@@ -144,12 +154,12 @@ Picking a role other than `owner` SHALL change the member's role at once; pickin
 
 #### Scenario: Transfer ownership, then leave
 
-- **WHEN** the sole owner makes another member owner and then confirms Leave on their own row
-- **THEN** both requests succeed, the caller's row disappears from the roster, and the footer shows the caller's new role on the unit, or none
+- **WHEN** the sole owner of a root organization they created makes another member owner and then confirms Leave on their own row
+- **THEN** both requests succeed, the caller's row disappears, the organization stays in the tree because its creator still sees it, the roster shows its empty state, and the footer shows no role for the caller
 
 #### Scenario: Leaving a unit that disappears from view
 
-- **WHEN** the caller leaves a unit and, with their membership gone, can no longer see it
+- **WHEN** a caller who did not create a unit leaves it while holding no other membership on its path, so they can no longer see it
 - **THEN** the unit leaves the tree, the panel closes, and focus moves to the newly selected row
 
 #### Scenario: Footer and tree follow a change to the caller's own role
@@ -173,7 +183,7 @@ When the API answers 403 to a membership write, the panel SHALL explain the role
 
 #### Scenario: Member without admin rights is denied
 
-- **WHEN** a caller with no admin-tier role on the path confirms revoking another member and the API answers 403
+- **WHEN** a caller with no admin-tier role on the path confirms revoking another member whose role is not `owner`, and the API answers 403
 - **THEN** the confirmation explains that admin or owner access on this unit or an ancestor is needed, and the member's row stays in the roster
 
 ### Requirement: Members panel authority stays with the API

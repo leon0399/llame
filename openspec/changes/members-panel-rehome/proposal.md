@@ -28,6 +28,8 @@ disabled-button test, the Organizations `page.tsx` comment, and the
   id and role). Granting or setting `owner`, revoking, and leaving each ask for
   confirmation that names the consequence. This is the parked panel, wired
   in rather than rebuilt.
+- A failed roster load shows its classified error with a Retry control.
+  Today's parked panel ignores the error and leaves the roster blank.
 - Role changes and revokes appear in the roster only after the server confirms
   them. Today's parked hooks update the roster optimistically, so a denied
   revoke briefly shows the member gone. Every membership write also refreshes
@@ -40,9 +42,10 @@ disabled-button test, the Organizations `page.tsx` comment, and the
 - The panel does not repeat the caller's role. The footer already shows it
   (direct, or inherited from its source unit), so the panel's own role line and
   its separate `…/memberships/me` request are removed.
-- The org-units browser e2e gets its members flow back: grant to a second
-  account, duplicate grant, role change, blocked last-owner leave, ownership
-  transfer, then leave.
+- The org-units browser e2e gets its members flow back, in its own delivery
+  layer: grant to a second account, duplicate grant, role change, blocked
+  last-owner leave, ownership transfer, then leave. The leaver created the
+  organization, so it stays in their tree with an empty roster afterwards.
 - The parked components move into `organizations/components/`. The parked
   directory and every "fast-follow"/"parked" pointer are removed.
 
@@ -113,6 +116,7 @@ None.
   can do that, and the roster does not change.
 - After a membership change, the tree's member count and the footer's role
   reflect it without a reload.
+- A failed roster load shows the error and a working Retry, not a blank list.
 - The org-units browser e2e covers grant, duplicate grant, role change, the
   blocked last-owner leave, ownership transfer, and leave.
 - No `parked/` directory or fast-follow pointer remains.
