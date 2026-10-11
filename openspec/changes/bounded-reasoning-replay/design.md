@@ -15,12 +15,13 @@ versions: `ai@6.0.256`, `@ai-sdk/anthropic@3.0.118`, `@ai-sdk/openai@3.0.97`,
   (`run-execution.service.ts:2083-2122`). `prepareAttemptForFirstStep`
   (`:3658-3789`) assembles the estimate pass (`assembleAttemptRequest`,
   `:3798-3829`) and evaluates the compaction trigger on it (`:3691`). It then
-  publishes a checkpoint if one was selected, rebuilds, and admits the request
-  or throws "still exceeds … after one compaction" (`:3775-3787`). The tool
-  loop then runs inside one `client.streamText` call (`:1682-1726`). The SDK
-  holds the in-progress turn's step messages, and `onStepStart` only splices
-  in-Run context items (`in-run-context-items.ts`). A redelivered job starts a
-  fresh attempt from the triggering message (`runs-worker.service.ts:160-175`).
+  publishes a checkpoint if one was selected and rebuilds (`:3730-3764`), and
+  admits the request or throws "still exceeds … after one compaction"
+  (`:3775-3787`). The tool loop then runs inside one `client.streamText` call
+  (`:1682-1726`). The SDK holds the in-progress turn's step messages, and
+  `onStepStart` only splices in-Run context items (`in-run-context-items.ts`).
+  A redelivered job starts a fresh attempt from the triggering message
+  (`runs-worker.service.ts:256`).
   There is no mid-turn resume from the database.
 - Trigger. `evaluateCompactionTrigger` (`:2848-2888`) selects the window
   variant whenever `requestFitsContextWindow` is false. It throws
@@ -37,7 +38,7 @@ versions: `ai@6.0.256`, `@ai-sdk/anthropic@3.0.118`, `@ai-sdk/openai@3.0.97`,
   over the JSON of system, messages, and tools. It counts reasoning text and
   strips each reasoning part's `providerOptions`. A test pins that a
   40k-character encrypted blob leaves the estimate unchanged
-  (`compaction.test.ts:146-188`).
+  (`compaction.test.ts:140-176`).
 - Converters. The installed SDKs handle a reasoning prompt part as follows:
   - Anthropic sends a part with `anthropic.signature` as a `thinking` block and
     one with `redactedData` as `redacted_thinking`. It skips any other part with
@@ -359,3 +360,21 @@ and need Leo's answer before approval.
     rejected; D8 is now an open question (proposal.md, question 5).
   - One P2 finding accepted. Task 1.3 names the word-level diff it records
     instead of a skill the repository does not have.
+- Round 3 (pull request review):
+  - Two P2 findings accepted. "A copied Chat replays the parts it stores" and
+    "A resumed Run continues with its reasoning intact" now carry the bound
+    exception that their requirement bodies and the sibling metadata scenario
+    already state. Three citation ranges in Context now point at the code
+    their sentences describe: the checkpoint publication and rebuild
+    (`run-execution.service.ts:3730-3764`), the redelivered job's handoff
+    (`runs-worker.service.ts:256`), and the 40k blob test
+    (`compaction.test.ts:140-176`).
+  - One P2 finding rejected. The default-threshold scenario does not need
+    "reaches the default threshold" as a precondition. Its round-2
+    conditions already entail it: the bound stops at the first fit, so
+    before its last drop the request was over the window, and that drop
+    removed less than a fifth of it. The bounded estimate is therefore above
+    `0.8 × window`.
+  - One bookkeeping finding partly accepted. The PR body now counts four P2
+    findings for round 1, as this history does. Task 1.2 stays unchecked: it
+    covers every review round, and this round is still open.

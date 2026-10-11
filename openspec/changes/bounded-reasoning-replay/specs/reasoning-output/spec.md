@@ -167,7 +167,7 @@ Displayable reasoning SHALL persist as display-only `{ type: "reasoning", text }
 #### Scenario: A copied Chat replays the parts it stores
 
 - **WHEN** a Chat that copied another Chat's messages verbatim continues
-- **THEN** its own stored reasoning parts and their metadata are replayed, so its model-facing prefix matches the Chat it was copied from
+- **THEN** its own stored reasoning parts and their metadata are replayed, apart from any whole replies' parts the reasoning bound drops, so its model-facing prefix matches the Chat it was copied from except for that reasoning
 - **AND** a provider that no longer accepts a copied item fails or ignores it under the existing failure contract, without llame rewriting or stripping it
 
 ### Requirement: Reasoning parts carry durable provider metadata
@@ -189,7 +189,8 @@ An assistant reasoning part MAY carry opaque provider metadata supplied by the a
 #### Scenario: A resumed Run continues with its reasoning intact
 
 - **WHEN** a worker restarts between a tool call and its continuation and the resumed Run rebuilds the request from persisted parts
-- **THEN** the continuation carries the earlier reasoning part with its metadata and unmodified text
+- **THEN** the continuation carries the earlier reasoning part with its metadata and unmodified text, unless the reasoning bound drops that part's whole reply
+- **AND** a part the reasoning bound drops is absent together with its metadata, never one without the other
 
 #### Scenario: Provider metadata is never rendered or published
 
