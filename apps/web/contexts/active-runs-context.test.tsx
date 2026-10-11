@@ -2,8 +2,8 @@
 
 /**
  * Integration-level proof for the REAL ActiveRunsProvider (React Query
- * refactor): unlike chat-item.test.tsx / chat-page.compaction.test.tsx,
- * which mock this context away, these tests exercise the actual
+ * refactor): unlike the chat-item and chat-page stories, whose Storybook
+ * preview mocks this context away, these tests exercise the actual
  * useQuery/useQueries wiring against a real QueryClient. The network layer
  * (GET /me/runs, GET /runs/:id) is a stubbed globalThis.fetch routed by
  * pathname — fetchActiveRuns/fetchRun run for real against it — and toast

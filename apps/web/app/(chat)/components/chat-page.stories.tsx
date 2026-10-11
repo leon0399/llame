@@ -3,6 +3,10 @@ import { MessageResponse } from "@workspace/ui/components/ai-elements/message-re
 import { ReasoningContent } from "@workspace/ui/components/ai-elements/reasoning-content";
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
 import {
+  SidebarInset,
+  SidebarProvider,
+} from "@workspace/ui/components/sidebar";
+import {
   QueryClient,
   QueryClientProvider,
   useQuery,
@@ -14,10 +18,17 @@ import { vi, type Mock } from "vitest";
 
 import { ChatProvider } from "@/contexts/chat-context";
 import { createAuthenticatedBrowserFetch } from "@/lib/api/fetch";
+import type { ChatListItemResponse } from "@/lib/api/generated/models";
 import { listPermissionModes } from "@/lib/api/generated/permission-modes/permission-modes";
-import type { ChatMessageResponse } from "@/lib/services/chat/history";
+import type {
+  ChatMessageResponse,
+  Compaction,
+} from "@/lib/services/chat/history";
 import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
-import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
+import {
+  chatQueryKeys,
+  seedChatMessagesQueryData,
+} from "@/lib/services/chat/queries";
 // Import via the REAL specifiers: sb.mock (preview.tsx) redirects them to the
 // __mocks__ modules, so these are the SAME instances the page reads.
 import * as runs from "@/lib/services/chat/runs";
@@ -30,6 +41,7 @@ import {
   jsonResponse,
   stubFetch,
 } from "@/lib/test-support/fetch-stub";
+import { ChatHeader } from "./chat-header";
 import { ChatPage } from "./chat-page";
 import {
   setChatMarkdownLoadForTests,
@@ -94,10 +106,12 @@ function historyWithUsage(
   ];
 }
 
-/** Story parameters: the opened chat's history (default `HISTORY`) and the
- *  URL fragment it opens at (default none). */
+/** Story parameters: the opened chat's history (default `HISTORY`), the
+ *  checkpoint among it the server page derives (default none), and the URL
+ *  fragment it opens at (default none). */
 type ChatPageParameters = {
   history?: Array<ChatMessageResponse>;
+  compaction?: Compaction;
   hash?: string;
 };
 
@@ -201,14 +215,18 @@ async function sentBody(route: string) {
 // history is in place on the page's first render.
 let queryClient: QueryClient;
 
-function seedHistory(chatExists: boolean, history: Array<ChatMessageResponse>) {
+function seedHistory(
+  chatExists: boolean,
+  history: Array<ChatMessageResponse>,
+  compaction: Compaction | null,
+) {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 60 * 1000 } },
   });
   if (chatExists) {
     seedChatMessagesQueryData(queryClient, CHAT_ID, {
       messages: history,
-      compaction: null,
+      compaction,
     });
   }
 }
@@ -223,7 +241,11 @@ const meta = {
   component: ChatPage,
   args: { chatId: CHAT_ID, initialChatExists: true, initialDraftPhase: null },
   beforeEach: ({ args, parameters }) => {
-    const { history = HISTORY, hash = "" }: ChatPageParameters = parameters;
+    const {
+      history = HISTORY,
+      compaction,
+      hash = "",
+    }: ChatPageParameters = parameters;
     // The page reads and rewrites its URL (draft marker, #msg-N target), so
     // each story opens on its own chat route and leaves the URL as it was.
     const href = window.location.href;
@@ -232,7 +254,7 @@ const meta = {
       "",
       `/chat/${CHAT_ID}${hash}`,
     );
-    seedHistory(args.initialChatExists, history);
+    seedHistory(args.initialChatExists, history, compaction ?? null);
     // isSuccess too: the page enables Send only on a successful catalog.
     useModelsQuery.mockReturnValue({
       data: { defaultModelId: GPT_5_4_MINI.id, models: [GPT_5_4_MINI] },
@@ -461,18 +483,17 @@ function serveTwoModelCatalog(gpt54: AvailableModel = GPT_5_4) {
   });
 }
 
-/** Waits until the opened chat's history shows and the page has sent exactly
- *  `routes` (default: the opened chat's own). */
+/** Waits until the opened chat's history shows `text` and the page has sent
+ *  exactly `routes` (default: the opened chat's own). */
 async function settledChat(
   canvasElement: HTMLElement,
   routes: Array<string> = OPEN_CHAT_ROUTES,
+  text = "Reply from history",
 ) {
   const canvas = within(canvasElement);
   await readyComposer(canvasElement);
   await waitFor(() =>
-    expect(
-      within(canvas.getByRole("log")).getByText("Reply from history"),
-    ).toBeVisible(),
+    expect(within(canvas.getByRole("log")).getByText(text)).toBeVisible(),
   );
   await waitFor(() => expect(sentRoutes()).toEqual(routes));
 }
@@ -1015,11 +1036,14 @@ async function sendFollowUp(canvasElement: HTMLElement) {
 
 /** A reply streamed the way the api streams it, encoded by the SDK's own
  *  UI-message stream; the stream ends once `ended` settles. */
-function streamedReply(ended: Promise<void> = Promise.resolve()) {
+function streamedReply(
+  ended: Promise<void> = Promise.resolve(),
+  messageId = "reply-1",
+) {
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
       execute: async ({ writer }) => {
-        writer.write({ type: "start", messageId: "reply-1" });
+        writer.write({ type: "start", messageId });
         writer.write({ type: "text-start", id: "text-1" });
         writer.write({
           type: "text-delta",
@@ -1032,6 +1056,13 @@ function streamedReply(ended: Promise<void> = Promise.resolve()) {
       },
     }),
   });
+}
+
+/** The `#msg-N` link anchors in the transcript, in order. */
+function messageAnchors(canvasElement: HTMLElement) {
+  return [...canvasElement.querySelectorAll('[id^="msg-"]')].map(
+    (element) => element.id,
+  );
 }
 
 // The held #msg-900 window read, answered by the story.
@@ -1070,6 +1101,11 @@ export const OpensTargetMessage: Story = {
     await transcriptShows(canvasElement, "older target context");
     await expect(canvas.queryByText("newest")).toBeNull();
     await expect(sentRoutes()).toEqual([HISTORY_ROUTE]);
+    // Each durable message carries its `#msg-N` link anchor.
+    await expect(messageAnchors(canvasElement)).toEqual(["msg-701", "msg-900"]);
+    await expect(canvasElement.querySelector("#msg-900")).toHaveTextContent(
+      "target answer",
+    );
   },
 };
 
@@ -1216,6 +1252,8 @@ export const TargetSendInFlight: Story = {
     await transcriptShows(canvasElement, "follow-up");
     await transcriptShows(canvasElement, "older target context");
     await transcriptShows(canvasElement, "target answer");
+    // The live follow-up has no seq yet, so it carries no link anchor.
+    await expect(messageAnchors(canvasElement)).toEqual(["msg-701", "msg-900"]);
   },
 };
 
@@ -1479,5 +1517,656 @@ export const TargetSendStopRecovers: Story = {
 
     // A stop is no error: the SDK reports only the aborted finish.
     await recoveredFromInterruption(canvasElement, 1);
+  },
+};
+
+/** Conversation rows, each `[role, seq, text]`, as the history api returns
+ *  them. */
+function turns(
+  ...rows: Array<[role: "user" | "assistant", seq: number, text: string]>
+): Array<ChatMessageResponse> {
+  return rows.map(([role, seq, text]) =>
+    rawChatMessage({
+      id: `${role}-${seq}`,
+      chatId: CHAT_ID,
+      role,
+      seq,
+      parts: [{ type: "text", text }],
+    }),
+  );
+}
+
+/** The checkpoint compaction leaves once it summarized `absorbedMessageCount`
+ *  messages through seq `absorbedThroughSeq`. */
+function compactedThrough(
+  absorbedThroughSeq: number,
+  absorbedMessageCount: number,
+): Compaction {
+  return {
+    absorbedThroughSeq,
+    absorbedMessageCount,
+    summary: "Earlier turns summarized.",
+    createdAt: "2026-07-06T00:00:00.000Z",
+    stats: { beforeTokens: null, afterTokens: null, modelId: null },
+  };
+}
+
+/** That checkpoint's own row at `seq` in the history api's answer. */
+function checkpointRow(seq: number, compaction: Compaction) {
+  return rawChatMessage({
+    id: `checkpoint-${seq}`,
+    chatId: CHAT_ID,
+    role: "checkpoint",
+    seq,
+    ...compaction,
+  });
+}
+
+/** The transcript's "Context compacted" boundary. */
+function compactionBoundary(canvasElement: HTMLElement) {
+  return within(canvasElement).getByRole("button", {
+    name: /^Context compacted/,
+  });
+}
+
+/** The transcript element showing `text`. */
+function transcriptText(canvasElement: HTMLElement, text: string) {
+  return within(within(canvasElement).getByRole("log")).getByText(text);
+}
+
+/** Whether `first` comes before `second` in the page. */
+function precedes(first: Node, second: Node) {
+  return Boolean(
+    first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+}
+
+const THROUGH_HELLO = compactedThrough(2, 2);
+
+/**
+ * A reopened chat that compaction summarized shows a "Context compacted"
+ * boundary with the summarized message count, between the last summarized
+ * message and the first one after it. Its history renders through the same
+ * cache the server page seeds and the history api refreshes.
+ *
+ * @summary a compacted chat shows its boundary after the summarized turns
+ */
+export const CompactedHistory: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [
+      ...turns(["user", 1, "hi"], ["assistant", 2, "hello"]),
+      checkpointRow(3, THROUGH_HELLO),
+      ...turns(["user", 4, "more"]),
+    ],
+    compaction: THROUGH_HELLO,
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    await settledChat(canvasElement, OPEN_CHAT_ROUTES, "more");
+    const boundary = compactionBoundary(canvasElement);
+    await expect(boundary).toHaveTextContent("2 messages");
+    await expect(
+      precedes(transcriptText(canvasElement, "hello"), boundary),
+    ).toBe(true);
+    await expect(
+      precedes(boundary, transcriptText(canvasElement, "more")),
+    ).toBe(true);
+  },
+};
+
+const THROUGH_48 = compactedThrough(48, 1);
+
+/**
+ * When every loaded message came after the summarized span, the boundary
+ * opens the transcript; a single summarized message reads in the singular.
+ *
+ * @summary the boundary sits on top when the window is all post-compaction
+ */
+export const CompactionAtTop: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [
+      checkpointRow(49, THROUGH_48),
+      ...turns(["user", 50, "hi"], ["assistant", 51, "hello"]),
+    ],
+    compaction: THROUGH_48,
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    await settledChat(canvasElement, OPEN_CHAT_ROUTES, "hello");
+    const boundary = compactionBoundary(canvasElement);
+    await expect(boundary).toHaveTextContent(/1 message$/);
+    await expect(precedes(boundary, transcriptText(canvasElement, "hi"))).toBe(
+      true,
+    );
+  },
+};
+
+const THROUGH_202 = compactedThrough(202, 3);
+
+/**
+ * When every loaded message is inside the summarized span, the boundary
+ * closes the transcript.
+ *
+ * @summary the boundary sits at the bottom when the window is all summarized
+ */
+export const CompactionAtBottom: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [
+      ...turns(
+        ["user", 200, "turn 200"],
+        ["assistant", 201, "turn 201"],
+        ["user", 202, "turn 202"],
+      ),
+      checkpointRow(203, THROUGH_202),
+    ],
+    compaction: THROUGH_202,
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    await settledChat(canvasElement, OPEN_CHAT_ROUTES, "turn 202");
+    await expect(
+      precedes(
+        transcriptText(canvasElement, "turn 202"),
+        compactionBoundary(canvasElement),
+      ),
+    ).toBe(true);
+  },
+};
+
+const CHAT_START = turns(["user", 1, "hi"], ["assistant", 2, "hello"]);
+
+/** The history after the sent turn, compacted through "hello": the user turn
+ *  persists under its client id, the reply carries its run's id. */
+async function compactedAfterSend() {
+  const { message }: { message: { id: string } } = await sentBody(SEND_ROUTE);
+  return [
+    ...CHAT_START,
+    checkpointRow(3, THROUGH_HELLO),
+    rawChatMessage({
+      id: message.id,
+      chatId: CHAT_ID,
+      role: "user",
+      seq: 4,
+      parts: [{ type: "text", text: "follow-up" }],
+    }),
+    rawChatMessage({
+      id: "assistant-5",
+      chatId: CHAT_ID,
+      role: "assistant",
+      seq: 5,
+      parts: [{ type: "text", text: "streamed reply" }],
+      usage: { runId: "reply-1" },
+    }),
+  ];
+}
+
+/**
+ * A compaction that lands during a turn shows up once the reply finishes,
+ * without a reload: the finished turn re-reads the history, which now carries
+ * the checkpoint.
+ *
+ * @summary a compaction during a turn appears once the reply finishes
+ */
+export const CompactionLandsMidConversation: Story = {
+  tags: ["ai-generated"],
+  parameters: { history: CHAT_START } satisfies ChatPageParameters,
+  beforeEach: () =>
+    routeAlso({
+      [SEND_ROUTE]: () => Promise.resolve(streamedReply()),
+      [HISTORY_ROUTE]: async () =>
+        jsonResponse({
+          messages: sentRoutes().includes(SEND_ROUTE)
+            ? await compactedAfterSend()
+            : CHAT_START,
+        }),
+    }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await settledChat(canvasElement, OPEN_CHAT_ROUTES, "hello");
+    await expect(
+      canvas.queryByRole("button", { name: /^Context compacted/ }),
+    ).toBeNull();
+
+    await sendFollowUp(canvasElement);
+
+    await waitFor(() =>
+      expect(compactionBoundary(canvasElement)).toHaveTextContent("2 messages"),
+    );
+    await expect(
+      precedes(
+        transcriptText(canvasElement, "hello"),
+        compactionBoundary(canvasElement),
+      ),
+    ).toBe(true);
+    await expect(
+      precedes(
+        compactionBoundary(canvasElement),
+        transcriptText(canvasElement, "follow-up"),
+      ),
+    ).toBe(true);
+    await expect(sentRoutes()).toEqual([
+      ...OPEN_CHAT_ROUTES,
+      SEND_ROUTE,
+      HISTORY_ROUTE,
+    ]);
+  },
+};
+
+const RUN_ID = "11111111-2222-4333-8444-555555555555";
+
+/** A server-authored context part from `producer`, as the api persists it on
+ *  the user message whose run it shaped. */
+function contextPart<Payload>(
+  producer: string,
+  payload: Payload,
+  reminder: string,
+) {
+  return {
+    type: "data-context" as const,
+    data: {
+      v: 1,
+      producer,
+      form: "notice",
+      runId: RUN_ID,
+      payload,
+      text: `<system-reminder producer="${producer}" form="notice">${reminder}</system-reminder>`,
+    },
+  };
+}
+
+const MODEL_CHANGE = contextPart(
+  "effective-context-change",
+  { cause: "model", fromModelId: "model-a", toModelId: "model-b" },
+  "model changed",
+);
+
+/**
+ * A run that switched models shows a "Model changed" boundary right before
+ * the user message that triggered it.
+ *
+ * @summary the model switch boundary precedes its triggering message
+ */
+export const ModelSwitchBoundary: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [
+      ...turns(["assistant", 1, "Earlier answer"]),
+      rawChatMessage({
+        id: "user-2",
+        chatId: CHAT_ID,
+        role: "user",
+        seq: 2,
+        parts: [MODEL_CHANGE, { type: "text", text: "Triggering request" }],
+      }),
+    ],
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await settledChat(canvasElement, OPEN_CHAT_ROUTES, "Triggering request");
+    const boundary = canvas.getByRole("button", {
+      name: "Model changed from model-a to model-b",
+    });
+    await expect(
+      precedes(transcriptText(canvasElement, "Earlier answer"), boundary),
+    ).toBe(true);
+    await expect(
+      precedes(boundary, transcriptText(canvasElement, "Triggering request")),
+    ).toBe(true);
+    await expect(canvas.queryByText(/unsupported part type/i)).toBeNull();
+  },
+};
+
+/**
+ * Server-authored context parts — every producer, including one this build
+ * does not know — print nothing into the transcript: no debug text, no
+ * reminder markup, and none of the prompt-side content they carry.
+ *
+ * @summary context parts never surface as chat content
+ */
+export const HidesContextParts: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [
+      rawChatMessage({
+        id: "user-1",
+        chatId: CHAT_ID,
+        role: "user",
+        seq: 1,
+        parts: [
+          MODEL_CHANGE,
+          contextPart(
+            "tool-availability",
+            { kind: "delta", added: [], removed: [] },
+            "tools changed",
+          ),
+          contextPart(
+            "recency-digest",
+            {
+              entries: [
+                {
+                  title: "Another chat",
+                  date: "2026-08-13",
+                  messageCount: 2,
+                  pinned: false,
+                },
+              ],
+              pinChanges: [],
+            },
+            "another chat exists",
+          ),
+          contextPart("from-a-newer-api", { anything: true }, "future context"),
+          { type: "text", text: "Owner question" },
+        ],
+      }),
+    ],
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await settledChat(canvasElement, OPEN_CHAT_ROUTES, "Owner question");
+    await expect(canvas.queryByText(/unsupported part type/i)).toBeNull();
+    await expect(canvas.queryByText(/Another chat/)).toBeNull();
+    await expect(
+      canvas.queryByText(/tools changed|another chat exists|future context/i),
+    ).toBeNull();
+    await expect(canvas.queryByText(/<system-reminder/)).toBeNull();
+  },
+};
+
+/**
+ * A reply whose run stayed on one model offers its System prompt receipt and
+ * shows no model switch.
+ *
+ * @summary a same-model reply has a receipt and no switch boundary
+ */
+export const RunReceiptWithoutSwitch: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [
+      ...turns(["user", 1, "Same model request"]),
+      rawChatMessage({
+        id: "assistant-2",
+        chatId: CHAT_ID,
+        role: "assistant",
+        seq: 2,
+        parts: [{ type: "text", text: "Same model answer" }],
+        usage: { runId: RUN_ID },
+      }),
+    ],
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await settledChat(canvasElement, OPEN_CHAT_ROUTES, "Same model answer");
+    await expect(
+      canvas.getByRole("button", { name: "System prompt" }),
+    ).toBeVisible();
+    await expect(
+      canvas.queryByRole("button", { name: /model changed from/i }),
+    ).toBeNull();
+  },
+};
+
+const LIST_ROUTE = "GET /api/v1/chats";
+const DETAIL_ROUTE = `GET /api/v1/chats/${CHAT_ID}`;
+const LLAME_ROOT = "/home/operator/projects/llame";
+const NEXT_ROOT = "/home/operator/projects/next";
+const DOCS_ROOT = "/home/operator/projects/docs";
+
+// The Workspace the api reports the chat bound to, changed by the story.
+let boundRoot = LLAME_ROOT;
+
+/** The chat's card, bound to `workspaceRoot`. */
+function chatCard(workspaceRoot: string): ChatListItemResponse {
+  return {
+    id: CHAT_ID,
+    ownerUserId: "u1",
+    title: "Project chat",
+    visibility: "private",
+    createdAt: "2026-07-06T00:00:00.000Z",
+    updatedAt: "2026-07-06T00:00:00.000Z",
+    archivedAt: null,
+    projectId: null,
+    workspaceRoot,
+    lastMessage: null,
+  };
+}
+
+/** Serves the chat's card to the chat header, cached as a prior page left
+ *  it (bound to LLAME_ROOT). The header finds a `listed` chat in the rail's
+ *  list and an unlisted (archived) one only through GET /chats/:id. */
+function serveChatCard(listed: boolean) {
+  boundRoot = LLAME_ROOT;
+  const rail = (pinned: string | null) =>
+    listed && pinned === "exclude" ? [chatCard(boundRoot)] : [];
+  for (const pinned of ["only", "exclude"] as const) {
+    queryClient.setQueryData(
+      chatQueryKeys.infinite(
+        pinned === "only" ? { pinned, archived: "with" } : { pinned },
+      ),
+      { pages: [rail(pinned)], pageParams: [undefined] },
+    );
+  }
+  if (!listed) {
+    queryClient.setQueryData(
+      chatQueryKeys.detail(CHAT_ID),
+      chatCard(boundRoot),
+    );
+  }
+  routeAlso({
+    [LIST_ROUTE]: (input) =>
+      Promise.resolve(
+        jsonResponse(
+          rail(new URL(requestOf(input).url).searchParams.get("pinned")),
+        ),
+      ),
+    [DETAIL_ROUTE]: () => Promise.resolve(jsonResponse(chatCard(boundRoot))),
+  });
+}
+
+/** The page under the chat header, stacked as the chat layout stacks them. */
+function ChatUnderHeader(props: ComponentProps<typeof ChatPage>) {
+  return (
+    <SidebarProvider className="min-h-0 flex-1">
+      <SidebarInset className="flex flex-col overflow-hidden">
+        <ChatHeader />
+        <ChatPage {...props} />
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}
+
+// The chat header reads the open chat from the route.
+const HEADED_CHAT = {
+  history: historyWithUsage({ status: "completed" }),
+  nextjs: { navigation: { pathname: `/chat/${CHAT_ID}` } },
+};
+
+/** Waits until the chat header shows the chat bound to `root`. */
+async function headerShows(canvasElement: HTMLElement, root: string) {
+  await waitFor(() =>
+    expect(
+      within(canvasElement).getByLabelText(`Workspace: ${root}`),
+    ).toBeVisible(),
+  );
+}
+
+// Released by the story to end the first reply.
+let endFirstReply: () => void = () => {};
+
+/**
+ * The start of every streamed reply refreshes the chat's card, so the header
+ * shows the Workspace the api prepared for that run while it still streams —
+ * here for an archived chat the header reads only through GET /chats/:id.
+ *
+ * @summary each reply's start refreshes the header's Workspace
+ */
+export const WorkspaceRefreshesEachRun: Story = {
+  tags: ["ai-generated"],
+  parameters: HEADED_CHAT,
+  render: (args) => <ChatUnderHeader {...args} />,
+  beforeEach: () => {
+    serveChatCard(false);
+    const firstEnded = new Promise<void>((resolve) => {
+      endFirstReply = resolve;
+    });
+    let sends = 0;
+    routeAlso({
+      [SEND_ROUTE]: () => {
+        sends += 1;
+        return Promise.resolve(
+          sends === 1
+            ? streamedReply(firstEnded)
+            : streamedReply(new Promise<void>(() => {}), "reply-2"),
+        );
+      },
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const stop = () =>
+      within(canvasElement).getByRole("button", { name: "Stop generation" });
+    const refresh = [LIST_ROUTE, LIST_ROUTE, DETAIL_ROUTE];
+    await settledChat(canvasElement);
+    await headerShows(canvasElement, LLAME_ROOT);
+
+    boundRoot = NEXT_ROOT;
+    await sendFollowUp(canvasElement);
+    await headerShows(canvasElement, NEXT_ROOT);
+    await expect(stop()).toBeVisible();
+    await expect(sentRoutes()).toEqual([
+      ...OPEN_CHAT_ROUTES,
+      SEND_ROUTE,
+      ...refresh,
+    ]);
+
+    // The finished reply refreshes the card again and re-reads the history.
+    endFirstReply();
+    const firstRun = [
+      ...OPEN_CHAT_ROUTES,
+      SEND_ROUTE,
+      ...refresh,
+      ...refresh,
+      HISTORY_ROUTE,
+    ];
+    await waitFor(() => expect(sentRoutes()).toEqual(firstRun));
+
+    boundRoot = DOCS_ROOT;
+    await sendFollowUp(canvasElement);
+    await headerShows(canvasElement, DOCS_ROOT);
+    await expect(stop()).toBeVisible();
+    await expect(sentRoutes()).toEqual([...firstRun, SEND_ROUTE, ...refresh]);
+  },
+};
+
+/** A reply that enters `root` mid-stream: the tool call streams at once, its
+ *  successful result once `entered` settles, then a line of text; the reply
+ *  never finishes. */
+function workspaceEntryReply(root: string, entered: Promise<void>) {
+  return createUIMessageStreamResponse({
+    stream: createUIMessageStream({
+      execute: async ({ writer }) => {
+        writer.write({ type: "start", messageId: "reply-1" });
+        writer.write({
+          type: "tool-input-available",
+          toolCallId: "enter-1",
+          toolName: "enter_workspace",
+          input: { path: root },
+        });
+        await entered;
+        writer.write({
+          type: "tool-output-available",
+          toolCallId: "enter-1",
+          output: { status: "success", root },
+        });
+        writer.write({ type: "text-start", id: "text-1" });
+        writer.write({
+          type: "text-delta",
+          id: "text-1",
+          delta: "Workspace is ready.",
+        });
+        await new Promise<void>(() => {});
+      },
+    }),
+  });
+}
+
+// Released by the story once the reply's start has refreshed the card.
+let enterWorkspace: () => void = () => {};
+
+/**
+ * When the agent enters a Workspace mid-reply, the header picks up the new
+ * binding as soon as the entry succeeds — once, not again for the text that
+ * follows it.
+ *
+ * @summary a live Workspace entry refreshes the header once
+ */
+export const WorkspaceRefreshesOnEntry: Story = {
+  tags: ["ai-generated"],
+  parameters: HEADED_CHAT,
+  render: (args) => <ChatUnderHeader {...args} />,
+  beforeEach: () => {
+    serveChatCard(true);
+    const entered = new Promise<void>((resolve) => {
+      enterWorkspace = resolve;
+    });
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        Promise.resolve(workspaceEntryReply(NEXT_ROOT, entered)),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    await settledChat(canvasElement);
+    await sendFollowUp(canvasElement);
+    // The reply's start refreshes the card before the entry rebinds the chat.
+    const started = [...OPEN_CHAT_ROUTES, SEND_ROUTE, LIST_ROUTE, LIST_ROUTE];
+    await waitFor(() => expect(sentRoutes()).toEqual(started));
+    await headerShows(canvasElement, LLAME_ROOT);
+
+    boundRoot = NEXT_ROOT;
+    enterWorkspace();
+
+    await headerShows(canvasElement, NEXT_ROOT);
+    await transcriptShows(canvasElement, "Workspace is ready.");
+    await expect(sentRoutes()).toEqual([...started, LIST_ROUTE, LIST_ROUTE]);
+  },
+};
+
+/**
+ * Reopening a chat whose history already entered a Workspace leaves the
+ * header on the cached card: a past entry refreshes nothing.
+ *
+ * @summary a past Workspace entry does not refresh the header on open
+ */
+export const PastWorkspaceEntryKeepsCard: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    ...HEADED_CHAT,
+    history: [
+      rawChatMessage({
+        id: "assistant-1",
+        chatId: CHAT_ID,
+        role: "assistant",
+        seq: 1,
+        parts: [
+          {
+            type: "tool-enter_workspace",
+            toolCallId: "enter-1",
+            state: "output-available",
+            input: { path: LLAME_ROOT },
+            output: { status: "success", root: LLAME_ROOT },
+          },
+          { type: "text", text: "Entered the project." },
+        ],
+      }),
+    ],
+  },
+  render: (args) => <ChatUnderHeader {...args} />,
+  beforeEach: () => {
+    serveChatCard(true);
+    // A refresh would pick up this later binding.
+    boundRoot = NEXT_ROOT;
+  },
+  play: async ({ canvasElement }) => {
+    await settledChat(canvasElement, OPEN_CHAT_ROUTES, "Entered the project.");
+    await headerShows(canvasElement, LLAME_ROOT);
+    await expect(sentRoutes()).toEqual(OPEN_CHAT_ROUTES);
   },
 };
