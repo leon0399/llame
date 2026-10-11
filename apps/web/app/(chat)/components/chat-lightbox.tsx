@@ -41,9 +41,10 @@ const NO_IMAGES: ReadonlyArray<MediaOccurrence> = [];
 /**
  * The transcript's lightbox: activating any image thumbnail inside it (an
  * attachment, a `read` image result, a prompt-import image) opens one
- * lightbox over every image of the chat in transcript order. Each image's
- * descriptor loads on the first open; the lightbox shows once they settle.
- * An image whose descriptor fails to load (an unknown id) is no slide, so
+ * lightbox over every image of the chat in transcript order. An unstored
+ * image is a ready single-variant slide; each stored image's descriptor
+ * loads on the first open, and the lightbox shows once they settle. A stored
+ * image whose descriptor fails to load (an unknown id) is no slide, so
  * activating it opens nothing and ends the session, so a later refetch
  * cannot open the lightbox without a click.
  */

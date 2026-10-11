@@ -17,7 +17,8 @@ function placeholderImage(width: number, height: number, label: string) {
 }
 
 /** The spec's toggle fixture: a 4000×3000 JPEG with a 2000×1500 PNG model variant. */
-const screenshot: MediaLightboxSlide = {
+const screenshot = {
+  kind: "stored",
   original: {
     src: placeholderImage(4000, 3000, "original 4000×3000"),
     width: 4000,
@@ -30,25 +31,22 @@ const screenshot: MediaLightboxSlide = {
     height: 1500,
     mediaType: "image/png",
   },
-  provenance: "upload",
   locator: "media://0199d1c4-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
   alt: "Dashboard screenshot",
-};
+} satisfies MediaLightboxSlide;
 
-/** An image returned by `read`, small enough to sit inside the viewport. */
-const diagramImage = {
-  src: placeholderImage(240, 160, "diagram"),
-  width: 240,
-  height: 160,
+/** An image a `read` of `docs/shot.png` returned without storing it: a
+ *  1600×900 PNG shown from its 256×144 inline thumbnail, which is smaller
+ *  than the viewport. */
+const shot = {
+  kind: "unstored",
+  thumbnail: placeholderImage(256, 144, "thumbnail"),
+  width: 1600,
+  height: 900,
   mediaType: "image/png",
-};
-const diagram: MediaLightboxSlide = {
-  original: diagramImage,
-  model: diagramImage,
-  provenance: "read",
-  locator: "media://0199d1c4-6a7b-7c8d-9e0f-2a3b4c5d6e7f",
-  alt: "Architecture diagram",
-};
+  locator: "docs/shot.png",
+  alt: "Read shot",
+} satisfies MediaLightboxSlide;
 
 /**
  * Thumbnail-style openers plus the lightbox: the lightbox is controlled by
@@ -92,7 +90,7 @@ const meta = {
   component: MediaLightbox,
   parameters: { layout: "centered" },
   tags: ["autodocs"],
-  args: { slides: [screenshot, diagram], index: null, onClose: fn() },
+  args: { slides: [screenshot, shot], index: null, onClose: fn() },
   argTypes: { index: { control: false } },
   render: (args) => <LightboxWithOpeners {...args} />,
 } satisfies Meta<typeof MediaLightbox>;
@@ -117,7 +115,7 @@ export const Basic: Story = {
     await waitFor(() => expect(dialog).toBeVisible());
     await waitFor(() =>
       expect(
-        screen.getByText(`2000×1500 PNG · upload · ${screenshot.locator}`),
+        screen.getByText(`2000×1500 PNG · ${screenshot.locator}`),
       ).toBeVisible(),
     );
   },
@@ -133,10 +131,10 @@ export const WheelZoomOnSmallImage: Story = {
   tags: ["ai-generated"],
   // Zoom animates; the interaction test covers it, a snapshot would not.
   parameters: { visualTests: { disable: true } },
-  args: { slides: [diagram] },
+  args: { slides: [shot] },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(
-      canvas.getByRole("button", { name: "Open Architecture diagram" }),
+      canvas.getByRole("button", { name: "Open Read shot" }),
     );
     await screen.findByRole("dialog");
     const image = currentImage();
@@ -155,7 +153,7 @@ export const WheelZoomOnSmallImage: Story = {
 
 /**
  * Left and right arrow keys move between every image in the lightbox, in
- * display order.
+ * display order, across stored and unstored images.
  *
  * @summary for arrow-key navigation between images
  */
@@ -175,12 +173,10 @@ export const ArrowKeyNavigation: Story = {
 
     await userEvent.keyboard("{ArrowRight}");
     await waitFor(() =>
-      expect(currentImage()).toHaveAttribute("alt", diagram.alt),
+      expect(currentImage()).toHaveAttribute("alt", shot.alt),
     );
     await waitFor(() =>
-      expect(
-        screen.getByText(`240×160 PNG · read · ${diagram.locator}`),
-      ).toBeVisible(),
+      expect(screen.getByText("1600×900 PNG · docs/shot.png")).toBeVisible(),
     );
 
     await userEvent.keyboard("{ArrowLeft}");
@@ -202,7 +198,7 @@ export const EscapeReturnsFocus: Story = {
   parameters: { visualTests: { disable: true } },
   play: async ({ args, canvas, userEvent }) => {
     const opener = canvas.getByRole("button", {
-      name: "Open Architecture diagram",
+      name: "Open Read shot",
     });
     await userEvent.click(opener);
     const dialog = await screen.findByRole("dialog");
@@ -244,7 +240,7 @@ export const VariantToggle: Story = {
       expect(currentImage()).toHaveAttribute("src", screenshot.original.src),
     );
     await expect(
-      screen.getByText(`4000×3000 JPEG · upload · ${screenshot.locator}`),
+      screen.getByText(`4000×3000 JPEG · ${screenshot.locator}`),
     ).toBeVisible();
 
     await userEvent.click(screen.getByRole("button", { name: "Model" }));
@@ -253,7 +249,34 @@ export const VariantToggle: Story = {
       expect(currentImage()).toHaveAttribute("src", screenshot.model.src),
     );
     await expect(
-      screen.getByText(`2000×1500 PNG · upload · ${screenshot.locator}`),
+      screen.getByText(`2000×1500 PNG · ${screenshot.locator}`),
     ).toBeVisible();
+  },
+};
+
+/**
+ * An image llame did not store has one variant: the slide shows its inline
+ * thumbnail with no variant control, captioned with the original's size and
+ * format and the locator as submitted.
+ *
+ * @summary for an unstored image shown from its inline thumbnail
+ */
+export const UnstoredImage: Story = {
+  tags: ["ai-generated"],
+  args: { slides: [shot] },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Open Read shot" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toBeVisible());
+    await expect(currentImage()).toHaveAttribute("src", shot.thumbnail);
+    await expect(
+      screen.getByText("1600×900 PNG · docs/shot.png"),
+    ).toBeVisible();
+    await expect(
+      screen.queryByRole("group", { name: "Image variant" }),
+    ).toBeNull();
+    await expect(screen.queryByRole("button", { name: "Original" })).toBeNull();
   },
 };

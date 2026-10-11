@@ -102,15 +102,31 @@ export const ImportedDeniedFailedOmitted: Story = {
   },
 };
 
+/** A 160×90 WebP inline thumbnail, the shape the api stores beside an image
+ *  it did not keep. */
+const SHOT_THUMBNAIL =
+  "data:image/webp;base64," +
+  "UklGRroBAABXRUJQVlA4IK4BAACwCwCdASqgAFoAPp1Oo0ylpKMiJFIIKLATiWlu" +
+  "4XPhcAmeZGHeBdA/irRZMW8YOoOH4GfE+J8T4nxPieeS/C6GBSLPNrj5OMEI06wM" +
+  "8/ni5AtxFjTgM6oBdzlxOyfVtk7J2TsnYoAA/v7TCJ1mlIfClbSSyc/b8Tqb6I/O" +
+  "zwAZ+60V979foFeaukavTO4rts2Cp1cqIsiUfW+tPc9HKD915iY9d9bZi5Nyv/0v" +
+  "9ZPiz01xYjwAaGWKe1GaDSxuUye7+3G06fGMHEaH2hNnS5CtJPYYPR54/oAO+OoP" +
+  "vr5bk/KFst/6bx88fT8fzV6JkMExsrlAY/8bwf/z+fZBv+9+sHOB8Knr60MsquP8" +
+  "ynZOhQbYcP77WlMZy09sU43YOh0u1wZs/4usJqdtCP06VUVXHsqIHAwHvOYIZN1H" +
+  "V96353X9o3FrUNYQ8MVZdZPedV4t2yUc159YwbHyBl7f8FqOtm4iC1P0Kw7pDlvf" +
+  "Lz1vCSfOY3RkVsInlOByK3DS6nv7FKFx7r3yZhiP2X8Xbnb8R5DdoeK8rZhIJH0V" +
+  "P3n97L90K9SJ7pcAOAAAAAAA";
+
 const MEDIA_LOCATOR = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
 
 /**
  * A prompt that imported images beside the other outcomes. Every outcome is
- * still listed as a chip, the images as imported prompt files, and a
- * `media://` import also shows its thumbnail (the `/model` route), which opens
- * the chat lightbox.
+ * still listed as a chip, the images as imported prompt files, and each image
+ * also shows a thumbnail that opens the chat lightbox: an unstored image its
+ * inline thumbnail, with no media route, and a `media://` import its `/model`
+ * route.
  *
- * @summary image entries with a thumbnail beside denied, failed, and omitted prompt files
+ * @summary image entries with thumbnails beside denied, failed, and omitted prompt files
  */
 export const WithImageEntry: Story = {
   tags: ["ai-generated"],
@@ -121,7 +137,7 @@ export const WithImageEntry: Story = {
         locator: "shot.png",
         resolved: "/home/operator/repo/shot.png",
         outcome: "imported",
-        thumbnail: "data:image/webp;base64,UklGRg==",
+        thumbnail: SHOT_THUMBNAIL,
         width: 1600,
         height: 900,
         mediaType: "image/png",
@@ -135,25 +151,29 @@ export const WithImageEntry: Story = {
   },
   play: async ({ args, canvas, userEvent }) => {
     const thumbnails = canvas.getByRole("list", { name: "Imported images" });
-    const image = within(thumbnails).getByRole("img", { name: MEDIA_LOCATOR });
-    await expect(image).toHaveAttribute(
+    await expect(
+      within(thumbnails).getByRole("img", { name: "shot.png" }),
+    ).toHaveAttribute("src", SHOT_THUMBNAIL);
+    await expect(
+      within(thumbnails).getByRole("img", { name: MEDIA_LOCATOR }),
+    ).toHaveAttribute(
       "src",
       expect.stringMatching(
         /\/api\/v1\/media\/0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f\/model$/,
       ),
     );
-    await expect(within(thumbnails).getAllByRole("img")).toHaveLength(1);
+    await expect(within(thumbnails).getAllByRole("img")).toHaveLength(2);
     await userEvent.click(
-      within(thumbnails).getByRole("button", { name: MEDIA_LOCATOR }),
+      within(thumbnails).getByRole("button", { name: "shot.png" }),
     );
-    // The stored image is the payload's third entry.
-    await expect(args.onOpenImage).toHaveBeenCalledWith(2);
+    // The unstored image is the payload's second entry.
+    await expect(args.onOpenImage).toHaveBeenCalledWith(1);
 
     await expect(
-      canvas.getByLabelText("Imported prompt file: shot.png"),
+      canvas.getByLabelText(`Imported prompt file: ${MEDIA_LOCATOR}`),
     ).toBeVisible();
     await expect(
-      canvas.getByLabelText(`Imported prompt file: ${MEDIA_LOCATOR}`),
+      canvas.getByLabelText("Imported prompt file: shot.png"),
     ).toBeVisible();
     await expect(
       canvas.getByLabelText("Imported prompt file: docs/GUIDE.md"),

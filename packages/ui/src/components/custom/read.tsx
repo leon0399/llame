@@ -13,6 +13,7 @@ import {
 } from "@workspace/ui/components/ai-elements/tool";
 import { ImageThumbnail } from "@workspace/ui/components/custom/image-thumbnail";
 import { SearchLink } from "@workspace/ui/components/custom/web-search";
+import { inlineThumbnailSchema } from "@workspace/ui/lib/inline-thumbnail";
 
 const lineRangeSchema = z.object({
   startLine: z.number(),
@@ -54,13 +55,15 @@ const textOutputSchema = z.looseObject({
   shownRanges: z.array(lineRangeSchema).optional(),
 });
 
-/** A read whose bytes were an image: the stored object's `media://` locator
- *  and the original's type and size, with no content. Loose for the same
- *  scheme envelopes as a text read. */
+/** A read whose bytes were an image, with the original's type and size and no
+ *  content: a `media://` read carries the stored object's locator, any other
+ *  read the display-only inline `thumbnail` (used only when it is a valid
+ *  WebP data URL). Loose for the same scheme envelopes as a text read. */
 const imageOutputSchema = z.looseObject({
   ...readSourceFields,
   kind: z.literal("image"),
-  media: z.string(),
+  media: z.string().optional(),
+  thumbnail: z.unknown().optional(),
   mediaType: z.string(),
   width: z.number(),
   height: z.number(),
@@ -83,7 +86,8 @@ export type ReadToolProps = {
   /** Markdown renderer supplied by the chat so web links use link safety. */
   Markdown: ComponentType<{ children?: string }>;
   /** Thumbnail URL for an image result's `media://` locator, or `null` when
-   *  it has none; without it an image result shows no thumbnail. */
+   *  it has none. An unstored image result shows its inline `thumbnail`
+   *  instead; without either it shows no thumbnail. */
   imageSrc?: (media: string) => string | null;
   /** Opens an image result's thumbnail (the chat's lightbox). */
   onOpenImage?: () => void;
@@ -157,8 +161,8 @@ function metadataRows(output: ReadOutput): Array<[string, string]> {
   return rows.filter((row): row is [string, string] => row[1] !== undefined);
 }
 
-/** An image result's rows: the stored original's size and format, the
- *  locator a later turn can read again, and the shared source rows. */
+/** An image result's rows: the original's size and format, the stored
+ *  locator a later turn can read again (if any), and the shared source rows. */
 function imageMetadataRows(output: ImageReadOutput): Array<[string, string]> {
   const format = output.mediaType.replace(/^image\//, "").toUpperCase();
   const rows: Array<[string, string | undefined]> = [
@@ -247,7 +251,9 @@ function ReadImageBody({
   imageSrc: ReadToolProps["imageSrc"];
   onOpenImage: ReadToolProps["onOpenImage"];
 }) {
-  const src = imageSrc?.(output.media) ?? null;
+  const src =
+    inlineThumbnailSchema.safeParse(output.thumbnail).data ??
+    (output.media === undefined ? null : (imageSrc?.(output.media) ?? null));
   return (
     <div className="space-y-4">
       <ReadSource output={output} Markdown={Markdown} />
@@ -289,7 +295,8 @@ function ReadResult({
 /**
  * Renders a native `read` invocation: the source it identified, the content
  * as the model received it, and how much of the source that content covers.
- * An image result shows a thumbnail of the stored image instead of content.
+ * An image result shows a thumbnail instead of content: its inline
+ * `thumbnail`, or the stored image for a `media://` read.
  *
  * @summary displays a file, directory, image, or web read inside a collapsible tool row
  */

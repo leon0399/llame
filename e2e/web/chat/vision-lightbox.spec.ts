@@ -87,13 +87,13 @@ test("a pasted image reaches a vision model and opens in the lightbox after relo
   const lightbox = page.getByRole("dialog", { name: "Lightbox" });
   const shown = lightbox.locator(".yarl__slide_current img");
   await expect(
-    lightbox.getByText(new RegExp(`^2000×500 PNG · upload · ${LOCATOR}$`)),
+    lightbox.getByText(new RegExp(`^2000×500 PNG · ${LOCATOR}$`)),
   ).toBeVisible();
   await expect(shown).toHaveAttribute("src", MODEL_SRC);
 
   await lightbox.getByRole("button", { name: "Original" }).click();
   await expect(
-    lightbox.getByText(new RegExp(`^2400×600 PNG · upload · ${LOCATOR}$`)),
+    lightbox.getByText(new RegExp(`^2400×600 PNG · ${LOCATOR}$`)),
   ).toBeVisible();
   await expect(shown).toHaveAttribute(
     "src",
@@ -185,7 +185,7 @@ test("an image-only message sends and opens the same image in an owner fork", as
   // The fork references the stored image, not a copy.
   const lightbox = page.getByRole("dialog", { name: "Lightbox" });
   await expect(
-    lightbox.getByText(`1200×800 PNG · upload · media://${mediaId}`, {
+    lightbox.getByText(`1200×800 PNG · media://${mediaId}`, {
       exact: true,
     }),
   ).toBeVisible();

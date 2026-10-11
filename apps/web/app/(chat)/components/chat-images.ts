@@ -1,9 +1,12 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
 import { z } from "zod";
 
+import { inlineThumbnailSchema } from "@workspace/ui/lib/inline-thumbnail";
+
 import {
   isPromptImportsPart,
   messageRenderKey,
+  type PromptImportsPayload,
 } from "@/lib/services/chat/history";
 import type { MediaOccurrence } from "@/lib/services/media/lightbox";
 import { mediaIdFromLocator } from "@/lib/services/media/urls";
@@ -18,59 +21,117 @@ export function chatImageKey(
   return `${messageKey}#${partIndex}.${entryIndex}`;
 }
 
-/** The part of a `read` image result the transcript needs: its locator. */
+/** The parts of a `read` image result the transcript needs: the `media://`
+ *  locator of a stored image, or the inline thumbnail of an unstored one,
+ *  with the original's size and type. */
 const imageReadResultSchema = z.object({
   status: z.literal("success"),
   kind: z.literal("image"),
-  media: z.string(),
+  media: z.string().optional(),
+  thumbnail: z.unknown().optional(),
+  mediaType: z.string(),
+  width: z.number(),
+  height: z.number(),
 });
 
-/** The `media://` locator of a completed `read` part whose result is an
- *  image, or `null` for any other part. */
-export function readImageLocator(
+/** The locator the model submitted to `read`: its input `path`. */
+const readInputSchema = z.object({ path: z.string() });
+
+/** An unstored image's original, as its result or import entry records it. */
+type UnstoredImage = {
+  thumbnail: string;
+  width: number;
+  height: number;
+  mediaType: string;
+};
+
+/** The single-variant occurrence of an unstored image, captioned with the
+ *  locator as submitted. */
+function unstoredOccurrence(
+  key: string,
+  { thumbnail, width, height, mediaType }: UnstoredImage,
+  locator: string,
+): MediaOccurrence {
+  return {
+    key,
+    slide: {
+      kind: "unstored",
+      thumbnail,
+      width,
+      height,
+      mediaType,
+      locator,
+      alt: locator,
+    },
+  };
+}
+
+/** The lightbox occurrence of a completed `read` part whose result is an
+ *  image, or `null` for any other part. A stored image is named by its
+ *  `media://` locator; an unstored one is captioned with the locator the
+ *  model submitted, never the resolved `path`. */
+function readImageOccurrence(
   part: UIMessage["parts"][number],
-): string | null {
+  key: string,
+): MediaOccurrence | null {
   if (!isToolUIPart(part) || getToolName(part) !== "read") return null;
   if (part.state !== "output-available") return null;
-  const media = imageReadResultSchema.safeParse(part.output).data?.media;
-  if (media === undefined || mediaIdFromLocator(media) === null) return null;
-  return media;
+  const result = imageReadResultSchema.safeParse(part.output).data;
+  if (result === undefined) return null;
+  if (result.media !== undefined) {
+    return mediaIdFromLocator(result.media) === null
+      ? null
+      : { key, media: result.media };
+  }
+  const thumbnail = inlineThumbnailSchema.safeParse(result.thumbnail).data;
+  const locator = readInputSchema.safeParse(part.input).data?.path;
+  if (thumbnail === undefined || locator === undefined) return null;
+  return unstoredOccurrence(key, { ...result, thumbnail }, locator);
+}
+
+/** The images of a validated prompt-imports part, in entry order: a stored
+ *  entry by its `media://` locator, an unstored one captioned with the
+ *  locator the owner wrote. */
+function promptImportOccurrences(
+  imports: PromptImportsPayload["imports"],
+  messageKey: string,
+  partIndex: number,
+): Array<MediaOccurrence> {
+  return imports.flatMap((entry, entryIndex) => {
+    const key = chatImageKey(messageKey, partIndex, entryIndex);
+    if (entry.media !== undefined) return [{ key, media: entry.media }];
+    if (entry.thumbnail === undefined) return [];
+    return [unstoredOccurrence(key, entry, entry.locator)];
+  });
 }
 
 /** One message's images in the order the row paints them: an owner's
  *  attachments above the bubble, then the `read` results and prompt-import
- *  images inside it in stored order. Only `media://` locators count; anything
- *  else has no stored image to show. */
+ *  images inside it in stored order. Attachments count only with a
+ *  `media://` locator; results and imports with one or an inline thumbnail. */
 function messageImages(message: UIMessage): Array<MediaOccurrence> {
   const messageKey = messageRenderKey(message);
   const attachments: Array<MediaOccurrence> = [];
   const inBubble: Array<MediaOccurrence> = [];
   message.parts.forEach((part, partIndex) => {
+    const key = chatImageKey(messageKey, partIndex);
     if (part.type === "file") {
       if (message.role === "user" && mediaIdFromLocator(part.url) !== null) {
-        attachments.push({
-          key: chatImageKey(messageKey, partIndex),
-          locator: part.url,
-        });
+        attachments.push({ key, media: part.url });
       }
       return;
     }
-    const readLocator = readImageLocator(part);
-    if (readLocator !== null) {
-      inBubble.push({
-        key: chatImageKey(messageKey, partIndex),
-        locator: readLocator,
-      });
-      return;
+    const readImage = readImageOccurrence(part, key);
+    if (readImage !== null) inBubble.push(readImage);
+    else if (isPromptImportsPart(part)) {
+      inBubble.push(
+        ...promptImportOccurrences(
+          part.data.payload.imports,
+          messageKey,
+          partIndex,
+        ),
+      );
     }
-    if (!isPromptImportsPart(part)) return;
-    part.data.payload.imports.forEach((entry, entryIndex) => {
-      if (entry.media === undefined) return;
-      inBubble.push({
-        key: chatImageKey(messageKey, partIndex, entryIndex),
-        locator: entry.media,
-      });
-    });
   });
   return [...attachments, ...inBubble];
 }

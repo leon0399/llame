@@ -65,17 +65,26 @@ store, and its routes are described in [Media](../../operator/media.md).
 
 The web chat shows each stored image as a thumbnail of its
 [model variant](../../operator/media.md#model-variant): an image attached to
-your message above its bubble, a `read` image result in its tool card, and an
-image a [prompt import](../prompt-imports.md) read. A fork of your chat
+your message above its bubble, a `media://` `read` result in its tool card,
+and a `media://` [prompt import](../prompt-imports.md). A fork of your chat
 references the same images, so its thumbnails show them too.
+
+An image `read` or imported from any other locator is not stored. Its tool
+card or import chip shows the small inline thumbnail saved with the result
+instead, without loading any media route.
 
 Activating a thumbnail opens a lightbox over every image of the loaded
 transcript, in transcript order, starting at the activated one. Opened from
-the composer, it shows only the images not yet sent. Each slide names the
-shown image's dimensions and format, the image's provenance (`upload`, `read`,
-or `prompt-import`), and its locator. A toggle switches the shown image
-between the model variant and the stored original; the lightbox opens on the
-model variant.
+the composer, it shows only the images not yet sent.
+
+- A stored image has a toggle that switches the shown image between the model
+  variant and the stored original; the lightbox opens on the model variant.
+  Its caption names the shown variant's dimensions and format and the
+  `media://` locator, for example `2000×1500 PNG · media://<id>`.
+- An unstored image shows its inline thumbnail with no toggle. Its caption
+  names the original's dimensions and format and the locator as it was
+  submitted: the path the model passed to `read` or the target you wrote after
+  `@`, for example `1600×900 PNG · docs/shot.png`.
 
 ## Errors
 

@@ -19,15 +19,18 @@ type PromptImportsPartProps = PromptImportsPayload & {
   onOpenImage?: (entryIndex: number) => void;
 };
 
-/** The imported images as thumbnails under the chips, each loading its
- *  `/model` variant. */
+/** The imported images as thumbnails under the chips: an unstored image's
+ *  inline thumbnail, or a stored image's `/model` variant. */
 function ImportedImages({
   imports,
   onOpenImage,
 }: Pick<PromptImportsPartProps, "imports" | "onOpenImage">) {
   const items = imports.flatMap((entry, entryIndex) => {
     const src =
-      entry.media === undefined ? null : mediaVariantUrl(entry.media, "model");
+      entry.thumbnail ??
+      (entry.media === undefined
+        ? null
+        : mediaVariantUrl(entry.media, "model"));
     if (src === null) return [];
     return [{ key: String(entryIndex), src, alt: entry.locator }];
   });

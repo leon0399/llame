@@ -13,14 +13,27 @@ import { ChatMarkdownProvider } from "./use-chat-markdown-ready";
 const fetchMediaDescriptor = vi.mocked(descriptors.fetchMediaDescriptor);
 
 const ATTACHMENT_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7b01";
-const READ_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7b02";
 const IMPORT_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7b03";
+
+/** A 160×90 WebP inline thumbnail, the shape the api stores beside an image
+ *  it did not keep. */
+const THUMBNAIL =
+  "data:image/webp;base64," +
+  "UklGRroBAABXRUJQVlA4IK4BAACwCwCdASqgAFoAPp1Oo0ylpKMiJFIIKLATiWlu" +
+  "4XPhcAmeZGHeBdA/irRZMW8YOoOH4GfE+J8T4nxPieeS/C6GBSLPNrj5OMEI06wM" +
+  "8/ni5AtxFjTgM6oBdzlxOyfVtk7J2TsnYoAA/v7TCJ1mlIfClbSSyc/b8Tqb6I/O" +
+  "zwAZ+60V979foFeaukavTO4rts2Cp1cqIsiUfW+tPc9HKD915iY9d9bZi5Nyv/0v" +
+  "9ZPiz01xYjwAaGWKe1GaDSxuUye7+3G06fGMHEaH2hNnS5CtJPYYPR54/oAO+OoP" +
+  "vr5bk/KFst/6bx88fT8fzV6JkMExsrlAY/8bwf/z+fZBv+9+sHOB8Knr60MsquP8" +
+  "ynZOhQbYcP77WlMZy09sU43YOh0u1wZs/4usJqdtCP06VUVXHsqIHAwHvOYIZN1H" +
+  "V96353X9o3FrUNYQ8MVZdZPedV4t2yUc159YwbHyBl7f8FqOtm4iC1P0Kw7pDlvf" +
+  "Lz1vCSfOY3RkVsInlOByK3DS6nv7FKFx7r3yZhiP2X8Xbnb8R5DdoeK8rZhIJH0V" +
+  "P3n97L90K9SJ7pcAOAAAAAAA";
 
 const DESCRIPTORS = {
   [ATTACHMENT_ID]: {
     id: ATTACHMENT_ID,
     locator: `media://${ATTACHMENT_ID}`,
-    provenance: "upload",
     mediaType: "image/jpeg",
     name: "diagram.jpg",
     width: 4000,
@@ -33,28 +46,11 @@ const DESCRIPTORS = {
       byteSize: 900_000,
     },
   },
-  [READ_ID]: {
-    id: READ_ID,
-    locator: `media://${READ_ID}`,
-    provenance: "read",
-    mediaType: "image/png",
-    name: "/work/after.png",
-    width: 1600,
-    height: 900,
-    byteSize: 120_000,
-    model: {
-      mediaType: "image/png",
-      width: 1600,
-      height: 900,
-      byteSize: 120_000,
-    },
-  },
   [IMPORT_ID]: {
     id: IMPORT_ID,
     locator: `media://${IMPORT_ID}`,
-    provenance: "prompt-import",
     mediaType: "image/webp",
-    name: "shots/before.webp",
+    name: "before.webp",
     width: 800,
     height: 600,
     byteSize: 40_000,
@@ -67,8 +63,9 @@ const DESCRIPTORS = {
   },
 } satisfies Record<string, MediaDescriptor>;
 
-/** An owner attachment in the first turn, a `read` image result in the
- *  answer, and a prompt-import image in the next turn: transcript order. */
+/** An owner attachment in the first turn, an unstored Workspace-relative
+ *  `read` image in the answer, and in the next turn an unstored `@shot.png`
+ *  import and a stored `@media://` import: transcript order. */
 const MESSAGES: Array<UIMessage> = [
   {
     id: "user-attachment",
@@ -92,15 +89,15 @@ const MESSAGES: Array<UIMessage> = [
         toolCallId: "call-read-image",
         toolName: "read",
         state: "output-available",
-        input: { path: "/work/after.png" },
+        input: { path: "docs/after.png" },
         output: {
           status: "success",
           kind: "image",
-          path: "/work/after.png",
-          media: `media://${READ_ID}`,
+          path: "/work/docs/after.png",
           mediaType: "image/png",
           width: 1600,
           height: 900,
+          thumbnail: THUMBNAIL,
         },
       },
       { type: "text", text: "The new layout moves the cache in front." },
@@ -110,7 +107,10 @@ const MESSAGES: Array<UIMessage> = [
     id: "user-import",
     role: "user",
     parts: [
-      { type: "text", text: "And against @shots/before.webp?" },
+      {
+        type: "text",
+        text: `And against @shot.png and @media://${IMPORT_ID}?`,
+      },
       {
         type: "data-context",
         data: {
@@ -121,8 +121,16 @@ const MESSAGES: Array<UIMessage> = [
           payload: {
             imports: [
               {
-                locator: "shots/before.webp",
-                resolved: "/work/shots/before.webp",
+                locator: "shot.png",
+                resolved: "/work/shot.png",
+                outcome: "imported",
+                thumbnail: THUMBNAIL,
+                width: 1280,
+                height: 720,
+                mediaType: "image/png",
+              },
+              {
+                locator: `media://${IMPORT_ID}`,
                 outcome: "imported",
                 media: `media://${IMPORT_ID}`,
               },
@@ -135,18 +143,15 @@ const MESSAGES: Array<UIMessage> = [
   },
 ];
 
-/** Waits until the lightbox, faded in, shows this caption: one variant's
- *  size and format, the provenance, and the locator. */
-async function expectCaption(
-  size: string,
-  provenance: string,
-  id: string,
-): Promise<void> {
-  await waitFor(() =>
-    expect(
-      screen.getByText(`${size} · ${provenance} · media://${id}`),
-    ).toBeVisible(),
-  );
+/** Waits until the lightbox, faded in, shows this caption: the shown
+ *  variant's size and format, and the locator. */
+async function expectCaption(caption: string): Promise<void> {
+  await waitFor(() => expect(screen.getByText(caption)).toBeVisible());
+}
+
+/** Whether the open lightbox offers the original/model variant control. */
+function variantControl(): HTMLElement | null {
+  return screen.queryByRole("group", { name: "Image variant" });
 }
 
 /** The image the lightbox currently shows (neighbours are preloaded inert). */
@@ -201,10 +206,11 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * Activating an attachment opens the lightbox over every image of the chat
- * in transcript order: the right arrow crosses into the answer's `read`
- * image and on to the next turn's prompt-import image. The variant toggle
- * switches between the `/model` and `/original` routes, and `Escape`
- * returns focus to the thumbnail.
+ * in transcript order: the right arrow crosses into the answer's unstored
+ * `read` image, captioned with the path the model submitted, and on to the
+ * next turn's unstored and stored prompt-import images. The variant toggle
+ * switches a stored image between the `/model` and `/original` routes; an
+ * unstored image has no toggle. `Escape` returns focus to the thumbnail.
  *
  * @summary any chat thumbnail opens one lightbox over every chat image
  */
@@ -216,22 +222,29 @@ export const AcrossMessagesAndToolResults: Story = {
       { timeout: 15_000 },
     );
     await userEvent.click(opener);
-    await expectCaption("2000×1500 PNG", "upload", ATTACHMENT_ID);
+    await expectCaption(`2000×1500 PNG · media://${ATTACHMENT_ID}`);
     await expect(currentImage().src).toMatch(
       new RegExp(`/api/v1/media/${ATTACHMENT_ID}/model$`),
     );
 
     await userEvent.keyboard("{ArrowRight}");
-    await expectCaption("1600×900 PNG", "read", READ_ID);
+    await expectCaption("1600×900 PNG · docs/after.png");
+    await expect(currentImage()).toHaveAttribute("src", THUMBNAIL);
+    await expect(variantControl()).toBeNull();
     await userEvent.keyboard("{ArrowRight}");
-    await expectCaption("800×600 PNG", "prompt-import", IMPORT_ID);
+    await expectCaption("1280×720 PNG · shot.png");
+    await userEvent.keyboard("{ArrowRight}");
+    await expectCaption(`800×600 PNG · media://${IMPORT_ID}`);
+    await expect(variantControl()).not.toBeNull();
     await userEvent.keyboard("{ArrowLeft}");
-    await expectCaption("1600×900 PNG", "read", READ_ID);
+    await expectCaption("1280×720 PNG · shot.png");
     await userEvent.keyboard("{ArrowLeft}");
-    await expectCaption("2000×1500 PNG", "upload", ATTACHMENT_ID);
+    await expectCaption("1600×900 PNG · docs/after.png");
+    await userEvent.keyboard("{ArrowLeft}");
+    await expectCaption(`2000×1500 PNG · media://${ATTACHMENT_ID}`);
 
     await userEvent.click(screen.getByRole("button", { name: "Original" }));
-    await expectCaption("4000×3000 JPEG", "upload", ATTACHMENT_ID);
+    await expectCaption(`4000×3000 JPEG · media://${ATTACHMENT_ID}`);
     await expect(currentImage().src).toMatch(
       new RegExp(`/api/v1/media/${ATTACHMENT_ID}/original$`),
     );
@@ -243,8 +256,10 @@ export const AcrossMessagesAndToolResults: Story = {
 };
 
 /**
- * The `read` card's image thumbnail and the prompt-import chip's thumbnail
- * open the same lightbox, each on its own image.
+ * The `read` card and the prompt-import chip render an unstored image from
+ * its inline thumbnail and a stored one from its `/model` route; each
+ * thumbnail opens the same lightbox on its own image. Only stored images load
+ * a descriptor.
  *
  * @summary read results and prompt imports open the chat lightbox
  */
@@ -255,20 +270,32 @@ export const FromReadResultAndPromptImport: Story = {
       () => canvas.getByRole("list", { name: "Imported images" }),
       { timeout: 15_000 },
     );
+    await expect(
+      within(imports).getByRole("img", { name: "shot.png" }),
+    ).toHaveAttribute("src", THUMBNAIL);
+    await expect(
+      within(imports)
+        .getByRole("img", { name: `media://${IMPORT_ID}` })
+        .getAttribute("src"),
+    ).toMatch(new RegExp(`/api/v1/media/${IMPORT_ID}/model$`));
     await userEvent.click(
-      within(imports).getByRole("button", { name: "shots/before.webp" }),
+      within(imports).getByRole("button", { name: "shot.png" }),
     );
-    await expectCaption("800×600 PNG", "prompt-import", IMPORT_ID);
+    await expectCaption("1280×720 PNG · shot.png");
     await userEvent.keyboard("{ArrowLeft}");
-    await expectCaption("1600×900 PNG", "read", READ_ID);
+    await expectCaption("1600×900 PNG · docs/after.png");
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    const readThumbnail = canvas.getByRole("img", {
+      name: "/work/docs/after.png",
+    });
+    await expect(readThumbnail).toHaveAttribute("src", THUMBNAIL);
     await userEvent.click(
-      canvas.getByRole("button", { name: "/work/after.png" }),
+      canvas.getByRole("button", { name: "/work/docs/after.png" }),
     );
-    await expectCaption("1600×900 PNG", "read", READ_ID);
-    await expect(fetchMediaDescriptor).toHaveBeenCalledTimes(3);
+    await expectCaption("1600×900 PNG · docs/after.png");
+    await expect(fetchMediaDescriptor).toHaveBeenCalledTimes(2);
   },
 };

@@ -508,7 +508,7 @@ export const ComposerThumbnailOpensLightbox: Story = {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "1×1 PNG · upload · media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02",
+          "1×1 PNG · media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02",
         ),
       ).toBeVisible(),
     );
@@ -517,7 +517,7 @@ export const ComposerThumbnailOpensLightbox: Story = {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "1×1 PNG · upload · media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01",
+          "1×1 PNG · media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01",
         ),
       ).toBeVisible(),
     );

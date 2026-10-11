@@ -22,19 +22,41 @@ export type MediaLightboxImage = {
   mediaType: string;
 };
 
-/** One image in the lightbox, with both stored variants. */
-export type MediaLightboxSlide = {
+/** A stored image: both variants, switched by the variant control. */
+type MediaLightboxStoredSlide = {
+  kind: "stored";
   /** The original bytes. */
   original: MediaLightboxImage;
   /** The model variant (the bytes the model receives). */
   model: MediaLightboxImage;
-  /** Where the image came from: `upload`, `read`, or `prompt-import`. */
-  provenance: string;
   /** The image's `media://` locator. */
   locator: string;
   /** Accessible description of the image. */
   alt: string;
 };
+
+/** An image llame did not store: its inline thumbnail is all there is to
+ *  show, so the slide has one variant. */
+type MediaLightboxUnstoredSlide = {
+  kind: "unstored";
+  /** The display-only thumbnail data URL the slide shows. */
+  thumbnail: string;
+  /** The original's width in pixels, for the caption. */
+  width: number;
+  /** The original's height in pixels, for the caption. */
+  height: number;
+  /** The original's media type, for the caption. */
+  mediaType: string;
+  /** The locator as the model or owner submitted it. */
+  locator: string;
+  /** Accessible description of the image. */
+  alt: string;
+};
+
+/** One image in the lightbox. */
+export type MediaLightboxSlide =
+  | MediaLightboxStoredSlide
+  | MediaLightboxUnstoredSlide;
 
 /** Props for {@link MediaLightbox}. */
 export type MediaLightboxProps = {
@@ -64,10 +86,49 @@ const lightboxStyles: SlotStyles = {
 
 const zoomSettings = { scrollToZoom: true, maxZoomPixelRatio: 8 };
 
-type MediaLightboxControlsProps = {
-  slide: MediaLightboxSlide;
+/** `W×H FORMAT · <locator>`, e.g. `1600×900 PNG · /work/shot.png`. */
+function caption(
+  { width, height, mediaType }: Omit<MediaLightboxImage, "src">,
+  locator: string,
+): string {
+  const format = mediaType.replace(/^image\//, "").toUpperCase();
+  return `${width}×${height} ${format} · ${locator}`;
+}
+
+type VariantToggleProps = {
   variant: MediaLightboxVariant;
   onVariantChange: (variant: MediaLightboxVariant) => void;
+};
+
+/** The segmented control switching a stored image's shown variant. */
+function VariantToggle({ variant, onVariantChange }: VariantToggleProps) {
+  return (
+    <ToggleGroup
+      aria-label="Image variant"
+      variant="outline"
+      size="sm"
+      spacing={0}
+      value={[variant]}
+      onValueChange={(value: Array<unknown>) => {
+        const next = value[0];
+        if (next === "original" || next === "model") onVariantChange(next);
+      }}
+      // Arrow keys inside the segmented control move between its items; stop
+      // them here so the lightbox does not also change slides.
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.stopPropagation();
+        }
+      }}
+    >
+      <ToggleGroupItem value="original">Original</ToggleGroupItem>
+      <ToggleGroupItem value="model">Model</ToggleGroupItem>
+    </ToggleGroup>
+  );
+}
+
+type MediaLightboxControlsProps = VariantToggleProps & {
+  slide: MediaLightboxSlide;
 };
 
 function MediaLightboxControls({
@@ -75,44 +136,36 @@ function MediaLightboxControls({
   variant,
   onVariantChange,
 }: MediaLightboxControlsProps) {
-  const shown = slide[variant];
   return (
-    // Arrow keys inside the segmented control move between its items; stop
-    // them here so the lightbox does not also change slides. The div itself
-    // is not interactive.
-    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div
-      className="absolute inset-x-0 bottom-0 flex justify-center p-4"
-      onKeyDown={(event) => {
-        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-          event.stopPropagation();
-        }
-      }}
-    >
+    <div className="absolute inset-x-0 bottom-0 flex justify-center p-4">
       <div className="flex max-w-full flex-col items-center gap-2 rounded-xl border bg-popover px-3 py-2 text-popover-foreground shadow-sm">
-        <ToggleGroup
-          aria-label="Image variant"
-          variant="outline"
-          size="sm"
-          spacing={0}
-          value={[variant]}
-          onValueChange={(value: Array<unknown>) => {
-            const next = value[0];
-            if (next === "original" || next === "model") onVariantChange(next);
-          }}
-        >
-          <ToggleGroupItem value="original">Original</ToggleGroupItem>
-          <ToggleGroupItem value="model">Model</ToggleGroupItem>
-        </ToggleGroup>
+        {slide.kind === "stored" && (
+          <VariantToggle variant={variant} onVariantChange={onVariantChange} />
+        )}
         <p
           aria-live="polite"
           className="text-center font-mono text-xs break-all text-muted-foreground"
         >
-          {`${shown.width}×${shown.height} ${shown.mediaType.replace(/^image\//, "").toUpperCase()} · ${slide.provenance} · ${slide.locator}`}
+          {caption(
+            slide.kind === "stored" ? slide[variant] : slide,
+            slide.locator,
+          )}
         </p>
       </div>
     </div>
   );
+}
+
+/** The library's slide for `slide`: the shown variant of a stored image, or
+ *  an unstored image's thumbnail. The thumbnail gets no size, so the library
+ *  zooms it against its natural pixels rather than the original's. */
+function librarySlide(
+  slide: MediaLightboxSlide,
+  variant: MediaLightboxVariant,
+) {
+  return slide.kind === "stored"
+    ? { ...slide[variant], alt: slide.alt }
+    : { src: slide.thumbnail, alt: slide.alt };
 }
 
 type OpenMediaLightboxProps = Omit<MediaLightboxProps, "index"> & {
@@ -127,7 +180,7 @@ function OpenMediaLightbox({
   const [variant, setVariant] = useState<MediaLightboxVariant>("model");
   const [viewIndex, setViewIndex] = useState(initialIndex);
   const librarySlides = useMemo(
-    () => slides.map((slide) => ({ ...slide[variant], alt: slide.alt })),
+    () => slides.map((slide) => librarySlide(slide, variant)),
     [slides, variant],
   );
   // The library resets to its `index` prop whenever `slides` changes, so the
@@ -160,10 +213,12 @@ function OpenMediaLightbox({
 }
 
 /**
- * MediaLightbox shows chat images full-screen with wheel and pinch zoom, arrow
- * key navigation, and a segmented control that switches between the stored
- * `original` and `model` variants. The caption names the shown variant's
- * dimensions and format, the provenance, and the `media://` locator. Escape
+ * MediaLightbox shows chat images full-screen with wheel and pinch zoom and
+ * arrow key navigation. A stored image has a segmented control that switches
+ * between its `original` and `model` variants, and its caption names the
+ * shown variant's dimensions and format and the `media://` locator. An
+ * unstored image shows its inline thumbnail with no control, captioned with
+ * the original's dimensions and format and the locator as submitted. Escape
  * closes it and returns focus to the element that opened it, so open it from
  * a focusable control such as a thumbnail button.
  *
