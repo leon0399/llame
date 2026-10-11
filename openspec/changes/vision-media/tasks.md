@@ -153,7 +153,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [ ] 9.3 Add a focused product E2E test: paste a 2400×600 PNG, which is wider than the lightbox fit (90vw) at Playwright's default 1280×720 viewport, send it to a scripted vision model, reload, open the lightbox, and toggle zoom; send an image-only message and open it in an owner fork; document sent-message and inline thumbnails and the lightbox in `docs/product/reference/locators/media.md`; add the dated `CHANGELOG.md` entry; this layer's PR carries `Closes #1166` and references #935; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 9.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, the `packages/ui` checks, and the focused E2E spec
 - [x] 9.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 9.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 9.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 10. `vision-media/finalize` — spec sync and archive
 
