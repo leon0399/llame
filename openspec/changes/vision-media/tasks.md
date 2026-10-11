@@ -67,11 +67,11 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
 ## 0. `vision-media/proposal` — planning artifacts
 
-- [ ] 0.1 Run the review rounds Leo requests on the proposal, design, and delta specs; verify each finding against the repository and cited upstream sources; commit each round separately and record it in the PR body
-- [ ] 0.2 Verify every MODIFIED and RENAMED block against its canonical requirement with a sentence-level diff, keeping every canonical scenario heading verbatim
-- [ ] 0.3 Verify `pnpm exec openspec validate vision-media --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`
-- [ ] 0.4 SR: self-review the PR diff, fix accepted findings, then mark ready for Leo's approval
-- [ ] 0.5 GR: complete the ready-PR monitoring loop and obtain Leo's approval of the published revision before creating `vision-media/media-store`
+- [x] 0.1 Run the review rounds Leo requests on the proposal, design, and delta specs; verify each finding against the repository and cited upstream sources; commit each round separately and record it in the PR body
+- [x] 0.2 Verify every MODIFIED and RENAMED block against its canonical requirement with a sentence-level diff, keeping every canonical scenario heading verbatim
+- [x] 0.3 Verify `pnpm exec openspec validate vision-media --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`
+- [x] 0.4 SR: self-review the PR diff, fix accepted findings, then mark ready for Leo's approval
+- [x] 0.5 GR: complete the ready-PR monitoring loop and obtain Leo's approval of the published revision before creating `vision-media/media-store`
 
 ## 1. `vision-media/media-store` — store, ingest, routes (design D1–D4, R1.1)
 
