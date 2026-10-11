@@ -106,12 +106,11 @@ function historyWithUsage(
   ];
 }
 
-/** Story parameters: the opened chat's history (default `HISTORY`), the
- *  checkpoint among it the server page derives (default none), and the URL
- *  fragment it opens at (default none). */
+/** Story parameters: the opened chat's history (default `HISTORY`) and the
+ *  URL fragment it opens at (default none). A `checkpointRow` in the history
+ *  is what supplies the compaction boundary, as it does from the api. */
 type ChatPageParameters = {
   history?: Array<ChatMessageResponse>;
-  compaction?: Compaction;
   hash?: string;
 };
 
@@ -215,18 +214,16 @@ async function sentBody(route: string) {
 // history is in place on the page's first render.
 let queryClient: QueryClient;
 
-function seedHistory(
-  chatExists: boolean,
-  history: Array<ChatMessageResponse>,
-  compaction: Compaction | null,
-) {
+function seedHistory(chatExists: boolean, history: Array<ChatMessageResponse>) {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 60 * 1000 } },
   });
   if (chatExists) {
+    // No seeded compaction: the opened chat's history re-read derives it from
+    // a `checkpointRow` in `history`, the boundary's single source here.
     seedChatMessagesQueryData(queryClient, CHAT_ID, {
       messages: history,
-      compaction,
+      compaction: null,
     });
   }
 }
@@ -241,11 +238,7 @@ const meta = {
   component: ChatPage,
   args: { chatId: CHAT_ID, initialChatExists: true, initialDraftPhase: null },
   beforeEach: ({ args, parameters }) => {
-    const {
-      history = HISTORY,
-      compaction,
-      hash = "",
-    }: ChatPageParameters = parameters;
+    const { history = HISTORY, hash = "" }: ChatPageParameters = parameters;
     // The page reads and rewrites its URL (draft marker, #msg-N target), so
     // each story opens on its own chat route and leaves the URL as it was.
     const href = window.location.href;
@@ -254,7 +247,7 @@ const meta = {
       "",
       `/chat/${CHAT_ID}${hash}`,
     );
-    seedHistory(args.initialChatExists, history, compaction ?? null);
+    seedHistory(args.initialChatExists, history);
     // isSuccess too: the page enables Send only on a successful catalog.
     useModelsQuery.mockReturnValue({
       data: { defaultModelId: GPT_5_4_MINI.id, models: [GPT_5_4_MINI] },
@@ -1551,7 +1544,8 @@ function compactedThrough(
   };
 }
 
-/** That checkpoint's own row at `seq` in the history api's answer. */
+/** That checkpoint's own row at `seq` in the history api's answer. The
+ *  history re-read derives the compaction boundary from this row. */
 function checkpointRow(seq: number, compaction: Compaction) {
   return rawChatMessage({
     id: `checkpoint-${seq}`,
@@ -1599,7 +1593,6 @@ export const CompactedHistory: Story = {
       checkpointRow(3, THROUGH_HELLO),
       ...turns(["user", 4, "more"]),
     ],
-    compaction: THROUGH_HELLO,
   } satisfies ChatPageParameters,
   play: async ({ canvasElement }) => {
     await settledChat(canvasElement, OPEN_CHAT_ROUTES, "more");
@@ -1629,7 +1622,6 @@ export const CompactionAtTop: Story = {
       checkpointRow(49, THROUGH_48),
       ...turns(["user", 50, "hi"], ["assistant", 51, "hello"]),
     ],
-    compaction: THROUGH_48,
   } satisfies ChatPageParameters,
   play: async ({ canvasElement }) => {
     await settledChat(canvasElement, OPEN_CHAT_ROUTES, "hello");
@@ -1660,7 +1652,6 @@ export const CompactionAtBottom: Story = {
       ),
       checkpointRow(203, THROUGH_202),
     ],
-    compaction: THROUGH_202,
   } satisfies ChatPageParameters,
   play: async ({ canvasElement }) => {
     await settledChat(canvasElement, OPEN_CHAT_ROUTES, "turn 202");
