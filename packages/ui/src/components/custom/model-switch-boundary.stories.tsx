@@ -26,8 +26,6 @@ type Story = StoryObj<typeof meta>;
 export const Collapsed: Story = {
   tags: ["ai-generated"],
   play: async ({ canvas }) => {
-    // The accessible name carries both full ids, so a screen reader hears the
-    // whole change even where the visible ids are truncated.
     const trigger = canvas.getByRole("button", {
       name: "Model changed from system:openai:gpt-5.4-mini to custom:anthropic:claude-sonnet",
     });
@@ -57,13 +55,18 @@ export const LongModelIds: Story = {
     toModelId:
       "custom:anthropic/model-with-another-deliberately-long-public-identifier",
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ args, canvas, userEvent }) => {
     const trigger = canvas.getByRole("button", { name: /model changed from/i });
     const modelIds = Array.from(trigger.querySelectorAll("span.font-mono"));
     await expect(modelIds).toHaveLength(2);
     await expect(
       modelIds.every((modelId) => modelId.scrollWidth > modelId.clientWidth),
     ).toBe(true);
+    // The accessible name carries both full ids, so a screen reader hears the
+    // whole change even though the visible ids are truncated.
+    await expect(trigger).toHaveAccessibleName(
+      `Model changed from ${args.fromModelId} to ${args.toModelId}`,
+    );
 
     await userEvent.hover(trigger);
     // Base UI's tooltip popup carries no `role="tooltip"`; find it by data-slot.
