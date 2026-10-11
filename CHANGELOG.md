@@ -2,14 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-11
 
-- Moved the admin organization tree's and the parked members panel's
-  rendering tests out of jsdom and into `org-tree.stories.tsx` and
-  `members-panel.stories.tsx`, whose play functions now run in Chromium
+- Moved the admin organization tree's, the parked members panel's, and the
+  chat command palette's rendering tests out of jsdom and into
+  `org-tree.stories.tsx`, `members-panel.stories.tsx`, and
+  `command-palette.stories.tsx`, whose play functions now run in Chromium
   (#860). The tree stories cover collapse and expand, keyboard selection, the
   leaf-first delete check, the move picker, and the selected-unit footer. The
   members stories cover the roster and role states, granting, the owner
   confirmations (now driven through the real role picker), revoking, and
-  leaving. Both still assert the real requests they send.
+  leaving. Both still assert the real requests they send. The palette stories
+  cover the Ctrl+K shortcut, recent chats, actions during search, server
+  results shown as the server matched and ordered them, closing before
+  navigating, the kept query, and the clear button.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
