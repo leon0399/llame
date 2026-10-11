@@ -276,11 +276,13 @@ export function omittedPlaceholder(s: ImageSubject): string {
 
 /**
  * An unstored image the current attempt's memory holds no entry for, on a
- * model that declares `image` input: the only cause that invites a re-read,
- * which makes the image available again in the re-reading attempt.
+ * model that declares `image` input. It names the image and carries no
+ * directive: a compaction request or a step without `read` could not act on
+ * one, and the `read` description already tells the model to read an image
+ * again to view it in a later turn.
  */
 export function notRetainedPlaceholder(s: ImageSubject): string {
-  return `[${describe(s)}, not retained: read it again to view it]`;
+  return `[${describe(s)}, not retained]`;
 }
 
 /** A resolvable image the epoch image window does not attach. */
@@ -291,8 +293,7 @@ export function limitPlaceholder(s: ImageSubject): string {
 /**
  * A tool-result image a vision model would receive, or could re-read, on a
  * Chat Completions wire, which cannot carry tool-result images yet
- * (vision-media D6, interim until `vision-read-completions`). Like the other
- * causes it invites no re-read.
+ * (vision-media D6, interim until `vision-read-completions`).
  */
 export function completionsToolImagePlaceholder(s: ImageSubject): string {
   return `[${describe(s)}, omitted: this connection cannot carry tool-result images yet]`;

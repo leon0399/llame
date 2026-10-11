@@ -182,13 +182,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   an image over 20 MiB or 40 megapixels is `image_too_large`. Vision models
   receive the image in that Run attempt's later steps under the epoch image
   window; a later turn, retry, resume, compaction, or fork gets
-  `[image "<path>" W×H, not retained: read it again to view it]`. The new
-  read-only `media://<id>` locator reads an uploaded image, is the only image
-  read kept across turns, needs no native executor, and answers another
-  owner's id with `not_found`; a domain-restricted `read` permission group
-  admits it with `^media://`. Images reach the model in the tool result on the
-  Responses, Codex, and Messages wires; the Chat Completions wires carry a
-  placeholder for now.
+  `[image "<path>" W×H, not retained]`. The new read-only `media://<id>`
+  locator reads an uploaded image, is the only image read kept across turns,
+  needs no native executor, and answers another owner's id with `not_found`; a
+  domain-restricted `read` permission group admits it with `^media://`. Images
+  reach the model in the tool result on the Responses, Codex, and Messages
+  wires; the Chat Completions wires carry a placeholder for now.
 
 - Added image attachments to owner messages (#935).
   `POST /api/v1/chats/:id/messages` accepts up to 10 `file` parts whose `url`

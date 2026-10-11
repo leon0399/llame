@@ -273,8 +273,6 @@ describe('locatorLiteral', () => {
       notRetainedPlaceholder(
         unstoredSubject({ locator, width: 1600, height: 900 }),
       ),
-    ).toBe(
-      `[image "${locator}" 1600×900, not retained: read it again to view it]`,
-    );
+    ).toBe(`[image "${locator}" 1600×900, not retained]`);
   });
 });

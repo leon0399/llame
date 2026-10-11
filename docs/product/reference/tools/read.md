@@ -93,12 +93,12 @@ it. A model that declares image input receives the image with the result in
 that attempt's later steps, as the epoch image window in
 [media](../../operator/media.md) admits it. Any later request, whether a later
 turn, a retry or resume, a compaction, or a fork, replays the result with
-`[image "<path>" W×H, not retained: read it again to view it]`, the path being
-the one the model submitted, as a JSON string literal; reading it again makes
-the image available in that attempt. A model without image input receives the
-omitted placeholder instead. A [`media://`](../locators/media.md) read returns
-a stored object with its `media` locator and no `thumbnail`, and is the only
-image read kept across turns.
+`[image "<path>" W×H, not retained]`, the path being the one the model
+submitted, as a JSON string literal; reading it again makes the image available
+in that attempt. A model without image input receives the omitted placeholder
+instead. A [`media://`](../locators/media.md) read returns a stored object with
+its `media` locator and no `thumbnail`, and is the only image read kept across
+turns.
 
 A multi-range read reports the plural `requestedRanges` (the merged request) and
 `shownRanges` (emitted lines); continuation and trimming are under

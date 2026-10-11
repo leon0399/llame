@@ -368,7 +368,7 @@ describe('an unstored read image on each wire', () => {
       expect.objectContaining({
         type: 'function_call_output',
         call_id: 'call-1',
-        output: `${UNSTORED_ENVELOPE}\n[image "/work/shot.png" 1600×900, not retained: read it again to view it]`,
+        output: `${UNSTORED_ENVELOPE}\n[image "/work/shot.png" 1600×900, not retained]`,
       }),
     );
   });

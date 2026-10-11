@@ -441,8 +441,7 @@ describe('composeStepMessages', () => {
     const ENVELOPE =
       '{"status":"success","kind":"image","path":"/work/shot.png"}';
     const SHOT = { locator: '/work/shot.png', width: 1600, height: 900 };
-    const NOT_RETAINED =
-      '[image "/work/shot.png" 1600×900, not retained: read it again to view it]';
+    const NOT_RETAINED = '[image "/work/shot.png" 1600×900, not retained]';
     const OMITTED =
       '[image "/work/shot.png" 1600×900, omitted: this model has no image input]';
     const INTERIM =
@@ -528,7 +527,7 @@ describe('composeStepMessages', () => {
       expect(JSON.stringify(composed)).not.toContain('not retained');
     });
 
-    it('sends no image content and no re-read hint on a Chat Completions wire', async () => {
+    it('sends no image content and no not-retained placeholder on a Chat Completions wire', async () => {
       const { resolver } = fakeResolver([]);
       resolver.images.hold('call-1', held(variant()));
 
@@ -541,7 +540,7 @@ describe('composeStepMessages', () => {
         { type: 'text', value: `${ENVELOPE}\n${INTERIM}` },
         { type: 'text', value: `${ENVELOPE}\n${INTERIM}` },
       ]);
-      expect(JSON.stringify(composed)).not.toContain('read it again');
+      expect(JSON.stringify(composed)).not.toContain('not retained');
       // The wire never sends the image, so the attempt keeps none of it.
       expect(resolver.images.get('call-1')).toBeUndefined();
     });
@@ -559,7 +558,7 @@ describe('composeStepMessages', () => {
 
       expect(outputOf(composed)).toEqual({
         type: 'text',
-        value: `${ENVELOPE}\n[image ${literal} 1600×900, not retained: read it again to view it]`,
+        value: `${ENVELOPE}\n[image ${literal} 1600×900, not retained]`,
       });
       expect(literal).not.toMatch(/[\n\u2028<>]/u);
       expect(JSON.parse(literal)).toBe(locator);
@@ -575,7 +574,7 @@ describe('composeStepMessages', () => {
       const literal = '"app/[slug]/shot.png"';
       expect(outputOf(replayed)).toEqual({
         type: 'text',
-        value: `${ENVELOPE}\n[image ${literal} 1600×900, not retained: read it again to view it]`,
+        value: `${ENVELOPE}\n[image ${literal} 1600×900, not retained]`,
       });
       expect(JSON.parse(literal)).toBe(bracketed.locator);
 
