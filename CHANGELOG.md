@@ -7,15 +7,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   dialogs', the project dialogs', the org unit create, rename and move
   dialogs', the rail's pinned section's, the chat page's markdown loading,
   model, permission mode, message target and compaction, the login and
-  register forms', the model switch boundary's, and the settings page's
-  rendering tests out of jsdom and into `org-tree.stories.tsx`,
+  register forms', the model switch boundary's, the settings page's, and the
+  project page's rendering tests out of jsdom and into `org-tree.stories.tsx`,
   `members-panel.stories.tsx`, `command-palette.stories.tsx`,
   `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
   `project-dialogs.stories.tsx`, `org-unit-dialogs.stories.tsx`,
   `app-sidebar-pinned.stories.tsx`, `chat-page.stories.tsx`,
   `login-form.stories.tsx`, `register-form.stories.tsx`, `packages/ui`'s
-  `model-switch-boundary.stories.tsx`, and `settings-page.stories.tsx`,
-  whose play functions now run in Chromium (#860).
+  `model-switch-boundary.stories.tsx`, `settings-page.stories.tsx`, and
+  `project-page.stories.tsx`, whose play functions now run in Chromium (#860).
   The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -104,7 +104,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Personalization (once its settings load, with the requests the page sends)
   and Memory cards, and the theme menu listing Light, Dark and System with
   System checked. Storybook now pre-bundles `js-cookie` from apps/web's copy,
-  so the settings story does not reload on a cold cache.
+  so the settings story does not reload on a cold cache. The project page
+  stories cover the placeholder title and rows while its project and chats
+  load (both requests held until released, with the requests the page
+  sends), the not-found note when no project has the route's id, and the
+  project's name over its empty chats card.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
