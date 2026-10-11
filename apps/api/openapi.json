@@ -4602,7 +4602,6 @@
         },
         "required": ["role", "viaOrgUnitId", "inherited"]
       },
-
       "PermissionModeResponse": {
         "type": "object",
         "properties": {
