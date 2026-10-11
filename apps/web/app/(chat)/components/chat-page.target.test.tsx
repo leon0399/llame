@@ -1,24 +1,20 @@
 // @vitest-environment jsdom
 
 /**
- * Container exception: this suite exercises the real ChatPage, React Query,
- * chat history cache, ActiveRunsProvider, and markdown renderer together
- * while mocking only the router and the streaming hook (both external
- * boundaries with no in-process seam). The target hydration contract cannot
- * be proved by testing those pieces in isolation: the ordinary SSR cache
- * must coexist with a client-only target request without mounting the
- * ordinary ChatSession first.
+ * Container exception (testing rule 5: mocks the router and AI streaming):
+ * a rejected `sendMessage` cannot come from the real `useChat` — its request
+ * loop catches every transport failure and reports it through onError /
+ * onFinish instead — so this one case needs the mocked streaming hook. Every
+ * other target-hydration case runs against the real hook in
+ * `chat-page.stories.tsx`.
  *
  * GET /api/v1/chats/:id/messages, GET /api/v1/models,
  * GET /api/v1/permission-modes, and GET /api/v1/me/runs all hit a stubbed
- * globalThis.fetch, routed by pathname + the targetSeq search param — so a
- * "no ordinary history fetched" assertion proves the real query never sent
- * that request, not that a mock was never called.
+ * globalThis.fetch, routed by pathname.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  act,
   cleanup,
   configure,
   render,
@@ -28,36 +24,15 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { UIMessage } from "ai";
 import { useRef } from "react";
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import type { Mock } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 
 import type { ModelsResponse } from "@/lib/services/models/queries";
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 
-type FinishArgs = {
-  isAbort?: boolean;
-  isDisconnect?: boolean;
-  isError?: boolean;
-};
-
 // SAFETY: each assertion below only seeds a mutable slot's declared type for
-// later reassignment by the test/mocks (e.g. `capturedOnFinish` is set once
-// the mocked `useChat` captures its `onFinish` callback) — none narrows
-// untrusted external data.
+// later reassignment by the test/mocks — none narrows untrusted external data.
 const mocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
-  resumeStream: vi.fn(),
-  capturedOnError: undefined as (() => void) | undefined,
-  capturedOnFinish: undefined as ((args: FinishArgs) => void) | undefined,
-  useChatCalls: [] as Array<{ messages?: Array<UIMessage>; resume?: boolean }>,
   chatInstanceIds: [] as Array<number>,
   nextChatInstanceId: 0,
 }));
@@ -69,24 +44,16 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@ai-sdk/react", () => ({
-  useChat: (options: {
-    messages?: Array<UIMessage>;
-    onError?: () => void;
-    onFinish?: (args: FinishArgs) => void;
-    resume?: boolean;
-  }) => {
+  useChat: (options: { messages?: Array<UIMessage> }) => {
     const instanceId = useRef<number | null>(null);
     if (instanceId.current === null) {
       instanceId.current = ++mocks.nextChatInstanceId;
       mocks.chatInstanceIds.push(instanceId.current);
     }
-    mocks.useChatCalls.push(options);
-    mocks.capturedOnError = options.onError;
-    mocks.capturedOnFinish = options.onFinish;
     return {
       error: undefined,
       messages: options.messages ?? [],
-      resumeStream: mocks.resumeStream,
+      resumeStream: vi.fn(),
       sendMessage: mocks.sendMessage,
       setMessages: vi.fn(),
       status: "ready",
@@ -115,14 +82,6 @@ const MODELS_RESPONSE: ModelsResponse = {
       name: "GPT-5.4 mini",
       contextWindowTokens: 400_000,
     },
-    // A real but non-default choice, so a test can tell a restore from a
-    // stale history snapshot apart from the composer's current selection.
-    {
-      id: "system:openai:gpt-5.4",
-      source: "system",
-      name: "GPT-5.4",
-      contextWindowTokens: 400_000,
-    },
   ],
 };
 
@@ -143,75 +102,26 @@ function page(
   };
 }
 
-let fetchMock: Mock<typeof fetch>;
-// Per-test-overridable handler for GET /api/v1/chats/:id/messages —
-// receives the request's targetSeq (undefined = the ordinary/latest fetch).
-let messagesHandler: (targetSeq: number | undefined) => Promise<Response>;
+const TARGET_PAGE = page([
+  { id: "older", seq: 701, text: "older target context" },
+  { id: "target", seq: 900, text: "target answer" },
+]);
 
 function stubChatNetwork() {
-  fetchMock = stubFetch();
-  messagesHandler = () =>
-    Promise.resolve(jsonResponse<ChatMessagesResponse>(page([])));
+  const fetchMock = stubFetch();
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
-    const { pathname, searchParams } = new URL(request.url);
+    const { pathname } = new URL(request.url);
     if (pathname === "/api/v1/me/runs") return jsonResponse([]);
     if (pathname === "/api/v1/models") return jsonResponse(MODELS_RESPONSE);
     if (pathname === "/api/v1/permission-modes") {
-      return jsonResponse({
-        modes: [{ value: "default" }, { value: "bypass" }],
-      });
+      return jsonResponse({ modes: [{ value: "default" }] });
     }
     if (pathname === `/api/v1/chats/${CHAT_ID}/messages`) {
-      const targetSeq = searchParams.has("targetSeq")
-        ? Number(searchParams.get("targetSeq"))
-        : undefined;
-      return messagesHandler(targetSeq);
+      return jsonResponse<ChatMessagesResponse>(TARGET_PAGE);
     }
     throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
   });
-}
-
-/** The stubbed-fetch requests sent to the chat messages endpoint, oldest
- * first — the real analogue of the old mocks.getChatMessages.mock.calls. */
-function messagesRequests(): Array<Request> {
-  return fetchMock.mock.calls
-    .map(([req]) => req)
-    .filter(
-      (req): req is Request =>
-        req instanceof Request &&
-        new URL(req.url).pathname === `/api/v1/chats/${CHAT_ID}/messages`,
-    );
-}
-
-function renderChat(
-  ordinaryPage: ChatMessagesResponse,
-  options: {
-    initialChatExists?: boolean;
-    initialDraftPhase?: "fresh" | "sent" | null;
-  } = {},
-) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  });
-  seedChatMessagesQueryData(queryClient, CHAT_ID, ordinaryPage);
-
-  return {
-    queryClient,
-    ...render(
-      <QueryClientProvider client={queryClient}>
-        <ActiveRunsProvider>
-          <ChatProvider>
-            <ChatPage
-              chatId={CHAT_ID}
-              initialChatExists={options.initialChatExists ?? true}
-              initialDraftPhase={options.initialDraftPhase ?? null}
-            />
-          </ChatProvider>
-        </ActiveRunsProvider>
-      </QueryClientProvider>,
-    ),
-  };
 }
 
 beforeAll(async () => {
@@ -237,13 +147,13 @@ beforeAll(async () => {
 beforeEach(() => {
   stubChatNetwork();
   mocks.sendMessage.mockReset();
-  mocks.resumeStream.mockReset();
-  mocks.capturedOnError = undefined;
-  mocks.capturedOnFinish = undefined;
-  mocks.useChatCalls.length = 0;
   mocks.chatInstanceIds.length = 0;
   mocks.nextChatInstanceId = 0;
-  window.history.replaceState(window.history.state, "", `/chat/${CHAT_ID}`);
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `/chat/${CHAT_ID}#msg-900`,
+  );
 });
 
 afterEach(() => {
@@ -253,482 +163,44 @@ afterEach(() => {
   // across tests; beforeEach's stubFetch() already replaces fetch fresh.
 });
 
-describe("ChatPage target hydration", () => {
-  it("does not mount ordinary history before resolving a targeted hash", async () => {
-    const ordinaryPage = page([{ id: "newest", seq: 990, text: "newest" }]);
-    const targetPage = page([
-      { id: "older", seq: 701, text: "older target context" },
-      { id: "target", seq: 900, text: "target answer" },
-    ]);
-    messagesHandler = (targetSeq) =>
-      targetSeq === 900
-        ? Promise.resolve(jsonResponse<ChatMessagesResponse>(targetPage))
-        : // Ordinary history must not be fetched — a 500 here would fail the
-          // test the moment (if ever) that request is sent.
-          Promise.resolve(new Response(null, { status: 500 }));
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `/chat/${CHAT_ID}#msg-900`,
-    );
-    const scrollIntoView = vi
-      .spyOn(Element.prototype, "scrollIntoView")
-      .mockImplementation(() => {});
-
-    renderChat(ordinaryPage);
-
-    await waitFor(() => {
-      const requests = messagesRequests();
-      expect(requests).toHaveLength(1);
-      const searchParams = new URL(requests[0]!.url).searchParams;
-      expect(searchParams.get("limit")).toBe("100");
-      expect(searchParams.get("targetSeq")).toBe("900");
-      expect(
-        mocks.useChatCalls.some((call) =>
-          call.messages?.some((message) => message.id === "target"),
-        ),
-      ).toBe(true);
-      expect(scrollIntoView).toHaveBeenCalledTimes(1);
-    });
-
-    expect(messagesRequests()).toHaveLength(1);
-    expect(screen.queryByText("newest")).toBeNull();
-    expect(
-      mocks.useChatCalls.some((call) =>
-        call.messages?.some((message) => message.id === "newest"),
-      ),
-    ).toBe(false);
-    expect(scrollIntoView).toHaveBeenCalledTimes(1);
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: "center" });
-  }, 15_000);
-
-  it.each([404, 500])(
-    "shows a closed target state and no composer for terminal HTTP %s errors",
-    async (status) => {
-      messagesHandler = () => Promise.resolve(new Response(null, { status }));
-      window.history.replaceState(
-        window.history.state,
-        "",
-        `/chat/${CHAT_ID}#msg-900`,
-      );
-
-      renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
-
-      await waitFor(() =>
-        expect(screen.getByRole("alert").textContent).toContain(
-          "Message unavailable",
-        ),
-      );
-      const requests = messagesRequests();
-      expect(requests).toHaveLength(1);
-      const searchParams = new URL(requests[0]!.url).searchParams;
-      expect(searchParams.get("limit")).toBe("100");
-      expect(searchParams.get("targetSeq")).toBe("900");
-      expect(
-        screen.queryByPlaceholderText("What would you like to know?"),
-      ).toBe(null);
-      expect(mocks.useChatCalls).toHaveLength(0);
-      expect(screen.queryByText("newest")).toBeNull();
-    },
+it("restores the target hash and input when a target send fails", async () => {
+  const user = userEvent.setup();
+  mocks.sendMessage.mockRejectedValue(new Error("send failed"));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+  });
+  seedChatMessagesQueryData(
+    queryClient,
+    CHAT_ID,
+    page([{ id: "newest", seq: 990, text: "newest" }]),
   );
 
-  it("keeps a valid target route closed for a nonexistent chat instead of opening a fresh draft", async () => {
-    messagesHandler = () =>
-      Promise.resolve(new Response(null, { status: 404 }));
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `/chat/${CHAT_ID}#msg-900`,
-    );
-
-    renderChat(page([{ id: "newest", seq: 990, text: "newest" }]), {
-      initialChatExists: false,
-      initialDraftPhase: "fresh",
-    });
-
-    await waitFor(() =>
-      expect(screen.getByRole("alert").textContent).toContain(
-        "Message unavailable",
-      ),
-    );
-    expect(screen.queryByPlaceholderText("What would you like to know?")).toBe(
-      null,
-    );
-    expect(mocks.useChatCalls).toHaveLength(0);
-  });
-
-  it("returns to ordinary history when the target hash is cleared after an error", async () => {
-    messagesHandler = () =>
-      Promise.resolve(new Response(null, { status: 404 }));
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `/chat/${CHAT_ID}#msg-900`,
-    );
-
-    renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
-    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
-
-    window.history.replaceState(window.history.state, "", `/chat/${CHAT_ID}`);
-    act(() => {
-      window.dispatchEvent(new HashChangeEvent("hashchange"));
-    });
-
-    await waitFor(() => expect(screen.getByText("newest")).toBeTruthy());
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
-
-  it("resolves no hash to ordinary history instead of staying blank", async () => {
-    const ordinaryPage = page([{ id: "newest", seq: 990, text: "newest" }]);
-    renderChat(ordinaryPage);
-
-    await waitFor(() => expect(screen.getByText("newest")).toBeTruthy());
-    expect(
-      messagesRequests().every(
-        (req) => !new URL(req.url).searchParams.has("targetSeq"),
-      ),
-    ).toBe(true);
-    expect(
-      mocks.useChatCalls.some((call) =>
-        call.messages?.some((message) => message.id === "newest"),
-      ),
-    ).toBe(true);
-  });
-
-  it("keeps the target session mounted while a target send is in flight", async () => {
-    const user = userEvent.setup();
-    const targetPage = page([
-      { id: "older", seq: 701, text: "older target context" },
-      { id: "target", seq: 900, text: "target answer" },
-    ]);
-    messagesHandler = () =>
-      Promise.resolve(jsonResponse<ChatMessagesResponse>(targetPage));
-    mocks.sendMessage.mockReturnValue(new Promise<void>(() => {}));
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `/chat/${CHAT_ID}#msg-900`,
-    );
-
-    renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
-    await waitFor(() => expect(screen.getByText("target answer")).toBeTruthy());
-
-    const targetSessionCount = mocks.chatInstanceIds.length;
-    const input = screen.getByPlaceholderText("What would you like to know?");
-    const send = screen.getByRole("button", { name: "Send message" });
-    await user.type(input, "follow-up");
-    await user.click(send);
-
-    await waitFor(() =>
-      expect(mocks.sendMessage).toHaveBeenCalledWith({ text: "follow-up" }),
-    );
-    expect(window.location.pathname).toBe(`/chat/${CHAT_ID}`);
-    expect(window.location.search).toBe("?draft=sent");
-    expect(window.location.hash).toBe("");
-    expect(mocks.chatInstanceIds).toHaveLength(targetSessionCount);
-  });
-
-  it("switches from target mode to latest only after a successful finish", async () => {
-    const user = userEvent.setup();
-    const targetPage = page([
-      { id: "older", seq: 701, text: "older target context" },
-      { id: "target", seq: 900, text: "target answer" },
-    ]);
-    const latestPage = page([
-      { id: "target", seq: 900, text: "target answer" },
-      { id: "latest", seq: 1000, text: "latest durable answer" },
-    ]);
-    messagesHandler = (targetSeq) =>
-      Promise.resolve(
-        jsonResponse<ChatMessagesResponse>(
-          targetSeq === 900 ? targetPage : latestPage,
-        ),
-      );
-    mocks.sendMessage.mockResolvedValue(undefined);
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `/chat/${CHAT_ID}#msg-900`,
-    );
-
-    renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
-    await waitFor(() => expect(screen.getByText("target answer")).toBeTruthy());
-    const targetSessionCount = mocks.chatInstanceIds.length;
-    const input = screen.getByPlaceholderText("What would you like to know?");
-    await user.type(input, "follow-up");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
-    await waitFor(() => expect(window.location.hash).toBe(""));
-    expect(window.location.search).toBe("?draft=sent");
-
-    act(() => {
-      mocks.capturedOnFinish?.({});
-    });
-
-    await waitFor(() =>
-      expect(screen.getByText("latest durable answer")).toBeTruthy(),
-    );
-    expect(window.location.pathname).toBe(`/chat/${CHAT_ID}`);
-    expect(window.location.search).toBe("");
-    expect(window.location.hash).toBe("");
-    expect(mocks.chatInstanceIds.length).toBeGreaterThan(targetSessionCount);
-    expect(
-      messagesRequests().some(
-        (req) => !new URL(req.url).searchParams.has("targetSeq"),
-      ),
-    ).toBe(true);
-  });
-
-  it("keeps the sent selections instead of restoring the pre-send snapshot after a #msg-N send", async () => {
-    // #1084: a finished target send remounts the live view while the ordinary
-    // messages cache still holds the pre-send SSR snapshot (refreshChatData
-    // invalidates only after resolveLatest is queued). The composer already
-    // holds the selections that send used, so the remounted view must not run
-    // the last-turn restore at all — neither from the stale snapshot nor once
-    // the post-send history lands.
-    const user = userEvent.setup();
-    const staleSeed: ChatMessagesResponse = {
-      compaction: null,
-      messages: [
-        rawChatMessage({
-          chatId: CHAT_ID,
-          id: "newest",
-          seq: 990,
-          parts: [{ type: "text", text: "newest" }],
-          role: "assistant",
-          // The pre-send snapshot's last completed turn used the non-default
-          // model and bypass; restoring from it reverts the selections the
-          // send used.
-          usage: {
-            status: "completed",
-            modelId: "system:openai:gpt-5.4",
-            permissionMode: "bypass",
-          },
-        }),
-      ],
-    };
-    const targetPage = page([
-      { id: "older", seq: 701, text: "older target context" },
-      { id: "target", seq: 900, text: "target answer" },
-    ]);
-    const postSendPage: ChatMessagesResponse = {
-      compaction: null,
-      messages: [
-        rawChatMessage({
-          chatId: CHAT_ID,
-          id: "target",
-          seq: 900,
-          parts: [{ type: "text", text: "target answer" }],
-          role: "assistant",
-        }),
-        rawChatMessage({
-          chatId: CHAT_ID,
-          id: "latest",
-          seq: 1000,
-          parts: [{ type: "text", text: "latest durable answer" }],
-          role: "assistant",
-          // The post-send turn used the composer's selection: the default.
-          usage: {
-            status: "completed",
-            modelId: "system:openai:gpt-5.4-mini",
-          },
-        }),
-      ],
-    };
-
-    // Hold the post-send (ordinary/latest) history back until the live view
-    // has remounted against the pre-send snapshot, so a restore that latched
-    // there deterministically reads the stale turn.
-    let resolveFresh!: (value: ChatMessagesResponse) => void;
-    const freshGate = new Promise<ChatMessagesResponse>((resolve) => {
-      resolveFresh = resolve;
-    });
-    messagesHandler = (targetSeq) =>
-      targetSeq === 900
-        ? Promise.resolve(jsonResponse<ChatMessagesResponse>(targetPage))
-        : freshGate.then((value) => jsonResponse<ChatMessagesResponse>(value));
-    mocks.sendMessage.mockResolvedValue(undefined);
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `/chat/${CHAT_ID}#msg-900`,
-    );
-
-    renderChat(staleSeed);
-    await waitFor(() => expect(screen.getByText("target answer")).toBeTruthy());
-
-    const input = screen.getByPlaceholderText("What would you like to know?");
-    await user.type(input, "follow-up");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
-
-    act(() => {
-      mocks.capturedOnFinish?.({});
-    });
-
-    // The live view remounted against the held-back pre-send snapshot.
-    await waitFor(() => expect(screen.getByText("newest")).toBeTruthy());
-    expect(screen.getByRole("combobox").getAttribute("aria-label")).toBe(
-      "Select model, GPT-5.4 mini",
-    );
-    expect(
-      screen.getByRole("button", { name: "Permission mode, Default" }),
-    ).toBeTruthy();
-
-    act(() => {
-      resolveFresh(postSendPage);
-    });
-
-    await waitFor(() =>
-      expect(screen.getByText("latest durable answer")).toBeTruthy(),
-    );
-    await waitFor(() =>
-      expect(screen.getByRole("combobox").getAttribute("aria-label")).toBe(
-        "Select model, GPT-5.4 mini",
-      ),
-    );
-    expect(
-      screen.getByRole("button", { name: "Permission mode, Default" }),
-    ).toBeTruthy();
-  });
-
-  it("restores the target hash and input when a target send fails", async () => {
-    const user = userEvent.setup();
-    const targetPage = page([
-      { id: "older", seq: 701, text: "older target context" },
-      { id: "target", seq: 900, text: "target answer" },
-    ]);
-    messagesHandler = () =>
-      Promise.resolve(jsonResponse<ChatMessagesResponse>(targetPage));
-    mocks.sendMessage.mockRejectedValue(new Error("send failed"));
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `/chat/${CHAT_ID}#msg-900`,
-    );
-
-    renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
-    await waitFor(() => expect(screen.getByText("target answer")).toBeTruthy());
-    const targetSessionCount = mocks.chatInstanceIds.length;
-    const input = screen.getByPlaceholderText("What would you like to know?");
-    await user.type(input, "follow-up");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
-
-    // SAFETY: the composer's textarea is the only element this placeholder
-    // resolves to.
-    await waitFor(() =>
-      expect((input as HTMLTextAreaElement).value).toBe("follow-up"),
-    );
-    expect(window.location.pathname).toBe(`/chat/${CHAT_ID}`);
-    expect(window.location.search).toBe("");
-    expect(window.location.hash).toBe("#msg-900");
-    expect(mocks.chatInstanceIds).toHaveLength(targetSessionCount);
-  });
-
-  it("keeps a hashless sent recovery route when the SDK reports an interruption", async () => {
-    const user = userEvent.setup();
-    const targetPage = page([
-      { id: "older", seq: 701, text: "older target context" },
-      { id: "target", seq: 900, text: "target answer" },
-    ]);
-    const latestPage = page([
-      { id: "target", seq: 900, text: "target answer" },
-      { id: "latest", seq: 1000, text: "latest after interruption" },
-    ]);
-    messagesHandler = (targetSeq) =>
-      Promise.resolve(
-        jsonResponse<ChatMessagesResponse>(
-          targetSeq === 900 ? targetPage : latestPage,
-        ),
-      );
-    mocks.sendMessage.mockReturnValue(new Promise<void>(() => {}));
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `/chat/${CHAT_ID}#msg-900`,
-    );
-
-    renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
-    await waitFor(() => expect(screen.getByText("target answer")).toBeTruthy());
-    const targetSessionCount = mocks.chatInstanceIds.length;
-    const input = screen.getByPlaceholderText("What would you like to know?");
-    await user.type(input, "follow-up");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
-    await waitFor(() => expect(window.location.hash).toBe(""));
-    expect(window.location.search).toBe("?draft=sent");
-
-    act(() => {
-      mocks.capturedOnError?.();
-    });
-
-    await waitFor(() =>
-      expect(screen.getByText("latest after interruption")).toBeTruthy(),
-    );
-    expect(window.location.pathname).toBe(`/chat/${CHAT_ID}`);
-    expect(window.location.search).toBe("?draft=sent");
-    expect(window.location.hash).toBe("");
-    expect(mocks.chatInstanceIds.length).toBeGreaterThan(targetSessionCount);
-    expect(mocks.resumeStream).toHaveBeenCalled();
-    // untrackChat was asserted "not called" here against a mocked context;
-    // dropped on conversion — the mocked useChat's status never becomes
-    // "streaming"/"submitted" (it is hardcoded "ready" throughout this
-    // suite), so useChatPresenceEffects's trackRun/untrackChat call site
-    // (use-chat-engine.ts) never fires in ANY test here, making that
-    // assertion vacuously true regardless of this branch's own behavior —
-    // a pre-existing gap in the original test, not something this
-    // conversion introduces or could meaningfully replace.
-  });
-
-  it.each([
-    ["abort", { isAbort: true }],
-    ["disconnect", { isDisconnect: true }],
-  ] as const)(
-    "keeps hashless sent recovery after an SDK %s finish",
-    async (_label, finishArgs) => {
-      const user = userEvent.setup();
-      const targetPage = page([
-        { id: "older", seq: 701, text: "older target context" },
-        { id: "target", seq: 900, text: "target answer" },
-      ]);
-      const latestPage = page([
-        { id: "target", seq: 900, text: "target answer" },
-        { id: "latest", seq: 1000, text: "latest after finish" },
-      ]);
-      messagesHandler = (targetSeq) =>
-        Promise.resolve(
-          jsonResponse<ChatMessagesResponse>(
-            targetSeq === 900 ? targetPage : latestPage,
-          ),
-        );
-      mocks.sendMessage.mockReturnValue(new Promise<void>(() => {}));
-      window.history.replaceState(
-        window.history.state,
-        "",
-        `/chat/${CHAT_ID}#msg-900`,
-      );
-
-      renderChat(page([{ id: "newest", seq: 990, text: "newest" }]));
-      await waitFor(() =>
-        expect(screen.getByText("target answer")).toBeTruthy(),
-      );
-      const targetSessionCount = mocks.chatInstanceIds.length;
-      const input = screen.getByPlaceholderText("What would you like to know?");
-      await user.type(input, "follow-up");
-      await user.click(screen.getByRole("button", { name: "Send message" }));
-      await waitFor(() => expect(window.location.hash).toBe(""));
-
-      act(() => {
-        mocks.capturedOnFinish?.(finishArgs);
-      });
-
-      await waitFor(() =>
-        expect(screen.getByText("latest after finish")).toBeTruthy(),
-      );
-      expect(window.location.search).toBe("?draft=sent");
-      expect(window.location.hash).toBe("");
-      expect(mocks.chatInstanceIds.length).toBeGreaterThan(targetSessionCount);
-      // untrackChat "not called" dropped on conversion — see the identical
-      // note in the interruption test above; this suite's mocked useChat
-      // never reaches "streaming"/"submitted", so trackRun/untrackChat are
-      // never invoked here regardless.
-    },
+  render(
+    <QueryClientProvider client={queryClient}>
+      <ActiveRunsProvider>
+        <ChatProvider>
+          <ChatPage
+            chatId={CHAT_ID}
+            initialChatExists
+            initialDraftPhase={null}
+          />
+        </ChatProvider>
+      </ActiveRunsProvider>
+    </QueryClientProvider>,
   );
+  await waitFor(() => expect(screen.getByText("target answer")).toBeTruthy());
+  const targetSessionCount = mocks.chatInstanceIds.length;
+  const input = screen.getByPlaceholderText("What would you like to know?");
+  await user.type(input, "follow-up");
+  await user.click(screen.getByRole("button", { name: "Send message" }));
+
+  // SAFETY: the composer's textarea is the only element this placeholder
+  // resolves to.
+  await waitFor(() =>
+    expect((input as HTMLTextAreaElement).value).toBe("follow-up"),
+  );
+  expect(window.location.pathname).toBe(`/chat/${CHAT_ID}`);
+  expect(window.location.search).toBe("");
+  expect(window.location.hash).toBe("#msg-900");
+  expect(mocks.chatInstanceIds).toHaveLength(targetSessionCount);
 });

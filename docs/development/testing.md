@@ -131,15 +131,16 @@ typecheck ----> mutation
 ## Tracked follow-ups
 
 - Move the remaining story-eligible web component tests under rule 5; delete
-  jsdom coverage only after equivalent story assertions exist. Seventeen pairs
+  jsdom coverage only after equivalent story assertions exist. Eighteen pairs
   are done (`chat-item`, `effort-selector`, `effective-context-inspector`,
   `tool-cap-notice-part`, `memory-section`, `app-sidebar-admin-entry`,
   `org-tree`, `members-panel`, `command-palette`, `share-chat-dialog`,
   `chat-item-dialogs`, `project-dialogs`, `org-unit-dialogs`,
   `app-sidebar-pinned`, `chat-page.markdown-loading`, `chat-page.models`,
-  `chat-page.permission-mode`); the other `chat-page.*` suites can extend
-  `chat-page.stories.tsx`, and the remaining candidates need a story written
-  first.
+  `chat-page.permission-mode`, `chat-page.target`); `chat-page.target` keeps
+  only its rejected-send case in jsdom, since the real `useChat` never rejects
+  a send. The other `chat-page.*` suites can extend `chat-page.stories.tsx`,
+  and the remaining candidates need a story written first.
 - Remove dead in-file DB guards when touching those suites.
 - Add CRAP to `packages/ui`'s `test:coverage` once `MessageAttachment`,
   `rewriteChildrenByValue`, `detectPrimaryModifier` and `getTimeOfDay` are

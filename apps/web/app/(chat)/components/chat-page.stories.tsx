@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-query";
 import { useState, type ComponentProps } from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
+import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { vi, type Mock } from "vitest";
 
 import { ChatProvider } from "@/contexts/chat-context";
@@ -18,7 +19,8 @@ import type { ChatMessageResponse } from "@/lib/services/chat/history";
 import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
 import { seedChatMessagesQueryData } from "@/lib/services/chat/queries";
 // Import via the REAL specifiers: sb.mock (preview.tsx) redirects them to the
-// __mocks__ modules, so these are the SAME hook instances the page reads.
+// __mocks__ modules, so these are the SAME instances the page reads.
+import * as runs from "@/lib/services/chat/runs";
 import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import * as permissionModeQueries from "@/lib/services/permission-modes/queries";
@@ -41,6 +43,8 @@ const usePermissionModesQuery = vi.mocked(
   permissionModeQueries.usePermissionModesQuery,
   { partial: true },
 );
+const runIdToCancel = vi.mocked(runs.runIdToCancel);
+const cancelRun = vi.mocked(runs.cancelRun);
 
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 const HISTORY_ROUTE = `GET /api/v1/chats/${CHAT_ID}/messages`;
@@ -90,8 +94,12 @@ function historyWithUsage(
   ];
 }
 
-/** Story parameters: the opened chat's history (default `HISTORY`). */
-type ChatPageParameters = { history?: Array<ChatMessageResponse> };
+/** Story parameters: the opened chat's history (default `HISTORY`) and the
+ *  URL fragment it opens at (default none). */
+type ChatPageParameters = {
+  history?: Array<ChatMessageResponse>;
+  hash?: string;
+};
 
 const RENDERERS: ChatMarkdownRenderers = { MessageResponse, ReasoningContent };
 
@@ -132,9 +140,14 @@ async function chunkLoad(attempt: number) {
 let fetchMock: Mock<typeof fetch>;
 let unrouted: Array<string> = [];
 
+/** The Request a fetch call carries. */
+function requestOf(input: RequestInfo | URL) {
+  return input instanceof Request ? input : new Request(input);
+}
+
 /** The "METHOD /path" a fetch call targets. */
 function routeOf(input: RequestInfo | URL) {
-  const request = input instanceof Request ? input : new Request(input);
+  const request = requestOf(input);
   return `${request.method} ${new URL(request.url).pathname}`;
 }
 
@@ -157,12 +170,14 @@ function routeOpenChat(history: Array<ChatMessageResponse>) {
 }
 
 /** Answers `routes` ahead of the opened chat's own routes. */
-function routeAlso(routes: Record<string, () => Promise<Response>>) {
+function routeAlso(
+  routes: Record<string, (input: RequestInfo | URL) => Promise<Response>>,
+) {
   const openChat = fetchMock.getMockImplementation();
   if (openChat === undefined) throw new Error("routeOpenChat must run first");
   fetchMock.mockImplementation((input, init) => {
     const answer = routes[routeOf(input)];
-    return answer === undefined ? openChat(input, init) : answer();
+    return answer === undefined ? openChat(input, init) : answer(input);
   });
 }
 
@@ -208,7 +223,15 @@ const meta = {
   component: ChatPage,
   args: { chatId: CHAT_ID, initialChatExists: true, initialDraftPhase: null },
   beforeEach: ({ args, parameters }) => {
-    const { history = HISTORY }: ChatPageParameters = parameters;
+    const { history = HISTORY, hash = "" }: ChatPageParameters = parameters;
+    // The page reads and rewrites its URL (draft marker, #msg-N target), so
+    // each story opens on its own chat route and leaves the URL as it was.
+    const href = window.location.href;
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `/chat/${CHAT_ID}${hash}`,
+    );
     seedHistory(args.initialChatExists, history);
     // isSuccess too: the page enables Send only on a successful catalog.
     useModelsQuery.mockReturnValue({
@@ -227,6 +250,7 @@ const meta = {
     return () => {
       restoreChunks();
       restoreFetch();
+      window.history.replaceState(window.history.state, "", href);
     };
   },
   afterEach: async () => {
@@ -888,5 +912,572 @@ export const UnavailableBypassResets: Story = {
         HISTORY_ROUTE,
       ]),
     );
+  },
+};
+
+const TARGET_HASH = "#msg-900";
+// Query strings of the history read for a #msg-900 target and of the ordinary
+// newest-page read.
+const TARGET_QUERY = "?limit=100&targetSeq=900";
+const LATEST_QUERY = "?limit=100";
+
+/** Assistant replies, each `[id, seq, text]`, as the history api returns them. */
+function replies(
+  ...rows: Array<[id: string, seq: number, text: string]>
+): Array<ChatMessageResponse> {
+  return rows.map(([id, seq, text]) =>
+    rawChatMessage({
+      id,
+      chatId: CHAT_ID,
+      role: "assistant",
+      seq,
+      parts: [{ type: "text", text }],
+    }),
+  );
+}
+
+// The server seeds the chat's newest page; the window around a #msg-N target
+// is a read only the browser sends, since the server never sees the fragment.
+const NEWEST = replies(["newest", 990, "newest"]);
+const TARGET_WINDOW = replies(
+  ["older", 701, "older target context"],
+  ["target", 900, "target answer"],
+);
+const TARGET_CHAT = {
+  hash: TARGET_HASH,
+  history: NEWEST,
+} satisfies ChatPageParameters;
+// #232 — the destructive "Message unavailable" alert falls below WCAG AA
+// color-contrast until the token fix; every other a11y rule still runs.
+const UNAVAILABLE_TARGET_CHAT = {
+  ...contrastKnownIssue232,
+  ...TARGET_CHAT,
+} satisfies ChatPageParameters;
+
+/** Answers with `messages` as one history page. */
+function historyPage(messages: Array<ChatMessageResponse>) {
+  return () => Promise.resolve(jsonResponse({ messages }));
+}
+
+/** Answers history reads that carry `targetSeq` with `target`, and the
+ *  ordinary newest-page read with `latest`. */
+function routeHistory(
+  target: () => Promise<Response>,
+  latest: () => Promise<Response>,
+) {
+  routeAlso({
+    [HISTORY_ROUTE]: (input) =>
+      new URL(requestOf(input).url).searchParams.has("targetSeq")
+        ? target()
+        : latest(),
+  });
+}
+
+/** The query string of every history read sent so far, in order. */
+function sentHistoryQueries() {
+  return fetchMock.mock.calls.flatMap(([input]) =>
+    routeOf(input) === HISTORY_ROUTE
+      ? [new URL(requestOf(input).url).search]
+      : [],
+  );
+}
+
+/** The page's URL past the origin: path, query and fragment. */
+function pageUrl() {
+  const { pathname, search, hash } = window.location;
+  return `${pathname}${search}${hash}`;
+}
+
+/** Waits until the transcript shows `text`. */
+async function transcriptShows(canvasElement: HTMLElement, text: string) {
+  await waitFor(() =>
+    expect(
+      within(within(canvasElement).getByRole("log")).getByText(text),
+    ).toBeVisible(),
+  );
+}
+
+/** Loads the markdown chunks and waits for the target window's answer. */
+async function openedTarget(canvasElement: HTMLElement) {
+  await readyComposer(canvasElement);
+  await transcriptShows(canvasElement, "target answer");
+}
+
+/** Types a follow-up into the composer and sends it. */
+async function sendFollowUp(canvasElement: HTMLElement) {
+  await userEvent.type(composer(canvasElement), "follow-up");
+  const send = within(canvasElement).getByRole("button", {
+    name: "Send message",
+  });
+  await waitFor(() => expect(send).toBeEnabled());
+  await userEvent.click(send);
+}
+
+/** A reply streamed the way the api streams it, encoded by the SDK's own
+ *  UI-message stream; the stream ends once `ended` settles. */
+function streamedReply(ended: Promise<void> = Promise.resolve()) {
+  return createUIMessageStreamResponse({
+    stream: createUIMessageStream({
+      execute: async ({ writer }) => {
+        writer.write({ type: "start", messageId: "reply-1" });
+        writer.write({ type: "text-start", id: "text-1" });
+        writer.write({
+          type: "text-delta",
+          id: "text-1",
+          delta: "streamed reply",
+        });
+        await ended;
+        writer.write({ type: "text-end", id: "text-1" });
+        writer.write({ type: "finish" });
+      },
+    }),
+  });
+}
+
+// The held #msg-900 window read, answered by the story.
+let answerTarget: (response: Response) => void = () => {};
+
+/**
+ * Opening a chat at `#msg-900` mounts nothing until the window around that
+ * message arrives — never the newest page the server seeded — then shows
+ * that window.
+ *
+ * @summary a #msg-N link opens the target window, not the newest page
+ */
+export const OpensTargetMessage: Story = {
+  tags: ["ai-generated"],
+  parameters: TARGET_CHAT,
+  beforeEach: () =>
+    routeHistory(
+      () =>
+        new Promise<Response>((resolve) => {
+          answerTarget = resolve;
+        }),
+      historyPage(NEWEST),
+    ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(sentRoutes()).toEqual([HISTORY_ROUTE]));
+    await expect(sentHistoryQueries()).toEqual([TARGET_QUERY]);
+    await expect(canvas.queryByText("newest")).toBeNull();
+    await expect(
+      canvas.queryByPlaceholderText("What would you like to know?"),
+    ).toBeNull();
+
+    answerTarget(jsonResponse({ messages: TARGET_WINDOW }));
+
+    await openedTarget(canvasElement);
+    await transcriptShows(canvasElement, "older target context");
+    await expect(canvas.queryByText("newest")).toBeNull();
+    await expect(sentRoutes()).toEqual([HISTORY_ROUTE]);
+  },
+};
+
+/** The closed "Message unavailable" state: no composer, no newest page, and
+ *  only the one target read sent. */
+async function closedTarget(canvasElement: HTMLElement) {
+  const canvas = within(canvasElement);
+  await expect(
+    within(await canvas.findByRole("alert")).getByText("Message unavailable"),
+  ).toBeVisible();
+  await expect(
+    canvas.queryByPlaceholderText("What would you like to know?"),
+  ).toBeNull();
+  await expect(canvas.queryByText("newest")).toBeNull();
+  await expect(sentRoutes()).toEqual([HISTORY_ROUTE]);
+  await expect(sentHistoryQueries()).toEqual([TARGET_QUERY]);
+}
+
+/** Answers the target read with the api's `status` error. */
+function failTargetRead(status: 404 | 500) {
+  routeHistory(
+    () =>
+      Promise.resolve(
+        jsonResponse(
+          {
+            statusCode: status,
+            error: status === 404 ? "Not Found" : "Internal Server Error",
+            message: "Message not available",
+          },
+          status,
+        ),
+      ),
+    historyPage(NEWEST),
+  );
+}
+
+/**
+ * A target the api no longer has (404) closes the page on a "Message
+ * unavailable" alert, with no composer and no fallback to the newest page.
+ *
+ * @summary a missing target shows Message unavailable and no composer
+ */
+export const TargetNotFound: Story = {
+  tags: ["ai-generated"],
+  parameters: UNAVAILABLE_TARGET_CHAT,
+  beforeEach: () => failTargetRead(404),
+  play: async ({ canvasElement }) => closedTarget(canvasElement),
+};
+
+/**
+ * A target read the api fails (500) closes the page the same way.
+ *
+ * @summary a failed target read shows Message unavailable and no composer
+ */
+export const TargetReadFails: Story = {
+  tags: ["ai-generated"],
+  parameters: UNAVAILABLE_TARGET_CHAT,
+  beforeEach: () => failTargetRead(500),
+  play: async ({ canvasElement }) => closedTarget(canvasElement),
+};
+
+/**
+ * A `#msg-N` link into a chat that does not exist stays closed on the alert
+ * rather than opening a fresh draft's composer.
+ *
+ * @summary a target in a missing chat does not open a fresh draft
+ */
+export const TargetInMissingChat: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  tags: ["ai-generated"],
+  parameters: UNAVAILABLE_TARGET_CHAT,
+  beforeEach: () => failTargetRead(404),
+  play: async ({ canvasElement }) => closedTarget(canvasElement),
+};
+
+/**
+ * Leaving an unavailable target for the chat itself (the fragment cleared)
+ * replaces the alert with the chat's newest page.
+ *
+ * @summary clearing the target after an error opens the newest page
+ */
+export const ClearedTargetOpensLatest: Story = {
+  tags: ["ai-generated"],
+  // The alert is gone by the end, so every a11y rule runs.
+  parameters: TARGET_CHAT,
+  beforeEach: () => failTargetRead(404),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await closedTarget(canvasElement);
+
+    window.history.replaceState(window.history.state, "", `/chat/${CHAT_ID}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    await readyComposer(canvasElement);
+    await transcriptShows(canvasElement, "newest");
+    await expect(canvas.queryByRole("alert")).toBeNull();
+    await waitFor(() =>
+      expect(sentRoutes()).toEqual([HISTORY_ROUTE, ...OPEN_CHAT_ROUTES]),
+    );
+    await expect(sentHistoryQueries()).toEqual([TARGET_QUERY, LATEST_QUERY]);
+  },
+};
+
+/**
+ * Without a `#msg-N` fragment the chat opens on its newest page and never
+ * asks for a target window.
+ *
+ * @summary no fragment opens the newest page
+ */
+export const OpensLatestWithoutTarget: Story = {
+  tags: ["ai-generated"],
+  parameters: { history: NEWEST } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    await readyComposer(canvasElement);
+    await transcriptShows(canvasElement, "newest");
+    await waitFor(() => expect(sentRoutes()).toEqual(OPEN_CHAT_ROUTES));
+    await expect(sentHistoryQueries()).toEqual([LATEST_QUERY]);
+  },
+};
+
+/**
+ * Sending from a target window moves the URL to the hashless sent-draft
+ * route at once, while the window itself stays on screen with the follow-up
+ * as long as the reply is in flight.
+ *
+ * @summary a target send in flight keeps the window and drops the fragment
+ */
+export const TargetSendInFlight: Story = {
+  tags: ["ai-generated"],
+  parameters: TARGET_CHAT,
+  beforeEach: () =>
+    routeHistory(historyPage(TARGET_WINDOW), historyPage(NEWEST)),
+  play: async ({ canvasElement }) => {
+    await openedTarget(canvasElement);
+    await sendFollowUp(canvasElement);
+
+    await waitFor(() =>
+      expect(sentRoutes()).toEqual([HISTORY_ROUTE, SEND_ROUTE]),
+    );
+    await expect(await sentBody(SEND_ROUTE)).toMatchObject({
+      message: { parts: [{ type: "text", text: "follow-up" }] },
+    });
+    await expect(pageUrl()).toBe(`/chat/${CHAT_ID}?draft=sent`);
+    await transcriptShows(canvasElement, "follow-up");
+    await transcriptShows(canvasElement, "older target context");
+    await transcriptShows(canvasElement, "target answer");
+  },
+};
+
+/**
+ * Once the reply to a target send finishes, the page leaves the target
+ * window for the chat's newest page, and the URL drops the draft marker.
+ *
+ * @summary a finished target send opens the newest page
+ */
+export const TargetSendFinishOpensLatest: Story = {
+  tags: ["ai-generated"],
+  parameters: TARGET_CHAT,
+  beforeEach: () => {
+    routeHistory(
+      historyPage(TARGET_WINDOW),
+      historyPage(
+        replies(
+          ["target", 900, "target answer"],
+          ["latest", 1000, "latest durable answer"],
+        ),
+      ),
+    );
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        new Promise<Response>((resolve) => {
+          answerSend = resolve;
+        }),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openedTarget(canvasElement);
+    await sendFollowUp(canvasElement);
+    await waitFor(() => expect(pageUrl()).toBe(`/chat/${CHAT_ID}?draft=sent`));
+
+    answerSend(streamedReply());
+
+    await transcriptShows(canvasElement, "latest durable answer");
+    await expect(canvas.queryByText("older target context")).toBeNull();
+    await expect(pageUrl()).toBe(`/chat/${CHAT_ID}`);
+    // The finish re-reads the target window; the newest page then opens: read,
+    // probed for a run to resume (204: none), and re-read.
+    await waitFor(() =>
+      expect(sentRoutes()).toEqual([
+        HISTORY_ROUTE,
+        SEND_ROUTE,
+        HISTORY_ROUTE,
+        HISTORY_ROUTE,
+        RESUME_ROUTE,
+        HISTORY_ROUTE,
+      ]),
+    );
+    await expect(sentHistoryQueries()).toEqual([
+      TARGET_QUERY,
+      TARGET_QUERY,
+      LATEST_QUERY,
+      LATEST_QUERY,
+    ]);
+  },
+};
+
+// Released by the story once the remounted page shows the pre-send snapshot.
+let releaseLatest: () => void = () => {};
+
+/**
+ * #1084: after a target send finishes, the newest page can still be the
+ * pre-send snapshot, whose last reply used another model and bypass. The
+ * composer keeps the selections the send used — the defaults here — both
+ * over that snapshot and once the post-send page arrives.
+ *
+ * @summary a finished target send keeps the selections it sent with
+ */
+export const TargetSendKeepsSentSelections: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    hash: TARGET_HASH,
+    history: [
+      rawChatMessage({
+        id: "newest",
+        chatId: CHAT_ID,
+        role: "assistant",
+        seq: 990,
+        parts: [{ type: "text", text: "newest" }],
+        usage: {
+          status: "completed",
+          modelId: GPT_5_4.id,
+          permissionMode: "bypass",
+        },
+      }),
+    ],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    serveTwoModelCatalog();
+    offerBothModes();
+    const latest = new Promise<void>((resolve) => {
+      releaseLatest = resolve;
+    });
+    routeHistory(historyPage(TARGET_WINDOW), () =>
+      latest.then(() =>
+        jsonResponse({
+          messages: [
+            ...replies(["target", 900, "target answer"]),
+            rawChatMessage({
+              id: "latest",
+              chatId: CHAT_ID,
+              role: "assistant",
+              seq: 1000,
+              parts: [{ type: "text", text: "latest durable answer" }],
+              usage: { status: "completed", modelId: GPT_5_4_MINI.id },
+            }),
+          ],
+        }),
+      ),
+    );
+    routeAlso({ [SEND_ROUTE]: () => Promise.resolve(streamedReply()) });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openedTarget(canvasElement);
+    await sendFollowUp(canvasElement);
+
+    await transcriptShows(canvasElement, "newest");
+    await expect(canvas.getByRole("combobox")).toHaveAccessibleName(
+      "Select model, GPT-5.4 mini",
+    );
+    await expect(
+      canvas.getByRole("button", { name: "Permission mode, Default" }),
+    ).toBeVisible();
+
+    releaseLatest();
+
+    await transcriptShows(canvasElement, "latest durable answer");
+    await expect(canvas.getByRole("combobox")).toHaveAccessibleName(
+      "Select model, GPT-5.4 mini",
+    );
+    await expect(
+      canvas.getByRole("button", { name: "Permission mode, Default" }),
+    ).toBeVisible();
+  },
+};
+
+const AFTER_INTERRUPTION = replies(
+  ["target", 900, "target answer"],
+  ["latest", 1000, "latest after interruption"],
+);
+
+/** After an interrupted target send, the page opens the newest page on the
+ *  hashless sent-draft route and probes for the run to resume. Each of the
+ *  SDK's `reports` of the failure first re-reads the target window. */
+async function recoveredFromInterruption(
+  canvasElement: HTMLElement,
+  reports: number,
+) {
+  await transcriptShows(canvasElement, "latest after interruption");
+  await expect(
+    within(canvasElement).queryByText("older target context"),
+  ).toBeNull();
+  await expect(pageUrl()).toBe(`/chat/${CHAT_ID}?draft=sent`);
+  const rereads = Array.from({ length: reports }, () => HISTORY_ROUTE);
+  await waitFor(() =>
+    expect(sentRoutes()).toEqual([
+      HISTORY_ROUTE,
+      SEND_ROUTE,
+      ...rereads,
+      HISTORY_ROUTE,
+      RESUME_ROUTE,
+      HISTORY_ROUTE,
+    ]),
+  );
+  await expect(sentHistoryQueries()).toEqual([
+    TARGET_QUERY,
+    ...rereads.map(() => TARGET_QUERY),
+    LATEST_QUERY,
+    LATEST_QUERY,
+  ]);
+}
+
+/**
+ * When the api fails a target send, the page keeps the recovery route —
+ * hashless and still marked sent — opens the newest page, and probes for the
+ * run, which may still be running server-side.
+ *
+ * @summary a failed target send recovers onto the newest page
+ */
+export const TargetSendErrorRecovers: Story = {
+  tags: ["ai-generated"],
+  parameters: TARGET_CHAT,
+  beforeEach: () => {
+    routeHistory(historyPage(TARGET_WINDOW), historyPage(AFTER_INTERRUPTION));
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        Promise.resolve(
+          jsonResponse(
+            {
+              statusCode: 500,
+              error: "Internal Server Error",
+              message: "Internal server error",
+            },
+            500,
+          ),
+        ),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    await openedTarget(canvasElement);
+    await sendFollowUp(canvasElement);
+    // The SDK reports the failure twice: as an error, then an errored finish.
+    await recoveredFromInterruption(canvasElement, 2);
+  },
+};
+
+/**
+ * A network drop during a target send recovers the same way.
+ *
+ * @summary a disconnected target send recovers onto the newest page
+ */
+export const TargetSendDisconnectRecovers: Story = {
+  tags: ["ai-generated"],
+  parameters: TARGET_CHAT,
+  beforeEach: () => {
+    routeHistory(historyPage(TARGET_WINDOW), historyPage(AFTER_INTERRUPTION));
+    routeAlso({
+      [SEND_ROUTE]: () => Promise.reject(new TypeError("Failed to fetch")),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    await openedTarget(canvasElement);
+    await sendFollowUp(canvasElement);
+    // As an error, then a disconnected finish.
+    await recoveredFromInterruption(canvasElement, 2);
+  },
+};
+
+/**
+ * Stopping a target send's reply mid-stream recovers the same way.
+ *
+ * @summary a stopped target send recovers onto the newest page
+ */
+export const TargetSendStopRecovers: Story = {
+  tags: ["ai-generated"],
+  parameters: TARGET_CHAT,
+  beforeEach: () => {
+    routeHistory(historyPage(TARGET_WINDOW), historyPage(AFTER_INTERRUPTION));
+    // The reply streams until the user stops it.
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        Promise.resolve(streamedReply(new Promise<void>(() => {}))),
+    });
+    // Stop cancels the reply's run, then closes the stream.
+    runIdToCancel.mockReturnValue("reply-1");
+    cancelRun.mockResolvedValue(undefined);
+  },
+  play: async ({ canvasElement }) => {
+    await openedTarget(canvasElement);
+    await sendFollowUp(canvasElement);
+    await transcriptShows(canvasElement, "streamed reply");
+
+    await userEvent.click(
+      within(canvasElement).getByRole("button", { name: "Stop generation" }),
+    );
+
+    // A stop is no error: the SDK reports only the aborted finish.
+    await recoveredFromInterruption(canvasElement, 1);
   },
 };
