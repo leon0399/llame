@@ -21,7 +21,9 @@ dominated by rows nothing reads again: the chat UI renders finished turns from
 - Only deltas that the Run's own finalized reply holds are deleted: those of
   the attempt the reply names. Deltas of a superseded Run, of an earlier
   attempt, or of a Run whose reply is not finalized are their only copy and are
-  kept. The reply's usage names both the Run and the attempt that finalized it.
+  kept. The reply's usage names both the Run and the attempt that finalized it;
+  a reply written before replies named their attempt counts only for a Run with
+  a single attempt.
 - `runs.deltaRetentionDays` enables pruning with a window in days. Unset, the
   default, prunes nothing.
 - Replay of a finished Run older than the window carries its lifecycle and tool
@@ -36,19 +38,27 @@ None.
 
 ### Modified Capabilities
 
-- `durable-runs`: "Every message executes as a durable, resumable run" scopes
-  lossless replay of a finished Run to the retention window; "Received
-  reasoning is durable before browser delivery" retains a terminal Run's
-  reasoning as its reply's parts once projected; a new requirement defines the
-  pruning.
+- `durable-runs`: "Every message executes as a durable, resumable run" makes
+  the retention job's delta deletes the one exception to the append-only log
+  and scopes lossless replay of a finished Run to the retention window;
+  "Received reasoning is durable before browser delivery" retains a terminal
+  Run's reasoning as its reply's parts once projected; two new requirements
+  define the pruning and its rule for a reply that names no attempt.
+- `reasoning-output`: "Reasoning part identity follows the adapter's part id"
+  and "Reasoning is an ordered private assistant part" scope reconnect replay
+  reconstructing the same parts to an attempt whose deltas are retained.
 - `instance-config`: a new requirement for `runs.deltaRetentionDays`.
 
 ## Impact
 
 - `apps/api/src/runs` (the maintenance job, a repository method), the
-  `run_events` RLS policy set and a migration, `apps/api/src/instance-config`,
-  the JSON Schema, `llame.config.jsonc.example`, and the scaling runbook, which
-  lists #119 as an open design constraint.
+  `run_events` RLS policy set and a migration, the "never updated or deleted"
+  comment on `runEvents` in `apps/api/src/db/schema/chats.ts`,
+  `apps/api/src/instance-config`, the JSON Schema, `llame.config.jsonc.example`,
+  `SPEC.md` §9.4 ("Run progress is an append-only event stream"), and the
+  scaling runbook, which lists #119 as an open design constraint. The
+  `durable-runs` Purpose summary keeps "append-only": an existing spec's Purpose
+  is not delta-owned, and the requirement it summarizes carries the exception.
 - A new worker-profile consumer, following `sessions-cleanup`.
 
 ## Acceptance

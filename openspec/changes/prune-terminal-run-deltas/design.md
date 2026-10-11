@@ -42,8 +42,12 @@ a delta event in that reply's attempt window. The window is the one
 reply's `usage->>'attemptId'` up to the next `run.started`. A reply with no
 `attemptId` predates per-attempt replies: it may hold only the last attempt's
 live parts, so its Run qualifies only when its log has exactly one
-`run.started`, and its window is then the whole log. The job deletes each Run's delta events
-under `runAs(owner)`, in bounded batches per tick.
+`run.started`, and its window is then the whole log. The job deletes each Run's
+delta events under `runAs(owner)` in statements bounded by event rows: each
+`DELETE` removes at most a fixed number of that Run's prunable rows, lowest
+`sequence` first, and the tick stops once a per-tick row budget is spent. A Run
+left partly pruned still has a delta in its window, so the next tick discovers
+it again; the row budget, not the number of discovered Runs, bounds a tick.
 
 ### D2. A DELETE policy scoped to prunable deltas
 
@@ -76,8 +80,9 @@ nothing.
   owner's own prunable Runs and only inside a transaction that set the cutoff;
   an integration test proves another owner's rows and every non-delta event are
   undeletable.
-- [Long deletes hold locks] → Batches are bounded per tick; a backlog drains
-  over successive ticks.
+- [Long deletes hold locks] → Every `DELETE` is bounded by event rows, not by
+  Runs, and a tick stops at its row budget; a Run with a very long delta
+  history drains over successive statements and ticks.
 - [The discovery function lists Runs across tenants] → It returns only
   identifiers, as P3 allows, and `app` holds EXECUTE; the cutoff is clamped to
   at least one day in the past inside the function, so a caller cannot widen
