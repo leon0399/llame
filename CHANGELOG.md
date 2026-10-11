@@ -6,8 +6,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move
   dialogs', the rail's pinned section's, and the chat page's markdown loading,
-  model, permission mode and message target rendering tests out of jsdom and
-  into `org-tree.stories.tsx`, `members-panel.stories.tsx`,
+  model, permission mode, message target and compaction rendering tests out of
+  jsdom and into `org-tree.stories.tsx`, `members-panel.stories.tsx`,
   `command-palette.stories.tsx`, `share-chat-dialog.stories.tsx`,
   `chat-item-dialogs.stories.tsx`, `project-dialogs.stories.tsx`,
   `org-unit-dialogs.stories.tsx`, `app-sidebar-pinned.stories.tsx`, and
@@ -73,7 +73,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   error, a dropped connection or Stop keeps the sent-draft route and probes
   for the run. Replies stream through the AI SDK's own UI message stream
   encoder. A rejected send stays in `chat-page.target.test.tsx`, because the
-  real `useChat` never rejects one.
+  real `useChat` never rejects one. The chat page stories now also cover the
+  context compaction boundary (after the summarized turns, on top of an
+  all-later window, at the bottom of an all-summarized one, and appearing
+  without a reload once a finished reply re-reads the compacted history), the
+  model switch boundary before its triggering message, server context parts
+  that never print into the transcript (even from an unknown producer), the
+  System prompt receipt on a same-model reply, and `#msg-N` anchors only on
+  saved messages. Rendered under the real chat header, they show each reply's
+  start and a live Workspace entry refreshing the header's Workspace, while a
+  past entry refreshes nothing. This completes the `chat-page.*` suites, and
+  `chat-page.compaction.test.tsx` is gone. Its scroll-call check was dropped:
+  the target does not stay in view in a real browser (#1237).
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
