@@ -162,7 +162,7 @@ export function CreateOrgUnitDialog({
         {parent && <OrgUnitTypePicker type={type} onTypeChange={setType} />}
         <ApiErrorMessage error={mutation.error} />
         <DialogSubmitFooter
-          onCancel={() => onOpenChange(false)}
+          onCancel={() => onDialogOpenChange(false)}
           onSubmit={submit}
           submitLabel="Create"
           submitDisabled={!name.trim() || mutation.isPending}

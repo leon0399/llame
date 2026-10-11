@@ -1,6 +1,10 @@
+import { useState } from "react";
+
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test";
 import { vi, type Mock } from "vitest";
+
+import { Button } from "@workspace/ui/components/button";
 
 import type { OrgUnitResponse } from "@/lib/services/org-units/types";
 import {
@@ -203,6 +207,57 @@ export const CreateCancel: Story = {
     await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
 
     await expect(args.onOpenChange).toHaveBeenCalledWith(false);
+    await expect(fetchMock).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * Stands in for the organization tree's "New organization" button: like the
+ * tree, it keeps the dialog mounted between opens and opens it through its own
+ * state.
+ */
+function NewOrganizationFromTree() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>New organization</Button>
+      <CreateOrgUnitDialog open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
+
+/** Open the tree's "New organization" dialog and wait for it to show. */
+async function openFromTree(canvasElement: HTMLElement) {
+  await userEvent.click(
+    within(canvasElement).getByRole("button", { name: "New organization" }),
+  );
+  return openedDialog("New organization");
+}
+
+/** Cancel the open dialog and wait for it to close. */
+async function cancelOpenDialog() {
+  const dialog = within(screen.getByRole("dialog"));
+  await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+}
+
+/**
+ * Reopening the dialog after Cancel starts from an empty name: a cancelled
+ * draft is gone, as it is after Escape.
+ *
+ * @summary new organization: reopening after Cancel starts from a blank name
+ */
+export const CreateReopenAfterCancel: Story = {
+  tags: ["ai-generated"],
+  render: () => <NewOrganizationFromTree />,
+  play: async ({ canvasElement }) => {
+    let dialog = await openFromTree(canvasElement);
+    await userEvent.type(dialog.getByLabelText("Name"), "Draft Co");
+    await cancelOpenDialog();
+
+    dialog = await openFromTree(canvasElement);
+
+    await expect(dialog.getByLabelText("Name")).toHaveValue("");
     await expect(fetchMock).not.toHaveBeenCalled();
   },
 };

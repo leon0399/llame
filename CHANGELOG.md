@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-11
 
+- Fixed the admin organization tree's "New organization" dialog keeping a
+  cancelled name: reopening it after Cancel now starts from an empty field, as
+  it already did after Escape.
+
 - Fixed explicit `$skill` activation loading a skill's instructions and
   imported package files when `read` is not in `tools.allowed` (#1264).
   Activation now loads nothing without `read`, in `default` and `bypass`
