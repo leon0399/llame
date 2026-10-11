@@ -86,15 +86,47 @@ D7, D8, D9, and D11:
   targets, decode the image with the upload pipeline and store nothing. Their result carries no
   `media` field (R1.3, R1.6).
 - The worker keeps each such decoded model variant in the reading attempt's memory only, keyed by
-  tool call id or prompt-import entry, and only while the epoch window admits it. Later steps of
-  that attempt attach it under the unchanged epoch window. Any other request on a vision model gets
-  `[image <locator> W×H, not retained]`, with `<locator>` a JSON string
-  literal (R1.4); a text-only model gets the omitted placeholder.
+  tool call id or prompt-import entry, and only while the epoch window attaches it (R2.3). Later
+  steps of that attempt attach it under the unchanged epoch window. Any other request on a vision
+  model gets `[image <locator> W×H, not retained]`, with `<locator>` a JSON string literal (R1.4); a
+  text-only model gets the omitted placeholder.
 - Each unstored image result or prompt-import entry stores a display-only WebP `thumbnail` data URL
   that never reaches a model (R1.5). The read tool card and prompt-import chip render it, and the
   lightbox shows it as a single-variant slide (R1.7).
 - Owner attachments, the `/model` routes, the composer, the Chat Completions transport, and the epoch
   window mechanics are unchanged (R1.8).
+
+### R2 revision: simplifications
+
+Leo confirmed a second set of decisions on 2026-10-11, after a grilling round of its own, numbered
+R2.1–R2.15 below. They apply on top of R1 and rewrite parts of D2, D6, D8, D9, D10, and D11:
+
+- Unstored thumbnails stay inline in the tool part and the prompt-import payload, and the
+  `tool.completed` run event keeps its copy (R2.1, R2.12). A thumbnail is one encode: alpha
+  flattened onto white, fit within 256 px without enlargement, WebP quality 60. When its data URL
+  exceeds 65,536 characters, nothing is stored: a tool result has no `thumbnail` key, an import
+  entry keeps `width`, `height`, and `mediaType`, and the web client shows a dimensions-only tile.
+  The quality ladder and edge halving are gone (R2.2).
+- Attempt memory holds the model variant whenever the attempt's model declares `image` input,
+  counting nothing at hold time. The composer releases the bytes of every unstored reference the
+  epoch window does not attach, so after each compose the retained bytes are those the window
+  attached, at most 24 MiB of base64. The held-without-bytes window state is gone (R2.3).
+- A placeholder locator is plain `JSON.stringify(locator)`, with no further escapes (R2.4).
+- `conversation_read` and title lines are `[image media://<id> <name>]`, rendered from the stored
+  file part's `filename` alone, with no descriptor lookup, dimensions, or unavailable form (R2.5).
+- The lightbox is a shadcn `Dialog` over the clicked row only: a message's attachments, a `read`
+  result's image, a prompt-import chip, or the composer's uploaded tiles. Each slide has one source,
+  the `/original` route for a stored image and the inline thumbnail for an unstored one, with no
+  variant toggle and no descriptor fetch. Zoom toggles between fit and natural size (R2.6, R2.7,
+  R2.13, R2.14).
+- Composer tiles keep add order, with no reordering (R2.8). Under a text-only model the attach
+  picker is disabled, and a refused paste or drop shows a toast (R2.9).
+- On Chat Completions wires, each moved tool-result image is preceded by the label
+  `Image from <toolName> <JSON locator>:`, and the tool message keeps only its text envelope
+  (R2.15).
+- Overflow-triggered compaction and the model-variant encode ladder stay (R2.10, R2.11).
+- `models[].maxImages`, a resize or coordinate note, a 200 px minimum edge, `variant_version`, HEIC,
+  and crop on read are deferred to follow-up issues.
 
 ### D1: Postgres metadata and blob tables under RLS (Q1, R1.1)
 
@@ -139,10 +171,9 @@ both blobs in one short transaction, after all decoding and encoding. A pooled c
 
 A read or prompt import of an image that is not `media://` runs steps 1–4 in the worker (the header
 check of `prepareMedia` plus the model-variant derivation) and writes nothing. It also encodes the
-display-only thumbnail from the model variant: WebP, longest side at most 256 px, quality 70, and
-lower qualities until the data URL is at most 64 KiB (65,536 characters), halving the longest side
-when quality 1 is still over the cap (lossless WebP alpha can be); a screenshot thumbnail is
-typically under 20 KB.
+display-only thumbnail from the model variant in one pass: alpha flattened onto white, resized to fit
+256 px on the longest side without enlargement, WebP quality 60. When the data URL exceeds 64 KiB
+(65,536 characters), no thumbnail is stored (R2); a screenshot thumbnail is typically under 20 KB.
 
 The original keeps its EXIF, because it is only ever served to its owner; only the model variant leaves
 llame. Bounds are code constants; no deployment needs different values yet (Q14).
@@ -255,20 +286,19 @@ images (below). For each step:
 
   `<subject>` is `media://<id> <name>` for a stored object, with `name` its single-line source
   label, and the submitted locator for an unstored image: the `read` path the model gave, or the
-  import marker's locator the owner wrote. That `<locator>` is a JSON string literal:
-  `JSON.stringify` of the locator, with U+007F–U+009F, U+2028, U+2029, `<`, and `>` also written as
-  `\uXXXX`, and never truncated, for example
+  import marker's locator the owner wrote. That `<locator>` is a JSON string literal, exactly
+  `JSON.stringify` of the locator with no further escapes (R2.4), and never truncated, for example
   `[image "app/[slug]/shot.png" 1600×900, not retained]`. The source-label
   rules would rewrite `[slug]` to `(slug)`, mangle `http://[::1]/x.png`, and cut long paths, so a
   re-read or a summary copying the placeholder would name a different file. The literal is one line,
-  cannot close the placeholder early, and contains no tag form, while `JSON.parse` returns the exact
-  locator. The dimensions are the original's. No placeholder directs the model to read the image
-  again: a compaction request, the step at the step cap, and a Run whose `tools.allowed` omits
-  `read` cannot act on such a directive, and the `read` tool description already tells the model
-  that an image read outside `media://` must be read again in a later turn. The not-retained form
-  names the exact locator, so a model that can `read` re-reads it. `conversation_read` and title lines keep the
-  bare `[image media://<id> <name> <width>×<height>]` form, which states no cause; they render owner
-  attachments only.
+  because `JSON.stringify` escapes LF, CR, and every other C0 control, and its closing quote bounds
+  it, while `JSON.parse` returns the exact locator. The dimensions are the original's. No
+  placeholder directs the model to read the image again: a compaction request, the step at the step
+  cap, and a Run whose `tools.allowed` omits `read` cannot act on such a directive, and the `read`
+  tool description already tells the model that an image read outside `media://` must be read again
+  in a later turn. The not-retained form names the exact locator, so a model that can `read` re-reads
+  it. `conversation_read` and title lines use the bare `[image media://<id> <name>]` form (D9),
+  which states no cause; they render owner attachments only.
 
   Naming the cause follows the harnesses that handle non-vision models in source:
 
@@ -283,9 +313,13 @@ images (below). For each step:
 
 - **Chat Completions wires.** On `openai-completions` and `opencode-go`, a tool output's image cannot
   travel in the tool message: the adapter would serialize it as text. A tool message whose image is
-  sent as an image part (attached, vision model) carries its text and the line
-  `(image attached below)`, and the images of consecutive tool results follow in one synthetic user
-  message `Images from tool results:`, as OMP does. Every other tool message keeps its placeholder.
+  sent as an image part (attached, vision model) keeps only its text envelope, or, if that would be
+  empty, a line saying the image follows in the next message. The images of consecutive tool
+  results follow in one synthetic user message headed `Images from tool results:`, as OMP does, each
+  preceded by the label `Image from <toolName> <locator>:`, with `<locator>` the JSON string literal
+  of the submitted locator, or of `media://<id>` for a `media://` read, so the model can tell which
+  image answers which call (R2.15). Request-size estimates count the header and labels as text.
+  Every other tool message keeps its placeholder.
 
 **Attempt-scoped retention (R1.4).** The worker keeps an entry for every unstored image read or
 imported in an attempt, keyed by tool call id or prompt-import entry, in that attempt's memory only,
@@ -296,17 +330,16 @@ retry attach what a retry on another worker cannot, so the request would depend 
 claimed the attempt; canonical per-attempt state already lives "only in the active attempt's
 memory" (`tool-calling`).
 
-An entry keeps the decoded model variant (bytes, media type, model width and height) only when the
-attempt's model declares `image` input and the epoch window admits the reference as it enters the
-attempt's requests: a `read` before the next step's request is composed, in tool-call order, and a
-prompt import when the attempt's first request is composed, after any compaction, so an import that
-triggered overflow compaction is admitted into the new epoch. Otherwise the entry keeps only what its
-placeholder needs (locator and original dimensions). Admission is append-only within an
-attempt and compaction never runs inside one, so a reference the window refuses at entry can never
-be attached later in that attempt, and a text-only model always gets the omitted form; keeping its
-bytes would buy nothing. The retained variants of one attempt therefore never exceed the window's
-24 MiB of base64, however many steps it runs, although `maxSteps` defaults to no cap and several
-attempts share one worker process.
+An entry keeps the decoded model variant (bytes, media type, model width and height) whenever the
+attempt's model declares `image` input, and otherwise only what its placeholder needs (locator and
+original dimensions); holding it counts nothing (R2.3). The composer applies the epoch window at
+every compose and releases the bytes of each unstored reference the window does not attach.
+Admission is append-only within an attempt and compaction never runs inside one, so a reference the
+window leaves unattached is never attached later in that attempt and its bytes would buy nothing. A
+prompt import is first composed in the attempt's first request, after any compaction, so an import
+that triggered overflow compaction is admitted into the new epoch. After each compose, the retained
+variants of one attempt are those the window attached, at most 24 MiB of base64, however many steps
+it runs, although `maxSteps` defaults to no cap and several attempts share one worker process.
 
 A later turn, a new attempt, a compaction request, and a fork hold no entry, so a vision model gets
 the not-retained placeholder there. A text-only model still gets the omitted form, which takes
@@ -335,14 +368,13 @@ current attempt), attachable image references are attached oldest first in reque
 bounds hold: at most 100 images and at most 24 MiB of summed base64 model variants. A variant's
 base64 size is `4 × ceil(byteSize / 3)`, from the descriptor's `model.byteSize` for a stored object
 and from the retained variant's byte length for an unstored image, so the sum is known before any
-bytes load; the dimension-based token estimate above plays no part in it. Attachable means
-a resolvable `media://` reference or an unstored image the attempt's memory holds an entry for; an
-entry without bytes marks where the window stopped, and not-retained and unavailable references
-never count. The first reference that would exceed either bound, and every
-newer one in that epoch, is not attached. Admission is append-only, so a new turn or a new step never
-changes whether an earlier image is attached, and the request prefix stays byte-identical for
-provider prompt caching. Anthropic invalidates cached message blocks when images are added or
-removed anywhere in the prompt
+bytes load; the dimension-based token estimate above plays no part in it. Attachable means a
+resolvable `media://` reference or an unstored image the attempt's memory holds an entry for;
+not-retained and unavailable references never count. The first reference that would exceed either
+bound, and every newer one in that epoch, is not attached. Admission is append-only, so a new turn
+or a new step never changes whether an earlier image is attached, and the request prefix stays
+byte-identical for provider prompt caching. Anthropic invalidates cached message blocks when images
+are added or removed anywhere in the prompt
 ([prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)).
 
 R1 adds two exceptions, both at an attempt boundary: when an attempt ends, and when a new attempt
@@ -414,10 +446,10 @@ has no `media` field and no `media://` id. The image itself reaches the model th
 attempt only. A model without `image` input receives the same envelope plus the omitted placeholder
 naming the read's locator.
 
-The tool part stores the envelope plus a display-only `thumbnail` (D2), which `toModelOutput` and
-the replay envelope strip. It is excluded from the observation budgets and the result truncation
-cap and is never accepted from a client. Shares and public forks already strip tool parts, so no
-thumbnail leaves the owner.
+The tool part stores the envelope plus a display-only `thumbnail` when one fits its cap (D2), which
+`toModelOutput` and the replay envelope strip. It is excluded from the observation budgets and the
+result truncation cap and is never accepted from a client. Shares and public forks already strip
+tool parts, so no thumbnail leaves the owner.
 
 A `media://` read is unchanged by R1: it stores nothing, returns the stored object with
 `media: "media://<id>"`, carries no `thumbnail`, and replays from the store in later turns. It is
@@ -440,7 +472,7 @@ store with screenshots nobody uploaded, gave them ids that outlived their source
 provenance, URL label stripping, and a system-read origin on `ToolContext` only to record where an
 image came from.
 
-### D8: Prompt-import images (Q9, R1.6)
+### D8: Prompt-import images (Q9, R1.6, R2.2)
 
 An admitted prompt-import target whose native `read` returns an image becomes an image entry in the same
 `prompt-imports` item, followed in the request by the image part or placeholder from D6. Image entries
@@ -449,34 +481,38 @@ bound, which measures the item's text. The entry body is the image result envelo
 returns, so "Imported results equal native read output" holds unchanged.
 
 A local, `kb://`, `skill://`, or web target is not stored. Its entry's private payload records the
-display-only `thumbnail` with the original's `width`, `height`, and `mediaType`, which the lightbox
-caption needs and the payload otherwise lacks, and no `media` key; the importing attempt's memory
-keeps the image under that item entry, so the importing attempt attaches it when the window admits
-it, and every later request, including a retry or resume as a new attempt on any worker, gets the
-not-retained placeholder on a vision model and the omitted placeholder on a text-only one. Recovery
-reuses the persisted entry without rereading, as for a text result. An `@media://<id>` target
-records `media: "media://<id>"` alone instead and replays from the store in every later turn.
+original's `width`, `height`, and `mediaType`, which the lightbox caption needs and the payload
+otherwise lacks, the display-only `thumbnail` when one fits its cap (D2), and no `media` key; the
+importing attempt's memory keeps the image under that item entry, so the importing attempt attaches
+it when the window admits it, and every later request, including a retry or resume as a new attempt
+on any worker, gets the not-retained placeholder on a vision model and the omitted placeholder on a
+text-only one. Recovery reuses the persisted entry without rereading, as for a text result. An
+`@media://<id>` target records `media: "media://<id>"` alone instead and replays from the store in
+every later turn.
 
 The payload validator (`isPromptImportsPayloadEntry` in `apps/api/src/chats/prompt-imports-item.ts`,
-an exact-key check) accepts two image forms: `thumbnail` (a `data:image/webp;base64,` URL within the
-64 KiB cap) together with `width` and `height` (positive integers) and `mediaType` (`image/png`,
-`image/jpeg`, `image/gif`, or `image/webp`), all four or none; or `media` alone. The web client's own
-exact-key check (`isPromptImportEntry` in `apps/web/lib/services/chat/history.ts`) must accept the
-same forms, or the owner chip disappears for the whole item. The Migration Plan states the rollback
-consequence for such items. The owner chip renders `thumbnail` directly and opens a `media` entry
-from the `/model` route. This delta ADDs six requirements to the `prompt-imports` capability: image
-entries, their attempt-scoped model delivery, their private `thumbnail` or `media` payload record,
-its validation, keeping it from the model, and `media://` as a prompt-import target. It does not
-restate that capability's requirements.
+an exact-key check) accepts two image forms: `width` and `height` (positive integers) and
+`mediaType` (`image/png`, `image/jpeg`, `image/gif`, or `image/webp`), all three together, with or
+without `thumbnail` (a `data:image/webp;base64,` URL within the 64 KiB cap); or `media` alone. The
+web client's own exact-key check (`isPromptImportEntry` in `apps/web/lib/services/chat/history.ts`)
+must accept the same forms, or the owner chip disappears for the whole item. The Migration Plan
+states the rollback consequence for such items. The owner chip renders `thumbnail` directly, shows a
+dimensions-only tile for an unstored entry without one, and loads a `media` entry from the `/model`
+route. This delta ADDs six requirements to the `prompt-imports` capability: image entries, their
+attempt-scoped model delivery, their private `thumbnail` or `media` payload record, its validation,
+keeping it from the model, and `media://` as a prompt-import target. It does not restate that
+capability's requirements.
 
-### D9: Text-only projections (Q16)
+### D9: Text-only projections (Q16, R2.5)
 
-- `conversation_read` renders the message's visible text exactly as today, then one line per media
-  reference, `[image media://<id> <name> <width>×<height>]`. Search line coordinates are unaffected
-  because search indexes only the text that precedes those lines.
-- Title generation receives the same placeholder lines after the titled turn's message text (the
-  existing path titles from the Run's triggering message, `run-execution.service.ts:3607`), so an
-  image-only prompt can still be titled.
+- `conversation_read` renders the message's visible text exactly as today, then one line per owner
+  file part, `[image media://<id> <name>]`, with `<name>` the part's stored `filename` passed
+  through the source-label rules. The line comes from the stored part alone: no media lookup, no
+  dimensions, and no unavailable form, so it discloses nothing beyond the owner's own part. Search
+  line coordinates are unaffected because search indexes only the text that precedes those lines.
+- Title generation receives the same lines after the titled turn's message text (the existing path
+  titles from the Run's triggering message, `run-execution.service.ts:3607`), so an image-only prompt
+  can still be titled.
 - Compaction sends the prepared prefix exactly as the Run would (D6, projected for the compaction
   model's own `input`), so unstored images in the prefix appear as their not-retained or omitted
   placeholder. The summarization instruction tells the summarizer to keep every image locator it
@@ -489,7 +525,7 @@ restate that capability's requirements.
 - Search indexes nothing from images; the recency digest keeps its rule that a first message without
   text renders no excerpt; public shares and shared forks omit file parts and keep text.
 
-### D10: Composer and message thumbnails (Q19)
+### D10: Composer and message thumbnails (Q19, R2.8, R2.9)
 
 Inside the existing input card, above the textarea, a row of square `rounded-xl` thumbnails; the
 composer, toolbar, and bubble designs are otherwise unchanged. Paste (Ctrl/Cmd+V with image clipboard
@@ -497,38 +533,43 @@ items), the file picker, and drag-and-drop all upload immediately through `POST 
 
 - **Upload states.** A thumbnail shows a progress overlay while uploading, and an error overlay with
   retry when the upload fails. Send stays disabled while any upload is in flight.
-- **Remove and reorder.** Remove (`×`) appears on hover and focus. Thumbnails reorder by drag, or with
-  `Alt+←/→` when focused. At most 10 per message.
-- **Text-only model.** Attaching is blocked with the message "`<model label>` has no image input".
-  Thumbnails already attached keep their order, and send stays disabled until a vision model is
-  selected or the images are removed.
+- **Remove.** Remove (`×`) appears on hover and focus. Thumbnails keep the order they were added in;
+  there is no reordering. At most 10 per message.
+- **Text-only model.** The attach picker is disabled, and a pasted or dropped image is refused with
+  the app's existing `toast()`: "`<model label>` has no image input". Thumbnails already attached
+  stay, and send stays disabled, with the same reason inline, until a vision model is selected or the
+  images are removed.
 - **Sent messages.** The same thumbnails appear read-only above the user bubble, loaded from the
   `/model` route as `<img loading="lazy">`.
 
-### D11: Lightbox (Q10, Q20, Q21, R1.7)
+### D11: Lightbox (Q10, Q20, Q21, R1.7, R2.6, R2.7, R2.13, R2.14)
 
-`yet-another-react-lightbox` with its Zoom plugin, wrapped once in `packages/ui` and themed with
-semantic tokens. It is MIT-licensed and handles pinch zoom, keyboard navigation, swipe, and focus
-trapping. Its Zoom plugin defaults do not meet the requirement: `scrollToZoom` is `false` (a plain
-wheel pans) and `maxZoomPixelRatio` is `1` (an image already at natural size cannot zoom). The wrapper
-sets `scrollToZoom: true` and `maxZoomPixelRatio: 8`. Clicking any thumbnail opens it.
+A wide variant of the existing shadcn `Dialog` (`packages/ui/src/components/dialog.tsx`, with its
+`DialogContent` and `DialogOverlay`), sized to the image at about `max-w-[90vw] max-h-[90vh]`, the
+image `object-contain`. The dialog brings focus trapping, the close button, and `Escape` with focus
+return; ghost icon `Button`s move to the previous and next slide, as do `ArrowLeft` and
+`ArrowRight`; the caption sits under the image. Zoom is a toggle, by clicking the image or a button,
+between fit and natural size; at natural size the panel scrolls natively to pan.
 
-- **Slides.** Every image in the chat in transcript order: owner attachments, images returned by `read`
-  (the read tool card shows a thumbnail), and prompt-import images. Arrow keys move between them.
-- **Composer.** Opened from the composer, the lightbox spans the unsent thumbnails only.
-- **Stored images.** Owner attachments and `media://` reads or imports keep both variants: a
-  segmented control switches between `original` and `model`, and the caption shows the shown
-  variant's dimensions and format and the `media://` locator.
-- **Unstored images.** A `read` or prompt-import image without `media` is a single-variant slide
-  showing its `thumbnail`, with no toggle and the caption `W×H FORMAT · <locator>`: the dimensions
-  and format from the result, and as plain text the same locator its placeholders name, the one the
+- **Slides.** The images of the clicked row only: a message's attachments, a `read` result's image,
+  a prompt-import chip's image entries, or the composer's uploaded thumbnails. A composer thumbnail
+  that is uploading or failed, and an unstored image without a `thumbnail` (a dimensions-only tile),
+  do not open it.
+- **One source per slide.** A stored image loads `/api/v1/media/<id>/original`; an unstored image
+  shows its inline `thumbnail`. There is no variant toggle and no descriptor fetch; the descriptor
+  route itself stays.
+- **Caption.** `W×H FORMAT · <locator>` where the row already has the original's dimensions and
+  format without a fetch: a `read` result, an unstored import entry's payload, or a composer
+  thumbnail's upload descriptor. Sent attachments and `media://` import entries show `media://<id>`
+  alone. An unstored image's locator is, as plain text, the one its placeholders name, the one the
   model submitted to `read` (the tool call's input) or the owner wrote in the import marker (the
   payload entry's `locator`), not the result's resolved `path`. The read tool card and the
   prompt-import chip render the same `thumbnail` as `<img src="data:...">`.
 - **No provenance.** No caption shows a provenance (R1.1).
 
-Rejected: a hand-built viewer on the Base UI Dialog with `react-zoom-pan-pinch`, which would rebuild
-navigation, preloading, and zoom reset.
+Rejected: `yet-another-react-lightbox` (the approved design), whose chat-wide gallery needed
+occurrence parsing, a chat-level lightbox context, and per-image descriptor fetches for a variant
+toggle; the shared `Dialog` covers one row's images with no new dependency.
 
 ## Risks / Trade-offs
 
@@ -541,8 +582,9 @@ navigation, preloading, and zoom reset.
   model to read such an image again, which attaches it in that Run; an image the owner wants kept
   is uploaded instead.
 - [Thumbnails in stored parts] Each unstored image adds up to 64 KiB of data URL to its tool part or
-  prompt-import payload → capped, excluded from every model budget, and stripped from every model
-  request.
+  prompt-import payload, and again to the `tool.completed` run event's copy → capped, omitted
+  rather than degraded when over the cap, excluded from every model budget, and stripped from every
+  model request.
 - [Database growth] Originals up to 20 MiB live in Postgres and `pg_dump` grows with them → the
   metadata/blob split makes a later object-storage move a data migration with no part rewrite; the
   operator runbook states the growth and backup cost.

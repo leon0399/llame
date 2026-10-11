@@ -31,8 +31,8 @@ original's `mediaType`, `width`, and `height`, and the source's existing attribu
 
 Only a `media://` read's image result SHALL carry `media`, the stored object's locator. Every other
 image result SHALL carry no `media` field and no `media://` locator, and SHALL be stored in its tool
-output with the display-only `thumbnail` that `media-attachments` defines, which never reaches the
-model.
+output with the display-only `thumbnail` that `media-attachments` defines when one fits its cap,
+which never reaches the model.
 
 #### Scenario: An unstored image result carries a thumbnail and no locator
 

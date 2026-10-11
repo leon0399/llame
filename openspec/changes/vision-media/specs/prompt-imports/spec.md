@@ -100,10 +100,10 @@ placeholder for a model that declares `image` input and the omitted placeholder 
 ### Requirement: Image entries record a thumbnail or a media locator privately
 
 Each image entry's private payload entry SHALL record outcome `imported` and one of two forms. An
-entry imported without being stored SHALL carry `thumbnail`, the display-only thumbnail that
-`media-attachments` defines, together with the original's `width`, `height`, and `mediaType`. An
-entry imported from a `media://` target SHALL carry `media: "media://<id>"` and none of those four
-keys. A client SHALL never supply any of these keys.
+entry imported without being stored SHALL carry the original's `width`, `height`, and `mediaType`,
+together with `thumbnail`, the display-only thumbnail that `media-attachments` defines, when one
+fits its cap. An entry imported from a `media://` target SHALL carry `media: "media://<id>"` and
+none of those four keys. A client SHALL never supply any of these keys.
 
 #### Scenario: The payload records an unstored image's thumbnail and dimensions
 
@@ -111,6 +111,13 @@ keys. A client SHALL never supply any of these keys.
 - **THEN** its private payload entry records outcome `imported`, a `thumbnail` that is a
   `data:image/webp;base64,` URL, `width` 1600, `height` 900, and `mediaType` `image/png`
 - **AND** it records no `media` key
+
+#### Scenario: An unstored image over the thumbnail cap keeps its dimensions
+
+- **WHEN** `@/repo/noise.png` is imported as an image whose thumbnail would exceed its cap
+- **THEN** its private payload entry records outcome `imported`, `width`, `height`, and `mediaType`,
+  and no `thumbnail`
+- **AND** both payload validators accept it
 
 #### Scenario: The payload records a stored image's media locator
 
@@ -122,9 +129,9 @@ keys. A client SHALL never supply any of these keys.
 
 The payload validators SHALL accept `thumbnail` only as a `data:image/webp;base64,` URL within the
 thumbnail size cap, `width` and `height` only as positive integers, and `mediaType` only as
-`image/png`, `image/jpeg`, `image/gif`, or `image/webp`. They SHALL require those four keys together
-whenever any of them is present, and SHALL reject an entry carrying `media` with any of them like any
-other malformed entry.
+`image/png`, `image/jpeg`, `image/gif`, or `image/webp`. They SHALL require `width`, `height`, and
+`mediaType` together whenever any of the four keys is present, SHALL accept those three with or
+without `thumbnail`, and SHALL reject an entry carrying `media` with any of the four as malformed.
 
 #### Scenario: A malformed image entry is rejected
 
@@ -135,13 +142,13 @@ other malformed entry.
 #### Scenario: An unstored image entry without its dimensions is rejected
 
 - **WHEN** a stored payload entry carries `thumbnail` but lacks `width`, `height`, or `mediaType`,
-  or carries `width`, `height`, or `mediaType` without `thumbnail`
+  or carries only some of `width`, `height`, and `mediaType`
 - **THEN** both payload validators reject that payload as malformed
 
 #### Scenario: Out-of-range image entry fields are rejected
 
-- **WHEN** a stored payload entry carries `thumbnail` with `width` 0, a non-integer `height`, or
-  `mediaType` `image/svg+xml`
+- **WHEN** a stored payload entry carries `width` 0, a non-integer `height`, or `mediaType`
+  `image/svg+xml`
 - **THEN** both payload validators reject that payload as malformed
 
 #### Scenario: A media entry with dimensions is rejected

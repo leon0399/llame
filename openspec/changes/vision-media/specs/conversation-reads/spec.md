@@ -7,13 +7,12 @@ The system SHALL define one stable visible-message text view as the exact stored
 The visible view SHALL include eligible `user` messages and immutable eligible `assistant` messages only. System/tool-role messages, context-item parts, reasoning parts, tool parts, attachments, cap notices, and every other non-text part SHALL contribute no bytes. Interleaved excluded parts SHALL NOT change the visible order of retained text values.
 
 `conversation_read` SHALL follow a message's visible text with one image placeholder line per owner
-`file` part of that message, in stored part order: `[image media://<id> <name> <width>×<height>]`,
-where `<name>` is the media object's stored source label and `<width>×<height>` are the original
-image's dimensions.
+`file` part of that message, in stored part order: `[image media://<id> <name>]`, where `<name>` is
+the part's stored `filename` passed through the single-line source-label rules `media-store`
+defines, and `[image media://<id>]` for a part without a `filename`.
 
-Each reference SHALL be resolved under the trusted Run owner's scope only; a reference that does not
-resolve there SHALL render `[image media://<id> unavailable]` and disclose no other owner's label,
-dimensions, or existence.
+Each line SHALL be rendered from the stored part alone: the reader SHALL look up no media object for
+it, so a line discloses nothing beyond the owner's own stored part.
 
 Placeholder lines SHALL NOT be part of the visible text view: they SHALL NOT be line-numbered, SHALL
 NOT count toward `offset`, `lineCount`, `nextOffset`, or the line bounds, and SHALL NOT enter the
@@ -49,10 +48,10 @@ or placeholder line.
 #### Scenario: Image placeholders follow the visible text
 
 - **WHEN** an eligible user message stores text part `look at these` and two owner `file` parts
-  referencing `media://a` (`shot.png`, 1600×900) and `media://b` (`plan.jpg`, 800×600), in that order
+  referencing `media://a` (`shot.png`) and `media://b` (`plan.jpg`), in that order
 - **AND** the owner reads it from offset zero
 - **THEN** `content` is
-  `1: look at these\n[image media://a shot.png 1600×900]\n[image media://b plan.jpg 800×600]\n`
+  `1: look at these\n[image media://a shot.png]\n[image media://b plan.jpg]\n`
 - **AND** `lineCount` is 1 and the result carries no `nextOffset`
 
 #### Scenario: An image-only message reads as placeholders only
@@ -77,12 +76,13 @@ or placeholder line.
 - **AND** no placeholder line, `media://` locator, or source label enters the projection, lexical
   data, excerpts, or embeddings
 
-#### Scenario: Placeholders resolve only the Run owner's media
+#### Scenario: Placeholder lines need no media lookup
 
-- **WHEN** a stored `file` part of an owner's message names a media id that resolves only under
-  another owner
-- **THEN** `conversation_read` renders `[image media://<id> unavailable]` for it
-- **AND** the result contains no other owner's source label or dimensions
+- **WHEN** a stored `file` part of an owner's message names a media id that does not resolve under
+  that owner, with `filename` `shot.png`
+- **THEN** `conversation_read` renders `[image media://<id> shot.png]` for it without looking up any
+  media object
+- **AND** the result contains no dimensions and no other owner's source label
 
 #### Scenario: Another owner's message with attachments stays not found
 

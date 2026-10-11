@@ -4,7 +4,7 @@ Lets an owner attach stored images to a chat message, defines how every image re
 history reaches a model as an image or as a placeholder, retains unstored tool-read and
 prompt-import images in the reading attempt's memory only, keeps text-only surfaces free of image
 content, and gives the web client composer thumbnails, sent-message thumbnails, inline thumbnails
-for unstored images, and a chat-wide lightbox.
+for unstored images, and a lightbox over the images of one row.
 
 ## ADDED Requirements
 
@@ -143,22 +143,22 @@ SHALL never share memory, a superseded attempt that is still running included.
 - **THEN** the retry attempt's memory holds no entry for that image
 - **AND** the retry's requests carry the same placeholder a retry on another worker would
 
-### Requirement: Attempt memory retains bytes only for admitted images
+### Requirement: Attempt memory retains only the images the window attaches
 
-An entry SHALL hold the model variant's bytes only when the attempt's model declares `image` input
-and the epoch image window admits the reference on entry: a `read` before the next step is composed,
-in tool-call order; a prompt import when the attempt's first request is composed, after any
-compaction. Otherwise it SHALL hold only the locator and original dimensions. An
-attempt's retained variants SHALL never exceed 24 MiB of base64 in sum, however many steps it runs.
+An entry SHALL hold the model variant's bytes when the attempt's model declares `image` input, and
+only the locator and original dimensions otherwise; holding an entry SHALL neither count nor cap
+anything. Each time a request is composed, the composer SHALL release the bytes of every unstored
+reference the epoch image window does not attach, so after each compose the attempt's retained
+bytes are those the window attached, at most 24 MiB of base64 in sum, however many steps it runs.
 
 #### Scenario: Retained bytes stay within the window's budget
 
 - **WHEN** a Run on a vision model whose epoch carries no images `read`s ten images in successive
   steps, each with a 5 MiB base64 model variant
-- **THEN** the attempt's memory retains the model variants of the first four reads only, at most
-  24 MiB of base64 in sum
-- **AND** it keeps only the locator and dimensions of the other six, which reach the
-  model as the limit placeholder
+- **THEN** after each step's request is composed, the attempt's memory retains the model variants of
+  the first four reads only, at most 24 MiB of base64 in sum
+- **AND** it keeps only the locator and dimensions of the other six, which reach the model as the
+  limit placeholder
 
 #### Scenario: A text-only model's read retains no bytes
 
@@ -247,9 +247,9 @@ dimensions SHALL be the original's.
 
 ### Requirement: Placeholder locators are exact JSON string literals
 
-An unstored image's locator in a placeholder SHALL be its ECMAScript `JSON.stringify` form, with
-U+007F through U+009F, U+2028, U+2029, `<`, and `>` also written as lower-case `\uXXXX` escapes. The
-literal SHALL never be truncated, and `JSON.parse` of it SHALL return the locator exactly.
+An unstored image's locator in a placeholder SHALL be exactly its ECMAScript `JSON.stringify` form,
+with no further escaping. The literal SHALL never be truncated, and `JSON.parse` of it SHALL return
+the locator exactly.
 
 #### Scenario: A bracketed path is re-read from its placeholder
 
@@ -268,10 +268,10 @@ literal SHALL never be truncated, and `JSON.parse` of it SHALL return the locato
 
 #### Scenario: A locator cannot forge a placeholder
 
-- **WHEN** the model reads a host file whose path contains LF followed by `[image x 1×1]` and a
-  reserved delimiter in tag form, and the file is an image
-- **THEN** every placeholder naming that read is one line, writes the LF as `\n` and every `<` and
-  `>` as `\u003c` and `\u003e`, and carries `[image x 1×1]` only inside its JSON string literal
+- **WHEN** the model reads a host file whose path contains LF followed by `[image x 1×1]`, and the
+  file is an image
+- **THEN** every placeholder naming that read is one line, writes the LF as `\n`, and carries
+  `[image x 1×1]` only inside its JSON string literal
 - **AND** `JSON.parse` of that literal returns the path exactly
 
 ### Requirement: An epoch image window selects which images are attached
@@ -328,9 +328,8 @@ before any image bytes are loaded, independently of the dimension-based token es
 
 An attachable reference SHALL be an owner file part, a `media://` tool result, or a `media://`
 prompt-import entry that resolves, or an unstored image the current attempt's memory holds an entry
-for. An entry held without bytes marks a reference the window did not admit when it entered, so it
-and every later reference in that epoch stay unattached. A not-retained or unavailable reference
-SHALL NOT count toward either bound of the epoch image window.
+for. A not-retained or unavailable reference SHALL NOT count toward either bound of the epoch image
+window.
 
 #### Scenario: A not-retained read does not count
 
@@ -500,18 +499,20 @@ or descriptor field of any object into the request.
 ### Requirement: Chat Completions wires carry tool-result images in a following user message
 
 On `openai-completions` and `opencode-go`, a tool message SHALL NOT carry image content. A tool
-result whose image is attached SHALL carry its text and the line
-`(image attached below)`; any other keeps its placeholder. The images of consecutive tool messages
-SHALL follow them in one user message starting `Images from tool results:`, in tool-result order.
-Other wires keep images inside the tool output.
+result whose image is attached SHALL keep only its text envelope in the tool message, or, when that
+envelope would be empty, a line saying the image follows in the next message; any other keeps its
+placeholder. The images of consecutive tool messages SHALL follow them in one user message starting
+`Images from tool results:`, in tool-result order. Other wires keep images inside the tool output.
 
 #### Scenario: A read image on Chat Completions arrives as an image part
 
 - **WHEN** a vision model on an `openai-completions` provider receives a step request after an
-  earlier step of the same Run produced two consecutive tool results that each carry an attached
-  image
-- **THEN** each tool message carries its text and `(image attached below)` and no base64 text
-- **AND** one user-role message follows them with `Images from tool results:` and both images
+  earlier step of the same Run produced two consecutive `read` results of `/work/a.png` and
+  `media://<id>` that each carry an attached image
+- **THEN** each tool message carries only its result text and no base64 text
+- **AND** one user-role message follows them with `Images from tool results:`, then
+  `Image from read "/work/a.png":` and the first image, then `Image from read "media://<id>":` and
+  the second image
 
 #### Scenario: A tool-result placeholder stays in the tool message
 
@@ -524,8 +525,22 @@ Other wires keep images inside the tool output.
 - **WHEN** an `openai-completions` model that does not declare `image` has a `read` image result
   within the epoch's bounds in its Run
 - **THEN** its tool message carries the result text and the `omitted: this model has no image input`
-  placeholder, without `(image attached below)`
+  placeholder
 - **AND** no `Images from tool results:` message and no image part is sent
+
+### Requirement: Moved tool-result images are labelled by their locator
+
+In the `Images from tool results:` message, each image SHALL be preceded by the text part
+`Image from <toolName> <locator>:`, where `<locator>` is the JSON string literal of the image's
+locator: the one the model submitted, or `media://<id>` for a `media://` read. Request-size
+estimates SHALL count that header and those labels as text.
+
+#### Scenario: The moved form's labels are sized as text
+
+- **WHEN** a Chat Completions request moves one attached tool-result image into the trailing user
+  message
+- **THEN** its request-size estimate counts `Images from tool results:` and the image's
+  `Image from <toolName> <locator>:` label as text, plus the image's dimension-based charge
 
 ### Requirement: The Chat Completions image transform applies within a Run
 
@@ -577,10 +592,9 @@ attaches.
 ### Requirement: Unstored images carry a display-only inline thumbnail
 
 Each image result without a `media` locator, and each prompt-import image entry without one, SHALL
-be stored with a `thumbnail`: a `data:image/webp;base64,` URL of a WebP derived from the model
-variant, whose longest side is at most 256 px, without upscaling, encoded at quality 70 and at lower
-qualities until the data URL is at most 65,536 characters, and, if it is still over that cap at
-the lowest quality, at a halved longest side until it fits.
+be stored with a `thumbnail` when one fits its cap: a `data:image/webp;base64,` URL of one WebP
+encode of the model variant, its alpha flattened onto white, resized to fit 256 px on its longest
+side without enlargement, at quality 60.
 
 #### Scenario: A large image yields a small thumbnail
 
@@ -588,12 +602,19 @@ the lowest quality, at a halved longest side until it fits.
 - **THEN** the stored tool output's `thumbnail` is a `data:image/webp;base64,` URL of a 256×64 WebP
   of at most 65,536 characters
 
-#### Scenario: A noisy image halves its thumbnail edge
+### Requirement: A thumbnail over its cap is omitted
 
-- **WHEN** the model reads a 256×256 PNG of random RGBA noise, whose WebP is still over 65,536
-  characters at quality 1
-- **THEN** the stored tool output's `thumbnail` is a `data:image/webp;base64,` URL of at most 65,536
-  characters, encoded at a halved longest side
+When the thumbnail's data URL exceeds 65,536 characters, no `thumbnail` SHALL be stored: the tool
+result carries no `thumbnail` key, and a prompt-import entry keeps its `width`, `height`, and
+`mediaType`. The web client SHALL show such an image as a tile with its dimensions only.
+
+#### Scenario: A thumbnail over the cap is omitted
+
+- **WHEN** the model reads a 256×256 PNG of random RGBA noise, whose quality-60 WebP data URL
+  exceeds 65,536 characters
+- **THEN** the stored tool output carries no `thumbnail` key and keeps the result's `mediaType`,
+  `width`, and `height`
+- **AND** the `read` tool card shows a tile with the image's dimensions and no image
 
 ### Requirement: Thumbnails are display-only
 
@@ -615,15 +636,15 @@ forks, which omit tool parts and prompt-import items, SHALL carry no `thumbnail`
 ### Requirement: Title generation receives image placeholders
 
 The title-generation input SHALL be the titled turn's user message text followed by one line per file
-part of that message, in stored order, of the form `[image media://<id> <name> <width>×<height>]`.
-Title generation SHALL receive no image bytes. A message carrying only file parts SHALL produce a
-title input made of those lines.
+part of that message, in stored order, of the form `[image media://<id> <name>]`, rendered from the
+stored part alone as `conversation-reads` defines for its image lines. Title generation SHALL receive
+no image bytes. A message carrying only file parts SHALL produce a title input made of those lines.
 
 #### Scenario: An image-only first message can be titled
 
-- **WHEN** an untitled chat's turn is triggered by a user message carrying one file part for a
-  1600×900 PNG named `shot.png` and no text
-- **THEN** the title-generation input is `[image media://<id> shot.png 1600×900]`
+- **WHEN** an untitled chat's turn is triggered by a user message carrying one file part with
+  `filename` `shot.png` and no text
+- **THEN** the title-generation input is `[image media://<id> shot.png]`
 - **AND** the title request contains no image part
 
 ### Requirement: Compaction requests carry images as a Run would
@@ -740,7 +761,7 @@ The web composer SHALL show attached images as a row of square thumbnails inside
 card, above the textarea, and leave the composer, toolbar, and bubble designs otherwise unchanged.
 Pasting clipboard images, choosing files with the picker, and dropping files SHALL each add one
 thumbnail per image and upload it immediately through `POST /api/v1/media`. On send, the message SHALL
-carry one file part per thumbnail, in thumbnail order, and MAY carry no text.
+carry one file part per thumbnail, in the order the images were added, and MAY carry no text.
 
 #### Scenario: A pasted screenshot uploads immediately
 
@@ -750,7 +771,7 @@ carry one file part per thumbnail, in thumbnail order, and MAY carry no text.
 #### Scenario: An image-only message is sent
 
 - **WHEN** two uploaded thumbnails are attached, the textarea is empty, and the owner sends
-- **THEN** the sent message carries two file parts in thumbnail order and no text part
+- **THEN** the sent message carries two file parts in the order they were added and no text part
 
 ### Requirement: Composer uploads show their state and gate send
 
@@ -770,18 +791,17 @@ any thumbnail is uploading or failed.
 - **THEN** the thumbnail shows an error overlay with a retry action and send is disabled
 - **AND** choosing retry uploads the same file again
 
-### Requirement: Composer thumbnails can be removed and reordered
+### Requirement: Composer thumbnails can be removed
 
 Each composer thumbnail SHALL reveal a remove action on hover and on keyboard focus. Thumbnails SHALL
-reorder by dragging, and by `Alt+ArrowLeft` and `Alt+ArrowRight` while a thumbnail has focus, which
-moves it one position and keeps focus on it. The composer SHALL hold at most 10 thumbnails; images
-added beyond the tenth SHALL NOT be added or uploaded.
+keep the order in which the images were added and SHALL offer no reordering. The composer SHALL hold
+at most 10 thumbnails; images added beyond the tenth SHALL NOT be added or uploaded.
 
-#### Scenario: Keyboard reorder changes sent order
+#### Scenario: Thumbnails keep the order they were added
 
-- **WHEN** thumbnails `A`, `B` are attached, the owner focuses `B`, presses `Alt+ArrowLeft`, and sends
-- **THEN** the thumbnails read `B`, `A` with focus on `B`
-- **AND** the sent message's file parts are in the order `B`, `A`
+- **WHEN** the owner adds images `A` and `B`, removes `A`, adds `C`, and sends
+- **THEN** the thumbnails read `B`, `C`
+- **AND** the sent message's file parts are in the order `B`, `C`
 
 #### Scenario: Remove is reachable by keyboard
 
@@ -796,29 +816,36 @@ added beyond the tenth SHALL NOT be added or uploaded.
 
 ### Requirement: A text-only model blocks image attachments
 
-When the selected model does not declare `image` in its published `input`, the composer SHALL refuse
-paste, picker, and drop attachments and SHALL show `<model label> has no image input`, where the label
-is the model's `name`, or its `id` when it publishes no `name`. Attached thumbnails SHALL keep their
-order, and send SHALL stay disabled until a model declaring `image` is selected or every thumbnail is
-removed.
+When the selected model does not declare `image` in its published `input`, the composer's attach
+picker SHALL be disabled, and a pasted or dropped image SHALL be refused with a toast
+`<model label> has no image input`, where the label is the model's `name`, or its `id` when it
+publishes no `name`. Thumbnails already attached SHALL remain, and send SHALL stay disabled, with
+the same reason shown inline in the composer, until a model declaring `image` is selected or every
+thumbnail is removed.
 
 #### Scenario: Attaching under a text-only model is refused
 
 - **WHEN** the selected model named `Fast Text` declares only `text` input and the owner pastes an
   image
 - **THEN** no thumbnail is added and no upload starts
-- **AND** the composer shows `Fast Text has no image input`
+- **AND** a toast reads `Fast Text has no image input`
+
+#### Scenario: The picker is disabled under a text-only model
+
+- **WHEN** the selected model declares only `text` input
+- **THEN** the composer's attach picker is disabled
 
 #### Scenario: Switching to a text-only model disables send
 
-- **WHEN** two thumbnails are attached and the owner selects a text-only model
-- **THEN** both thumbnails remain in order and send is disabled
+- **WHEN** two thumbnails are attached and the owner selects a text-only model named `Fast Text`
+- **THEN** both thumbnails remain in order, send is disabled, and the composer shows
+  `Fast Text has no image input`
 - **AND** send becomes enabled after a vision model is selected again
 
 ### Requirement: Sent messages show read-only thumbnails
 
 A user message carrying file parts SHALL show the same square thumbnails, in stored order and without
-remove or reorder actions, above the user bubble. Each thumbnail SHALL load the model variant from
+remove actions, above the user bubble. Each thumbnail SHALL load the model variant from
 `GET /api/v1/media/:id/model` lazily. A message without text SHALL show its thumbnails and no empty
 bubble.
 
@@ -841,24 +868,33 @@ data URL, with no media route request; a `media://` result or entry SHALL load i
 - **THEN** the card shows an `<img>` whose `src` is that `thumbnail`
 - **AND** no media route is requested for it
 
-### Requirement: A lightbox spans every image in the chat
+### Requirement: A lightbox spans the images of one row
 
-Activating any image thumbnail, including an attachment, a `read` image result's tool card thumbnail,
-or a prompt-import image, SHALL open a lightbox on that image. Its slides SHALL be every image in the
-chat in transcript order. Opened from the composer, it SHALL span the unsent thumbnails only. It
-SHALL support wheel and pinch zoom, move between slides with the left and right arrow keys, and
-close on `Escape`, returning focus to the thumbnail that opened it.
+Activating an image thumbnail SHALL open a modal lightbox dialog on that image whose slides are the
+images of the same row only, in their row order: a message's attachments, a `read` result's image, a
+prompt-import chip's image entries, or the composer's uploaded thumbnails. A composer thumbnail that
+is still uploading or has failed, and an unstored image shown as a dimensions-only tile, SHALL NOT
+open it.
 
-#### Scenario: Arrow keys cross messages and tool results
+#### Scenario: Navigation stays within the opened row
 
-- **WHEN** a chat has an attachment in its first message and a `read` image result in a later
-  turn, and the owner opens the attachment
-- **THEN** pressing the right arrow key shows the `read` image
+- **WHEN** a message carries attachments `A` and `B`, a later `read` result carries an image, and
+  the owner opens `A`
+- **THEN** pressing the right arrow key shows `B`
+- **AND** no slide of that lightbox shows the `read` image
 
-#### Scenario: The composer lightbox spans unsent thumbnails only
+#### Scenario: The composer lightbox spans uploaded thumbnails only
 
-- **WHEN** the chat already shows sent images and the owner opens an unsent composer thumbnail
-- **THEN** the lightbox slides are the composer's thumbnails only
+- **WHEN** the composer holds two uploaded thumbnails and one still uploading, and the owner opens an
+  uploaded one
+- **THEN** the lightbox slides are the two uploaded thumbnails
+- **AND** the uploading thumbnail does not open the lightbox
+
+### Requirement: The lightbox navigates and closes by keyboard and buttons
+
+Previous and next buttons and the left and right arrow keys SHALL move between the row's slides. The
+dialog SHALL show the image within the viewport with its caption below, and SHALL close from its
+close button or `Escape`, returning focus to the thumbnail that opened it.
 
 #### Scenario: Escape returns focus
 
@@ -866,34 +902,50 @@ close on `Escape`, returning focus to the thumbnail that opened it.
 - **THEN** the lightbox closes
 - **AND** focus returns to that thumbnail
 
-### Requirement: The lightbox toggles a stored image's variants
+### Requirement: The lightbox zooms between fit and natural size
 
-For a stored image (an owner attachment, a `media://` read, or a `media://` prompt import), a
-segmented control SHALL switch the shown image between the `original` and `model` variants, and a
-caption SHALL show the shown variant's dimensions and format and the image's `media://` locator, and
-no provenance.
+A slide SHALL first show the image fitted within the dialog. Clicking the image, or its zoom button,
+SHALL toggle between that fit and the image's natural size; at natural size the dialog's panel SHALL
+scroll natively to pan.
 
-#### Scenario: The variant toggle switches the image and caption
+#### Scenario: A click toggles natural size
 
-- **WHEN** the owner switches the toggle between `original` and `model` on an uploaded 4000×3000
-  JPEG whose model variant is a 2000×1500 PNG
-- **THEN** the shown image loads from the matching `/original` or `/model` route
-- **AND** the caption shows 4000×3000 JPEG for `original` and 2000×1500 PNG for `model`, with the
-  image's `media://` locator
+- **WHEN** the owner opens a 4000×3000 attachment and clicks the image
+- **THEN** the image shows at 4000×3000 and the panel scrolls to pan it
+- **AND** clicking it again fits it within the dialog
 
-### Requirement: An unstored image is a single-variant lightbox slide
+### Requirement: Each lightbox slide shows one image source
 
-An unstored image's slide SHALL show its `thumbnail`, SHALL offer no variant control, and SHALL
-carry the caption `<width>×<height> <FORMAT> · <locator>`, with the original's dimensions and
-format, taken from the `read` result or, for a prompt-import image, from its payload entry's
-`width`, `height`, and `mediaType`, and, as plain text, the locator its placeholders name: the one
-the model submitted to `read` or the owner wrote in the import marker, not the resolved `path`.
+A stored image's slide (an owner attachment, an uploaded composer thumbnail, a `media://` read, or a
+`media://` prompt import) SHALL load `GET /api/v1/media/:id/original`; an unstored image's slide
+SHALL show its `thumbnail`. No slide SHALL offer a variant control or request a media descriptor.
 
-#### Scenario: An unstored read image is a single-variant slide
+#### Scenario: An attachment slide loads its original
+
+- **WHEN** the owner opens a sent message's uploaded attachment `media://<id>`
+- **THEN** the slide loads `/api/v1/media/<id>/original` and requests no descriptor
+- **AND** the caption is `media://<id>` and the slide offers no variant control
+
+#### Scenario: An unstored read image is a thumbnail slide
 
 - **WHEN** the owner opens the image a `read` of `/work/shot.png` returned, a 1600×900 PNG
 - **THEN** the slide shows that result's `thumbnail` and no variant control
 - **AND** the caption is `1600×900 PNG · /work/shot.png`
+
+### Requirement: Lightbox captions name the image's locator
+
+The caption SHALL be `<width>×<height> <FORMAT> · <locator>`, with the original's dimensions and
+format, when the row already carries them (a `read` image result, an unstored prompt-import entry's
+payload, or a composer thumbnail's upload descriptor), and `<locator>` alone otherwise. A stored
+image's locator is `media://<id>`; an unstored image's is, as plain text, the one the model
+submitted to `read` or the owner wrote in the import marker, not the resolved `path`.
+
+#### Scenario: A composer slide captions its upload descriptor
+
+- **WHEN** the owner opens an uploaded composer thumbnail whose upload returned a 1600×900 PNG
+  `media://<id>`
+- **THEN** the slide loads `/api/v1/media/<id>/original`
+- **AND** the caption is `1600×900 PNG · media://<id>`
 
 #### Scenario: A relative locator captions its slide as submitted
 

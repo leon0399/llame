@@ -49,22 +49,22 @@ An image in a tool result SHALL be stored in the tool part as the native image r
 it, and never as the `media-store` media descriptor, image bytes, or base64 model content. Only a
 `media://` read's result names its image by a `media://` locator in `media`; every other image
 result carries no `media` field and is stored with the display-only `thumbnail` that
-`media-attachments` defines. `thumbnail` SHALL be stripped from the model-facing output and from
-every replayed result, SHALL NOT count toward the UTF-16 budgets, and SHALL never be accepted from a
-client. On replay, the result's text SHALL follow the projection above, and the image SHALL become
-provider image content, built at request time, only when the request's model declares `image`
-input, its model variant is available, and the epoch image window defined by `media-attachments`
-attaches that reference. The model variant is available from the media store for a `media://`
-result, and for every other image result only from the memory of the attempt that read it, keyed by
-the tool call id, as `media-attachments` defines. Otherwise the replayed result SHALL carry the image
-placeholder defined by `media-attachments` in its text: an image result the current attempt's memory
-holds no entry for, in a later turn, a retry or resume (a new attempt on any worker), a compaction
-request, or a fork, SHALL replay as the not-retained placeholder for a model that declares `image`
-input and as the omitted placeholder otherwise, and a `media://` reference that does not resolve to
-the Run owner's media SHALL replay as the unavailable placeholder, neither failing the request.
-Image content SHALL NOT count toward the UTF-16 budgets, and an image SHALL replay only together
-with its retained result payload: clearing a payload or dropping a pair also removes its image from
-the request.
+`media-attachments` defines when one fits its cap. `thumbnail` SHALL be stripped from the
+model-facing output and from every replayed result, SHALL NOT count toward the UTF-16 budgets, and
+SHALL never be accepted from a client. On replay, the result's text SHALL follow the projection
+above, and the image SHALL become provider image content, built at request time, only when the
+request's model declares `image` input, its model variant is available, and the epoch image window
+defined by `media-attachments` attaches that reference. The model variant is available from the
+media store for a `media://` result, and for every other image result only from the memory of the
+attempt that read it, keyed by the tool call id, as `media-attachments` defines. Otherwise the
+replayed result SHALL carry the image placeholder defined by `media-attachments` in its text: an
+image result the current attempt's memory holds no entry for, in a later turn, a retry or resume (a
+new attempt on any worker), a compaction request, or a fork, SHALL replay as the not-retained
+placeholder for a model that declares `image` input and as the omitted placeholder otherwise, and a
+`media://` reference that does not resolve to the Run owner's media SHALL replay as the unavailable
+placeholder, neither failing the request. Image content SHALL NOT count toward the UTF-16 budgets,
+and an image SHALL replay only together with its retained result payload: clearing a payload or
+dropping a pair also removes its image from the request.
 
 Visible assistant text and retained tool occurrences SHALL keep their current
 chronology. Because ordinary stored messages do not prove parallel or step

@@ -9,8 +9,9 @@ handed most often ([#935](https://github.com/leon0399/llame/issues/935); web UI 
 ## What Changes
 
 Revision R1 (Leo, 2026-10-11) supersedes the approved proposal where they differ: the media store
-holds owner uploads only, and images read from anywhere but `media://` are never stored. Design
-"R1 revision" lists the decisions.
+holds owner uploads only, and images read from anywhere but `media://` are never stored. Revision R2
+(Leo, 2026-10-11) then simplifies thumbnails, attempt memory, placeholder locators, text projections,
+the composer, and the lightbox. Design "R1 revision" and "R2 revision" list the decisions.
 
 - **Media store.** A Postgres-backed, owner-owned store keeps each uploaded image's original and one
   model variant. Upload ingest uses `sharp`: magic-byte format detection, a 20 MiB and 40-megapixel
@@ -47,31 +48,34 @@ holds owner uploads only, and images read from anywhere but `media://` are never
   - Only `media://` reads resolve a stored upload and replay it from the store in later turns. Every
     other image read is decoded with the upload pipeline and stored nowhere. Its result carries no
     `media` field, and the reading attempt's memory keeps its model variant only while the image
-    window admits it, so one attempt retains at most the window's 24 MiB of base64.
+    window attaches it, so one attempt retains at most the window's 24 MiB of base64.
   - On a vision model, later turns, retries and resumes (new attempts on any worker), compaction,
     and forks get `[image <locator> <w>×<h>, not retained]`, for example
     `[image "app/[slug]/shot.png" 1600×900, not retained]`; a text-only
     model gets the omitted placeholder.
-  - The stored tool part keeps a display-only WebP `thumbnail` data URL of at most 256 px and
-    64 KiB, which never reaches a model.
-  - On Chat Completions wires, tool-result images move into a following user message.
+  - The stored tool part keeps a display-only WebP `thumbnail` data URL, one encode of at most
+    256 px, which never reaches a model and is omitted when over 64 KiB.
+  - On Chat Completions wires, tool-result images move into a following user message, each labelled
+    `Image from <toolName> <locator>:`.
   - Web reads accept those four image types and still refuse PDF and other binary types.
 - **Prompt imports.** An image target of a prompt import marker becomes an image entry in the
   `prompt-imports` item. A local, `kb://`, `skill://`, or web target is attached in the importing
   attempt from memory and carries a `thumbnail`. An `@media://<id>` target keeps its `media` locator
   and replays from the store.
 - **Text projections.**
-  - `conversation_read` and title generation append image placeholders.
+  - `conversation_read` and title generation append `[image media://<id> <name>]` lines, taken
+    from the stored file part alone.
   - Compaction keeps image locators, `media://` or source locator, in its summary.
   - Search, the recency digest, and public shares stay text-only.
-- **Web composer.** Paste, the file picker, and drag-and-drop add thumbnails inside the input card. Each
-  thumbnail shows upload progress and offers retry, remove, and reorder. Attaching is blocked while a
-  text-only model is selected.
+- **Web composer.** Paste, the file picker, and drag-and-drop add thumbnails inside the input card, in
+  the order added. Each thumbnail shows upload progress and offers retry and remove. While a
+  text-only model is selected, the picker is disabled and a pasted or dropped image is refused with
+  a toast.
 - **Sent messages and lightbox.** Sent messages show the thumbnails above the bubble, and the read
-  tool card and prompt-import chip render their inline `thumbnail`. A lightbox
-  (`yet-another-react-lightbox`) opens any image in the chat, with zoom and arrow navigation. Uploads
-  keep an original/model-variant toggle, and unstored images are single-variant slides captioned
-  `W×H FORMAT · <locator>`.
+  tool card and prompt-import chip render their inline `thumbnail`. A lightbox, built on the shared
+  `Dialog`, opens over the images of the clicked row, with arrow navigation and a click toggle
+  between fit and natural size. A stored image shows its original; an unstored image shows its
+  inline thumbnail, captioned `W×H FORMAT · <locator>`.
 
 No breaking configuration or API change: `input` is optional and the message DTO only widens.
 
@@ -89,7 +93,7 @@ From the 2026-10-08 design session, Q1–Q21, recorded on
 - A bounded image window with re-readable placeholders (Q8), frozen per compaction epoch and admitted
   oldest first so it never invalidates the prompt cache between checkpoints (Q22).
 - Image entries inside the `prompt-imports` item (Q9).
-- A chat-wide lightbox that includes images the model read (Q10).
+- A chat-wide lightbox that includes images the model read (Q10), narrowed to one row by R2.
 - A flat `media://<uuidv7>` locator (Q11).
 - Message-level attachments sent before the text (Q12).
 - No deletion of any kind: no automatic collection (Q13), no delete action until the library ships
@@ -98,8 +102,9 @@ From the 2026-10-08 design session, Q1–Q21, recorded on
 - Images only (Q15).
 - Image-only prompts and text-only projections (Q16).
 - Thumbnail tiles in the existing composer and above the bubble, with reorder, paste, picker, and drop
-  (Q19).
-- `yet-another-react-lightbox` (Q20) with a variant toggle (Q21).
+  (Q19); R2 drops reorder.
+- `yet-another-react-lightbox` (Q20) with a variant toggle (Q21); R2 replaces both with a `Dialog`
+  and one source per slide.
 
 Revision R1, decided by Leo on 2026-10-11 after approval:
 
@@ -109,6 +114,20 @@ Revision R1, decided by Leo on 2026-10-11 after approval:
   the reading attempt's memory only (R1.4).
 - Unstored images carry a display-only inline `thumbnail` (R1.5).
 - The lightbox shows unstored images as single-variant slides (R1.7).
+
+Revision R2, decided by Leo on 2026-10-11 after a second grilling round:
+
+- Thumbnails stay inline and are one WebP encode, omitted when over 64 KiB (R2.1, R2.2, R2.12).
+- Attempt memory holds every variant on a vision model; the composer releases what the window does
+  not attach (R2.3).
+- Placeholder locators are plain `JSON.stringify` (R2.4).
+- `conversation_read` and title lines come from the stored file part alone, without dimensions
+  (R2.5).
+- The lightbox is a per-row `Dialog` with single-source slides and fit/natural-size zoom, also over
+  the composer's uploads (R2.6, R2.7, R2.13, R2.14).
+- Composer tiles keep add order; a text-only model disables the picker and refuses paste and drop
+  with a toast (R2.8, R2.9).
+- Chat Completions labels each moved tool-result image (R2.15).
 
 Not asked directly, and following from those decisions:
 
@@ -132,8 +151,9 @@ Not asked directly, and following from those decisions:
   string literal; the source label's rules would rewrite `[slug]` to `(slug)` and cut long paths
   (D6).
 - Unstored image memory belongs to one attempt: every retry or resume starts empty on any worker,
-  and an attempt keeps bytes only for images the window admits, so its memory stays within the
-  window's 24 MiB of base64 although `maxSteps` defaults to no cap (D6).
+  and after each request the composer releases the bytes of every image the window did not attach,
+  so its memory stays within the window's 24 MiB of base64 although `maxSteps` defaults to no cap
+  (D6).
 
 Known gap: nothing can delete an uploaded image. A pasted secret stays stored and readable through
 `media://` until the library ships a delete action. Read and prompt-imported images are never stored.
@@ -246,8 +266,8 @@ Deliberately unchanged:
 - `apps/web`: composer, chat rows, the read tool card and prompt-import chip thumbnails, and lightbox
   wiring.
 - `packages/ui`: thumbnail and lightbox components and their stories.
-- Dependencies: `sharp` (API), `@types/multer` (API dev; multer itself already ships with
-  `@nestjs/platform-express`), and `yet-another-react-lightbox` (UI).
+- Dependencies: `sharp` (API) and `@types/multer` (API dev; multer itself already ships with
+  `@nestjs/platform-express`).
 - Tests that pin old behavior:
   - text-only DTO tests and the "Message must contain a text part" test;
   - the web `image/png` refusal test;
@@ -300,7 +320,8 @@ Issue [#1166](https://github.com/leon0399/llame/issues/1166) (the web UI, closed
 
 - With a vision model selected, a pasted screenshot shows as a thumbnail, uploads, and is described by
   the model.
-- With a text-only model selected, the composer blocks attaching.
-- Clicking any thumbnail opens the lightbox. Wheel and pinch zoom work, arrow keys move across every
-  image in the chat, the toggle shows an upload's model variant, and a read image shows as a
-  single-variant slide with its inline thumbnail.
+- With a text-only model selected, the attach picker is disabled and a pasted image is refused with
+  a toast.
+- Clicking a thumbnail opens a lightbox over its row. Arrow keys move within the row, a click toggles
+  between fit and natural size, an upload shows its original, and a read image shows its inline
+  thumbnail.
