@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-11
 
+- Fixed explicit `$skill` activation loading a skill's instructions and
+  imported package files when `read` is not in `tools.allowed` (#1264).
+  Activation now loads nothing without `read`, in `default` and `bypass`
+  modes alike, matching proactive skill reads, prompt imports, and
+  instruction loading.
+
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move
