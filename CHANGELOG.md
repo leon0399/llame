@@ -2,11 +2,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
-- Fixed intermittent Storybook failures in the regex tester stories (#353).
-  Their play functions checked the tester popup's `Match` and `No match`
-  values for visibility once, while the popup can still be fading in from
-  `opacity: 0` or its subtree can be replaced; every popup visibility check now
-  retries inside `waitFor`, and the match lists re-resolve on every attempt.
+- Fixed reasoning that a model emits directly before a tool call, with no text
+  between them, being written to the Run's event log after that call's
+  `tool.requested`, `tool.started`, and `tool.completed` events (#191). Live
+  and replayed streams therefore showed the thinking after the tool, while
+  the stored assistant message kept it ahead, against the durable-runs rule
+  that the message projects the event log's order. Both reasoning and text
+  buffers now drain before every tool request, including refused and invalid
+  calls. That holds on the pinned Node 22 runtime, where the reasoning
+  consumer has delivered the step's reasoning by then; on Node 24 it can still
+  arrive after the call (#1184).
 
 - **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
   `runs.context_items` column are removed. The transcript's persisted
@@ -30,6 +35,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   model of the latest earlier reply in the Chat, whatever its outcome and
   even when a checkpoint absorbed it, so a failed Run's switch is not
   announced twice. Closes #1177.
+
+- Fixed intermittent Storybook failures in the regex tester stories (#353).
+  Their play functions checked the tester popup's `Match` and `No match`
+  values for visibility once, while the popup can still be fading in from
+  `opacity: 0` or its subtree can be replaced; every popup visibility check now
+  retries inside `waitFor`, and the match lists re-resolve on every attempt.
 
 - Fixed a web `read` ending as `headers_timeout` when one probe (an announced
   alternate, the `.md` suffix, or `llms.txt`) sent no response headers within

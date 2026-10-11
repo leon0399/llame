@@ -875,6 +875,89 @@ describe('createOpenAIModelClient — unavailable/hallucinated tool call refusal
   );
 });
 
+describe('createOpenAIModelClient — reasoning ahead of tool calls', () => {
+  // Reasoning reaches the run through its own `fullStream` consumer, not the
+  // SDK's tool path, and the run drains its reasoning buffer when a call is
+  // executed or refused. This pins that, on the pinned Node runtime and the
+  // SDK's current yield points, the consumer delivers a step's reasoning first
+  // even when the provider hands over the whole step in one read. Node 24
+  // inverts it; the runtime-independent ordering is #1184.
+  const step: Array<LanguageModelV3StreamPart> = [
+    { type: 'stream-start', warnings: [] },
+    { type: 'reasoning-start', id: 'r' },
+    { type: 'reasoning-delta', id: 'r', delta: 'think' },
+    { type: 'reasoning-end', id: 'r' },
+  ];
+  const finish: LanguageModelV3StreamPart = {
+    type: 'finish',
+    finishReason: { unified: 'tool-calls', raw: undefined },
+    usage: PROVIDER_USAGE,
+  };
+
+  it.each([
+    {
+      call: 'executed',
+      toolName: 'echo',
+      input: '{"value":"x"}',
+      expected: 'execute',
+    },
+    {
+      call: 'undeclared',
+      toolName: 'not_a_real_tool',
+      input: '{"value":"x"}',
+      expected: 'refuse',
+    },
+    {
+      call: 'schema-invalid',
+      toolName: 'echo',
+      input: '{"bad":true}',
+      expected: 'refuse',
+    },
+  ] as const)(
+    'delivers the reasoning before a coalesced step’s $call call',
+    async ({ toolName, input, expected }) => {
+      const order: Array<string> = [];
+      const chunks: Array<LanguageModelV3StreamPart> = [
+        ...step,
+        { type: 'tool-call', toolCallId: 'call-0', toolName, input },
+        finish,
+      ];
+      const model = scriptedModel([
+        {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            start(controller) {
+              for (const chunk of chunks) controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+        },
+        textResponse(),
+      ]);
+
+      await buildClient(model).streamText({
+        chat: CHAT,
+        messages,
+        tools: {
+          echo: tool({
+            inputSchema: z.strictObject({ value: z.string() }),
+            execute: ({ value }) => {
+              order.push('execute');
+              return value;
+            },
+          }),
+        },
+        maxSteps: 4,
+        onUnavailableToolCall: () => order.push('refuse'),
+        onReasoningDelta: (text) => {
+          if (text.length > 0) order.push('reasoning');
+        },
+      }).text;
+
+      expect(order).toEqual(['reasoning', expected]);
+    },
+  );
+});
+
 describe('createOpenAIModelClient — capability surface', () => {
   it('omits optional pricing and compaction keys the operator did not configure', () => {
     const client = buildClient(scriptedModel([textResponse()]));
