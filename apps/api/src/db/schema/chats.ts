@@ -365,10 +365,11 @@ export const runs = pgTable(
     activeAttemptId: uuid('active_attempt_id'),
     // Recorded on successful finalization to identify the winning attempt.
     completedAttemptId: uuid('completed_attempt_id'),
-    // Minimal availability record for this successfully committed turn:
-    // sorted tool ids and their available/unavailable state. Written only
-    // in successful-turn finalization. Empty `[]` means observed-all-absent;
-    // null means no committed observation (pre-cutover or failed run).
+    // Minimal availability record for the turn this Run dispatched: sorted
+    // tool ids and their available/unavailable state. Written by the dispatch
+    // transaction of every Run that dispatched, whatever its outcome. Empty
+    // `[]` means observed-all-absent; null means never dispatched (or
+    // pre-cutover).
     turnToolAvailability: jsonb('turn_tool_availability').$type<
       Array<TurnToolAvailabilityEntry>
     >(),

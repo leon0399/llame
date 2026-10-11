@@ -29,6 +29,7 @@ import {
 import {
   buildContext,
   partsToText,
+  userPartsToModelContent,
   type ModelRequestContext,
   type MessagePart,
 } from '../chats/context-builder';
@@ -141,6 +142,11 @@ import {
 import { activateSkills } from '../skills/skill-activation';
 import { parseSkillMentions } from '../skills/skill-mention';
 import { ActivationPartsRepository } from '../chats/activation-parts.repository';
+import {
+  AcceptedTurnPartsRepository,
+  placeAcceptedTurnItems,
+  type AcceptedTurnPlacement,
+} from '../chats/accepted-turn-parts.repository';
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import { createPromptImportsItem } from '../chats/prompt-imports-item';
 import {
@@ -177,6 +183,7 @@ import {
 import {
   RunEventsRepository,
   RunsRepository,
+  type CompletedRunWithTrigger,
   type RunEventType,
 } from './runs-repository';
 import {
@@ -286,17 +293,14 @@ type AssistantTurnWrite = AssistantTurnPersistence & {
   telemetry: AssistantTurnTelemetry;
 };
 
-type SkillCatalogFreeze = NonNullable<SkillTurnState['freeze']>;
-
 /**
- * The skill-catalog writes a turn establishes, applied by the terminal
- * transaction of the attempt that completes it: the baseline to freeze when the
- * turn starts an epoch, and the names it leaves the chat told about. Both are
- * optional because most turns establish neither.
+ * The skill-catalog baseline a turn that starts an epoch freezes, with the told
+ * state it establishes. Applied by the terminal transaction of the attempt that
+ * completes the turn: the baseline lives only in the system prompt, so no
+ * history item accompanies it and a losing attempt must never freeze it.
  */
-type SkillCatalogWrites = {
-  readonly freeze?: SkillCatalogFreeze;
-  readonly told?: NonNullable<Chat['skillCatalogTold']>;
+type SkillCatalogFreeze = NonNullable<SkillTurnState['freeze']> & {
+  readonly told: NonNullable<Chat['skillCatalogTold']>;
 };
 type WorkspaceWrites = {
   readonly told: Chat['workspaceTold'];
@@ -360,7 +364,16 @@ type PreparedAttemptContext = ModelRequestContext & {
   /** The bound model catalog entry this pass resolved and rendered for. */
   model: SystemModelCatalogEntry;
   toolCatalog: AttemptToolCatalog;
+  /** The accepted-turn items this attempt's dispatch transaction stores. */
   stagedParts: Array<MessagePart>;
+  /** Where the dispatch transaction places `stagedParts` on the trigger. */
+  placement: AcceptedTurnPlacement;
+  /**
+   * The triggering user row's stored parts as this pass read them; undefined
+   * when the history it read lacks the row, so the request has no message of
+   * its own to carry the items.
+   */
+  triggerParts: ReadonlyArray<unknown> | undefined;
   /** The stored rows this request was built from; the trigger plans on them. */
   historyRows: Array<Message>;
   /**
@@ -372,10 +385,15 @@ type PreparedAttemptContext = ModelRequestContext & {
   latestCheckpoint: CheckpointMessage | undefined;
   /** Canonical instruction paths the effective history already discloses. */
   seenInstructionPaths: ReadonlySet<string>;
+  /** First digest baseline; written only by the attempt that completes. */
   recencyDigestInitialization?: RecencyDigestInitialization;
+  /** Written by the dispatch transaction, with the items it stores. */
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
-  /** The skill-catalog writes this turn establishes; see `SkillCatalogWrites`. */
-  skillCatalogWrites: SkillCatalogWrites;
+  /** First-epoch catalog baseline; written only by the attempt that completes. */
+  skillCatalogFreeze?: SkillCatalogFreeze;
+  /** Written by the dispatch transaction that stores the catalog notice. */
+  skillCatalogNoticeTold?: NonNullable<Chat['skillCatalogTold']>;
+  /** Written by the dispatch transaction that stores the workspace items. */
   workspaceWrites?: WorkspaceWrites;
   untitled: boolean;
 };
@@ -421,9 +439,22 @@ type AttemptPromptContext = AttemptPromptInputs & {
 
 type AttemptStagedContext = {
   stagedParts: Array<MessagePart>;
+  placement: AcceptedTurnPlacement;
   recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
-  skillCatalogTold?: NonNullable<Chat['skillCatalogTold']>;
+  skillCatalogNoticeTold?: NonNullable<Chat['skillCatalogTold']>;
   workspaceWrites?: WorkspaceWrites;
+};
+
+/** The turns an attempt's staged items are judged against. */
+type DisclosureBaseline = {
+  /** This Run's availability record, written once an attempt dispatched. */
+  readonly ownAvailability: Run['turnToolAvailability'];
+  /** The immediately preceding Run, of any status. */
+  readonly previousRun: Run | undefined;
+  /** The most recent dispatched predecessor turn (design D11). */
+  readonly previousDispatched: CompletedRunWithTrigger | undefined;
+  /** Whether this turn opens a new disclosure epoch (design D7). */
+  readonly startsEpoch: boolean;
 };
 
 type FinishRunInput = {
@@ -440,12 +471,8 @@ type FinishRunInput = {
   error?: unknown;
   assistantTurn?: AssistantTurnWrite;
   synthesizedTurnTelemetry?: AssistantTurnTelemetry;
-  attemptContextParts?: ReadonlyArray<MessagePart>;
   recencyDigestInitialization?: RecencyDigestInitialization;
-  recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
-  skillCatalogWrites?: SkillCatalogWrites;
-  workspaceWrites?: WorkspaceWrites;
-  turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
+  skillCatalogFreeze?: SkillCatalogFreeze;
 };
 
 type FinishRunResult =
@@ -947,16 +974,7 @@ export class RunExecutionService {
     // from the current owner state, admitted catalog, and boot-loaded
     // templates, and the receipt binds last, after any checkpoint published.
     let prepared: PreparedExecutionContext;
-    let attemptStagedParts: Array<MessagePart>;
-    let attemptRecencyDigestTold:
-      | NonNullable<Chat['recencyDigestTold']>
-      | undefined;
-    let attemptRecencyDigestInitialization:
-      | RecencyDigestInitialization
-      | undefined;
-    let attemptSkillCatalogWrites: SkillCatalogWrites | undefined;
-    let attemptWorkspaceWrites: WorkspaceWrites | undefined;
-    let attemptToolAvailability: Array<TurnToolAvailabilityEntry>;
+    let attemptContext: PreparedAttemptContext;
     let turnInstructions: TurnInstructions;
     try {
       const firstStep = await this.prepareAttemptForFirstStep({
@@ -971,32 +989,8 @@ export class RunExecutionService {
         effort,
       });
       prepared = firstStep.request;
-      attemptStagedParts = firstStep.context.stagedParts;
-      attemptRecencyDigestTold = firstStep.context.recencyDigestTold;
-      attemptRecencyDigestInitialization =
-        firstStep.context.recencyDigestInitialization;
-      attemptSkillCatalogWrites = firstStep.context.skillCatalogWrites;
-      attemptWorkspaceWrites = firstStep.context.workspaceWrites;
-      attemptToolAvailability = toTurnToolAvailability(
-        firstStep.context.toolCatalog.availabilityManifest,
-      );
+      attemptContext = firstStep.context;
       turnInstructions = firstStep.turnInstructions;
-      // Fenced by activeAttemptId: reassigning the identical UUID is a
-      // deliberate no-op update that still makes a stale attempt return no row.
-      const fenced = await this.tenantDb.runAs(input.userId, (tx) =>
-        new RunsRepository(tx).updateForAttempt(
-          input.runId,
-          input.userId,
-          attemptId,
-          { activeAttemptId: attemptId },
-        ),
-      );
-      // A miss means the owner-scoped row is gone — the chat was deleted out
-      // from under a claimed run. Executing past that would send a request on
-      // behalf of a run nobody can see.
-      if (!fenced) {
-        throw new RunNotRunnableError(input.runId);
-      }
     } catch (error) {
       if (input.abortSignal?.aborted) {
         await this.settleAbortedRun(input, attemptId);
@@ -1056,18 +1050,20 @@ export class RunExecutionService {
       runId: input.runId,
     });
 
-    // `model.requested` describes the target inference, not the summary
-    // inference that may have preceded it. Record it only after preparation
-    // succeeds and immediately before the target call.
-    await this.tenantDb.runAs(input.userId, async (tx) => {
-      const events = new RunEventsRepository(tx);
-      await events.append(input.runId, 'model.requested', {
+    // One fenced transaction stores the accepted-turn items this request
+    // carries, with the told and baseline state they account for, and records
+    // `model.requested` immediately before the target call (design D1). The
+    // request already carries the trigger's history row with the same items
+    // placed by the same placement, so it equals the parts the trigger stores.
+    await this.tenantDb.runAs(input.userId, (tx) =>
+      this.dispatchAttempt(tx, {
+        run: input,
+        attemptId,
+        context: attemptContext,
         modelId: client.model,
-        // Travels with modelId wherever it is recorded (available-models
-        // spec); omitted rather than null when the run carried none.
-        ...(effort !== undefined && { effort }),
-      });
-    });
+        effort,
+      }),
+    );
 
     // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
     // position matters for replay — model.delta, reasoning.delta, AND
@@ -1975,20 +1971,13 @@ export class RunExecutionService {
             },
             assistantTurn: turn,
             ...(status === 'completed' && {
-              attemptContextParts: attemptStagedParts,
-              ...(attemptRecencyDigestInitialization !== undefined && {
-                recencyDigestInitialization: attemptRecencyDigestInitialization,
+              ...(attemptContext.recencyDigestInitialization !== undefined && {
+                recencyDigestInitialization:
+                  attemptContext.recencyDigestInitialization,
               }),
-              ...(attemptRecencyDigestTold !== undefined && {
-                recencyDigestTold: attemptRecencyDigestTold,
+              ...(attemptContext.skillCatalogFreeze !== undefined && {
+                skillCatalogFreeze: attemptContext.skillCatalogFreeze,
               }),
-              ...(attemptSkillCatalogWrites !== undefined && {
-                skillCatalogWrites: attemptSkillCatalogWrites,
-              }),
-              ...(attemptWorkspaceWrites !== undefined && {
-                workspaceWrites: attemptWorkspaceWrites,
-              }),
-              turnToolAvailability: attemptToolAvailability,
             }),
           });
 
@@ -2651,8 +2640,8 @@ export class RunExecutionService {
    * rebuild decides the seen set — the item this attempt staged can no longer
    * be what makes its files seen, and a file the rebuilt history discloses must
    * not be staged again. The staged item is replaced in place, where both
-   * holders of the staged array — the request prepend and finish-time
-   * persistence — see the same content.
+   * holders of the staged array — the request assembly and the dispatch
+   * transaction that stores it — see the same content.
    */
   private async refreshTurnInstructions(
     turn: TurnInstructions,
@@ -3087,14 +3076,7 @@ export class RunExecutionService {
       input.runId,
       input.userId,
       input.status,
-      {
-        error: input.error,
-        attemptId: input.attemptId,
-        ...(input.status === 'completed' &&
-          input.turnToolAvailability !== undefined && {
-            turnToolAvailability: input.turnToolAvailability,
-          }),
-      },
+      { error: input.error, attemptId: input.attemptId },
     );
     if (!finished) {
       return this.handleLostFinish(tx, input, runsRepo);
@@ -3119,7 +3101,7 @@ export class RunExecutionService {
     if (input.modelCompleted) {
       await events.append(input.runId, 'model.completed', input.modelCompleted);
     }
-    await this.persistFinishedContext(tx, input, finished);
+    await this.persistWinningTurnBaselines(tx, input, finished);
 
     const assistantMessage = await this.persistAssistantMessage(
       tx,
@@ -3268,16 +3250,22 @@ export class RunExecutionService {
     }
   }
 
-  private async persistFinishedContext(
+  /**
+   * The baselines only the winning turn establishes: the chat's first digest
+   * baseline and a first-epoch skill-catalog freeze. Both live only in the
+   * system prompt, so no history item accompanies them and they ride this
+   * attempt-fenced terminal transaction; a losing attempt can never freeze a
+   * prompt the winner never rendered. Every other told write committed with
+   * the items it accounts for, in the dispatch transaction.
+   */
+  private async persistWinningTurnBaselines(
     tx: Db,
     input: FinishRunInput,
     finished: Run,
   ): Promise<void> {
+    if (input.status !== 'completed') return;
     const chatsRepo = new ChatsRepository(tx);
-    if (
-      input.status === 'completed' &&
-      input.recencyDigestInitialization !== undefined
-    ) {
+    if (input.recencyDigestInitialization !== undefined) {
       await chatsRepo.setRecencyDigestIfAbsent(
         finished.chatId,
         input.userId,
@@ -3285,66 +3273,19 @@ export class RunExecutionService {
         input.recencyDigestInitialization.told,
       );
     }
-    if (
-      input.status === 'completed' &&
-      input.attemptContextParts?.length &&
-      finished.messageId
-    ) {
-      const messagesRepo = new MessagesRepository(tx);
-      const turn = await messagesRepo.findTurnState(
-        finished.chatId,
-        input.userId,
-        finished.messageId,
-      );
-      if (turn.userMessage) {
-        await messagesRepo.updateUserMessageParts({
-          id: turn.userMessage.id,
-          chatId: finished.chatId,
-          parts: [...input.attemptContextParts, ...turn.userMessage.parts],
-        });
-      }
-    }
-    if (input.status === 'completed' && input.recencyDigestTold !== undefined) {
-      await chatsRepo.updateRecencyDigestTold(
-        finished.chatId,
-        input.userId,
-        input.recencyDigestTold,
-      );
-    }
-    // The skill-catalog state advances with the turn that showed it: a turn
-    // that started an epoch freezes the baseline its prompt rendered, and a
-    // turn that carried a notice records the names it disclosed. Both land in
-    // this attempt-fenced terminal transaction, so a losing attempt can never
-    // freeze a catalog the winner never rendered.
-    if (
-      input.status === 'completed' &&
-      input.skillCatalogWrites !== undefined
-    ) {
-      const { freeze, told } = input.skillCatalogWrites;
-      if (freeze !== undefined) {
-        await chatsRepo.setSkillCatalogBaseline({
-          chatId: finished.chatId,
-          ownerUserId: input.userId,
-          baseline: freeze.baseline,
-          rebakedFrom: freeze.rebakedFrom,
-        });
-      }
-      if (told !== undefined) {
-        await chatsRepo.updateSkillCatalogTold(
-          finished.chatId,
-          input.userId,
-          told,
-        );
-      }
-    }
-    if (input.status === 'completed' && input.workspaceWrites !== undefined) {
-      await new WorkspaceBindingRepository(tx).setTold({
+    const freeze = input.skillCatalogFreeze;
+    if (freeze !== undefined) {
+      await chatsRepo.setSkillCatalogBaseline({
         chatId: finished.chatId,
         ownerUserId: input.userId,
-        told: input.workspaceWrites.told,
-        toldFrom: input.workspaceWrites.toldFrom,
-        clearDetachReason: input.workspaceWrites.clearDetachReason,
+        baseline: freeze.baseline,
+        rebakedFrom: freeze.rebakedFrom,
       });
+      await chatsRepo.updateSkillCatalogTold(
+        finished.chatId,
+        input.userId,
+        freeze.told,
+      );
     }
   }
 
@@ -3608,11 +3549,13 @@ export class RunExecutionService {
    * Resolve prompt, catalog, context items, and message history for one
    * execution attempt. Runs inside a single tenant transaction.
    *
-   * `bindReceipt` is false for the trigger's estimate pass: an attempt binds
-   * exactly one receipt, and it must describe the prompt the attempt actually
-   * sends — the one rendered after a pre-step checkpoint published (design D5).
-   * A pass that published nothing binds it; the pass that follows a publication
-   * does.
+   * `afterPublication` is false for the trigger's estimate pass and true only
+   * for the pass that follows a pre-step checkpoint publication. An attempt
+   * binds exactly one receipt, and it must describe the prompt the attempt
+   * actually sends — the one rendered after a pre-step checkpoint published
+   * (design D5). A pass that published nothing binds it; the pass that follows
+   * a publication does. That pass also judges availability against the epoch
+   * the publication started, not a record an earlier attempt dispatched.
    */
   private async prepareAttemptContext(
     input: ExecuteRunInput,
@@ -3620,7 +3563,7 @@ export class RunExecutionService {
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
-    bindReceipt: boolean,
+    afterPublication: boolean,
   ): Promise<PreparedAttemptContext> {
     return this.tenantDb.runAs(input.userId, (tx) =>
       this.prepareAttemptContextInTransaction(
@@ -3630,11 +3573,11 @@ export class RunExecutionService {
         workspaceChat,
         workspaceRoot,
         workspaceMcpKey,
-        bindReceipt,
+        afterPublication,
       ),
     );
   }
-  /** Resolve the complete attempt context, binding its receipt on request. */
+  /** Resolve the complete attempt context, binding its receipt after publication. */
   private async prepareAttemptContextInTransaction(
     tx: Db,
     input: ExecuteRunInput,
@@ -3642,7 +3585,7 @@ export class RunExecutionService {
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
-    bindReceipt: boolean,
+    afterPublication: boolean,
   ): Promise<PreparedAttemptContext> {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
@@ -3684,7 +3627,7 @@ export class RunExecutionService {
       prompt,
       catalog,
     );
-    if (bindReceipt) {
+    if (afterPublication) {
       await this.persistAttemptPromptReceipt(
         tx,
         input,
@@ -3697,31 +3640,39 @@ export class RunExecutionService {
       input,
       prompt,
       effectiveContext: catalog,
+      afterPublication,
     });
     const built = await this.rebuildContextForChat(
       tx,
       input,
       prompt.systemPrompt,
     );
+    const { freeze, told } = prompt.skillState;
     return {
       ...built.context,
       seenInstructionPaths: built.seenInstructionPaths,
       historyRows: built.historyRows,
+      triggerParts: built.historyRows.find(
+        (row) => row.id === input.userMessage.id,
+      )?.parts,
       latestCheckpoint: prompt.checkpoint,
       effectiveContext,
       model: prompt.model,
       toolCatalog: catalog,
       stagedParts: staged.stagedParts,
+      placement: staged.placement,
       recencyDigestInitialization: prompt.recencyDigestInitialization,
       recencyDigestTold: staged.recencyDigestTold,
-      skillCatalogWrites: {
-        ...(prompt.skillState.freeze !== undefined && {
-          freeze: prompt.skillState.freeze,
+      // A started epoch always carries the told state its baseline sets.
+      ...(freeze !== undefined &&
+        told !== undefined && {
+          // The decision hands back a readonly list; the column holds a
+          // mutable array, so the value is copied rather than shared.
+          skillCatalogFreeze: { ...freeze, told: [...told] },
         }),
-        ...(staged.skillCatalogTold !== undefined && {
-          told: staged.skillCatalogTold,
-        }),
-      },
+      ...(staged.skillCatalogNoticeTold !== undefined && {
+        skillCatalogNoticeTold: staged.skillCatalogNoticeTold,
+      }),
       ...(staged.workspaceWrites !== undefined && {
         workspaceWrites: staged.workspaceWrites,
       }),
@@ -3863,13 +3814,30 @@ export class RunExecutionService {
     return { request, context, turnInstructions };
   }
 
-  /** The dispatchable request for one pass, with its staged rail prepended. */
+  /**
+   * The dispatchable request for one pass: the triggering message carries its
+   * stored parts with the staged items placed as the dispatch transaction will
+   * store them, so items an earlier attempt stored replay once, in place.
+   * History is read through the trigger, and an accepted message always
+   * carries text, so the trigger's message is the request's last one.
+   */
   private async assembleAttemptRequest(
     context: PreparedAttemptContext,
     dynamicResolver: DynamicToolExecutorResolver | undefined,
   ): Promise<PreparedExecutionContext> {
     const messages = context.messages;
-    this.prependStagedContextItems(messages, context.stagedParts);
+    if (context.triggerParts !== undefined) {
+      messages[messages.length - 1] = {
+        role: 'user',
+        content: userPartsToModelContent(
+          placeAcceptedTurnItems(
+            context.triggerParts,
+            context.stagedParts.filter(isContextItemPart),
+            context.placement,
+          ),
+        ),
+      };
+    }
     return {
       system: context.system,
       messages,
@@ -4337,93 +4305,35 @@ export class RunExecutionService {
     input: ExecuteRunInput;
     prompt: AttemptPromptContext;
     effectiveContext: AttemptToolCatalog;
+    afterPublication: boolean;
   }): Promise<AttemptStagedContext> {
-    const previousRun = (
-      await new RunsRepository(input.tx).findMostRecentByMessageSequence(
-        input.input.chatId,
-        input.input.userId,
-        {
-          beforeSeq: input.input.userMessage.seq,
-        },
-      )
-    )?.run;
-
-    // The baseline is the most recent *successful* turn, not merely the most
-    // recent one: a failed run publishes no context and never establishes an
-    // epoch baseline, so a failed run between two successful turns must not
-    // discard the availability state those turns established — nor may it
-    // mask a compaction that landed after the last successful turn. No prior
-    // run at all implies no completed predecessor, so the second lookup is
-    // skipped rather than issued for an answer it cannot have.
-    const previousCompletedRun =
-      previousRun === undefined
-        ? undefined
-        : await new RunsRepository(
-            input.tx,
-          ).findMostRecentCompletedByChatMessageSequence(
-            input.input.chatId,
-            input.input.userId,
-            { beforeSeq: input.input.userMessage.seq },
-          );
-
-    // Every newly active compaction checkpoint starts a new disclosure epoch,
-    // judged against that same successful-turn baseline by sequence rather than
-    // by time: a checkpoint published inside this Run's own attempt has a later
-    // createdAt but a boundary above its predecessor's turn, and a retried
-    // assistant row keeps its sequence (design D7). A failed attempt after the
-    // checkpoint cannot silently keep the run inside the pre-compaction epoch.
-    const startsEpoch =
-      previousCompletedRun === undefined ||
-      (input.prompt.checkpoint !== undefined &&
-        input.prompt.checkpoint.absorbedThroughSeq >=
-          previousCompletedRun.triggeringUserSeq);
-    // The marker reports the re-bake to the first attempt that can publish
-    // after it — the new epoch's first turn — so it rides the same boundary.
-    const digestRebaked =
-      startsEpoch &&
-      input.prompt.chat.recencyDigestRebakedFrom ===
-        input.prompt.checkpoint?.id;
-
+    const baseline = await this.resolveDisclosureBaseline(
+      input.tx,
+      input.input,
+      input.prompt,
+    );
+    // The model switch, the digest supersession marker and the temporal anchor
+    // are authored once per accepted turn, by the Run's first dispatch: an
+    // earlier dispatch already stored them on the trigger. A checkpoint this
+    // attempt published re-bakes the digest after that dispatch, so its marker
+    // is still untold.
+    const priorDispatch = baseline.ownAvailability !== null;
     const stagedParts: Array<MessagePart> = [];
-    // Model selection is established by any run (failed runs included), so the
-    // switch item keeps reading the immediately preceding run, not the
-    // successful baseline the availability/epoch comparison uses.
-    if (previousRun && previousRun.modelId !== input.input.client.model) {
-      // The previous run records the selected id alone, and the body names the
-      // model that id belonged to, so it is resolved against the operator
-      // catalog this service already reads at construction. A model the
-      // catalog no longer carries is named by its bare id.
-      const previousModel = this.instanceConfig.config.models.find(
-        (model) => model.id === previousRun.modelId,
+    if (!priorDispatch) {
+      const modelChange = this.deriveModelChangeItem(
+        baseline,
+        input.input,
+        input.prompt,
       );
-      stagedParts.push(
-        createModelChangeItem({
-          oldModel: previousModel ?? { id: previousRun.modelId },
-          newModel: input.prompt.model,
-          runId: input.input.runId,
-        }),
-      );
+      if (modelChange !== undefined) stagedParts.push(modelChange);
     }
-    const previousSuccessfulAvailability = startsEpoch
-      ? undefined
-      : (previousCompletedRun?.run.turnToolAvailability ?? undefined);
-    const availabilityPayload =
-      previousSuccessfulAvailability === undefined
-        ? deriveToolAvailabilityPayload({
-            current: input.effectiveContext.availabilityManifest,
-          })
-        : deriveToolAvailabilityPayloadFromStates({
-            current: input.effectiveContext.availabilityManifest,
-            previous: previousSuccessfulAvailability,
-          });
-    if (availabilityPayload) {
-      stagedParts.push(
-        createToolAvailabilityItem({
-          runId: input.input.runId,
-          payload: availabilityPayload,
-        }),
-      );
-    }
+    const availability = deriveAttemptAvailabilityItem({
+      runId: input.input.runId,
+      baseline,
+      manifest: input.effectiveContext.availabilityManifest,
+      afterPublication: input.afterPublication,
+    });
+    if (availability !== undefined) stagedParts.push(availability);
     const workspaceContext = this.deriveWorkspaceContext({
       runId: input.input.runId,
       chat: input.prompt.chat,
@@ -4437,43 +4347,109 @@ export class RunExecutionService {
     if (skillNotice !== undefined) {
       stagedParts.push(skillNotice.item);
     }
-    if (
-      digestRebaked &&
-      input.prompt.chat.recencyDigestBaseline !== null &&
-      input.prompt.shareRecentChats.shareRecentChats
-    ) {
+    stagedParts.push(
+      ...deriveRecencyDigestItems({
+        baseline,
+        runId: input.input.runId,
+        prompt: input.prompt,
+        markerUntold: !priorDispatch || input.afterPublication,
+      }),
+    );
+    if (!priorDispatch) {
       stagedParts.push(
-        createRecencyDigestSupersessionItem({ runId: input.input.runId }),
-      );
-    }
-    if (input.prompt.digestDelta) {
-      stagedParts.push(
-        createRecencyDigestDeltaItem({
+        createTemporalItem({
           runId: input.input.runId,
-          payload: {
-            entries: input.prompt.digestDelta.entries,
-            pinChanges: input.prompt.digestDelta.pinChanges,
-          },
+          instant: new Date(),
+          timeZone: input.prompt.instanceTimezone,
         }),
       );
     }
-    stagedParts.push(
-      createTemporalItem({
-        runId: input.input.runId,
-        instant: new Date(),
-        timeZone: input.prompt.instanceTimezone,
-      }),
-    );
     return {
       stagedParts,
+      placement: priorDispatch ? 'append' : 'rank',
       recencyDigestTold: input.prompt.digestDelta?.told,
       ...(workspaceWrites !== undefined && { workspaceWrites }),
-      ...(input.prompt.skillState.told !== undefined && {
+      ...(skillNotice !== undefined && {
         // The decision hands back a readonly list; the column holds a mutable
         // array, so the value is copied rather than shared.
-        skillCatalogTold: [...input.prompt.skillState.told],
+        skillCatalogNoticeTold: [...skillNotice.told],
       }),
     };
+  }
+
+  private async resolveDisclosureBaseline(
+    tx: Db,
+    run: ExecuteRunInput,
+    prompt: AttemptPromptContext,
+  ): Promise<DisclosureBaseline> {
+    const runsRepo = new RunsRepository(tx);
+    // An earlier attempt of this Run dispatched when its dispatch transaction
+    // wrote the Run's availability record (`[]` included). Its items stay on
+    // the trigger and its told state has advanced, so this attempt derives
+    // only what they do not already tell and appends it (design D2).
+    const ownAvailability =
+      (await runsRepo.findById(run.runId, run.userId))?.turnToolAvailability ??
+      null;
+    const previousRun = (
+      await runsRepo.findMostRecentByMessageSequence(run.chatId, run.userId, {
+        beforeSeq: run.userMessage.seq,
+      })
+    )?.run;
+
+    // The baseline is the most recent *dispatched* turn (design D11): a run
+    // whose dispatch stored its items has told the model what they say, even
+    // if it later failed, while a run that ended before any request told it
+    // nothing and must not mask the state the turns before it established. No
+    // prior run at all implies no dispatched predecessor, so the second lookup
+    // is skipped rather than issued for an answer it cannot have.
+    const previousDispatched =
+      previousRun === undefined
+        ? undefined
+        : await runsRepo.findMostRecentDispatchedByChatMessageSequence(
+            run.chatId,
+            run.userId,
+            { beforeSeq: run.userMessage.seq },
+          );
+
+    // Every newly active compaction checkpoint starts a new disclosure epoch,
+    // judged against that same dispatched-turn baseline by sequence rather
+    // than by time: a checkpoint published inside this Run's own attempt has a
+    // later createdAt but a boundary above its predecessor's turn, and a
+    // retried assistant row keeps its sequence (design D7).
+    const startsEpoch =
+      previousDispatched === undefined ||
+      (prompt.checkpoint !== undefined &&
+        prompt.checkpoint.absorbedThroughSeq >=
+          previousDispatched.triggeringUserSeq);
+    return { ownAvailability, previousRun, previousDispatched, startsEpoch };
+  }
+
+  /**
+   * Model selection is established by any run (failed runs included), so the
+   * switch item reads the immediately preceding run, not the dispatched
+   * baseline the availability/epoch comparison uses.
+   */
+  private deriveModelChangeItem(
+    baseline: DisclosureBaseline,
+    run: ExecuteRunInput,
+    prompt: AttemptPromptContext,
+  ): MessagePart | undefined {
+    const { previousRun } = baseline;
+    if (previousRun === undefined || previousRun.modelId === run.client.model) {
+      return undefined;
+    }
+    // The previous run records the selected id alone, and the body names the
+    // model that id belonged to, so it is resolved against the operator
+    // catalog this service already reads at construction. A model the catalog
+    // no longer carries is named by its bare id.
+    const previousModel = this.instanceConfig.config.models.find(
+      (model) => model.id === previousRun.modelId,
+    );
+    return createModelChangeItem({
+      oldModel: previousModel ?? { id: previousRun.modelId },
+      newModel: prompt.model,
+      runId: run.runId,
+    });
   }
   private deriveWorkspaceContext(input: {
     runId: string;
@@ -4527,43 +4503,86 @@ export class RunExecutionService {
   }
 
   /**
-   * Prepend staged context-item text to the triggering user message in the
-   * model request. Extracts `data.text` from each `AuthoredContextItemPart`
-   * and unshifts it into the last user message's content array.
+   * The attempt's dispatch transaction (design D1), in the worker's lock
+   * order: the run fence with this attempt's availability record, the
+   * accepted-turn items on the triggering user row, the told state those items
+   * account for on the chat, then `model.requested`. A lost fence or a missing
+   * user row stores nothing and dispatches nothing.
    */
-
-  private prependStagedContextItems(
-    messages: ReturnType<typeof buildContext>['messages'],
-    stagedParts: ReadonlyArray<MessagePart>,
-  ): void {
-    const textParts = stagedContextTexts(stagedParts);
-    if (textParts.length === 0) return;
-
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role !== 'user') continue;
-      if (Array.isArray(msg.content)) {
-        msg.content.unshift(...textParts);
-      } else {
-        // User content was a plain string; replace in-place with the text
-        // parts array the SDK equally accepts.
-        const original = msg.content;
-        const combined = [
-          ...textParts,
-          { type: 'text' as const, text: original },
-        ];
-        Object.assign(msg, { content: combined });
-      }
-      return;
+  private async dispatchAttempt(
+    tx: Db,
+    input: {
+      run: ExecuteRunInput;
+      attemptId: string;
+      context: PreparedAttemptContext;
+      modelId: string;
+      effort: string | undefined;
+    },
+  ): Promise<void> {
+    const { run, context } = input;
+    // Reassigning the identical UUID is a deliberate no-op that still makes a
+    // stale attempt return no row. The record is written even when it is `[]`:
+    // it is what marks this Run as dispatched (design D11).
+    const fenced = await new RunsRepository(tx).updateForAttempt(
+      run.runId,
+      run.userId,
+      input.attemptId,
+      {
+        activeAttemptId: input.attemptId,
+        turnToolAvailability: toTurnToolAvailability(
+          context.toolCatalog.availabilityManifest,
+        ),
+      },
+    );
+    if (!fenced) throw new RunNotRunnableError(run.runId);
+    const stored = await new AcceptedTurnPartsRepository(tx).storeAtDispatch({
+      id: run.userMessage.id,
+      chatId: run.chatId,
+      items: context.stagedParts.filter(isContextItemPart),
+      placement: context.placement,
+    });
+    // The chat was deleted out from under a claimed run; executing past that
+    // would send a request on behalf of a run nobody can see.
+    if (!stored.applied) throw new RunNotRunnableError(run.runId);
+    const chatsRepo = new ChatsRepository(tx);
+    if (context.recencyDigestTold !== undefined) {
+      await chatsRepo.updateRecencyDigestTold(
+        run.chatId,
+        run.userId,
+        context.recencyDigestTold,
+      );
     }
+    if (context.skillCatalogNoticeTold !== undefined) {
+      await chatsRepo.updateSkillCatalogTold(
+        run.chatId,
+        run.userId,
+        context.skillCatalogNoticeTold,
+      );
+    }
+    if (context.workspaceWrites !== undefined) {
+      await new WorkspaceBindingRepository(tx).setTold({
+        chatId: run.chatId,
+        ownerUserId: run.userId,
+        told: context.workspaceWrites.told,
+        toldFrom: context.workspaceWrites.toldFrom,
+        clearDetachReason: context.workspaceWrites.clearDetachReason,
+      });
+    }
+    // `model.requested` describes the target inference, not the summary
+    // inference that may have preceded it.
+    await new RunEventsRepository(tx).append(run.runId, 'model.requested', {
+      modelId: input.modelId,
+      // Travels with modelId wherever it is recorded (available-models
+      // spec); omitted rather than null when the run carried none.
+      ...(input.effort !== undefined && { effort: input.effort }),
+    });
   }
 }
 
 /**
- * The text an attempt's staged rail prepends to its triggering user message.
- * Shared by the request assembly and the compaction trigger's estimate, which
- * must measure the same text the model receives — the persisted rows do not
- * carry it until the turn completes.
+ * The text of an attempt's staged items, which the compaction trigger's
+ * estimate adds to the stored rows: the trigger row does not carry them until
+ * the dispatch transaction stores them.
  */
 function stagedContextTexts(
   stagedParts: ReadonlyArray<MessagePart>,
@@ -4574,4 +4593,76 @@ function stagedContextTexts(
     if (text === undefined || text.length === 0) return [];
     return [{ type: 'text' as const, text }];
   });
+}
+
+/**
+ * The availability reminder this attempt stages. A retry after a dispatch
+ * compares against the record that dispatch stored, so a reminder names only
+ * what changed since; a checkpoint this attempt published starts a new epoch,
+ * judged as any first dispatch is.
+ */
+function deriveAttemptAvailabilityItem(input: {
+  runId: string;
+  baseline: DisclosureBaseline;
+  manifest: AttemptToolCatalog['availabilityManifest'];
+  afterPublication: boolean;
+}): MessagePart | undefined {
+  const { ownAvailability, previousDispatched, startsEpoch } = input.baseline;
+  let previous: Array<TurnToolAvailabilityEntry> | undefined;
+  if (ownAvailability !== null && !input.afterPublication) {
+    previous = ownAvailability;
+  } else if (!startsEpoch) {
+    previous = previousDispatched?.run.turnToolAvailability ?? undefined;
+  }
+  const payload =
+    previous === undefined
+      ? deriveToolAvailabilityPayload({ current: input.manifest })
+      : deriveToolAvailabilityPayloadFromStates({
+          current: input.manifest,
+          previous,
+        });
+  return payload
+    ? createToolAvailabilityItem({ runId: input.runId, payload })
+    : undefined;
+}
+
+/**
+ * The recency digest items this attempt stages: the supersession marker when
+ * the digest was re-baked for the checkpoint opening this epoch and no
+ * dispatch of this Run stored a marker for it, then the delta since the told
+ * state.
+ */
+function deriveRecencyDigestItems(input: {
+  baseline: DisclosureBaseline;
+  runId: string;
+  prompt: AttemptPromptContext;
+  markerUntold: boolean;
+}): Array<MessagePart> {
+  const { baseline, runId, prompt } = input;
+  const items: Array<MessagePart> = [];
+  // The marker reports the re-bake to the first attempt that can dispatch
+  // after it — the new epoch's first turn — so it rides the same boundary.
+  const digestRebaked =
+    input.markerUntold &&
+    baseline.startsEpoch &&
+    prompt.chat.recencyDigestRebakedFrom === prompt.checkpoint?.id;
+  if (
+    digestRebaked &&
+    prompt.chat.recencyDigestBaseline !== null &&
+    prompt.shareRecentChats.shareRecentChats
+  ) {
+    items.push(createRecencyDigestSupersessionItem({ runId }));
+  }
+  if (prompt.digestDelta) {
+    items.push(
+      createRecencyDigestDeltaItem({
+        runId,
+        payload: {
+          entries: prompt.digestDelta.entries,
+          pinChanges: prompt.digestDelta.pinChanges,
+        },
+      }),
+    );
+  }
+  return items;
 }

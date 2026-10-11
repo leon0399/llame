@@ -45,6 +45,7 @@ import type {
   Run,
   RunEvent,
   SkillCatalogBaseline,
+  TurnToolAvailabilityEntry,
 } from '../db/schema';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -73,6 +74,11 @@ import {
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type CheckpointMessage } from '../chats/messages-repository';
 import { ActivationPartsRepository } from '../chats/activation-parts.repository';
+import {
+  AcceptedTurnPartsRepository,
+  placeAcceptedTurnItems,
+} from '../chats/accepted-turn-parts.repository';
+import { userPartsToModelContent } from '../chats/context-builder';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import {
@@ -534,9 +540,10 @@ function mockNormalExecutionRepositories() {
   const createAssistantReplyIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createAssistantReplyIfAbsent')
     .mockResolvedValue(assistantMessage);
-  const updateUserMessageParts = vi
-    .spyOn(MessagesRepository.prototype, 'updateUserMessageParts')
-    .mockResolvedValue(userMessage);
+  // The dispatch write; stagedPartsOf places its items on the trigger's parts.
+  const storeAtDispatch = vi
+    .spyOn(AcceptedTurnPartsRepository.prototype, 'storeAtDispatch')
+    .mockResolvedValue({ applied: true });
   const findMostRecent = vi
     .spyOn(RunsRepository.prototype, 'findMostRecentByMessageSequence')
     .mockResolvedValue(undefined);
@@ -546,6 +553,14 @@ function mockNormalExecutionRepositories() {
     .spyOn(
       RunsRepository.prototype,
       'findMostRecentCompletedByChatMessageSequence',
+    )
+    .mockResolvedValue(undefined);
+  // The epoch and availability baseline: absent unless a case installs a
+  // dispatched predecessor.
+  const findDispatched = vi
+    .spyOn(
+      RunsRepository.prototype,
+      'findMostRecentDispatchedByChatMessageSequence',
     )
     .mockResolvedValue(undefined);
   const hasMutation = vi
@@ -559,11 +574,16 @@ function mockNormalExecutionRepositories() {
     PromptImportPartsRepository.prototype,
     'appendForRun',
   ).mockResolvedValue({ applied: true });
+  // The dispatch transaction's told-state write for staged Workspace items.
+  const setTold = vi
+    .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
+    .mockResolvedValue(undefined);
   return {
     markStarted,
     markFinished,
     createAssistantReplyIfAbsent,
-    updateUserMessageParts,
+    storeAtDispatch,
+    setTold,
     touch,
     updateForAttempt,
     createReceipt,
@@ -572,6 +592,7 @@ function mockNormalExecutionRepositories() {
     findByOwnedRun,
     findMostRecent,
     findCompleted,
+    findDispatched,
     findActiveCheckpoint,
   };
 }
@@ -691,9 +712,6 @@ describe('RunExecutionService executeRun', () => {
   });
   it('advertises and executes a bound Workspace MCP tool in the first step', async () => {
     mockNormalExecutionRepositories();
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
     const root = mkdtempSync(path.join(tmpdir(), 'workspace-bound-tool-'));
     const observed = vi.fn(() => ({ status: 'success' as const }));
     const workspaceTool: Tool = {
@@ -786,7 +804,7 @@ describe('RunExecutionService executeRun', () => {
     await expect(result.text).resolves.toBe('answer');
   });
   it('keeps Workspace binding metadata live until exit disables the tool', async () => {
-    mockNormalExecutionRepositories();
+    const repositories = mockNormalExecutionRepositories();
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
@@ -863,6 +881,14 @@ describe('RunExecutionService executeRun', () => {
 
     try {
       await execution.service.executeRun(executionInput(capturing.client));
+      // The dispatch transaction records the bound root it disclosed.
+      expect(repositories.setTold).toHaveBeenCalledWith({
+        chatId,
+        ownerUserId: userId,
+        told: root,
+        toldFrom: null,
+        clearDetachReason: false,
+      });
       const options = capturing.streamOptions();
       const workspace = options.tools?.['mcp__web__search'];
       const exit = options.tools?.exit_workspace;
@@ -893,9 +919,6 @@ describe('RunExecutionService executeRun', () => {
   });
 
   it('passes WorkspaceMcpClients through the production ToolContext', async () => {
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
     mockNormalExecutionRepositories();
     const root = mkdtempSync(
       path.join(tmpdir(), 'workspace-context-provider-'),
@@ -1275,9 +1298,6 @@ describe('RunExecutionService executeRun', () => {
     const detach = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'detach')
       .mockResolvedValue('stale');
-    const setTold = vi
-      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
-      .mockResolvedValue(undefined);
     const root = path.join(
       tmpdir(),
       'workspace-entry-stale-transition-does-not-exist',
@@ -1341,13 +1361,13 @@ describe('RunExecutionService executeRun', () => {
     expect(observedContexts).toHaveLength(1);
     expect(observedContexts[0]?.workspaceRoot?.current()).toBeUndefined();
     const workspaceItems = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'workspace',
     );
     expect(workspaceItems).toHaveLength(1);
     expect(workspaceItems[0]?.data.form).toBe('snapshot');
     expect(workspaceItems[0]?.data.payload).toEqual({ root });
-    expect(setTold).toHaveBeenCalledWith({
+    expect(repositories.setTold).toHaveBeenCalledWith({
       chatId,
       ownerUserId: userId,
       told: root,
@@ -1361,9 +1381,6 @@ describe('RunExecutionService executeRun', () => {
     const detach = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'detach')
       .mockResolvedValue('detached');
-    const setTold = vi
-      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
-      .mockResolvedValue(undefined);
     const root = mkdtempSync(
       path.join(tmpdir(), 'workspace-entry-policy-allow-'),
     );
@@ -1396,14 +1413,14 @@ describe('RunExecutionService executeRun', () => {
       await expect(result.text).resolves.toBe('answer');
       expect(detach).not.toHaveBeenCalled();
       const workspaceItems = stagedItemsOf(
-        repositories.updateUserMessageParts,
+        repositories.storeAtDispatch,
         'workspace',
       );
       expect(workspaceItems.map((item) => item.data.form)).toEqual([
         'snapshot',
         'notice',
       ]);
-      expect(setTold).toHaveBeenCalledWith({
+      expect(repositories.setTold).toHaveBeenCalledWith({
         chatId,
         ownerUserId: userId,
         told: root,
@@ -1417,9 +1434,6 @@ describe('RunExecutionService executeRun', () => {
 
   it('does not rebind a detached Chat when its executor returns for a retry', async () => {
     const repositories = mockNormalExecutionRepositories();
-    const setTold = vi
-      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
-      .mockResolvedValue(undefined);
     const detachedChat: Chat = {
       ...chat,
       workspaceRoot: null,
@@ -1447,7 +1461,7 @@ describe('RunExecutionService executeRun', () => {
 
     expect(enter).not.toHaveBeenCalled();
     const workspaceItems = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'workspace',
     );
     const notice = workspaceItems.find((item) => item.data.form === 'notice');
@@ -1455,7 +1469,7 @@ describe('RunExecutionService executeRun', () => {
     expect(workspaceItems.some((item) => item.data.form === 'snapshot')).toBe(
       false,
     );
-    expect(setTold).toHaveBeenCalledWith({
+    expect(repositories.setTold).toHaveBeenCalledWith({
       chatId,
       ownerUserId: userId,
       told: null,
@@ -1464,7 +1478,7 @@ describe('RunExecutionService executeRun', () => {
     });
   });
   it('keeps the detaching attempt root cell unbound', async () => {
-    mockNormalExecutionRepositories();
+    const repositories = mockNormalExecutionRepositories();
     vi.spyOn(WorkspaceBindingRepository.prototype, 'detach').mockResolvedValue(
       'detached',
     );
@@ -1520,6 +1534,14 @@ describe('RunExecutionService executeRun', () => {
 
     expect(observedContexts).toHaveLength(1);
     expect(observedContexts[0]?.workspaceRoot?.current()).toBeUndefined();
+    // The dispatch transaction records the detach it disclosed.
+    expect(repositories.setTold).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      told: null,
+      toldFrom: null,
+      clearDetachReason: true,
+    });
   });
 
   it('applies a Workspace root committed in one step at the next step', async () => {
@@ -2103,31 +2125,38 @@ describe('RunExecutionService executeRun', () => {
       runId,
       userId,
       testAttemptId,
-      { activeAttemptId: testAttemptId },
+      { activeAttemptId: testAttemptId, turnToolAvailability: [] },
     );
     expect(repositorySpies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
       'completed',
-      expect.objectContaining({
-        attemptId: testAttemptId,
-        turnToolAvailability: [],
-      }),
+      expect.objectContaining({ attemptId: testAttemptId }),
     );
+    expect(
+      repositorySpies.markFinished.mock.calls.at(-1)?.[3],
+    ).not.toHaveProperty('turnToolAvailability');
     const temporalContextData: unknown = expect.objectContaining({
       producer: 'temporal',
     });
-    expect(repositorySpies.updateUserMessageParts).toHaveBeenCalledWith({
+    expect(repositorySpies.storeAtDispatch).toHaveBeenCalledWith({
       id: messageId,
       chatId,
-      parts: [
+      items: [
         expect.objectContaining({
           type: 'data-context',
           data: temporalContextData,
         }),
-        { type: 'text', text: 'hello' },
       ],
+      placement: 'rank',
     });
+    expect(stagedPartsOf(repositorySpies.storeAtDispatch)).toEqual([
+      expect.objectContaining({
+        type: 'data-context',
+        data: temporalContextData,
+      }),
+      { type: 'text', text: 'hello' },
+    ]);
 
     expect(repositorySpies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({ chatId, inReplyTo: messageId }),
@@ -2271,7 +2300,7 @@ describe('RunExecutionService executeRun', () => {
       'secret excerpt',
     );
   });
-  it('persists the disclosed digest told-set with the winning user message', async () => {
+  it('records the disclosed digest told-set at dispatch with the stored items', async () => {
     const baseline: RecencyDigestResolution['baseline'] = {
       pinned: [],
       recent: [],
@@ -2360,24 +2389,28 @@ describe('RunExecutionService executeRun', () => {
     const temporalDigestContextData: unknown = expect.objectContaining({
       producer: 'temporal',
     });
-    expect(repositories.updateUserMessageParts).toHaveBeenCalledWith({
-      id: messageId,
-      chatId,
-      parts: [
-        expect.objectContaining({
-          type: 'data-context',
-          data: recencyDigestContextData,
-        }),
-        expect.objectContaining({
-          type: 'data-context',
-          data: temporalDigestContextData,
-        }),
-        { type: 'text', text: 'hello' },
-      ],
-    });
+    expect(stagedPartsOf(repositories.storeAtDispatch)).toEqual([
+      expect.objectContaining({
+        type: 'data-context',
+        data: recencyDigestContextData,
+      }),
+      expect.objectContaining({
+        type: 'data-context',
+        data: temporalDigestContextData,
+      }),
+      { type: 'text', text: 'hello' },
+    ]);
     expect(updateRecencyDigestTold).toHaveBeenCalledWith(chatId, userId, told);
+    // The told set commits with the items it accounts for, in the dispatch
+    // transaction, not with the terminal one.
+    expect(updateRecencyDigestTold.mock.invocationCallOrder[0]).toBeGreaterThan(
+      repositories.storeAtDispatch.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(updateRecencyDigestTold.mock.invocationCallOrder[0]).toBeLessThan(
+      repositories.markFinished.mock.invocationCallOrder[0] ?? -Infinity,
+    );
   });
-  it('freezes the resolved skill baseline and records its told set on a completed turn', async () => {
+  it('freezes the resolved skill baseline and records its told set when the turn completes', async () => {
     const baseline: SkillCatalogBaseline = {
       entries: [{ name: 'pdf', description: 'Extract text' }],
       omitted: 0,
@@ -2389,7 +2422,7 @@ describe('RunExecutionService executeRun', () => {
       .spyOn(ChatsRepository.prototype, 'updateSkillCatalogTold')
       .mockResolvedValue(undefined);
     const render = vi.spyOn(SystemPromptsService.prototype, 'render');
-    mockNormalExecutionRepositories();
+    const repositories = mockNormalExecutionRepositories();
     const execution = makeExecutionService(
       createFakeModelClient(['answer']),
       undefined,
@@ -2424,8 +2457,13 @@ describe('RunExecutionService executeRun', () => {
     expect(updateSkillCatalogTold).toHaveBeenCalledWith(chatId, userId, [
       'pdf',
     ]);
+    // The first-epoch freeze lives only in the system prompt, so it waits for
+    // the winning turn's terminal transaction.
+    expect(setSkillBaseline.mock.invocationCallOrder[0]).toBeGreaterThan(
+      repositories.markFinished.mock.invocationCallOrder[0] ?? Infinity,
+    );
   });
-  it('stages the catalog notice and persists the told set with the winning user message', async () => {
+  it('stages the catalog notice and records its told set at dispatch', async () => {
     const stored: SkillCatalogBaseline = {
       entries: [{ name: 'pdf', description: 'Extract text' }],
       omitted: 0,
@@ -2479,22 +2517,21 @@ describe('RunExecutionService executeRun', () => {
     const temporalData: unknown = expect.objectContaining({
       producer: 'temporal',
     });
-    expect(repositories.updateUserMessageParts).toHaveBeenCalledWith({
-      id: messageId,
-      chatId,
-      parts: [
-        expect.objectContaining({
-          type: 'data-context',
-          data: catalogNoticeData,
-        }),
-        expect.objectContaining({ type: 'data-context', data: temporalData }),
-        { type: 'text', text: 'hello' },
-      ],
-    });
+    expect(stagedPartsOf(repositories.storeAtDispatch)).toEqual([
+      expect.objectContaining({
+        type: 'data-context',
+        data: catalogNoticeData,
+      }),
+      expect.objectContaining({ type: 'data-context', data: temporalData }),
+      { type: 'text', text: 'hello' },
+    ]);
     expect(updateSkillCatalogTold).toHaveBeenCalledWith(chatId, userId, [
       'pdf',
       'research',
     ]);
+    expect(updateSkillCatalogTold.mock.invocationCallOrder[0]).toBeLessThan(
+      repositories.markFinished.mock.invocationCallOrder[0] ?? -Infinity,
+    );
   });
 
   it('settles a pre-aborted run without preparing context or invoking the model', async () => {
@@ -2745,9 +2782,6 @@ async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
   const detach = vi
     .spyOn(WorkspaceBindingRepository.prototype, 'detach')
     .mockResolvedValue('detached');
-  vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-    undefined,
-  );
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
     ...chat,
     workspaceRoot: input.root,
@@ -2784,7 +2818,7 @@ async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
     }),
   );
   const workspaceItems = stagedItemsOf(
-    repositories.updateUserMessageParts,
+    repositories.storeAtDispatch,
     'workspace',
   );
   const notice = workspaceItems.find((item) => item.data.form === 'notice');
@@ -6357,7 +6391,11 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         1,
       );
     spies.findMostRecent.mockImplementation(lookupBefore(triggerSeq, recent));
+    // A completed Run is also the dispatched baseline the epoch is judged by.
     spies.findCompleted.mockImplementation(
+      completedLookupBefore(triggerSeq, completed),
+    );
+    spies.findDispatched.mockImplementation(
       completedLookupBefore(triggerSeq, completed),
     );
     vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
@@ -8062,27 +8100,33 @@ const deltaAvailability = {
   nowAvailable: [],
 };
 
-/** The parts write `RunExecutionService` performs on the triggering user
+/** The dispatch write `RunExecutionService` performs on the triggering user
  * message, and the spy `mockNormalExecutionRepositories` installs for it. */
-type UpdateUserMessageParts = MessagesRepository['updateUserMessageParts'];
-type UpdateUserMessagePartsSpy = MockInstance<UpdateUserMessageParts>;
+type StoreAtDispatchSpy = MockInstance<
+  AcceptedTurnPartsRepository['storeAtDispatch']
+>;
 
-/** The staged parts the winning user message records, read from the write that
- * replaced them — the id and chatId pin which turn's parts these are. */
+/** The trigger's parts — `base` as the dispatch read them — after the last
+ * dispatch write placed its items on them; the id and chatId pin which turn's
+ * parts these are. */
 function stagedPartsOf(
-  updateUserMessageParts: UpdateUserMessagePartsSpy,
+  storeAtDispatch: StoreAtDispatchSpy,
+  base: ReadonlyArray<unknown> = userMessage.parts,
 ): Array<unknown> {
-  const write = updateUserMessageParts.mock.calls.at(-1)?.[0];
+  const write = storeAtDispatch.mock.calls.at(-1)?.[0];
   expect(write).toMatchObject({ id: messageId, chatId });
-  return write?.parts ?? [];
+  return write === undefined
+    ? []
+    : placeAcceptedTurnItems(base, write.items, write.placement);
 }
 
 /** The staged envelopes one producer authored this turn, in written order. */
 function stagedItemsOf(
-  updateUserMessageParts: UpdateUserMessagePartsSpy,
+  storeAtDispatch: StoreAtDispatchSpy,
   producer: string,
+  base: ReadonlyArray<unknown> = userMessage.parts,
 ): Array<ContextItemPart> {
-  return stagedPartsOf(updateUserMessageParts).filter(
+  return stagedPartsOf(storeAtDispatch, base).filter(
     (part): part is ContextItemPart =>
       isContextItemPart(part) && part.data.producer === producer,
   );
@@ -8160,11 +8204,11 @@ const digestBaseline: RecencyDigestResolution['baseline'] = {
   compiledOn: '2026-09-01',
 };
 
-/** One attempt against a chat whose last successful turn is `completed`, with
+/** One attempt against a chat whose last dispatched turn is `dispatched`, with
  * `checkpoint` the active row. Runs to a committed turn. */
 async function executeAvailabilityAttempt(input: {
   recent?: Run;
-  completed?: CompletedRunWithTrigger;
+  dispatched?: CompletedRunWithTrigger;
   compaction?: CheckpointMessage;
 }) {
   const repositories = mockNormalExecutionRepositories();
@@ -8172,10 +8216,9 @@ async function executeAvailabilityAttempt(input: {
     RunsRepository.prototype,
     'findMostRecentByMessageSequence',
   ).mockImplementation(lookupBefore(1, input.recent));
-  vi.spyOn(
-    RunsRepository.prototype,
-    'findMostRecentCompletedByChatMessageSequence',
-  ).mockImplementation(completedLookupBefore(1, input.completed));
+  repositories.findDispatched.mockImplementation(
+    completedLookupBefore(1, input.dispatched),
+  );
   if (input.compaction !== undefined) {
     repositories.findActiveCheckpoint.mockResolvedValue(input.compaction);
   }
@@ -8217,32 +8260,31 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     // Both staged items reach the user message under the form the rail
     // renders them with.
     const [availability] = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'tool-availability',
     );
     expect(availability?.data.form).toBe('notice');
-    const [temporal] = stagedItemsOf(
-      repositories.updateUserMessageParts,
-      'temporal',
-    );
+    const [temporal] = stagedItemsOf(repositories.storeAtDispatch, 'temporal');
     expect(temporal?.data.form).toBe('snapshot');
-    // The availability the turn observed becomes the next turn's baseline.
-    expect(repositories.markFinished).toHaveBeenCalledWith(
+    // The availability the turn observed becomes the next turn's baseline,
+    // written by the dispatch transaction rather than the terminal one.
+    expect(repositories.updateForAttempt).toHaveBeenCalledWith(
       runId,
       userId,
-      'completed',
-      expect.objectContaining({
+      testAttemptId,
+      {
+        activeAttemptId: testAttemptId,
         turnToolAvailability: [{ id: contextToolId, state: 'unavailable' }],
-      }),
+      },
     );
-    // And the model is told what changed: no completed predecessor, so this
+    // And the model is told what changed: no dispatched predecessor, so this
     // is the epoch's initial disclosure.
     expect(availability?.data.payload).toMatchObject(initialAvailability);
     // A turn that disclosed no digest advances no told state.
     expect(updateRecencyDigestTold).not.toHaveBeenCalled();
   });
 
-  it('prepends the staged context text to the triggering user message', async () => {
+  it('places the staged context text ahead of the user text on the triggering message', async () => {
     mockNormalExecutionRepositories();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);
@@ -8292,7 +8334,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     expect(repositories.updateForAttempt).not.toHaveBeenCalled();
   });
 
-  it('commits no availability baseline for a turn that did not complete', async () => {
+  it('records the availability baseline at dispatch even when the turn then fails', async () => {
     const repositories = mockNormalExecutionRepositories();
     recordAppendedEvents();
     const capturing = makeCapturingClient();
@@ -8306,28 +8348,329 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       stepCount: 1,
     });
 
+    expect(repositories.updateForAttempt).toHaveBeenCalledWith(
+      runId,
+      userId,
+      testAttemptId,
+      { activeAttemptId: testAttemptId, turnToolAvailability: [] },
+    );
     const [finishCall] = repositories.markFinished.mock.calls;
     expect(finishCall?.[2]).toBe('failed');
     expect(finishCall?.[3]).not.toHaveProperty('turnToolAvailability');
   });
 
-  it('compares availability against the last successful turn while the epoch continues', async () => {
+  it('stores the items and told state in one fenced transaction before the first request', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceDetachReason: 'root_missing',
+    });
+    const order: Array<string> = [];
+    repositories.updateForAttempt.mockImplementation(
+      (_runId, _userId, _attemptId, set) => {
+        if (set.turnToolAvailability !== undefined) order.push('fence');
+        return Promise.resolve({ ...run });
+      },
+    );
+    repositories.storeAtDispatch.mockImplementation(() => {
+      order.push('store');
+      return Promise.resolve({ applied: true });
+    });
+    repositories.setTold.mockImplementation(() => {
+      order.push('told');
+      return Promise.resolve(undefined);
+    });
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      (_runId, eventType) => {
+        if (eventType === 'model.requested') order.push('requested');
+        return Promise.resolve(event);
+      },
+    );
+    const capturing = makeCapturingClient();
+    const client: ModelClient = {
+      ...capturing.client,
+      streamText: (options) => {
+        order.push('request');
+        return capturing.client.streamText(options);
+      },
+    };
+    const execution = makeExecutionService(client);
+
+    await execution.service.executeRun(executionInput(client));
+
+    expect(order).toEqual(['fence', 'store', 'told', 'requested', 'request']);
+    // The request carries exactly the parts the trigger stores.
+    expect(capturing.streamOptions().messages.at(-1)).toEqual({
+      role: 'user',
+      content: userPartsToModelContent(
+        stagedPartsOf(repositories.storeAtDispatch),
+      ),
+    });
+  });
+
+  it.each([
+    { name: 'its fence is lost', lost: 'fence' },
+    { name: 'its user row is gone', lost: 'row' },
+  ] as const)('dispatches nothing when $name', async ({ lost }) => {
+    const repositories = mockNormalExecutionRepositories();
+    if (lost === 'fence') {
+      repositories.updateForAttempt.mockImplementation(
+        (_runId, _userId, _attemptId, set) =>
+          Promise.resolve(
+            set.turnToolAvailability === undefined ? { ...run } : undefined,
+          ),
+      );
+    } else {
+      repositories.storeAtDispatch.mockResolvedValue({ applied: false });
+    }
+    const appended = recordAppendedEvents();
+    let requested = false;
+    const capturing = makeCapturingClient();
+    const client: ModelClient = {
+      ...capturing.client,
+      streamText: (options) => {
+        requested = true;
+        return capturing.client.streamText(options);
+      },
+    };
+    const execution = makeExecutionService(client);
+
+    await expect(
+      execution.service.executeRun(executionInput(client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    if (lost === 'fence') {
+      expect(repositories.storeAtDispatch).not.toHaveBeenCalled();
+    }
+    expect(appended.map((entry) => entry.type)).not.toContain(
+      'model.requested',
+    );
+    expect(requested).toBe(false);
+  });
+
+  describe('a retry after an earlier attempt dispatched', () => {
+    /** What the earlier attempt's dispatch stored ahead of the user text. */
+    const storedTemporal = createTemporalItem({
+      runId,
+      instant: new Date('2026-09-01T00:00:00.000Z'),
+      timeZone: 'UTC',
+    });
+    const trigger: Message = {
+      ...userMessage,
+      parts: [storedTemporal, { type: 'text', text: 'hello' }],
+    };
+
+    /** Producers in stored order, `text` for the user's own part. */
+    function producersOf(parts: ReadonlyArray<unknown>): Array<string> {
+      return parts.map((part) =>
+        isContextItemPart(part) ? part.data.producer : 'text',
+      );
+    }
+
+    function retryAgainstStoredTrigger(
+      repositories: ReturnType<typeof mockNormalExecutionRepositories>,
+      record: Array<TurnToolAvailabilityEntry>,
+    ) {
+      repositories.findById.mockResolvedValue({
+        ...run,
+        turnToolAvailability: record,
+      });
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        trigger,
+      ]);
+    }
+
+    it('appends an availability reminder against its own record after the stored items', async () => {
+      const repositories = mockNormalExecutionRepositories();
+      retryAgainstStoredTrigger(repositories, [
+        { id: contextToolId, state: 'available' },
+      ]);
+      // The switch was already stored by the earlier dispatch of this turn.
+      repositories.findMostRecent.mockImplementation(
+        lookupBefore(1, completedPredecessor({ modelId: 'other-model' })),
+      );
+      const capturing = makeCapturingClient();
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        undefined,
+        availabilityOptions,
+      );
+
+      await execution.service.executeRun(executionInput(capturing.client));
+
+      expect(
+        repositories.storeAtDispatch.mock.calls.at(-1)?.[0].placement,
+      ).toBe('append');
+      const stored = stagedPartsOf(repositories.storeAtDispatch, trigger.parts);
+      // No second temporal anchor or model switch for the same turn.
+      expect(producersOf(stored)).toEqual([
+        'temporal',
+        'tool-availability',
+        'text',
+      ]);
+      const [availability] = stagedItemsOf(
+        repositories.storeAtDispatch,
+        'tool-availability',
+        trigger.parts,
+      );
+      expect(availability?.data.payload).toMatchObject(deltaAvailability);
+      expect(capturing.streamOptions().messages.at(-1)).toEqual({
+        role: 'user',
+        content: userPartsToModelContent(stored),
+      });
+    });
+
+    it('compares each retry against the record the attempt before it advanced', async () => {
+      const repositories = mockNormalExecutionRepositories();
+      // `toolDeclaration` is the same `contextToolId`, now connected and bound
+      // to an executor through the dynamic-resolver seam.
+      const reconnected = {
+        options: withDeclaredTool(),
+        resolver: makeDynamicResolver({
+          id: toolDeclaration.id,
+          description: toolDeclaration.description,
+          classification: 'unverified',
+          inputSchema: toolDeclaration.inputSchema,
+          execute: () => ({ status: 'success' as const }),
+        }),
+      };
+      const disconnected = {
+        options: availabilityOptions,
+        resolver: undefined,
+      };
+      // The trigger's stored parts and the Run's availability record as each
+      // dispatch leaves them for the next attempt to read.
+      let storedParts: ReadonlyArray<unknown> = userMessage.parts;
+      let record: Run['turnToolAvailability'] = null;
+      const attempts: Array<{
+        placement: string | undefined;
+        reminders: Array<ContextItemPart>;
+      }> = [];
+      for (const attempt of [disconnected, reconnected, disconnected]) {
+        const base = storedParts;
+        repositories.findById.mockResolvedValue({
+          ...run,
+          turnToolAvailability: record,
+        });
+        vi.spyOn(
+          MessagesRepository.prototype,
+          'findByChatId',
+        ).mockResolvedValue([{ ...userMessage, parts: [...base] }]);
+        const execution = makeExecutionService(
+          createFakeModelClient(['answer']),
+          attempt.resolver,
+          undefined,
+          attempt.options,
+        );
+
+        const result = await execution.service.executeRun(
+          executionInput(execution.client),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        const write = repositories.storeAtDispatch.mock.calls.at(-1)?.[0];
+        attempts.push({
+          placement: write?.placement,
+          reminders: (write?.items ?? []).filter(
+            (item) => item.data.producer === 'tool-availability',
+          ),
+        });
+        storedParts = stagedPartsOf(repositories.storeAtDispatch, base);
+        const fence = repositories.updateForAttempt.mock.calls
+          .map(([, , , patch]) => patch.turnToolAvailability)
+          .filter((entry) => entry !== undefined)
+          .at(-1);
+        record = fence ?? null;
+      }
+
+      const [first, second, third] = attempts;
+      expect(first?.placement).toBe('rank');
+      expect(first?.reminders.map((item) => item.data.payload)).toEqual([
+        expect.objectContaining(initialAvailability),
+      ]);
+      // Attempt 2 reads attempt 1's record: the tool came back.
+      expect(second?.placement).toBe('append');
+      expect(second?.reminders.map((item) => item.data.payload)).toEqual([
+        expect.objectContaining({
+          kind: 'delta',
+          becameUnavailable: [],
+          nowAvailable: [expect.objectContaining({ id: contextToolId })],
+        }),
+      ]);
+      expect(second?.reminders[0]?.data.text).toContain('Now available:');
+      // Attempt 3 reads the record attempt 2 advanced, not attempt 1's, so the
+      // tool's loss is told again rather than deduplicated.
+      expect(third?.placement).toBe('append');
+      expect(third?.reminders.map((item) => item.data.payload)).toEqual([
+        expect.objectContaining(deltaAvailability),
+      ]);
+      expect(third?.reminders[0]?.data.text).toContain('Became unavailable:');
+      // Each retry appended after what the earlier dispatches stored; none
+      // replaced or dropped an earlier reminder.
+      expect(
+        storedParts
+          .filter(isContextItemPart)
+          .filter((part) => part.data.producer === 'tool-availability')
+          .map((part) => part.data.payload),
+      ).toEqual(
+        attempts.flatMap(({ reminders }) =>
+          reminders.map((item) => item.data.payload),
+        ),
+      );
+    });
+
+    it('appends the detach notice after the stored items', async () => {
+      const repositories = mockNormalExecutionRepositories();
+      retryAgainstStoredTrigger(repositories, []);
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceDetachReason: 'root_missing',
+      });
+      const capturing = makeCapturingClient();
+      const execution = makeExecutionService(capturing.client);
+
+      await execution.service.executeRun(executionInput(capturing.client));
+
+      expect(
+        repositories.storeAtDispatch.mock.calls.at(-1)?.[0].placement,
+      ).toBe('append');
+      const stored = stagedPartsOf(repositories.storeAtDispatch, trigger.parts);
+      expect(producersOf(stored)).toEqual(['temporal', 'workspace', 'text']);
+      expect(stored[1]).toMatchObject({
+        data: { form: 'notice', payload: { reason: 'root_missing' } },
+      });
+      expect(repositories.setTold).toHaveBeenCalledWith({
+        chatId,
+        ownerUserId: userId,
+        told: null,
+        toldFrom: null,
+        clearDetachReason: true,
+      });
+      expect(capturing.streamOptions().messages.at(-1)).toEqual({
+        role: 'user',
+        content: userPartsToModelContent(stored),
+      });
+    });
+  });
+
+  it('compares availability against the last dispatched turn while the epoch continues', async () => {
     const repositories = await executeAvailabilityAttempt({
       recent: completedPredecessor(),
-      completed: answeredTurn(completedPredecessor(), 2),
+      dispatched: answeredTurn(completedPredecessor(), 2),
     });
 
     const [availability] = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'tool-availability',
     );
     expect(availability?.data.payload).toMatchObject(deltaAvailability);
   });
 
-  it('starts a new disclosure epoch when the checkpoint reaches the successful turn', async () => {
+  it('starts a new disclosure epoch when the checkpoint reaches the dispatched turn', async () => {
     const repositories = await executeAvailabilityAttempt({
       recent: completedPredecessor(),
-      completed: answeredTurn(completedPredecessor(), 2),
+      dispatched: answeredTurn(completedPredecessor(), 2),
       compaction: activeCheckpoint({
         uptoSeq: 2,
         createdAt: new Date('2026-09-09T00:00:00.000Z'),
@@ -8335,20 +8678,20 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     });
 
     const [availability] = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'tool-availability',
     );
     expect(availability?.data.payload).toMatchObject(initialAvailability);
   });
 
-  it('keeps the epoch when the checkpoint boundary sits below the successful turn', async () => {
+  it('keeps the epoch when the checkpoint boundary sits below the dispatched turn', async () => {
     // Published after that turn finished, and it still does not start one: the
     // epoch is re-keyed on the boundary, never on the checkpoint's timestamp.
     const repositories = await executeAvailabilityAttempt({
       recent: completedPredecessor({
         createdAt: new Date('2026-09-10T00:00:00.000Z'),
       }),
-      completed: answeredTurn(completedPredecessor(), 2),
+      dispatched: answeredTurn(completedPredecessor(), 2),
       compaction: activeCheckpoint({
         uptoSeq: 1,
         createdAt: new Date('2026-09-11T00:00:00.000Z'),
@@ -8356,16 +8699,19 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     });
 
     const [availability] = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'tool-availability',
     );
     expect(availability?.data.payload).toMatchObject(deltaAvailability);
   });
 
-  it('starts an epoch when the preceding run never completed', async () => {
+  it('starts an epoch when the preceding run never dispatched', async () => {
     const repositories = await executeAvailabilityAttempt({
-      recent: completedPredecessor(),
-      completed: undefined,
+      recent: completedPredecessor({
+        status: 'failed',
+        turnToolAvailability: null,
+      }),
+      dispatched: undefined,
       compaction: activeCheckpoint({
         uptoSeq: 1,
         createdAt: new Date('2026-09-11T00:00:00.000Z'),
@@ -8373,7 +8719,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     });
 
     const [availability] = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'tool-availability',
     );
     expect(availability?.data.payload).toMatchObject(initialAvailability);
@@ -8387,8 +8733,8 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     ).mockImplementation(
       lookupBefore(1, completedPredecessor({ modelId: 'other-model' })),
     );
-    // The completed-predecessor read is the trigger's measurement source; the
-    // default mock leaves it absent, so the whole request is estimated.
+    // The dispatched-predecessor read is the availability baseline; the
+    // default mock leaves it absent.
     const execution = makeExecutionService(createFakeModelClient(['answer']));
 
     const result = await execution.service.executeRun(
@@ -8397,7 +8743,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     await expect(result.text).resolves.toBe('answer');
 
     const [modelChange] = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'effective-context-change',
     );
     expect(modelChange?.data).toMatchObject({
@@ -8416,7 +8762,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       RunsRepository.prototype,
       'findMostRecentByMessageSequence',
     ).mockImplementation(lookupBefore(1, completedPredecessor()));
-    // As above: no completed predecessor, so nothing is measured by turn.
+    // As above: no dispatched predecessor.
     const execution = makeExecutionService(createFakeModelClient(['answer']));
 
     const result = await execution.service.executeRun(
@@ -8425,18 +8771,12 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     await expect(result.text).resolves.toBe('answer');
 
     expect(
-      stagedItemsOf(
-        repositories.updateUserMessageParts,
-        'effective-context-change',
-      ),
+      stagedItemsOf(repositories.storeAtDispatch, 'effective-context-change'),
     ).toEqual([]);
   });
 
   it("narrates an owner's copied Workspace root on the first accepted turn", async () => {
     const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       ...chat,
       workspaceRoot: '/workspace/project',
@@ -8451,7 +8791,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     await expect(result.text).resolves.toBe('answer');
 
     const workspaceItems = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'workspace',
     );
     expect(workspaceItems).toHaveLength(1);
@@ -8466,9 +8806,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
   it('narrates Workspace exit when a named root is no longer bound', async () => {
     const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       ...chat,
       workspaceRoot: null,
@@ -8483,7 +8820,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     await expect(result.text).resolves.toBe('answer');
 
     const workspaceItems = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'workspace',
     );
     expect(workspaceItems).toHaveLength(1);
@@ -8507,9 +8844,9 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     );
     await expect(result.text).resolves.toBe('answer');
 
-    expect(
-      stagedItemsOf(repositories.updateUserMessageParts, 'workspace'),
-    ).toEqual([]);
+    expect(stagedItemsOf(repositories.storeAtDispatch, 'workspace')).toEqual(
+      [],
+    );
   });
 
   it('stays silent for a Chat that has never had a Workspace binding', async () => {
@@ -8521,9 +8858,9 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     );
     await expect(result.text).resolves.toBe('answer');
 
-    expect(
-      stagedItemsOf(repositories.updateUserMessageParts, 'workspace'),
-    ).toEqual([]);
+    expect(stagedItemsOf(repositories.storeAtDispatch, 'workspace')).toEqual(
+      [],
+    );
   });
   it('re-narrates a Workspace snapshot on the first turn after compaction', async () => {
     const compactionId = '77777777-7777-4777-8777-777777777777';
@@ -8537,9 +8874,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     repositories.findActiveCheckpoint.mockResolvedValue(
       activeCheckpoint({ uptoSeq: 1, createdAt: now, id: compactionId }),
     );
-    const setTold = vi
-      .spyOn(WorkspaceBindingRepository.prototype, 'setTold')
-      .mockResolvedValue(undefined);
     const execution = makeExecutionService(createFakeModelClient(['answer']));
 
     const result = await execution.service.executeRun(
@@ -8548,7 +8882,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     await expect(result.text).resolves.toBe('answer');
 
     const workspaceItems = stagedItemsOf(
-      repositories.updateUserMessageParts,
+      repositories.storeAtDispatch,
       'workspace',
     );
     expect(workspaceItems).toHaveLength(1);
@@ -8556,7 +8890,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     expect(workspaceItems[0]?.data.payload).toEqual({
       root: '/workspace/project',
     });
-    expect(setTold).toHaveBeenCalledWith({
+    expect(repositories.setTold).toHaveBeenCalledWith({
       chatId,
       ownerUserId: userId,
       told: '/workspace/project',
@@ -8611,7 +8945,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
     // The re-bake is reported under the digest producer's snapshot form.
     expect(
-      stagedItemsOf(repositories.updateUserMessageParts, 'recency-digest').map(
+      stagedItemsOf(repositories.storeAtDispatch, 'recency-digest').map(
         (item) => item.data.form,
       ),
     ).toContain('snapshot');
@@ -8659,7 +8993,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
     // The chat has no disclosed baseline, so there is nothing to supersede.
     expect(
-      stagedItemsOf(repositories.updateUserMessageParts, 'recency-digest').map(
+      stagedItemsOf(repositories.storeAtDispatch, 'recency-digest').map(
         (item) => item.data.form,
       ),
     ).not.toContain('snapshot');
@@ -8765,7 +9099,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     expect(updateRecencyDigestTold).not.toHaveBeenCalled();
   });
 
-  it('publishes no context state from a settlement that did not complete', async () => {
+  it('publishes no winning-turn baseline from a settlement that did not complete', async () => {
     const repositories = mockNormalExecutionRepositories();
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...run,
@@ -8777,9 +9111,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     const setDigest = vi
       .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
       .mockResolvedValue({ ...chat, recencyDigestBaseline: digestBaseline });
-    const updateTold = vi
-      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
-      .mockResolvedValue(undefined);
     const setSkillBaseline = vi
       .spyOn(ChatsRepository.prototype, 'setSkillCatalogBaseline')
       .mockResolvedValue(undefined);
@@ -8789,18 +9120,16 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     const execution = makeExecutionService();
 
     // The settlement seam forwards every field it is handed, so this is
-    // exactly the caller the guards exist to refuse: attempt context arriving
-    // with a status that never published it.
+    // exactly the caller the guards exist to refuse: winning-turn baselines
+    // arriving with a status that never completed the turn.
     const settlement = {
       userId,
       runId,
       status: 'failed' as const,
       recencyDigestInitialization: { baseline: digestBaseline, told: [] },
-      recencyDigestTold: [],
-      attemptContextParts: [{ type: 'text' as const, text: 'staged' }],
-      turnToolAvailability: [{ id: contextToolId, state: 'available' }],
-      skillCatalogWrites: {
-        freeze: { baseline: { entries: [], omitted: 0 }, rebakedFrom: null },
+      skillCatalogFreeze: {
+        baseline: { entries: [], omitted: 0 },
+        rebakedFrom: null,
         told: [],
       },
     };
@@ -8809,9 +9138,8 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     const [finishCall] = repositories.markFinished.mock.calls;
     expect(finishCall?.[2]).toBe('failed');
     expect(finishCall?.[3]).not.toHaveProperty('turnToolAvailability');
-    expect(repositories.updateUserMessageParts).not.toHaveBeenCalled();
+    expect(repositories.storeAtDispatch).not.toHaveBeenCalled();
     expect(setDigest).not.toHaveBeenCalled();
-    expect(updateTold).not.toHaveBeenCalled();
     expect(setSkillBaseline).not.toHaveBeenCalled();
     expect(updateSkillTold).not.toHaveBeenCalled();
   });
@@ -9188,9 +9516,6 @@ describe('RunExecutionService instruction files', () => {
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
     });
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
   }
 
   /**
@@ -9300,8 +9625,8 @@ describe('RunExecutionService instruction files', () => {
   }
 
   /**
-   * The `instructions` items the completed Run published, in order: those on
-   * its user message, then its in-Run items on the assistant reply.
+   * The `instructions` items the completed Run stored, in order: those on its
+   * user message, then its in-Run items on the assistant reply.
    */
   function instructionItems(
     repositories: ReturnType<typeof mockNormalExecutionRepositories>,
@@ -9326,16 +9651,17 @@ describe('RunExecutionService instruction files', () => {
     );
   }
 
-  /** The parts the winning turn wrote onto its triggering user message. */
+  /** The parts the dispatch transaction stored on the triggering user message. */
   function stagedParts(
     repositories: ReturnType<typeof mockNormalExecutionRepositories>,
   ): Array<unknown> {
-    return (
-      repositories.updateUserMessageParts.mock.calls.at(-1)?.[0].parts ?? []
-    );
+    const write = repositories.storeAtDispatch.mock.calls.at(-1)?.[0];
+    return write === undefined
+      ? []
+      : placeAcceptedTurnItems(userMessage.parts, write.items, write.placement);
   }
 
-  /** The instructions part the winning turn staged onto its user message. */
+  /** The instructions part the dispatch stored on the user message. */
   function stagedInstructionPart(
     repositories: ReturnType<typeof mockNormalExecutionRepositories>,
   ): AuthoredContextItemPart | undefined {
@@ -9576,7 +9902,7 @@ describe('RunExecutionService instruction files', () => {
     }
   });
 
-  it('publishes no instructions item when the model call fails after the load', async () => {
+  it('stores the accepted-turn instructions item at dispatch even when the model call then fails', async () => {
     const root = instructionsRoot();
     try {
       const repositories = mockNormalExecutionRepositories();
@@ -9606,9 +9932,9 @@ describe('RunExecutionService instruction files', () => {
       expect(
         eventsWithOrigin(append, 'instructions').map((record) => record.type),
       ).toEqual(['tool.requested', 'tool.completed']);
-      // ...but a Run the model never received publishes nothing: the item
-      // never reaches the user message.
-      expect(repositories.updateUserMessageParts).not.toHaveBeenCalled();
+      // ...and the dispatch transaction stored its item before the request,
+      // so a later turn finds those files already seen.
+      expect(stagedInstructionPart(repositories)).toBeDefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -10480,10 +10806,6 @@ describe('RunExecutionService instruction files', () => {
         workspaceTold: root,
         workspaceToldFrom: null,
       });
-      vi.spyOn(
-        WorkspaceBindingRepository.prototype,
-        'setTold',
-      ).mockResolvedValue(undefined);
       const execution = makeExecutionService(
         createFakeModelClient(['answer']),
         undefined,
@@ -10593,10 +10915,6 @@ describe('RunExecutionService instruction files', () => {
         workspaceTold: root,
         workspaceToldFrom: null,
       });
-      vi.spyOn(
-        WorkspaceBindingRepository.prototype,
-        'setTold',
-      ).mockResolvedValue(undefined);
       serveCheckpointPublication();
       serveNativeReads();
       let contextWindowTokens = 1;
@@ -11028,9 +11346,6 @@ describe('RunExecutionService prompt imports', () => {
       workspaceExecutorId: executorId,
       workspaceGeneration: 4,
     });
-    vi.spyOn(WorkspaceBindingRepository.prototype, 'setTold').mockResolvedValue(
-      undefined,
-    );
   }
 
   /** The Run's repositories plus spies on the prompt-import item's storage. */

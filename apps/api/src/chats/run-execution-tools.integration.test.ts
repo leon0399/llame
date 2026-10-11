@@ -2733,9 +2733,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
           promptHash: 'source-receipt-prompt-hash',
         },
       );
+      await runs.updateForAttempt(sourceRun.id, userId, sourceAttemptId, {
+        turnToolAvailability: [],
+      });
       await runs.markFinished(sourceRun.id, userId, 'completed', {
         attemptId: sourceAttemptId,
-        turnToolAvailability: [],
       });
       await messages.create({
         chatId,
@@ -2832,6 +2834,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       {
         role: 'user',
         content: [
+          { type: 'text', text: switchPart.data.text },
           {
             type: 'text',
             text: expect.stringContaining(
@@ -2851,16 +2854,20 @@ describeIfDb('executeRun tool-loop persistence', () => {
             type: 'text',
             text: expect.stringContaining('Message received:'),
           },
-          { type: 'text', text: switchPart.data.text },
           { type: 'text', text: 'Continue on target.' },
         ],
       },
     ]);
-    // The persisted items are exactly the blocks sent: the turn's staged
-    // items, then the item the message already carried.
+    // The persisted items are exactly the blocks sent: the item the message
+    // already carried, then the turn's items placed by producer rank.
     await waitForCompleted(seeded.targetRun.id);
     const persisted = await messageContextParts(chatId, seeded.targetUser.id);
     expect(persisted.map(persistedItem)).toEqual([
+      {
+        producer: 'effective-context-change',
+        form: 'notice',
+        text: switchPart.data.text,
+      },
       {
         producer: 'effective-context-change',
         form: 'notice',
@@ -2879,11 +2886,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
         producer: 'temporal',
         form: 'snapshot',
         text: expect.any(String),
-      },
-      {
-        producer: 'effective-context-change',
-        form: 'notice',
-        text: switchPart.data.text,
       },
     ]);
     const sentBlocks = calls[0].messages.at(-1)?.content;
@@ -5878,6 +5880,133 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(JSON.stringify(third.doStreamCalls[0]?.prompt)).toContain(
           path.join(root, 'AGENTS.md'),
         );
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps a failed Run's dispatched accepted-turn items and repeats none of them on the next turn", async () => {
+      const root = instructionFixture();
+      const seeded = await seedBoundRun(
+        `instructions-failed-dispatch-${crypto.randomUUID()}`,
+      );
+      const service = instructionsService();
+
+      try {
+        // A completed turn binds the Workspace, then a checkpoint absorbs it,
+        // so the next accepted turn owes a Workspace snapshot and the root
+        // chain.
+        const binding = await executeSeeded(
+          seeded,
+          service,
+          createMockModelClient(
+            firstStepThenAnswer(
+              [
+                {
+                  toolCallId: 'failed-dispatch-enter',
+                  toolName: 'enter_workspace',
+                  input: { path: root },
+                },
+              ],
+              'Entered.',
+            ),
+          ),
+        );
+        await binding.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+        const absorbed = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findByChatId(seeded.chatId, userId),
+        );
+        await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).createCheckpoint({
+            chatId: seeded.chatId,
+            absorbedThroughSeq: Math.max(...absorbed.map(({ seq }) => seq)),
+            part: createCompactionCheckpointPart('Earlier turns.'),
+          }),
+        );
+
+        // The provider drops the turn's first request after it was sent.
+        const failingSeeded = await seedRunOnChat(
+          seeded,
+          `instructions-failed-dispatch-2-${crypto.randomUUID()}`,
+        );
+        const failing = new MockLanguageModelV3({
+          doStream: () =>
+            Promise.resolve({
+              stream: simulateReadableStream({
+                chunks: [
+                  { type: 'stream-start', warnings: [] },
+                  {
+                    type: 'error',
+                    error: new Error('provider dropped the stream'),
+                  },
+                ],
+              }),
+            }),
+        });
+        const failingExecution = await executeSeeded(
+          failingSeeded,
+          service,
+          createMockModelClient(failing),
+        );
+        await failingExecution.consumeStream?.();
+        await waitFor(async () => {
+          const events = await tenantDb.runAs(userId, (tx) =>
+            new RunEventsRepository(tx).listByRunId(
+              failingSeeded.run.id,
+              userId,
+            ),
+          );
+          return events.some((event) => event.eventType === 'run.failed');
+        });
+
+        // The request was dispatched, so the items it carried stay on the
+        // user message whatever the Run's outcome.
+        expect(failing.doStreamCalls).toHaveLength(1);
+        const failedProducers = (
+          await messageContextParts(
+            failingSeeded.chatId,
+            failingSeeded.messageId,
+          )
+        ).map(({ data }) => data.producer);
+        expect(failedProducers).toEqual(
+          expect.arrayContaining(['workspace', 'instructions', 'temporal']),
+        );
+        expect(await stagedInstructionParts(failingSeeded)).toHaveLength(1);
+
+        const nextSeeded = await seedRunOnChat(
+          seeded,
+          `instructions-failed-dispatch-3-${crypto.randomUUID()}`,
+        );
+        const next = new MockLanguageModelV3({
+          doStream: () => Promise.resolve(textResponse('Nothing new.')),
+        });
+        const nextExecution = await executeSeeded(
+          nextSeeded,
+          service,
+          createMockModelClient(next),
+        );
+        await nextExecution.consumeStream?.();
+        await waitForCompleted(nextSeeded.run.id);
+
+        // The next turn reads the failed turn's items from history: it loads
+        // no instruction file again, stores no second snapshot or bundle, and
+        // its request carries each of them once.
+        expect(await instructionEvents(nextSeeded.run.id)).toEqual([]);
+        const nextProducers = (
+          await messageContextParts(nextSeeded.chatId, nextSeeded.messageId)
+        ).map(({ data }) => data.producer);
+        expect(nextProducers).not.toContain('workspace');
+        expect(nextProducers).not.toContain('instructions');
+        const prompt = next.doStreamCalls[0]?.prompt ?? [];
+        expect(instructionsIndexes(prompt)).toHaveLength(1);
+        expect(
+          prompt
+            .map(promptText)
+            .join('\n')
+            .split('<system-reminder producer="workspace"'),
+        ).toHaveLength(2);
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         rmSync(root, { recursive: true, force: true });

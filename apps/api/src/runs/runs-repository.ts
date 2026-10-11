@@ -19,6 +19,7 @@ import {
   isNull,
   lt,
   notInArray,
+  sql,
   type SQL,
 } from 'drizzle-orm';
 import {
@@ -29,7 +30,6 @@ import {
   type Run,
   type RunEvent,
   type RunStatus,
-  type TurnToolAvailabilityEntry,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
@@ -48,7 +48,6 @@ type TerminalRunStatus = Extract<
 type MarkFinishedOptions = {
   error?: unknown;
   attemptId?: string;
-  turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
 };
 
 type MarkFinishedUpdate = {
@@ -56,7 +55,6 @@ type MarkFinishedUpdate = {
   finishedAt: Date;
   error?: unknown;
   completedAttemptId?: string;
-  turnToolAvailability?: Array<TurnToolAvailabilityEntry>;
 };
 
 function markFinishedUpdate(
@@ -70,9 +68,6 @@ function markFinishedUpdate(
   if (options?.error !== undefined) update.error = options.error;
   if (status === 'completed' && options?.attemptId !== undefined) {
     update.completedAttemptId = options.attemptId;
-  }
-  if (status === 'completed' && options?.turnToolAvailability !== undefined) {
-    update.turnToolAvailability = options.turnToolAvailability;
   }
   return update;
 }
@@ -186,6 +181,25 @@ export class RunsRepository {
       options,
       eq(runs.status, 'completed'),
       isNotNull(runs.completedAttemptId),
+    );
+  }
+
+  /**
+   * Most recent dispatched run by triggering-message sequence: one whose
+   * dispatch transaction wrote its availability record (`[]` included), or one
+   * that completed, which covers runs older than the record. A run that ended
+   * before any request carries a null record and is never a baseline.
+   */
+  async findMostRecentDispatchedByChatMessageSequence(
+    chatId: string,
+    userId: string,
+    options: { beforeSeq: number },
+  ): Promise<CompletedRunWithTrigger | undefined> {
+    return this.findMostRecentByMessageSequence(
+      chatId,
+      userId,
+      options,
+      sql`(${isNotNull(runs.turnToolAvailability)} or ${eq(runs.status, 'completed')})`,
     );
   }
 

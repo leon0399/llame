@@ -155,7 +155,7 @@ An admitted host or Knowledge import also loads its directory's
 the first model request, whether or not a Workspace is bound, and whatever its
 read outcome; denied, missing, web, and skill targets load none, and a detaching
 attempt loads none. Importing an instruction file itself does not load it. A
-retry stages the same load.
+retry keeps the bundle an earlier attempt stored and loads only unseen files.
 
 ## Disclosure
 

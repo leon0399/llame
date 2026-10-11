@@ -179,8 +179,13 @@ export interface ModelRequestContext {
   messages: Array<ModelMessage>;
 }
 
-function userPartsToModelContent(
-  parts: ReadonlyArray<MessagePart>,
+/**
+ * A user turn's model-facing content: its text and the text of its context
+ * items, in stored order. Exported for the run worker, which sets the
+ * triggering message's content from the parts its dispatch stored.
+ */
+export function userPartsToModelContent(
+  parts: ReadonlyArray<unknown>,
 ): Array<TextPart> {
   return parts.flatMap((part) => {
     if (isTextPart(part)) {

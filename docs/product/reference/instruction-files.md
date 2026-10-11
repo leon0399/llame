@@ -69,8 +69,8 @@ a failed read still loads its directory's chain. A denied, missing, web, or
 neither loads nor marks it. Another prompt import in the same directory, or
 one whose chain walks through it, still selects that file even when no Workspace
 is bound; a bound-root load can also select it. An attempt that detaches the
-Workspace stages no import load, and a retry stages the same load again from the
-stored item.
+Workspace stages no import load. A retry keeps the accepted-turn bundle an
+earlier attempt stored and loads only files its effective history has not seen.
 
 ## Knowledge Space triggers
 
