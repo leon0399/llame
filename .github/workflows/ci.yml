@@ -24,10 +24,13 @@ on:
   push:
     branches: [master]
 
-# A new push supersedes the old run: nothing here needs to finish for a commit
-# that is already outdated.
+# A new push supersedes the old run on a pull request: nothing there needs to
+# finish for a commit that is already outdated. Each master run gets its own
+# group, because a shared group would still replace a pending master run when
+# the next merge lands; every merged commit therefore gets a complete verdict
+# even when stack layers land back to back.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: true
 
 permissions:

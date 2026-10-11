@@ -2,6 +2,9 @@ name: Git AI
 on:
   pull_request:
     types: [closed]
+
+permissions: {}
+
 jobs:
   git-ai:
     if: github.event.pull_request.merged == true
@@ -9,10 +12,23 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The release binary, pinned by tag and SHA-256, instead of the vendor's
+      # unpinned install.sh: this job holds a write token, so the code it runs
+      # must be fixed at review time. Bump both values together from
+      # `gh release view --repo git-ai-project/git-ai --json assets`.
       - name: Install git-ai
+        env:
+          GIT_AI_VERSION: v1.7.5
+          GIT_AI_SHA256: 6cf68a83cc948fbd4675e46bc5e3c50973c04257bb43a954a6712a2107206695
         run: |
-          curl -fsSL https://usegitai.com/install.sh | bash
-          echo "$HOME/.git-ai/bin" >> "$GITHUB_PATH"
+          install_dir="$HOME/.git-ai/bin"
+          mkdir -p "$install_dir"
+          curl --fail --location --silent --show-error \
+            -o "$install_dir/git-ai" \
+            "https://github.com/git-ai-project/git-ai/releases/download/${GIT_AI_VERSION}/git-ai-linux-x64"
+          echo "${GIT_AI_SHA256}  $install_dir/git-ai" | sha256sum --check --strict
+          chmod +x "$install_dir/git-ai"
+          echo "$install_dir" >> "$GITHUB_PATH"
       - name: Run git-ai
         id: run-git-ai
         env:
