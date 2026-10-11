@@ -5,13 +5,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move
-  dialogs', the rail's pinned section's, and the chat page's markdown loading,
-  model, permission mode, message target and compaction rendering tests out of
-  jsdom and into `org-tree.stories.tsx`, `members-panel.stories.tsx`,
-  `command-palette.stories.tsx`, `share-chat-dialog.stories.tsx`,
-  `chat-item-dialogs.stories.tsx`, `project-dialogs.stories.tsx`,
-  `org-unit-dialogs.stories.tsx`, `app-sidebar-pinned.stories.tsx`, and
-  `chat-page.stories.tsx`, whose play functions now run in Chromium (#860).
+  dialogs', the rail's pinned section's, the chat page's markdown loading,
+  model, permission mode, message target and compaction, and the login and
+  register forms' rendering tests out of jsdom and into `org-tree.stories.tsx`,
+  `members-panel.stories.tsx`, `command-palette.stories.tsx`,
+  `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
+  `project-dialogs.stories.tsx`, `org-unit-dialogs.stories.tsx`,
+  `app-sidebar-pinned.stories.tsx`, `chat-page.stories.tsx`,
+  `login-form.stories.tsx`, and `register-form.stories.tsx`, whose play
+  functions now run in Chromium (#860).
   The tree stories cover collapse
   and expand, keyboard selection, the leaf-first delete check, the move picker,
   and the selected-unit footer. The members stories cover the roster and role
@@ -84,7 +86,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   start and a live Workspace entry refreshing the header's Workspace, while a
   past entry refreshes nothing. This completes the `chat-page.*` suites, and
   `chat-page.compaction.test.tsx` is gone. Its scroll-call check was dropped:
-  the target does not stay in view in a real browser (#1237).
+  the target does not stay in view in a real browser (#1237). The login form
+  stories cover signing in (Signing in... while the POST is pending, with the
+  credentials it sends) and landing home already signed in as the returned
+  user before the session refetch answers, landing on a same-origin
+  `callbackUrl` but home for an off-site one, and the invalid-credentials and
+  generic errors without navigating. The register form stories cover creating
+  an account the same way (the POST carries no confirmation), a mismatched
+  confirmation flagged without a request, and a failed request without
+  navigating.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
