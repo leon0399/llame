@@ -2,13 +2,13 @@
 
 ### Requirement: A model switch replaces the top-level prompt and preserves portable history
 
-For a turn whose selected model differs from the most recent successfully committed prior run in the chat, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, owner `file` parts, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability, image `read` results included. Every image reference in portable history SHALL be projected for the target model's declared input as the `media-attachments` capability defines: an image part when the target model declares `image` input and the epoch image window attaches the reference, and its placeholder text otherwise. The attached set SHALL NOT depend on which vision model the request targets. A switch SHALL NOT rewrite a stored part, and an image an earlier model received as a placeholder SHALL reach a later vision model as an image part when that request's epoch image window attaches it. It MUST NOT synthesize, rewrite, or re-bind an originating model's provider-native thinking/signature/cache metadata for the target model; reasoning parts and their provider metadata replay under the `reasoning-output` capability, which passes each part back unchanged, omits before the request any part the target wire cannot represent, and lets the target provider ignore or drop the rest. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
+For a turn whose selected model differs from the model recorded on the most recent prior assistant reply in the Chat whose sequence is below the triggering user message, whatever that reply's status and whether or not a checkpoint absorbed it, the request SHALL use the target run's complete effective prompt as the sole top-level system prompt. It SHALL retain portable prior user/assistant history, omit prior top-level system prompts, include a trusted model-switch reminder immediately before the triggering user text, and use the target attempt's runtime tool declarations. Portable history SHALL use the canonical replay projection of visible user/assistant text, owner `file` parts, typed server-generated conversation checkpoints, and the replayed tool observations required by the `tool-calling` capability, image `read` results included. Every image reference in portable history SHALL be projected for the target model's declared input as the `media-attachments` capability defines: an image part when the target model declares `image` input and the epoch image window attaches the reference, and its placeholder text otherwise. The attached set SHALL NOT depend on which vision model the request targets. A switch SHALL NOT rewrite a stored part, and an image an earlier model received as a placeholder SHALL reach a later vision model as an image part when that request's epoch image window attaches it. It MUST NOT synthesize, rewrite, or re-bind an originating model's provider-native thinking/signature/cache metadata for the target model; reasoning parts and their provider metadata replay under the `reasoning-output` capability, which passes each part back unchanged, omits before the request any part the target wire cannot represent, and lets the target provider ignore or drop the rest. An unavailable target model SHALL fail transparently; the system MUST NOT execute another model as fallback.
 
 Tool observations are no longer display-only. They are replayed in the conventional tool-call/tool-result representation, carried across a model or provider switch in the target provider's expected form, with every replayed call accompanied by its result. Reasoning parts are likewise no longer display-only for the Chat that stores them: `reasoning-output` replays each part and any provider metadata it carries, unchanged; the system neither coerces it nor selects which parts to keep by content, while the selected adapter still omits a part its wire cannot represent. What this requirement still forbids is llame synthesizing, rewriting, or re-binding an originating model's provider metadata for a different model.
 
 #### Scenario: User sends the next turn with a different model
 
-- **WHEN** the previous successfully committed run selected model `A` and the user sends the next message with model `B`
+- **WHEN** the most recent prior assistant reply in the Chat records model `A` and the user sends the next message with model `B`
 - **THEN** model `B` receives model `B`'s effective top-level system prompt and tool declarations
 - **AND** portable earlier conversation turns remain in history
 - **AND** model `A`'s system prompt is not replayed
@@ -61,16 +61,16 @@ Tool observations are no longer display-only. They are replayed in the conventio
 
 #### Scenario: Same model continues
 
-- **WHEN** the selected model is the same as the most recent successfully committed prior run
+- **WHEN** the selected model is the same as the model recorded on the most recent prior assistant reply in the Chat, whatever that reply's status
 - **THEN** no model-switch reminder or model-switch UI boundary is created
 
 #### Scenario: First turn in a chat
 
-- **WHEN** a chat has no prior successfully committed run
+- **WHEN** a chat has no assistant reply with a sequence below the triggering user message
 - **THEN** the selected model receives its effective prompt normally
 - **AND** no model-switch reminder is created
 
-Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`, except that a failed, cancelled, or expired Run supplies no measured context size, as the checkpoint contract below requires; only attempt-generated rail context stays staged and publishes with a successful turn. Compaction SHALL run in the Run's own attempt before its first model step and SHALL follow the checkpoint contract below. When the prepared request does not fit that attempt's model, the summary SHALL use the previous completed Run's model, that Run's system-prompt receipt and effort, and no tool declarations; it SHALL NOT load, reconstruct, or persist a historical tool catalog.
+Failed-attempt visible output and tool observations SHALL remain part of the committed record and participate in later model context and compaction exactly as a successful turn's do, through the canonical replay projection, with their reasoning parts replayed under `reasoning-output`, except that a failed, cancelled, or expired Run supplies no measured context size, as the checkpoint contract below requires; attempt-generated rail context likewise persists in the transaction that dispatches the model request carrying it, on the message its trigger belongs to, and stays in history as long as the output it produced, as `context-injection` specifies. Compaction SHALL run in the Run's own attempt before its first model step and SHALL follow the checkpoint contract below. When the prepared request does not fit that attempt's model, the summary SHALL use the previous completed Run's model, that Run's system-prompt receipt and effort, and no tool declarations; it SHALL NOT load, reconstruct, or persist a historical tool catalog.
 
 #### Scenario: A switch to a text-only model replays images as placeholders
 
@@ -226,7 +226,7 @@ The checkpoint message and the re-baked epoch state — the recency-digest
 baseline, the temporal anchor, the skill-catalog baseline, the workspace
 told-set, and the epoch markers naming the checkpoint message — SHALL commit in
 one transaction before the model step the compaction preceded and before that
-attempt resolves its own system prompt, its staged rail items, and its
+attempt resolves its own system prompt, its rail items, and its
 system-prompt receipt, so the receipt records the prompt actually sent and every
 re-baked value takes effect for the request the checkpoint precedes. A later
 failure of that attempt SHALL leave them in place, because a checkpoint
@@ -240,7 +240,7 @@ reconstruct, or persist a historical tool catalog. Tool execution remains
 disabled. If the request still does not fit after that one compaction, the
 attempt SHALL fail `context_incompatible`. Post-cutover failed-attempt output
 SHALL remain part of the record and enter compaction input like any other
-committed turn; only its staged rail items withhold until a successful turn.
+committed turn.
 Existing history and checkpoints SHALL retain the preservation boundary defined
 by `context-injection`.
 
@@ -406,7 +406,7 @@ work.
 
 - **WHEN** a pre-step checkpoint and its re-baked epoch state commit inside an
   attempt
-- **THEN** that attempt resolves its own system prompt, its staged rail items,
+- **THEN** that attempt resolves its own system prompt, its rail items,
   and its system-prompt receipt only after that commit
 - **AND** the receipt records the prompt actually sent, and every re-baked value
   takes effect for the request the checkpoint precedes
