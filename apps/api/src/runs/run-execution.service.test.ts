@@ -1919,7 +1919,7 @@ describe('RunExecutionService executeRun', () => {
         undefined,
         'host-b',
         {
-          allowed: ['enter_workspace'],
+          allowed: ['enter_workspace', 'read'],
           skillCatalog: new SkillCatalog([]),
           skillDirectories: [],
           model: { ...testModelEntry, referencesSkills: true },
@@ -1971,6 +1971,7 @@ describe('RunExecutionService executeRun', () => {
         undefined,
         undefined,
         {
+          allowed: ['read'],
           skillCatalog: new SkillCatalog([source]),
           skillDirectories: [source],
         },
@@ -2027,6 +2028,73 @@ describe('RunExecutionService executeRun', () => {
     }
   });
 
+  // A `$skill` activation is a `read`: with `read` absent from `tools.allowed`
+  // no proactive read could load the package, so the mention loads nothing.
+  // The default-mode case's policy still carries a `read` group, and `bypass`
+  // relaxes no allowlist, so neither may stand in for the missing entry.
+  it.each(['default', 'bypass'] as const)(
+    'loads no skill content when read is not allowlisted (%s mode)',
+    async (mode) => {
+      const source = mkdtempSync(path.join(tmpdir(), 'operator-skill-'));
+      const packageDirectory = path.join(source, 'pdf');
+      mkdirSync(packageDirectory, { recursive: true });
+      writeFileSync(
+        path.join(packageDirectory, 'SKILL.md'),
+        '---\nname: pdf\ndescription: PDF skill\n---\n# PDF instructions\n',
+      );
+      try {
+        const spies = mockNormalExecutionRepositories();
+        spies.markStarted.mockResolvedValue({
+          ...run,
+          activeAttemptId: testAttemptId,
+          permissionMode: mode,
+        });
+        const resolved = vi
+          .spyOn(ActivationPartsRepository.prototype, 'resolvedSkillsForRun')
+          .mockResolvedValue(new Set());
+        const appendActivation = vi
+          .spyOn(ActivationPartsRepository.prototype, 'appendForRun')
+          .mockResolvedValue({ applied: true });
+        const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+        const execution = makeExecutionService(
+          createFakeModelClient(['answer']),
+          undefined,
+          undefined,
+          {
+            allowed: ['mcp__demo__lookup'],
+            permissionPolicy: compileTestPermissionPolicy([
+              'mcp__demo__lookup',
+            ]),
+            permissionModes: ['default', 'bypass'],
+            skillCatalog: new SkillCatalog([source]),
+            skillDirectories: [source],
+          },
+        );
+        const input = executionInput(execution.client);
+        const result = await execution.service.executeRun({
+          ...input,
+          userMessage: {
+            ...input.userMessage,
+            parts: [{ type: 'text', text: '$pdf' }],
+          },
+        });
+
+        await expect(result.text).resolves.toBe('answer');
+        expect(appendActivation).not.toHaveBeenCalled();
+        expect(
+          append.mock.calls.some(
+            ([, , payload]) =>
+              isRecord(payload) && payload['origin'] === 'skill-activation',
+          ),
+        ).toBe(false);
+        // Not even the recovery lookup runs: activation is unavailable.
+        expect(resolved).not.toHaveBeenCalled();
+      } finally {
+        rmSync(source, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('does not attempt explicit activation when no skill source is configured', async () => {
     mockNormalExecutionRepositories();
     vi.spyOn(
@@ -2041,6 +2109,7 @@ describe('RunExecutionService executeRun', () => {
       undefined,
       undefined,
       {
+        allowed: ['read'],
         skillCatalog: new SkillCatalog([]),
         skillDirectories: [],
       },
@@ -2094,7 +2163,7 @@ describe('RunExecutionService executeRun', () => {
         undefined,
         'host-a',
         {
-          allowed: ['enter_workspace'],
+          allowed: ['enter_workspace', 'read'],
           skillCatalog: new SkillCatalog([]),
           skillDirectories: [],
         },

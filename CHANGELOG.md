@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-11
 
+- Fixed explicit `$skill` activation loading a skill's instructions and
+  imported package files when `read` is not in `tools.allowed` (#1264).
+  Activation now loads nothing without `read`, in `default` and `bypass`
+  modes alike, matching proactive skill reads, prompt imports, and
+  instruction loading.
+
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
   longer cancelled by the next merge, so every merged commit gets a complete

@@ -2272,6 +2272,10 @@ export class RunExecutionService {
    * a model-initiated call uses, so activation can neither invent authority nor
    * bypass #763's admission.
    *
+   * Activation is a `read`, so it shares a proactive read's availability: a Run
+   * without `read` in `tools.allowed` activates nothing, in every permission
+   * mode, as prompt imports and instruction loading do.
+   *
    * Returns the turn's selection set, which every later skill read in this Run
    * carries: a manual-only skill the user named stays readable for this Run's
    * tool calls and refuses again on a turn that does not name it.
@@ -2282,9 +2286,11 @@ export class RunExecutionService {
     workspaceRoot: WorkspaceRootCell,
     effectivePermissionMode: PermissionMode,
   ): Promise<ReadonlySet<string>> {
+    const config = this.instanceConfig.config;
     if (
-      this.instanceConfig.config.skills.directories.length === 0 &&
-      workspaceRoot.current() === undefined
+      !config.tools.allowed.includes('read') ||
+      (config.skills.directories.length === 0 &&
+        workspaceRoot.current() === undefined)
     ) {
       return new Set();
     }
