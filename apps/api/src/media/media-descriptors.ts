@@ -204,10 +204,9 @@ export function fileMediaIds(parts: ReadonlyArray<unknown>): Array<string> {
  * renders `[image media://<id>]`.
  */
 export function fileImageLines(parts: ReadonlyArray<unknown>): Array<string> {
-  return storedFileRefs(parts).map(({ id, filename }) =>
-    filename === undefined
-      ? `[image ${mediaLocator(id)}]`
-      : `[image ${mediaLocator(id)} ${mediaSourceLabel(filename)}]`,
+  return storedFileRefs(parts).map(
+    ({ id, filename }) =>
+      `[image ${mediaLocator(id)}${filename === undefined ? '' : ` ${mediaSourceLabel(filename)}`}]`,
   );
 }
 
