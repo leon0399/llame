@@ -59,7 +59,7 @@ const textOutputSchema = z.looseObject({
  *  content: a `media://` read carries the stored object's locator, any other
  *  read the display-only inline `thumbnail` (used only when it is a valid
  *  WebP data URL). Loose for the same scheme envelopes as a text read. */
-const imageOutputSchema = z.looseObject({
+export const imageOutputSchema = z.looseObject({
   ...readSourceFields,
   kind: z.literal("image"),
   media: z.string().optional(),

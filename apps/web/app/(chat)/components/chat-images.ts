@@ -1,6 +1,7 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
 import { z } from "zod";
 
+import { imageOutputSchema } from "@workspace/ui/components/custom/read";
 import { inlineThumbnailSchema } from "@workspace/ui/lib/inline-thumbnail";
 
 import {
@@ -20,19 +21,6 @@ export function chatImageKey(
 ): string {
   return `${messageKey}#${partIndex}.${entryIndex}`;
 }
-
-/** The parts of a `read` image result the transcript needs: the `media://`
- *  locator of a stored image, or the inline thumbnail of an unstored one,
- *  with the original's size and type. */
-const imageReadResultSchema = z.object({
-  status: z.literal("success"),
-  kind: z.literal("image"),
-  media: z.string().optional(),
-  thumbnail: z.unknown().optional(),
-  mediaType: z.string(),
-  width: z.number(),
-  height: z.number(),
-});
 
 /** The locator the model submitted to `read`: its input `path`. */
 const readInputSchema = z.object({ path: z.string() });
@@ -76,7 +64,7 @@ function readImageOccurrence(
 ): MediaOccurrence | null {
   if (!isToolUIPart(part) || getToolName(part) !== "read") return null;
   if (part.state !== "output-available") return null;
-  const result = imageReadResultSchema.safeParse(part.output).data;
+  const result = imageOutputSchema.safeParse(part.output).data;
   if (result === undefined) return null;
   if (result.media !== undefined) {
     return mediaIdFromLocator(result.media) === null
