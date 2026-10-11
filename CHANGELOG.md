@@ -6,7 +6,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move
   dialogs', the rail's pinned section's, and the chat page's markdown loading
-  rendering tests out of jsdom and into `org-tree.stories.tsx`,
+  and model rendering tests out of jsdom and into `org-tree.stories.tsx`,
   `members-panel.stories.tsx`, `command-palette.stories.tsx`,
   `share-chat-dialog.stories.tsx`, `chat-item-dialogs.stories.tsx`,
   `project-dialogs.stories.tsx`, `org-unit-dialogs.stories.tsx`,
@@ -50,7 +50,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   real page, with its real `useChat` engine, against a stubbed fetch that
   answers the resume probe with 204, and assert the requests the page sends.
   Storybook now pre-bundles `@ai-sdk/react` from apps/web's copy so the first
-  story run on a cold cache does not reload.
+  story run on a cold cache does not reload. The chat page stories now also
+  cover the model gate (typing works but nothing sends while the catalog
+  loads; once it loads, the first message sends with the api's default model,
+  checked in the request body) and opening a chat on its last reply's model
+  and reasoning effort, falling back to the default when that model is retired
+  or was never recorded.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no
