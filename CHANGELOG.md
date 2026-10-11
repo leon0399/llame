@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Fixed `search_conversations` accepting a whitespace-only content-mode
+  `query` and returning an empty page (#1066). Such a query is now refused as
+  `invalid_input`, as the chat-search spec requires.
+
 - **Breaking:** `GET /api/v1/runs/{id}/context-items` and the
   `runs.context_items` column are removed. The transcript's persisted
   context-item parts record what each request carried (refs #1177). Stop
