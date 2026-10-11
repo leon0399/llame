@@ -193,6 +193,9 @@ it("restores the target hash and input when a target send fails", async () => {
   const input = screen.getByPlaceholderText("What would you like to know?");
   await user.type(input, "follow-up");
   await user.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() =>
+    expect(mocks.sendMessage).toHaveBeenCalledWith({ text: "follow-up" }),
+  );
 
   // SAFETY: the composer's textarea is the only element this placeholder
   // resolves to.
