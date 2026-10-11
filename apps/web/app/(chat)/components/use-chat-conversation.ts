@@ -9,7 +9,6 @@ import { useActiveRuns } from "@/contexts/active-runs-context";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
 import {
   mergeTrustedModelContextParts,
-  messageSeqFromMetadata,
   type Compaction,
 } from "@/lib/services/chat/history";
 import {
@@ -19,7 +18,6 @@ import {
   useChatPresenceEffects,
   useChatRefresh,
   useChatSendTransport,
-  useTargetScrollEffect,
 } from "./use-chat-engine";
 import { usePendingStop } from "./use-pending-stop";
 import {
@@ -177,8 +175,6 @@ function useChatSetup(chatId: string) {
 }
 
 type UseChatSideEffectsArgs = {
-  displayMessages: Array<UIMessage>;
-  targetSeq: number | null;
   resume: boolean;
   resumeStream: ReturnType<typeof useChat>["resumeStream"];
   refreshChatMessages: () => void;
@@ -193,12 +189,10 @@ type UseChatSideEffectsArgs = {
 };
 
 /** Every effect the conversation state drives once messages exist: the
- *  scroll-to-target, the resume/history-adoption pair (#261), and the
- *  run-presence pair — composed here, in this order, so their relative
- *  passive-effect scheduling matches a single component's call order. */
+ *  resume/history-adoption pair (#261) and the run-presence pair — composed
+ *  here, in this order, so their relative passive-effect scheduling matches a
+ *  single component's call order. */
 function useChatSideEffects({
-  displayMessages,
-  targetSeq,
   resume,
   resumeStream,
   refreshChatMessages,
@@ -211,12 +205,6 @@ function useChatSideEffects({
   markChatSeen,
   refreshChatBinding,
 }: UseChatSideEffectsArgs) {
-  const targetMessageRendered =
-    targetSeq !== null &&
-    displayMessages.some(
-      (message) => messageSeqFromMetadata(message.metadata) === targetSeq,
-    );
-  useTargetScrollEffect(targetMessageRendered, targetSeq);
   useChatHistorySync({
     resume,
     resumeStream,
@@ -264,7 +252,6 @@ type UseChatEngineStateArgs = {
   chatId: string;
   chatMessages: Array<UIMessage>;
   compaction: Compaction | null;
-  targetSeq: number | null;
   resume: boolean;
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;
@@ -280,7 +267,6 @@ function useChatEngineState({
   chatId,
   chatMessages,
   compaction,
-  targetSeq,
   resume,
   onFinished,
   onTargetSendInterrupted,
@@ -303,8 +289,6 @@ function useChatEngineState({
 
   useChatSideEffects({
     ...setup,
-    displayMessages,
-    targetSeq,
     resume,
     resumeStream: engine.resumeStream,
     chatMessages,
@@ -361,7 +345,6 @@ export type UseChatConversationArgs = {
   onSendFailed: () => void;
   onSendStarted: () => void;
   resume: boolean;
-  targetSeq: number | null;
 };
 
 /**
@@ -381,7 +364,6 @@ export function useChatConversation({
   onSendFailed,
   onSendStarted,
   resume,
-  targetSeq,
 }: UseChatConversationArgs) {
   const [inspectedRunId, setInspectedRunId] = useState<string | null>(null);
   const setup = useChatSetup(chatId);
@@ -389,7 +371,6 @@ export function useChatConversation({
     chatId,
     chatMessages,
     compaction,
-    targetSeq,
     resume,
     onFinished,
     onTargetSendInterrupted,

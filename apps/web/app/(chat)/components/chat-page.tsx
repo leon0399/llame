@@ -274,6 +274,7 @@ type ChatSessionMainProps = {
   transcript: ReturnType<typeof useChatConversation>["transcript"];
   status: ReturnType<typeof useChatConversation>["status"];
   onInspectContext: (runId: string) => void;
+  targetSeq: number | null;
 };
 
 function ChatSessionMain({
@@ -286,6 +287,7 @@ function ChatSessionMain({
   transcript,
   status,
   onInspectContext,
+  targetSeq,
 }: ChatSessionMainProps) {
   if (markdown.failed)
     return <ChatMarkdownUnavailable retry={markdown.retry} />;
@@ -303,6 +305,7 @@ function ChatSessionMain({
       status={status}
       displayedError={transcript.displayedError}
       onInspectContext={onInspectContext}
+      targetSeq={targetSeq}
     />
   );
 }
@@ -316,28 +319,20 @@ type ChatSessionBodyProps = ChatSessionContentProps & {
 function ChatSessionBody({
   markdown,
   conversation,
-  chatId,
-  compaction,
-  hasOlderMessages,
-  isLoadingOlderMessages,
-  onLoadOlderMessages,
+  ...session
 }: ChatSessionBodyProps) {
   const { status, composer, transcript, dialog } = conversation;
   return (
     <>
       <ChatSessionMain
+        {...session}
         markdown={markdown}
-        chatId={chatId}
-        compaction={compaction}
-        hasOlderMessages={hasOlderMessages}
-        isLoadingOlderMessages={isLoadingOlderMessages}
-        onLoadOlderMessages={onLoadOlderMessages}
         transcript={transcript}
         status={status}
         onInspectContext={dialog.setInspectedRunId}
       />
       <ChatComposer
-        chatId={chatId}
+        chatId={session.chatId}
         input={composer.input}
         onInputChange={composer.setInput}
         onSubmit={composer.handleSubmit}

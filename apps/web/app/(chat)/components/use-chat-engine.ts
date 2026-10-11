@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  type RefObject,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 
 import { useChat } from "@ai-sdk/react";
 import {
@@ -493,27 +486,6 @@ export function useChatEngine(args: UseChatEngineArgs) {
     onError: (error) =>
       handleChatError(error, args, queryClient, setPermissionMode),
   });
-}
-
-/** Scrolls the target message into view once it has rendered. */
-export function useTargetScrollEffect(
-  targetMessageRendered: boolean,
-  targetSeq: number | null,
-) {
-  const scrolledTargetRef = useRef<number | null>(null);
-  useLayoutEffect(() => {
-    if (
-      !targetMessageRendered ||
-      targetSeq === null ||
-      scrolledTargetRef.current === targetSeq
-    ) {
-      return;
-    }
-    const target = document.getElementById(`msg-${targetSeq}`);
-    if (!target) return;
-    target.scrollIntoView({ block: "center" });
-    scrolledTargetRef.current = targetSeq;
-  }, [targetMessageRendered, targetSeq]);
 }
 
 type UseChatHistorySyncArgs = {
