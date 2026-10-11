@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-11
+
+- `master` now requires the CI, Lint, and Workflow lint checks to pass before
+  a pull request merges, through a repository ruleset. Runs on `master` are no
+  longer cancelled by the next merge, so every merged commit gets a complete
+  result. The Git AI workflow installs a release binary pinned by version and
+  SHA-256 instead of piping the vendor's unpinned install script into `bash`.
+
 # 2026-10-10
 
 - **Breaking:** `GET /api/v1/runs/{id}/context-items` and the

@@ -14,9 +14,10 @@ on:
   push:
     branches: [master]
 
+# Pull request runs supersede each other; master runs always finish.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
