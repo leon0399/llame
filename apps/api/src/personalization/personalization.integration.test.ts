@@ -74,7 +74,7 @@ describe('/api/v1/me/personalization (HTTP)', () => {
 
     app = mod.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     http = app.getHttpServer();
 
     const a = await register(`personalization-a-${tag}@test.com`, 'Owner A');

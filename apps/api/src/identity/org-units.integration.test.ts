@@ -100,7 +100,7 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
       .compile();
     app = mod.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     http = app.getHttpServer();
 
     [a, b, c, e, f] = await Promise.all([

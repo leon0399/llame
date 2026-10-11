@@ -60,7 +60,7 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
 
     app = mod.createNestApplication();
     configureApp(app);
-    await app.init();
+    await app.listen(0);
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
 
@@ -219,7 +219,7 @@ d(
 
       app = mod.createNestApplication();
       configureApp(app);
-      await app.init();
+      await app.listen(0);
       http = app.getHttpServer();
       tenantDb = app.get(TenantDbService);
 

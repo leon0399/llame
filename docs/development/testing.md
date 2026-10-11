@@ -53,6 +53,11 @@ Tooling guards may live in the owning workspace's test directory.
     values, call-only assertions when effects matter, and snapshots with no
     independent oracle. Mutate the implementation; a green test measured
     nothing.
+12. Nest integration tests that drive HTTP through supertest call
+    `await app.listen(0)` once in setup, never only `app.init()`. Against an
+    un-listened server, each request listens and then calls `server.close()`
+    when it ends, which also destroys idle connections, so a request
+    overlapping another one's end can fail with `ECONNRESET`.
 
 Importing a constant is valid when asserting an invariant. Recomputing the
 implementation from that constant is not. Every wire key, cap, or key factory
