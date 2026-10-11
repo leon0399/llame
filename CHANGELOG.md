@@ -115,7 +115,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   in its tooltip and its link's name, which scrolls to its end when the row
   takes focus; a title that fits, with no tooltip and no scroll; the shimmer
   on a title still being generated; and the development warning outside a
-  sidebar row.
+  sidebar row. Its no-`ResizeObserver` case stays in jsdom, since Chromium
+  always has one.
 
 - `master` now requires the CI, Lint, and Workflow lint checks to pass before
   a pull request merges, through a repository ruleset. Runs on `master` are no

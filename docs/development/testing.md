@@ -141,9 +141,10 @@ typecheck ----> mutation
   `login-form`, `register-form`, `model-switch-boundary`, `settings-page`,
   `project-page`, `sidebar-row-title`), which completes the `chat-page.*`
   suites. `chat-page.target` keeps only its rejected-send case in jsdom, since
-  the real `useChat` never rejects a send. `model-switch-boundary` renders a
-  `packages/ui` component, so its story stays beside it there. The remaining
-  candidates need a story written first.
+  the real `useChat` never rejects a send, and `sidebar-row-title` keeps its
+  no-`ResizeObserver` case there, since Chromium always has one.
+  `model-switch-boundary` renders a `packages/ui` component, so its story stays
+  beside it there. The remaining candidates need a story written first.
 - Remove dead in-file DB guards when touching those suites.
 - Add CRAP to `packages/ui`'s `test:coverage` once `MessageAttachment`,
   `rewriteChildrenByValue`, `detectPrimaryModifier` and `getTimeOfDay` are
