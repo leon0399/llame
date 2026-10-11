@@ -44,7 +44,7 @@ Recommendation: A. It meets a bound that does not depend on a long-lived connect
 
 If Leo picks B:
 
-- The delta's 5-second sentence gains "while the executing process holds its notification connection, and otherwise at its reconnection", or B keeps A's read as its fallback; the scenarios stay.
+- The delta's 5-second sentence gains "while the executing process holds its notification connection, and otherwise at its reconnection", or B keeps A's read as its fallback. Without that fallback, the unreadable-cancellation sentence and scenario are restated for a lost notification connection; the other scenarios stay.
 - Layer `worker-check` becomes `cancel-notify` (estimated 900 authored lines): `pg_notify` inside the transactions of `requestCancel`'s two callers and `cancelSupersededRuns`, on one fixed channel carrying only the Run id (delivered on commit, so a rolled-back cancellation never aborts); a worker listener on a dedicated, supervised connection that aborts the registry entry for a received id; a reconcile read of every locally registered Run after each (re)connect; and its closure on shutdown.
 - Its tests add: no notification on rollback, a notification for an id the worker is not executing is ignored, and an abort after a forced listener disconnect via the reconcile read.
 - `scaling.md` additionally documents the extra connection per worker in pool sizing and the pooler constraint.
