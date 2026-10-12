@@ -2366,6 +2366,37 @@ describe('RunExecutionService executeRun', () => {
       }),
     );
   });
+  it('titles an image-only turn from its image line alone', async () => {
+    const imageId = '0192f3a4-5b6c-7d8e-9f01-0000000000c2';
+    mockNormalExecutionRepositories();
+    const execution = makeExecutionService();
+
+    const result = await execution.service.executeRun({
+      runId,
+      chatId,
+      userId,
+      userMessage: {
+        id: messageId,
+        seq: 1,
+        parts: [
+          {
+            type: 'file',
+            mediaType: 'image/png',
+            url: `media://${imageId}`,
+            filename: 'shot.png',
+          },
+        ],
+      },
+      client: execution.client,
+    });
+
+    await expect(result.text).resolves.toBe('answer');
+    expect(execution.titles.maybeGenerateTitle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userText: `[image media://${imageId} shot.png]`,
+      }),
+    );
+  });
   it('resolves a recency digest only when the owner has opted in on the worker', async () => {
     const baseline: RecencyDigestResolution['baseline'] = {
       pinned: [],
