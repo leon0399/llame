@@ -43,7 +43,8 @@ never projected from an entered Workspace root.
 
 An owner gets a `media://` locator by attaching an image in the chat composer:
 paste it, pick it with the attach button, or drag and drop it onto the
-composer. Only PNG, JPEG, GIF, and WebP files attach; other files are ignored.
+composer. A paste that also carries text stays an ordinary text paste and
+attaches nothing. Only PNG, JPEG, GIF, and WebP files attach; other files are ignored.
 A message carries at most 10 images: an eleventh is neither added nor uploaded.
 
 Each image uploads as soon as it is attached and shows as a removable
