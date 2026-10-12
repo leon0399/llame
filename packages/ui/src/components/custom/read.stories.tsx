@@ -235,7 +235,7 @@ const SHOT_LOCATOR = "media://0199d1c4-5e6f-7a8b-9c0d-1e2f3a4b5c6d";
 export const ImageResult: Story = {
   tags: ["ai-generated"],
   args: {
-    input: { path: "~/shot.png" },
+    input: { path: "docs/shot.png" },
     output: {
       status: "success" as const,
       kind: "image" as const,
@@ -262,7 +262,7 @@ export const ImageResult: Story = {
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog).toBeVisible());
     await expect(dialog).toHaveAccessibleDescription(
-      "1600×900 PNG · ~/shot.png",
+      "1600×900 PNG · docs/shot.png",
     );
     await expect(
       within(dialog).getByRole("img", { name: "/work/shot.png" }),
