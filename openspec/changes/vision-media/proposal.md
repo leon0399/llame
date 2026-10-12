@@ -242,7 +242,9 @@ Known gap: nothing can delete an uploaded image. A pasted secret stays stored an
 - `prompt-imports`: ADDED "Image targets import as image entries", "Unstored image entries reach the
   model only in their attempt", "Image entries record a thumbnail or a media locator privately", "Image
   entry payloads are validated exactly", "Image entry payloads are never sent to a model", and "Media
-  locators are prompt-import targets".
+  locators are prompt-import targets". "Image entry payloads are validated exactly" (and the
+  matching `media-store` sentence) binds the API's validator only: the web client's parse of the same
+  payload is client behavior outside the specs, as stated under `media-attachments` above.
 
 Deliberately unchanged:
 
