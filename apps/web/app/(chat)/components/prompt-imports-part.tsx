@@ -3,10 +3,7 @@
 import { useState } from "react";
 import { AtSignIcon } from "lucide-react";
 
-import {
-  ImageThumbnail,
-  type ImageThumbnailItem,
-} from "@workspace/ui/components/custom/image-thumbnail";
+import { ImageThumbnail } from "@workspace/ui/components/custom/image-thumbnail";
 import {
   ImageDimensionsTile,
   type MediaImageSize,
@@ -26,38 +23,38 @@ import {
 
 type ImportEntry = PromptImportsPayload["imports"][number];
 
+/** An imported image's thumbnail and its lightbox slide. */
+type ImportedImage = {
+  thumbnail: { src: string; alt: string };
+  slide: MediaLightboxSlide;
+};
+
 /** An imported image's thumbnail and lightbox slide, or `null` when it has
  *  no thumbnail: a stored image opens its original, captioned with its
  *  `media://` locator; an unstored one opens its inline thumbnail, captioned
  *  with the original's size and the locator as written. */
-function importedImage(
-  entry: ImportEntry,
-  key: string,
-): { item: ImageThumbnailItem; slide: MediaLightboxSlide } | null {
+function importedImage(entry: ImportEntry, key: string): ImportedImage | null {
   const alt = entry.locator;
   if (entry.media !== undefined) {
     const sources = storedImageSources(entry.media);
     if (sources === null) return null;
     const caption = mediaCaption(entry.media);
     return {
-      item: { key, src: sources.thumbnail, alt },
+      thumbnail: { src: sources.thumbnail, alt },
       slide: { key, src: sources.original, alt, caption },
     };
   }
   if (entry.thumbnail === undefined) return null;
   const caption = mediaCaption(entry.locator, entry);
   return {
-    item: { key, src: entry.thumbnail, alt },
+    thumbnail: { src: entry.thumbnail, alt },
     slide: { key, src: entry.thumbnail, alt, caption },
   };
 }
 
 /** One tile under the chips: an image with its thumbnail, or only its size. */
 type ImportedTile =
-  | {
-      key: string;
-      image: { item: ImageThumbnailItem; slide: MediaLightboxSlide };
-    }
+  | { key: string; image: ImportedImage }
   | { key: string; size: MediaImageSize };
 
 /** An import's tile, or `null` for an entry that is not an image. */
@@ -90,8 +87,7 @@ function ImportedImages({ imports }: Pick<PromptImportsPayload, "imports">) {
           <li key={tile.key}>
             {"image" in tile ? (
               <ImageThumbnail
-                src={tile.image.item.src}
-                alt={tile.image.item.alt}
+                {...tile.image.thumbnail}
                 onOpen={() => setOpenKey(tile.key)}
               />
             ) : (
