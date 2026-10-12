@@ -8,12 +8,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   modes alike, matching proactive skill reads, prompt imports, and
   instruction loading.
 
-- Fixed a load-dependent web unit-test flake where the four `chat-page.*`
-  suites failed in their `beforeAll`. Each warmed the renderer cache by
-  importing the real Streamdown chunks, which on a loaded machine running the
-  suite in parallel exceeded Vitest's 10 s hook default; none of these suites
-  asserts rendered Markdown. They now start from a warm cache holding
-  pass-through renderers (`installStubChatMarkdownRenderers` in
+- Fixed a load-dependent web unit-test flake where the jsdom `chat-page.*`
+  suites (`target` and `attachments`) could fail in their `beforeAll`. Each
+  warmed the renderer cache by importing the real Streamdown chunks, which on
+  a loaded machine running the suite in parallel exceeded Vitest's 10 s hook
+  default; neither suite asserts rendered Markdown. They now start from a warm
+  cache holding pass-through renderers (`installStubChatMarkdownRenderers` in
   `lib/test-support/chat-markdown.tsx`), the state a tab reaches after its
   first load, so no hook imports Streamdown and every timeout keeps its
   default.
