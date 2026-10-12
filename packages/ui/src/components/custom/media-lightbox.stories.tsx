@@ -40,6 +40,18 @@ const shot = {
   }),
 } satisfies MediaLightboxSlide;
 
+/** An image smaller than any viewport, shown at its natural size. */
+const icon = {
+  key: "2",
+  src: placeholderImage(160, 90, "icon"),
+  alt: "Small icon",
+  caption: mediaCaption("docs/icon.png", {
+    width: 160,
+    height: 90,
+    mediaType: "image/png",
+  }),
+} satisfies MediaLightboxSlide;
+
 /** Thumbnail-style openers plus the lightbox, controlled by the open key;
  *  focus returns to whichever opener was activated. */
 function LightboxWithOpeners(args: MediaLightboxProps) {
@@ -84,6 +96,21 @@ async function openDialog() {
   const dialog = await screen.findByRole("dialog");
   await waitFor(() => expect(dialog).toBeVisible());
   return dialog;
+}
+
+/** The image's horizontal center is its scroll panel's. */
+async function expectCentered(image: HTMLElement) {
+  const panel = image.closest(".overflow-auto");
+  if (!panel) throw new Error("The image has no scroll panel");
+  const imageRect = image.getBoundingClientRect();
+  const panelRect = panel.getBoundingClientRect();
+  await expect(
+    Math.abs(
+      imageRect.left +
+        imageRect.width / 2 -
+        (panelRect.left + panelRect.width / 2),
+    ),
+  ).toBeLessThan(1);
 }
 
 /**
@@ -187,8 +214,9 @@ export const FocusAtRowEnd: Story = {
 };
 
 /**
- * Clicking the image, or the "Actual size" button, toggles between fitting
- * the viewport and the image's natural size, where the panel scrolls to pan.
+ * An image larger than the viewport is fitted to it, centered. Clicking the
+ * image, or the "Actual size" button, toggles between that fit and the
+ * image's natural size, where the panel scrolls to pan.
  *
  * @summary for zooming an image to 100%
  */
@@ -199,19 +227,57 @@ export const ActualSize: Story = {
       canvas.getByRole("button", { name: "Open Dashboard screenshot" }),
     );
     const dialog = await openDialog();
-    const toggle = within(dialog).getByRole("button", { name: "Actual size" });
+    const toggle = await within(dialog).findByRole("button", {
+      name: "Actual size",
+    });
     const image = within(dialog).getByRole("img", {
       name: "Dashboard screenshot",
     });
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(image.offsetWidth).toBeLessThan(4000);
+    await expectCentered(image);
 
     await userEvent.click(image);
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect(image).toHaveClass("max-w-none");
+    await waitFor(() => expect(image.offsetWidth).toBe(4000));
 
     await userEvent.click(toggle);
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(image).not.toHaveClass("max-w-none");
+    await waitFor(() => expectCentered(image));
+  },
+};
+
+/**
+ * An image that already fits the viewport shows at its natural size,
+ * centered, never enlarged. There is nothing to zoom: no "Actual size"
+ * button, and clicking the image does nothing.
+ *
+ * @summary for an image smaller than the viewport
+ */
+export const FitsViewport: Story = {
+  tags: ["ai-generated"],
+  args: { slides: [icon] },
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Open Small icon" }),
+    );
+    const dialog = await openDialog();
+    const image = within(dialog).getByRole("img", { name: "Small icon" });
+    await waitFor(() => expect(image).toHaveProperty("naturalWidth", 160));
+    await expect(image.offsetWidth).toBe(160);
+    await expectCentered(image);
+    await expect(
+      within(dialog).queryByRole("button", { name: "Actual size" }),
+    ).toBeNull();
+    await expect(image.closest("button")).toBeNull();
+
+    await userEvent.click(image);
+    await expect(dialog).toBeVisible();
+    await expect(image).not.toHaveClass("max-w-none");
+    await expect(image.offsetWidth).toBe(160);
+    await expect(args.onOpenKeyChange).not.toHaveBeenCalled();
   },
 };
 

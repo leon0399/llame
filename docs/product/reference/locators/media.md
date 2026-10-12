@@ -80,9 +80,12 @@ starting at the activated one: the attachments of one message, the image of
 one `read` result, the images of one prompt-imports chip, or the uploaded
 images in the composer. A composer image still uploading or whose upload
 failed opens nothing. The arrow keys and the previous and next buttons move
-within those images. Clicking the image or the actual-size button switches
-between fitting the window and 100%, where you scroll to pan. `Escape` closes
-the lightbox and returns focus to the thumbnail.
+within those images. The image is centered and never enlarged past its
+natural size. An image larger than the window in either dimension is fitted
+to it; clicking the image or the actual-size button switches between that fit
+and 100%, where you scroll to pan. An image that already fits has no
+actual-size button, and clicking it does nothing. `Escape` closes the
+lightbox and returns focus to the thumbnail.
 
 - A stored image shows its original from `/api/v1/media/<id>/original`. Its
   caption is the `media://` locator. When the original's dimensions and format

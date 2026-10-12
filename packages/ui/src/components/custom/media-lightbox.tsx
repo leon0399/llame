@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -70,59 +70,124 @@ type LightboxSlideViewProps = {
   onOpenKeyChange: (key: string) => void;
 };
 
-/** The image as a button toggling between fit and 100%, where the panel
- *  scrolls to pan. */
-function ZoomableImage({
-  slide,
-  actualSize,
-  onToggle,
-}: {
-  slide: MediaLightboxSlide;
+/** A slide's measured zoomability: whether its image exceeds its fit. */
+type FitMeasure = { key: string; zoomable: boolean };
+
+/** `prev` updated with whether the slide `key`'s loaded, fitted image is
+ *  shown smaller than its natural size in either dimension; `prev` itself
+ *  while the image has not loaded or nothing changed. Layout sizes, so the
+ *  dialog's zoom-in animation does not skew them. */
+function measureFit(
+  prev: FitMeasure | null,
+  key: string,
+  image: HTMLImageElement,
+): FitMeasure | null {
+  if (!image.complete || image.naturalWidth === 0) return prev;
+  const zoomable =
+    image.naturalWidth > image.offsetWidth ||
+    image.naturalHeight > image.offsetHeight;
+  return prev?.key === key && prev.zoomable === zoomable
+    ? prev
+    : { key, zoomable };
+}
+
+/** A slide's fit/100% state, from {@link useImageZoom}. */
+type ImageZoom = {
+  /** Whether the image exceeds its fit, so it can show at 100%. */
+  zoomable: boolean;
   actualSize: boolean;
-  onToggle: () => void;
-}) {
+  toggle: () => void;
+  onLoad: (image: HTMLImageElement) => void;
+};
+
+/** The fit/100% state of the slide `key`, whose shown `image` is measured
+ *  while fitted, on load and whenever it resizes (the window does); the
+ *  measure is kept while at 100%, where the image is its natural size. */
+function useImageZoom(key: string, image: HTMLImageElement | null): ImageZoom {
+  // Keyed by slide, so moving to another image starts it fitted again
+  // without remounting the toolbar (which would drop focus).
+  const [actualSizeKey, setActualSizeKey] = useState<string | null>(null);
+  const [fit, setFit] = useState<FitMeasure | null>(null);
+  const zoomable = fit?.key === key && fit.zoomable;
+  const actualSize = zoomable && actualSizeKey === key;
+  useEffect(() => {
+    if (!image || actualSize) return;
+    const observer = new ResizeObserver(() =>
+      setFit((prev) => measureFit(prev, key, image)),
+    );
+    observer.observe(image);
+    return () => observer.disconnect();
+  }, [image, actualSize, key]);
+  return {
+    zoomable,
+    actualSize,
+    toggle: () => setActualSizeKey(actualSize ? null : key),
+    onLoad: (loaded) => {
+      if (!actualSize) setFit((prev) => measureFit(prev, key, loaded));
+    },
+  };
+}
+
+type LightboxImageProps = {
+  slide: MediaLightboxSlide;
+  zoom: ImageZoom;
+  imageRef: (image: HTMLImageElement | null) => void;
+};
+
+/** The image, centered and never enlarged past its natural size. One larger
+ *  than its fit is a button toggling between fit and 100%, where the panel
+ *  scrolls to pan; one that fits is a plain image. */
+function LightboxImage({ slide, zoom, imageRef }: LightboxImageProps) {
+  const image = (
+    <img
+      ref={imageRef}
+      src={slide.src}
+      alt={slide.alt}
+      onLoad={(event) => zoom.onLoad(event.currentTarget)}
+      className={cn(
+        "mx-auto block",
+        zoom.actualSize
+          ? "max-w-none"
+          : "max-h-[calc(90vh-5rem)] max-w-[calc(90vw-1rem)] object-contain",
+      )}
+    />
+  );
   return (
     <div className="min-h-0 min-w-0 flex-1 overflow-auto">
-      <button
-        type="button"
-        onClick={onToggle}
-        className={cn(
-          "block rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-          actualSize ? "cursor-zoom-out" : "mx-auto cursor-zoom-in",
-        )}
-      >
-        <img
-          src={slide.src}
-          alt={slide.alt}
-          className={
-            actualSize
-              ? "max-w-none"
-              : "max-h-[calc(90vh-5rem)] max-w-[calc(90vw-1rem)] object-contain"
-          }
-        />
-      </button>
+      {zoom.zoomable ? (
+        <button
+          type="button"
+          onClick={zoom.toggle}
+          className={cn(
+            "mx-auto block rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+            zoom.actualSize ? "cursor-zoom-out" : "cursor-zoom-in",
+          )}
+        >
+          {image}
+        </button>
+      ) : (
+        image
+      )}
     </div>
   );
 }
 
 /** The image's dialog title and the image over its toolbar: previous and
- *  next (only in a row of several), the caption, and the fit/100% toggle. */
+ *  next (only in a row of several), the caption, and the fit/100% toggle
+ *  (only for an image larger than its fit). */
 function LightboxSlideView({
   slide,
   previous,
   next,
   onOpenKeyChange,
 }: LightboxSlideViewProps) {
-  // Keyed by slide, so moving to another image starts it fitted again
-  // without remounting the toolbar (which would drop focus).
-  const [actualSizeKey, setActualSizeKey] = useState<string | null>(null);
-  const actualSize = actualSizeKey === slide.key;
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const zoom = useImageZoom(slide.key, image);
   const several = previous !== undefined || next !== undefined;
-  const toggle = () => setActualSizeKey(actualSize ? null : slide.key);
   return (
     <>
       <DialogTitle className="sr-only">{slide.alt}</DialogTitle>
-      <ZoomableImage slide={slide} actualSize={actualSize} onToggle={toggle} />
+      <LightboxImage slide={slide} zoom={zoom} imageRef={setImage} />
       <div className="flex items-center gap-2">
         {several && (
           <StepButton
@@ -134,7 +199,9 @@ function LightboxSlideView({
         <DialogDescription className="flex-1 text-center font-mono text-xs break-all">
           {slide.caption}
         </DialogDescription>
-        <ActualSizeButton pressed={actualSize} onToggle={toggle} />
+        {zoom.zoomable && (
+          <ActualSizeButton pressed={zoom.actualSize} onToggle={zoom.toggle} />
+        )}
         {several && (
           <StepButton direction="next" target={next} onStep={onOpenKeyChange} />
         )}
@@ -208,11 +275,13 @@ function slideAt(
 /**
  * MediaLightbox shows one row's images (a message's attachments, a read
  * result, a prompt-import chip, the composer's uploads) in a wide dialog,
- * with the caption under the image. ArrowLeft/ArrowRight and the arrow
- * buttons move within the row; clicking the image or the "Actual size"
- * button toggles between fitting the viewport and 100%, where the panel
- * scrolls to pan. Escape, the close button, or the backdrop close it, and
- * focus returns to the thumbnail that opened it.
+ * centered and never enlarged past their natural size, with the caption under
+ * the image. ArrowLeft/ArrowRight and the arrow buttons move within the row.
+ * An image larger than the viewport in either dimension is fitted to it;
+ * clicking the image or the "Actual size" button toggles it to 100%, where
+ * the panel scrolls to pan. An image that already fits has no toggle.
+ * Escape, the close button, or the backdrop close it, and focus returns to
+ * the thumbnail that opened it.
  *
  * @summary for viewing a row of chat images in a dialog
  */
