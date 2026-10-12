@@ -1,8 +1,3 @@
-import type {
-  ReadableStreamDefaultReader,
-  ReadableStreamReadResult,
-} from 'node:stream/web';
-
 import {
   fetch as undiciFetch,
   type Headers as UndiciHeaders,
@@ -10,10 +5,8 @@ import {
 } from 'undici';
 
 import {
-  abortFailure,
   boundedEcho,
   startCallDeadline,
-  transportFailure,
   type CallDeadline,
   type FetchDeadline,
 } from './call-deadline';
@@ -25,6 +18,15 @@ import {
 } from '../permissions/messages';
 import { type AdmitAddress, type AdmitDerivedLocator } from './admission';
 import { canonicalHref } from './locator';
+import {
+  BODY_TOO_LARGE,
+  cancelBody,
+  contentTypeOf,
+  declaresBodyOverBound,
+  decodeBody,
+  readCappedBody,
+  type ContentType,
+} from './response-body';
 
 export type WebResponse = {
   readonly finalUrl: string;
@@ -33,6 +35,13 @@ export type WebResponse = {
   /** The final response's `Link` header as received, when it sent one; the
    *  alternate adapter parses it. */
   readonly link?: string;
+};
+
+/** A page response with an accepted image type: its bytes, never decoded.
+ *  Only `WebFetchSession.fetchPage` returns one. */
+export type WebImageResponse = {
+  readonly finalUrl: string;
+  readonly bytes: Uint8Array;
 };
 
 export type WebRequestInit = {
@@ -100,6 +109,13 @@ export type WebFetchSession = {
     url: string,
     init?: WebRequestInit,
   ) => Promise<WebResponse | WebFetchFailure>;
+  /** The page request of a read that can decode images: `fetch`, except that
+   *  a PNG, JPEG, GIF, or WebP response returns its bytes instead of failing
+   *  with `unsupported_content_type`. Adapter and probe requests use `fetch`,
+   *  so an image there stays refused. */
+  readonly fetchPage: (
+    url: string,
+  ) => Promise<WebResponse | WebImageResponse | WebFetchFailure>;
   /** Releases the deadline, caller listener, and per-request agents. */
   readonly dispose: () => void;
 };
@@ -115,18 +131,9 @@ const MAX_REDIRECTS = 20;
  *  `application/xml`, and any `+json`/`+xml` subtype. */
 const TEXT_MEDIA_TYPE = /^text\/|^application\/(?:json|xml)$|\+(?:json|xml)$/u;
 
-/** The `Content-Type` charset parameter, quoted or bare. */
-const CHARSET_PARAMETER = /;\s*charset\s*=\s*"?([^";\s]+)"?/iu;
-
-const META_CHARSET = /<meta[^>]+charset\s*=\s*["']?\s*([\w-]+)/iu;
-
-const MAX_BODY_BYTES = 5 * 1024 * 1024;
-const CHARSET_SCAN_BYTES = 2048;
-
-const BODY_TOO_LARGE: WebFetchFailure = {
-  type: 'body_too_large',
-  message: 'The response body exceeds the 5 MiB limit.',
-};
+/** The image types a page response may carry (vision-media D7). The bytes,
+ *  not this declaration, decide the image's format. */
+const IMAGE_MEDIA_TYPE = /^image\/(?:png|jpeg|gif|webp)$/u;
 
 /** Neither message names the target: a `Location` is server-chosen text. */
 const INVALID_REDIRECT: WebFetchFailure = {
@@ -138,18 +145,6 @@ const TOO_MANY_REDIRECTS: WebFetchFailure = {
   type: 'too_many_redirects',
   message: 'The server redirected more than the 20 hops one call may follow.',
 };
-
-type ContentType = {
-  /** The header as received, with only the media type lowercased. */
-  readonly value: string;
-  readonly mediaType: string;
-};
-
-/** undici's body is a `node:stream/web` stream, not the DOM one. */
-type UndiciBodyReader = ReadableStreamDefaultReader<unknown>;
-type BodyOutcome =
-  | { readonly kind: 'body'; readonly bytes: Uint8Array }
-  | { readonly kind: 'failure'; readonly failure: WebFetchFailure };
 
 /** A redirect resolved to the locator policy will see, or the refusal it fails
  *  the call with. */
@@ -183,8 +178,7 @@ function addressRefusal(
 }
 
 async function readDocumentResponse(
-  response: UndiciResponse,
-  locator: string,
+  { response, locator }: ReachedLocator,
   deadline: FetchDeadline,
   init?: WebRequestInit,
 ): Promise<WebResponse | WebFetchFailure> {
@@ -200,6 +194,28 @@ async function readDocumentResponse(
   };
   const link = response.headers.get('link');
   return link === null ? fetched : { ...fetched, link };
+}
+
+/** A page response under the same status and 5 MiB bounds as a document, its
+ *  image body returned as bytes; any other type is read as a document. */
+async function readPageResponse(
+  reached: ReachedLocator,
+  deadline: FetchDeadline,
+): Promise<WebResponse | WebImageResponse | WebFetchFailure> {
+  const { response, locator } = reached;
+  const contentType = contentTypeOf(response.headers.get('content-type'));
+  if (!IMAGE_MEDIA_TYPE.test(contentType.mediaType))
+    return readDocumentResponse(reached, deadline);
+  const refusal = await refusalFor(
+    response,
+    contentType,
+    undefined,
+    IMAGE_MEDIA_TYPE,
+  );
+  if (refusal !== undefined) return refusal;
+  const body = await readCappedBody(response, deadline);
+  if (body.kind === 'failure') return body.failure;
+  return { finalUrl: locator, bytes: body.bytes };
 }
 
 /**
@@ -271,19 +287,6 @@ async function followRedirect(
   return { next: hop.url };
 }
 
-/** Keeps the parameters as received; only the media type is lowercased for the
- *  allowlist check. */
-function contentTypeOf(header: string | null): ContentType {
-  if (header === null) return { value: '', mediaType: '' };
-  const separator = header.indexOf(';');
-  if (separator === -1) {
-    const mediaType = header.trim().toLowerCase();
-    return { value: mediaType, mediaType };
-  }
-  const mediaType = header.slice(0, separator).trim().toLowerCase();
-  return { value: `${mediaType}${header.slice(separator)}`, mediaType };
-}
-
 function unsupportedContentType(contentType: ContentType): WebFetchFailure {
   if (contentType.mediaType === '') {
     return {
@@ -295,14 +298,6 @@ function unsupportedContentType(contentType: ContentType): WebFetchFailure {
     type: 'unsupported_content_type',
     message: `Unsupported content type "${boundedEcho(contentType.mediaType)}".`,
   };
-}
-
-/** A declared length is only ever a hint, so it short-circuits the body read
- *  and nothing else. */
-function contentLengthOf(headers: UndiciHeaders): number | undefined {
-  const declared = headers.get('content-length');
-  if (declared === null || !/^\d+$/u.test(declared)) return undefined;
-  return Number(declared);
 }
 
 function boundedHeader(
@@ -345,138 +340,27 @@ function statusFailure(
   return { ...failure, httpStatus: status, rateLimit: rateLimitOf(headers) };
 }
 
-async function cancelBody(response: UndiciResponse): Promise<void> {
-  const body = response.body;
-  if (body === null) return;
-  await body.cancel().catch(() => undefined);
-}
-
 /** Everything a response is refused for before a byte of its body is read, so
  *  a failure never costs the download it refuses. */
 async function refusalFor(
   response: UndiciResponse,
   contentType: ContentType,
   init?: WebRequestInit,
+  accepted = TEXT_MEDIA_TYPE,
 ): Promise<WebFetchFailure | undefined> {
   if (!response.ok) {
     await cancelBody(response);
     return statusFailure(response.status, response.headers, init);
   }
-  if (!TEXT_MEDIA_TYPE.test(contentType.mediaType)) {
+  if (!accepted.test(contentType.mediaType)) {
     await cancelBody(response);
     return unsupportedContentType(contentType);
   }
-  const declared = contentLengthOf(response.headers);
-  if (declared !== undefined && declared > MAX_BODY_BYTES) {
+  if (declaresBodyOverBound(response.headers)) {
     await cancelBody(response);
     return BODY_TOO_LARGE;
   }
   return undefined;
-}
-
-async function stopReading(
-  reader: UndiciBodyReader,
-  failure: WebFetchFailure,
-): Promise<BodyOutcome> {
-  await reader.cancel().catch(() => undefined);
-  return { kind: 'failure', failure };
-}
-
-function concatChunks(
-  chunks: ReadonlyArray<Uint8Array>,
-  total: number,
-): Uint8Array {
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-}
-
-/** Streams the body against the 5 MiB cap: the read stops at the first chunk
- *  past it instead of buffering the remainder. A read that is still waiting on
- *  the server when the call aborts resolves as done once the reader is
- *  cancelled, or rejects outright because the transport tore the body down, so
- *  the abort reason, not the truncated body, is what returns. */
-async function readAllChunks(
-  reader: UndiciBodyReader,
-  deadline: FetchDeadline,
-): Promise<BodyOutcome> {
-  const chunks: Array<Uint8Array> = [];
-  let total = 0;
-  for (;;) {
-    let next: ReadableStreamReadResult<unknown>;
-    try {
-      next = await reader.read();
-    } catch (error) {
-      return { kind: 'failure', failure: transportFailure(error, deadline) };
-    }
-    if (next.done) {
-      const reason = deadline.reason();
-      if (reason !== undefined) {
-        return { kind: 'failure', failure: abortFailure(reason) };
-      }
-      return { kind: 'body', bytes: concatChunks(chunks, total) };
-    }
-    const chunk: unknown = next.value;
-    if (!(chunk instanceof Uint8Array)) {
-      return stopReading(
-        reader,
-        transportFailure(
-          new TypeError('The response body was invalid.'),
-          deadline,
-        ),
-      );
-    }
-    total += chunk.byteLength;
-    if (total > MAX_BODY_BYTES) return stopReading(reader, BODY_TOO_LARGE);
-    chunks.push(chunk);
-  }
-}
-
-async function readCappedBody(
-  response: UndiciResponse,
-  deadline: FetchDeadline,
-): Promise<BodyOutcome> {
-  const body = response.body;
-  if (body === null) return { kind: 'body', bytes: new Uint8Array(0) };
-  const reader = body.getReader();
-  const onAbort = (): void => {
-    void reader.cancel().catch(() => undefined);
-  };
-  deadline.signal.addEventListener('abort', onAbort, { once: true });
-  if (deadline.signal.aborted) onAbort();
-  try {
-    return await readAllChunks(reader, deadline);
-  } finally {
-    deadline.signal.removeEventListener('abort', onAbort);
-  }
-}
-
-/** A `<meta charset>` declaration is ASCII by construction, so the scan window
- *  decodes as Latin-1 whatever charset the body itself declares. */
-function charsetFromMeta(bytes: Uint8Array): string | undefined {
-  const head = new TextDecoder('latin1').decode(
-    bytes.subarray(0, CHARSET_SCAN_BYTES),
-  );
-  return META_CHARSET.exec(head)?.[1];
-}
-
-/** Charset resolution: the `Content-Type` parameter, then a `<meta charset>`
- *  in the first 2 KiB, then UTF-8. An unknown label is not a reason to lose
- *  the body, so it falls back to UTF-8 rather than failing the read. */
-function decodeBody(bytes: Uint8Array, contentType: ContentType): string {
-  const label =
-    CHARSET_PARAMETER.exec(contentType.value)?.[1] ??
-    charsetFromMeta(bytes) ??
-    'utf-8';
-  try {
-    return new TextDecoder(label).decode(bytes);
-  } catch {
-    return new TextDecoder('utf-8').decode(bytes);
-  }
 }
 
 /**
@@ -495,9 +379,20 @@ export function createWebFetchSession(
     redirects: 0,
   };
   const connections = createConnectionPlanner(deps);
+  const context: FetchLocatorContext = { options, deps, budget, connections };
   return {
     fetch: (url, init) =>
-      fetchLocator(url, { options, deps, budget, connections }, init),
+      withFetchDeadline(context, async (deadline) => {
+        const reached = await reachLocator(url, context, deadline, init);
+        if (!('response' in reached)) return reached;
+        return readDocumentResponse(reached, deadline, init);
+      }),
+    fetchPage: (url) =>
+      withFetchDeadline(context, async (deadline) => {
+        const reached = await reachLocator(url, context, deadline);
+        if (!('response' in reached)) return reached;
+        return readPageResponse(reached, deadline);
+      }),
     dispose: () => {
       budget.deadline.dispose();
       connections.dispose();
@@ -549,30 +444,38 @@ function redactAuthorization(
   return message === failure.message ? failure : { ...failure, message };
 }
 
-/** Fetches one locator and the hops it answers with. A redirect status is
- *  followed only when the hop it names parses, the call still has redirect
- *  budget, and the `read` group admits that locator; a refused hop ends the
- *  call without its target's body ever being read. A `POST` follows no
- *  redirect: its 3xx is read as a status failure. */
-async function fetchLocator(
-  url: string,
+/** Scopes one locator's header bound across its hops and the read of the
+ *  body that answers it. */
+async function withFetchDeadline<T>(
   context: FetchLocatorContext,
-  init?: WebRequestInit,
-): Promise<WebResponse | WebFetchFailure> {
+  run: (deadline: FetchDeadline) => Promise<T>,
+): Promise<T> {
   const deadline = context.budget.deadline.startFetch();
   try {
-    return await followLocator(url, context, deadline, init);
+    return await run(deadline);
   } finally {
     deadline.dispose();
   }
 }
 
-async function followLocator(
+/** The final response of one locator and the locator that answered it. */
+type ReachedLocator = {
+  readonly response: UndiciResponse;
+  readonly locator: string;
+};
+
+/** Requests one locator and the hops it answers with, up to the response
+ *  whose body the caller reads. A redirect status is
+ *  followed only when the hop it names parses, the call still has redirect
+ *  budget, and the `read` group admits that locator; a refused hop ends the
+ *  call without its target's body ever being read. A `POST` follows no
+ *  redirect: its 3xx is read as a status failure. */
+async function reachLocator(
   url: string,
   context: FetchLocatorContext,
   deadline: FetchDeadline,
   init?: WebRequestInit,
-): Promise<WebResponse | WebFetchFailure> {
+): Promise<ReachedLocator | WebFetchFailure> {
   let locator = url;
   let requestInit = requestInitForOrigin(url, init);
   for (;;) {
@@ -588,8 +491,7 @@ async function followLocator(
       return addressRefusal(url, outcome.locator);
     const { response } = outcome;
     const redirects = init?.body === undefined && isRedirect(response);
-    if (!redirects)
-      return readDocumentResponse(response, locator, deadline, init);
+    if (!redirects) return { response, locator };
     const hop = await followRedirect(
       response,
       locator,

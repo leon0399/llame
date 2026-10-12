@@ -1,5 +1,9 @@
 import { promises as dns } from 'node:dns';
 
+import {
+  IMAGE_SELECTOR_MESSAGE,
+  type ImageReadHook,
+} from '@workspace/native-file-tools';
 import { fetch as undiciFetch } from 'undici';
 
 import { type ToolContext, type ToolResult } from '../types';
@@ -12,6 +16,8 @@ import {
   type ResolveHost,
   type WebFetchFailure,
   type WebFetchSession,
+  type WebImageResponse,
+  type WebResponse,
   createWebFetchSession,
 } from './http-client';
 import { parseWebLocator, type WebLocator } from './locator';
@@ -22,7 +28,7 @@ import {
   type WebAdapterIo,
 } from './adapters/contract';
 import { renderWebContent } from './pipeline';
-import { buildWebReadResult } from './result';
+import { buildWebImageResult, buildWebReadResult } from './result';
 
 /** The locator-bearing call the native file tools dispatch by scheme. */
 type WebReadCall = {
@@ -80,12 +86,6 @@ const ABORTED_FAILURE: WebFetchFailure = {
   message: 'The web read was cancelled.',
 };
 
-/** The result returned when a caller abort lands before synchronous rendering. */
-const ABORTED: ToolResult = {
-  status: 'error',
-  ...ABORTED_FAILURE,
-};
-
 /**
  * A web locator is read-only, needs no executor identity, and is fetched by
  * the API process's own outbound HTTP. `edit` and `write` fail before any
@@ -113,17 +113,32 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
           'A web read needs the instance identity this process sends as its User-Agent, which instance configuration did not resolve.',
       };
     }
-    return fetchAndRender(context, locator, userAgent, deps);
+    return fetchAndRender(
+      context,
+      {
+        locator,
+        userAgent,
+        image: context.media?.readImage(call.input.path, context.toolCallId),
+      },
+      deps,
+    );
   };
 }
 
 export const executeWebRead: WebReadExecutor =
   createWebReadExecutor(realWebReadDeps);
 
+/** One web read: its parsed locator, the User-Agent it sends, and the image
+ *  hook bound to the locator as submitted and the read's tool call id. */
+type WebPageRead = {
+  readonly locator: WebLocator;
+  readonly userAgent: string;
+  readonly image: ImageReadHook | undefined;
+};
+
 async function fetchAndRender(
   context: ToolContext,
-  locator: WebLocator,
-  userAgent: string,
+  { locator, userAgent, image }: WebPageRead,
   deps: WebReadDeps,
 ): Promise<ToolResult> {
   const admit = createDerivedAdmission(context);
@@ -143,10 +158,11 @@ async function fetchAndRender(
         );
       notes = adapters.notes;
     }
-    const response = await session.fetch(locator.url);
+    const response = await fetchPage(context, session, locator.url, image);
     if ('type' in response) return { status: 'error', ...response };
-    // Do not start synchronous rendering after a caller abort.
-    if (context.abortSignal?.aborted === true) return ABORTED;
+    // Only a read with an image hook fetches a page that may return bytes.
+    if ('bytes' in response)
+      return await readImage(locator, response, image!, notes);
     const render = await deps.renderWebContent(
       response,
       { raw },
@@ -161,6 +177,53 @@ async function fetchAndRender(
   } finally {
     session.dispose();
   }
+}
+
+/** The page response, or the abort that landed while it arrived: neither a
+ *  synchronous render nor a decode starts after a caller abort. Only a read
+ *  with an image hook accepts an image; without one an image body stays
+ *  `unsupported_content_type`. */
+async function fetchPage(
+  context: ToolContext,
+  session: WebFetchSession,
+  url: string,
+  image: ImageReadHook | undefined,
+): Promise<WebResponse | WebImageResponse | WebFetchFailure> {
+  const response =
+    image === undefined
+      ? await session.fetch(url)
+      : await session.fetchPage(url);
+  if ('type' in response) return response;
+  return context.abortSignal?.aborted === true ? ABORTED_FAILURE : response;
+}
+
+/** An image page is decoded like a local image and never rendered or stored
+ *  (vision-media D7). A selector is refused before anything is decoded,
+ *  `:raw` included, and the decode refuses bytes that match no image format,
+ *  whatever the declared type. */
+async function readImage(
+  locator: WebLocator,
+  page: WebImageResponse,
+  decode: ImageReadHook,
+  notes: ReadonlyArray<string>,
+): Promise<ToolResult> {
+  if (locator.selector !== undefined) {
+    return {
+      status: 'error',
+      type: 'invalid_selector',
+      message: IMAGE_SELECTOR_MESSAGE,
+    };
+  }
+  const { bytes } = page;
+  const decoded = await decode({
+    byteSize: bytes.byteLength,
+    readBytes: () =>
+      Promise.resolve(
+        Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      ),
+  });
+  if (decoded.status === 'error') return decoded;
+  return buildWebImageResult(locator, page.finalUrl, decoded, notes);
 }
 
 function createSession(

@@ -19,6 +19,7 @@ export const WEB_RENDER_METHODS = [
   'llms-txt',
   'text',
   'raw',
+  'image',
 ] as const;
 
 export type WebDirectory = {
