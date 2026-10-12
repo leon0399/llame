@@ -57,6 +57,7 @@ import {
   runIdFromMessageMetadata,
   type Compaction,
 } from "@/lib/services/chat/history";
+import { storedImageSources } from "@/lib/services/media/urls";
 
 // Markdown/reasoning bodies come from `ChatMarkdownProvider` — never
 // next/dynamic here. Dynamic still mounts an empty shell on first paint even
@@ -126,6 +127,41 @@ function ReasoningPanel({
   );
 }
 
+/** A tool call/result: the dedicated `read` and `web_search` cards, else the
+ *  generic tool block. A stored `read` image result's thumbnail loads the
+ *  `/model` route and its lightbox the `/original` route. */
+function ToolUIPartView({
+  part,
+  renderers,
+}: {
+  part: ToolUIPart | DynamicToolUIPart;
+  renderers: ChatMarkdownRenderers;
+}) {
+  const toolName = getToolName(part);
+  if (toolName === "web_search") {
+    return (
+      <WebSearchTool
+        input={part.input}
+        output={part.output}
+        errorText={part.errorText}
+        state={toolHeaderState(part)}
+        Markdown={renderers.MessageResponse}
+      />
+    );
+  }
+  if (toolName !== "read") return <ToolPartView part={part} />;
+  return (
+    <ReadTool
+      input={part.input}
+      output={part.output}
+      errorText={part.errorText}
+      state={toolHeaderState(part)}
+      Markdown={renderers.MessageResponse}
+      mediaSources={storedImageSources}
+    />
+  );
+}
+
 /** Renders one non-reasoning message part — text, a tool call/result, a
  *  step-cap notice, the instructions or prompt-imports chip, or a
  *  server-authored context item this build does not render (the walk
@@ -142,20 +178,7 @@ function MessagePartView({
     return <MessageResponse>{part.text}</MessageResponse>;
   }
   if (isToolUIPart(part)) {
-    const toolName = getToolName(part);
-    if (toolName === "web_search" || toolName === "read") {
-      const DedicatedTool = toolName === "read" ? ReadTool : WebSearchTool;
-      return (
-        <DedicatedTool
-          input={part.input}
-          output={part.output}
-          errorText={part.errorText}
-          state={toolHeaderState(part)}
-          Markdown={renderers.MessageResponse}
-        />
-      );
-    }
-    return <ToolPartView part={part} />;
+    return <ToolUIPartView part={part} renderers={renderers} />;
   }
   if (part.type === "data-cap-notice") {
     // Step-cap notice (D6): persisted alongside the tool call/result parts

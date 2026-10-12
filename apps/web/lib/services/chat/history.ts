@@ -7,6 +7,7 @@ import type {
   ChatMessagesResponse as GeneratedChatMessagesResponse,
   CheckpointStatsResponse,
 } from "../../api/generated/models";
+import { mediaIdFromLocator } from "../media/urls";
 
 export type ChatMessageResponse = {
   id: string;
@@ -196,10 +197,6 @@ export type PromptImportsPayload = PromptImportsPart["data"]["payload"];
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** The api's `media://<id>` grammar: a lower-case canonical UUID only. */
-const MEDIA_LOCATOR_PATTERN =
-  /^media:\/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function isNonNullObject(value: unknown): value is object {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -417,7 +414,7 @@ const promptImportEntrySchema = z.union([
   z.strictObject({
     ...promptImportEntryFields,
     outcome: z.literal("imported"),
-    media: z.string().regex(MEDIA_LOCATOR_PATTERN),
+    media: z.string().refine((media) => mediaIdFromLocator(media) !== null),
   }),
   z.strictObject({
     ...promptImportEntryFields,

@@ -468,3 +468,81 @@ export const SwitchingToTextOnlyBlocksSend: Story = {
     await expect(canvas.queryByText("Model One has no image input")).toBeNull();
   },
 };
+
+/** Media ids for `a.png` and `b.png`, so each composer image is its own
+ *  lightbox slide. */
+const A_MEDIA_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01";
+const B_MEDIA_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02";
+
+/** `file`'s upload descriptor under its own media id. */
+function storedDescriptor(file: File): MediaDescriptor {
+  const id = file.name === "a.png" ? A_MEDIA_ID : B_MEDIA_ID;
+  return { ...descriptorFor(file), id, locator: `media://${id}` };
+}
+
+/**
+ * Activating an uploaded thumbnail opens the lightbox over the composer's
+ * uploaded images only, on that image's `/original`, captioned from its
+ * upload descriptor; a thumbnail still uploading opens nothing, not even
+ * once its upload finishes. `Escape` closes it and returns focus to the
+ * thumbnail.
+ *
+ * @summary a composer thumbnail opens a composer-only lightbox
+ */
+export const ComposerThumbnailOpensLightbox: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    uploadImage.mockImplementation((file: File) =>
+      file.name === "a.png"
+        ? Promise.resolve(storedDescriptor(file))
+        : new Promise<MediaDescriptor>((resolve) => {
+            resolveHeldUpload = resolve;
+          }),
+    );
+  },
+  render: attachingStory(VISION_MODEL_ID),
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
+    await userEvent.paste(filesTransfer([pngFile("a.png"), pngFile("b.png")]));
+    const list = await canvas.findByRole("list", { name: "Attached images" });
+    await userEvent.click(within(list).getByRole("img", { name: "b.png" }));
+    await expect(screen.queryByRole("dialog")).toBeNull();
+
+    const send = canvas.getByRole("button", { name: "Send message" });
+    resolveHeldUpload(storedDescriptor(pngFile("b.png")));
+    await waitFor(() => expect(send).toBeEnabled());
+    await expect(screen.queryByRole("dialog")).toBeNull();
+    const opener = canvas.getByRole("button", { name: "b.png" });
+    await userEvent.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toBeVisible());
+    await expect(
+      within(dialog).getByRole("img", { name: "b.png" }),
+    ).toHaveAttribute(
+      "src",
+      expect.stringMatching(
+        new RegExp(`/api/v1/media/${B_MEDIA_ID}/original$`),
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "1×1 PNG · media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02",
+        ),
+      ).toBeVisible(),
+    );
+
+    await userEvent.keyboard("{ArrowLeft}");
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "1×1 PNG · media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01",
+        ),
+      ).toBeVisible(),
+    );
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(opener).toHaveFocus());
+  },
+};

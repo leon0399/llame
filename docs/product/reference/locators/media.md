@@ -3,6 +3,7 @@ summary: "The media:// locator: a read-only handle on one image the Run owner ho
 read_when:
   - you see a media://<id> locator in a result or an attachment label
   - you need to know what a media:// read returns or why it failed
+  - you want to know what a chat thumbnail or the image lightbox shows
 spec: native-file-tools
 configured_by:
   - ../../operator/media.md
@@ -61,6 +62,40 @@ selected.
 A sent message shows its images as read-only thumbnails above its text, in
 attach order, each loading the image's `/model` variant. Upload bounds, the
 store, and its routes are described in [Media](../../operator/media.md).
+
+The web chat shows each stored image as a thumbnail of its
+[model variant](../../operator/media.md#model-variant): an image attached to
+your message above its bubble, a `media://` `read` result in its tool card,
+and a `media://` [prompt import](../prompt-imports.md). A fork of your chat
+references the same images, so its thumbnails show them too.
+
+An image `read` or imported from any other locator is not stored. Its tool
+card or import chip shows the small inline thumbnail saved with the result
+instead, without loading any media route. When that thumbnail would have
+exceeded its size cap, none was saved, and the card or chip shows a tile
+naming the image's dimensions and format that opens nothing.
+
+Activating a thumbnail opens a lightbox over the images of that one place,
+starting at the activated one: the attachments of one message, the image of
+one `read` result, the images of one prompt-imports chip, or the uploaded
+images in the composer. A composer image still uploading or whose upload
+failed opens nothing. The arrow keys and the previous and next buttons move
+within those images. The image is centered and never enlarged past its
+natural size. An image larger than the window in either dimension is fitted
+to it; clicking the image or the actual-size button switches between that fit
+and 100%, where you scroll to pan. An image that already fits has no
+actual-size button, and clicking it does nothing. `Escape` closes the
+lightbox and returns focus to the thumbnail.
+
+- A stored image shows its original from `/api/v1/media/<id>/original`. Its
+  caption is the `media://` locator. When the original's dimensions and format
+  are already known, they come first, for example
+  `1600×900 PNG · media://<id>` for a `media://` `read` result or a composer
+  upload.
+- An unstored image shows its inline thumbnail. Its caption names the
+  original's dimensions and format and the locator as it was submitted: the
+  path the model passed to `read` or the target you wrote after `@`, for
+  example `1600×900 PNG · docs/shot.png`.
 
 ## Errors
 

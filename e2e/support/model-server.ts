@@ -112,6 +112,11 @@ const TOOL_ANSWER_TOKENS = [
   ".",
 ];
 
+// Scripted vision model: a request whose last user turn carries image parts
+// (the Chat Completions wire's `image_url` content) gets an answer naming how
+// many images arrived, so a test proves the attachment reached the model.
+const IMAGE_CONTENT_PART_RE = /"type":"image_url"/gu;
+
 const CONVERSATION_PROMPT_MARKER = "episodic provenance e2e";
 const CONVERSATION_SEARCH_QUERY = "E2E_EPISODIC_SOURCE_MARKER";
 const CONVERSATION_ANSWER_TOKENS = [
@@ -579,6 +584,7 @@ function classify(raw: string) {
       hasKnowledgeLocatorReadResult:
         findConversationReadResult(currentTurnMessages),
       lastUserContent: content,
+      lastUserImageCount: content.match(IMAGE_CONTENT_PART_RE)?.length ?? 0,
       // Real Chat Completions servers always report a non-streaming
       // request's usage, and a streaming request's only when it asks.
       reportsUsage:
@@ -618,6 +624,7 @@ function classify(raw: string) {
       knowledgeLocatorFromSearch: undefined,
       hasKnowledgeLocatorReadResult: false,
       lastUserContent: "",
+      lastUserImageCount: 0,
       reportsUsage: false,
     };
   }
@@ -1017,6 +1024,20 @@ function tryNativeToolLoopFirstTurn(ctx: ChunkContext): boolean {
   return true;
 }
 
+// Vision turn: the last user message carried images and no tool has run yet.
+function tryVisionTurn(ctx: ChunkContext): boolean {
+  if (ctx.lastUserImageCount === 0 || ctx.hasCurrentTurnToolResult) {
+    return false;
+  }
+  const count = ctx.lastUserImageCount;
+  writeAnswer(ctx, [
+    "Vision fixture saw ",
+    `${count} attached `,
+    count === 1 ? "image." : "images.",
+  ]);
+  return true;
+}
+
 async function writeDefaultAnswer(ctx: ChunkContext): Promise<void> {
   const slow = ctx.raw.includes("SLOW");
   const tokens = ctx.hasToolResult ? TOOL_ANSWER_TOKENS : ANSWER_TOKENS;
@@ -1174,6 +1195,7 @@ async function respondToChatCompletion(
   if (tryPermissionAnswerTurn(ctx)) return;
 
   if (tryNativeToolLoopFirstTurn(ctx)) return;
+  if (tryVisionTurn(ctx)) return;
 
   await writeDefaultAnswer(ctx);
 }

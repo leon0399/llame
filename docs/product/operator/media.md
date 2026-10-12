@@ -122,6 +122,10 @@ that is not a canonical UUID all return the same `404`.
 | `GET /api/v1/media/:id/original` | the original bytes, unchanged        |
 | `GET /api/v1/media/:id/model`    | the model variant bytes              |
 
+The web client loads every chat thumbnail from `/model` and a lightbox image
+from `/original`. What the owner sees is described under
+[`media://` behavior](../reference/locators/media.md#behavior).
+
 ### Upload
 
 `POST /api/v1/media` takes a `multipart/form-data` body with exactly one file

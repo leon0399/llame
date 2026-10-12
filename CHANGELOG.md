@@ -173,6 +173,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-10
 
+- Chat images now open in a lightbox (#1166, #935). The `read` tool card shows
+  a thumbnail for an image result and the prompt-imports chip one per imported
+  image, beside the attachment thumbnails above a sent message; an image read
+  or imported without being stored shows the small inline thumbnail saved with
+  its result, or its size alone when no thumbnail fit the cap. Activating a
+  thumbnail opens a dialog over the images of that message, `read` result,
+  import chip, or the composer's uploaded images, moved through with the arrow
+  keys and switched between fit and 100% by clicking the image. A stored image
+  shows its original captioned with its `media://` locator; an unstored image
+  shows its inline thumbnail, captioned with the original's size and format and
+  the locator as submitted, such as `1600×900 PNG · docs/shot.png`. `Escape`
+  returns focus to the thumbnail.
+
 - The chat composer now attaches images (#1166). Paste a PNG, JPEG, GIF, or
   WebP image, choose files with the new image button, or drop them onto the
   input card: each appears as a thumbnail above the textarea and uploads at

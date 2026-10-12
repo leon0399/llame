@@ -1,35 +1,69 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { ImagePlusIcon } from "lucide-react";
 
 import { ImageThumbnailRow } from "@workspace/ui/components/custom/image-thumbnail";
+import {
+  MediaLightbox,
+  type MediaLightboxSlide,
+  mediaCaption,
+} from "@workspace/ui/components/custom/media-lightbox";
 
 import { ATTACHABLE_IMAGE_TYPES } from "@/lib/services/media/uploads";
+import { storedImageSources } from "@/lib/services/media/urls";
 import { PromptInputButton } from "./prompt-input";
 import type { ComposerAttachments } from "./use-composer-attachments";
 
+/** The lightbox slides of the uploaded items: each one's `/original`,
+ *  captioned with its size and `media://` locator from its upload
+ *  descriptor. Items still uploading or failed have no descriptor yet. */
+function uploadedSlides(
+  items: ComposerAttachments["items"],
+): Array<MediaLightboxSlide> {
+  return items.flatMap(({ key, file, descriptor }) => {
+    const sources = descriptor && storedImageSources(descriptor.locator);
+    if (!descriptor || !sources) return [];
+    const caption = mediaCaption(descriptor.locator, descriptor);
+    return [{ key, src: sources.original, alt: file.name, caption }];
+  });
+}
+
 /** The attached images as thumbnails inside the input card, above the
- *  textarea; renders nothing while none are attached. */
+ *  textarea; renders nothing while none are attached. An uploaded
+ *  thumbnail opens a lightbox over the composer's uploaded images; one
+ *  still uploading or failed opens nothing. */
 export function ComposerAttachmentRow({
   attachments,
 }: {
   attachments: ComposerAttachments;
 }) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
   if (attachments.items.length === 0) return null;
+  const slides = uploadedSlides(attachments.items);
   return (
-    <ImageThumbnailRow
-      aria-label="Attached images"
-      className="mx-3 mt-3"
-      items={attachments.items.map((item) => ({
-        key: item.key,
-        src: item.previewUrl,
-        alt: item.file.name,
-        status: item.status,
-      }))}
-      onRemove={attachments.remove}
-      onRetry={attachments.retry}
-    />
+    <>
+      <ImageThumbnailRow
+        aria-label="Attached images"
+        className="mx-3 mt-3"
+        items={attachments.items.map((item) => ({
+          key: item.key,
+          src: item.previewUrl,
+          alt: item.file.name,
+          status: item.status,
+        }))}
+        // The row opens only ready tiles, and a ready item has its upload
+        // descriptor, so every opened key has a slide.
+        onOpen={setOpenKey}
+        onRemove={attachments.remove}
+        onRetry={attachments.retry}
+      />
+      <MediaLightbox
+        slides={slides}
+        openKey={openKey}
+        onOpenKeyChange={setOpenKey}
+      />
+    </>
   );
 }
 

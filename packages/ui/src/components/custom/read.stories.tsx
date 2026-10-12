@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, fn, screen, waitFor, within } from "storybook/test";
 
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 
@@ -191,6 +191,158 @@ export const Directory: Story = {
     await expect(
       canvas.queryByText(/continues at line/u),
     ).not.toBeInTheDocument();
+  },
+};
+
+/** A 160×90 WebP inline thumbnail, the shape the api stores beside an image
+ *  it did not keep. */
+const SHOT_THUMBNAIL =
+  "data:image/webp;base64," +
+  "UklGRroBAABXRUJQVlA4IK4BAACwCwCdASqgAFoAPp1Oo0ylpKMiJFIIKLATiWlu" +
+  "4XPhcAmeZGHeBdA/irRZMW8YOoOH4GfE+J8T4nxPieeS/C6GBSLPNrj5OMEI06wM" +
+  "8/ni5AtxFjTgM6oBdzlxOyfVtk7J2TsnYoAA/v7TCJ1mlIfClbSSyc/b8Tqb6I/O" +
+  "zwAZ+60V979foFeaukavTO4rts2Cp1cqIsiUfW+tPc9HKD915iY9d9bZi5Nyv/0v" +
+  "9ZPiz01xYjwAaGWKe1GaDSxuUye7+3G06fGMHEaH2hNnS5CtJPYYPR54/oAO+OoP" +
+  "vr5bk/KFst/6bx88fT8fzV6JkMExsrlAY/8bwf/z+fZBv+9+sHOB8Knr60MsquP8" +
+  "ynZOhQbYcP77WlMZy09sU43YOh0u1wZs/4usJqdtCP06VUVXHsqIHAwHvOYIZN1H" +
+  "V96353X9o3FrUNYQ8MVZdZPedV4t2yUc159YwbHyBl7f8FqOtm4iC1P0Kw7pDlvf" +
+  "Lz1vCSfOY3RkVsInlOByK3DS6nv7FKFx7r3yZhiP2X8Xbnb8R5DdoeK8rZhIJH0V" +
+  "P3n97L90K9SJ7pcAOAAAAAAA";
+
+/** A labelled 16:9 placeholder standing in for one stored variant. */
+function storedVariant(label: string) {
+  return `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="100%" height="100%" fill="#e4e4e7"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#18181b">${label}</text></svg>`,
+  )}`;
+}
+
+const STORED_SOURCES = {
+  thumbnail: storedVariant("model"),
+  original: storedVariant("original"),
+};
+
+const SHOT_LOCATOR = "media://0199d1c4-5e6f-7a8b-9c0d-1e2f3a4b5c6d";
+
+/**
+ * A read whose bytes were an image returns no content: the card shows the
+ * result's inline thumbnail and the original's size and format. The image was
+ * not stored, so no media route is asked for. The thumbnail opens a lightbox
+ * on itself, captioned with the original's size and the locator the model
+ * submitted; `Escape` returns focus to the thumbnail.
+ *
+ * @summary for an image returned by `read`
+ */
+export const ImageResult: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "docs/shot.png" },
+    output: {
+      status: "success" as const,
+      kind: "image" as const,
+      path: "/work/shot.png",
+      mediaType: "image/png",
+      width: 1600,
+      height: 900,
+      thumbnail: SHOT_THUMBNAIL,
+    },
+    mediaSources: fn(() => null),
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    await expect(
+      canvas.getByRole("img", { name: "/work/shot.png" }),
+    ).toHaveAttribute("src", SHOT_THUMBNAIL);
+    await expect(args.mediaSources).not.toHaveBeenCalled();
+    await expect(canvas.getByText("1600×900 PNG")).toBeInTheDocument();
+    await expect(canvas.queryByText("thumbnail:")).not.toBeInTheDocument();
+    await expect(canvas.queryByText("No content.")).not.toBeInTheDocument();
+
+    const opener = canvas.getByRole("button", { name: "/work/shot.png" });
+    await userEvent.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toBeVisible());
+    await expect(dialog).toHaveAccessibleDescription(
+      "1600×900 PNG · docs/shot.png",
+    );
+    await expect(
+      within(dialog).getByRole("img", { name: "/work/shot.png" }),
+    ).toHaveAttribute("src", SHOT_THUMBNAIL);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(opener).toHaveFocus());
+  },
+};
+
+/**
+ * A `media://` read resolves an owner upload: the card loads the stored
+ * image's thumbnail through `mediaSources` and names its `media://` locator;
+ * the lightbox loads the original.
+ *
+ * @summary for a stored image returned by a `media://` read
+ */
+export const StoredImageResult: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: SHOT_LOCATOR },
+    output: {
+      status: "success" as const,
+      kind: "image" as const,
+      path: SHOT_LOCATOR,
+      media: SHOT_LOCATOR,
+      mediaType: "image/png",
+      width: 1600,
+      height: 900,
+    },
+    mediaSources: (media: string) =>
+      media === SHOT_LOCATOR ? STORED_SOURCES : null,
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    await expect(
+      canvas.getByRole("img", { name: SHOT_LOCATOR }),
+    ).toHaveAttribute("src", STORED_SOURCES.thumbnail);
+    await expect(canvas.getByText("1600×900 PNG")).toBeInTheDocument();
+    await expect(canvas.getAllByText(SHOT_LOCATOR).length).toBeGreaterThan(0);
+
+    await userEvent.click(canvas.getByRole("button", { name: SHOT_LOCATOR }));
+    const dialog = await screen.findByRole("dialog");
+    await expect(dialog).toHaveAccessibleDescription(
+      `1600×900 PNG · ${SHOT_LOCATOR}`,
+    );
+    await expect(
+      within(dialog).getByRole("img", { name: SHOT_LOCATOR }),
+    ).toHaveAttribute("src", STORED_SOURCES.original);
+  },
+};
+
+/**
+ * An image result without a usable thumbnail (absent because it would have
+ * exceeded the cap, or not a WebP data URL) shows a size-only tile that opens
+ * nothing; the result still names its size, format, and envelope fields.
+ *
+ * @summary for an image result shown without a thumbnail
+ */
+export const ImageResultWithoutThumbnail: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { path: "kb://3f2a9c1e/diagrams/flow.webp" },
+    output: {
+      status: "success" as const,
+      kind: "image" as const,
+      path: "kb://3f2a9c1e/diagrams/flow.webp",
+      mediaType: "image/webp",
+      width: 800,
+      height: 600,
+      thumbnail: "https://example.com/flow.webp",
+      notice: "Owner-maintained Knowledge; untrusted and possibly stale.",
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+    await expect(canvas.queryByRole("img")).not.toBeInTheDocument();
+    // The size-only tile and the metadata row.
+    await expect(canvas.getAllByText("800×600 WEBP")).toHaveLength(2);
+    await expect(canvas.getByText("notice:")).toBeInTheDocument();
   },
 };
 

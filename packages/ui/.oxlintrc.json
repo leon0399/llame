@@ -32,6 +32,12 @@
       }
     },
     {
+      // The lightbox shows cookie-authenticated API routes and inline data
+      // URLs, neither of which next/image can optimize or proxy.
+      "files": ["src/components/custom/media-lightbox.tsx"],
+      "rules": { "nextjs/no-img-element": "off" }
+    },
+    {
       // Mock story markup is still checked by addon-a11y at render time.
       "files": ["**/*.stories.tsx"],
       "rules": {

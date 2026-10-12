@@ -1,8 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { AtSignIcon } from "lucide-react";
 
+import { ImageThumbnail } from "@workspace/ui/components/custom/image-thumbnail";
+import {
+  ImageDimensionsTile,
+  type MediaImageSize,
+  MediaLightbox,
+  type MediaLightboxSlide,
+  mediaCaption,
+} from "@workspace/ui/components/custom/media-lightbox";
+
 import type { PromptImportsPayload } from "@/lib/services/chat/history";
+import { storedImageSources } from "@/lib/services/media/urls";
 
 import {
   ContextChipGroup,
@@ -10,48 +21,139 @@ import {
   type ContextFileState,
 } from "./context-file-chip";
 
+type ImportEntry = PromptImportsPayload["imports"][number];
+
+/** An imported image's thumbnail and its lightbox slide. */
+type ImportedImage = {
+  thumbnail: { src: string; alt: string };
+  slide: MediaLightboxSlide;
+};
+
+/** An imported image's thumbnail and lightbox slide, or `null` when it has
+ *  no thumbnail: a stored image opens its original, captioned with its
+ *  `media://` locator; an unstored one opens its inline thumbnail, captioned
+ *  with the original's size and the locator as written. */
+function importedImage(entry: ImportEntry, key: string): ImportedImage | null {
+  const alt = entry.locator;
+  if (entry.media !== undefined) {
+    const sources = storedImageSources(entry.media);
+    if (sources === null) return null;
+    const caption = mediaCaption(entry.media);
+    return {
+      thumbnail: { src: sources.thumbnail, alt },
+      slide: { key, src: sources.original, alt, caption },
+    };
+  }
+  if (entry.thumbnail === undefined) return null;
+  const caption = mediaCaption(entry.locator, entry);
+  return {
+    thumbnail: { src: entry.thumbnail, alt },
+    slide: { key, src: entry.thumbnail, alt, caption },
+  };
+}
+
+/** One tile under the chips: an image with its thumbnail, or only its size. */
+type ImportedTile =
+  | { key: string; image: ImportedImage }
+  | { key: string; size: MediaImageSize };
+
+/** An import's tile, or `null` for an entry that is not an image. */
+function importedTile(entry: ImportEntry, key: string): ImportedTile | null {
+  const image = importedImage(entry, key);
+  if (image !== null) return { key, image };
+  if (entry.width === undefined) return null;
+  const { width, height, mediaType } = entry;
+  return { key, size: { width, height, mediaType } };
+}
+
+/** The imported images under the chips, in entry order, opening a lightbox
+ *  over this chip's images; an unstored image without a thumbnail shows only
+ *  its size. */
+function ImportedImages({ imports }: Pick<PromptImportsPayload, "imports">) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const tiles = imports.flatMap(
+    (entry, index) => importedTile(entry, String(index)) ?? [],
+  );
+  if (tiles.length === 0) return null;
+  return (
+    <>
+      <ul
+        // oxlint-disable-next-line jsx-a11y/no-redundant-roles -- WebKit drops the list role from a `list-style: none` list.
+        role="list"
+        aria-label="Imported images"
+        className="my-1 flex flex-wrap gap-2"
+      >
+        {tiles.map((tile) => (
+          <li key={tile.key}>
+            {"image" in tile ? (
+              <ImageThumbnail
+                {...tile.image.thumbnail}
+                onOpen={() => setOpenKey(tile.key)}
+              />
+            ) : (
+              <ImageDimensionsTile {...tile.size} />
+            )}
+          </li>
+        ))}
+      </ul>
+      <MediaLightbox
+        slides={tiles.flatMap((tile) =>
+          "image" in tile ? [tile.image.slide] : [],
+        )}
+        openKey={openKey}
+        onOpenKeyChange={setOpenKey}
+      />
+    </>
+  );
+}
+
 /**
  * The owner-facing chip for a `prompt-imports` context item: each import marker
  * a user prompt carried, marked when the result was truncated, denied by the
- * `read` permission group, failed to read, or omitted past a bound. The model
- * text names denied, failed, and omitted targets only as not imported; the
- * outcomes and resolved paths shown here are owner-only and never reach a
+ * `read` permission group, failed to read, or omitted past a bound. An
+ * imported image also shows its thumbnail, which opens a lightbox over the
+ * chip's images. The
+ * model text names denied, failed, and omitted targets only as not imported;
+ * the outcomes and resolved paths shown here are owner-only and never reach a
  * public share. It renders at the top of the triggering user turn, live and
  * reloaded alike.
  *
- * @summary owner chip for imported, truncated, denied, failed, and omitted prompt files
+ * @summary owner chip for imported, truncated, denied, failed, and omitted prompt files and images
  */
 export function PromptImportsPart(payload: PromptImportsPayload) {
   return (
-    <ContextChipGroup icon={<AtSignIcon />} label="Imports">
-      {payload.imports.map((entry) => {
-        const state: ContextFileState =
-          entry.outcome === "imported" && entry.truncated
-            ? "truncated"
-            : entry.outcome;
-        const detail =
-          entry.resolved !== undefined && entry.resolved !== entry.locator
-            ? `${entry.locator} → ${entry.resolved}`
-            : undefined;
+    <>
+      <ContextChipGroup icon={<AtSignIcon />} label="Imports">
+        {payload.imports.map((entry) => {
+          const state: ContextFileState =
+            entry.outcome === "imported" && entry.truncated
+              ? "truncated"
+              : entry.outcome;
+          const detail =
+            entry.resolved !== undefined && entry.resolved !== entry.locator
+              ? `${entry.locator} → ${entry.resolved}`
+              : undefined;
 
-        return (
+          return (
+            <ContextFileChip
+              key={`import:${entry.locator}`}
+              kind="prompt"
+              path={entry.locator}
+              detail={detail}
+              state={state}
+            />
+          );
+        })}
+        {(payload.omitted ?? []).map((locator) => (
           <ContextFileChip
-            key={`import:${entry.locator}`}
+            key={`omitted:${locator}`}
             kind="prompt"
-            path={entry.locator}
-            detail={detail}
-            state={state}
+            path={locator}
+            state="omitted"
           />
-        );
-      })}
-      {(payload.omitted ?? []).map((locator) => (
-        <ContextFileChip
-          key={`omitted:${locator}`}
-          kind="prompt"
-          path={locator}
-          state="omitted"
-        />
-      ))}
-    </ContextChipGroup>
+        ))}
+      </ContextChipGroup>
+      <ImportedImages imports={payload.imports} />
+    </>
   );
 }
