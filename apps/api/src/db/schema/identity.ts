@@ -147,7 +147,7 @@ export const orgUnits = pgTable(
     }),
     // Admin tier on the old path (USING) and the new path (WITH CHECK). A
     // policy cannot compare OLD with NEW, so migration
-    // 20261011193136_org_unit_move_authority adds triggers (#1260): moving a
+    // 20261013104707_org_unit_move_authority adds triggers (#1260): moving a
     // unit out of its tree (to root or into another tree) needs `owner` on
     // the source tree's root, a unit promoted to root must have an `owner`
     // membership at commit, and `created_by` never changes.
