@@ -15,10 +15,9 @@
  * - `media://` resolution returns only the caller's objects
  */
 
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
-import sharp from 'sharp';
 import { z } from 'zod';
 
 import * as schema from '../db/schema';
@@ -27,6 +26,7 @@ import {
   TenantDbService,
   type TenantRunner,
 } from '../db/tenant-db.service';
+import { randomPng } from './media-fixtures';
 import { parseMediaLocator } from './media-locator';
 import { MediaService } from './media.service';
 
@@ -48,15 +48,6 @@ vi.setConfig({ testTimeout: 30_000 });
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 if (!TEST_DB_URL) {
   throw new Error('TEST_DATABASE_URL is required for media RLS tests');
-}
-
-/** A unique small PNG, so no two tests share a digest by accident. */
-function uniquePng(): Promise<Buffer> {
-  return sharp(randomBytes(8 * 8 * 3), {
-    raw: { width: 8, height: 8, channels: 3 },
-  })
-    .png()
-    .toBuffer();
 }
 
 describe('RLS integration — media store tenancy', () => {
@@ -89,7 +80,7 @@ describe('RLS integration — media store tenancy', () => {
     await sql`INSERT INTO users (id, name, email) VALUES (${userAId}, 'Media A', ${`media-a-${userAId}@test.com`})`;
     await sql`INSERT INTO users (id, name, email) VALUES (${userBId}, 'Media B', ${`media-b-${userBId}@test.com`})`;
 
-    objectAId = (await ingestAs(userAId, await uniquePng())).media.id;
+    objectAId = (await ingestAs(userAId, await randomPng())).media.id;
   });
 
   afterAll(async () => {
@@ -245,7 +236,7 @@ describe('RLS integration — media store tenancy', () => {
   });
 
   it('yields one object for concurrent identical ingests', async () => {
-    const bytes = await uniquePng();
+    const bytes = await randomPng();
     const results = await Promise.all([
       ingestAs(userAId, bytes),
       ingestAs(userAId, bytes),
@@ -283,7 +274,7 @@ describe('RLS integration — media store tenancy', () => {
           return fn(tx);
         }),
     };
-    const bytes = await uniquePng();
+    const bytes = await randomPng();
 
     await expect(
       new MediaService(failingBlobWrites).ingest(userAId, {

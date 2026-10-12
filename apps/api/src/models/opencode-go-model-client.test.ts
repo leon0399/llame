@@ -401,6 +401,14 @@ describe('createOpenCodeGoModelClient — fixed transport (design D1/D2)', () =>
     }
   });
 
+  it('carries the declared input on the client, and no key without one', () => {
+    expect(buildClient({ input: ['text', 'image'] }).input).toEqual([
+      'text',
+      'image',
+    ]);
+    expect(buildClient()).not.toHaveProperty('input');
+  });
+
   it('composes operator options under the namespace the adapter derives from the Go name', async () => {
     const stub = serveFetch(streamResponse);
     try {
@@ -848,6 +856,7 @@ describe('createOpenCodeGoModelClient — cost is unknown unless declared (desig
         provider: 'opencode-go',
         providerModelId: 'glm-5.3-flash',
         contextWindowTokens: 200_000,
+        input: ['text'],
         systemPromptTemplate: 'Test prompt',
         systemPromptSource: 'project_default',
         referencesSkills: false,

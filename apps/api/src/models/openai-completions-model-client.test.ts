@@ -386,6 +386,19 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
     });
     expect(client.compactionThresholdTokens).toBe(4000);
   });
+
+  it('carries the declared input on the client, and no key without one', () => {
+    const model = new MockLanguageModelV3({
+      provider: 'openai-compatible.test',
+      modelId: 'deepseek-chat',
+    });
+
+    expect(
+      buildClient(model, { overrides: { input: ['text', 'image'] } }).client
+        .input,
+    ).toEqual(['text', 'image']);
+    expect(buildClient(model).client).not.toHaveProperty('input');
+  });
 });
 
 describe('createOpenAICompletionsModelClient — keyless provider', () => {

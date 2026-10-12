@@ -546,6 +546,7 @@ const CLAUDE_SONNET_MODEL: AvailableModel = {
   source: "system",
   name: "Claude Sonnet 5",
   contextWindowTokens: 1_000_000,
+  input: ["text"],
 };
 
 /** The catalog entry the usage fixtures resolve to, so the badge and the
@@ -555,6 +556,7 @@ const GPT_4O_MODEL: AvailableModel = {
   source: "system",
   name: "GPT-4o",
   contextWindowTokens: 128_000,
+  input: ["text"],
 };
 
 /** One labeled row of a usage hover card. The breakdown portals out of the

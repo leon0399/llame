@@ -15,6 +15,7 @@ import {
 } from '../chats/conversation-logical-lines';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { type Db } from '../db/tenant-db.service';
+import { fileImageLines } from '../media/media-descriptors';
 import {
   conversationSourceChatIdSchema,
   conversationSourceLimitSchema,
@@ -139,6 +140,12 @@ export function renderConversationRead(
 ): ConversationReadResult {
   const visibleText = visibleMessageText(source.parts);
   const lines = scanConversationLogicalLines(visibleText);
+  // One LF-terminated placeholder line per `file` part, in stored order. These
+  // lines sit outside the visible text: they are never line-numbered and count
+  // toward no line coordinate or line bound, only the structured-result bound.
+  const placeholders = fileImageLines(source.parts)
+    .map((line) => `${line}\n`)
+    .join('');
   const { offset } = input;
 
   if (offset > 0 && lines.length === 0) return rangeInvalidResult();
@@ -146,7 +153,7 @@ export function renderConversationRead(
 
   const availableLines = lines.length - offset;
   if (availableLines === 0) {
-    return buildResult({ source, offset }, lines, 0);
+    return buildResult({ source, offset }, lines, 0, { placeholders });
   }
 
   return findFittingConversationRead({
@@ -160,6 +167,7 @@ export function renderConversationRead(
       CONVERSATION_READ_MAX_LINES,
     ),
     requestedLimit: input.limit,
+    placeholders,
   });
 }
 
@@ -172,25 +180,39 @@ interface ConversationReadWindow {
   readonly availableLines: number;
   readonly requestedLineCount: number;
   readonly requestedLimit: number | undefined;
+  /** The message's LF-terminated placeholder lines; empty when it has none. */
+  readonly placeholders: string;
 }
 
 /** Finds the largest line count (up to `window.requestedLineCount`) whose
  * rendered result fits the serialized-size bound, binary-searching down from
- * the full request when it doesn't fit outright. */
+ * the full request when it doesn't fit outright. Every candidate is measured
+ * with the placeholder lines appended, so their size is reserved before text
+ * lines are fitted and the complete result that carries them always fits. */
 function findFittingConversationRead(
   window: ConversationReadWindow,
 ): ConversationReadResult {
-  const { source, offset, availableLines, requestedLineCount } = window;
+  const { source, offset, availableLines, requestedLineCount, placeholders } =
+    window;
   const selected = window.lines.slice(offset, offset + requestedLineCount);
 
   const buildCandidate = (lineCount: number) => {
     const hasRemaining = availableLines > lineCount;
     const cutReason = resolveCutReason(window, lineCount, hasRemaining);
-    const result = buildResult({ source, offset }, selected, lineCount, {
-      hasRemaining,
-      cutReason,
-    });
-    return { result, fits: fitsSerializedBounds(result) };
+    const outcome = { hasRemaining, cutReason, placeholders };
+    const result = buildResult(
+      { source, offset },
+      selected,
+      lineCount,
+      outcome,
+    );
+    const measured = hasRemaining
+      ? {
+          ...result,
+          content: renderContent(selected.slice(0, lineCount), placeholders),
+        }
+      : result;
+    return { result, fits: fitsSerializedBounds(measured) };
   };
 
   const fullCandidate = buildCandidate(requestedLineCount);
@@ -258,6 +280,23 @@ function resolveCutReason(
   return 'output_limit';
 }
 
+/**
+ * The numbered source lines, then `placeholders` (when given) after one LF if
+ * the last returned line has no delimiter.
+ */
+function renderContent(
+  returned: ReadonlyArray<ConversationLogicalLine>,
+  placeholders: string,
+): string {
+  const numbered = returned
+    .map((line) => `${line.line + 1}: ${line.text}${line.delimiter}`)
+    .join('');
+  if (placeholders.length === 0) return numbered;
+  const separator = returned.at(-1)?.delimiter === '' ? '\n' : '';
+  return `${numbered}${separator}${placeholders}`;
+}
+
+/** `placeholders` end the content only of a result that omits `nextOffset`. */
 function buildResult(
   position: { source: ConversationMessageLookup; offset: number },
   lines: ReadonlyArray<ConversationLogicalLine>,
@@ -265,10 +304,12 @@ function buildResult(
   outcome: {
     hasRemaining?: boolean;
     cutReason?: ConversationReadSuccess['cutReason'];
-  } = {},
+    placeholders: string;
+  },
 ): ConversationReadSuccess {
   const { source, offset } = position;
-  const { hasRemaining = false, cutReason } = outcome;
+  const { hasRemaining = false, cutReason, placeholders } = outcome;
+  const carried = hasRemaining ? '' : placeholders;
   const result: ConversationReadSuccess = {
     status: 'success',
     chatId: source.chatId,
@@ -277,10 +318,7 @@ function buildResult(
     timestamp: source.createdAt.toISOString(),
     offset,
     lineCount,
-    content: lines
-      .slice(0, lineCount)
-      .map((line) => `${line.line + 1}: ${line.text}${line.delimiter}`)
-      .join(''),
+    content: renderContent(lines.slice(0, lineCount), carried),
     notice: CONVERSATION_HISTORY_NOTICE,
   };
   if (source.previousMessageSeq !== undefined) {

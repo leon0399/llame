@@ -17,7 +17,8 @@ import {
   type RequestHeaders,
 } from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
-import type { TokenPrice } from './model-catalog';
+import type { ModelInput, TokenPrice } from './model-catalog';
+import { installStepPreparation } from './step-composer';
 import {
   composeProviderOptions,
   type ProviderOptionRecord,
@@ -94,10 +95,12 @@ function streamSanitizer(
  * generation path unchanged. Mutates `streamOptions` in place, matching the
  * incremental build-up style the rest of `streamText` already uses. Shared
  * by every wire's client (exported for `openai-completions-model-client`),
- * so step-cap accounting and refusal reporting stay single-sourced. `gate`
- * orders execution and refusal reports behind the reasoning channel; a client
- * with an in-order reasoning consumer attaches it through
- * `bindReasoningChannel`, and an unattached gate lets calls run as they arrive.
+ * so refusal reporting stays single-sourced. The step cap and `onStepStart`
+ * live in `installStepPreparation`, which every client installs with or
+ * without tools. `gate` orders execution and refusal reports behind the
+ * reasoning channel; a client with an in-order reasoning consumer attaches it
+ * through `bindReasoningChannel`, and an unattached gate lets calls run as
+ * they arrive.
  */
 export function applyToolCallingOptions(
   streamOptions: Parameters<typeof streamText>[0],
@@ -125,25 +128,6 @@ export function applyToolCallingOptions(
   // cap the predicate never fires and the loop runs as many steps as asked.
   streamOptions.stopWhen =
     cap === undefined ? () => false : stepCountIs(cap + 1);
-  // Step-cap enforcement (SPEC tool-calling): once `maxSteps` PRIOR steps have
-  // requested a tool, stop declaring tools for the next step — the model is
-  // forced to answer from accumulated context in the SAME streamText() call.
-  streamOptions.prepareStep = async ({ messages, stepNumber, steps }) => {
-    const messagesOverride = await input.onStepStart?.({
-      messages,
-      stepNumber,
-    });
-    const capReached =
-      cap !== undefined &&
-      steps.filter((step) => step.toolCalls.length > 0).length >= cap;
-    if (capReached) {
-      input.onCapReached?.();
-    }
-    return {
-      ...(messagesOverride && { messages: messagesOverride }),
-      ...(capReached && { activeTools: [] }),
-    };
-  };
   streamOptions.experimental_repairToolCall = refuseUnavailableToolCalls(
     input.onUnavailableToolCall,
     gate,
@@ -437,6 +421,8 @@ export type OpenAIModelClientConfig = {
   pricing?: TokenPrice;
   billing?: BillingMode;
   compactionThresholdTokens?: number;
+  /** Catalog `models[].input`; absent means `['text']`. */
+  input?: ReadonlyArray<ModelInput>;
 };
 
 /**
@@ -605,6 +591,7 @@ function buildOpenAIStreamOptions(
   };
   applyRequestOptions(streamOptions, config, input);
   applyToolCallingOptions(streamOptions, input, gate);
+  installStepPreparation(streamOptions, input, config.input);
   applyTextDeltaCallback(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
@@ -730,6 +717,7 @@ export function createOpenAIModelClient(
     ...(config.compactionThresholdTokens !== undefined && {
       compactionThresholdTokens: config.compactionThresholdTokens,
     }),
+    ...(config.input !== undefined && { input: config.input }),
     streamText: (input: ModelStreamInput) => {
       try {
         return runOpenAIStream(openai, config, dependencies, input);

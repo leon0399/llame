@@ -15,7 +15,8 @@ import {
   type ModelStreamInput,
   type ModelStreamResult,
 } from './model-client';
-import type { TokenPrice } from './model-catalog';
+import type { ModelInput, TokenPrice } from './model-catalog';
+import { installStepPreparation } from './step-composer';
 import {
   composeProviderOptions,
   type ProviderOptionRecord,
@@ -143,6 +144,8 @@ export type AnthropicModelClientConfig = {
   pricing?: TokenPrice;
   billing?: BillingMode;
   compactionThresholdTokens?: number;
+  /** Catalog `models[].input`; absent means `['text']`. */
+  input?: ReadonlyArray<ModelInput>;
   /**
    * Operator-authored provider-native options, keyed as the adapter documents
    * them (provider-api-selection): carried by the factory from the model entry
@@ -390,6 +393,7 @@ function buildStreamOptions(
     }),
   };
   applyToolCallingOptions(streamOptions, input, gate);
+  installStepPreparation(streamOptions, input, config.input);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
   if (input.onTextDelta) {
@@ -521,6 +525,7 @@ export function createAnthropicModelClient(
     ...(config.compactionThresholdTokens !== undefined && {
       compactionThresholdTokens: config.compactionThresholdTokens,
     }),
+    ...(config.input !== undefined && { input: config.input }),
     streamText: (input: ModelStreamInput) =>
       runAnthropicStream(provider, config, dependencies, input),
     generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>

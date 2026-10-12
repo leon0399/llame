@@ -2225,14 +2225,16 @@ function resolveModelEntry(
 
   // The remaining fields ride along in the spread below: schema-validated
   // shape already guarantees they need no further resolution. Everything the
-  // loader resolves or validates itself — billing, raw numerics, the reasoning
-  // block, the operator's provider options — plus the two server-only path
-  // fields is excluded explicitly, so nothing unresolved or host-path-shaped
-  // can reach the resolved entry (and therefore the public catalog).
+  // loader resolves or validates itself — billing, raw numerics, the input
+  // declaration, the reasoning block, the operator's provider options — plus
+  // the two server-only path fields is excluded explicitly, so nothing
+  // unresolved or host-path-shaped can reach the resolved entry (and therefore
+  // the public catalog).
   const {
     billing: _rawBilling,
     contextWindowTokens: _rawContextWindowTokens,
     compactionThresholdTokens: _rawCompactionThresholdTokens,
+    input: _rawInput,
     maxOutputTokens: _rawMaxOutputTokens,
     providerOptions: _rawProviderOptions,
     reasoning: _rawReasoning,
@@ -2272,6 +2274,7 @@ type ModelDisplayFields = Omit<
   | 'billing'
   | 'contextWindowTokens'
   | 'compactionThresholdTokens'
+  | 'input'
   | 'maxOutputTokens'
   | 'providerOptions'
   | 'reasoning'
@@ -2307,6 +2310,10 @@ function buildModelCatalogEntry(
     source: 'system' as const,
     billing: resolveBillingMode(entry.billing, provider.billing, provider.type),
     contextWindowTokens,
+    // The schema enforces the closed set, `text` membership, and uniqueness
+    // (vision-media D9); absent resolves to text only. Never checked against
+    // the provider.
+    input: entry.input ?? ['text'],
     ...prompt,
     ...(compactionThresholdTokens !== undefined && {
       compactionThresholdTokens,

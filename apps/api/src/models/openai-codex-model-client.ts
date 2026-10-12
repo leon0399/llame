@@ -7,7 +7,7 @@ import {
   type OpenAIModelClientDependencies,
 } from './openai-model-client';
 import type { BillingMode, ModelClient } from './model-client';
-import type { TokenPrice } from './model-catalog';
+import type { ModelInput, TokenPrice } from './model-catalog';
 import type { ProviderOptionRecord } from './provider-options';
 import type { RequestHeaderTemplates } from './request-headers';
 
@@ -39,6 +39,7 @@ type OpenAICodexModelClientConfig = {
   pricing?: TokenPrice;
   billing?: BillingMode;
   compactionThresholdTokens?: number;
+  input?: ReadonlyArray<ModelInput>;
 };
 
 /**
@@ -129,6 +130,8 @@ export function createOpenAICodexModelClient(
       ...(config.compactionThresholdTokens !== undefined && {
         compactionThresholdTokens: config.compactionThresholdTokens,
       }),
+      // The wrapped client omits an undeclared input from its own shape.
+      input: config.input,
     },
     dependencies,
   );
