@@ -26,14 +26,17 @@ export type ImageDecodeSuccess = {
  * What a reader does with a regular file whose leading bytes are an image
  * (vision-media D7). It is given the file's size before any byte is read, so
  * a file over the byte bound is refused without being read whole; it reads
- * the bytes only through `readBytes`, and stores nothing. The caller binds
- * the locator as submitted when it builds the hook. A refusal is a structured
- * failure, never a fallback to text. A reader without a hook keeps every file
- * on the text path.
+ * the bytes only through `readBytes`, and stores nothing. `signal` is the
+ * read's abort signal: a hook that keeps anything checks it last, so a read
+ * abandoned mid-decode keeps nothing. The caller binds the locator as
+ * submitted when it builds the hook. A refusal is a structured failure,
+ * never a fallback to text. A reader without a hook keeps every file on the
+ * text path.
  */
 export type ImageReadHook = (file: {
   byteSize: number;
   readBytes: () => Promise<Buffer>;
+  signal?: AbortSignal | undefined;
 }) => Promise<ImageDecodeSuccess | FileFailure>;
 
 /** A read whose bytes were an image: the decoded image, no content. */
@@ -95,6 +98,7 @@ export async function readImage(
   const decoded = await image({
     byteSize,
     readBytes: () => file.readFile({ signal }),
+    signal,
   });
   if (decoded.status === "error") return decoded;
   return {

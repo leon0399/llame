@@ -57,14 +57,15 @@ function imageOf(stored: MediaObject): StoredImage {
  * attempt's model declares `image` input (`imageInput`); otherwise the entry
  * keeps what its placeholder needs. The step composer admits a kept variant
  * into the epoch window when the next step is composed, and releases it when
- * the window does not attach it (R1.4).
+ * the window does not attach it (R1.4). A read aborted before the entry is
+ * held throws its abort reason and holds nothing.
  */
 function unstoredRead(
   memory: { images: Map<string, HeldImage>; imageInput: boolean },
   locator: string,
   key: string | undefined,
 ): ImageReadHook {
-  return async ({ byteSize, readBytes }) => {
+  return async ({ byteSize, readBytes, signal }) => {
     try {
       if (byteSize > MEDIA_MAX_BYTES) {
         throw new MediaIngestError('image_too_large');
@@ -72,6 +73,8 @@ function unstoredRead(
       const { original, model } = await prepareMedia(await readBytes());
       const thumbnail = await encodeThumbnail(model.bytes);
       const { mediaType, width, height } = original;
+      // The decode outlives an abandoned read; nothing is held once it ends.
+      signal?.throwIfAborted();
       if (key !== undefined) {
         memory.images.set(key, {
           locator,

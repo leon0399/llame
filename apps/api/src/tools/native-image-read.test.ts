@@ -646,6 +646,27 @@ describe('native image reads', () => {
       expect(held()).toBeUndefined();
     });
 
+    it('holds nothing for a read aborted while it decodes', async () => {
+      const store = createToolMediaStore(media.service, 'owner', memory, true);
+      const abort = new AbortController();
+      const reason = new Error('read timed out');
+
+      await expect(
+        store.readImage(
+          'shot.png',
+          'call',
+        )({
+          byteSize: shot.length,
+          readBytes: () => {
+            abort.abort(reason);
+            return Promise.resolve(shot);
+          },
+          signal: abort.signal,
+        }),
+      ).rejects.toBe(reason);
+      expect(memory.size).toBe(0);
+    });
+
     it('propagates a failure that is not a preparation refusal', async () => {
       const failure = new Error('disk unavailable');
       const store = createToolMediaStore(media.service, 'owner', memory, true);

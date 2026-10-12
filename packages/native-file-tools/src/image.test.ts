@@ -56,6 +56,19 @@ describe("native image reads", () => {
     expect(handed).toEqual([{ byteSize: PNG.length, bytes: PNG }]);
   });
 
+  it("hands the hook the read's abort signal", async () => {
+    const path = join(directory, "shot.png");
+    await writeFile(path, PNG);
+    const abort = new AbortController();
+    const signals: Array<AbortSignal | undefined> = [];
+    const hook: ImageReadHook = ({ signal }) => {
+      signals.push(signal);
+      return Promise.resolve(DECODED);
+    };
+    await readFile({ path }, abort.signal, hook);
+    expect(signals).toEqual([abort.signal]);
+  });
+
   it.each([
     ["JPEG", JPEG],
     ["GIF", GIF],
