@@ -16,6 +16,8 @@
  * - identity-absent context returns no pins (fail closed / runAsPublic)
  * - write gate: a user may pin only an item they own; pinning another user's
  *   item, or a nonexistent id, is rejected by the WITH CHECK (42501)
+ * - the same gate holds on UPDATE: re-pointing an owned pin at another user's
+ *   item is rejected (42501); re-pointing at another owned item is allowed
  * - a user cannot forge a pin row owned by someone else
  */
 
@@ -41,6 +43,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
   let chatAId: string; // owned by A
   let chatBId: string; // owned by B
   let projectAId: string; // owned by A
+  let projectBId: string; // owned by B
 
   const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
@@ -69,6 +72,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
     chatAId = crypto.randomUUID();
     chatBId = crypto.randomUUID();
     projectAId = crypto.randomUUID();
+    projectBId = crypto.randomUUID();
 
     // users has no RLS — seed directly.
     await sql`INSERT INTO users (id, name, email) VALUES (${userAId}, 'Pin User A', ${`pin-a-${userAId}@test.com`})`;
@@ -88,6 +92,11 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       userBId,
       (tx) =>
         tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatBId}, ${userBId}, 'B chat')`,
+    );
+    await asUser(
+      userBId,
+      (tx) =>
+        tx`INSERT INTO projects (id, owner_user_id, name) VALUES (${projectBId}, ${userBId}, 'B project')`,
     );
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'chat', ${chatAId}, 0)`;
@@ -220,6 +229,60 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
           tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'chat', ${chatBId}, 99)`,
       ),
     ).rejects.toThrow(/row-level security|violates/i);
+  });
+
+  it.each([
+    ['chat', () => chatAId, () => chatBId],
+    ['project', () => projectAId, () => projectBId],
+  ] as const)(
+    "update gate: A cannot re-point their %s pin at B's item (WITH CHECK rejects)",
+    async (itemType, ownId, foreignId) => {
+      await expect(
+        asUser(
+          userAId,
+          (tx) =>
+            tx`UPDATE pins SET item_id = ${foreignId()} WHERE user_id = ${userAId} AND item_type = ${itemType}::pin_item_type AND item_id = ${ownId()}`,
+        ),
+      ).rejects.toMatchObject({ code: '42501' });
+
+      const rows = await asUser(
+        userAId,
+        (tx) =>
+          tx`SELECT item_id FROM pins WHERE user_id = ${userAId} AND item_type = ${itemType}::pin_item_type`,
+      );
+      expect(rows).toEqual([{ item_id: ownId() }]);
+    },
+  );
+
+  it("update gate: A cannot re-type their chat pin into B's project (WITH CHECK rejects)", async () => {
+    await expect(
+      asUser(
+        userAId,
+        (tx) =>
+          tx`UPDATE pins SET item_type = 'project', item_id = ${projectBId} WHERE user_id = ${userAId} AND item_type = 'chat' AND item_id = ${chatAId}`,
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
+  });
+
+  it('update gate: A CAN re-point a pin at another item they own', async () => {
+    const chat2 = crypto.randomUUID();
+    try {
+      await asUser(
+        userAId,
+        (tx) =>
+          tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chat2}, ${userAId}, 'A chat 2')`,
+      );
+      // Repoint and restore in one tx so later tests see the seeded pin set.
+      const repointed = await asUser(userAId, async (tx) => {
+        const rows =
+          await tx`UPDATE pins SET item_id = ${chat2} WHERE user_id = ${userAId} AND item_type = 'chat' AND item_id = ${chatAId} RETURNING item_id`;
+        await tx`UPDATE pins SET item_id = ${chatAId} WHERE user_id = ${userAId} AND item_type = 'chat' AND item_id = ${chat2}`;
+        return rows;
+      });
+      expect(repointed).toEqual([{ item_id: chat2 }]);
+    } finally {
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chat2}`);
+    }
   });
 
   it('owner reorder sticks and densifies a mixed set with a negative head position', async () => {

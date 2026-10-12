@@ -8,6 +8,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   modes alike, matching proactive skill reads, prompt imports, and
   instruction loading.
 
+- Fixed the pins write gate so that an update must also reference an item the
+  caller can access. Before, the `pins_owner_update` row-level security policy
+  checked only the pin's owner, so a user could re-point their own pin at
+  another user's chat or project with a direct `UPDATE` and keep a pin to an
+  item they cannot access. The policy now applies the same per-type access
+  check as `pins_owner_insert`. Pin reorder is unaffected because it only
+  rewrites the rank of pins whose item is still accessible.
+
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
   dialogs', the project dialogs', the org unit create, rename and move
