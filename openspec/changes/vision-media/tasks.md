@@ -139,12 +139,12 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 
 ## 8. `vision-media/composer` — attaching images (design D10)
 
-- [ ] 8.1 Add the thumbnail component to `packages/ui` (square `rounded-xl`, remove on hover and focus, progress and error overlays with retry, no reordering) with stories for each state; verify with Storybook MCP story tests and return preview URLs, or the Storybook CLI fallback when MCP is unavailable
-- [ ] 8.2 Wire paste, the file picker, and drag-and-drop into the composer with immediate upload, the 10-image cap, send disabled while uploading, and `file` parts sent in the order the images were added; under a model whose published `input` lacks `image`, disable the attach picker, refuse a pasted or dropped image with the app's `toast()` reading `<model label> has no image input`, and keep send disabled with that reason inline while tiles remain, with no model-keyed refusal state; render read-only thumbnails above sent user bubbles (rewriting `media://<id>` to the `/model` route); leave the existing composer, toolbar, and bubble designs unchanged; verify by component and story tests and by exercising paste, pick, drop, remove, retry, the disabled picker, and the toast in a browser against a local API
-- [ ] 8.3 Document attaching images, including the text-only-model block, in `docs/product/reference/locators/media.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
-- [ ] 8.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, and the `packages/ui` checks
-- [ ] 8.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
-- [ ] 8.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 8.1 Add the thumbnail component to `packages/ui` (square `rounded-xl`, remove on hover and focus, progress and error overlays with retry, no reordering) with stories for each state; verify with Storybook MCP story tests and return preview URLs, or the Storybook CLI fallback when MCP is unavailable
+- [x] 8.2 Wire paste, the file picker, and drag-and-drop into the composer with immediate upload, the 10-image cap, send disabled while uploading, and `file` parts sent in the order the images were added; under a model whose published `input` lacks `image`, disable the attach picker, refuse a pasted or dropped image with the app's `toast()` reading `<model label> has no image input`, and keep send disabled with that reason inline while tiles remain, with no model-keyed refusal state; render read-only thumbnails above sent user bubbles (rewriting `media://<id>` to the `/model` route); leave the existing composer, toolbar, and bubble designs unchanged; verify by component and story tests and by exercising paste, pick, drop, remove, retry, the disabled picker, and the toast in a browser against a local API
+- [x] 8.3 Document attaching images, including the text-only-model block, in `docs/product/reference/locators/media.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
+- [x] 8.4 Verify `pnpm --filter web lint`, `typecheck`, the focused unit tests, and the `packages/ui` checks
+- [x] 8.5 SR: self-review the parent-relative diff, fix accepted findings, then mark ready
+- [x] 8.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 9. `vision-media/previews-lightbox` — history thumbnails and viewer (design D10, D11)
 

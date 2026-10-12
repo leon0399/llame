@@ -32,6 +32,8 @@ import {
 // Import via the REAL specifiers: sb.mock (preview.tsx) redirects them to the
 // __mocks__ modules, so these are the SAME instances the page reads.
 import * as runs from "@/lib/services/chat/runs";
+import * as uploads from "@/lib/services/media/uploads";
+import type { MediaDescriptor } from "@/lib/services/media/uploads";
 import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import * as permissionModeQueries from "@/lib/services/permission-modes/queries";
@@ -465,6 +467,109 @@ export const SendsWithDefaultModel: Story = {
       modelId: GPT_5_4_MINI.id,
       message: { parts: [{ type: "text", text: "Hello" }] },
     });
+  },
+};
+
+const uploadImage = vi.mocked(uploads.uploadImage);
+
+const VISION: AvailableModel = {
+  id: "system:openai:vision",
+  source: "system",
+  name: "Vision",
+  contextWindowTokens: 400_000,
+  input: ["text", "image"],
+};
+
+/** The stored descriptor of an uploaded `name`, under `id`. */
+function uploaded(id: string, name: string): MediaDescriptor {
+  return {
+    id,
+    locator: `media://${id}`,
+    mediaType: "image/png",
+    name,
+    width: 4,
+    height: 4,
+    byteSize: 68,
+    model: { mediaType: "image/png", width: 4, height: 4, byteSize: 68 },
+  };
+}
+
+/**
+ * On a vision model, two pasted images upload, and a message of images alone
+ * goes out as their file parts, in paste order and without a text part; the
+ * composer's attached row clears once it is sent.
+ *
+ * @summary an image-only message sends its file parts
+ */
+export const SendsImageOnlyMessage: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useModelsQuery.mockReturnValue({
+      data: { defaultModelId: VISION.id, models: [VISION] },
+      isError: false,
+      isPending: false,
+      isSuccess: true,
+    });
+    const ids = [
+      "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01",
+      "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02",
+    ];
+    uploadImage.mockImplementation((file: File) => {
+      const id = ids.shift();
+      if (id === undefined) throw new Error("unexpected extra upload");
+      return Promise.resolve(uploaded(id, file.name));
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    const send = canvas.getByRole("button", { name: "Send message" });
+    await waitFor(() => expect(send).toBeEnabled());
+
+    const files = new DataTransfer();
+    for (const name of ["a.png", "b.png"]) {
+      files.items.add(new File(["png"], name, { type: "image/png" }));
+    }
+    await userEvent.click(input);
+    await userEvent.paste(files);
+    const form = input.closest("form");
+    if (form === null) throw new Error("expected the composer form");
+    const list = await within(form).findByRole("list", {
+      name: "Attached images",
+    });
+    await waitFor(() =>
+      expect(within(list).queryAllByRole("status")).toEqual([]),
+    );
+    await userEvent.click(send);
+
+    await waitFor(() => expect(sentRoutes()).toEqual([SEND_ROUTE]));
+    const body = await sentBody(SEND_ROUTE);
+    await expect(body).toMatchObject({
+      modelId: VISION.id,
+      message: {
+        parts: [
+          {
+            type: "file",
+            mediaType: "image/png",
+            url: "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01",
+            filename: "a.png",
+          },
+          {
+            type: "file",
+            mediaType: "image/png",
+            url: "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02",
+            filename: "b.png",
+          },
+        ],
+      },
+    });
+    await expect(body.message.parts).toHaveLength(2);
+    await waitFor(() =>
+      expect(
+        within(form).queryByRole("list", { name: "Attached images" }),
+      ).toBe(null),
+    );
   },
 };
 

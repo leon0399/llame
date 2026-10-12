@@ -39,6 +39,29 @@ only with a `^media://` allow; see
 [tool-call permissions](../../operator/tool-call-permissions.md). The locator is
 never projected from an entered Workspace root.
 
+## Behavior
+
+An owner gets a `media://` locator by attaching an image in the chat composer:
+paste it, pick it with the attach button, or drag and drop it onto the
+composer. A paste that also carries text stays an ordinary text paste and
+attaches nothing. Only PNG, JPEG, GIF, and WebP files attach; other files are ignored.
+A message carries at most 10 images: an eleventh is neither added nor uploaded.
+
+Each image uploads as soon as it is attached and shows as a removable
+thumbnail, marked while it uploads. A failed upload stays attached, marked as
+failed, with a retry that uploads the same file again. Send stays disabled while
+any upload is in flight or failed. A message may carry images and no text.
+
+When the selected model has no image input, the attach button is disabled and a
+pasted or dropped image is refused with a `<model> has no image input` toast.
+Images already attached stay, the composer shows the same reason inline, and
+send stays disabled until they are removed or a model with image input is
+selected.
+
+A sent message shows its images as read-only thumbnails above its text, in
+attach order, each loading the image's `/model` variant. Upload bounds, the
+store, and its routes are described in [Media](../../operator/media.md).
+
 ## Errors
 
 | Error                   | When                                                      |
