@@ -110,7 +110,9 @@ R2.1–R2.15 below. They apply on top of R1 and rewrite parts of D2, D6, D8, D9,
 - Attempt memory holds the model variant whenever the attempt's model declares `image` input,
   counting nothing at hold time. The composer releases the bytes of every unstored reference the
   epoch window does not attach, so after each compose the retained bytes are those the window
-  attached, at most 24 MiB of base64. The held-without-bytes window state is gone (R2.3).
+  attached, at most 24 MiB of base64. A released entry keeps its locator, dimensions, and
+  model-variant byte size, so the window still sizes it and, being append-only, refuses it again;
+  an attached reference whose bytes are gone falls back to the not-retained placeholder (R2.3).
 - A placeholder locator is plain `JSON.stringify(locator)`, with no further escapes (R2.4).
 - `conversation_read` and title lines are `[image media://<id> <name>]`, rendered from the stored
   file part's `filename` alone, with no descriptor lookup, dimensions, or unavailable form (R2.5).
@@ -330,16 +332,20 @@ retry attach what a retry on another worker cannot, so the request would depend 
 claimed the attempt; canonical per-attempt state already lives "only in the active attempt's
 memory" (`tool-calling`).
 
-An entry keeps the decoded model variant (bytes, media type, model width and height) whenever the
-attempt's model declares `image` input, and otherwise only what its placeholder needs (locator and
-original dimensions); holding it counts nothing (R2.3). The composer applies the epoch window at
-every compose and releases the bytes of each unstored reference the window does not attach.
-Admission is append-only within an attempt and compaction never runs inside one, so a reference the
-window leaves unattached is never attached later in that attempt and its bytes would buy nothing. A
-prompt import is first composed in the attempt's first request, after any compaction, so an import
-that triggered overflow compaction is admitted into the new epoch. After each compose, the retained
-variants of one attempt are those the window attached, at most 24 MiB of base64, however many steps
-it runs, although `maxSteps` defaults to no cap and several attempts share one worker process.
+An entry keeps the decoded model variant (bytes, byte size, media type, model width and height)
+whenever the attempt's model declares `image` input, and otherwise only what its placeholder needs
+(locator and original dimensions); holding it counts nothing (R2.3). The composer applies the epoch
+window at every compose and releases the bytes of each unstored reference the window does not
+attach, keeping the entry's locator, dimensions, and byte size. Admission is append-only within an
+attempt and compaction never runs inside one, so a reference the window leaves unattached is never
+attached later in that attempt and its bytes would buy nothing; the kept byte size lets every later
+compose size it and refuse it again by the same rule, with no separate released state. Should the
+window ever attach a reference whose entry holds no bytes, the composer sends the not-retained
+placeholder instead. A prompt import is first composed in the attempt's first request, after any
+compaction, so an import that triggered overflow compaction is admitted into the new epoch. After
+each compose, the retained variants of one attempt are those the window attached, at most 24 MiB of
+base64, however many steps it runs, although `maxSteps` defaults to no cap and several attempts
+share one worker process.
 
 A later turn, a new attempt, a compaction request, and a fork hold no entry, so a vision model gets
 the not-retained placeholder there. A text-only model still gets the omitted form, which takes
@@ -367,10 +373,11 @@ checkpoint is published. Within one compaction epoch (the rows after the active 
 current attempt), attachable image references are attached oldest first in request order while both
 bounds hold: at most 100 images and at most 24 MiB of summed base64 model variants. A variant's
 base64 size is `4 × ceil(byteSize / 3)`, from the descriptor's `model.byteSize` for a stored object
-and from the retained variant's byte length for an unstored image, so the sum is known before any
-bytes load; the dimension-based token estimate above plays no part in it. Attachable means a
-resolvable `media://` reference or an unstored image the attempt's memory holds an entry for;
-not-retained and unavailable references never count. The first reference that would exceed either
+and from the byte size the attempt-memory entry records for an unstored image (kept after its bytes
+are released), so the sum is known before any bytes load; the dimension-based token estimate above
+plays no part in it. Attachable means a resolvable `media://` reference or an unstored image whose
+attempt-memory entry records a model-variant byte size; not-retained and unavailable references
+never count. The first reference that would exceed either
 bound, and every newer one in that epoch, is not attached. Admission is append-only, so a new turn
 or a new step never changes whether an earlier image is attached, and the request prefix stays
 byte-identical for provider prompt caching. Anthropic invalidates cached message blocks when images

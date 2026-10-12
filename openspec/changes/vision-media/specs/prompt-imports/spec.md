@@ -114,7 +114,8 @@ none of those four keys. A client SHALL never supply any of these keys.
 
 #### Scenario: An unstored image over the thumbnail cap keeps its dimensions
 
-- **WHEN** `@/repo/noise.png` is imported as an image whose thumbnail would exceed its cap
+- **WHEN** `@/repo/shot.png` is imported as an image whose single thumbnail encode yields a data URL
+  longer than 65,536 characters
 - **THEN** its private payload entry records outcome `imported`, `width`, `height`, and `mediaType`,
   and no `thumbnail`
 - **AND** both payload validators accept it

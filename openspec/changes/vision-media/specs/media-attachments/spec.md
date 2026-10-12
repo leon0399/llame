@@ -145,11 +145,12 @@ SHALL never share memory, a superseded attempt that is still running included.
 
 ### Requirement: Attempt memory retains only the images the window attaches
 
-An entry SHALL hold the model variant's bytes when the attempt's model declares `image` input, and
-only the locator and original dimensions otherwise; holding an entry SHALL neither count nor cap
-anything. Each time a request is composed, the composer SHALL release the bytes of every unstored
-reference the epoch image window does not attach, so after each compose the attempt's retained
-bytes are those the window attached, at most 24 MiB of base64 in sum, however many steps it runs.
+An entry SHALL hold the model variant's bytes and byte size when the attempt's model declares
+`image` input, and only the locator and original dimensions otherwise; holding an entry SHALL
+neither count nor cap anything. Each time a request is composed, the composer SHALL release the
+bytes of every unstored reference the epoch image window does not attach, so after each compose the
+attempt's retained bytes are those the window attached, at most 24 MiB of base64 in sum, however
+many steps it runs.
 
 #### Scenario: Retained bytes stay within the window's budget
 
@@ -157,8 +158,8 @@ bytes are those the window attached, at most 24 MiB of base64 in sum, however ma
   steps, each with a 5 MiB base64 model variant
 - **THEN** after each step's request is composed, the attempt's memory retains the model variants of
   the first four reads only, at most 24 MiB of base64 in sum
-- **AND** it keeps only the locator and dimensions of the other six, which reach the model as the
-  limit placeholder
+- **AND** it keeps only the locator, dimensions, and model-variant byte size of the other six, which
+  reach the model as the limit placeholder
 
 #### Scenario: A text-only model's read retains no bytes
 
@@ -173,6 +174,21 @@ bytes are those the window attached, at most 24 MiB of base64 in sum, however ma
   the owner's next message imports `@shot.png`, so the attempt compacts before its first model step
 - **THEN** the import's model variant is retained
 - **AND** the attempt's first request sends it as an image under the new epoch
+
+### Requirement: A released entry is sized and refused again
+
+Releasing an entry's bytes SHALL keep its locator, dimensions, and model-variant byte size, so the
+epoch image window sizes the reference again at every later compose of the attempt and, admission
+being append-only, leaves it unattached again. A reference the window attaches whose entry holds no
+bytes SHALL reach the model as the not-retained placeholder.
+
+#### Scenario: A released read stays unattached in later steps
+
+- **WHEN** a Run on a vision model whose epoch carries no images `read`s five images in successive
+  steps, each with a 5 MiB base64 model variant, and then reads a small image
+- **THEN** the fifth read's entry keeps its 5 MiB base64 byte size after its bytes are released
+- **AND** every later step's request sends the first four reads as images and the fifth and sixth as
+  the limit placeholder
 
 ### Requirement: An unstored image outside its attempt is not retained
 
@@ -312,9 +328,10 @@ epoch, SHALL NOT be attached.
 ### Requirement: The byte bound is summed from variant sizes before loading
 
 A reference's base64 size SHALL be `4 × ceil(byteSize / 3)` of its model variant's byte size: the
-media descriptor's `model.byteSize` for a stored object, and the retained variant's byte length for
-an unstored image. The epoch image window SHALL sum these sizes from descriptors and attempt memory
-before any image bytes are loaded, independently of the dimension-based token estimate.
+media descriptor's `model.byteSize` for a stored object, and the byte size its attempt-memory entry
+records for an unstored image, which the entry keeps after its bytes are released. The epoch image
+window SHALL sum these sizes from descriptors and attempt memory before any image bytes are loaded,
+independently of the dimension-based token estimate.
 
 #### Scenario: Equal dimensions do not hide a byte overflow
 
@@ -327,9 +344,9 @@ before any image bytes are loaded, independently of the dimension-based token es
 ### Requirement: Only attachable references count toward the window
 
 An attachable reference SHALL be an owner file part, a `media://` tool result, or a `media://`
-prompt-import entry that resolves, or an unstored image the current attempt's memory holds an entry
-for. A not-retained or unavailable reference SHALL NOT count toward either bound of the epoch image
-window.
+prompt-import entry that resolves, or an unstored image whose entry in the current attempt's memory
+records a model-variant byte size, its bytes released or not. A not-retained or unavailable
+reference SHALL NOT count toward either bound of the epoch image window.
 
 #### Scenario: A not-retained read does not count
 
@@ -610,8 +627,8 @@ result carries no `thumbnail` key, and a prompt-import entry keeps its `width`, 
 
 #### Scenario: A thumbnail over the cap is omitted
 
-- **WHEN** the model reads a 256×256 PNG of random RGBA noise, whose quality-60 WebP data URL
-  exceeds 65,536 characters
+- **WHEN** the model reads an image whose single thumbnail encode yields a data URL longer than
+  65,536 characters
 - **THEN** the stored tool output carries no `thumbnail` key and keeps the result's `mediaType`,
   `width`, and `height`
 - **AND** the `read` tool card shows a tile with the image's dimensions and no image
