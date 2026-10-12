@@ -28,7 +28,10 @@ import {
 } from './compaction';
 import type { ModelMessage } from 'ai';
 import { descriptor } from '../media/media-fixtures';
-import type { MediaAdmission } from '../media/epoch-admission';
+import type {
+  MediaAdmission,
+  ToolResultOutput,
+} from '../media/epoch-admission';
 import { createToolAvailabilityItem } from '../chats/context-item-producers';
 import type { StoredMessage } from '../chats/context-builder';
 import { isRecord, isString } from '@workspace/runtime-safety';
@@ -832,6 +835,63 @@ describe('media sizing (vision-media D6)', () => {
       ).toBe(large);
       // The 60,000-character thumbnail is not sized.
       expect(large).toBeLessThan(15_000 / 4 + 3000);
+    });
+  });
+
+  describe('a tool-result image', () => {
+    const call: ModelMessage = {
+      role: 'assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-1',
+          toolName: 'read',
+          input: { path: '/work/shot.png' },
+        },
+      ],
+    };
+    const result = (output: ToolResultOutput): ModelMessage => ({
+      role: 'tool',
+      content: [
+        { type: 'tool-result', toolCallId: 'call-1', toolName: 'read', output },
+      ],
+    });
+
+    it('is sized in the form the Chat Completions wires move it to, labels included, on every wire', () => {
+      expect(
+        estimateModelRequestTokens({
+          ...request([
+            call,
+            result({
+              type: 'content',
+              value: [
+                { type: 'text', text: 'envelope' },
+                { type: 'image-url', url: `media://${A}` },
+              ],
+            }),
+          ]),
+          media: {
+            descriptors: new Map([[A, screenshot(1000)]]),
+            held: new Map(),
+            statuses: ['attached'],
+            imageInput: true,
+          },
+        }),
+      ).toBe(
+        estimateModelRequestTokens(
+          request([
+            call,
+            result({ type: 'text', value: 'envelope' }),
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: 'Images from tool results:' },
+                { type: 'text', text: `Image from read "media://${A}":` },
+              ],
+            },
+          ]),
+        ) + 3000,
+      );
     });
   });
 

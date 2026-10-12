@@ -269,12 +269,3 @@ export function notRetainedPlaceholder(s: ImageSubject): string {
 export function limitPlaceholder(s: ImageSubject): string {
   return `[${describe(s)}, not attached: this context's image limit is reached]`;
 }
-
-/**
- * A tool-result image a vision model would receive, or could re-read, on a
- * Chat Completions wire, which cannot carry tool-result images yet
- * (vision-media D6, interim until `vision-read-completions`).
- */
-export function completionsToolImagePlaceholder(s: ImageSubject): string {
-  return `[${describe(s)}, omitted: this connection cannot carry tool-result images yet]`;
-}

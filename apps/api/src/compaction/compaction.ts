@@ -26,7 +26,7 @@ import { loadPackagedTemplate } from '../prompts/template-engine';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import type { Message, ModelToolDeclaration } from '../db/schema';
 import type { MediaSizing } from '../media/epoch-admission';
-import { projectMediaRefs } from '../models/step-composer';
+import { projectSizedText } from '../models/step-composer';
 
 /**
  * When the model's context window is known (MODEL_CONTEXT_WINDOW_TOKENS),
@@ -133,8 +133,9 @@ export function imageOverflowCompacts(
  * the model re-reads it on that continuation. Media references are sized by
  * `media` (vision-media D6), never by image bytes: each image an image-input
  * model receives is charged `ceil(w × h / 750)` tokens on its model variant,
- * every other reference counts as its placeholder text, and every reference
- * as its label.
+ * every other reference counts as its placeholder text, every reference as
+ * its label, and tool-result images are sized in their moved form (see
+ * `projectSizedText`).
  */
 function estimateProjectionTokens(
   projection: {
@@ -148,11 +149,10 @@ function estimateProjectionTokens(
   const messages =
     media === undefined
       ? projection.messages
-      : projectMediaRefs(projection.messages, media, (image) => {
+      : projectSizedText(projection.messages, media, (image) => {
           imageTokens += Math.ceil(
             (image.modelWidth * image.modelHeight) / 750,
           );
-          return [];
         });
   const sized = messages.map((message) => {
     if (message.role !== 'assistant' || !Array.isArray(message.content)) {
