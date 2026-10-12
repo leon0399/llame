@@ -167,7 +167,12 @@ export type PromptImportsPart = {
           /** The `media://` locator of an imported image entry. */
           media?: string;
         } & (
-          | { thumbnail?: undefined; width?: undefined }
+          | {
+              thumbnail?: undefined;
+              width?: undefined;
+              height?: undefined;
+              mediaType?: undefined;
+            }
           | {
               /** The inline WebP data URL of an image imported without
                *  being stored, when it fits the cap; the rest describe the
@@ -176,6 +181,7 @@ export type PromptImportsPart = {
               width: number;
               height: number;
               mediaType: string;
+              media?: undefined;
             }
         )
       >;
@@ -394,8 +400,8 @@ const nonEmptyStringSchema = z.string().refine(isNonEmptyString);
 /** Fields every `payload.imports` entry may carry. */
 const promptImportEntryFields = {
   locator: nonEmptyStringSchema,
-  resolved: nonEmptyStringSchema.optional(),
-  truncated: z.boolean().optional(),
+  resolved: nonEmptyStringSchema.exactOptional(),
+  truncated: z.boolean().exactOptional(),
 };
 
 /** One `payload.imports` entry, exactly: a non-empty locator, a known
@@ -416,7 +422,7 @@ const promptImportEntrySchema = z.union([
   z.strictObject({
     ...promptImportEntryFields,
     outcome: z.literal("imported"),
-    thumbnail: inlineThumbnailSchema.optional(),
+    thumbnail: inlineThumbnailSchema.exactOptional(),
     width: z.number().int().positive(),
     height: z.number().int().positive(),
     mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),

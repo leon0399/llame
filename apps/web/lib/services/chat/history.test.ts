@@ -4,6 +4,7 @@ import {
   adoptServerHistory,
   isInstructionsPart,
   isPromptImportsPart,
+  type PromptImportsPayload,
   messageRenderKey,
   mergeTrustedModelContextParts,
   messageSeqFromMetadata,
@@ -859,7 +860,46 @@ describe("prompt-imports context items", () => {
       { ...image, outcome: "failed" },
       withoutWidth,
       { locator: image.locator, outcome: image.outcome, width: image.width },
+      {
+        locator: image.locator,
+        outcome: image.outcome,
+        height: image.height,
+        mediaType: image.mediaType,
+      },
+      { locator: image.locator, outcome: image.outcome, height: image.height },
+      {
+        locator: image.locator,
+        outcome: image.outcome,
+        mediaType: image.mediaType,
+      },
+      { ...image, thumbnail: undefined },
     ]) {
+      expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
+    }
+  });
+
+  it("types an entry no wider than the validator admits", () => {
+    type Entry = PromptImportsPayload["imports"][number];
+    const base = { locator: "shot.png", outcome: "imported" } as const;
+    const size = { width: 1600, height: 900, mediaType: "image/png" };
+    const media = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
+
+    const valid: Array<Entry> = [
+      base,
+      { ...base, media },
+      { ...base, ...size },
+    ];
+    // @ts-expect-error `width` without `height` and `mediaType`.
+    const widthOnly: Entry = { ...base, width: 1600 };
+    // @ts-expect-error `height` and `mediaType` without `width`.
+    const noWidth: Entry = { ...base, height: 900, mediaType: "image/png" };
+    // @ts-expect-error `mediaType` without `width` and `height`.
+    const typeOnly: Entry = { ...base, mediaType: "image/png" };
+    // @ts-expect-error A stored image carries no original's size and type.
+    const both: Entry = { ...base, media, ...size };
+
+    expect(isPromptImportsPart(withPayload({ imports: valid }))).toBe(true);
+    for (const bad of [widthOnly, noWidth, typeOnly, both]) {
       expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
     }
   });
@@ -881,6 +921,8 @@ describe("prompt-imports context items", () => {
       { ...entry, locator: "  " },
       { ...entry, resolved: "" },
       { ...entry, truncated: "yes" },
+      { ...entry, resolved: undefined },
+      { ...entry, truncated: undefined },
       { ...entry, media: "media://not-a-uuid" },
       { ...entry, media: "MEDIA://0190F5E2-7C1A-7B3E-9D4F-2A6B8C0D1E2F" },
       {
