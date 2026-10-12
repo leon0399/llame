@@ -32,6 +32,7 @@ import { RunningReplyRepository } from '../chats/running-reply-repository';
 import { type CompactionCapability } from '../compaction/compaction.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { MediaService } from '../media/media.service';
 import { MemoryService } from '../memory/memory.service';
 import { type ModelClient } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
@@ -224,6 +225,7 @@ describeIfDb(
         bridge,
         new RunAbortRegistry(),
         dispatcher,
+        new MediaService(tenantDb),
       );
       // Every seeded turn fits the model's window, so a window summary request
       // would be a scenario this suite does not mean to exercise.

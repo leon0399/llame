@@ -265,6 +265,20 @@ describe("hasVisibleContent", () => {
     expect(hasVisibleContent([CONTEXT_PART])).toBe(false);
     expect(hasVisibleContent([])).toBe(false);
   });
+
+  it("finds nothing visible in an attached image's file part", () => {
+    // The transcript has no image view yet, so a stored `file` part paints
+    // nothing rather than the "unsupported part type" fallback.
+    const file: UIMessage["parts"][number] = {
+      type: "file",
+      mediaType: "image/png",
+      url: "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8b",
+    };
+    expect(hasVisibleContent([file])).toBe(false);
+    expect(hasVisibleContent([file, { type: "text", text: "Look." }])).toBe(
+      true,
+    );
+  });
 });
 
 describe("messageRowMode", () => {

@@ -23,6 +23,7 @@ import {
   ApiCookieAuth,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiExtraModels,
   ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -67,6 +68,10 @@ import {
   toChatResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
+import {
+  CreateFileMessagePartDto,
+  CreateTextMessagePartDto,
+} from './dto/message-parts.dto';
 
 const streamLogger = new Logger('ChatStream');
 
@@ -271,6 +276,7 @@ export class ChatsController {
   @HttpCode(200)
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiBody({ type: CreateMessageDto })
+  @ApiExtraModels(CreateTextMessagePartDto, CreateFileMessagePartDto)
   @ApiOkResponse({
     description: 'AI SDK v5 UI-message stream (SSE)',
     content: {
@@ -280,7 +286,9 @@ export class ChatsController {
     },
   })
   @ApiBadRequestResponse({
-    description: 'Malformed chat id or invalid message body',
+    description:
+      'Malformed chat id or invalid message body, including a file part ' +
+      'naming media the sender does not own',
   })
   @ApiUnauthorizedResponse()
   @ApiResponse({

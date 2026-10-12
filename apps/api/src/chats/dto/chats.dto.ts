@@ -1,9 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
-  ArrayMinSize,
-  IsArray,
   IsBoolean,
   IsDefined,
   IsIn,
@@ -40,6 +37,7 @@ import {
   PERMISSION_MODES,
   type PermissionMode,
 } from '../../tools/permissions/permission-mode';
+import { CreateMessageBodyDto } from './message-parts.dto';
 
 export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
 export const CHAT_MESSAGES_MAX_LIMIT = 200;
@@ -160,36 +158,6 @@ export class ForkChatDto {
   @ValidateIf((o: ForkChatDto) => o.fromMessageId !== undefined)
   @IsUUID()
   fromMessageId?: string;
-}
-
-export class CreateTextMessagePartDto {
-  @ApiProperty({ enum: ['text'] })
-  @IsIn(['text'])
-  type!: 'text';
-
-  @ApiProperty({ minLength: 1, maxLength: 20_000 })
-  @IsString()
-  @Matches(/\S/, { message: 'text must not be blank' })
-  @MaxLength(20_000)
-  text!: string;
-}
-
-export class CreateMessageBodyDto {
-  @ApiProperty({ format: 'uuid' })
-  @IsUUID()
-  id!: string;
-
-  @ApiProperty({
-    type: () => [CreateTextMessagePartDto],
-    minItems: 1,
-    maxItems: 50,
-  })
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(50)
-  @ValidateNested({ each: true })
-  @Type(() => CreateTextMessagePartDto)
-  parts!: Array<CreateTextMessagePartDto>;
 }
 
 export class CreateMessageDto {

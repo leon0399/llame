@@ -130,7 +130,14 @@ describe('recency digest baseline', () => {
           title: 'No text',
           updatedAt: new Date('2026-08-11T12:00:00.000Z'),
           firstUserMessage: {
-            parts: [{ type: 'file', mediaType: 'text/plain' }],
+            parts: [
+              {
+                type: 'file',
+                mediaType: 'image/png',
+                url: 'media://0192f3a4-5b6c-7d8e-9f01-00000000000a',
+                filename: 'quarterly.png',
+              },
+            ],
           },
           messageCount: 1,
         },
@@ -158,6 +165,10 @@ describe('recency digest baseline', () => {
       { title: 'No user message at all', date: '2026-08-10', messageCount: 2 },
     ]);
     expect(JSON.stringify(baseline)).not.toContain('private reasoning');
+    // An image-only first message gets no excerpt: neither its file name nor
+    // its locator stands in for text.
+    expect(JSON.stringify(baseline)).not.toContain('quarterly');
+    expect(JSON.stringify(baseline)).not.toContain('media://');
   });
 
   it('requests disjoint capped views, exact totals, and owner-scoped eligibility', async () => {
