@@ -168,8 +168,9 @@ Known gap: nothing can delete an uploaded image. A pasted secret stays stored an
   without deletion, and tenant isolation.
 - `media-attachments`: owner `file` parts on messages, image-only messages, the model projection
   (ordering, labels, attempt-scoped retention of unstored images, image window, placeholders, Chat
-  Completions transport), text-only projections, the composer thumbnails, sent-message thumbnails,
-  inline thumbnails of unstored images, and the lightbox.
+  Completions transport), text-only projections, and the stored display-only inline thumbnail of
+  unstored images. The web presentation (composer, thumbnails, lightbox) is specified by its
+  components, stories, and `docs/product/reference/locators/media.md`, not by these specs.
 
 ### Modified Capabilities
 
@@ -233,9 +234,9 @@ Known gap: nothing can delete an uploaded image. A pasted secret stays stored an
 - `owner-chat-forks`: "A shared or public fork receives no checkpoint row" omits file parts from shared
   and public forks.
 - `prompt-imports`: ADDED "Image targets import as image entries", "Unstored image entries reach the
-  model only in their Run", "Image entries record a thumbnail or a media locator privately", "Image
-  entry payloads are validated and never sent to a model", and "Media locators are prompt-import
-  targets".
+  model only in their attempt", "Image entries record a thumbnail or a media locator privately", "Image
+  entry payloads are validated exactly", "Image entry payloads are never sent to a model", and "Media
+  locators are prompt-import targets".
 
 Deliberately unchanged:
 

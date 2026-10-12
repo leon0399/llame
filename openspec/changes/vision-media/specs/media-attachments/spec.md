@@ -2,9 +2,8 @@
 
 Lets an owner attach stored images to a chat message, defines how every image reference in a chat's
 history reaches a model as an image or as a placeholder, retains unstored tool-read and
-prompt-import images in the reading attempt's memory only, keeps text-only surfaces free of image
-content, and gives the web client composer thumbnails, sent-message thumbnails, inline thumbnails
-for unstored images, and a lightbox over the images of one row.
+prompt-import images in the reading attempt's memory only, stores a display-only inline thumbnail for
+each unstored image, and keeps text-only surfaces free of image content.
 
 ## ADDED Requirements
 
@@ -44,7 +43,7 @@ persist no message row and start no Run.
 
 The server SHALL persist each file part with `mediaType` set to the stored original's media type and
 `filename` set to the media's stored `name`, whatever the client sent. File parts SHALL be persisted
-in submitted order, which is the composer's thumbnail order.
+in submitted order.
 
 #### Scenario: Client labels are replaced by stored values
 
@@ -624,7 +623,7 @@ side without enlargement, at quality 60.
 
 When the thumbnail's data URL exceeds 65,536 characters, no `thumbnail` SHALL be stored: the tool
 result carries no `thumbnail` key, and a prompt-import entry keeps its `width`, `height`, and
-`mediaType`. The web client SHALL show such an image as a tile with its dimensions only.
+`mediaType`.
 
 #### Scenario: A thumbnail over the cap is omitted
 
@@ -632,7 +631,6 @@ result carries no `thumbnail` key, and a prompt-import entry keeps its `width`, 
   65,536 characters
 - **THEN** the stored tool output carries no `thumbnail` key and keeps the result's `mediaType`,
   `width`, and `height`
-- **AND** the `read` tool card shows a tile with the image's dimensions and no image
 
 ### Requirement: Thumbnails are display-only
 
@@ -772,211 +770,3 @@ public share read SHALL omit file parts and keep the message text.
   part
 - **THEN** the response carries the text
 - **AND** it carries no file part and no `media://` locator
-
-### Requirement: The composer attaches images as uploading thumbnails
-
-The web composer SHALL show attached images as a row of square thumbnails inside the existing input
-card, above the textarea, and leave the composer, toolbar, and bubble designs otherwise unchanged.
-Pasting clipboard images, choosing files with the picker, and dropping files SHALL each add one
-thumbnail per image and upload it immediately through `POST /api/v1/media`. On send, the message SHALL
-carry one file part per thumbnail, in the order the images were added, and MAY carry no text.
-
-#### Scenario: A pasted screenshot uploads immediately
-
-- **WHEN** the owner pastes a clipboard image into the composer with a vision model selected
-- **THEN** a thumbnail appears and an upload request starts before send
-
-#### Scenario: An image-only message is sent
-
-- **WHEN** two uploaded thumbnails are attached, the textarea is empty, and the owner sends
-- **THEN** the sent message carries two file parts in the order they were added and no text part
-
-### Requirement: Composer uploads show their state and gate send
-
-While an upload is in flight its thumbnail SHALL show a progress overlay. A failed upload SHALL show
-an error overlay with a retry action that uploads the same file again. Send SHALL stay disabled while
-any thumbnail is uploading or failed.
-
-#### Scenario: Send waits for uploads
-
-- **WHEN** one thumbnail is still uploading
-- **THEN** it shows a progress overlay and send is disabled
-- **AND** send becomes enabled once the upload succeeds
-
-#### Scenario: A failed upload can be retried
-
-- **WHEN** an upload fails
-- **THEN** the thumbnail shows an error overlay with a retry action and send is disabled
-- **AND** choosing retry uploads the same file again
-
-### Requirement: Composer thumbnails can be removed
-
-Each composer thumbnail SHALL reveal a remove action on hover and on keyboard focus. Thumbnails SHALL
-keep the order in which the images were added and SHALL offer no reordering. The composer SHALL hold
-at most 10 thumbnails; images added beyond the tenth SHALL NOT be added or uploaded.
-
-#### Scenario: Thumbnails keep the order they were added
-
-- **WHEN** the owner adds images `A` and `B`, removes `A`, adds `C`, and sends
-- **THEN** the thumbnails read `B`, `C`
-- **AND** the sent message's file parts are in the order `B`, `C`
-
-#### Scenario: Remove is reachable by keyboard
-
-- **WHEN** a thumbnail receives keyboard focus
-- **THEN** its remove action is visible and operable
-- **AND** activating it removes the thumbnail from the composer
-
-#### Scenario: The eleventh image is not added
-
-- **WHEN** 10 thumbnails are attached and the owner drops one more image
-- **THEN** the composer still holds 10 thumbnails and no upload starts for the dropped image
-
-### Requirement: A text-only model blocks image attachments
-
-When the selected model does not declare `image` in its published `input`, the composer's attach
-picker SHALL be disabled, and a pasted or dropped image SHALL be refused with a toast
-`<model label> has no image input`, where the label is the model's `name`, or its `id` when it
-publishes no `name`. Thumbnails already attached SHALL remain, and send SHALL stay disabled, with
-the same reason shown inline in the composer, until a model declaring `image` is selected or every
-thumbnail is removed.
-
-#### Scenario: Attaching under a text-only model is refused
-
-- **WHEN** the selected model named `Fast Text` declares only `text` input and the owner pastes an
-  image
-- **THEN** no thumbnail is added and no upload starts
-- **AND** a toast reads `Fast Text has no image input`
-
-#### Scenario: The picker is disabled under a text-only model
-
-- **WHEN** the selected model declares only `text` input
-- **THEN** the composer's attach picker is disabled
-
-#### Scenario: Switching to a text-only model disables send
-
-- **WHEN** two thumbnails are attached and the owner selects a text-only model named `Fast Text`
-- **THEN** both thumbnails remain in order, send is disabled, and the composer shows
-  `Fast Text has no image input`
-- **AND** send becomes enabled after a vision model is selected again
-
-### Requirement: Sent messages show read-only thumbnails
-
-A user message carrying file parts SHALL show the same square thumbnails, in stored order and without
-remove actions, above the user bubble. Each thumbnail SHALL load the model variant from
-`GET /api/v1/media/:id/model` lazily. A message without text SHALL show its thumbnails and no empty
-bubble.
-
-#### Scenario: A reloaded chat shows its attachments
-
-- **WHEN** the owner reloads a chat whose user message carries two file parts
-- **THEN** two read-only thumbnails appear above that message's bubble in stored order
-- **AND** each loads from its `/model` route
-
-### Requirement: Read tool cards and prompt-import chips show image thumbnails
-
-The `read` tool card of an image result and the prompt-import chip of an image entry SHALL show the
-image as a thumbnail. A `thumbnail` field SHALL render directly as an `<img>` whose `src` is that
-data URL, with no media route request; a `media://` result or entry SHALL load its thumbnail from
-`GET /api/v1/media/:id/model`.
-
-#### Scenario: An unstored read image renders its inline thumbnail
-
-- **WHEN** the owner views a chat whose `read` tool card holds an image result with a `thumbnail`
-- **THEN** the card shows an `<img>` whose `src` is that `thumbnail`
-- **AND** no media route is requested for it
-
-### Requirement: A lightbox spans the images of one row
-
-Activating an image thumbnail SHALL open a modal lightbox dialog on that image whose slides are the
-images of the same row only, in their row order: a message's attachments, a `read` result's image, a
-prompt-import chip's image entries, or the composer's uploaded thumbnails. A composer thumbnail that
-is still uploading or has failed, and an unstored image shown as a dimensions-only tile, SHALL NOT
-open it.
-
-#### Scenario: Navigation stays within the opened row
-
-- **WHEN** a message carries attachments `A` and `B`, a later `read` result carries an image, and
-  the owner opens `A`
-- **THEN** pressing the right arrow key shows `B`
-- **AND** no slide of that lightbox shows the `read` image
-
-#### Scenario: The composer lightbox spans uploaded thumbnails only
-
-- **WHEN** the composer holds two uploaded thumbnails and one still uploading, and the owner opens an
-  uploaded one
-- **THEN** the lightbox slides are the two uploaded thumbnails
-- **AND** the uploading thumbnail does not open the lightbox
-
-### Requirement: The lightbox navigates and closes by keyboard and buttons
-
-Previous and next buttons and the left and right arrow keys SHALL move between the row's slides. The
-dialog SHALL show the image within the viewport with its caption below, and SHALL close from its
-close button or `Escape`, returning focus to the thumbnail that opened it.
-
-#### Scenario: Escape returns focus
-
-- **WHEN** the owner opens the lightbox from a thumbnail and presses `Escape`
-- **THEN** the lightbox closes
-- **AND** focus returns to that thumbnail
-
-### Requirement: The lightbox zooms between fit and natural size
-
-A slide SHALL first show the image fitted within the dialog, centred, never enlarged past its natural
-size. When its natural size exceeds that fit, clicking the image, or its zoom button, SHALL toggle
-between the fit and the natural size; at natural size the dialog's panel SHALL scroll natively to
-pan. An image whose natural size already fits SHALL offer no zoom button and SHALL not respond to a
-click.
-
-#### Scenario: A click toggles natural size
-
-- **WHEN** the owner opens a 4000×3000 attachment and clicks the image
-- **THEN** the image shows at 4000×3000 and the panel scrolls to pan it
-- **AND** clicking it again fits it within the dialog
-
-#### Scenario: An image that already fits offers no zoom
-
-- **WHEN** the owner opens an unstored read's 256×254 thumbnail in the lightbox
-- **THEN** the image shows centred at 256×254 with no zoom button
-- **AND** clicking it leaves it unchanged
-
-### Requirement: Each lightbox slide shows one image source
-
-A stored image's slide (an owner attachment, an uploaded composer thumbnail, a `media://` read, or a
-`media://` prompt import) SHALL load `GET /api/v1/media/:id/original`; an unstored image's slide
-SHALL show its `thumbnail`. No slide SHALL offer a variant control or request a media descriptor.
-
-#### Scenario: An attachment slide loads its original
-
-- **WHEN** the owner opens a sent message's uploaded attachment `media://<id>`
-- **THEN** the slide loads `/api/v1/media/<id>/original` and requests no descriptor
-- **AND** the caption is `media://<id>` and the slide offers no variant control
-
-#### Scenario: An unstored read image is a thumbnail slide
-
-- **WHEN** the owner opens the image a `read` of `/work/shot.png` returned, a 1600×900 PNG
-- **THEN** the slide shows that result's `thumbnail` and no variant control
-- **AND** the caption is `1600×900 PNG · /work/shot.png`
-
-### Requirement: Lightbox captions name the image's locator
-
-The caption SHALL be `<width>×<height> <FORMAT> · <locator>`, with the original's dimensions and
-format, when the row already carries them (a `read` image result, an unstored prompt-import entry's
-payload, or a composer thumbnail's upload descriptor), and `<locator>` alone otherwise. A stored
-image's locator is `media://<id>`; an unstored image's is, as plain text, the one the model
-submitted to `read` or the owner wrote in the import marker, not the resolved `path`.
-
-#### Scenario: A composer slide captions its upload descriptor
-
-- **WHEN** the owner opens an uploaded composer thumbnail whose upload returned a 1600×900 PNG
-  `media://<id>`
-- **THEN** the slide loads `/api/v1/media/<id>/original`
-- **AND** the caption is `1600×900 PNG · media://<id>`
-
-#### Scenario: A relative locator captions its slide as submitted
-
-- **WHEN** a Chat is bound to `/repo`, and the owner opens the image a `read` of `docs/shot.png`
-  returned or the image a `@shot.png` import marker imported, each a 1600×900 PNG
-- **THEN** the captions are `1600×900 PNG · docs/shot.png` and `1600×900 PNG · shot.png`
-- **AND** neither caption shows the resolved `/repo/` path, and the import's dimensions and format
-  come from its payload entry's `width`, `height`, and `mediaType`

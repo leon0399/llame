@@ -118,7 +118,7 @@ none of those four keys. A client SHALL never supply any of these keys.
   longer than 65,536 characters
 - **THEN** its private payload entry records outcome `imported`, `width`, `height`, and `mediaType`,
   and no `thumbnail`
-- **AND** both payload validators accept it
+- **AND** the API's payload validator accepts it
 
 #### Scenario: The payload records a stored image's media locator
 
@@ -128,9 +128,9 @@ none of those four keys. A client SHALL never supply any of these keys.
 
 ### Requirement: Image entry payloads are validated exactly
 
-The payload validators SHALL accept `thumbnail` only as a `data:image/webp;base64,` URL within the
+The API's payload validator SHALL accept `thumbnail` only as a `data:image/webp;base64,` URL within the
 thumbnail size cap, `width` and `height` only as positive integers, and `mediaType` only as
-`image/png`, `image/jpeg`, `image/gif`, or `image/webp`. They SHALL require `width`, `height`, and
+`image/png`, `image/jpeg`, `image/gif`, or `image/webp`. It SHALL require `width`, `height`, and
 `mediaType` together whenever any of the four keys is present, SHALL accept those three with or
 without `thumbnail`, and SHALL reject an entry carrying `media` with any of the four as malformed.
 
@@ -138,42 +138,34 @@ without `thumbnail`, and SHALL reject an entry carrying `media` with any of the 
 
 - **WHEN** a stored payload entry carries both `thumbnail` and `media`, or a `thumbnail` that is not
   a `data:image/webp;base64,` URL
-- **THEN** both payload validators reject that payload as malformed
+- **THEN** the API's payload validator rejects that payload as malformed
 
 #### Scenario: An unstored image entry without its dimensions is rejected
 
 - **WHEN** a stored payload entry carries `thumbnail` but lacks `width`, `height`, or `mediaType`,
   or carries only some of `width`, `height`, and `mediaType`
-- **THEN** both payload validators reject that payload as malformed
+- **THEN** the API's payload validator rejects that payload as malformed
 
 #### Scenario: Out-of-range image entry fields are rejected
 
 - **WHEN** a stored payload entry carries `width` 0, a non-integer `height`, or `mediaType`
   `image/svg+xml`
-- **THEN** both payload validators reject that payload as malformed
+- **THEN** the API's payload validator rejects that payload as malformed
 
 #### Scenario: A media entry with dimensions is rejected
 
 - **WHEN** a stored payload entry carries `media` together with `width`, `height`, or `mediaType`
-- **THEN** both payload validators reject that payload as malformed
+- **THEN** the API's payload validator rejects that payload as malformed
 
 ### Requirement: Image entry payloads are never sent to a model
 
 Request assembly SHALL take the image part or placeholder from the entry, never from the
-item's text, and SHALL never send a `thumbnail` to a model. The owner chip SHALL render a `thumbnail`
-directly and SHALL open a `media` locator's image from the media routes.
+item's text, and SHALL never send a `thumbnail` to a model.
 
 #### Scenario: A thumbnail never reaches the model
 
 - **WHEN** a request carries a `prompt-imports` item with an image entry that records a `thumbnail`
 - **THEN** no part of the request carries the `thumbnail` or any part of its data URL
-
-#### Scenario: The owner chip shows the entry's image
-
-- **WHEN** the owner views a chip whose payload holds one image entry with a `thumbnail` and one with
-  `media` `media://<id>`
-- **THEN** the chip renders the first from its `thumbnail` without a media route request
-- **AND** it opens the second from that payload's locator, not from the item's text
 
 ### Requirement: Media locators are prompt-import targets
 
