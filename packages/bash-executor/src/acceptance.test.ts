@@ -40,7 +40,7 @@ describe("alpha acceptance workflow", () => {
 
     const initial = await readFile({ path });
     expect(initial).toMatchObject({ status: "success" });
-    if (initial.status !== "success") return;
+    if (initial.status !== "success" || initial.kind !== "file") return;
     expect(initial.content).toContain("draft");
 
     const grep = await executeManagedBash(
@@ -64,7 +64,7 @@ describe("alpha acceptance workflow", () => {
 
     const reread = await readFile({ path });
     expect(reread).toMatchObject({ status: "success" });
-    if (reread.status !== "success") return;
+    if (reread.status !== "success" || reread.kind !== "file") return;
     expect(reread.content).toContain("ready");
     expect(reread.content).not.toContain("draft");
 

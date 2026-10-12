@@ -1,6 +1,6 @@
 /**
  * Test fixtures for owner media (vision-media): descriptors, a resolver over
- * fixed descriptors, and unique PNG bytes for ingest.
+ * fixed descriptors with an empty attempt memory, and unique PNG bytes.
  */
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
@@ -34,6 +34,7 @@ export function fakeResolver(descriptors: ReadonlyArray<MediaDescriptor>) {
   const known = new Map(descriptors.map((entry) => [entry.id, entry]));
   const loads: Array<string> = [];
   const resolver: RunMediaResolver = {
+    images: new Map(),
     describe: (ids) =>
       Promise.resolve(
         new Map(

@@ -5,10 +5,15 @@ import {
   collectMediaRefs,
   EPOCH_MAX_BASE64_BYTES,
   EPOCH_MAX_IMAGES,
+  imageResultRef,
   loadMediaSizing,
+  submittedLocator,
+  toolResultOutput,
 } from './epoch-admission';
 import { descriptor, fakeResolver } from './media-fixtures';
 import type { MediaDescriptor } from './media-descriptors';
+
+const SHOT = { locator: '/work/shot.png', width: 1600, height: 900 };
 
 /** A canonical media id whose last block is `n`. */
 function mediaId(n: number): string {
@@ -153,7 +158,7 @@ describe('admitEpochImages', () => {
 });
 
 describe('collectMediaRefs', () => {
-  it('lists user file references in request order and skips everything else', () => {
+  it('lists user file and tool-result references in request order and skips everything else', () => {
     const messages: Array<ModelMessage> = [
       {
         role: 'user',
@@ -198,18 +203,102 @@ describe('collectMediaRefs', () => {
           },
         ],
       },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool-call', toolCallId: 'c1', toolName: 'read', input: {} },
+          { type: 'tool-call', toolCallId: 'c2', toolName: 'read', input: {} },
+          { type: 'tool-call', toolCallId: 'c3', toolName: 'read', input: {} },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'c1',
+            toolName: 'read',
+            output: toolResultOutput('envelope', mediaId(3)),
+          },
+          {
+            type: 'tool-result',
+            toolCallId: 'c2',
+            toolName: 'read',
+            output: {
+              type: 'content',
+              value: [
+                { type: 'text', text: 'text' },
+                { type: 'image-url', url: 'https://example.test/y.png' },
+                { type: 'custom', providerOptions: { other: {} } },
+              ],
+            },
+          },
+          {
+            type: 'tool-result',
+            toolCallId: 'c3',
+            toolName: 'read',
+            output: toolResultOutput('envelope', SHOT),
+          },
+        ],
+      },
     ];
 
     expect(collectMediaRefs(messages)).toEqual([
-      mediaId(1),
-      mediaId(2),
-      mediaId(1),
+      { image: mediaId(1), tool: false },
+      { image: mediaId(2), tool: false },
+      { image: mediaId(1), tool: false },
+      { image: mediaId(3), tool: true },
+      { image: { ...SHOT, key: 'c3' }, tool: true },
     ]);
   });
 });
 
+describe('imageResultRef', () => {
+  it('names the media of a successful media image result', () => {
+    const media = `media://${mediaId(4)}`;
+    expect(
+      imageResultRef({ status: 'success', kind: 'image', media }, 'x'),
+    ).toBe(mediaId(4));
+    expect(
+      imageResultRef(
+        { status: 'success', kind: 'image', media: `MEDIA://${mediaId(4)}` },
+        'x',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('names any other image result by its submitted locator and dimensions', () => {
+    const result = {
+      status: 'success',
+      kind: 'image',
+      mediaType: 'image/png',
+      width: 1600,
+      height: 900,
+      path: '/host/projected/shot.png',
+      thumbnail: 'data:image/webp;base64,UklGRg==',
+    };
+    expect(imageResultRef(result, SHOT.locator)).toEqual(SHOT);
+    expect(imageResultRef(result, undefined)).toBeUndefined();
+  });
+
+  it('names nothing for a non-image or failed result', () => {
+    const image = { kind: 'image', width: 1, height: 1 };
+    expect(
+      imageResultRef({ ...image, status: 'success', kind: 'file' }, 'x'),
+    ).toBeUndefined();
+    expect(imageResultRef({ ...image, status: 'error' }, 'x')).toBeUndefined();
+    expect(imageResultRef('media', 'x')).toBeUndefined();
+  });
+
+  it('reads the locator a read call submitted', () => {
+    expect(submittedLocator({ path: 'docs/shot.png' })).toBe('docs/shot.png');
+    expect(submittedLocator({ path: 1 })).toBeUndefined();
+    expect(submittedLocator(null)).toBeUndefined();
+  });
+});
+
 describe('loadMediaSizing', () => {
-  it('describes the references through the resolver and admits them', async () => {
+  it('describes the stored references through the resolver and admits them', async () => {
     const { resolver, loads } = fakeResolver([descriptor(mediaId(1))]);
     const describeSpy = vi.spyOn(resolver, 'describe');
 
@@ -237,10 +326,45 @@ describe('loadMediaSizing', () => {
 
     expect(describeSpy).toHaveBeenCalledWith([mediaId(1), mediaId(2)]);
     expect(sizing).toMatchObject({
-      refs: [mediaId(1), mediaId(2)],
+      refs: [
+        { image: mediaId(1), tool: false },
+        { image: mediaId(2), tool: false },
+      ],
       statuses: ['attached', 'unavailable'],
       imageInput: true,
     });
     expect(loads).toEqual([]);
+  });
+
+  it("admits unstored references by what the attempt's memory holds for them", async () => {
+    const { resolver } = fakeResolver([]);
+    const model = {
+      bytes: Buffer.alloc((EPOCH_MAX_BASE64_BYTES * 3) / 4),
+      mediaType: 'image/png' as const,
+      width: 1600,
+      height: 900,
+    };
+    resolver.images.set('c1', { ...SHOT, model });
+    resolver.images.set('c2', { ...SHOT, model });
+    const result = (toolCallId: string): ModelMessage => ({
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId,
+          toolName: 'read',
+          output: toolResultOutput('envelope', SHOT),
+        },
+      ],
+    });
+
+    const sizing = await loadMediaSizing(
+      [result('c0'), result('c1'), result('c2')],
+      resolver,
+      true,
+    );
+
+    expect(sizing.statuses).toEqual(['not-retained', 'attached', 'limit']);
+    expect([...sizing.held.keys()]).toEqual(['c1', 'c2']);
   });
 });

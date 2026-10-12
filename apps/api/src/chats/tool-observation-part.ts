@@ -19,6 +19,12 @@ import { isRejectedHopUrl } from '../tools/permissions/messages';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import type { MessagePart } from './context-builder';
+import {
+  imageResultRef,
+  submittedLocator,
+  toolResultOutput,
+  type ToolImageRef,
+} from '../media/epoch-admission';
 
 export const TOOL_PART_PREFIX = 'tool-';
 export const TOOL_REPLAY_CALL_LIMIT = 8000;
@@ -107,6 +113,14 @@ interface ObservationPayload {
   input: unknown;
   resultBody: string | null;
   clearedOutcome: string;
+  /**
+   * The image a `read` image result names: its media id, or for an unstored
+   * image its submitted locator and dimensions. It replays only beside the
+   * retained payload, as a reference the step composer projects, so the
+   * budgets measure the text without the `thumbnail` and never the image
+   * (vision-media D6).
+   */
+  image: ToolImageRef | undefined;
 }
 
 interface PairCandidate {
@@ -220,10 +234,6 @@ function resultText(outcome: string, body: string | null): string {
   );
 }
 
-function textOutput(value: string): SdkToolResultPart['output'] {
-  return { type: 'text' as const, value };
-}
-
 function pairEnvelope(pair: ProjectedToolObservationPair): Array<ModelMessage> {
   return [
     { role: 'assistant', content: [pair.toolCallPart] },
@@ -253,11 +263,12 @@ function makePair(
       type: 'tool-result',
       toolCallId: observation.toolCallId,
       toolName: observation.toolName,
-      output: textOutput(
+      output: toolResultOutput(
         resultText(
           cleared ? observation.clearedOutcome : observation.outcome,
           cleared ? null : observation.resultBody,
         ),
+        cleared ? undefined : observation.image,
       ),
     },
   };
@@ -465,6 +476,10 @@ function storedObservations(
         isNativeToolName(toolName),
         isHopRejection(toolName, outcome),
       ),
+      image:
+        toolName === READ_TOOL_NAME && part.state === 'output-available'
+          ? imageResultRef(part.output, submittedLocator(part.input))
+          : undefined,
     });
   });
   return observations;

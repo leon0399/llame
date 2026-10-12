@@ -6,6 +6,8 @@ import { type TenantRunner } from '../db/tenant-db.service';
 import { composeStepMessages } from '../models/step-composer';
 import {
   createRunMediaResolver,
+  notRetainedPlaceholder,
+  unstoredSubject,
   type MediaDescriptor,
 } from './media-descriptors';
 
@@ -171,6 +173,7 @@ describe('createRunMediaResolver loadModelBytes', () => {
       const composed = await composeStepMessages(messages, {
         resolver,
         imageInput: true,
+        toolResultImages: 'content',
       });
       expect(composed[0]?.content).toEqual([
         { type: 'text', text: `Image 1 (media://${ID}):` },
@@ -231,5 +234,42 @@ describe('createRunMediaResolver loadModelBytes', () => {
 
     await expect(resolver.loadModelBytes([id])).resolves.toEqual(new Map());
     expect(owners).toEqual([]);
+  });
+});
+
+describe('createRunMediaResolver images', () => {
+  it('starts every attempt with empty memory, shared with no other attempt', () => {
+    const first = scriptedResolver([]).resolver;
+    const second = scriptedResolver([]).resolver;
+    first.images.set('call-1', {
+      locator: '/work/shot.png',
+      width: 1600,
+      height: 900,
+    });
+
+    expect(first.images.get('call-1')).toBeDefined();
+    expect(second.images.get('call-1')).toBeUndefined();
+  });
+});
+
+describe('unstoredSubject', () => {
+  it.each([
+    ['a bracketed path', 'app/[slug]/shot.png', '"app/[slug]/shot.png"'],
+    ['an IPv6 URL', 'http://[::1]/x.png', '"http://[::1]/x.png"'],
+    ['line breaks and quotes', 'a\n\r"\\', String.raw`"a\n\r\"\\"`],
+  ])('writes %s as one exact JSON literal', (_, locator, literal) => {
+    expect(unstoredSubject({ locator, width: 1, height: 1 }).subject).toBe(
+      literal,
+    );
+    expect(JSON.parse(literal)).toBe(locator);
+  });
+
+  it('never cuts a long locator', () => {
+    const locator = `/work/${'a'.repeat(394)}`;
+    expect(
+      notRetainedPlaceholder(
+        unstoredSubject({ locator, width: 1600, height: 900 }),
+      ),
+    ).toBe(`[image "${locator}" 1600×900, not retained]`);
   });
 });

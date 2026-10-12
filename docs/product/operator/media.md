@@ -14,8 +14,10 @@ The media store keeps images that chat owners upload. Each image is one media
 object owned by exactly one owner, addressed as `media://<id>`, and kept in the
 same Postgres database as the rest of the application state. This release
 ships the store, its upload and fetch routes, image attachments on owner
-messages, and the per-model image input declaration; reading images through
-`read` arrives in a later release.
+messages, the per-model image input declaration, and image reads through
+`read`: a local, `kb://`, or `skill://` image file is decoded and stores
+nothing, kept only in the reading Run attempt's memory, and `media://<id>`
+reads an uploaded image (see [media://](../reference/locators/media.md)).
 
 There is nothing to enable: the store has no configuration keys, and its bounds
 are fixed by the application. Models opt into receiving images with

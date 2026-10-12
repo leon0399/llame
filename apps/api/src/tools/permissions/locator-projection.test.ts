@@ -709,3 +709,62 @@ describe('native file permission projection', () => {
     );
   });
 });
+
+describe('media locator permission projection', () => {
+  const ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+
+  it('matches a media read without its selector', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: `^media://${ID}$` }],
+      },
+    };
+    expect(nativeFileProjection('read')('path', `media://${ID}:raw`)).toBe(
+      `media://${ID}`,
+    );
+    expect(
+      decideNative(map, 'read', { path: `media://${ID}:raw` }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
+
+  it('keeps a media locator canonical, outside the Workspace root', () => {
+    expect(projectNativeFilePath(`media://${ID}`, '/work/project')).toBe(
+      `media://${ID}`,
+    );
+    expect(projectNativeFilePath('media://', '/work/project')).toBe('media://');
+  });
+
+  it('admits owner media through the domain-restricted read alternative only when it lists ^media://', () => {
+    const restricted: ToolPermissionMap = {
+      read: {
+        allow: [
+          { field: 'path', regex: '^/' },
+          { field: 'path', regex: '^kb://' },
+          { field: 'path', regex: '^skill://' },
+          { field: 'path', regex: '^media://' },
+          { field: 'path', regex: String.raw`^https://docs\.example\.com/` },
+        ],
+      },
+    };
+    expect(
+      decideNative(restricted, 'read', { path: `media://${ID}` }),
+    ).toMatchObject({ decision: 'allow' });
+    expect(
+      decideNative(restricted, 'read', {
+        path: 'https://other.example/guide',
+      }),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+
+    const domainOnly: ToolPermissionMap = {
+      read: {
+        allow: [
+          { field: 'path', regex: String.raw`^https://docs\.example\.com/` },
+        ],
+      },
+    };
+    expect(
+      decideNative(domainOnly, 'read', { path: `media://${ID}` }),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+});

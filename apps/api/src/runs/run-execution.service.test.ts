@@ -7000,6 +7000,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       // What the composer the clients install makes of the sent request.
       const composed = await composeStepMessages(sent.messages, {
         resolver: {
+          images: media.images,
           describe: (ids) => media.describe(ids),
           loadModelBytes: (ids) =>
             Promise.resolve(
@@ -7007,6 +7008,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
             ),
         },
         imageInput: true,
+        toolResultImages: 'content',
       });
       const userParts = composed.flatMap((message) =>
         message.role === 'user' && Array.isArray(message.content)

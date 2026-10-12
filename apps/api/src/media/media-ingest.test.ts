@@ -4,10 +4,12 @@ import sharp from 'sharp';
 
 import {
   encodeModelVariant,
+  encodeThumbnail,
   MEDIA_MAX_BYTES,
   MediaIngestError,
   type MediaIngestErrorCode,
   prepareMedia,
+  THUMBNAIL_MAX_CHARS,
 } from './media-ingest';
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -355,4 +357,36 @@ describe('encodeModelVariant', () => {
       });
     },
   );
+});
+
+describe('encodeThumbnail', () => {
+  it('flattens a transparent image onto white as one WebP within the cap', async () => {
+    const clear = await sharp({
+      create: {
+        width: 400,
+        height: 100,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+    const url = await encodeThumbnail(clear);
+
+    expect(url?.length).toBeLessThanOrEqual(THUMBNAIL_MAX_CHARS);
+    const [, base64] = url?.split('data:image/webp;base64,') ?? [];
+    const thumbnail = sharp(Buffer.from(base64 ?? '', 'base64'));
+    expect(await thumbnail.metadata()).toMatchObject({
+      format: 'webp',
+      width: 256,
+      height: 64,
+      hasAlpha: false,
+    });
+    const { data } = await thumbnail
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    // Lossy WebP keeps white within a step; unflattened, it would be black.
+    expect(Math.min(...data.subarray(0, 3))).toBeGreaterThanOrEqual(250);
+  });
 });

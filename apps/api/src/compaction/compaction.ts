@@ -148,9 +148,9 @@ function estimateProjectionTokens(
   const messages =
     media === undefined
       ? projection.messages
-      : projectMediaRefs(projection.messages, media, (_id, descriptor) => {
+      : projectMediaRefs(projection.messages, media, (image) => {
           imageTokens += Math.ceil(
-            (descriptor.modelWidth * descriptor.modelHeight) / 750,
+            (image.modelWidth * image.modelHeight) / 750,
           );
           return [];
         });

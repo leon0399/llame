@@ -600,6 +600,7 @@ describe('media sizing (vision-media D6)', () => {
   it('charges a 2000×1125 variant 3,000 tokens and admits it on a 200,000-token model', () => {
     const media = {
       descriptors: new Map([[A, screenshot(3_700_000)]]),
+      held: new Map(),
       statuses: ['attached' as const],
       imageInput: true,
     };
@@ -631,6 +632,7 @@ describe('media sizing (vision-media D6)', () => {
         ...request(withImage),
         media: {
           descriptors: new Map([[A, screenshot(bytes)]]),
+          held: new Map(),
           statuses: ['attached'],
           imageInput: true,
         },
@@ -645,6 +647,7 @@ describe('media sizing (vision-media D6)', () => {
         ...request(withImage),
         media: {
           descriptors: new Map([[A, screenshot(1000)]]),
+          held: new Map(),
           statuses: ['attached'],
           imageInput: false,
         },
@@ -677,6 +680,7 @@ describe('media sizing (vision-media D6)', () => {
         railText: '',
         media: {
           descriptors,
+          held: new Map(),
           statuses: ['attached', 'limit'],
           imageInput: true,
         },
@@ -701,9 +705,140 @@ describe('media sizing (vision-media D6)', () => {
     );
   });
 
+  describe('an image carried by a replayed read result', () => {
+    const readRow = (): StoredMessage => ({
+      ...msg('', 'assistant'),
+      parts: [
+        {
+          type: 'tool-read',
+          toolCallId: 'call-1',
+          state: 'output-available',
+          input: { path: '/work/shot.png' },
+          output: {
+            status: 'success',
+            kind: 'image',
+            media: `media://${A}`,
+            mediaType: 'image/png',
+            width: 4000,
+            height: 2250,
+            path: '/work/shot.png',
+          },
+          outcome: 'success',
+        },
+      ],
+    });
+    const estimateWith = (variant: {
+      modelWidth: number;
+      modelHeight: number;
+      modelByteSize: number;
+    }) =>
+      estimateContinuationTokens({
+        rows: [msg('look'), readRow()],
+        railText: '',
+        media: {
+          descriptors: new Map([[A, descriptor(A, variant)]]),
+          held: new Map(),
+          statuses: ['attached'],
+          imageInput: true,
+        },
+      });
+
+    it('charges the image by its variant dimensions', () => {
+      expect(
+        estimateWith({
+          modelWidth: 2000,
+          modelHeight: 1125,
+          modelByteSize: 1000,
+        }) -
+          estimateWith({
+            modelWidth: 1000,
+            modelHeight: 750,
+            modelByteSize: 1000,
+          }),
+      ).toBe(3000 - 1000);
+    });
+
+    it('gives the same estimate whatever the variant byte size', () => {
+      const dimensions = { modelWidth: 2000, modelHeight: 1125 };
+      expect(estimateWith({ ...dimensions, modelByteSize: 200 * 1024 })).toBe(
+        estimateWith({ ...dimensions, modelByteSize: 3_700_000 }),
+      );
+    });
+  });
+
+  describe('an unstored image read in the current attempt', () => {
+    const SHOT = { locator: '/work/shot.png', width: 4000, height: 2250 };
+    const readRow = (): StoredMessage => ({
+      ...msg('', 'assistant'),
+      parts: [
+        {
+          type: 'tool-read',
+          toolCallId: 'call-1',
+          state: 'output-available',
+          input: { path: SHOT.locator },
+          output: {
+            status: 'success',
+            kind: 'image',
+            mediaType: 'image/png',
+            width: SHOT.width,
+            height: SHOT.height,
+            path: SHOT.locator,
+            thumbnail: `data:image/webp;base64,${'A'.repeat(60_000)}`,
+          },
+          outcome: 'success',
+        },
+      ],
+    });
+    const estimateWith = (model: {
+      width: number;
+      height: number;
+      bytes: number;
+    }) =>
+      estimateContinuationTokens({
+        rows: [msg('look'), readRow()],
+        railText: '',
+        media: {
+          descriptors: new Map(),
+          held: new Map([
+            [
+              'call-1',
+              {
+                ...SHOT,
+                model: {
+                  bytes: Buffer.alloc(model.bytes),
+                  mediaType: 'image/png',
+                  width: model.width,
+                  height: model.height,
+                },
+              },
+            ],
+          ]),
+          statuses: ['attached'],
+          imageInput: true,
+        },
+      });
+
+    it('charges the image by its retained variant dimensions, never its bytes or thumbnail', () => {
+      const large = estimateWith({
+        width: 2000,
+        height: 1125,
+        bytes: 200 * 1024,
+      });
+      expect(
+        large - estimateWith({ width: 1000, height: 750, bytes: 200 * 1024 }),
+      ).toBe(3000 - 1000);
+      expect(
+        estimateWith({ width: 2000, height: 1125, bytes: 3_700_000 }),
+      ).toBe(large);
+      // The 60,000-character thumbnail is not sized.
+      expect(large).toBeLessThan(15_000 / 4 + 3000);
+    });
+  });
+
   describe('imageOverflowCompacts', () => {
     const sizing = (statuses: Array<MediaAdmission>, imageInput = true) => ({
       descriptors: new Map([[A, screenshot(1000)]]),
+      held: new Map(),
       statuses,
       imageInput,
     });
