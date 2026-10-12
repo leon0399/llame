@@ -180,7 +180,8 @@ many steps it runs.
 Releasing an entry's bytes SHALL keep its locator, dimensions, and model-variant byte size, so the
 epoch image window sizes the reference again at every later compose of the attempt and, admission
 being append-only, leaves it unattached again. A reference the window attaches whose entry holds no
-bytes SHALL reach the model as the not-retained placeholder.
+bytes SHALL reach the model as the not-retained placeholder; this is a guard that append-only
+admission within an attempt makes unreachable in practice.
 
 #### Scenario: A released read stays unattached in later steps
 
@@ -235,11 +236,11 @@ a later turn; the not-retained placeholder names the exact locator for that read
 
 ### Requirement: Each image reference takes exactly one model-facing form
 
-Each image reference SHALL reach the model as exactly one of the following, chosen in this order:
-the unavailable placeholder when it is a `media://` reference that does not resolve; the omitted
-placeholder when the request's model does not declare `image` input; the not-retained placeholder
-when it is an unstored image the current attempt's memory holds no entry for; an image part when
-the epoch image window attaches it; and the limit placeholder otherwise.
+Each image reference SHALL reach the model as exactly one of these forms, chosen in this order: the
+unavailable placeholder for a `media://` reference that does not resolve; the omitted placeholder
+when the request's model does not declare `image` input; the not-retained placeholder for an
+unstored image whose attempt-memory entry is absent or, when the window attaches it, holds no
+bytes; an image part when the epoch image window attaches it; and the limit placeholder otherwise.
 
 #### Scenario: Missing image input outranks retention
 

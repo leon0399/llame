@@ -280,8 +280,10 @@ images (below). For each step:
   - `[image media://<id> unavailable]` for a `media://` reference that does not resolve;
   - `[image <subject> <width>×<height>, omitted: this model has no image input]` for a model that
     does not declare `image`;
-  - `[image <locator> <width>×<height>, not retained]` for an unstored
-    image the attempt's memory holds no entry for;
+  - `[image <locator> <width>×<height>, not retained]` for an unstored image the attempt's memory
+    holds no entry for, and, as a guard, for one the window attaches whose entry holds no bytes
+    (unreachable in practice, because admission is append-only within an attempt, so a released
+    entry is never attached again);
   - an image part when the epoch window (below) attaches it, the only case whose bytes are loaded;
   - `[image <subject> <width>×<height>, not attached: this context's image limit is reached]`
     otherwise.
