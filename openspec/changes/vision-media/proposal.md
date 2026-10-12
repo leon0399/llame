@@ -73,9 +73,10 @@ the composer, and the lightbox. Design "R1 revision" and "R2 revision" list the 
   a toast.
 - **Sent messages and lightbox.** Sent messages show the thumbnails above the bubble, and the read
   tool card and prompt-import chip render their inline `thumbnail`. A lightbox, built on the shared
-  `Dialog`, opens over the images of the clicked row, with arrow navigation and a click toggle
-  between fit and natural size. A stored image shows its original; an unstored image shows its
-  inline thumbnail, captioned `W×H FORMAT · <locator>`.
+  `Dialog`, opens over the images of the clicked row, with arrow navigation. A click toggles between
+  fit and natural size only when the natural size exceeds the fit. A stored image shows its
+  original; an unstored image shows its inline thumbnail, which always fits and so offers no toggle,
+  captioned `W×H FORMAT · <locator>`.
 
 No breaking configuration or API change: `input` is optional and the message DTO only widens.
 
@@ -123,8 +124,9 @@ Revision R2, decided by Leo on 2026-10-11 after a second grilling round:
 - Placeholder locators are plain `JSON.stringify` (R2.4).
 - `conversation_read` and title lines come from the stored file part alone, without dimensions
   (R2.5).
-- The lightbox is a per-row `Dialog` with single-source slides and fit/natural-size zoom, also over
-  the composer's uploads (R2.6, R2.7, R2.13, R2.14).
+- The lightbox is a per-row `Dialog` with single-source slides, also over the composer's uploads,
+  and a fit/natural-size zoom toggle only when the natural size exceeds the fit; an unstored read's
+  thumbnail always fits and shows no toggle (R2.6, R2.7, R2.13, R2.14).
 - Composer tiles keep add order; a text-only model disables the picker and refuses paste and drop
   with a toast (R2.8, R2.9).
 - Chat Completions labels each moved tool-result image (R2.15).
@@ -170,7 +172,11 @@ Known gap: nothing can delete an uploaded image. A pasted secret stays stored an
   (ordering, labels, attempt-scoped retention of unstored images, image window, placeholders, Chat
   Completions transport), text-only projections, and the stored display-only inline thumbnail of
   unstored images. The web presentation (composer, thumbnails, lightbox) is specified by its
-  components, stories, and `docs/product/reference/locators/media.md`, not by these specs.
+  components, stories, and `docs/product/reference/locators/media.md`, not by these specs. So is the
+  web client's parse of API-authored payloads: `isPromptImportEntry` is client behavior outside the
+  specs, owned by design D8 and task 7.1 and pinned by the web unit test. It must accept both image
+  entry forms the API validator accepts, because an entry it rejects drops the owner chip for the
+  whole item.
 
 ### Modified Capabilities
 
@@ -323,6 +329,7 @@ Issue [#1166](https://github.com/leon0399/llame/issues/1166) (the web UI, closed
   the model.
 - With a text-only model selected, the attach picker is disabled and a pasted image is refused with
   a toast.
-- Clicking a thumbnail opens a lightbox over its row. Arrow keys move within the row, a click toggles
-  between fit and natural size, an upload shows its original, and a read image shows its inline
-  thumbnail.
+- Clicking a thumbnail opens a lightbox over its row, and arrow keys move within the row.
+- An upload shows its original; a click toggles between fit and natural size only when the natural
+  size exceeds the fit, and an original that already fits shows no toggle.
+- A read image shows its inline thumbnail, which always fits, so it shows no zoom toggle.

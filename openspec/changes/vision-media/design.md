@@ -119,8 +119,9 @@ R2.1–R2.15 below. They apply on top of R1 and rewrite parts of D2, D6, D8, D9,
 - The lightbox is a shadcn `Dialog` over the clicked row only: a message's attachments, a `read`
   result's image, a prompt-import chip, or the composer's uploaded tiles. Each slide has one source,
   the `/original` route for a stored image and the inline thumbnail for an unstored one, with no
-  variant toggle and no descriptor fetch. Zoom toggles between fit and natural size (R2.6, R2.7,
-  R2.13, R2.14).
+  variant toggle and no descriptor fetch. Zoom toggles between fit and natural size only when the
+  natural size exceeds the fit; an unstored read's thumbnail always fits and shows no toggle (R2.6,
+  R2.7, R2.13, R2.14).
 - Composer tiles keep add order, with no reordering (R2.8). Under a text-only model the attach
   picker is disabled, and a refused paste or drop shows a toast (R2.9).
 - On Chat Completions wires, each moved tool-result image is preceded by the label
