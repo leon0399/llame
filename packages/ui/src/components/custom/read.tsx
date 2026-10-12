@@ -67,7 +67,7 @@ const textOutputSchema = z.looseObject({
  *  read the display-only inline `thumbnail` (used only when it is a valid
  *  WebP data URL; absent when it would exceed the cap). Loose for the same
  *  scheme envelopes as a text read. */
-export const imageOutputSchema = z.looseObject({
+const imageOutputSchema = z.looseObject({
   ...readSourceFields,
   kind: z.literal("image"),
   media: z.string().optional(),

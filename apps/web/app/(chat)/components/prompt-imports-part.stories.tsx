@@ -124,7 +124,8 @@ const MEDIA_LOCATOR = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
  * still listed as a chip, the images as imported prompt files, and each image
  * also shows a thumbnail: an unstored image its inline thumbnail, with no
  * media route, and a `media://` import its `/model` route. An unstored image
- * whose thumbnail exceeded the cap shows only its size.
+ * whose thumbnail exceeded the cap shows only its size, in its entry's place
+ * among the thumbnails.
  *
  * @summary image entries with thumbnails beside denied, failed, and omitted prompt files
  */
@@ -142,7 +143,6 @@ export const WithImageEntry: Story = {
         height: 900,
         mediaType: "image/png",
       },
-      { locator: MEDIA_LOCATOR, outcome: "imported", media: MEDIA_LOCATOR },
       {
         locator: "poster.png",
         outcome: "imported",
@@ -150,6 +150,7 @@ export const WithImageEntry: Story = {
         height: 6000,
         mediaType: "image/png",
       },
+      { locator: MEDIA_LOCATOR, outcome: "imported", media: MEDIA_LOCATOR },
       { locator: "/srv/secret.png", outcome: "denied" },
       { locator: "missing.png", outcome: "failed" },
     ],
@@ -170,6 +171,12 @@ export const WithImageEntry: Story = {
     );
     await expect(within(thumbnails).getAllByRole("img")).toHaveLength(2);
     await expect(canvas.getByText("8000×6000 PNG")).toBeVisible();
+    // Thumbnails and the size-only tile keep the entries' order.
+    await expect(
+      within(thumbnails)
+        .getAllByRole("listitem")
+        .map((tile) => tile.querySelector("img")?.alt ?? tile.textContent),
+    ).toEqual(["shot.png", "8000×6000 PNG", MEDIA_LOCATOR]);
 
     for (const label of [
       `Imported prompt file: ${MEDIA_LOCATOR}`,
@@ -188,9 +195,10 @@ export const WithImageEntry: Story = {
 /**
  * An imported image's thumbnail opens a lightbox over this chip's images
  * only. The unstored image shows its inline thumbnail captioned with the
- * original's size and the locator as written; the arrow keys move to the
- * stored import, which loads its `/original` route captioned with its
- * `media://` locator. `Escape` returns focus to the thumbnail.
+ * original's size and the locator as written; the arrow keys move past the
+ * size-only tile to the stored import, which loads its `/original` route
+ * captioned with its `media://` locator. `Escape` returns focus to the
+ * thumbnail.
  *
  * @summary an imported image opens the chip's lightbox
  */

@@ -5,7 +5,8 @@
  * to a model declaring image input (the mock answers with the number of
  * images its request carried), survives a reload as a sent thumbnail loaded
  * from the `model` variant, and opens in the message's lightbox on the stored
- * `original`, captioned with its `media://` locator. A message carrying only
+ * `original`, captioned with its `media://` locator; the "Actual size" toggle
+ * shows it at 100% in a panel that scrolls to pan. A message carrying only
  * an image, attached through the file picker, sends the same way, and an
  * owner fork of its chat opens the same stored image in its own lightbox.
  */
@@ -93,6 +94,39 @@ test("a pasted image reaches a vision model and opens in the lightbox after relo
   await expect
     .poll(() => shown.evaluate((image: HTMLImageElement) => image.naturalWidth))
     .toBe(2400);
+  // Fitted, the 2400-pixel original is scaled into the viewport.
+  const renderedWidth = () =>
+    shown.evaluate(
+      (image: HTMLImageElement) => image.getBoundingClientRect().width,
+    );
+  await expect.poll(renderedWidth).toBeLessThan(2400);
+
+  const actualSize = lightbox.getByRole("button", {
+    name: "Actual size",
+    exact: true,
+  });
+  await expect(actualSize).toHaveAttribute("aria-pressed", "false");
+  await actualSize.click();
+  await expect(actualSize).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(renderedWidth).toBe(2400);
+  // At 100% the image's scroll panel pans horizontally.
+  await expect
+    .poll(() =>
+      shown.evaluate((image: HTMLImageElement) => {
+        let panel = image.parentElement;
+        while (panel && getComputedStyle(panel).overflowX !== "auto") {
+          panel = panel.parentElement;
+        }
+        if (!panel || panel.scrollWidth <= panel.clientWidth) return 0;
+        panel.scrollLeft = 400;
+        return panel.scrollLeft;
+      }),
+    )
+    .toBe(400);
+
+  await actualSize.click();
+  await expect(actualSize).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(renderedWidth).toBeLessThan(2400);
 
   await page.keyboard.press("Escape");
   await expect(lightbox).toBeHidden();

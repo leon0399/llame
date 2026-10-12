@@ -4,11 +4,12 @@ import { useState } from "react";
 import { AtSignIcon } from "lucide-react";
 
 import {
-  ImageThumbnailRow,
+  ImageThumbnail,
   type ImageThumbnailItem,
 } from "@workspace/ui/components/custom/image-thumbnail";
 import {
   ImageDimensionsTile,
+  type MediaImageSize,
   MediaLightbox,
   type MediaLightboxSlide,
   mediaCaption,
@@ -51,42 +52,62 @@ function importedImage(
   };
 }
 
-/** The imported images under the chips, opening a lightbox over this chip's
- *  images; an unstored image without a thumbnail shows only its size. */
+/** One tile under the chips: an image with its thumbnail, or only its size. */
+type ImportedTile =
+  | {
+      key: string;
+      image: { item: ImageThumbnailItem; slide: MediaLightboxSlide };
+    }
+  | { key: string; size: MediaImageSize };
+
+/** An import's tile, or `null` for an entry that is not an image. */
+function importedTile(entry: ImportEntry, key: string): ImportedTile | null {
+  const image = importedImage(entry, key);
+  if (image !== null) return { key, image };
+  if (entry.width === undefined) return null;
+  const { width, height, mediaType } = entry;
+  return { key, size: { width, height, mediaType } };
+}
+
+/** The imported images under the chips, in entry order, opening a lightbox
+ *  over this chip's images; an unstored image without a thumbnail shows only
+ *  its size. */
 function ImportedImages({ imports }: Pick<PromptImportsPayload, "imports">) {
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const images = imports.flatMap(
-    (entry, index) => importedImage(entry, String(index)) ?? [],
+  const tiles = imports.flatMap(
+    (entry, index) => importedTile(entry, String(index)) ?? [],
   );
-  const sizeOnly = imports.flatMap((entry, index) =>
-    entry.width !== undefined && entry.thumbnail === undefined
-      ? [{ ...entry, key: String(index) }]
-      : [],
-  );
-  if (images.length === 0 && sizeOnly.length === 0) return null;
+  if (tiles.length === 0) return null;
   return (
-    <div className="my-1 flex flex-wrap gap-2">
-      {images.length > 0 && (
-        <ImageThumbnailRow
-          aria-label="Imported images"
-          items={images.map(({ item }) => item)}
-          onOpen={setOpenKey}
-        />
-      )}
-      {sizeOnly.map(({ key, width, height, mediaType }) => (
-        <ImageDimensionsTile
-          key={key}
-          width={width}
-          height={height}
-          mediaType={mediaType}
-        />
-      ))}
+    <>
+      <ul
+        // oxlint-disable-next-line jsx-a11y/no-redundant-roles -- WebKit drops the list role from a `list-style: none` list.
+        role="list"
+        aria-label="Imported images"
+        className="my-1 flex flex-wrap gap-2"
+      >
+        {tiles.map((tile) => (
+          <li key={tile.key}>
+            {"image" in tile ? (
+              <ImageThumbnail
+                src={tile.image.item.src}
+                alt={tile.image.item.alt}
+                onOpen={() => setOpenKey(tile.key)}
+              />
+            ) : (
+              <ImageDimensionsTile {...tile.size} />
+            )}
+          </li>
+        ))}
+      </ul>
       <MediaLightbox
-        slides={images.map(({ slide }) => slide)}
+        slides={tiles.flatMap((tile) =>
+          "image" in tile ? [tile.image.slide] : [],
+        )}
         openKey={openKey}
         onOpenKeyChange={setOpenKey}
       />
-    </div>
+    </>
   );
 }
 
