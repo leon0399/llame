@@ -558,7 +558,9 @@ A wide variant of the existing shadcn `Dialog` (`packages/ui/src/components/dial
 image `object-contain`. The dialog brings focus trapping, the close button, and `Escape` with focus
 return; ghost icon `Button`s move to the previous and next slide, as do `ArrowLeft` and
 `ArrowRight`; the caption sits under the image. Zoom is a toggle, by clicking the image or a button,
-between fit and natural size; at natural size the panel scrolls natively to pan.
+between fit and natural size; at natural size the panel scrolls natively to pan. The image stays
+centred and is never enlarged, and an image whose natural size already fits offers no toggle (an
+unstored read's thumbnail always fits).
 
 - **Slides.** The images of the clicked row only: a message's attachments, a `read` result's image,
   a prompt-import chip's image entries, or the composer's uploaded thumbnails. A composer thumbnail

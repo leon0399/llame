@@ -922,15 +922,23 @@ close button or `Escape`, returning focus to the thumbnail that opened it.
 
 ### Requirement: The lightbox zooms between fit and natural size
 
-A slide SHALL first show the image fitted within the dialog. Clicking the image, or its zoom button,
-SHALL toggle between that fit and the image's natural size; at natural size the dialog's panel SHALL
-scroll natively to pan.
+A slide SHALL first show the image fitted within the dialog, centred, never enlarged past its natural
+size. When its natural size exceeds that fit, clicking the image, or its zoom button, SHALL toggle
+between the fit and the natural size; at natural size the dialog's panel SHALL scroll natively to
+pan. An image whose natural size already fits SHALL offer no zoom button and SHALL not respond to a
+click.
 
 #### Scenario: A click toggles natural size
 
 - **WHEN** the owner opens a 4000×3000 attachment and clicks the image
 - **THEN** the image shows at 4000×3000 and the panel scrolls to pan it
 - **AND** clicking it again fits it within the dialog
+
+#### Scenario: An image that already fits offers no zoom
+
+- **WHEN** the owner opens an unstored read's 256×254 thumbnail in the lightbox
+- **THEN** the image shows centred at 256×254 with no zoom button
+- **AND** clicking it leaves it unchanged
 
 ### Requirement: Each lightbox slide shows one image source
 
