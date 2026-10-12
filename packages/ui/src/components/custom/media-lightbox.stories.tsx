@@ -213,16 +213,35 @@ export const FocusAtRowEnd: Story = {
   },
 };
 
+/** The distinct `<img>` nodes added under `root` (each added subtree
+ *  searched, so one inserted twice counts once) until `stop`. */
+function watchAddedImages(root: Node) {
+  const added = new Set<HTMLImageElement>();
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (!(node instanceof Element)) continue;
+        if (node instanceof HTMLImageElement) added.add(node);
+        for (const image of node.querySelectorAll("img")) added.add(image);
+      }
+    }
+  });
+  observer.observe(root, { childList: true, subtree: true });
+  return { added, stop: () => observer.disconnect() };
+}
+
 /**
  * An image larger than the viewport is fitted to it, centered. Clicking the
  * image, or the "Actual size" button, toggles between that fit and the
- * image's natural size, where the panel scrolls to pan.
+ * image's natural size, where the panel scrolls to pan. Measuring the fit
+ * never remounts the image.
  *
  * @summary for zooming an image to 100%
  */
 export const ActualSize: Story = {
   tags: ["ai-generated"],
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const images = watchAddedImages(canvasElement.ownerDocument.body);
     await userEvent.click(
       canvas.getByRole("button", { name: "Open Dashboard screenshot" }),
     );
@@ -230,9 +249,12 @@ export const ActualSize: Story = {
     const toggle = await within(dialog).findByRole("button", {
       name: "Actual size",
     });
+    images.stop();
     const image = within(dialog).getByRole("img", {
       name: "Dashboard screenshot",
     });
+    await expect([...images.added]).toEqual([image]);
+    await expect([...images.added][0]).toBe(image);
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(image.offsetWidth).toBeLessThan(4000);
     await expectCentered(image);
@@ -246,6 +268,60 @@ export const ActualSize: Story = {
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(image).not.toHaveClass("max-w-none");
     await waitFor(() => expectCentered(image));
+
+    const imageButton = within(dialog).getByRole("button", {
+      name: "Dashboard screenshot",
+    });
+    imageButton.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await userEvent.keyboard(" ");
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(imageButton).toHaveFocus();
+  },
+};
+
+/**
+ * Moving to another image, and back, starts each fitted: a slide's 100%
+ * zoom does not outlive it.
+ *
+ * @summary for zoom resetting between a row's images
+ */
+export const ZoomResetsPerSlide: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Open Dashboard screenshot" }),
+    );
+    const dialog = await openDialog();
+    await userEvent.click(
+      await within(dialog).findByRole("button", { name: "Actual size" }),
+    );
+    await expect(
+      within(dialog).getByRole("img", { name: "Dashboard screenshot" }),
+    ).toHaveClass("max-w-none");
+
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Next image" }),
+    );
+    await waitFor(() =>
+      expect(dialog).toHaveAccessibleDescription(
+        "1600×900 PNG · docs/shot.png",
+      ),
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Previous image" }),
+    );
+    await waitFor(() =>
+      expect(dialog).toHaveAccessibleDescription(SCREENSHOT_LOCATOR),
+    );
+    const toggle = await within(dialog).findByRole("button", {
+      name: "Actual size",
+    });
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(
+      within(dialog).getByRole("img", { name: "Dashboard screenshot" }),
+    ).not.toHaveClass("max-w-none");
   },
 };
 
@@ -271,7 +347,8 @@ export const FitsViewport: Story = {
     await expect(
       within(dialog).queryByRole("button", { name: "Actual size" }),
     ).toBeNull();
-    await expect(image.closest("button")).toBeNull();
+    await expect(image.closest('[role="button"]')).toBeNull();
+    await expect(image.parentElement).not.toHaveAttribute("tabindex");
 
     await userEvent.click(image);
     await expect(dialog).toBeVisible();

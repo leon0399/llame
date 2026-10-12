@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type KeyboardEvent, useEffect, useState } from "react";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -104,9 +104,11 @@ type ImageZoom = {
  *  while fitted, on load and whenever it resizes (the window does); the
  *  measure is kept while at 100%, where the image is its natural size. */
 function useImageZoom(key: string, image: HTMLImageElement | null): ImageZoom {
-  // Keyed by slide, so moving to another image starts it fitted again
-  // without remounting the toolbar (which would drop focus).
+  // Cleared when the slide changes, so moving to another image, or back,
+  // starts it fitted again without remounting the toolbar (which would
+  // drop focus).
   const [actualSizeKey, setActualSizeKey] = useState<string | null>(null);
+  if (actualSizeKey !== null && actualSizeKey !== key) setActualSizeKey(null);
   const [fit, setFit] = useState<FitMeasure | null>(null);
   const zoomable = fit?.key === key && fit.zoomable;
   const actualSize = zoomable && actualSizeKey === key;
@@ -136,38 +138,44 @@ type LightboxImageProps = {
 
 /** The image, centered and never enlarged past its natural size. One larger
  *  than its fit is a button toggling between fit and 100%, where the panel
- *  scrolls to pan; one that fits is a plain image. */
+ *  scrolls to pan; one that fits is a plain image. Either way the image sits
+ *  in the same wrapper, so measuring its fit never remounts it. */
 function LightboxImage({ slide, zoom, imageRef }: LightboxImageProps) {
-  const image = (
-    <img
-      ref={imageRef}
-      src={slide.src}
-      alt={slide.alt}
-      onLoad={(event) => zoom.onLoad(event.currentTarget)}
-      className={cn(
-        "mx-auto block",
-        zoom.actualSize
-          ? "max-w-none"
-          : "max-h-[calc(90vh-5rem)] max-w-[calc(90vw-1rem)] object-contain",
-      )}
-    />
-  );
+  const interactive = zoom.zoomable
+    ? {
+        role: "button",
+        tabIndex: 0,
+        onClick: zoom.toggle,
+        onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          zoom.toggle();
+        },
+      }
+    : {};
   return (
     <div className="min-h-0 min-w-0 flex-1 overflow-auto">
-      {zoom.zoomable ? (
-        <button
-          type="button"
-          onClick={zoom.toggle}
+      <div
+        {...interactive}
+        className={cn(
+          "mx-auto w-fit rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          zoom.zoomable &&
+            (zoom.actualSize ? "cursor-zoom-out" : "cursor-zoom-in"),
+        )}
+      >
+        <img
+          ref={imageRef}
+          src={slide.src}
+          alt={slide.alt}
+          onLoad={(event) => zoom.onLoad(event.currentTarget)}
           className={cn(
-            "mx-auto block rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-            zoom.actualSize ? "cursor-zoom-out" : "cursor-zoom-in",
+            "block",
+            zoom.actualSize
+              ? "max-w-none"
+              : "max-h-[calc(90vh-5rem)] max-w-[calc(90vw-1rem)] object-contain",
           )}
-        >
-          {image}
-        </button>
-      ) : (
-        image
-      )}
+        />
+      </div>
     </div>
   );
 }
