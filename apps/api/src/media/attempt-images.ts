@@ -29,7 +29,8 @@ export type HeldImage = UnstoredImage & {
  * rest of the attempt, keeping their size: the epoch window refused it on
  * entry, so no later step of the attempt attaches it.
  *
- * An attempt's images (vision-media R1.4) are a `Map` keyed by tool call id.
+ * An attempt's images (vision-media R1.4) are a `Map` keyed by tool call id
+ * or, for a prompt import, by its entry (`promptImportImageKey`).
  * Every attempt builds its own, empty, with its media resolver, so a retry or
  * a resume, on any worker, shares nothing with the attempt it supersedes, and
  * the map goes when the attempt ends. Nothing in it is persisted. The step

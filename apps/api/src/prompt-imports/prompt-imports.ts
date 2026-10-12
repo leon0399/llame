@@ -10,10 +10,14 @@ import {
   splitSelectorSuffix,
 } from '@workspace/native-file-tools';
 
-import type { PromptImportOutcome } from '../chats/prompt-imports-item';
+import {
+  promptImportImage,
+  type PromptImportOutcome,
+} from '../chats/prompt-imports-item';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import { importTargets } from '../import-markers/import-markers';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
+import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { type ToolResult } from '../tools/types';
@@ -57,14 +61,23 @@ export type PromptImportRequest = {
     locatorWithoutSelector: string,
   ) => Promise<string | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED>;
   /**
+   * The canonical `media://` locator when the Run owner stores that image;
+   * undefined for an unknown or another owner's id alike.
+   */
+  readonly probeMedia: (
+    locatorWithoutSelector: string,
+  ) => Promise<string | undefined>;
+  /**
    * One audited read. `ordinal` is the target's position among the distinct
-   * markers, so a target keeps its call identity across retries. `admission`
-   * is the decision the read group reached, absent when the call never got
-   * that far.
+   * markers, so a target keeps its call identity across retries; `locator` is
+   * the target as written, its entry's locator, which keys an unstored image
+   * in the attempt's memory (vision-media D8). `admission` is the decision the
+   * read group reached, absent when the call never got that far.
    */
   readonly readImport: (
     path: string,
     ordinal: number,
+    locator: string,
   ) => Promise<{
     result: ToolResult;
     text: string;
@@ -86,7 +99,8 @@ type ImportPlan =
       /** Decoded absolute host path, selector still attached. */
       readonly hostPath: string;
     }
-  | { readonly kind: 'knowledge'; readonly readPath: string };
+  | { readonly kind: 'knowledge'; readonly readPath: string }
+  | { readonly kind: 'media'; readonly readPath: string };
 
 type ImportRun = PromptImportResolution & {
   readonly request: PromptImportRequest;
@@ -170,6 +184,9 @@ function planScheme(
   if (scheme === KNOWLEDGE_LOCATOR_SCHEME && request.knowledgeAvailable) {
     return { kind: 'knowledge', readPath: target };
   }
+  if (scheme === MEDIA_LOCATOR_SCHEME) {
+    return { kind: 'media', readPath: target };
+  }
   return undefined;
 }
 
@@ -187,7 +204,7 @@ async function handleTarget(
   if (workExpired(run)) return;
   if (!run.request.admitsRead(plan.readPath)) {
     // The audited denial runs without a probe, so existence never shows.
-    await run.request.readImport(plan.readPath, ordinal);
+    await run.request.readImport(plan.readPath, ordinal, target);
     run.outcomes.push({ locator: target, outcome: 'denied' });
     return;
   }
@@ -207,18 +224,22 @@ async function handleTarget(
 
 /**
  * Host paths probe the whole literal first, as `read` does, then the path
- * with its selector split off. Knowledge locators have no literal colon, so
- * only the selector-free locator is probed.
+ * with its selector split off. Knowledge and media locators have no literal
+ * colon, so only the selector-free locator is probed.
  */
 async function probePlan(
   request: PromptImportRequest,
   plan: Exclude<ImportPlan, { kind: 'direct' }>,
 ): Promise<string | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED> {
+  if (plan.kind === 'media') {
+    return request.probeMedia(
+      withoutSelector(plan.readPath, `${MEDIA_LOCATOR_SCHEME}://`),
+    );
+  }
   if (plan.kind === 'knowledge') {
-    const colon = plan.readPath.indexOf(':', KNOWLEDGE_PREFIX.length);
     try {
       return await request.probeKnowledge(
-        colon < 0 ? plan.readPath : plan.readPath.slice(0, colon),
+        withoutSelector(plan.readPath, KNOWLEDGE_PREFIX),
       );
     } catch (error) {
       if (!isKnowledgeCancellation(error)) throw error;
@@ -229,6 +250,12 @@ async function probePlan(
   const { path, selector } = splitSelectorSuffix(plan.hostPath);
   if (selector === undefined) return undefined;
   return (await request.probeHost(path)) ? path : undefined;
+}
+
+/** `path` up to the first colon after its scheme's `prefix`. */
+function withoutSelector(path: string, prefix: string): string {
+  const colon = path.indexOf(':', prefix.length);
+  return colon < 0 ? path : path.slice(0, colon);
 }
 
 type ReadAttempt = {
@@ -263,7 +290,12 @@ function recordUnsuccessfulRead(
   }
 }
 
-/** One read of a probe survivor or no-probe target, unless a bound closed. */
+/**
+ * One read of a probe survivor or no-probe target, unless a bound closed. An
+ * image result counts as a read and records its image (vision-media D8); only
+ * its serialized envelope counts toward the output bound, never the image
+ * bytes or its thumbnail.
+ */
 async function attemptRead(
   run: ImportRun,
   attempt: ReadAttempt,
@@ -277,7 +309,11 @@ async function attemptRead(
     return;
   }
   run.reads += 1;
-  const read = await run.request.readImport(attempt.readPath, attempt.ordinal);
+  const read = await run.request.readImport(
+    attempt.readPath,
+    attempt.ordinal,
+    attempt.target,
+  );
   const base = outcomeBase(attempt);
   if (read.result.status !== 'success') {
     recordUnsuccessfulRead(run, attempt, read.admission);
@@ -290,11 +326,13 @@ async function attemptRead(
     return;
   }
   run.bytes += size;
+  const image = promptImportImage(read.result);
   run.outcomes.push({
     ...base,
     outcome: 'imported',
     body: read.text,
     ...(read.result['truncated'] === true && { truncated: true }),
+    ...(image !== undefined && { image }),
   });
 }
 

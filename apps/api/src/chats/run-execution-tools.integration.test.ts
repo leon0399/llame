@@ -58,8 +58,15 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 import { z } from 'zod';
 
+import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import {
+  createRunMediaResolver,
+  type RunMediaResolver,
+} from '../media/media-descriptors';
+import { randomPng } from '../media/media-fixtures';
+import { composeStepMessages } from '../models/step-composer';
 import {
   type ModelClient,
   type ModelStreamInput,
@@ -5690,6 +5697,111 @@ describeIfDb('executeRun tool-loop persistence', () => {
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         await sql`DELETE FROM users WHERE id = ${otherOwnerId}`;
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('imports a kb:// image without storing it and sends it after the item text', async () => {
+      const fixture = knowledgeInstructionsFixture();
+      const { root, spaces, hostPath } = fixture;
+      const space = await spaces.provisionForOwner(userId);
+      const shotPath = hostPath(space.id, 'notes/shot.png');
+      mkdirSync(path.dirname(shotPath), { recursive: true });
+      writeFileSync(shotPath, await randomPng(160, 90));
+      const locator = `kb://${space.id}/notes/shot.png`;
+      const seeded = await seedBoundRun(
+        `prompt-import-image-${crypto.randomUUID()}`,
+        'default',
+        `What is in @${locator}?`,
+      );
+      const calls: Array<ModelStreamInput> = [];
+      const model = new MockLanguageModelV3({
+        doStream: () => Promise.resolve(textResponse('A screenshot.')),
+      });
+      const client: ModelClient = {
+        ...recordingMockClient(model, calls),
+        input: ['text', 'image'],
+      };
+
+      try {
+        const execution = await executeSeeded(
+          seeded,
+          fixture.service(),
+          client,
+        );
+        await execution.consumeStream?.();
+        await waitForCompleted(seeded.run.id);
+
+        const stored = await tenantDb.runAs(userId, (tx) =>
+          new MessagesRepository(tx).findById(
+            seeded.chatId,
+            userId,
+            seeded.userMessage.id,
+          ),
+        );
+        const item = stored?.parts.find(
+          (part) =>
+            isContextItemPart(part) && part.data.producer === 'prompt-imports',
+        );
+        if (!isContextItemPart(item)) throw new Error('no prompt-imports item');
+        const thumbnail: unknown = expect.stringMatching(
+          /^data:image\/webp;base64,/,
+        );
+        expect(item.data.payload).toEqual({
+          imports: [
+            {
+              locator,
+              resolved: locator,
+              outcome: 'imported',
+              thumbnail,
+              width: 160,
+              height: 90,
+              mediaType: 'image/png',
+            },
+          ],
+        });
+        // The import stored nothing for the owner.
+        const owned = await tenantDb.runAs(userId, (tx) =>
+          tx
+            .select({ id: schema.mediaObjects.id })
+            .from(schema.mediaObjects)
+            .where(eq(schema.mediaObjects.ownerUserId, userId)),
+        );
+        expect(owned).toEqual([]);
+
+        // The importing attempt's first request: the item text, then the
+        // model variant its memory holds; a later text-only Run replays the
+        // omitted placeholder instead.
+        const sent = calls[0];
+        if (sent?.media === undefined) throw new Error('no media resolver');
+        const itemThen = async (resolver: RunMediaResolver, image: boolean) => {
+          const composed = await composeStepMessages(sent.messages, {
+            resolver,
+            imageInput: image,
+          });
+          const trigger = composed.at(-1);
+          const content =
+            trigger?.role === 'user' && Array.isArray(trigger.content)
+              ? trigger.content
+              : [];
+          const at = content.findIndex(
+            (part) => part.type === 'text' && part.text === item.data.text,
+          );
+          expect(at).toBeGreaterThanOrEqual(0);
+          return content[at + 1];
+        };
+        expect(await itemThen(sent.media, true)).toMatchObject({
+          type: 'image',
+          mediaType: 'image/png',
+        });
+        expect(
+          await itemThen(createRunMediaResolver(tenantDb, userId), false),
+        ).toEqual({
+          type: 'text',
+          text: `[image ${JSON.stringify(locator)} 160×90, omitted: this model has no image input]`,
+        });
+      } finally {
+        await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
         rmSync(root, { recursive: true, force: true });
       }
     });

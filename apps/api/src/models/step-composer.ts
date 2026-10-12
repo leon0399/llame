@@ -7,6 +7,7 @@ import {
   fileMediaRef,
   loadMediaSizing,
   toolItemRef,
+  userImageRef,
   type MediaAdmission,
   type MediaRef,
   type MediaSizing,
@@ -75,8 +76,10 @@ type ResolvedImage = { subject: ImageSubject; attached?: AttachedImage };
  * Only the stored bytes of images sent as images are loaded.
  *
  * An unstored image enters the attempt's window when it is first composed, in
- * request order, so in tool-call order: one the window refuses then is never
- * attached later in the attempt, so its bytes are dropped for good (R1.4).
+ * request order: a `read` in tool-call order, a prompt import with the
+ * attempt's first request, after any compaction. One the window refuses then
+ * is never attached later in the attempt, so its bytes are dropped for good
+ * (R1.4).
  *
  * Idempotent: the output carries no references, and a request without any is
  * returned as is; otherwise messages without any keep their identity.
@@ -269,9 +272,11 @@ const IMAGE_FOLLOWS = 'The image follows in the next message.';
  * `project(ref, index)`, where `index` is the reference's position among all
  * of `messages`' references. A user message's `media://` file part is
  * preceded by its label `Image n (media://<id>):` (n counting that message's
- * references from 1). A tool result's image reference is projected in place
- * after the result's text, an image becoming `image-data`; a result left with
- * text alone becomes a text output of those texts joined by newlines.
+ * file references from 1); its image reference part (a prompt-import image,
+ * stored or unstored) is projected in place, unlabelled, right after the
+ * item's text. A tool result's image reference is projected in place after
+ * the result's text, an image becoming `image-data`; a result left with text
+ * alone becomes a text output of those texts joined by newlines.
  *
  * With `moveToolImages`, for the Chat Completions wires (vision-media D6,
  * after OMP's `openai-completions`), a tool result's projected images leave
@@ -323,22 +328,41 @@ type NextRef = (ref: MediaRef) => Array<ProjectedMedia>;
 type ToolMessage = Extract<ModelMessage, { role: 'tool' }>;
 type ToolMessagePart = ToolMessage['content'][number];
 
-/** A user message with its `media://` file parts labelled and projected. */
+/** A user message with its references labelled and projected. */
 function mapUserRefs(message: ModelMessage, next: NextRef): ModelMessage {
   if (message.role !== 'user' || !Array.isArray(message.content)) {
     return message;
   }
+  const content = mapUserContentRefs(message.content, next);
+  return content === undefined ? message : { ...message, content };
+}
+
+/**
+ * A user message's content with each reference projected by `next` (see
+ * `mapMediaRefs`), or undefined when it holds none.
+ */
+function mapUserContentRefs(
+  parts: Array<UserContentPart>,
+  next: NextRef,
+): Array<UserContentPart> | undefined {
   let label = 0;
-  const content = message.content.flatMap((part): Array<UserContentPart> => {
+  let mapped = false;
+  const content = parts.flatMap((part): Array<UserContentPart> => {
+    const image = part.type === 'image' ? userImageRef(part) : undefined;
+    if (image !== undefined) {
+      mapped = true;
+      return next(image);
+    }
     const id = part.type === 'file' ? fileMediaRef(part) : undefined;
     if (id === undefined) return [part];
+    mapped = true;
     label += 1;
     return [
       { type: 'text', text: `Image ${label} (${mediaLocator(id)}):` },
       ...next(id),
     ];
   });
-  return label === 0 ? message : { ...message, content };
+  return mapped ? content : undefined;
 }
 
 /**

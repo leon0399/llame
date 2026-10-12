@@ -4,6 +4,7 @@ import {
   adoptServerHistory,
   isInstructionsPart,
   isPromptImportsPart,
+  type PromptImportsPayload,
   messageRenderKey,
   mergeTrustedModelContextParts,
   messageSeqFromMetadata,
@@ -780,6 +781,129 @@ describe("prompt-imports context items", () => {
     ).toBe(true);
   });
 
+  it("accepts an imported image entry carrying its media locator beside every other outcome", () => {
+    const image = {
+      locator: "shot.png",
+      resolved: "/home/u/repo/shot.png",
+      outcome: "imported" as const,
+      media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+    };
+    const item = withPayload({
+      imports: [image, ...promptImportsItem.data.payload.imports],
+      omitted: ["extra.md"],
+    });
+
+    expect(isPromptImportsPart(item)).toBe(true);
+    if (!isPromptImportsPart(item)) return;
+    expect(item.data.payload.imports.map((entry) => entry.outcome)).toEqual([
+      "imported",
+      "imported",
+      "imported",
+      "denied",
+      "failed",
+    ]);
+  });
+
+  it("accepts an imported image entry carrying its inline thumbnail and the original's size and type", () => {
+    const image = {
+      locator: "shot.png",
+      resolved: "/home/u/repo/shot.png",
+      outcome: "imported" as const,
+      thumbnail: "data:image/webp;base64,UklGRg==",
+      width: 1600,
+      height: 900,
+      mediaType: "image/png",
+    };
+
+    expect(isPromptImportsPart(withPayload({ imports: [image] }))).toBe(true);
+  });
+
+  it("accepts an unstored image entry whose thumbnail exceeded the cap and was left out", () => {
+    const image = {
+      locator: "shot.png",
+      outcome: "imported" as const,
+      width: 8000,
+      height: 6000,
+      mediaType: "image/png",
+    };
+
+    expect(isPromptImportsPart(withPayload({ imports: [image] }))).toBe(true);
+  });
+
+  it("rejects a malformed unstored image entry or one carrying both thumbnail and media", () => {
+    const image = {
+      locator: "shot.png",
+      outcome: "imported",
+      thumbnail: "data:image/webp;base64,UklGRg==",
+      width: 1600,
+      height: 900,
+      mediaType: "image/png",
+    };
+    const withoutWidth = {
+      locator: image.locator,
+      outcome: image.outcome,
+      thumbnail: image.thumbnail,
+      height: image.height,
+      mediaType: image.mediaType,
+    };
+    for (const bad of [
+      { ...image, media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f" },
+      { ...image, thumbnail: "data:image/png;base64,iVBORw0KGgo=" },
+      { ...image, thumbnail: "https://example.com/shot.webp" },
+      {
+        ...image,
+        thumbnail: `data:image/webp;base64,${"A".repeat(65_536)}`,
+      },
+      { ...image, width: 0 },
+      { ...image, height: 1.5 },
+      { ...image, mediaType: "image/svg+xml" },
+      { ...image, outcome: "failed" },
+      withoutWidth,
+      { locator: image.locator, outcome: image.outcome, width: image.width },
+      {
+        locator: image.locator,
+        outcome: image.outcome,
+        height: image.height,
+        mediaType: image.mediaType,
+      },
+      { locator: image.locator, outcome: image.outcome, height: image.height },
+      {
+        locator: image.locator,
+        outcome: image.outcome,
+        mediaType: image.mediaType,
+      },
+      { ...image, thumbnail: undefined },
+    ]) {
+      expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
+    }
+  });
+
+  it("types an entry no wider than the validator admits", () => {
+    type Entry = PromptImportsPayload["imports"][number];
+    const base = { locator: "shot.png", outcome: "imported" } as const;
+    const size = { width: 1600, height: 900, mediaType: "image/png" };
+    const media = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
+
+    const valid: Array<Entry> = [
+      base,
+      { ...base, media },
+      { ...base, ...size },
+    ];
+    // @ts-expect-error `width` without `height` and `mediaType`.
+    const widthOnly: Entry = { ...base, width: 1600 };
+    // @ts-expect-error `height` and `mediaType` without `width`.
+    const noWidth: Entry = { ...base, height: 900, mediaType: "image/png" };
+    // @ts-expect-error `mediaType` without `width` and `height`.
+    const typeOnly: Entry = { ...base, mediaType: "image/png" };
+    // @ts-expect-error A stored image carries no original's size and type.
+    const both: Entry = { ...base, media, ...size };
+
+    expect(isPromptImportsPart(withPayload({ imports: valid }))).toBe(true);
+    for (const bad of [widthOnly, noWidth, typeOnly, both]) {
+      expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
+    }
+  });
+
   it("accepts empty imports only beside a non-empty omitted list", () => {
     expect(
       isPromptImportsPart(withPayload({ imports: [], omitted: ["a.md"] })),
@@ -797,6 +921,22 @@ describe("prompt-imports context items", () => {
       { ...entry, locator: "  " },
       { ...entry, resolved: "" },
       { ...entry, truncated: "yes" },
+      { ...entry, resolved: undefined },
+      { ...entry, truncated: undefined },
+      { ...entry, media: "media://not-a-uuid" },
+      { ...entry, media: "MEDIA://0190F5E2-7C1A-7B3E-9D4F-2A6B8C0D1E2F" },
+      {
+        ...entry,
+        outcome: "failed",
+        media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+      },
+      {
+        ...entry,
+        media: "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f",
+        width: 1600,
+        height: 900,
+        mediaType: "image/png",
+      },
     ]) {
       expect(isPromptImportsPart(withPayload({ imports: [bad] }))).toBe(false);
     }

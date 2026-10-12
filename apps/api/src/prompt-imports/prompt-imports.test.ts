@@ -17,6 +17,8 @@ type HarnessOptions = {
   readonly existing?: ReadonlyArray<string>;
   /** Selector-free `kb://` locators a probe finds, with their canonical form. */
   readonly knowledge?: Readonly<Record<string, string>>;
+  /** Selector-free `media://` locators the owner stores. */
+  readonly media?: ReadonlyArray<string>;
   readonly reject?: (path: string) => boolean;
   readonly body?: (path: string) => string;
   readonly result?: (path: string) => ToolResult;
@@ -40,7 +42,10 @@ function createHarness(options: HarnessOptions = {}) {
     admits: new Array<string>(),
     hostProbes: new Array<string>(),
     knowledgeProbes: new Array<string>(),
+    mediaProbes: new Array<string>(),
     reads: new Array<{ path: string; ordinal: number }>(),
+    /** The entry locator each read was issued for, in read order. */
+    readLocators: new Array<string>(),
   };
   const existing = new Set(options.existing ?? []);
   const controller = new AbortController();
@@ -70,8 +75,16 @@ function createHarness(options: HarnessOptions = {}) {
           Promise.resolve(options.knowledge?.[locator])
         );
       },
-      readImport: (path, ordinal) => {
+      probeMedia: (locator) => {
+        calls.mediaProbes.push(locator);
+        now += options.probeCostMs ?? 0;
+        return Promise.resolve(
+          options.media?.includes(locator) === true ? locator : undefined,
+        );
+      },
+      readImport: (path, ordinal, locator) => {
         calls.reads.push({ path, ordinal });
+        calls.readLocators.push(locator);
         now += options.readCostMs ?? 0;
         options.onRead?.(path, controller);
         return Promise.resolve({
@@ -715,5 +728,218 @@ describe('resolvePromptImports abort', () => {
       outcomes: [],
       omitted: ['https://x.test/after'],
     });
+  });
+});
+
+describe('resolvePromptImports image entries', () => {
+  const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  const FOREIGN = 'media://0190f5e2-7c1a-7b3e-9d4f-00000000000b';
+  /** A thumbnail near its 64 KiB cap, so counting it would close the bound. */
+  const THUMBNAIL = `data:image/webp;base64,${'A'.repeat(60_000)}`;
+  const UNSTORED = {
+    thumbnail: THUMBNAIL,
+    width: 1600,
+    height: 900,
+    mediaType: 'image/png',
+  } as const;
+  /** The native image result `read` returns for an unstored `path`. */
+  const imageResult = (path: string): ToolResult => ({
+    status: 'success',
+    kind: 'image',
+    ...UNSTORED,
+    path,
+  });
+  /** The native image result `read` returns for the owner's `MEDIA`. */
+  const mediaResult: ToolResult = {
+    status: 'success',
+    kind: 'image',
+    media: MEDIA,
+    mediaType: 'image/png',
+    width: 1600,
+    height: 900,
+  };
+  /** The model-facing envelope of an image result: no thumbnail. */
+  const envelope = (path: string) =>
+    JSON.stringify({ ...imageResult(path), thumbnail: undefined });
+  const isImage = (path: string) => path.endsWith('.png');
+
+  it('turns an image read into an unstored image entry whose body is the read envelope', async () => {
+    const { calls, run } = createHarness({
+      existing: ['/repo/shot.png'],
+      result: imageResult,
+      body: envelope,
+    });
+
+    const result = await run('see @shot.png');
+
+    expect(calls.reads).toEqual([{ path: '/repo/shot.png', ordinal: 0 }]);
+    expect(calls.readLocators).toEqual(['shot.png']);
+    expect(result.outcomes).toEqual([
+      {
+        locator: 'shot.png',
+        resolved: '/repo/shot.png',
+        outcome: 'imported',
+        body: envelope('/repo/shot.png'),
+        image: UNSTORED,
+      },
+    ]);
+  });
+
+  it('keeps the size and type of an image read whose thumbnail exceeded the cap', async () => {
+    const { thumbnail: _thumbnail, ...original } = UNSTORED;
+    const { run } = createHarness({
+      existing: ['/repo/noise.png'],
+      result: (path) => ({
+        status: 'success',
+        kind: 'image',
+        ...original,
+        path,
+      }),
+      body: envelope,
+    });
+
+    const result = await run('see @noise.png');
+
+    expect(result.outcomes).toEqual([
+      {
+        locator: 'noise.png',
+        resolved: '/repo/noise.png',
+        outcome: 'imported',
+        body: envelope('/repo/noise.png'),
+        image: original,
+      },
+    ]);
+  });
+
+  it('counts an image entry toward the eight-target bound', async () => {
+    const { calls, run } = createHarness({
+      existing: ['/repo/shot.png'],
+      result: (path) => (isImage(path) ? imageResult(path) : OK),
+    });
+
+    const result = await run(
+      `@shot.png ${tokens(8, (index) => `https://x.test/${index}`)}`,
+    );
+
+    expect(calls.reads.map(({ path }) => path)).toEqual([
+      '/repo/shot.png',
+      ...Array.from({ length: 7 }, (_, index) => `https://x.test/${index}`),
+    ]);
+    expect(result.outcomes[0]).toMatchObject({ image: UNSTORED });
+    expect(result.omitted).toEqual(['https://x.test/7']);
+  });
+
+  it('counts only the image envelope toward the output bound, never its thumbnail', async () => {
+    // The envelope is all the text an image contributes; its model variant
+    // and thumbnail never enter the item, however large they are.
+    const { run } = createHarness({
+      existing: ['/repo/shot.png'],
+      result: (path) => (isImage(path) ? imageResult(path) : OK),
+      body: (path) => (isImage(path) ? envelope(path) : 'a'.repeat(120 * 1024)),
+    });
+
+    const result = await run('@shot.png @https://x.test/long');
+
+    expect(result.outcomes.map((outcome) => outcome.locator)).toEqual([
+      'shot.png',
+      'https://x.test/long',
+    ]);
+    expect(result.omitted).toEqual([]);
+  });
+
+  it('audits a denied image target without a probe or an image entry', async () => {
+    const { calls, run } = createHarness({
+      existing: ['/tmp/shot.png'],
+      reject: (path) => path === '/tmp/shot.png',
+      result: imageResult,
+    });
+
+    const result = await run('@/tmp/shot.png');
+
+    expect(calls.hostProbes).toEqual([]);
+    expect(calls.reads).toEqual([{ path: '/tmp/shot.png', ordinal: 0 }]);
+    expect(result.outcomes).toEqual([
+      { locator: '/tmp/shot.png', outcome: 'denied' },
+    ]);
+  });
+
+  it('records an image the decode refused as not imported', async () => {
+    const { run } = createHarness({
+      existing: ['/repo/huge.png'],
+      result: () => ({
+        status: 'error',
+        type: 'image_too_large',
+        message: 'The image exceeds the 40-megapixel limit.',
+      }),
+    });
+
+    const result = await run('@huge.png');
+
+    expect(result.outcomes).toEqual([
+      { locator: 'huge.png', resolved: '/repo/huge.png', outcome: 'failed' },
+    ]);
+  });
+
+  it('probes an owned media locator and imports it as an image entry', async () => {
+    const { calls, run } = createHarness({
+      hostAvailable: false,
+      knowledgeAvailable: false,
+      media: [MEDIA],
+      result: () => mediaResult,
+    });
+
+    const result = await run(`look at @${MEDIA}`);
+
+    expect(calls.admits).toEqual([MEDIA]);
+    expect(calls.mediaProbes).toEqual([MEDIA]);
+    expect(calls.reads).toEqual([{ path: MEDIA, ordinal: 0 }]);
+    expect(result.outcomes).toEqual([
+      {
+        locator: MEDIA,
+        resolved: MEDIA,
+        outcome: 'imported',
+        body: `body of ${MEDIA}`,
+        image: { media: MEDIA },
+      },
+    ]);
+  });
+
+  it('probes the selector-free media locator', async () => {
+    const { calls, run } = createHarness({ media: [MEDIA] });
+
+    await run(`@${MEDIA}:1-2`);
+
+    expect(calls.admits).toEqual([`${MEDIA}:1-2`]);
+    expect(calls.mediaProbes).toEqual([MEDIA]);
+    expect(calls.reads).toEqual([{ path: `${MEDIA}:1-2`, ordinal: 0 }]);
+  });
+
+  it("keeps another owner's media locator prose", async () => {
+    const { calls, run } = createHarness({ media: [MEDIA] });
+
+    const result = await run(`@${FOREIGN}`);
+
+    expect(calls.mediaProbes).toEqual([FOREIGN]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
+  });
+
+  it('audits a denied media target without a lookup and never counts it', async () => {
+    const { calls, run } = createHarness({
+      media: [MEDIA],
+      reject: (path) => path === MEDIA,
+    });
+
+    const result = await run(
+      `@${MEDIA} ${tokens(8, (index) => `https://x.test/${index}`)}`,
+    );
+
+    expect(calls.mediaProbes).toEqual([]);
+    expect(result.outcomes[0]).toEqual({ locator: MEDIA, outcome: 'denied' });
+    expect(result.outcomes.slice(1).map((outcome) => outcome.outcome)).toEqual(
+      Array.from({ length: 8 }, () => 'imported'),
+    );
+    expect(result.omitted).toEqual([]);
+    expect(calls.reads).toHaveLength(9);
   });
 });

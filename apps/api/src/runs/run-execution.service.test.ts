@@ -40,6 +40,7 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 
 import type {
   Chat,
+  MediaObject,
   Message,
   ModelToolDeclaration,
   Run,
@@ -85,7 +86,9 @@ import { PromptImportPartsRepository } from '../chats/prompt-import-parts.reposi
 import {
   createPromptImportsItem,
   isPromptImportsPayload,
+  promptImportImageKey,
 } from '../chats/prompt-imports-item';
+import { MediaService } from '../media/media.service';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import {
   createContextItemPart,
@@ -126,7 +129,7 @@ import type {
 } from '../compaction/compaction.service';
 import { estimateContinuationTokens } from '../compaction/compaction';
 import type { MediaDescriptor } from '../media/media-descriptors';
-import { descriptor } from '../media/media-fixtures';
+import { descriptor, randomPng } from '../media/media-fixtures';
 import { composeStepMessages } from '../models/step-composer';
 
 import type { TitleCapability } from '../titles/title.service';
@@ -7053,6 +7056,35 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
     });
 
+    it("counts the triggering message's prompt-import images as its own", async () => {
+      // The item lands on the stored row after the Run was queued, so the
+      // queued parts carry none of its references.
+      const ids = triggerIds(5);
+      const triggerParts = [{ type: 'text', text: 'look at these' }];
+      const item = createPromptImportsItem({
+        runId,
+        outcomes: ids.map((id, n) => ({
+          locator: `shot${n}.png`,
+          outcome: 'imported' as const,
+          body: '{"status":"success","kind":"image"}',
+          image: { media: `media://${id}` },
+        })),
+        omitted: [],
+      });
+
+      const { execution } = await executeTriggerCase({
+        client: visionClient().client,
+        historyRows: [
+          ...committedTurn({ contextTokens: 100 }),
+          { ...triggerTurn(), parts: [item, ...triggerParts] },
+        ],
+        triggerParts,
+        mediaRows: ids.map((id) => image(id, 5)),
+      });
+
+      expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+    });
+
     it('sizes images as placeholders for a model that declares no input', async () => {
       // As an image this one alone is past the window (ceil(w×h/750) tokens).
       const [id = ''] = triggerIds(1);
@@ -12456,6 +12488,297 @@ describe('RunExecutionService prompt imports', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  describe('image targets (vision-media D8)', () => {
+    const IMAGE_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+    const MEDIA = `media://${IMAGE_ID}`;
+
+    function mediaObject(ownerUserId: string): MediaObject {
+      return {
+        id: IMAGE_ID,
+        ownerUserId,
+        name: 'shot.png',
+        mediaType: 'image/png',
+        width: 1600,
+        height: 900,
+        byteSize: 100,
+        modelMediaType: 'image/png',
+        modelWidth: 1600,
+        modelHeight: 900,
+        modelByteSize: 100,
+        sha256: 'digest',
+        createdAt: new Date(0),
+      };
+    }
+
+    /** The owner's media: `owner` alone holds IMAGE_ID; ingest is watched. */
+    function serveMedia(owner: string) {
+      const ingest = vi.spyOn(MediaService.prototype, 'ingest');
+      const findOwned = vi
+        .spyOn(MediaService.prototype, 'findOwned')
+        .mockImplementation((ownerUserId, id) =>
+          Promise.resolve(
+            ownerUserId === owner && id === IMAGE_ID
+              ? mediaObject(ownerUserId)
+              : undefined,
+          ),
+        );
+      return { ingest, findOwned };
+    }
+
+    /**
+     * History whose triggering row carries `text` after the prompt-imports
+     * item: `stored`, or the one the attempt appended.
+     */
+    function serveTriggerRow(
+      append: MockInstance<PromptImportPartsRepository['appendForRun']>,
+      text: string,
+      stored?: Message['parts'][number],
+    ) {
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+        () => {
+          const item = stored ?? append.mock.calls[0]?.[0].item;
+          return Promise.resolve([
+            {
+              ...userMessage,
+              parts: [...(item ? [item] : []), { type: 'text', text }],
+            },
+          ]);
+        },
+      );
+    }
+
+    /**
+     * The content following the prompt-imports item's text in the first
+     * request, as the composer every client installs projects it.
+     */
+    async function afterItemText(
+      stream: MockInstance<ModelClient['streamText']>,
+      imageInput: boolean,
+    ) {
+      const sent = stream.mock.calls[0]?.[0];
+      if (sent?.media === undefined) throw new Error('no media resolver sent');
+      const composed = await composeStepMessages(sent.messages, {
+        resolver: sent.media,
+        imageInput,
+      });
+      const trigger = composed.at(-1);
+      const content =
+        trigger?.role === 'user' && Array.isArray(trigger.content)
+          ? trigger.content
+          : [];
+      const at = content.findIndex(
+        (part) =>
+          part.type === 'text' &&
+          part.text.includes('producer="prompt-imports"'),
+      );
+      return { next: content[at + 1], composed };
+    }
+
+    async function importShot(imageInput: boolean, root: string) {
+      writeFileSync(path.join(root, 'shot.png'), await randomPng(160, 90));
+      const { append, events } = serveRepositories();
+      serveTriggerRow(append, 'see @shot.png');
+      bindChat(root);
+      const { ingest } = serveMedia(userId);
+      const execution = serviceFor(['enter_workspace', 'read']);
+      if (imageInput) {
+        Object.assign(execution.client, { input: ['text', 'image'] });
+      }
+      const stream = vi.spyOn(execution.client, 'streamText');
+      const result = await execution.service.executeRun(
+        promptInput(execution.client, 'see @shot.png'),
+      );
+      await expect(result.text).resolves.toBe('answer');
+      const output = importEvents(events).find(
+        ({ type }) => type === 'tool.completed',
+      )?.payload['output'];
+      return { append, ingest, stream, output };
+    }
+
+    it('imports an image target without storing it, its variant after the item text', async () => {
+      const root = repoRoot();
+      try {
+        const { append, ingest, stream, output } = await importShot(true, root);
+
+        expect(ingest).not.toHaveBeenCalled();
+        const webpDataUrl: unknown = expect.stringMatching(
+          /^data:image\/webp;base64,/,
+        );
+        expect(output).toEqual({
+          status: 'success',
+          kind: 'image',
+          mediaType: 'image/png',
+          width: 160,
+          height: 90,
+          path: `${root}/shot.png`,
+          thumbnail: webpDataUrl,
+        });
+        const thumbnail = isRecord(output) ? output['thumbnail'] : undefined;
+        const item = append.mock.calls[0]?.[0].item;
+        expect(item?.data.payload).toEqual({
+          imports: [
+            {
+              locator: 'shot.png',
+              resolved: `${root}/shot.png`,
+              outcome: 'imported',
+              thumbnail,
+              width: 160,
+              height: 90,
+              mediaType: 'image/png',
+            },
+          ],
+        });
+        expect(item?.data.text).toContain(
+          `<file path="shot.png">\n${serializeNativeModelOutput(output)}\n</file>`,
+        );
+        expect(item?.data.text).not.toContain('data:image/webp');
+        const { next, composed } = await afterItemText(stream, true);
+        const anyBytes: unknown = expect.any(Uint8Array);
+        expect(next).toEqual({
+          type: 'image',
+          image: anyBytes,
+          mediaType: 'image/png',
+        });
+        expect(JSON.stringify(composed)).not.toContain('data:image/webp');
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('sends a text-only model the omitted placeholder for an imported image', async () => {
+      const root = repoRoot();
+      try {
+        const { stream } = await importShot(false, root);
+
+        const sent = stream.mock.calls[0]?.[0];
+        expect(
+          sent?.media?.images.get(promptImportImageKey(runId, 'shot.png')),
+        ).toEqual({
+          locator: `${root}/shot.png`,
+          width: 160,
+          height: 90,
+        });
+        expect((await afterItemText(stream, false)).next).toEqual({
+          type: 'text',
+          text: '[image "shot.png" 160×90, omitted: this model has no image input]',
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('imports an owned media locator alone, without ingesting a new object', async () => {
+      const root = repoRoot();
+      try {
+        const { append } = serveRepositories();
+        bindChat(root);
+        const { ingest, findOwned } = serveMedia(userId);
+        const execution = serviceFor(['enter_workspace', 'read']);
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, `look at @${MEDIA}`),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(findOwned).toHaveBeenCalledWith(userId, IMAGE_ID);
+        expect(ingest).not.toHaveBeenCalled();
+        expect(append.mock.calls[0]?.[0].item.data.payload).toEqual({
+          imports: [
+            {
+              locator: MEDIA,
+              resolved: MEDIA,
+              outcome: 'imported',
+              media: MEDIA,
+            },
+          ],
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("keeps another owner's media locator prose without a read or audit", async () => {
+      const root = repoRoot();
+      try {
+        const { append, events } = serveRepositories();
+        bindChat(root);
+        const { findOwned } = serveMedia('user-b');
+        const read = vi.spyOn(nativeReadTool, 'execute');
+        const execution = serviceFor(['enter_workspace', 'read']);
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, `look at @${MEDIA}`),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(findOwned).toHaveBeenCalledWith(userId, IMAGE_ID);
+        expect(read).not.toHaveBeenCalled();
+        expect(append).not.toHaveBeenCalled();
+        expect(importEvents(events)).toEqual([]);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it('reuses the persisted entry on recovery, sending the not-retained placeholder', async () => {
+      const root = repoRoot();
+      try {
+        writeFileSync(path.join(root, 'shot.png'), await randomPng(160, 90));
+        const { find, append, events } = serveRepositories();
+        bindChat(root);
+        const stored = createPromptImportsItem({
+          runId,
+          outcomes: [
+            {
+              locator: 'shot.png',
+              resolved: `${root}/shot.png`,
+              outcome: 'imported',
+              body: '{"status":"success","kind":"image"}',
+              image: {
+                thumbnail: 'data:image/webp;base64,UklGRg==',
+                width: 160,
+                height: 90,
+                mediaType: 'image/png',
+              },
+            },
+          ],
+          omitted: [],
+        });
+        const payload = stored.data.payload;
+        if (!isPromptImportsPayload(payload)) {
+          throw new Error('the stored item must carry a valid payload');
+        }
+        const item = { ...stored, data: { ...stored.data, payload } };
+        find.mockResolvedValue(item);
+        serveTriggerRow(append, 'see @shot.png', item);
+        // The file changed on disk after the import completed.
+        writeFileSync(path.join(root, 'shot.png'), await randomPng(320, 180));
+        const { ingest, findOwned } = serveMedia(userId);
+        const read = vi.spyOn(nativeReadTool, 'execute');
+        const execution = serviceFor(['enter_workspace', 'read']);
+        Object.assign(execution.client, { input: ['text', 'image'] });
+        const stream = vi.spyOn(execution.client, 'streamText');
+
+        const result = await execution.service.executeRun(
+          promptInput(execution.client, 'see @shot.png'),
+        );
+        await expect(result.text).resolves.toBe('answer');
+
+        expect(read).not.toHaveBeenCalled();
+        expect(ingest).not.toHaveBeenCalled();
+        expect(findOwned).not.toHaveBeenCalled();
+        expect(append).not.toHaveBeenCalled();
+        expect(importEvents(events)).toEqual([]);
+        expect((await afterItemText(stream, true)).next).toEqual({
+          type: 'text',
+          text: '[image "shot.png" 160×90, not retained]',
+        });
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
   });
 
   it('never turns prompt-import activity into an assistant tool part', async () => {

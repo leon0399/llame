@@ -63,6 +63,16 @@ describe('derivePromptImportTriggers', () => {
     ).toEqual([]);
   });
 
+  it('names no trigger for an imported media:// image entry', () => {
+    const media = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+    expect(
+      derivePromptImportTriggers(
+        [{ locator: media, resolved: media, outcome: 'imported', media }],
+        BOTH,
+      ),
+    ).toEqual([]);
+  });
+
   it('does not trigger on an uppercase Space id in a persisted kb:// entry', () => {
     const triggers = derivePromptImportTriggers(
       [

@@ -16,10 +16,16 @@ import { z } from 'zod';
 import type { HeldImage, RetainedVariant } from '../media/attempt-images';
 import {
   EPOCH_MAX_BASE64_BYTES,
+  loadMediaSizing,
   toolResultOutput,
 } from '../media/epoch-admission';
+import type { RunMediaResolver } from '../media/media-descriptors';
 import { descriptor, fakeResolver } from '../media/media-fixtures';
 import { buildContext, type StoredMessage } from '../chats/context-builder';
+import {
+  createPromptImportsItem,
+  promptImportImageKey,
+} from '../chats/prompt-imports-item';
 import type { ModelStreamInput } from './model-client';
 import { composeStepMessages, installStepPreparation } from './step-composer';
 
@@ -206,6 +212,17 @@ describe('composeStepMessages', () => {
       await composeStepMessages(plain, { resolver, imageInput: true }),
     ).toBe(plain);
 
+    // A message without a reference keeps its identity beside one that has.
+    const unreferenced: ModelMessage = {
+      role: 'user',
+      content: [{ type: 'text', text: 'no reference' }],
+    };
+    const mixed = await composeStepMessages(
+      [{ role: 'user', content: [fileRef(A)] }, unreferenced],
+      { resolver, imageInput: true },
+    );
+    expect(mixed[1]).toBe(unreferenced);
+
     const once = await composeStepMessages(
       [{ role: 'user', content: [fileRef(A)] }],
       { resolver, imageInput: true },
@@ -213,6 +230,225 @@ describe('composeStepMessages', () => {
     expect(
       await composeStepMessages(once, { resolver, imageInput: true }),
     ).toBe(once);
+  });
+
+  describe('prompt-import images', () => {
+    const RUN = '11111111-2222-4333-8444-555555555555';
+    const KEY = promptImportImageKey(RUN, 'shot.png');
+    const THUMBNAIL = 'data:image/webp;base64,UklGRg==';
+    const item = createPromptImportsItem({
+      runId: RUN,
+      outcomes: [
+        {
+          locator: 'shot.png',
+          resolved: '/repo/shot.png',
+          outcome: 'imported',
+          body: '{"status":"success","kind":"image","path":"/repo/shot.png"}',
+          image: {
+            thumbnail: THUMBNAIL,
+            width: 1600,
+            height: 900,
+            mediaType: 'image/png',
+          },
+        },
+        {
+          locator: `media://${A}`,
+          resolved: `media://${A}`,
+          outcome: 'imported',
+          body: '{"status":"success","kind":"image"}',
+          image: { media: `media://${A}` },
+        },
+      ],
+      omitted: [],
+    });
+    /**
+     * A stored user message whose prompt imported `@shot.png` unstored and
+     * `@media://A`, beside an owner file B.
+     */
+    const stored: StoredMessage = {
+      id: 'msg-1',
+      chatId: 'chat-1',
+      seq: 1,
+      role: 'user',
+      senderUserId: 'user-1',
+      attachments: [],
+      createdAt: new Date(0),
+      parts: [
+        item,
+        { type: 'file', mediaType: 'image/png', url: `media://${B}` },
+        { type: 'text', text: 'compare' },
+      ],
+    };
+    const replay = (messages: Array<StoredMessage>) =>
+      buildContext(messages, {
+        systemPrompt: 'system',
+        requestKind: 'continuation',
+      }).messages;
+    const itemText = { type: 'text', text: item.data.text } as const;
+    const shotImage = (bytes: Uint8Array) =>
+      ({ type: 'image', image: bytes, mediaType: 'image/png' }) as const;
+    /** The importing attempt's entry for `@shot.png`, with its variant. */
+    const holdShot = (resolver: RunMediaResolver, bytes: Buffer | undefined) =>
+      resolver.images.set(KEY, {
+        locator: '/repo/shot.png',
+        width: 1600,
+        height: 900,
+        ...(bytes && {
+          model: { bytes, mediaType: 'image/png', width: 1600, height: 900 },
+        }),
+      });
+
+    it('sends the item text followed by its images, the unstored one from the attempt memory', async () => {
+      const { resolver } = fakeResolver([descriptor(A), descriptor(B)]);
+      const shot = Buffer.from([0x73]);
+      holdShot(resolver, shot);
+
+      const composed = await composeStepMessages(replay([stored]), {
+        resolver,
+        imageInput: true,
+      });
+
+      expect(composed[0]?.content).toEqual([
+        itemText,
+        shotImage(shot),
+        shotImage(new Uint8Array([0x61])),
+        { type: 'text', text: `Image 1 (media://${B}):` },
+        shotImage(new Uint8Array([0x62])),
+        { type: 'text', text: 'compare' },
+      ]);
+      expect(itemText.text).toContain('<file path="shot.png">');
+      expect(JSON.stringify(composed)).not.toContain(THUMBNAIL);
+      expect(
+        await composeStepMessages(composed, { resolver, imageInput: true }),
+      ).toBe(composed);
+    });
+
+    it('sends a text-only model the omitted placeholders after the item text and no image', async () => {
+      const { resolver, loads } = fakeResolver([
+        descriptor(A, { name: 'stored.png' }),
+        descriptor(B),
+      ]);
+      holdShot(resolver, undefined);
+
+      const composed = await composeStepMessages(replay([stored]), {
+        resolver,
+        imageInput: false,
+      });
+
+      expect(composed[0]?.content.slice(0, 3)).toEqual([
+        itemText,
+        {
+          type: 'text',
+          text: '[image "shot.png" 1600×900, omitted: this model has no image input]',
+        },
+        {
+          type: 'text',
+          text: `[image media://${A} stored.png 1600×900, omitted: this model has no image input]`,
+        },
+      ]);
+      expect(composed[0]?.content).not.toContainEqual(
+        expect.objectContaining({ type: 'image' }),
+      );
+      expect(loads).toEqual([]);
+    });
+
+    it('gives a later turn the not-retained placeholder and the media import from the store', async () => {
+      const { resolver } = fakeResolver([descriptor(A), descriptor(B)]);
+
+      const composed = await composeStepMessages(replay([stored]), {
+        resolver,
+        imageInput: true,
+      });
+
+      expect(composed[0]?.content.slice(0, 3)).toEqual([
+        itemText,
+        {
+          type: 'text',
+          text: '[image "shot.png" 1600×900, not retained]',
+        },
+        shotImage(new Uint8Array([0x61])),
+      ]);
+    });
+
+    it('gives a later text-only turn the omitted placeholder, never the not-retained one', async () => {
+      const { resolver } = fakeResolver([descriptor(A), descriptor(B)]);
+
+      const composed = await composeStepMessages(replay([stored]), {
+        resolver,
+        imageInput: false,
+      });
+
+      expect(composed[0]?.content[1]).toEqual({
+        type: 'text',
+        text: '[image "shot.png" 1600×900, omitted: this model has no image input]',
+      });
+      expect(JSON.stringify(composed)).not.toContain('not retained');
+    });
+
+    /** An earlier turn whose one owner file fills most of the byte budget. */
+    const earlier: StoredMessage = {
+      ...stored,
+      id: 'msg-0',
+      seq: 0,
+      parts: [
+        { type: 'file', mediaType: 'image/png', url: `media://${B}` },
+        { type: 'text', text: 'look' },
+      ],
+    };
+    const trigger: StoredMessage = {
+      ...stored,
+      parts: [item, { type: 'text', text: 'and this?' }],
+    };
+    const nearlyFull = () =>
+      fakeResolver([
+        descriptor(A),
+        descriptor(B, { modelByteSize: EPOCH_MAX_BASE64_BYTES * 0.7 }),
+      ]).resolver;
+    // 4 MiB of base64: past what the earlier file leaves.
+    const shotBytes = () => Buffer.alloc(3_145_728);
+
+    it('drops the bytes of an import the window refuses as the first request is composed', async () => {
+      const resolver = nearlyFull();
+      holdShot(resolver, shotBytes());
+
+      const composed = await composeStepMessages(replay([earlier, trigger]), {
+        resolver,
+        imageInput: true,
+      });
+
+      expect(composed[1]?.content[1]).toEqual({
+        type: 'text',
+        text: `[image "shot.png" 1600×900, not attached: this context's image limit is reached]`,
+      });
+      expect(resolver.images.get(KEY)?.model).toBeUndefined();
+    });
+
+    it('admits the import of a compacting attempt in the new epoch', async () => {
+      const resolver = nearlyFull();
+      const shot = shotBytes();
+      holdShot(resolver, shot);
+
+      // The pre-step estimate sees the overflow but drops nothing.
+      const estimate = await loadMediaSizing(
+        replay([earlier, trigger]),
+        resolver,
+        true,
+      );
+      expect(estimate.statuses).toEqual(['attached', 'limit', 'limit']);
+      expect(resolver.images.get(KEY)?.model?.bytes).toBe(shot);
+      // Compaction absorbed the earlier turn: the first request carries the
+      // import as an image and the attempt keeps it.
+      const composed = await composeStepMessages(replay([trigger]), {
+        resolver,
+        imageInput: true,
+      });
+
+      const content = composed[0]?.content;
+      const sent = Array.isArray(content) ? content[1] : undefined;
+      expect(sent).toMatchObject({ type: 'image', mediaType: 'image/png' });
+      expect(sent?.type === 'image' && sent.image).toBe(shot);
+      expect(resolver.images.get(KEY)?.model?.bytes).toBe(shot);
+    });
   });
 
   describe('tool results', () => {

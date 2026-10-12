@@ -3,9 +3,31 @@ import { describe, expect, it } from 'vitest';
 import {
   createPromptImportsItem,
   isPromptImportsPayload,
+  promptImportImage,
+  promptImportImageKey,
+  promptImportImageRefs,
 } from './prompt-imports-item';
 
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
+const MEDIA_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+const MEDIA = `media://${MEDIA_ID}`;
+const THUMBNAIL = 'data:image/webp;base64,UklGRg==';
+/** The unstored image record of a 1600×900 PNG. */
+const UNSTORED = {
+  thumbnail: THUMBNAIL,
+  width: 1600,
+  height: 900,
+  mediaType: 'image/png',
+} as const;
+/** The serialized native image result `read("/repo/shot.png")` returns. */
+const IMAGE_BODY = JSON.stringify({
+  status: 'success',
+  kind: 'image',
+  mediaType: 'image/png',
+  width: 1600,
+  height: 900,
+  path: '/repo/shot.png',
+});
 
 const reminder = (...lines: ReadonlyArray<string>) =>
   [
@@ -102,6 +124,183 @@ describe('prompt imports item', () => {
     });
     expect(JSON.stringify(item.data.payload)).not.toContain('Private body.');
   });
+
+  it('records an unstored image entry thumbnail and size privately beside the envelope body', () => {
+    const item = createPromptImportsItem({
+      runId: RUN_ID,
+      outcomes: [
+        {
+          locator: 'shot.png',
+          resolved: '/repo/shot.png',
+          outcome: 'imported',
+          body: IMAGE_BODY,
+          image: UNSTORED,
+        },
+      ],
+      omitted: [],
+    });
+
+    expect(item.data.payload).toEqual({
+      imports: [
+        {
+          locator: 'shot.png',
+          resolved: '/repo/shot.png',
+          outcome: 'imported',
+          ...UNSTORED,
+        },
+      ],
+    });
+    expect(item.data.text).toContain(
+      `<file path="shot.png">\n${IMAGE_BODY}\n</file>`,
+    );
+    expect(item.data.text).not.toContain(THUMBNAIL);
+    expect(promptImportImageRefs(item)).toEqual([
+      {
+        locator: 'shot.png',
+        width: 1600,
+        height: 900,
+        key: promptImportImageKey(RUN_ID, 'shot.png'),
+      },
+    ]);
+  });
+
+  it('records an unstored image entry over the thumbnail cap by its size alone', () => {
+    const { thumbnail: _thumbnail, ...original } = UNSTORED;
+    const item = createPromptImportsItem({
+      runId: RUN_ID,
+      outcomes: [
+        {
+          locator: 'noise.png',
+          outcome: 'imported',
+          body: IMAGE_BODY,
+          image: original,
+        },
+      ],
+      omitted: [],
+    });
+
+    expect(item.data.payload).toEqual({
+      imports: [{ locator: 'noise.png', outcome: 'imported', ...original }],
+    });
+    expect(promptImportImageRefs(item)).toEqual([
+      {
+        locator: 'noise.png',
+        width: 1600,
+        height: 900,
+        key: promptImportImageKey(RUN_ID, 'noise.png'),
+      },
+    ]);
+  });
+
+  it('records a media entry locator alone and refers to it by its id', () => {
+    const item = createPromptImportsItem({
+      runId: RUN_ID,
+      outcomes: [
+        {
+          locator: MEDIA,
+          resolved: MEDIA,
+          outcome: 'imported',
+          body: '{"status":"success","kind":"image"}',
+          image: { media: MEDIA },
+        },
+        { locator: 'notes.md', outcome: 'imported', body: 'Notes.' },
+      ],
+      omitted: [],
+    });
+
+    expect(item.data.payload).toEqual({
+      imports: [
+        { locator: MEDIA, resolved: MEDIA, outcome: 'imported', media: MEDIA },
+        { locator: 'notes.md', outcome: 'imported' },
+      ],
+    });
+    expect(promptImportImageRefs(item)).toEqual([MEDIA_ID]);
+  });
+
+  it('lists no image references for another producer or an invalid payload', () => {
+    const item = createPromptImportsItem({
+      runId: RUN_ID,
+      outcomes: [
+        {
+          locator: 'a.png',
+          outcome: 'imported',
+          body: 'x',
+          image: UNSTORED,
+        },
+      ],
+      omitted: [],
+    });
+
+    expect(
+      promptImportImageRefs({
+        ...item,
+        data: { ...item.data, producer: 'instructions' },
+      }),
+    ).toEqual([]);
+    expect(
+      promptImportImageRefs({
+        ...item,
+        data: {
+          ...item.data,
+          payload: {
+            imports: [
+              { locator: 'a.png', outcome: 'imported', media: 'media://x' },
+            ],
+          },
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it('keys unstored entries by their Run and locator', () => {
+    expect(promptImportImageKey(RUN_ID, 'shot.png')).not.toBe(
+      promptImportImageKey('22222222-2222-4333-8444-555555555555', 'shot.png'),
+    );
+  });
+});
+
+describe('promptImportImage', () => {
+  it('records an unstored image result by its thumbnail and original', () => {
+    expect(
+      promptImportImage({
+        status: 'success',
+        kind: 'image',
+        ...UNSTORED,
+        path: '/repo/shot.png',
+      }),
+    ).toEqual(UNSTORED);
+  });
+
+  it('records an unstored image result without a thumbnail by its original alone', () => {
+    const { thumbnail: _thumbnail, ...original } = UNSTORED;
+    expect(
+      promptImportImage({
+        status: 'success',
+        kind: 'image',
+        ...original,
+        path: '/repo/noise.png',
+      }),
+    ).toEqual(original);
+  });
+
+  it('records a media image result by its locator alone', () => {
+    expect(
+      promptImportImage({
+        status: 'success',
+        kind: 'image',
+        media: MEDIA,
+        mediaType: 'image/png',
+        width: 1600,
+        height: 900,
+      }),
+    ).toEqual({ media: MEDIA });
+  });
+
+  it('records nothing for a text result', () => {
+    expect(
+      promptImportImage({ status: 'success', path: '/repo/a.md', text: 'a' }),
+    ).toBeUndefined();
+  });
 });
 
 describe('prompt imports payload validation', () => {
@@ -123,6 +322,57 @@ describe('prompt imports payload validation', () => {
     ).toBe(true);
   });
 
+  it('accepts an imported entry carrying a canonical media locator', () => {
+    expect(
+      isPromptImportsPayload({
+        imports: [{ locator: 'shot.png', outcome: 'imported', media: MEDIA }],
+      }),
+    ).toBe(true);
+  });
+
+  it.each(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])(
+    'accepts an imported entry carrying a thumbnail, its size, and %s',
+    (mediaType) => {
+      expect(
+        isPromptImportsPayload({
+          imports: [
+            {
+              locator: 'shot.png',
+              resolved: '/repo/shot.png',
+              outcome: 'imported',
+              ...UNSTORED,
+              mediaType,
+            },
+          ],
+        }),
+      ).toBe(true);
+    },
+  );
+
+  it('accepts a thumbnail of exactly the size cap', () => {
+    const prefix = 'data:image/webp;base64,';
+    const thumbnail = `${prefix}${'A'.repeat(65_536 - prefix.length)}`;
+    expect(
+      isPromptImportsPayload({
+        imports: [
+          { locator: 'a.png', outcome: 'imported', ...UNSTORED, thumbnail },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  const image = { locator: 'a.png', outcome: 'imported', ...UNSTORED };
+  const { width: _width, ...withoutWidth } = image;
+  const { height: _height, ...withoutHeight } = image;
+  const { mediaType: _mediaType, ...withoutMediaType } = image;
+  const { thumbnail: _thumbnail, ...withoutThumbnail } = image;
+  const { width: _sizeWidth, ...sizeWithoutWidth } = withoutThumbnail;
+  const { mediaType: _sizeType, ...sizeWithoutMediaType } = withoutThumbnail;
+
+  it('accepts an unstored entry whose thumbnail exceeded the cap and was left out', () => {
+    expect(isPromptImportsPayload({ imports: [withoutThumbnail] })).toBe(true);
+  });
+
   it.each([
     [
       'an unknown top-level key',
@@ -140,6 +390,83 @@ describe('prompt imports payload validation', () => {
     [
       'an invalid outcome value',
       { imports: [{ locator: '/repo/a', outcome: 'skipped' }] },
+    ],
+    [
+      'a truncated flag that is not a boolean',
+      {
+        imports: [
+          { locator: '/repo/a', outcome: 'imported', truncated: 'yes' },
+        ],
+      },
+    ],
+    [
+      'a media locator outside the media grammar',
+      {
+        imports: [
+          { locator: 'a.png', outcome: 'imported', media: `${MEDIA}x` },
+        ],
+      },
+    ],
+    [
+      'a media locator on an entry that was not imported',
+      { imports: [{ locator: 'a.png', outcome: 'failed', media: MEDIA }] },
+    ],
+    [
+      'both a thumbnail and a media locator',
+      { imports: [{ ...image, media: MEDIA }] },
+    ],
+    [
+      'a media locator with dimensions',
+      {
+        imports: [
+          {
+            locator: 'a.png',
+            outcome: 'imported',
+            media: MEDIA,
+            width: 1600,
+            height: 900,
+            mediaType: 'image/png',
+          },
+        ],
+      },
+    ],
+    [
+      'a thumbnail that is not a WebP data URL',
+      {
+        imports: [
+          { ...image, thumbnail: 'data:image/png;base64,iVBORw0KGgo=' },
+        ],
+      },
+    ],
+    [
+      'a thumbnail over the size cap',
+      {
+        imports: [
+          {
+            ...image,
+            thumbnail: `data:image/webp;base64,${'A'.repeat(65_536)}`,
+          },
+        ],
+      },
+    ],
+    ['a thumbnail without its width', { imports: [withoutWidth] }],
+    ['a thumbnail without its height', { imports: [withoutHeight] }],
+    ['a thumbnail without its media type', { imports: [withoutMediaType] }],
+    ['a width without the media type', { imports: [sizeWithoutMediaType] }],
+    ['a media type without the width', { imports: [sizeWithoutWidth] }],
+    [
+      'dimensions on an entry that was not imported',
+      { imports: [{ ...withoutThumbnail, outcome: 'failed' }] },
+    ],
+    ['a zero width', { imports: [{ ...image, width: 0 }] }],
+    ['a non-integer height', { imports: [{ ...image, height: 1.5 }] }],
+    [
+      'an SVG media type',
+      { imports: [{ ...image, mediaType: 'image/svg+xml' }] },
+    ],
+    [
+      'a thumbnail on an entry that was not imported',
+      { imports: [{ ...image, outcome: 'denied' }] },
     ],
   ] as const)('rejects %s', (_description, value) => {
     expect(isPromptImportsPayload(value)).toBe(false);

@@ -226,3 +226,15 @@ export async function encodeThumbnail(
   const url = `${THUMBNAIL_PREFIX}${webp.toString('base64')}`;
   return url.length <= THUMBNAIL_MAX_CHARS ? url : undefined;
 }
+
+/**
+ * Whether `value` has the form `encodeThumbnail` produces: a base64 WebP data
+ * URL of at most 65,536 characters. Stored payloads are checked with it.
+ */
+export function isThumbnailDataUrl(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= THUMBNAIL_MAX_CHARS &&
+    /^data:image\/webp;base64,[A-Za-z0-9+/]+={0,2}$/u.test(value)
+  );
+}

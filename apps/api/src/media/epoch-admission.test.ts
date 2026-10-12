@@ -9,6 +9,7 @@ import {
   loadMediaSizing,
   submittedLocator,
   toolResultOutput,
+  userImagePart,
 } from './epoch-admission';
 import { descriptor, fakeResolver } from './media-fixtures';
 import type { MediaDescriptor } from './media-descriptors';
@@ -249,6 +250,33 @@ describe('collectMediaRefs', () => {
       mediaId(1),
       mediaId(3),
       { ...SHOT, key: 'c3' },
+    ]);
+  });
+
+  it('lists prompt-import image references in place and skips byte images', () => {
+    const unstored = { ...SHOT, key: 'prompt-import:run:shot.png' };
+    const messages: Array<ModelMessage> = [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'imports' },
+          userImagePart(unstored),
+          userImagePart(mediaId(5)),
+          { type: 'image', image: new Uint8Array([1]), mediaType: 'image/png' },
+          {
+            type: 'file',
+            data: `media://${mediaId(6)}`,
+            mediaType: 'image/png',
+          },
+          { type: 'text', text: 'question' },
+        ],
+      },
+    ];
+
+    expect(collectMediaRefs(messages)).toEqual([
+      unstored,
+      mediaId(5),
+      mediaId(6),
     ]);
   });
 });

@@ -94,7 +94,7 @@ export async function loadMediaDescriptors(
  * It also holds the attempt's memory of the unstored images it read (R1.4).
  */
 export type RunMediaResolver = {
-  /** The attempt's unstored images, keyed by tool call id. */
+  /** The attempt's unstored images, keyed by tool call id or import entry. */
   readonly images: Map<string, HeldImage>;
   /** Owned descriptors among `ids`; unknown and foreign ids are absent. */
   describe(

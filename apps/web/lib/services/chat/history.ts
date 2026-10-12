@@ -1,4 +1,8 @@
 import type { UIMessage } from "ai";
+import { z } from "zod";
+
+import { inlineThumbnailSchema } from "@workspace/ui/lib/inline-thumbnail";
+
 import type {
   ChatMessagesResponse as GeneratedChatMessagesResponse,
   CheckpointStatsResponse,
@@ -138,7 +142,10 @@ export type PromptImportOutcome = "imported" | "denied" | "failed";
  * A server-authored context item on a USER message disclosing how the `@`
  * import markers in the prompt resolved. `imports` lists each marker's
  * locator as written with its outcome (`resolved` is the path it resolved
- * to, `truncated` marks a file cut at the cap); `omitted` lists the locators
+ * to, `truncated` marks a file cut at the cap, `media` names an imported
+ * image's `media://` locator, and an image that was not stored carries the
+ * original's `width`, `height`, and `mediaType` with its display-only inline
+ * `thumbnail`, absent when it would exceed the cap); `omitted` lists the locators
  * past the per-prompt marker cap, present only when non-empty. The model-visible
  * text names denied/failed targets only as not imported and lists omitted
  * locators; outcome detail and resolved paths are owner-only metadata.
@@ -151,12 +158,33 @@ export type PromptImportsPart = {
     form: "notice";
     runId: string;
     payload: {
-      imports: ReadonlyArray<{
-        locator: string;
-        resolved?: string;
-        outcome: PromptImportOutcome;
-        truncated?: boolean;
-      }>;
+      imports: ReadonlyArray<
+        {
+          locator: string;
+          resolved?: string;
+          outcome: PromptImportOutcome;
+          truncated?: boolean;
+          /** The `media://` locator of an imported image entry. */
+          media?: string;
+        } & (
+          | {
+              thumbnail?: undefined;
+              width?: undefined;
+              height?: undefined;
+              mediaType?: undefined;
+            }
+          | {
+              /** The inline WebP data URL of an image imported without
+               *  being stored, when it fits the cap; the rest describe the
+               *  original. */
+              thumbnail?: string;
+              width: number;
+              height: number;
+              mediaType: string;
+              media?: undefined;
+            }
+        )
+      >;
       omitted?: ReadonlyArray<string>;
     };
     text?: string;
@@ -168,6 +196,10 @@ export type PromptImportsPayload = PromptImportsPart["data"]["payload"];
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The api's `media://<id>` grammar: a lower-case canonical UUID only. */
+const MEDIA_LOCATOR_PATTERN =
+  /^media:\/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function isNonNullObject(value: unknown): value is object {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -363,38 +395,44 @@ export function isInstructionsPart(value: unknown): value is InstructionsPart {
   return isInstructionsPayload(noticePayload(value, "instructions"));
 }
 
-/** One `payload.imports` entry: a non-empty locator, a known outcome, and the
- *  optional `resolved` / `truncated` fields only with a valid value. */
+const nonEmptyStringSchema = z.string().refine(isNonEmptyString);
+
+/** Fields every `payload.imports` entry may carry. */
+const promptImportEntryFields = {
+  locator: nonEmptyStringSchema,
+  resolved: nonEmptyStringSchema.exactOptional(),
+  truncated: z.boolean().exactOptional(),
+};
+
+/** One `payload.imports` entry, exactly: a non-empty locator, a known
+ *  outcome, and the optional `resolved` / `truncated` fields. An imported
+ *  image entry carries either its `media://` locator as `media`, or, when it
+ *  was not stored, the original's `width`, `height`, and `mediaType` with its
+ *  inline `thumbnail` when that fit the cap; never both. */
+const promptImportEntrySchema = z.union([
+  z.strictObject({
+    ...promptImportEntryFields,
+    outcome: z.enum(["imported", "denied", "failed"]),
+  }),
+  z.strictObject({
+    ...promptImportEntryFields,
+    outcome: z.literal("imported"),
+    media: z.string().regex(MEDIA_LOCATOR_PATTERN),
+  }),
+  z.strictObject({
+    ...promptImportEntryFields,
+    outcome: z.literal("imported"),
+    thumbnail: inlineThumbnailSchema.exactOptional(),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    mediaType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+  }),
+]);
+
 function isPromptImportEntry(
   value: unknown,
 ): value is PromptImportsPayload["imports"][number] {
-  if (!isNonNullObject(value)) return false;
-  const hasResolved = Object.hasOwn(value, "resolved");
-  const hasTruncated = Object.hasOwn(value, "truncated");
-  if (
-    !keysMatch(Object.keys(value), [
-      "locator",
-      "outcome",
-      ...(hasResolved ? ["resolved"] : []),
-      ...(hasTruncated ? ["truncated"] : []),
-    ])
-  ) {
-    return false;
-  }
-  // SAFETY: `keysMatch` above confirmed `value` has exactly the accepted
-  // import-entry shape; each field is validated individually below.
-  const { locator, outcome, resolved, truncated } = value as {
-    locator: unknown;
-    outcome: unknown;
-    resolved?: unknown;
-    truncated?: unknown;
-  };
-  return (
-    isNonEmptyString(locator) &&
-    (outcome === "imported" || outcome === "denied" || outcome === "failed") &&
-    (!hasResolved || isNonEmptyString(resolved)) &&
-    (!hasTruncated || typeof truncated === "boolean")
-  );
+  return promptImportEntrySchema.safeParse(value).success;
 }
 
 /** The `data.payload` shape of a prompt-imports context item, validated on
