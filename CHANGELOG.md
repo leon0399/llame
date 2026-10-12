@@ -13,10 +13,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   passed tested file paths to its untested-file glob as patterns, so the
   parentheses never matched and each such file was also added as an all-zero
   "uncovered" copy whose statement locations differed from the browser's. A
-  pnpm patch backports the upstream fix (vitest-dev/vitest#11531). Master's
-  numbers are unchanged, since every file a story executes there is also
-  loaded by a unit test; on the #860 story stack, statements read 90.27%
-  instead of 85.24%. Files no test loads, such as `app/(chat)/layout.tsx`,
+  pnpm patch backports the upstream fix (vitest-dev/vitest#11531). Now that
+  the #860 story migrations are on master, merged statements read 90.45%
+  instead of 85.64%. Files no test loads, such as `app/(chat)/layout.tsx`,
   still report 0%.
 
 - Moved the admin organization tree's, the parked members panel's, the chat
