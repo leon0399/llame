@@ -15,11 +15,17 @@
  *   membership nor be demoted; a co-owner may leave; deleting the user
  *   account of a sole root owner is blocked; deleting the org unit itself
  *   (which cascades its memberships) remains allowed even for a sole owner.
+ * - Owner bootstrap (#1258): a root's creator may grant themselves `owner`
+ *   only while the root has no memberships; after handing it over and
+ *   leaving (as owner or demoted viewer) the self-grant is denied, through
+ *   the service and direct SQL, and the freshness helper answers `false`
+ *   for any root but the caller's own.
  */
 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 
+import { ForbiddenException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 import * as schema from '../db/schema';
@@ -514,6 +520,185 @@ describeIfDb(
             tx`SELECT user_id FROM memberships WHERE org_unit_id = ${root.id} AND role = 'owner'`,
         );
         expect(remainingOwners.length).toBe(1);
+      });
+    });
+
+    // #1258: `memberships_insert` branch (a) lets a root's creator grant
+    // themselves `owner` only while the root is fresh (no membership rows
+    // yet). Owner-tier grants are the only other way to mint `owner`, so a
+    // creator who handed the org over and left must not be able to reclaim it.
+    describe('owner bootstrap — fresh root only', () => {
+      const selfGrantOwner = (userId: string, orgUnitId: string) =>
+        asUser(
+          userId,
+          (tx) =>
+            tx`INSERT INTO memberships (user_id, org_unit_id, role) VALUES (${userId}, ${orgUnitId}, 'owner')`,
+        );
+
+      const rosterOf = (viewer: string, orgUnitId: string) =>
+        asUser(
+          viewer,
+          (tx) =>
+            tx`SELECT user_id, role FROM memberships WHERE org_unit_id = ${orgUnitId} ORDER BY user_id`,
+        );
+
+      it('a creator who transferred ownership and left cannot re-grant themselves owner, via the service or direct SQL', async () => {
+        const creator = await makeUser('Departed Creator');
+        const heir = await makeUser('Heir Owner');
+        const root = await identity.createRootOrg({
+          userId: creator,
+          name: 'Handed Over',
+        });
+        rootIds.push(root.id);
+        await identity.grantMembership({
+          callerId: creator,
+          userId: heir,
+          orgUnitId: root.id,
+          role: 'owner',
+        });
+        await tenantDb.runAs(creator, (tx) =>
+          new MembershipsRepository(tx).revoke(creator, root.id),
+        );
+
+        await expect(
+          identity.grantMembership({
+            callerId: creator,
+            userId: creator,
+            orgUnitId: root.id,
+            role: 'owner',
+          }),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(selfGrantOwner(creator, root.id)).rejects.toMatchObject({
+          code: '42501',
+        });
+
+        expect(await rosterOf(heir, root.id)).toEqual([
+          { user_id: heir, role: 'owner' },
+        ]);
+      });
+
+      it('a creator demoted to viewer who then left cannot re-grant themselves owner, via the service or direct SQL', async () => {
+        const creator = await makeUser('Demoted Creator');
+        const heir = await makeUser('Demoting Owner');
+        const root = await identity.createRootOrg({
+          userId: creator,
+          name: 'Demoted',
+        });
+        rootIds.push(root.id);
+        await identity.grantMembership({
+          callerId: creator,
+          userId: heir,
+          orgUnitId: root.id,
+          role: 'owner',
+        });
+        await identity.changeMembershipRole({
+          callerId: heir,
+          userId: creator,
+          orgUnitId: root.id,
+          role: 'viewer',
+        });
+        await tenantDb.runAs(creator, (tx) =>
+          new MembershipsRepository(tx).revoke(creator, root.id),
+        );
+
+        await expect(
+          identity.grantMembership({
+            callerId: creator,
+            userId: creator,
+            orgUnitId: root.id,
+            role: 'owner',
+          }),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(selfGrantOwner(creator, root.id)).rejects.toMatchObject({
+          code: '42501',
+        });
+
+        expect(await rosterOf(heir, root.id)).toEqual([
+          { user_id: heir, role: 'owner' },
+        ]);
+      });
+
+      it('the atomic bootstrap still mints the creator as owner, through the service and through direct SQL in one transaction', async () => {
+        const creator = await makeUser('Bootstrap Creator');
+        const root = await identity.createRootOrg({
+          userId: creator,
+          name: 'Fresh',
+        });
+        rootIds.push(root.id);
+        expect(await rosterOf(creator, root.id)).toEqual([
+          { user_id: creator, role: 'owner' },
+        ]);
+
+        const rawRootId = crypto.randomUUID();
+        await asUser(creator, async (tx) => {
+          await tx`INSERT INTO org_units (id, parent_id, name, path, created_by)
+            VALUES (${rawRootId}, NULL, 'Raw Fresh', ${rawRootId}, ${creator})`;
+          await tx`INSERT INTO memberships (user_id, org_unit_id, role) VALUES (${creator}, ${rawRootId}, 'owner')`;
+        });
+        rootIds.push(rawRootId);
+        expect(await rosterOf(creator, rawRootId)).toEqual([
+          { user_id: creator, role: 'owner' },
+        ]);
+      });
+
+      it('the freshness helper answers only for the caller’s own root, and only the creator can bootstrap it', async () => {
+        const creator = await makeUser('Probed Creator');
+        const stranger = await makeUser('Prober');
+        const rootId = crypto.randomUUID();
+        // A root with no membership rows yet: the bootstrap window is open.
+        await asUser(
+          creator,
+          (tx) =>
+            tx`INSERT INTO org_units (id, parent_id, name, path, created_by)
+             VALUES (${rootId}, NULL, 'Unclaimed', ${rootId}, ${creator})`,
+        );
+        rootIds.push(rootId);
+
+        const isFresh = (userId: string | null, unitId: string) =>
+          sql.begin(async (tx: SqlClient) => {
+            if (userId !== null) {
+              await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+            }
+            const [row] = await tx<
+              Array<{ fresh: boolean }>
+            >`SELECT llame_org_unit_is_fresh_root(${unitId}::uuid) AS fresh`;
+            return row?.fresh;
+          });
+
+        // Someone else's fresh root, an unknown id, and no identity all read
+        // the same `false` as a claimed root, so the helper cannot probe
+        // whether another user's root exists or has members.
+        expect(await isFresh(stranger, rootId)).toBe(false);
+        expect(await isFresh(stranger, crypto.randomUUID())).toBe(false);
+        expect(await isFresh(null, rootId)).toBe(false);
+        await expect(selfGrantOwner(stranger, rootId)).rejects.toMatchObject({
+          code: '42501',
+        });
+
+        expect(await isFresh(creator, rootId)).toBe(true);
+        await selfGrantOwner(creator, rootId);
+        expect(await isFresh(creator, rootId)).toBe(false);
+        expect(await rosterOf(creator, rootId)).toEqual([
+          { user_id: creator, role: 'owner' },
+        ]);
+      });
+
+      it('the freshness helper is a pinned SECURITY DEFINER owned by a BYPASSRLS role, executable by app but not PUBLIC', async () => {
+        const [fn] = await sql`
+          SELECT p.prosecdef AS definer,
+                 p.proconfig AS config,
+                 r.rolbypassrls AS owner_bypasses_rls,
+                 has_function_privilege('public', p.oid, 'EXECUTE') AS public_execute,
+                 has_function_privilege('app', p.oid, 'EXECUTE') AS app_execute
+          FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
+          WHERE p.proname = 'llame_org_unit_is_fresh_root'`;
+        expect(fn).toMatchObject({
+          definer: true,
+          config: ['search_path=public'],
+          owner_bypasses_rls: true,
+          public_execute: false,
+          app_execute: true,
+        });
       });
     });
   },

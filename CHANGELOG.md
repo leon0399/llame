@@ -2,11 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-11
 
-- Fixed explicit `$skill` activation loading a skill's instructions and
-  imported package files when `read` is not in `tools.allowed` (#1264).
-  Activation now loads nothing without `read`, in `default` and `bypass`
-  modes alike, matching proactive skill reads, prompt imports, and
-  instruction loading.
+- Fixed a root org's creator being able to grant themselves `owner` again
+  after transferring ownership and leaving, or after being demoted and
+  leaving, and then revoke the new owner (#1258). The creator's self-grant of
+  `owner` now works only on a fresh root that has no memberships yet, which
+  is the one-transaction bootstrap in root creation. The database enforces
+  this, so direct SQL is blocked too. **Upgrade note:** run
+  `pnpm db:provision-rls` after `pnpm db:migrate`. Until the new
+  `llame_org_unit_is_fresh_root` function is owned by `app_rls`, it fails
+  closed and creating a root org is refused.
 
 - Fixed the merged web coverage report counting a story-covered file twice
   when it lives under a Next route group such as `app/(chat)/`. Vitest 4.1.11
@@ -25,6 +29,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   item they cannot access. The policy now applies the same per-type access
   check as `pins_owner_insert`. Pin reorder is unaffected because it only
   rewrites the rank of pins whose item is still accessible.
+
+- Fixed explicit `$skill` activation loading a skill's instructions and
+  imported package files when `read` is not in `tools.allowed` (#1264).
+  Activation now loads nothing without `read`, in `default` and `bypass`
+  modes alike, matching proactive skill reads, prompt imports, and
+  instruction loading.
 
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete

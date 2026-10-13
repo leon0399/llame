@@ -459,6 +459,29 @@ d('org-units + memberships e2e — real HTTP + Postgres', () => {
     expect(leaveAfterTransfer.status).toBe(204);
   });
 
+  it('#1258: a creator who handed the root over and left cannot grant themselves owner again (403)', async () => {
+    const root = await createRoot(a, 'Handed Over');
+    expect((await grant(a, root.id, b.id, 'owner')).status).toBe(204);
+    const leave = await request(http)
+      .delete(`/api/v1/org-units/${root.id}/memberships/${a.id}`)
+      .set('Cookie', a.cookie);
+    expect(leave.status).toBe(204);
+
+    const reclaim = await grant(a, root.id, a.id, 'owner');
+    expect(reclaim.status).toBe(403);
+
+    const roster = await request(http)
+      .get(`/api/v1/org-units/${root.id}/memberships`)
+      .set('Cookie', b.cookie);
+    expect(roster.status).toBe(200);
+    expect(
+      roster.body.map((m: { userId: string; role: string }) => [
+        m.userId,
+        m.role,
+      ]),
+    ).toEqual([[b.id, 'owner']]);
+  });
+
   it('GET .../memberships/me: reports nearest-wins + inherited; invisible unit → 404', async () => {
     const root = await createRoot(a, 'Acme');
     const team = await createChild(a, root.id, 'Team');
