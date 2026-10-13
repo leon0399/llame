@@ -590,6 +590,27 @@ describe('IdentityService failure messages', () => {
     ).rejects.toBe(unmapped);
   });
 
+  it('maps an RLS refusal on child creation to 403 (#1260 F4)', async () => {
+    const { service } = makeService();
+    vi.spyOn(
+      OrgUnitsRepository.prototype,
+      'findByIdInLockedTree',
+    ).mockResolvedValue(root);
+    vi.spyOn(OrgUnitsRepository.prototype, 'createChild').mockRejectedValue(
+      Object.assign(new Error('rls'), { code: '42501' }),
+    );
+
+    const refused = service.createChildOrg({
+      userId: memberId,
+      parentId: root.id,
+      name: 'Child',
+    });
+    await expect(refused).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(refused).rejects.toThrow(
+      'Not permitted to create a child under this org unit',
+    );
+  });
+
   it('names the missing unit when the update target is invisible', async () => {
     const { service } = makeService();
     vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(
@@ -729,6 +750,108 @@ describe('IdentityService failure messages', () => {
         name: 'x',
       }),
     ).rejects.toThrow('Not permitted to update this org unit');
+  });
+
+  it('maps an ownerless promoted root to a last-owner conflict (#1260 F1)', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
+    vi.spyOn(OrgUnitsRepository.prototype, 'moveToRoot').mockRejectedValue(
+      Object.assign(new Error('ownerless root'), { code: 'OW001' }),
+    );
+
+    await expect(
+      service.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        parentId: null,
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        statusCode: 409,
+        error: 'Conflict',
+        code: ORG_UNITS_ERROR_CODES.lastOwner,
+        message:
+          'A unit promoted to root needs an owner — grant owner on it first',
+      },
+    });
+  });
+
+  it('maps a subtree move and a concurrent tree change on update to their full error bodies', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
+    vi.spyOn(OrgUnitsRepository.prototype, 'moveToRoot')
+      .mockRejectedValueOnce(new MoveIntoOwnSubtreeError('into own subtree'))
+      .mockRejectedValueOnce(
+        Object.assign(new Error('tree changed'), { code: '23514' }),
+      );
+    const promotion = { userId: ownerId, orgUnitId: child.id, parentId: null };
+
+    await expect(service.updateOrgUnit(promotion)).rejects.toMatchObject({
+      response: {
+        statusCode: 422,
+        error: 'Unprocessable Entity',
+        message: 'into own subtree',
+        code: ORG_UNITS_ERROR_CODES.moveIntoOwnSubtree,
+      },
+    });
+    await expect(service.updateOrgUnit(promotion)).rejects.toMatchObject({
+      response: {
+        statusCode: 409,
+        error: 'Conflict',
+        code: ORG_UNITS_ERROR_CODES.concurrentTreeChange,
+        message: 'Org tree changed concurrently — retry the request',
+      },
+    });
+  });
+
+  it('rethrows an unmapped update failure unchanged', async () => {
+    const { service } = makeService();
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockResolvedValue(child);
+    const unmapped = Object.assign(new Error('disk on fire'), {
+      code: '58030',
+    });
+    vi.spyOn(OrgUnitsRepository.prototype, 'rename').mockRejectedValue(
+      unmapped,
+    );
+
+    await expect(
+      service.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        name: 'x',
+      }),
+    ).rejects.toBe(unmapped);
+  });
+
+  it('passes an HTTP error through unchanged even when it carries a database cause', async () => {
+    const dbCause = Object.assign(new Error('rls'), { code: '42501' });
+    const { service } = makeService();
+    const notFound = new NotFoundException('gone', { cause: dbCause });
+    vi.spyOn(
+      OrgUnitsRepository.prototype,
+      'findByIdInLockedTree',
+    ).mockRejectedValue(notFound);
+    await expect(
+      service.createChildOrg({
+        userId: ownerId,
+        parentId: root.id,
+        name: 'Child',
+      }),
+    ).rejects.toBe(notFound);
+
+    const forbidden = new ForbiddenException('custom', {
+      cause: Object.assign(new Error('tree changed'), { code: '23514' }),
+    });
+    vi.spyOn(OrgUnitsRepository.prototype, 'findById').mockRejectedValue(
+      forbidden,
+    );
+    await expect(
+      service.updateOrgUnit({
+        userId: ownerId,
+        orgUnitId: child.id,
+        name: 'x',
+      }),
+    ).rejects.toBe(forbidden);
   });
 
   it('separates an absent delete target from an unauthorized delete', async () => {

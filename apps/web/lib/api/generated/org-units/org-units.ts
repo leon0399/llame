@@ -97,7 +97,7 @@ export const listOrgUnits = async (
 };
 
 export type createChildOrgUnitError =
-  void | void | OrgUnitConflictErrorResponse;
+  void | void | void | OrgUnitConflictErrorResponse;
 
 export const getCreateChildOrgUnitUrl = (id: string) => {
   return `/api/v1/org-units/${id}/children`;
