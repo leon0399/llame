@@ -8,6 +8,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   modes alike, matching proactive skill reads, prompt imports, and
   instruction loading.
 
+- Fixed the merged web coverage report counting a story-covered file twice
+  when it lives under a Next route group such as `app/(chat)/`. Vitest 4.1.11
+  passed tested file paths to its untested-file glob as patterns, so the
+  parentheses never matched and each such file was also added as an all-zero
+  "uncovered" copy whose statement locations differed from the browser's. A
+  pnpm patch backports the upstream fix (vitest-dev/vitest#11531). Now that
+  the #860 story migrations are on master, merged statements read 90.45%
+  instead of 85.64%. Files no test loads, such as `app/(chat)/layout.tsx`,
+  still report 0%.
+
 - Fixed the pins write gate so that an update must also reference an item the
   caller can access. Before, the `pins_owner_update` row-level security policy
   checked only the pin's owner, so a user could re-point their own pin at

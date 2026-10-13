@@ -18,6 +18,16 @@ configuration, so one `test:coverage` run measures a workspace's logic and its
 rendered components together. A browser is therefore required for their
 `test:coverage` but not for `test`, which runs the `unit` project alone.
 
+The merged report keys each statement by its remapped source location, and the
+two projects remap through different transforms (Vite's SSR transform in Node,
+Next's SWC plus the browser transform in Chromium). A file both projects execute
+can therefore list one statement twice at slightly different columns, and only
+one entry may be hit; line coverage is unaffected because it groups by line.
+Files that only stories execute are counted once:
+`patches/vitest@4.1.11.patch` backports vitest-dev/vitest#11531, without which
+a tested file under a `(group)` route directory was also re-added as an
+all-zero uncovered file.
+
 Every workspace with tests has a `test:coverage` script that enforces its
 coverage ratchet; root `scripts/` uses `pnpm test:scripts:coverage` (Node's
 built-in coverage). CI runs only these, never the plain `test` scripts.
