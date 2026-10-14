@@ -33,8 +33,8 @@ See proposal.md (Why). State at `09596126` (master):
   - Responses and Anthropic carry them natively (`openai :3734-3751`, `anthropic :2582-2598`).
   - openai-compatible `JSON.stringify`s the whole output (`:254-275`), as it does for images.
 - Provider ceilings, from provider docs, not adapter code:
-  - Anthropic: 32 MB per request, and 100 PDF pages per request when the context window is under
-    1M tokens; it rejects encrypted PDFs.
+  - Anthropic: 32 MB per request, and 600 PDF pages per request, or 100 when the request's context
+    window is under 1M tokens; it rejects encrypted PDFs.
   - OpenAI: 50 MB per request.
 - Neither the source nor the docs say whether the ChatGPT Codex backend
   (`openai-codex-model-client.ts:14`) accepts `input_file`.
@@ -86,20 +86,24 @@ and CJS) opens each PDF to read its page count and encryption. It extracts no te
 
 A spike on this host (`~/.cache/llame-scripts/unpdf-spike/spike.mjs`, Node 22) gave these results:
 
-| Input                       | Result                                                             |
-| --------------------------- | ------------------------------------------------------------------ |
-| 2.2 MB, 15-page arXiv PDF   | page count in about 100 ms                                         |
-| 300 blank pages             | about 16 ms                                                        |
-| truncated PDF               | `InvalidPDFException`                                              |
-| `%PDF-` followed by garbage | `InvalidPDFException`                                              |
-| user password set           | `PasswordException`                                                |
-| owner password only         | opens; `getPermissions()` returns the permission flags, not `null` |
+| Input                        | Result                                                                       |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| 2.2 MB, 15-page arXiv PDF    | page count in about 100 ms                                                   |
+| 300 blank pages              | about 16 ms                                                                  |
+| truncated PDF                | `InvalidPDFException`                                                        |
+| `%PDF-` followed by garbage  | `InvalidPDFException`                                                        |
+| user password set            | `PasswordException`                                                          |
+| owner password only          | opens; `getPermissions()` returns the permission flags, not `null`           |
+| owner password, `/P` removed | opens; `getPermissions()` returns `null`; the bytes still contain `/Encrypt` |
 
 Preparation refuses:
 
 - every input that fails to open (user password included: `PasswordException`);
-- every input whose trailer carries `/Encrypt`, read through `getPermissions()` (non-`null`), because
-  Anthropic rejects encrypted PDFs and a refused block in history fails every later request.
+- every encrypted input, because Anthropic rejects encrypted PDFs and a refused block in history
+  fails every later request. A PDF counts as encrypted when `getPermissions()` is non-`null` or its
+  bytes contain the `/Encrypt` name (`spike/encrypt-probe.cjs`: an encryption dictionary without
+  `/P` makes `getPermissions()` return `null`, round 5). The byte check alone can false-positive
+  on `/Encrypt` inside an uncompressed content stream, which refuses a valid PDF; that fails closed.
   `getMetadata()` is not called: it decodes the whole XMP `/Metadata` stream, which preparation
   does not need and which a deflate bomb can inflate without bound;
 - every input reporting fewer than 1 page: pdf.js accepts `/Count 0` and negative counts.
@@ -118,9 +122,17 @@ Two properties of pdf.js shape the preparation, both confirmed on this host:
 Preparation therefore parses in a **child process**: the API or Run worker spawns `node` on a small
 parse entry, writes the bytes to its stdin, and reads `{ pages, encrypted }` as JSON from stdout,
 killing it with `SIGKILL` after 10 seconds. A timeout, a non-zero exit, a signal, or unparseable
-output refuses the input as `unsupported_media_type`. The child's memory is its own: an
-out-of-memory abort or a container OOM kill ends only the child, which the kernel picks first as
-the largest process. A spike (`~/.cache/llame-scripts/unpdf-spike/child-spike.cjs`) measured:
+output refuses the input as `unsupported_media_type`. The child runs under two OS-level bounds,
+set by spawning it through `sh -c 'ulimit -v 2097152; echo 1000 > /proc/self/oom_score_adj; exec
+node <entry>'` (round 5):
+
+- a 2 GiB address-space limit (`RLIMIT_AS`), which caps off-heap allocation too: an unbounded
+  `Buffer` loop fails `RangeError: Array buffer allocation failed` and the child exits 1, while a
+  23 MB PDF still parses (1 GiB is too low, because V8 reserves address space at start);
+- `oom_score_adj` 1000, which any process may set on itself, so if the container still runs out of
+  memory the kernel kills a parse child before the API or Run worker.
+
+A spike (`~/.cache/llame-scripts/unpdf-spike/child-spike.cjs`) measured:
 
 | Input                          | Result                                                                   |
 | ------------------------------ | ------------------------------------------------------------------------ |
@@ -252,6 +264,8 @@ later one in the epoch, is not attached:
 A PDF's base64 size is `4 × ceil(byteSize / 3)` of its original.
 
 The page bound is 53 pages on a 200,000-token model, 34 on 128,000, and 100 from 375,000 up. The
+hard 100 is this change's own per-PDF ingest bound, which also keeps a request within Anthropic's
+100-page limit for windows under 1M tokens; larger windows would allow 600. The
 0.8 is `COMPACTION_WINDOW_RATIO`, the share of the window the default compaction threshold already
 reserves for history, so attached PDFs alone never reach the default threshold and 20% stays for
 the system prompt, tools, and the rest of the history. The configured output reserve
@@ -398,8 +412,9 @@ result: from memory in the importing attempt, from the store for `@media://`.
   admit it in the new epoch either; the Run after that compacts its row away. Two summaries for
   one oversized upload are accepted over a rule that predicts whether a new epoch would admit it.
 - **Lying page counts.** pdf.js trusts the page tree's `/Count` (a 150-page PDF patched to
-  `/Count 1` reports 1 page, reviewer measurement), and `getPermissions()` returns `null` for an
-  encrypted PDF whose `/Encrypt` lacks a numeric `/P`. Such a PDF passes the bounds and the
+  `/Count 1` reports 1 page, reviewer measurement), and an encrypted PDF that both drops `/P` and
+  spells `/Encrypt` with a `#xx` name escape evades both encryption checks. Such a PDF passes the
+  bounds and the
   provider may refuse the request. An unstored read fails only its attempt, since later turns get
   the not-retained placeholder. A stored upload fails the chat's requests on PDF-declaring models,
   compaction requests included, because the summarizer receives the same PDF; the owner continues

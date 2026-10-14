@@ -54,8 +54,8 @@ from a grilling round with Leo on 2026-10-14, recorded on #1275.
     images, 28 MiB of base64 (up from 24 MiB), and a PDF page bound of 100 pages or
     `floor((contextWindowTokens × 0.8 − reservedOutputTokens) / 3,000)` for the model, whichever is
     smaller (53 pages on a 200,000-token model with no output reserve). A 20 MiB PDF fits, and a
-    request stays inside Anthropic's 32 MB and
-    100-page limits while its text is under about 2.6 MB. A PDF or image counts only on a model
+    request stays inside Anthropic's 32 MB limit while its text is under about 2.6 MB, and inside
+    its 100-page limit for windows under 1M tokens (600 above). A PDF or image counts only on a model
     that declares its kind.
   - An overflowing PDF gets
     `[pdf media://<id> <name> P pages, not attached: this context's PDF limit is reached]`.

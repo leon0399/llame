@@ -30,9 +30,9 @@ yield no `media://` locator.
 
 An input whose bytes start with `%PDF-` but which cannot be opened, which reports fewer than 1 page,
 or which is encrypted, SHALL be refused as `unsupported_media_type` with the message
-`Only unencrypted PDFs that open are accepted`. A PDF protected only by an owner password SHALL
-count as encrypted even though it opens without a password. Every such refusal SHALL create no media
-object and store no bytes.
+`Only unencrypted PDFs that open are accepted`. A PDF SHALL count as encrypted when it reports any
+permissions or when its bytes contain the `/Encrypt` name, whether or not it opens without a
+password. Every such refusal SHALL create no media object and store no bytes.
 
 #### Scenario: A truncated PDF is refused
 
@@ -65,13 +65,20 @@ object and store no bytes.
 - **THEN** ingest refuses it as `unsupported_media_type`
 - **AND** no media object and no bytes are stored
 
+#### Scenario: An encrypted PDF that reports no permissions is refused
+
+- **WHEN** an owner uploads an encrypted PDF whose encryption dictionary has no permissions entry,
+  so it opens without a password and reports no permissions
+- **THEN** ingest refuses it as `unsupported_media_type`
+- **AND** no media object and no bytes are stored
+
 ### Requirement: PDF parsing is bounded in time and memory
 
-The structural parse of a PDF SHALL run in a process separate from the API and Run-worker
-processes, at most two at once per requesting process, others waiting, each under a 10-second bound
-from its own start. A parse over the bound, or whose process runs out of memory or exits abnormally,
-SHALL be refused as `unsupported_media_type` with the unopenable-PDF message, store nothing, and not
-stop or stall the requesting process or its other requests.
+A PDF parse SHALL run in a process separate from the API and Run workers, at most two at once per
+requesting process, each under a 10-second bound from its start and a 2 GiB address-space limit,
+marked as the first process killed when memory runs out. A parse over either bound, or exiting
+abnormally, SHALL be refused as `unsupported_media_type` with the unopenable-PDF message, store
+nothing, and not stop or stall the requesting process.
 
 #### Scenario: A parse past the time bound is refused
 
@@ -83,8 +90,8 @@ stop or stall the requesting process or its other requests.
 
 #### Scenario: A parse that runs out of memory is refused and the process keeps serving
 
-- **WHEN** an owner uploads a file that starts with `%PDF-` and whose parsing process runs out of
-  memory
+- **WHEN** an owner uploads a file that starts with `%PDF-` whose parse allocates beyond the
+  2 GiB address-space limit
 - **THEN** the upload is refused as `unsupported_media_type` and nothing is stored
 - **AND** the API process that received it keeps serving later requests
 
@@ -326,8 +333,8 @@ with `Content-Type` set to its stored media type, `X-Content-Type-Options: nosni
 `Content-Disposition: inline`, `Content-Security-Policy: sandbox`, `Cache-Control: private, no-cache`,
 and a strong `ETag` derived from the object's SHA-256 digest and the variant name. The bytes under
 an id SHALL never change. Because a PDF has no model variant, `GET /api/v1/media/:id/model` of an
-owned PDF SHALL return the same `404` response as an unknown id, while its `/original` SHALL be
-served like any other variant.
+owned PDF SHALL return the same `404` response as an unknown id, whatever its `If-None-Match`
+header, while its `/original` SHALL be served like any other variant.
 
 #### Scenario: Model bytes carry safe headers
 
@@ -345,5 +352,6 @@ served like any other variant.
 
 #### Scenario: A PDF has no model route
 
-- **WHEN** an owner fetches `/api/v1/media/<id>/model` for an owned PDF
-- **THEN** the API returns the same `404` response as for an unknown id
+- **WHEN** an owner fetches `/api/v1/media/<id>/model` for an owned PDF, with or without an
+  `If-None-Match` header carrying the ETag the route would derive for that variant
+- **THEN** the API returns the same `404` response as for an unknown id, never `304`
