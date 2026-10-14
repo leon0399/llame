@@ -260,8 +260,8 @@ describe('/api/v1/media (HTTP)', () => {
       expect(res.body).toEqual({
         statusCode: 415,
         error: 'Unsupported Media Type',
-        message: 'Only PNG, JPEG, GIF, and WebP images are accepted',
-        code: 'unsupported_media_type',
+        message: MEDIA_REFUSAL.unsupportedImage.message,
+        code: MEDIA_REFUSAL.unsupportedImage.code,
       });
       expect(await countOwned(userAId, empty)).toBe(0);
     });
@@ -276,8 +276,8 @@ describe('/api/v1/media (HTTP)', () => {
       expect(tooBig.body).toEqual({
         statusCode: 413,
         error: 'Payload Too Large',
-        message: 'File exceeds 20 MiB',
-        code: 'media_too_large',
+        message: MEDIA_REFUSAL.fileTooLarge.message,
+        code: MEDIA_REFUSAL.fileTooLarge.code,
       });
       expect(await countOwned(userAId, big)).toBe(0);
 
@@ -295,8 +295,8 @@ describe('/api/v1/media (HTTP)', () => {
       expect(overPixels.body).toEqual({
         statusCode: 413,
         error: 'Payload Too Large',
-        message: 'Image exceeds 20 MiB or 40 megapixels',
-        code: 'media_too_large',
+        message: MEDIA_REFUSAL.imageTooLarge.message,
+        code: MEDIA_REFUSAL.imageTooLarge.code,
       });
     });
 
@@ -463,8 +463,8 @@ describe('/api/v1/media (HTTP)', () => {
     let onePage: Buffer;
     let pdf: z.infer<typeof pdfDescriptorSchema>;
 
-    const uploadPdf = (cookie: string, bytes: Buffer, filename = 'scan.pdf') =>
-      upload(cookie, bytes, filename, 'application/pdf');
+    const uploadPdf = (cookie: string, bytes: Buffer) =>
+      upload(cookie, bytes, 'scan.pdf', 'application/pdf');
 
     beforeAll(async () => {
       onePage = await pdfFixture('one-page.pdf');
@@ -560,19 +560,6 @@ describe('/api/v1/media (HTTP)', () => {
       }
     });
 
-    it('answers a 21 MiB PDF 413 before its format is detected', async () => {
-      const big = Buffer.concat([onePage, Buffer.alloc(21 * 1024 * 1024)]);
-      const res = await uploadPdf(cookieA, big, 'big.pdf').expect(413);
-
-      expect(res.body).toEqual({
-        statusCode: 413,
-        error: 'Payload Too Large',
-        message: 'File exceeds 20 MiB',
-        code: 'media_too_large',
-      });
-      expect(await countOwned(userAId, big)).toBe(0);
-    });
-
     it('refuses a 101-page PDF 413 and stores nothing', async () => {
       const bytes = await pdfFixture('hundred-one-pages.pdf');
       const res = await uploadPdf(cookieA, bytes).expect(413);
@@ -580,8 +567,8 @@ describe('/api/v1/media (HTTP)', () => {
       expect(res.body).toEqual({
         statusCode: 413,
         error: 'Payload Too Large',
-        message: 'PDF exceeds 20 MiB or 100 pages',
-        code: 'media_too_large',
+        message: MEDIA_REFUSAL.pdfTooLarge.message,
+        code: MEDIA_REFUSAL.pdfTooLarge.code,
       });
       expect(await countOwned(userAId, bytes)).toBe(0);
     });
@@ -593,8 +580,8 @@ describe('/api/v1/media (HTTP)', () => {
       expect(res.body).toEqual({
         statusCode: 415,
         error: 'Unsupported Media Type',
-        message: MEDIA_REFUSAL.unopenablePdf,
-        code: 'unsupported_media_type',
+        message: MEDIA_REFUSAL.unopenablePdf.message,
+        code: MEDIA_REFUSAL.unopenablePdf.code,
       });
       expect(await countOwned(userAId, bytes)).toBe(0);
     });

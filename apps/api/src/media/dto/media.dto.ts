@@ -93,8 +93,14 @@ export function toMediaDescriptor(media: MediaObject): MediaResponse {
   const locator = mediaLocator(id);
   // Only a PDF row has a page count (media_objects_shape).
   if (media.pageCount !== null) {
-    const pages = media.pageCount;
-    return { id, locator, mediaType: PDF_MEDIA_TYPE, name, byteSize, pages };
+    return {
+      id,
+      locator,
+      mediaType: PDF_MEDIA_TYPE,
+      name,
+      byteSize,
+      pages: media.pageCount,
+    };
   }
   const image = imageColumns(media);
   if (image === undefined) {

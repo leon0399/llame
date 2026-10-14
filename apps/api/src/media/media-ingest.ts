@@ -5,7 +5,6 @@
  * the result.
  */
 
-import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 
 /** Largest accepted original, checked before any decode. */
@@ -29,23 +28,38 @@ const THUMBNAIL_PREFIX = 'data:image/webp;base64,';
 
 export type MediaIngestErrorCode = 'media_too_large' | 'unsupported_media_type';
 
-/** The refusal messages ingest and unstored reads share (pdf-media D3). */
+/** The refusals ingest and unstored reads share (pdf-media D3). */
 export const MEDIA_REFUSAL = {
-  imageTooLarge: 'Image exceeds 20 MiB or 40 megapixels',
-  pdfTooLarge: 'PDF exceeds 20 MiB or 100 pages',
-  fileTooLarge: 'File exceeds 20 MiB',
-  unsupportedImage: 'Only PNG, JPEG, GIF, and WebP images are accepted',
-  unopenablePdf: 'Only unencrypted PDFs that open are accepted',
-  pdfUnavailable: 'PDF parsing is unavailable on this server',
+  imageTooLarge: {
+    code: 'media_too_large',
+    message: 'Image exceeds 20 MiB or 40 megapixels',
+  },
+  pdfTooLarge: {
+    code: 'media_too_large',
+    message: 'PDF exceeds 20 MiB or 100 pages',
+  },
+  fileTooLarge: { code: 'media_too_large', message: 'File exceeds 20 MiB' },
+  unsupportedImage: {
+    code: 'unsupported_media_type',
+    message: 'Only PNG, JPEG, GIF, and WebP images are accepted',
+  },
+  unopenablePdf: {
+    code: 'unsupported_media_type',
+    message: 'Only unencrypted PDFs that open are accepted',
+  },
+  pdfUnavailable: {
+    code: 'unsupported_media_type',
+    message: 'PDF parsing is unavailable on this server',
+  },
 } as const;
 
 /** A refused ingest input; nothing was stored. */
 export class MediaIngestError extends Error {
-  constructor(
-    readonly code: MediaIngestErrorCode,
-    message: string,
-  ) {
-    super(message);
+  readonly code: MediaIngestErrorCode;
+
+  constructor(refusal: { code: MediaIngestErrorCode; message: string }) {
+    super(refusal.message);
+    this.code = refusal.code;
     this.name = 'MediaIngestError';
   }
 }
@@ -69,7 +83,6 @@ type EncodedImage<TMediaType extends string> = {
 };
 
 export type PreparedMedia = {
-  sha256: string;
   original: EncodedImage<OriginalMediaType>;
   model: EncodedImage<ModelMediaType>;
 };
@@ -102,26 +115,25 @@ const MEDIA_TYPE_BY_FORMAT: Partial<
 export async function prepareMedia(input: Buffer): Promise<PreparedMedia> {
   if (input.length > MEDIA_MAX_BYTES) {
     // Checked before the header names a format.
-    throw new MediaIngestError('media_too_large', MEDIA_REFUSAL.fileTooLarge);
+    throw new MediaIngestError(MEDIA_REFUSAL.fileTooLarge);
   }
 
   const header = await readHeader(input).catch(() => {
-    throw unsupportedImage();
+    throw new MediaIngestError(MEDIA_REFUSAL.unsupportedImage);
   });
   const mediaType = MEDIA_TYPE_BY_FORMAT[header.format];
   if (mediaType === undefined) {
-    throw unsupportedImage();
+    throw new MediaIngestError(MEDIA_REFUSAL.unsupportedImage);
   }
   if (header.width * header.height > MEDIA_MAX_PIXELS) {
-    throw new MediaIngestError('media_too_large', MEDIA_REFUSAL.imageTooLarge);
+    throw new MediaIngestError(MEDIA_REFUSAL.imageTooLarge);
   }
 
   const pixels = await decodeModelPixels(input).catch(() => {
-    throw unsupportedImage();
+    throw new MediaIngestError(MEDIA_REFUSAL.unsupportedImage);
   });
 
   return {
-    sha256: createHash('sha256').update(input).digest('hex'),
     original: {
       mediaType,
       width: header.width,
@@ -130,13 +142,6 @@ export async function prepareMedia(input: Buffer): Promise<PreparedMedia> {
     },
     model: await encodeModelVariant(pixels),
   };
-}
-
-function unsupportedImage(): MediaIngestError {
-  return new MediaIngestError(
-    'unsupported_media_type',
-    MEDIA_REFUSAL.unsupportedImage,
-  );
 }
 
 /**

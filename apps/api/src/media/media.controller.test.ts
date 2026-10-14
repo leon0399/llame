@@ -6,6 +6,7 @@ import request from 'supertest';
 
 import { AuthContext, type AuthenticatedRequest } from '../auth/auth-context';
 import { type MediaObject } from '../db/schema';
+import { storedPdfRow } from './media-fixtures';
 import {
   MEDIA_MAX_BYTES,
   MEDIA_REFUSAL,
@@ -35,18 +36,7 @@ const stored: MediaObject = {
   createdAt: new Date('2026-10-10T00:00:00.000Z'),
 };
 
-const storedPdf: MediaObject = {
-  ...stored,
-  name: 'scan.pdf',
-  mediaType: 'application/pdf',
-  width: null,
-  height: null,
-  modelMediaType: null,
-  modelWidth: null,
-  modelHeight: null,
-  modelByteSize: null,
-  pageCount: 15,
-};
+const storedPdf = storedPdfRow({ ownerUserId: OWNER, pageCount: 15 });
 
 /**
  * The controller behind the real Nest pipeline (multer, filters, Express
@@ -92,31 +82,26 @@ describe('MediaController upload', () => {
   });
 
   it.each([
-    ['media_too_large', 413, 'Payload Too Large', MEDIA_REFUSAL.imageTooLarge],
-    ['media_too_large', 413, 'Payload Too Large', MEDIA_REFUSAL.pdfTooLarge],
-    [
-      'unsupported_media_type',
-      415,
-      'Unsupported Media Type',
-      MEDIA_REFUSAL.unsupportedImage,
-    ],
-    [
-      'unsupported_media_type',
-      415,
-      'Unsupported Media Type',
-      MEDIA_REFUSAL.unopenablePdf,
-    ],
+    [MEDIA_REFUSAL.imageTooLarge, 413, 'Payload Too Large'],
+    [MEDIA_REFUSAL.pdfTooLarge, 413, 'Payload Too Large'],
+    [MEDIA_REFUSAL.unsupportedImage, 415, 'Unsupported Media Type'],
+    [MEDIA_REFUSAL.unopenablePdf, 415, 'Unsupported Media Type'],
   ] as const)(
-    'answers an ingest %s refusal %i (%s): %s',
-    async (code, statusCode, error, message) => {
+    'answers the ingest refusal %j with %i (%s)',
+    async (refusal, statusCode, error) => {
       await withMediaApp(async (server, media) => {
         vi.spyOn(media, 'ingest').mockRejectedValue(
-          new MediaIngestError(code, message),
+          new MediaIngestError(refusal),
         );
 
         const response = await uploadPng(server).expect(statusCode);
 
-        expect(response.body).toEqual({ statusCode, error, message, code });
+        expect(response.body).toEqual({
+          statusCode,
+          error,
+          message: refusal.message,
+          code: refusal.code,
+        });
       });
     },
   );
@@ -133,8 +118,8 @@ describe('MediaController upload', () => {
       expect(response.body).toEqual({
         statusCode: 413,
         error: 'Payload Too Large',
-        message: 'File exceeds 20 MiB',
-        code: 'media_too_large',
+        message: MEDIA_REFUSAL.fileTooLarge.message,
+        code: MEDIA_REFUSAL.fileTooLarge.code,
       });
       expect(ingest).not.toHaveBeenCalled();
     });

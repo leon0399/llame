@@ -5,7 +5,6 @@
  */
 
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -23,7 +22,7 @@ export const PDF_MAX_PAGES = 100;
 
 const PARSE_TIMEOUT_MS = 10_000;
 const MAX_LIVE_PARSES = 2;
-/** The bounded start's status when a bound cannot be applied; the entry never uses it. */
+/** A child that did not start, or whose bounds could not apply; the entry never uses it. */
 const START_FAILURE_STATUS = 70;
 const PDF_SIGNATURE = Buffer.from('%PDF-', 'latin1');
 const ENCRYPT_TOKEN = Buffer.from('/Encrypt', 'latin1');
@@ -45,8 +44,6 @@ const parseReportSchema = z.strictObject({
 });
 type ParseReport = z.infer<typeof parseReportSchema>;
 
-export type PreparedPdf = { sha256: string; pages: number };
-
 /** How a parse child is started and how long it may run. */
 export type PdfParseChild = {
   command: string;
@@ -55,17 +52,13 @@ export type PdfParseChild = {
 };
 
 type ChildOutcome = {
-  started: boolean;
   status: number | null;
   stdout: string;
   stderr: string;
 };
 
 export function isPdfSignature(head: Uint8Array): boolean {
-  return (
-    head.length >= PDF_SIGNATURE.length &&
-    PDF_SIGNATURE.equals(head.subarray(0, PDF_SIGNATURE.length))
-  );
+  return PDF_SIGNATURE.equals(head.subarray(0, PDF_SIGNATURE.length));
 }
 
 /**
@@ -99,51 +92,42 @@ export function pdfParseChild(
   return { command: 'sh', args, timeoutMs };
 }
 
-/** Refuses or measures a PDF; the caller's buffer is never modified. */
-export function preparePdf(input: Buffer): Promise<PreparedPdf> {
-  return preparePdfWith(input, defaultParseChild());
-}
-
-/** `preparePdf` with an explicit parse child, for tests. */
-export async function preparePdfWith(
+/**
+ * Refuses a PDF or returns its page count; the caller's buffer is never
+ * modified. Tests inject the parse child.
+ */
+export async function preparePdf(
   input: Buffer,
-  child: PdfParseChild,
-): Promise<PreparedPdf> {
+  child: PdfParseChild = defaultParseChild(),
+): Promise<number> {
   if (input.length > MEDIA_MAX_BYTES) {
-    throw new MediaIngestError('media_too_large', MEDIA_REFUSAL.pdfTooLarge);
+    throw new MediaIngestError(MEDIA_REFUSAL.pdfTooLarge);
   }
-  if (input.includes(ENCRYPT_TOKEN)) throw unopenablePdf();
+  if (input.includes(ENCRYPT_TOKEN)) {
+    throw new MediaIngestError(MEDIA_REFUSAL.unopenablePdf);
+  }
   const report = classify(await withParseSlot(() => runChild(input, child)));
-  if (report.encrypted || report.pages < 1) throw unopenablePdf();
-  if (report.pages > PDF_MAX_PAGES) {
-    throw new MediaIngestError('media_too_large', MEDIA_REFUSAL.pdfTooLarge);
+  if (report.encrypted || report.pages < 1) {
+    throw new MediaIngestError(MEDIA_REFUSAL.unopenablePdf);
   }
-  const sha256 = createHash('sha256').update(input).digest('hex');
-  return { sha256, pages: report.pages };
-}
-
-function unopenablePdf(): MediaIngestError {
-  return new MediaIngestError(
-    'unsupported_media_type',
-    MEDIA_REFUSAL.unopenablePdf,
-  );
+  if (report.pages > PDF_MAX_PAGES) {
+    throw new MediaIngestError(MEDIA_REFUSAL.pdfTooLarge);
+  }
+  return report.pages;
 }
 
 function classify(outcome: ChildOutcome): ParseReport {
-  const startFailed =
-    outcome.status === START_FAILURE_STATUS && outcome.stdout === '';
-  if (!outcome.started || startFailed) {
+  if (outcome.status === START_FAILURE_STATUS && outcome.stdout === '') {
     logger.error(`PDF parse child failed to start: ${outcome.stderr.trim()}`);
-    throw new MediaIngestError(
-      'unsupported_media_type',
-      MEDIA_REFUSAL.pdfUnavailable,
-    );
+    throw new MediaIngestError(MEDIA_REFUSAL.pdfUnavailable);
   }
-  if (outcome.status !== 0) throw unopenablePdf();
+  if (outcome.status !== 0) {
+    throw new MediaIngestError(MEDIA_REFUSAL.unopenablePdf);
+  }
   try {
     return parseReportSchema.parse(JSON.parse(outcome.stdout));
   } catch {
-    throw unopenablePdf();
+    throw new MediaIngestError(MEDIA_REFUSAL.unopenablePdf);
   }
 }
 
@@ -165,7 +149,6 @@ async function withParseSlot<T>(task: () => Promise<T>): Promise<T> {
 
 /** Runs one child to exit; a timeout ends it with `SIGKILL` (status null). */
 function runChild(input: Buffer, child: PdfParseChild): Promise<ChildOutcome> {
-  // Executor form: the API's TypeScript lib predates `Promise.withResolvers`.
   return new Promise((resolve) => {
     const proc = spawn(child.command, child.args, {
       // `--import tsx` (tests) resolves its specifier from the working directory.
@@ -175,10 +158,9 @@ function runChild(input: Buffer, child: PdfParseChild): Promise<ChildOutcome> {
     const stdout: Array<Buffer> = [];
     const stderr: Array<Buffer> = [];
     const timer = setTimeout(() => proc.kill('SIGKILL'), child.timeoutMs);
-    const finish = (started: boolean, status: number | null) => {
+    const finish = (status: number | null) => {
       clearTimeout(timer);
       resolve({
-        started,
         status,
         stdout: Buffer.concat(stdout).toString('utf8'),
         stderr: Buffer.concat(stderr).toString('utf8'),
@@ -188,11 +170,12 @@ function runChild(input: Buffer, child: PdfParseChild): Promise<ChildOutcome> {
     proc.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
     // A child that exits mid-write fails the write with EPIPE; its exit status classifies it.
     proc.stdin.on('error', () => undefined);
+    // A child that never started classifies like a bound that could not apply.
     proc.on('error', (error) => {
       stderr.push(Buffer.from(error.message));
-      finish(false, null);
+      finish(START_FAILURE_STATUS);
     });
-    proc.on('close', (status) => finish(true, status));
+    proc.on('close', (status) => finish(status));
     proc.stdin.end(input);
   });
 }

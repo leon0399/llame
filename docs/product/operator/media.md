@@ -174,9 +174,6 @@ body limit of other routes is unchanged. Refusals carry a `code` and a
 | an unopenable, encrypted, or page-less PDF         | `415`  | `unsupported_media_type` | `Only unencrypted PDFs that open are accepted`      |
 | a PDF on a host that cannot apply the parse bounds | `415`  | `unsupported_media_type` | `PDF parsing is unavailable on this server`         |
 
-The upload limit refuses a file over 20 MiB before ingest reads it, so the
-first row applies to images and PDFs alike.
-
 The image descriptor has exactly `id`, `locator`, `mediaType`, `name`,
 `width`, `height`, `byteSize`, and `model`, an object with the model variant's
 `mediaType`, `width`, `height`, and `byteSize`. The PDF descriptor has exactly

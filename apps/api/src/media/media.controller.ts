@@ -60,7 +60,6 @@ import {
   MediaIngestError,
 } from './media-ingest';
 import { MediaService } from './media.service';
-import { PDF_MEDIA_TYPE } from './pdf-preparation';
 
 /** One byte-route request: who asks for which variant. */
 type VariantRequest = {
@@ -107,7 +106,7 @@ function ingestRefusal(error: MediaIngestError): HttpException {
 class UploadTooLargeFilter implements ExceptionFilter {
   catch(_exception: PayloadTooLargeException, host: ArgumentsHost): void {
     const refusal = ingestRefusal(
-      new MediaIngestError('media_too_large', MEDIA_REFUSAL.fileTooLarge),
+      new MediaIngestError(MEDIA_REFUSAL.fileTooLarge),
     );
     host
       .switchToHttp()
@@ -241,7 +240,7 @@ export class MediaController {
   /**
    * Ownership resolves before `If-None-Match` is evaluated, so a validator
    * cached under another owner's session earns a 404, never a 304. A PDF has
-   * no model variant, so its `model` is that same 404 (pdf-media D2).
+   * no model media type, so its `model` is that same 404 (pdf-media D2).
    */
   private async sendVariant(
     { userId, id, variant }: VariantRequest,
@@ -250,9 +249,9 @@ export class MediaController {
   ): Promise<void> {
     const media = await this.media.findOwned(userId, id);
     if (media === undefined) throw new NotFoundException();
-    if (variant === 'model' && media.mediaType === PDF_MEDIA_TYPE) {
-      throw new NotFoundException();
-    }
+    const contentType =
+      variant === 'original' ? media.mediaType : media.modelMediaType;
+    if (contentType === null) throw new NotFoundException();
 
     // The bytes under an id never change, so digest + variant is a strong
     // validator.
@@ -266,9 +265,6 @@ export class MediaController {
 
     const bytes = await this.media.readVariant(userId, id, variant);
     if (bytes === undefined) throw new NotFoundException();
-    const contentType =
-      variant === 'original' ? media.mediaType : media.modelMediaType;
-    if (contentType === null) throw new NotFoundException();
     res.setHeader('Content-Type', contentType);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', 'inline');

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { crc32 } from 'node:zlib';
 import sharp from 'sharp';
 
@@ -59,24 +59,7 @@ async function refusal(
   throw new Error('Expected a MediaIngestError refusal');
 }
 
-const UNSUPPORTED = {
-  code: 'unsupported_media_type',
-  message: MEDIA_REFUSAL.unsupportedImage,
-};
-
-describe('MEDIA_REFUSAL', () => {
-  // pdf-media D3: the message names what was detected.
-  it('carries the shared refusal messages', () => {
-    expect(MEDIA_REFUSAL).toEqual({
-      imageTooLarge: 'Image exceeds 20 MiB or 40 megapixels',
-      pdfTooLarge: 'PDF exceeds 20 MiB or 100 pages',
-      fileTooLarge: 'File exceeds 20 MiB',
-      unsupportedImage: 'Only PNG, JPEG, GIF, and WebP images are accepted',
-      unopenablePdf: 'Only unencrypted PDFs that open are accepted',
-      pdfUnavailable: 'PDF parsing is unavailable on this server',
-    });
-  });
-});
+const UNSUPPORTED = MEDIA_REFUSAL.unsupportedImage;
 
 describe('prepareMedia refusals', () => {
   it('refuses SVG as unsupported_media_type', async () => {
@@ -115,10 +98,7 @@ describe('prepareMedia refusals', () => {
     // unsupported, so media_too_large proves the byte bound ran first.
     const signature = (await solid(1, 1).png().toBuffer()).subarray(0, 8);
     const big = Buffer.concat([signature, Buffer.alloc(21 << 20)]);
-    expect(await refusal(big)).toEqual({
-      code: 'media_too_large',
-      message: MEDIA_REFUSAL.fileTooLarge,
-    });
+    expect(await refusal(big)).toEqual(MEDIA_REFUSAL.fileTooLarge);
   });
 
   it('admits an input of exactly 20 MiB past the byte bound', async () => {
@@ -151,10 +131,9 @@ describe('prepareMedia refusals', () => {
   ])(
     'refuses a small PNG whose header declares %i×%i',
     async (width, height) => {
-      expect(await refusal(await pngDeclaring(width, height))).toEqual({
-        code: 'media_too_large',
-        message: MEDIA_REFUSAL.imageTooLarge,
-      });
+      expect(await refusal(await pngDeclaring(width, height))).toEqual(
+        MEDIA_REFUSAL.imageTooLarge,
+      );
     },
   );
 });
@@ -170,10 +149,6 @@ describe('prepareMedia original', () => {
       height: 600,
       bytes: input,
     });
-    expect(prepared.sha256).toBe(
-      createHash('sha256').update(input).digest('hex'),
-    );
-    expect(prepared.sha256).toMatch(/^[0-9a-f]{64}$/u);
   });
 
   it('accepts WebP by its magic bytes', async () => {

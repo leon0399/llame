@@ -4,12 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import {
-  type Chat,
-  type MediaObject,
-  type Message,
-  type Run,
-} from '../db/schema';
+import { type Chat, type Message, type Run } from '../db/schema';
 import {
   type Db,
   TenantDbService,
@@ -134,8 +129,6 @@ function makeService(options?: {
   permissionModes?: ReadonlyArray<PermissionMode>;
   /** The media the sender's own ownership read finds. */
   ownedMedia?: ReadonlyArray<MediaDescriptor>;
-  /** Stored PDFs the sender owns, which have no descriptor yet. */
-  ownedPdfs?: ReadonlyArray<MediaObject>;
 }) {
   const tx = fakeTx();
   const tenantDb: TenantRunner = new TenantDbService({
@@ -163,11 +156,8 @@ function makeService(options?: {
         ),
       ),
     );
-  const findOwned = vi
-    .spyOn(media, 'findOwned')
-    .mockImplementation((_ownerUserId, id) =>
-      Promise.resolve(options?.ownedPdfs?.find((entry) => entry.id === id)),
-    );
+  // The stored-PDF guard looks up each id the ownership read missed.
+  vi.spyOn(media, 'findOwned').mockResolvedValue(undefined);
   const validateModelSelection = vi.fn(() => model);
   const resolveEffortSelection = vi.fn(() => undefined);
   const modelsService: ModelSelectionValidator = {
@@ -282,7 +272,6 @@ function makeService(options?: {
     findTurnState,
     listByRunId,
     describeOwned,
-    findOwned,
   };
 }
 
@@ -470,46 +459,6 @@ describe('ChatLoopService.createMessageStream', () => {
         expect(dispatchRun).not.toHaveBeenCalled();
       },
     );
-
-    // Interim guard (pdf-media pdf-store until pdf-attachments).
-    it('refuses a file part naming an owned PDF before any row is written', async () => {
-      const pdf: MediaObject = {
-        id: mediaId,
-        ownerUserId: chat.ownerUserId,
-        name: 'scan.pdf',
-        mediaType: 'application/pdf',
-        width: null,
-        height: null,
-        byteSize: 100,
-        modelMediaType: null,
-        modelWidth: null,
-        modelHeight: null,
-        modelByteSize: null,
-        pageCount: 3,
-        sha256: 'digest',
-        createdAt: new Date(0),
-      };
-      const {
-        service,
-        runAs,
-        findOwned,
-        createIfAbsent,
-        createUserMessageIfAbsent,
-        dispatchRun,
-      } = makeService({ ownedPdfs: [pdf] });
-
-      await expect(
-        send(service, [sentFile, { type: 'text', text: 'summarize' }]),
-      ).rejects.toMatchObject({
-        constructor: BadRequestException,
-        message: 'PDF attachments are not supported yet',
-      });
-      expect(findOwned).toHaveBeenCalledWith(chat.ownerUserId, mediaId);
-      expect(runAs).not.toHaveBeenCalled();
-      expect(createIfAbsent).not.toHaveBeenCalled();
-      expect(createUserMessageIfAbsent).not.toHaveBeenCalled();
-      expect(dispatchRun).not.toHaveBeenCalled();
-    });
   });
 
   it('persists, dispatches, and answers with the bridge stream for a new chat', async () => {

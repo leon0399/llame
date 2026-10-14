@@ -68,7 +68,7 @@ import {
   toolResultOutput,
   type MediaSizing,
 } from '../media/epoch-admission';
-import { parseMediaLocator } from '../media/media-locator';
+import { mediaLocator, parseMediaLocator } from '../media/media-locator';
 import { MediaService } from '../media/media.service';
 import { type HeldImage, releaseImage } from '../media/attempt-images';
 import { createToolMediaStore } from '../media/tool-media-store';
@@ -2509,9 +2509,10 @@ export class RunExecutionService {
       probeKnowledge: (locator) => this.probePromptKnowledge(context, locator),
       probeMedia: async (locator) => {
         const id = parseMediaLocator(locator);
-        return id === undefined
+        if (id === undefined) return undefined;
+        return (await media.findImage(id)) === undefined
           ? undefined
-          : (await media.findImage(id))?.media;
+          : mediaLocator(id);
       },
       readImport: async (path, ordinal, locator) => {
         const key = promptImportImageKey(input.runId, locator);

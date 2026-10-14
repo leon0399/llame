@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { v7 as uuidv7 } from 'uuid';
@@ -56,15 +58,16 @@ async function prepareObject(
     ownerUserId,
     name: mediaSourceLabel(input.source),
     byteSize: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
   };
   if (isPdfSignature(bytes)) {
-    const { sha256, pages } = await preparePdf(bytes);
+    const pageCount = await preparePdf(bytes);
     return {
-      row: { ...base, mediaType: PDF_MEDIA_TYPE, pageCount: pages, sha256 },
+      row: { ...base, mediaType: PDF_MEDIA_TYPE, pageCount },
       blobs: [{ variant: 'original', data: bytes }],
     };
   }
-  const { sha256, original, model } = await prepareMedia(bytes);
+  const { original, model } = await prepareMedia(bytes);
   return {
     row: {
       ...base,
@@ -75,7 +78,6 @@ async function prepareObject(
       modelWidth: model.width,
       modelHeight: model.height,
       modelByteSize: model.bytes.length,
-      sha256,
     },
     blobs: [
       { variant: 'original', data: original.bytes },

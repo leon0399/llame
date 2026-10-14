@@ -24,7 +24,7 @@ export type StoredImage = {
 };
 
 /** The owner's stored PDF, which a `media://` read refuses until pdf-read. */
-export type StoredPdf = { kind: 'pdf'; media: string };
+export type StoredPdf = { kind: 'pdf' };
 
 /**
  * The Run owner's media as native `read` sees it (vision-media D7), bound at
@@ -52,16 +52,15 @@ export type ToolMediaStore = {
 };
 
 function storedOf(stored: MediaObject): StoredImage | StoredPdf | undefined {
-  const media = mediaLocator(stored.id);
   // Only a PDF row has a page count (media_objects_shape).
-  if (stored.pageCount !== null) return { kind: 'pdf', media };
+  if (stored.pageCount !== null) return { kind: 'pdf' };
   const image = imageColumns(stored);
   if (image === undefined) return undefined;
   const { width, height } = image;
   return {
     status: 'success',
     kind: 'image',
-    media,
+    media: mediaLocator(stored.id),
     mediaType: stored.mediaType,
     width,
     height,
@@ -85,10 +84,7 @@ function unstoredRead(
   return async ({ byteSize, readBytes, signal }) => {
     try {
       if (byteSize > MEDIA_MAX_BYTES) {
-        throw new MediaIngestError(
-          'media_too_large',
-          MEDIA_REFUSAL.imageTooLarge,
-        );
+        throw new MediaIngestError(MEDIA_REFUSAL.imageTooLarge);
       }
       const { original, model } = await prepareMedia(await readBytes());
       const thumbnail = await encodeThumbnail(model.bytes);

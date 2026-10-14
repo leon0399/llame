@@ -299,7 +299,7 @@ describe('native image reads', () => {
     expect(await runTool(nativeReadTool, { path }, context(), 5)).toEqual({
       status: 'error',
       type: 'media_too_large',
-      message: MEDIA_REFUSAL.imageTooLarge,
+      message: MEDIA_REFUSAL.imageTooLarge.message,
     });
     expect(held()).toBeUndefined();
   });
@@ -311,7 +311,7 @@ describe('native image reads', () => {
     expect(await runTool(nativeReadTool, { path }, context(), 5)).toEqual({
       status: 'error',
       type: 'media_too_large',
-      message: MEDIA_REFUSAL.imageTooLarge,
+      message: MEDIA_REFUSAL.imageTooLarge.message,
     });
     expect(held()).toBeUndefined();
   });
@@ -326,7 +326,7 @@ describe('native image reads', () => {
     expect(await runTool(nativeReadTool, { path }, context(), 5)).toEqual({
       status: 'error',
       type: 'unsupported_media_type',
-      message: MEDIA_REFUSAL.unsupportedImage,
+      message: MEDIA_REFUSAL.unsupportedImage.message,
     });
     expect(held()).toBeUndefined();
   });

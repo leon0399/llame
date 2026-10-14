@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -10,25 +9,18 @@ import {
   isPdfSignature,
   pdfParseChild,
   preparePdf,
-  preparePdfWith,
 } from './pdf-preparation';
 
 vi.setConfig({ testTimeout: 30_000 });
 
 const UNOPENABLE = {
   name: 'MediaIngestError',
-  code: 'unsupported_media_type',
-  message: MEDIA_REFUSAL.unopenablePdf,
+  ...MEDIA_REFUSAL.unopenablePdf,
 };
-const TOO_LARGE = {
-  name: 'MediaIngestError',
-  code: 'media_too_large',
-  message: MEDIA_REFUSAL.pdfTooLarge,
-};
+const TOO_LARGE = { name: 'MediaIngestError', ...MEDIA_REFUSAL.pdfTooLarge };
 const UNAVAILABLE = {
   name: 'MediaIngestError',
-  code: 'unsupported_media_type',
-  message: MEDIA_REFUSAL.pdfUnavailable,
+  ...MEDIA_REFUSAL.pdfUnavailable,
 };
 
 const onLinux = process.platform === 'linux';
@@ -65,10 +57,7 @@ describe('preparePdf', () => {
     ['one-page.pdf', 1],
     ['fifteen-pages.pdf', 15],
   ])('counts the pages of %s', async (name, pages) => {
-    const input = fixture(name);
-    const sha256 = createHash('sha256').update(input).digest('hex');
-
-    await expect(preparePdf(input)).resolves.toEqual({ sha256, pages });
+    await expect(preparePdf(fixture(name))).resolves.toBe(pages);
   });
 
   it('refuses a truncated PDF', async () => {
@@ -105,7 +94,7 @@ describe('preparePdf', () => {
     };
 
     await expect(
-      preparePdfWith(paddedPdf(21 * 1024 * 1024), neverStarts),
+      preparePdf(paddedPdf(21 * 1024 * 1024), neverStarts),
     ).rejects.toMatchObject(TOO_LARGE);
   });
 
@@ -124,7 +113,7 @@ describe('preparePdf', () => {
     );
 
     await expect(
-      preparePdfWith(fixture('one-page.pdf'), encrypted),
+      preparePdf(fixture('one-page.pdf'), encrypted),
     ).rejects.toMatchObject(UNOPENABLE);
   });
 
@@ -132,7 +121,7 @@ describe('preparePdf', () => {
     const garbled = fakeEntry('process.stdout.write("pages: 1")');
 
     await expect(
-      preparePdfWith(fixture('one-page.pdf'), garbled),
+      preparePdf(fixture('one-page.pdf'), garbled),
     ).rejects.toMatchObject(UNOPENABLE);
   });
 
@@ -190,7 +179,7 @@ describe('parse child bounds', () => {
     const started = performance.now();
     try {
       await expect(
-        preparePdfWith(
+        preparePdf(
           fixture('one-page.pdf'),
           fakeEntry('setTimeout(() => undefined, 60_000)', 500),
         ),
@@ -206,16 +195,19 @@ describe('parse child bounds', () => {
   it.runIf(onLinux)(
     'refuses a parser that exhausts its address space',
     async () => {
+      // 3 GiB of untouched memory, then a hang: only the 2 GiB address-space
+      // bound ends this child before its 5 s time bound.
       const allocating = fakeEntry(
-        'const held = []; for (;;) held.push(Buffer.allocUnsafeSlow(1 << 26));',
+        'const held = []; for (let i = 0; i < 48; i += 1) held.push(Buffer.allocUnsafeSlow(1 << 26)); setTimeout(() => undefined, 60_000);',
+        5000,
       );
+      const started = performance.now();
 
       await expect(
-        preparePdfWith(fixture('one-page.pdf'), allocating),
+        preparePdf(fixture('one-page.pdf'), allocating),
       ).rejects.toMatchObject(UNOPENABLE);
-      await expect(preparePdf(fixture('one-page.pdf'))).resolves.toMatchObject({
-        pages: 1,
-      });
+      expect(performance.now() - started).toBeLessThan(3000);
+      await expect(preparePdf(fixture('one-page.pdf'))).resolves.toBe(1);
     },
   );
 
@@ -229,7 +221,7 @@ describe('parse child bounds', () => {
       timeoutMs: 5000,
     };
 
-    await expect(preparePdfWith(body(), failingStart)).rejects.toMatchObject(
+    await expect(preparePdf(body(), failingStart)).rejects.toMatchObject(
       UNAVAILABLE,
     );
   });
@@ -242,7 +234,7 @@ describe('parse child bounds', () => {
     };
 
     await expect(
-      preparePdfWith(fixture('one-page.pdf'), missing),
+      preparePdf(fixture('one-page.pdf'), missing),
     ).rejects.toMatchObject(UNAVAILABLE);
   });
 
@@ -304,11 +296,11 @@ describe('parse child bounds', () => {
     try {
       const input = fixture('one-page.pdf');
       const results = await Promise.all(
-        Array.from({ length: 5 }, () => preparePdfWith(input, counting)),
+        Array.from({ length: 5 }, () => preparePdf(input, counting)),
       );
 
       expect(results).toHaveLength(5);
-      expect(Math.max(...results.map(({ pages }) => pages))).toBeLessThan(3);
+      expect(Math.max(...results)).toBeLessThan(3);
     } finally {
       rmSync(liveDir, { recursive: true, force: true });
     }
