@@ -4,6 +4,7 @@ import {
   type PromptChatsInput,
   type PromptSkillsInput,
   type PromptUserInput,
+  type RenderedPrompt,
   type TemporalAnchor,
   renderSystemPromptTemplate,
 } from '../instance-config/prompt-loader';
@@ -35,7 +36,8 @@ export type SystemPromptRenderInput = {
  * being reachable from a model-routing service.
  *
  * **The interface is narrow on purpose.** It is synchronous, takes one
- * template, and returns one string. `model-system-prompts` requires that each
+ * template, and returns one string with its private digest disclosure.
+ * `model-system-prompts` requires that each
  * model resolve exactly ONE complete prompt, with no inheritance or
  * composition — so there is no pipeline here to hang later context off. If this
  * ever grows an `await`, a chat id, or a second template, that is the signal
@@ -49,7 +51,7 @@ export type SystemPromptRenderInput = {
  */
 @Injectable()
 export class SystemPromptsService {
-  render(input: SystemPromptRenderInput): string {
+  render(input: SystemPromptRenderInput): RenderedPrompt {
     return renderSystemPromptTemplate({
       template: input.model.systemPromptTemplate,
       model: input.model,

@@ -33,7 +33,7 @@ const render = (user?: PromptUserInput, chats?: PromptChatsInput) =>
     anchor: TEST_ANCHOR,
     user,
     chats,
-  });
+  }).text;
 
 describe('packaged default prompt — recalled conversation evidence', () => {
   it('distinguishes bounded discovery from exact numbered reads', () => {
@@ -287,6 +287,18 @@ describe('packaged default prompt — chat recency digest', () => {
     compiledOn: '2026-08-10',
   };
 
+  it('reports every digest entry it renders as disclosed', () => {
+    const { chatsDisclosure } = renderSystemPromptTemplate({
+      template: template(),
+      model: MODEL,
+      anchor: TEST_ANCHOR,
+      chats: digest,
+    });
+
+    expect([...chatsDisclosure.pinned]).toEqual([0, 1]);
+    expect([...chatsDisclosure.recent]).toEqual([0, 1, 2]);
+  });
+
   it('omits the digest byte-for-byte when no baseline exists', () => {
     const source = template();
 
@@ -295,7 +307,7 @@ describe('packaged default prompt — chat recency digest', () => {
         template: removeDigestBlock(source),
         model: MODEL,
         anchor: TEST_ANCHOR,
-      }),
+      }).text,
     );
   });
 

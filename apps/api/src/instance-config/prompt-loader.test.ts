@@ -64,7 +64,7 @@ const renderResolved = (
     anchor: TEST_ANCHOR,
     user,
     chats,
-  });
+  }).text;
 
 const renderAdmitted = (
   resolved: { systemPromptTemplate: string },
@@ -76,7 +76,7 @@ const renderAdmitted = (
     model,
     anchor: TEST_ANCHOR,
     admittedToolIds,
-  });
+  }).text;
 
 const renderFor = (
   model: TestModel,
@@ -231,7 +231,7 @@ describe('model prompt rendering', () => {
         template: resolved.systemPromptTemplate,
         model,
         anchor: TEST_ANCHOR,
-      }),
+      }).text,
     ).toBe('id model-id name Model Name literal {{model.name}}');
     expect(resolved.systemPromptSource).toBe('project_default');
   });
@@ -849,6 +849,47 @@ describe('bounded chat-digest iteration', () => {
   });
 
   it.each([
+    ['no digest reference', 'base', [], []],
+    [
+      'only gates, iterations, and aggregate counts',
+      'base{{#if chats.pinned}} pinned{{/if}}{{#each chats.recent}}{{#if excerpt}} has excerpt{{/if}}{{/each}} {{chats.recentShown}}/{{chats.recentTotal}}',
+      [],
+      [],
+    ],
+    [
+      'one field of one list',
+      'base{{#each chats.recent}} {{messageCount}}{{/each}}',
+      [],
+      [0, 1],
+    ],
+    [
+      'values inside an item conditional',
+      'base{{#each chats.recent}}{{#if excerpt}} {{title}}{{/if}}{{/each}}{{#each chats.pinned}}{{#unless excerpt}} {{title}}{{/unless}}{{/each}}',
+      [],
+      [1],
+    ],
+    [
+      'both lists',
+      'base{{#each chats.pinned}} {{title}}{{/each}}{{#each chats.recent}} {{date}}{{/each}}',
+      [0],
+      [0, 1],
+    ],
+  ])(
+    'reports the entries a render emitted: %s',
+    (_case, template, pinned, recent) => {
+      const { chatsDisclosure } = renderSystemPromptTemplate({
+        template,
+        model: { id: 'm' },
+        anchor: TEST_ANCHOR,
+        chats,
+      });
+
+      expect([...chatsDisclosure.pinned]).toEqual(pinned);
+      expect([...chatsDisclosure.recent]).toEqual(recent);
+    },
+  );
+
+  it.each([
     [
       'undeclared item field',
       '{{#each chats.recent}}{{secret}}{{/each}}',
@@ -1073,7 +1114,7 @@ describe('bounded skill-catalog projection', () => {
         model: { id: 'm' },
         anchor: TEST_ANCHOR,
         skills,
-      }),
+      }).text,
     ).toBe(
       'base<skill name="pdf">Extract text from PDF files.</skill><skill name="research">Plan a multi-source investigation.</skill>',
     );
@@ -1089,7 +1130,7 @@ describe('bounded skill-catalog projection', () => {
         model: { id: 'm' },
         anchor: TEST_ANCHOR,
         skills,
-      }),
+      }).text,
     ).toBe('base\nSection');
     // An empty admission is indistinguishable from no catalog at all, which is
     // what makes `{{#if skills}}` safe as the section's only guard.
@@ -1099,14 +1140,14 @@ describe('bounded skill-catalog projection', () => {
         model: { id: 'm' },
         anchor: TEST_ANCHOR,
         skills: { entries: [], omitted: 0 },
-      }),
+      }).text,
     ).toBe('base');
     expect(
       renderSystemPromptTemplate({
         template,
         model: { id: 'm' },
         anchor: TEST_ANCHOR,
-      }),
+      }).text,
     ).toBe('base');
   });
 
@@ -1122,7 +1163,7 @@ describe('bounded skill-catalog projection', () => {
         model: { id: 'm' },
         anchor: TEST_ANCHOR,
         skills: { entries: skills.entries, omitted },
-      });
+      }).text;
 
     // A wrapped "0" would be an object and therefore truthy, rendering the
     // overflow line around an empty remainder.
@@ -1149,7 +1190,7 @@ describe('bounded skill-catalog projection', () => {
         ],
         omitted: 0,
       },
-    });
+    }).text;
 
     // Exactly the fence the template opened survives: the authored closer is
     // entity-escaped, and the authored opener cannot pair with a real closer
@@ -1185,7 +1226,7 @@ describe('bounded skill-catalog projection', () => {
         ],
         omitted: 0,
       },
-    });
+    }).text;
 
     // Exactly the two real entries, in order: no forged element survives.
     expect(rendered.match(/<skill name=/gu)).toHaveLength(2);
@@ -1212,7 +1253,7 @@ describe('bounded skill-catalog projection', () => {
           entries: [{ name: 'pdf', description: 'Use the skill-2 helper.' }],
           omitted: 0,
         },
-      }),
+      }).text,
     ).toContain('Use the skill-2 helper.');
   });
 
@@ -1486,7 +1527,7 @@ function renderPackagedReadDescription(
     model,
     anchor: TEST_ANCHOR,
     admittedToolIds,
-  });
+  }).text;
 }
 
 describe('llame-owned tool description templates', () => {
@@ -1524,13 +1565,13 @@ describe('llame-owned tool description templates', () => {
       toolId: 'bash' as const,
       admittedToolIds: ['bash'],
     };
-    expect(renderer.render({ ...base, model: { id: 'model' } })).toBe(
+    expect(renderer.render({ ...base, model: { id: 'model' } }).text).toBe(
       'model model',
     );
-    expect(renderer.render({ ...base, model: { id: 'null-model' } })).toBe(
+    expect(renderer.render({ ...base, model: { id: 'null-model' } }).text).toBe(
       'instance null-model',
     );
-    expect(renderer.render({ ...base, model: { id: 'other' } })).toBe(
+    expect(renderer.render({ ...base, model: { id: 'other' } }).text).toBe(
       'instance other',
     );
   });
@@ -1604,7 +1645,7 @@ describe('llame-owned tool description templates', () => {
         model: { id: 'model' },
         anchor: TEST_ANCHOR,
         admittedToolIds: ['bash'],
-      }),
+      }).text,
     ).toBe('Base description. ');
   });
 
@@ -1652,13 +1693,13 @@ describe('llame-owned tool description templates', () => {
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['bash'],
-    });
+    }).text;
     const bashWithEdit = renderer.render({
       toolId: 'bash',
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['bash', 'edit'],
-    });
+    }).text;
     expect(bashWithoutEdit).not.toContain(
       'Prefer native edit for small exact replacements.',
     );
@@ -1672,13 +1713,13 @@ describe('llame-owned tool description templates', () => {
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['search_conversations'],
-    });
+    }).text;
     const searchWithReader = renderer.render({
       toolId: 'search_conversations',
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['conversation_read', 'search_conversations'],
-    });
+    }).text;
     expect(searchWithoutReader).not.toContain(
       'Use returned coordinates with conversation_read',
     );

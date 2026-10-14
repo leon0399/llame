@@ -254,6 +254,10 @@ export class OrgUnitsRepository {
    * comment for why this also holds for the destination side). Callers MUST
    * check this and map it to 403 — never treat it as success (landmine:
    * "a denied admin op must NEVER return success").
+   *
+   * A cross-tree move needs more than the policy's admin tier: the
+   * `org_units_update_authority` trigger raises 42501 unless the caller is an
+   * `owner` of the source tree's root (#1260).
    */
   async move(
     unit: Pick<OrgUnit, 'id'>,
@@ -291,7 +295,10 @@ export class OrgUnitsRepository {
    * `parent_id`. Only the source tree root needs locking — there is no
    * destination tree. Same zero-rows-under-USING contract as `move`: a
    * caller lacking admin-tier on the current path gets an `undefined`
-   * return, not a silent no-op success.
+   * return, not a silent no-op success. Leaving the tree needs the caller to
+   * be an `owner` of the source tree's root (42501 otherwise), and the
+   * promoted root must hold an `owner` membership by commit (OW001
+   * otherwise) — both DB-enforced (#1260).
    */
   async moveToRoot(unit: Pick<OrgUnit, 'id'>): Promise<OrgUnit | undefined> {
     const rows = await this.lockTreeRoots([unit.id]);

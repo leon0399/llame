@@ -2,6 +2,57 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-11
 
+- The search embed worker now copies an existing vector instead of calling
+  the embedding provider when the same owner already has a valid one for
+  byte-identical chunk content under the current model key and input version
+  (#597). A forked chat, whose messages get fresh ids and so new content
+  hashes, is now embedded with no provider calls for its copied transcript.
+  Reuse stays inside the owner's row-level-security scope and never crosses
+  users. A new partial `md5(content)` index narrows candidates, and the copy
+  still requires the content bytes to match. Failed (tombstoned) documents are
+  never reused.
+
+- Fixed an org `admin` being able to take a unit out of its owners' control
+  (#1260). An admin could promote a unit to root and leave it with no owner,
+  then mint `owner` on it, or move a unit into another tree they own and gain
+  owner rights over it and its owners. Moving a unit to root or into another
+  tree now needs the caller to be an `owner` of the source tree's root; owning
+  the unit or a unit between it and the root is not enough. A unit promoted to
+  root must have an `owner` by the end of the move (the API answers 409
+  otherwise). Moves within one tree still need only `admin`. A unit's
+  `created_by` can no longer be changed, and the sole owner of a root can no
+  longer move their owner row to another unit. The database enforces all of
+  this, so direct SQL is blocked too. Creating a child without admin rights
+  now returns 403 instead of 500.
+
+- Fixed a root org's creator being able to grant themselves `owner` again
+  after transferring ownership and leaving, or after being demoted and
+  leaving, and then revoke the new owner (#1258). The creator's self-grant of
+  `owner` now works only on a fresh root that has no memberships yet, which
+  is the one-transaction bootstrap in root creation. The database enforces
+  this, so direct SQL is blocked too. **Upgrade note:** run
+  `pnpm db:provision-rls` after `pnpm db:migrate`. Until the new
+  `llame_org_unit_is_fresh_root` function is owned by `app_rls`, it fails
+  closed and creating a root org is refused.
+
+- Fixed the merged web coverage report counting a story-covered file twice
+  when it lives under a Next route group such as `app/(chat)/`. Vitest 4.1.11
+  passed tested file paths to its untested-file glob as patterns, so the
+  parentheses never matched and each such file was also added as an all-zero
+  "uncovered" copy whose statement locations differed from the browser's. A
+  pnpm patch backports the upstream fix (vitest-dev/vitest#11531). Now that
+  the #860 story migrations are on master, merged statements read 90.45%
+  instead of 85.64%. Files no test loads, such as `app/(chat)/layout.tsx`,
+  still report 0%.
+
+- Fixed the pins write gate so that an update must also reference an item the
+  caller can access. Before, the `pins_owner_update` row-level security policy
+  checked only the pin's owner, so a user could re-point their own pin at
+  another user's chat or project with a direct `UPDATE` and keep a pin to an
+  item they cannot access. The policy now applies the same per-type access
+  check as `pins_owner_insert`. Pin reorder is unaffected because it only
+  rewrites the rank of pins whose item is still accessible.
+
 - Fixed explicit `$skill` activation loading a skill's instructions and
   imported package files when `read` is not in `tools.allowed` (#1264).
   Activation now loads nothing without `read`, in `default` and `bypass`
@@ -17,6 +68,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   in view until the reader scrolls. Ordinary opens still land on the newest
   message. The product E2E suite now checks the target is in view without
   scrolling to it.
+
+- Fixed the recency digest marking chats as told that the model never saw
+  (#1206). Both prompt renders now report which digest entries they actually
+  emitted, and the told-set records only those. An operator template that
+  leaves the digest out of the system prompt and every tool description no
+  longer marks the baseline's chats told, so they reach the model through
+  appends instead of never. A checkpoint refresh now starts the new epoch with
+  nothing told. The next request still does not re-announce the entries it
+  renders, and appends the ones it does not.
 
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete

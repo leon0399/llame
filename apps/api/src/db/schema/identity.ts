@@ -145,6 +145,12 @@ export const orgUnits = pgTable(
       for: 'insert',
       withCheck: sql`created_by = ${currentUser} AND (parent_id IS NULL OR ${roleInPath('org_units.path', ADMIN_ROLES)})`,
     }),
+    // Admin tier on the old path (USING) and the new path (WITH CHECK). A
+    // policy cannot compare OLD with NEW, so migration
+    // 20261013104707_org_unit_move_authority adds triggers (#1260): moving a
+    // unit out of its tree (to root or into another tree) needs `owner` on
+    // the source tree's root, a unit promoted to root must have an `owner`
+    // membership at commit, and `created_by` never changes.
     pgPolicy('org_units_update', {
       for: 'update',
       using: roleInPath('org_units.path', ADMIN_ROLES),
@@ -202,10 +208,14 @@ export const memberships = pgTable(
     }),
     // Grant paths (org-units change, D3 adds the owner-tier branch):
     // (a) bootstrap — the creator of a ROOT unit grants THEMSELVES 'owner'
-    // on it (raw org_units EXISTS is safe here, not the function: nothing
-    // is granted on the path yet for the function to find, and this branch
-    // scans org_units directly rather than via memberships, same
-    // non-recursive shape as before);
+    // on it while the root is FRESH: no membership rows exist yet (#1258).
+    // createRootOrg inserts the unit and this row in one transaction, and the
+    // last-owner trigger keeps every claimed root owned, so "no rows" means
+    // exactly "never bootstrapped". A creator who later transfers ownership
+    // and leaves cannot reclaim the root through this branch. The check is
+    // the BYPASSRLS `llame_org_unit_is_fresh_root(unit_id)`, not a raw
+    // subquery: a departed creator cannot see the root's memberships under
+    // their own RLS, so a raw NOT EXISTS would always pass for them;
     // (b) owner-tier — an existing OWNER anywhere on the path may grant or
     // set ANY role, including 'owner' (co-ownership / transfer, D3);
     // (c) admin-tier — owner/admin on the path may grant anything EXCEPT
@@ -219,12 +229,7 @@ export const memberships = pgTable(
       withCheck: sql.raw(`(
         user_id = current_setting('app.current_user_id', true)
         AND role = 'owner'
-        AND EXISTS (
-          SELECT 1 FROM org_units u
-          WHERE u.id = memberships.org_unit_id
-            AND u.parent_id IS NULL
-            AND u.created_by = current_setting('app.current_user_id', true)
-        )
+        AND llame_org_unit_is_fresh_root(memberships.org_unit_id)
       ) OR (
         llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner']::org_role[])
       ) OR (
