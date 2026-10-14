@@ -1,0 +1,1 @@
+CREATE INDEX "search_chat_documents_embed_reuse_idx" ON "search_chat_documents" USING btree (md5("content")) WHERE embedding IS NOT NULL;
