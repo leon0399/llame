@@ -82,11 +82,10 @@ opens without a password. Every such refusal SHALL create no media object and st
 ### Requirement: PDF parsing is bounded in time and memory
 
 A PDF parse SHALL run in a process separate from the API and Run workers, at most two at once per
-requesting process, each under a 10-second bound from its start. On Linux it SHALL also run under an
-address-space limit of 2 GiB, or the host's lower hard limit when that is at least 1.25 GiB, marked
-as the first process killed when memory runs out; under a lower hard limit it SHALL NOT start. A
-parse over a bound, or exiting abnormally, SHALL be refused as `unsupported_media_type`, store
-nothing, and not stop or stall the requesting process.
+process, each under a 10-second bound. On Linux it SHALL run under a 2 GiB address-space limit, or
+the host's lower hard limit if at least 1.25 GiB (otherwise it SHALL NOT start), and be the first
+process killed when memory runs out. A parse over a bound or exiting abnormally SHALL be refused as
+`unsupported_media_type`, store nothing, and not stop or stall the requesting process.
 
 #### Scenario: A parse past the time bound is refused
 
