@@ -51,8 +51,9 @@ from a grilling round with Leo on 2026-10-14, recorded on #1275.
   attached in the importing attempt, or replayed from the store for `@media://`.
 - **One window for images and PDFs.**
   - The epoch window attaches images and PDFs together, oldest first and append-only, up to 100
-    images, 100 PDF pages, and 28 MiB of base64 (up from 24 MiB). A 20 MiB PDF fits, and every
-    request stays inside Anthropic's 32 MB and 100-page limits.
+    images, 100 PDF pages, and 28 MiB of base64 (up from 24 MiB). A 20 MiB PDF fits, and a request
+    stays inside Anthropic's 32 MB and 100-page limits while its text is under about 2.6 MB. A PDF
+    or image counts only on a model that declares its kind.
   - An overflowing PDF gets
     `[pdf media://<id> <name> P pages, not attached: this context's PDF limit is reached]`.
   - Overflow compacts at the next Run, as image overflow does.
@@ -119,7 +120,8 @@ None. PDFs extend `media-store` and `media-attachments`.
 ## Impact
 
 - **Dependency.** `unpdf` (MIT, pdf.js serverless build) in `apps/api`, used for page count and
-  encryption only (design D1).
+  encryption only, and run in a short-lived worker thread under a 10-second and memory bound so a
+  crafted PDF cannot stall the API or a Run worker (design D1).
 - **Database.** One migration on `media_objects`:
 
   - nullable dimension and model columns;
@@ -144,7 +146,7 @@ None. PDFs extend `media-store` and `media-attachments`.
   - `README.md` `models[].input`;
   - `SPEC.md`;
   - `CHANGELOG.md`.
-- **Issues.** Closes #916. #1074 keeps the non-PDF formats. #1276 follows.
+- **Issues.** The web-read layer closes #916. #1074 keeps the non-PDF formats. #1276 follows.
 
 ## Acceptance
 
@@ -158,6 +160,8 @@ None. PDFs extend `media-store` and `media-attachments`.
   renamed `.pdf` is refused at upload and still reads as text.
 - A web `application/pdf` response of 12 MiB reads as a PDF. A 21 MiB one fails `body_too_large`.
   An `application/zip` response stays `unsupported_content_type`.
-- Six 5 MiB, 10-page PDFs in one epoch: five are attached, and the sixth gets the limit
-  placeholder and triggers compaction at the next Run.
+- Six stored PDFs of 3.75 MiB (5 MiB of base64) and 10 pages each in one epoch: five are attached,
+  and the sixth gets the limit placeholder and triggers compaction at the next Run.
+- A crafted PDF whose parse exceeds 10 seconds is refused `unsupported_media_type` without stalling
+  other requests.
 - Owner B cannot attach, read, or import owner A's PDF `media://` id.

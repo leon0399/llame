@@ -101,6 +101,19 @@ Preparation refuses:
 - every input whose `EncryptFilterName` is non-null, because Anthropic rejects encrypted PDFs, and
   a refused block in history fails every later request.
 
+Two properties of pdf.js shape the preparation, both confirmed on this host:
+
+- **It takes ownership of its input.** `getDocumentProxy(view)` transfers the view's `ArrayBuffer`,
+  so the caller's `Buffer` reads as length 0 afterwards. Preparation parses a copy
+  (`new Uint8Array(input)`) and keeps the caller's bytes for hashing, storage, and attempt memory.
+- **It parses on the calling thread.** The serverless build runs its "worker" in-thread, and a
+  crafted 20 MiB `%PDF-` body that forces xref recovery blocked the event loop for 3.1 s before
+  failing (reviewer measurement, round 1). Preparation therefore parses in a short-lived
+  `worker_threads` `Worker` with `resourceLimits` (256 MiB old generation) and a 10-second
+  wall-clock timeout; a timeout or a resource-limit exit terminates the worker and refuses the
+  input as `unsupported_media_type`. Only the copy crosses into the worker. Startup costs tens of
+  milliseconds per PDF, which is small next to the parse and the provider call.
+
 Rejected alternatives:
 
 - **Counting `/Type /Page` with a regular expression.** Compressed object streams hide page objects.
@@ -121,7 +134,8 @@ It stores only the `original` blob. One migration:
 
 - makes `width`, `height`, and the `model_*` columns nullable;
 - adds `page_count integer`;
-- adds a CHECK requiring exactly one shape:
+- adds a CHECK requiring exactly one shape, declared with Drizzle's `check()` in
+  `src/db/schema/media.ts` as `chats.ts` does, so the snapshot carries it:
   - an image row has every dimension and model column and no page count;
   - an `application/pdf` row has a page count between 1 and 100 and no dimension or model column.
 
@@ -187,9 +201,13 @@ submitted locator as an exact `JSON.stringify` literal.
 In a label, `n` counts that message's attachments of the same kind, so one message reads
 `Image 1`, `Image 2`, `PDF 1`. A message with images only is unchanged.
 
-An unavailable reference whose kind is unknown keeps the image form. Every stored file part and
-prompt-import entry carries its kind, so this case arises only for a `media://` read result whose
-own envelope is an image.
+Every PDF part carries a filename, because the Responses adapter otherwise names a tool-output file
+`data` (`@ai-sdk/openai` `dist/index.mjs:3739-3742`): the stored name for an owner attachment or a
+`media://` read or import, otherwise the last non-empty path segment of the submitted locator (a web
+locator's URL path), or `document.pdf` when there is none.
+
+The kind of every reference is known: a stored file part carries `mediaType`, an import entry
+carries `kind`, and a read envelope carries `kind`. The unavailable form follows it.
 
 ### D5: One epoch media window: 28 MiB, 100 images, 100 PDF pages
 
@@ -208,16 +226,25 @@ It enforces three bounds together:
 
 A PDF's base64 size is `4 × ceil(byteSize / 3)` of its original.
 
+A reference counts only when the request's model declares its kind: an image on a model without
+`image` input and a PDF on a model without `pdf` input take the omitted placeholder and consume no
+budget. An unstored PDF read on a model without `pdf` input therefore holds no bytes and no byte
+size, exactly as an image does on a text-only model. Without this rule a 20 MiB PDF on an
+image-only model would consume 27,962,028 of the 29,360,128 bytes while sending none, and refuse
+every later image.
+
 Why 28 MiB: a 20 MiB PDF is 27,962,028 bytes of base64. 28 MiB is the smallest round bound that
 admits one, and it leaves about 2.6 MB under Anthropic's 32 MB request limit for text and JSON.
-30 MiB would leave about 0.5 MB, which a long chat exceeds.
+30 MiB would leave about 0.5 MB, which a long chat exceeds. The headroom assumes the request's text
+stays under about 2.6 MB, roughly 650k tokens at four characters per token. A model configured
+with a larger context window can exceed the 32 MB request limit with a 20 MiB PDF attached (Risks).
 
 Images gain the same 4 MiB. Their 100-image bound is unchanged.
 
-Overflow keeps the image behavior:
+Overflow keeps the image behavior, now for both kinds:
 
 - the limit placeholder;
-- an overflow-triggered compaction at the next Run when an earlier row holds a stored attachment;
+- an overflow-triggered compaction at the next Run when an earlier row holds a stored image or PDF;
 - never a failed Run.
 
 Rejected: a separate PDF window. Two budgets can together exceed one request ceiling unless a
@@ -227,8 +254,15 @@ third, combined check is added.
 
 The admission and compaction estimate charges each attached PDF `3,000 × pages` tokens, in place of
 its base64 length, as images are charged `ceil(w × h / 750)`. Anthropic documents 1,500–3,000 text
-tokens per page plus a page-image cost, so the upper text figure is chosen. An overestimate costs
-an early compaction; an underestimate fails the Run on context length.
+tokens per page plus a page-image cost, so this is its upper text figure, not an upper bound.
+
+An overestimate does not always cost only an early compaction. When the PDF sits in the triggering
+message, compaction cannot absorb it, so a request whose charge exceeds the model's window fails
+`context_incompatible` under the canonical window condition: a PDF of 67 or more pages on a
+200,000-token model, or 43 or more on a 128,000-token model. Such a request is likely to exceed
+the provider's own count too (100 pages × 3,000 text tokens is already 300k), so failing before
+the call with a named cause is the accepted outcome. An underestimate would instead fail at the
+provider after the call is paid for.
 
 A placeholder is counted as its text.
 
@@ -243,7 +277,7 @@ The native read hook (`ImageReadHook`) becomes a media read hook. A regular file
 On success:
 
 - the worker holds `{locator, pages, byteSize, bytes}` in the attempt's memory, keyed by tool call
-  id;
+  id, when the attempt's model declares `pdf`, and only `{locator, pages}` otherwise;
 - the read returns this envelope, with the source's existing attribution:
 
   ```json
@@ -323,20 +357,29 @@ result: from memory in the importing attempt, from the store for `@media://`.
 - **Gateway rejection.** An `openai-completions` gateway (vLLM, Ollama, OpenCode Go) may reject
   `file` parts. The operator declares `pdf` only for models known to accept it; the default is
   `["text"]`.
-- **Cost.** A 100-page PDF can cost about 300k tokens per request until compaction. The estimate
-  makes compaction see it. The per-PDF page cap and the epoch page bound make 100 pages the most
-  any one request can carry.
+- **Cost and window fit.** A 100-page PDF is charged 300k tokens. On models with windows under
+  300k, the largest admissible PDF in a first message is bounded by the window, not by the 100-page
+  cap (D6).
+- **Lying page counts.** pdf.js trusts the page tree's `/Count` (a 150-page PDF patched to
+  `/Count 1` reports 1 page, reviewer measurement). Such a PDF passes the bounds and may be
+  refused by the provider. The failure is bounded: an unstored read fails only its attempt, since
+  later turns get the not-retained placeholder; a stored upload fails its owner's requests until
+  compaction absorbs it. Walking the page tree ourselves is rejected: it duplicates the parser for an
+  attack that only hurts the attacker's own chat.
+- **Context windows above about 650k tokens.** The 28 MiB budget leaves about 2.6 MB of headroom
+  under Anthropic's 32 MB request limit (D5). The operator runbook says so for models configured
+  with larger windows.
 - **Scanned and figure-only PDFs** are fine: the provider renders the pages. Text-only models get
   only the placeholder until #1276.
 - **No deletion path** (inherited). A stored PDF stays readable through `media://`.
 
 ## Migration Plan
 
-- One Drizzle migration:
+- One Drizzle migration, generated from the schema:
 
   - nullable dimension and `model_*` columns;
   - `page_count`;
-  - the shape CHECK, written by hand after generation.
+  - the shape CHECK, declared in the schema.
 
   Existing rows are images and already satisfy the CHECK.
 

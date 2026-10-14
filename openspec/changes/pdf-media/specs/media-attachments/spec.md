@@ -76,8 +76,8 @@ request time, for a `media://` result or entry, and otherwise the one the attemp
 
 For a PDF result or prompt-import PDF entry without a `media` locator, the worker SHALL keep an entry
 in the memory of the attempt that read it, keyed by the tool call id or by the item entry, and SHALL
-persist it nowhere. The entry SHALL hold the locator, the original's byte size and page count, and,
-when the attempt's model declares `pdf` input, the original's bytes.
+persist it nowhere. The entry SHALL hold the locator and page count, and also the original's bytes
+and byte size only when the attempt's model declares `pdf` input.
 
 #### Scenario: A read PDF is attached in the later steps of its Run
 
@@ -89,7 +89,7 @@ when the attempt's model declares `pdf` input, the original's bytes.
 #### Scenario: A model without PDF input retains no PDF bytes
 
 - **WHEN** a Run on a model that does not declare `pdf` input reads `/work/paper.pdf`, a 15-page PDF
-- **THEN** the attempt's memory keeps only the read's locator, byte size, and page count
+- **THEN** the attempt's memory keeps only the read's locator and page count
 - **AND** that read reaches every later step as the omitted placeholder
 
 ### Requirement: A released PDF entry is sized and refused again
@@ -238,9 +238,11 @@ count that label as text, plus the PDF's page-based charge.
 ### Requirement: Attached PDFs use each wire's native document content
 
 An attached PDF SHALL reach the provider as the original's base64 data with media type
-`application/pdf`: an `input_file` item carrying the filename and file data on the Responses and
-Codex wires, a `file` content part carrying the filename and file data on Chat Completions wires,
-and a `document` block on the Anthropic Messages wire. No PDF SHALL be sent as text or as an image.
+`application/pdf`: an `input_file` item with filename and data on the Responses and Codex wires, a
+`file` part with both on Chat Completions wires, and a `document` block on the Anthropic Messages
+wire. Its filename SHALL be a stored PDF's stored name, else the last non-empty segment of the
+submitted locator's path (a web URL's path), else `document.pdf`. No PDF SHALL be sent as text or
+image.
 
 #### Scenario: An owner PDF on the Messages wire is a document block
 
@@ -254,6 +256,13 @@ and a `document` block on the Anthropic Messages wire. No PDF SHALL be sent as t
 - **WHEN** a model that declares `pdf` input on a Responses provider receives a user message with an
   attached stored PDF uploaded as `paper.pdf`
 - **THEN** that message's content carries an `input_file` item with filename `paper.pdf` and the
+  original's base64 data
+
+#### Scenario: A read PDF on the Responses wire is named by its path
+
+- **WHEN** a model that declares `pdf` input on a Responses provider receives a step request after
+  an earlier step read `/docs/paper.pdf` and the PDF is attached
+- **THEN** that tool result's output carries an `input_file` item with filename `paper.pdf` and the
   original's base64 data
 
 ### Requirement: A PDF carries no thumbnail
@@ -399,6 +408,14 @@ one in that epoch, SHALL NOT be attached.
 - **THEN** the PDF is sent as a PDF
 - **AND** the image reaches the model as the limit placeholder
 
+#### Scenario: A PDF on a model without PDF input takes no window space
+
+- **WHEN** a request on a model that declares `image` but not `pdf` input carries an epoch whose
+  oldest reference is a stored 20 MiB PDF, followed by five images each with a 5 MiB base64 model
+  variant
+- **THEN** the PDF reaches the model as the omitted placeholder
+- **AND** all five images are sent as images
+
 ### Requirement: The byte bound is summed from variant sizes before loading
 
 A reference's base64 size SHALL be `4 × ceil(byteSize / 3)` of its model variant's byte size for an
@@ -427,11 +444,12 @@ are loaded, independently of the dimension-based and page-based token estimates.
 
 ### Requirement: Only attachable references count toward the window
 
-An attachable reference SHALL be an owner file part, a `media://` tool result, or a `media://`
-prompt-import entry that resolves, whether an image or a PDF, an unstored image whose entry in the
-current attempt's memory records a model-variant byte size, or an unstored PDF whose entry in the
-current attempt's memory records its byte size and page count, its bytes released or not. A
-not-retained or unavailable reference SHALL NOT count toward any bound of the epoch image window.
+An attachable reference SHALL be one of a kind the request's model declares as input, `image` for an
+image and `pdf` for a PDF: an owner file part, a `media://` tool result, or a `media://` prompt-import
+entry that resolves, an unstored image whose entry in the current attempt's memory records a
+model-variant byte size, or an unstored PDF whose entry in the current attempt's memory records its
+byte size, its bytes released or not. A not-retained, unavailable, or omitted reference SHALL NOT
+count toward any bound of the epoch image window.
 
 #### Scenario: A not-retained read does not count
 
@@ -447,15 +465,61 @@ not-retained or unavailable reference SHALL NOT count toward any bound of the ep
 - **THEN** the owner's PDF is sent as a PDF
 - **AND** the earlier read reaches the model as the not-retained placeholder
 
+#### Scenario: A PDF on a model without PDF input does not count
+
+- **WHEN** an epoch on a model that declares `image` but not `pdf` input carries a stored 80-page
+  PDF and 99 attached owner image attachments, and the owner sends a message attaching one more
+  image
+- **THEN** all 100 owner images are sent as images
+- **AND** the PDF reaches the model as the omitted placeholder
+
+### Requirement: Adding an image never changes an earlier attachment
+
+Because admission is append-only within an epoch, adding a turn, a step, or an image reference SHALL
+NOT change whether an earlier reference in that epoch is attached, so the request prefix stays
+unchanged for prompt caching. The attached set SHALL NOT depend on which vision model the request
+targets among models that declare the same `image` and `pdf` input.
+
+#### Scenario: Adding an image never changes an earlier image's attachment
+
+- **WHEN** a vision-model request's epoch carries 100 attached owner attachments and the next turn
+  attaches one more image
+- **THEN** the next request sends the same 100 references as images in the same positions
+- **AND** only the new reference reaches the model as the limit placeholder
+
+#### Scenario: Switching between vision models keeps the attached set
+
+- **WHEN** a turn switches from one vision model to another that declares the same `image` and `pdf`
+  input within the same epoch
+- **THEN** the new model's request attaches exactly the references the same turn's request would
+  attach on the previous model
+- **AND** every reference beyond the epoch's bounds keeps the limit placeholder
+
+### Requirement: An image beyond the epoch's bounds is not attached
+
+For a model that declares `image`, an attachable image reference the epoch image window does not
+attach SHALL reach the model, in the image's position and after any label, as
+`[image <subject> <width>×<height>, not attached: this context's image limit is reached]`, with
+`<subject>` as for the omitted placeholder. An attachable PDF reference the window does not attach
+SHALL instead take the PDF limit placeholder.
+
+#### Scenario: A vision model receives the limit placeholder
+
+- **WHEN** a vision-model request's epoch carries 101 image references and the 101st is `shot.png`
+  at 1600×900
+- **THEN** the 101st reaches the model as
+  `[image media://<id> shot.png 1600×900, not attached: this context's image limit is reached]`
+- **AND** the 100 earlier references are sent as images
+
 ### Requirement: Image overflow compacts at the start of the next Run
 
 Before a Run's first model step, a prepared request SHALL count as reaching its compaction threshold
-when it carries an image reference on a model that declares `image` input, or a PDF reference on a
-model that declares `pdf` input, not attached because the epoch's bounds are reached, and a stored
-image or PDF reference in a row before the triggering user message. It SHALL trigger the compaction
-variant that `model-system-prompts` selects for it. The new epoch SHALL admit images and PDFs oldest
-first again. A Run SHALL NOT compact after its first model step. When PDF overflow is the only
-trigger condition, a failed compaction SHALL leave the Run to proceed as image overflow does.
+when it carries an image or PDF reference that the epoch image window does not attach because its
+epoch's bounds are reached and a stored image or PDF reference in a row before the triggering user
+message. It SHALL trigger the compaction variant that `model-system-prompts` selects for it. The new
+epoch SHALL admit images and PDFs oldest first again. A Run SHALL NOT compact after its first model
+step. When PDF overflow is the only trigger condition, a failed compaction SHALL leave the Run to
+proceed as image overflow does.
 
 #### Scenario: Image overflow triggers compaction at the next Run
 
@@ -468,8 +532,8 @@ trigger condition, a failed compaction SHALL leave the Run to proceed as image o
 
 #### Scenario: Overflow in the triggering message alone does not compact
 
-- **WHEN** a vision-model chat's epoch carries no image before the triggering user message and that
-  message attaches 10 images whose 5 MiB base64 model variants exceed the byte bound
+- **WHEN** a vision-model chat's epoch carries no image or PDF before the triggering user message
+  and that message attaches 10 images whose 5 MiB base64 model variants exceed the byte bound
 - **THEN** no compaction runs
 - **AND** the five oldest images are sent as images and the rest reach the model as the limit
   placeholder

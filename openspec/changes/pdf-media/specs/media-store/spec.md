@@ -57,6 +57,25 @@ password. Every such refusal SHALL create no media object and store no bytes.
 - **THEN** ingest refuses it as `unsupported_media_type`
 - **AND** no media object and no bytes are stored
 
+### Requirement: PDF parsing is bounded in time and memory
+
+The structural parse of a PDF SHALL run outside the process's event loop, under a 10-second time
+bound and a memory bound the application fixes. A parse that exceeds either bound SHALL be stopped and
+refused as `unsupported_media_type` with the unopenable-PDF message, storing nothing, and SHALL NOT
+delay other requests of the process while it runs.
+
+#### Scenario: A crafted PDF that parses too long is refused
+
+- **WHEN** an owner uploads, or a Run reads, a 20 MiB file that starts with `%PDF-` and whose
+  structure takes longer than 10 seconds to parse
+- **THEN** the parse is stopped and the input is refused as `unsupported_media_type`
+- **AND** nothing is stored
+
+#### Scenario: A slow parse does not stall other requests
+
+- **WHEN** one PDF's parse runs for several seconds
+- **THEN** other requests served by the same process keep completing during it
+
 ## MODIFIED Requirements
 
 ### Requirement: A media object is owner-owned metadata plus original and model bytes
