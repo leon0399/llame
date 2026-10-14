@@ -85,6 +85,15 @@ describe('preparePdf', () => {
       preparePdf(fixture('hundred-one-pages.pdf')),
     ).rejects.toMatchObject(TOO_LARGE);
   });
+  it('accepts a PDF whose parser reports exactly 100 pages', async () => {
+    const boundary = fakeEntry(
+      'process.stdout.write(JSON.stringify({ pages: 100, encrypted: false }))',
+    );
+
+    await expect(preparePdf(fixture('one-page.pdf'), boundary)).resolves.toBe(
+      100,
+    );
+  });
 
   it('refuses an input over 20 MiB before spawning a parser', async () => {
     const neverStarts = {
@@ -123,6 +132,33 @@ describe('preparePdf', () => {
     await expect(
       preparePdf(fixture('one-page.pdf'), garbled),
     ).rejects.toMatchObject(UNOPENABLE);
+  });
+  it('refuses a nonzero parser exit even with valid output', async () => {
+    const failed = fakeEntry(
+      'process.stdout.write(JSON.stringify({ pages: 1, encrypted: false })); process.exitCode = 1;',
+    );
+
+    await expect(
+      preparePdf(fixture('one-page.pdf'), failed),
+    ).rejects.toMatchObject(UNOPENABLE);
+  });
+
+  it('treats a bounded-start status with output as an unopenable PDF', async () => {
+    const failedStart = fakeEntry(
+      String.raw`process.stderr.write("bound failed\n"); process.stdout.write(JSON.stringify({ pages: 1, encrypted: false })); process.exitCode = 70;`,
+    );
+
+    await expect(
+      preparePdf(fixture('one-page.pdf'), failedStart),
+    ).rejects.toMatchObject(UNOPENABLE);
+  });
+  it('drains parser stderr while accepting its valid report', async () => {
+    const noisy = fakeEntry(
+      'process.stderr.write("x".repeat(1024 * 1024)); process.stdout.write(JSON.stringify({ pages: 1, encrypted: false }))',
+      2000,
+    );
+
+    await expect(preparePdf(fixture('one-page.pdf'), noisy)).resolves.toBe(1);
   });
 
   it('leaves the caller buffer intact', async () => {
