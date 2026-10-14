@@ -396,11 +396,13 @@ window, and the references after them SHALL be admitted again oldest first.
 Within one compaction epoch, the rows after the active checkpoint plus the current attempt, requests
 SHALL admit attachable image and PDF references oldest first in request order, a repeated id
 counting again, while at most 100 images, at most 28 MiB (29,360,128 bytes) of summed base64 sizes,
-at most 100 PDF pages, and at most `floor(contextWindowTokens × 0.8 / 3,000)` PDF pages for the
-request's model hold, where 0.8 is the compaction window ratio that sets the default compaction
-threshold and 3,000 the tokens charged per page: 53 pages on a 200,000-token model, 34 on 128,000,
-and 100 on 400,000 or more. The first reference that would exceed any bound, and every later one in
-that epoch, SHALL NOT be attached.
+at most 100 PDF pages, and at most `floor(max(0, contextWindowTokens × 0.8 − reservedOutputTokens)
+/ 3,000)` PDF pages for the request's model hold, where 0.8 is the compaction window ratio that sets
+the default compaction threshold, `reservedOutputTokens` is the output reserve the request's fit
+check subtracts (0 when none is configured), and 3,000 the tokens charged per page: with no reserve,
+53 pages on a 200,000-token model, 34 on 128,000, and 100 on 400,000 or more; with a 64,000-token
+reserve, 32 pages on a 200,000-token model. The first reference that would exceed any bound, and
+every later one in that epoch, SHALL NOT be attached.
 
 #### Scenario: The 101st image in an epoch is not attached
 

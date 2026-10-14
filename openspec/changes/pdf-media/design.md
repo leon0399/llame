@@ -243,18 +243,20 @@ carries `kind`, and a read envelope carries `kind`. The unavailable form follows
 It enforces three bounds together; the first reference that would exceed any of them, and every
 later one in the epoch, is not attached:
 
-| Bound              | Value                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------- |
-| summed base64 size | 29,360,128 bytes (28 MiB), up from 24 MiB                                                 |
-| attached images    | 100                                                                                       |
-| attached PDF pages | the smaller of 100 and `floor(contextWindowTokens × 0.8 / 3,000)` for the request's model |
+| Bound              | Value                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| summed base64 size | 29,360,128 bytes (28 MiB), up from 24 MiB                                                                                |
+| attached images    | 100                                                                                                                      |
+| attached PDF pages | the smaller of 100 and `floor(max(0, contextWindowTokens × 0.8 − reservedOutputTokens) / 3,000)` for the request's model |
 
 A PDF's base64 size is `4 × ceil(byteSize / 3)` of its original.
 
 The page bound is 53 pages on a 200,000-token model, 34 on 128,000, and 100 from 375,000 up. The
 0.8 is `COMPACTION_WINDOW_RATIO`, the share of the window the default compaction threshold already
 reserves for history, so attached PDFs alone never reach the default threshold and 20% stays for
-the system prompt, tools, the rest of the history, and output. Rounds 2 and 3 replaced two
+the system prompt, tools, and the rest of the history. The configured output reserve
+(`runs.maxOutputTokens`, which the fit check adds) is subtracted first (round 4): without it, a
+64,000-token reserve on a 200,000-token model would admit a 53-page PDF that can never fit. Rounds 2 and 3 replaced two
 narrower rules with this one: a per-PDF "too large for the window" exclusion missed several PDFs
 that only overflow together and a PDF that fits alone but not with the system prompt, and either
 would leave a chat whose every request, compaction included, fails `context_incompatible`. With an
@@ -291,8 +293,8 @@ The admission and compaction estimate charges each attached PDF `3,000 × pages`
 its base64 length, as images are charged `ceil(w × h / 750)`. Anthropic documents 1,500–3,000 text
 tokens per page plus a page-image cost, so this is its upper text figure, not an upper bound.
 
-With the model-relative page bound (D5), attached PDFs are charged at most 80% of the window, so
-the estimate cannot by itself make a request fail `context_incompatible`.
+With the model-relative page bound (D5), attached PDFs are charged at most 80% of the window minus
+the output reserve, so the estimate cannot by itself make a request fail `context_incompatible`.
 
 A placeholder is counted as its text.
 
