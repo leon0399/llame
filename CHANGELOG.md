@@ -105,7 +105,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   beyond it. Context estimates charge 3,000 tokens per page, `conversation_read`
   and title generation list `[pdf media://<id> <name>]`, and compaction
   summaries keep PDF locators. Declare `pdf` only where the provider accepts
-  PDFs; the ChatGPT Codex backend is unverified. See
+  PDFs; the ChatGPT Codex backend accepted a 15-page PDF on `gpt-6.1-sol`
+  (checked 2026-10-14). See
   [model input](docs/product/operator/media.md#model-input).
 
 - Added PDF uploads to the media store (#1275): `POST /api/v1/media` stores
