@@ -95,7 +95,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 2.5 Probe the ChatGPT Codex backend once with an `input_file` PDF part using operator credentials and record the result; document `pdf` in `models[].input` in `README.md` and the operator media runbook, stating which provider types accept it; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 2.6 Verify `pnpm --filter api lint`, `typecheck`, `pnpm --filter web lint typecheck`, the focused unit tests, and the touched integration suites
 - [x] 2.7 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
-- [ ] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 2.8 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 3. `pdf-media/pdf-read` — local and media PDF reads (design D7, D8)
 
