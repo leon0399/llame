@@ -32,8 +32,7 @@ An input whose bytes start with `%PDF-` but which cannot be opened, which report
 or which is encrypted, SHALL be refused as `unsupported_media_type` with the message
 `Only unencrypted PDFs that open are accepted`. A PDF SHALL count as encrypted when it reports any
 permissions or when the byte sequence `/Encrypt` occurs anywhere in its bytes, whether or not it
-opens without a password, so an unencrypted PDF carrying that text uncompressed is refused too.
-Every such refusal SHALL create no media object and store no bytes.
+opens without a password. Every such refusal SHALL create no media object and store no bytes.
 
 #### Scenario: A truncated PDF is refused
 
