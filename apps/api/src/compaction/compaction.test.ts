@@ -19,7 +19,7 @@ import {
   countedContextTokens,
   estimateContinuationTokens,
   estimateModelRequestTokens,
-  imageOverflowCompacts,
+  mediaOverflowCompacts,
   isPositiveFinite,
   planCompactionCheckpoint,
   requestFitsContextWindow,
@@ -27,11 +27,18 @@ import {
   resolveCompactionThreshold,
 } from './compaction';
 import type { ModelMessage } from 'ai';
-import { descriptor } from '../media/media-fixtures';
-import type {
-  MediaAdmission,
-  ToolResultOutput,
+import {
+  descriptor,
+  fakeResolver,
+  pdfDescriptor,
+} from '../media/media-fixtures';
+import {
+  loadMediaSizing,
+  type MediaAdmission,
+  type MediaAdmissionContext,
+  type ToolResultOutput,
 } from '../media/epoch-admission';
+import { composeStepMessages } from '../models/step-composer';
 import { createToolAvailabilityItem } from '../chats/context-item-producers';
 import type { StoredMessage } from '../chats/context-builder';
 import { isRecord, isString } from '@workspace/runtime-safety';
@@ -561,9 +568,19 @@ describe('estimateContinuationTokens', () => {
   });
 });
 
-describe('media sizing (vision-media D6)', () => {
+describe('media sizing (vision-media D6, pdf-media D6)', () => {
   const A = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
-
+  const B = '0192f3a4-5b6c-7d8e-9f01-00000000000b';
+  const VISION: MediaAdmissionContext = {
+    input: ['text', 'image'],
+    contextWindowTokens: 200_000,
+    reservedOutputTokens: null,
+  };
+  const TEXT_ONLY: MediaAdmissionContext = { ...VISION, input: ['text'] };
+  const VISION_PDF: MediaAdmissionContext = {
+    ...VISION,
+    input: ['text', 'image', 'pdf'],
+  };
   const screenshot = (modelByteSize: number) =>
     descriptor(A, {
       name: 'shot.png',
@@ -605,7 +622,7 @@ describe('media sizing (vision-media D6)', () => {
       descriptors: new Map([[A, screenshot(3_700_000)]]),
       held: new Map(),
       statuses: ['attached' as const],
-      imageInput: true,
+      context: VISION,
     };
 
     const estimate = estimateModelRequestTokens({
@@ -637,7 +654,7 @@ describe('media sizing (vision-media D6)', () => {
           descriptors: new Map([[A, screenshot(bytes)]]),
           held: new Map(),
           statuses: ['attached'],
-          imageInput: true,
+          context: VISION,
         },
       });
 
@@ -652,7 +669,7 @@ describe('media sizing (vision-media D6)', () => {
           descriptors: new Map([[A, screenshot(1000)]]),
           held: new Map(),
           statuses: ['attached'],
-          imageInput: false,
+          context: TEXT_ONLY,
         },
       }),
     ).toBe(
@@ -685,7 +702,7 @@ describe('media sizing (vision-media D6)', () => {
           descriptors,
           held: new Map(),
           statuses: ['attached', 'limit'],
-          imageInput: true,
+          context: VISION,
         },
       }),
     ).toBe(
@@ -742,7 +759,7 @@ describe('media sizing (vision-media D6)', () => {
           descriptors: new Map([[A, descriptor(A, variant)]]),
           held: new Map(),
           statuses: ['attached'],
-          imageInput: true,
+          context: VISION,
         },
       });
 
@@ -817,7 +834,7 @@ describe('media sizing (vision-media D6)', () => {
             ],
           ]),
           statuses: ['attached'],
-          imageInput: true,
+          context: VISION,
         },
       });
 
@@ -874,7 +891,7 @@ describe('media sizing (vision-media D6)', () => {
             descriptors: new Map([[A, screenshot(1000)]]),
             held: new Map(),
             statuses: ['attached'],
-            imageInput: true,
+            context: VISION,
           },
         }),
       ).toBe(
@@ -895,45 +912,240 @@ describe('media sizing (vision-media D6)', () => {
     });
   });
 
-  describe('imageOverflowCompacts', () => {
-    const sizing = (statuses: Array<MediaAdmission>, imageInput = true) => ({
+  describe('attached PDFs', () => {
+    const paper = (pages: number, byteSize = 200 * 1024) =>
+      pdfDescriptor(A, { name: 'paper.pdf', pages, byteSize });
+    const withPdf: Array<ModelMessage> = [
+      {
+        role: 'user',
+        content: [
+          { type: 'file', data: `media://${A}`, mediaType: 'application/pdf' },
+          { type: 'text', text: 'summarize' },
+        ],
+      },
+    ];
+    const pdfLabelOnly = (after: Array<string>): Array<ModelMessage> => [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: `PDF 1 (media://${A}):` },
+          ...after.map((text) => ({ type: 'text' as const, text })),
+          { type: 'text', text: 'summarize' },
+        ],
+      },
+    ];
+    const estimateFor = (pages: number, byteSize?: number) =>
+      estimateModelRequestTokens({
+        ...request(withPdf),
+        media: {
+          descriptors: new Map([[A, paper(pages, byteSize)]]),
+          held: new Map(),
+          statuses: ['attached'],
+          context: VISION_PDF,
+        },
+      });
+
+    it('charges a 15-page PDF 45,000 tokens', () => {
+      expect(
+        estimateFor(15) - estimateModelRequestTokens(request(pdfLabelOnly([]))),
+      ).toBe(45_000);
+    });
+
+    it('gives the same estimate whatever the PDF byte size', () => {
+      expect(estimateFor(10, 200 * 1024)).toBe(
+        estimateFor(10, 18 * 1024 * 1024),
+      );
+    });
+
+    it('sizes a PDF the window does not attach as its placeholder text', () => {
+      expect(
+        estimateModelRequestTokens({
+          ...request(withPdf),
+          media: {
+            descriptors: new Map([[A, paper(64)]]),
+            held: new Map(),
+            statuses: ['limit'],
+            context: VISION_PDF,
+          },
+        }),
+      ).toBe(
+        estimateModelRequestTokens(
+          request(
+            pdfLabelOnly([
+              `[pdf media://${A} paper.pdf 64 pages, not attached: this context's PDF limit is reached]`,
+            ]),
+          ),
+        ),
+      );
+    });
+
+    /** A `pages`-page PDF's admission, whether the composer sends it, and its estimate. */
+    const composeAndEstimate = async (pages: number) => {
+      const { resolver } = fakeResolver([paper(pages)]);
+      const sizing = await loadMediaSizing(withPdf, resolver, VISION_PDF);
+      const composed = await composeStepMessages(withPdf, {
+        resolver,
+        context: VISION_PDF,
+      });
+      return {
+        statuses: sizing.statuses,
+        sent: JSON.stringify(composed).includes('"type":"file"'),
+        estimate: estimateModelRequestTokens({
+          ...request(withPdf),
+          media: sizing,
+        }),
+      };
+    };
+
+    it('sends and charges a 53-page PDF at the bound of a 200,000-token model, within its threshold', async () => {
+      const { statuses, sent, estimate } = await composeAndEstimate(53);
+
+      expect(statuses).toEqual(['attached']);
+      expect(sent).toBe(true);
+      expect(
+        estimate - estimateModelRequestTokens(request(pdfLabelOnly([]))),
+      ).toBe(159_000);
+      expect(estimate).toBeLessThanOrEqual(
+        resolveCompactionThreshold({ contextWindowTokens: 200_000 }),
+      );
+    });
+
+    it('neither sends nor charges a 54-page PDF past that bound', async () => {
+      const { statuses, sent, estimate } = await composeAndEstimate(54);
+
+      expect(statuses).toEqual(['limit']);
+      expect(sent).toBe(false);
+      expect(estimate).toBe(
+        estimateModelRequestTokens(
+          request(
+            pdfLabelOnly([
+              `[pdf media://${A} paper.pdf 54 pages, not attached: this context's PDF limit is reached]`,
+            ]),
+          ),
+        ),
+      );
+    });
+  });
+
+  describe('mediaOverflowCompacts', () => {
+    const sizing = (statuses: Array<MediaAdmission>) => ({
       descriptors: new Map([[A, screenshot(1000)]]),
       held: new Map(),
       statuses,
-      imageInput,
+      context: VISION,
     });
 
     it('compacts when an image in an earlier row precedes the overflow', () => {
-      expect(imageOverflowCompacts(sizing(['attached', 'limit']), 1)).toBe(
+      expect(mediaOverflowCompacts(sizing(['attached', 'limit']), 1)).toBe(
         true,
       );
     });
 
     it('does not compact when the overflow lies in the triggering message alone', () => {
       expect(
-        imageOverflowCompacts(
+        mediaOverflowCompacts(
           sizing(['attached', 'attached', 'attached', 'attached', 'limit']),
           5,
         ),
       ).toBe(false);
     });
 
-    it('does not count an unresolvable or not-retained earlier reference as an image', () => {
-      expect(imageOverflowCompacts(sizing(['unavailable', 'limit']), 1)).toBe(
-        false,
-      );
-      expect(imageOverflowCompacts(sizing(['not-retained', 'limit']), 1)).toBe(
+    it('does not count an unresolvable, not-retained, or omitted earlier reference', () => {
+      for (const earlier of [
+        'unavailable',
+        'not-retained',
+        'omitted',
+      ] as const) {
+        expect(mediaOverflowCompacts(sizing([earlier, 'limit']), 1)).toBe(
+          false,
+        );
+      }
+    });
+
+    it('never compacts without an overflow', () => {
+      expect(mediaOverflowCompacts(sizing(['attached', 'attached']), 1)).toBe(
         false,
       );
     });
 
-    it('never compacts for a text-only model or without an overflow', () => {
-      expect(
-        imageOverflowCompacts(sizing(['attached', 'limit'], false), 1),
-      ).toBe(false);
-      expect(imageOverflowCompacts(sizing(['attached', 'attached']), 1)).toBe(
-        false,
+    /** A request whose earlier row stores `earlier` and whose trigger stores `trigger`. */
+    const twoRows = (
+      earlier: Array<{ id: string; mediaType: string }>,
+      trigger: Array<{ id: string; mediaType: string }>,
+    ): Array<ModelMessage> =>
+      [earlier, trigger].map(
+        (files): ModelMessage => ({
+          role: 'user',
+          content: [
+            ...files.map(({ id, mediaType }) => ({
+              type: 'file' as const,
+              data: `media://${id}`,
+              mediaType,
+            })),
+            { type: 'text' as const, text: 'look' },
+          ],
+        }),
       );
+    const pdf = 'application/pdf';
+
+    it('compacts on PDF overflow when a stored PDF sits before the trigger', async () => {
+      const { resolver } = fakeResolver([
+        pdfDescriptor(A, { pages: 80 }),
+        pdfDescriptor(B, { pages: 30 }),
+      ]);
+      const media = await loadMediaSizing(
+        twoRows([{ id: A, mediaType: pdf }], [{ id: B, mediaType: pdf }]),
+        resolver,
+        { ...VISION_PDF, contextWindowTokens: 400_000 },
+      );
+
+      expect(media.statuses).toEqual(['attached', 'limit']);
+      expect(mediaOverflowCompacts(media, 1)).toBe(true);
+    });
+
+    it('compacts when the earlier stored PDF itself took the limit placeholder', async () => {
+      const { resolver } = fakeResolver([pdfDescriptor(A, { pages: 64 })]);
+      const media = await loadMediaSizing(
+        twoRows([{ id: A, mediaType: pdf }], []),
+        resolver,
+        VISION_PDF,
+      );
+
+      expect(media.statuses).toEqual(['limit']);
+      expect(mediaOverflowCompacts(media, 0)).toBe(true);
+    });
+
+    it('does not compact image overflow when the only earlier reference is a PDF the model cannot take', async () => {
+      const images = Array.from(
+        { length: 6 },
+        (_, n) =>
+          `0192f3a4-5b6c-7d8e-9f01-0000000001${n.toString().padStart(2, '0')}`,
+      );
+      const { resolver } = fakeResolver([
+        pdfDescriptor(A),
+        ...images.map((id) =>
+          descriptor(id, { modelByteSize: (5 * 1024 * 1024 * 3) / 4 }),
+        ),
+      ]);
+      const media = await loadMediaSizing(
+        twoRows(
+          [{ id: A, mediaType: pdf }],
+          images.map((id) => ({ id, mediaType: 'image/png' })),
+        ),
+        resolver,
+        VISION,
+      );
+
+      expect(media.statuses).toEqual([
+        'omitted',
+        'attached',
+        'attached',
+        'attached',
+        'attached',
+        'attached',
+        'limit',
+      ]);
+      expect(mediaOverflowCompacts(media, images.length)).toBe(false);
     });
   });
 });
@@ -1039,7 +1251,7 @@ describe('buildCompactionRequest', () => {
       'Omit a field rather than invent it; never shorten or reconstruct an identifier.',
     );
     expect(COMPACTION_INSTRUCTION).toContain(
-      'Keep verbatim the locator of every image the summary mentions, whether a `media://` locator or the path or URL it was read from, so a later turn can read that image again.',
+      'Keep verbatim the locator of every image or PDF the summary mentions, whether a `media://` locator or the path or URL it was read from, so a later turn can read that image or PDF again.',
     );
     expect(COMPACTION_INSTRUCTION).toContain(
       'Redaction still wins inside a kept locator: a credential, token, or connection string in it still becomes `[REDACTED]`, so `https://example.test/a.png?token=secret` is kept as `https://example.test/a.png?token=[REDACTED]`.',

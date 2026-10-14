@@ -5777,7 +5777,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
         const itemThen = async (resolver: RunMediaResolver, image: boolean) => {
           const composed = await composeStepMessages(sent.messages, {
             resolver,
-            imageInput: image,
+            context: {
+              input: image ? ['text', 'image'] : ['text'],
+              contextWindowTokens: 128_000,
+              reservedOutputTokens: null,
+            },
           });
           const trigger = composed.at(-1);
           const content =

@@ -49,7 +49,6 @@ import {
 } from './context-item';
 import { MediaService, type MediaDescriber } from '../media/media.service';
 import { parseMediaLocator } from '../media/media-locator';
-import { PDF_MEDIA_TYPE } from '../media/pdf-preparation';
 
 /** How long admission waits on the blocking run's job state (see blockerIsLive). */
 const JOB_STATE_READ_TIMEOUT_MS = 5000;
@@ -79,25 +78,6 @@ function toRunUserMessage(message: Message): RunUserMessage {
 }
 
 /**
- * Interim guard (pdf-media `pdf-store`, deleted by `pdf-attachments`): a
- * stored PDF has no descriptor yet, so a file part naming one is refused by
- * cause instead of as unavailable media. Only ids the ownership read missed
- * are looked up, each under the sender's own identity.
- */
-async function refuseOwnedPdfs(
-  media: MediaDescriber,
-  userId: string,
-  missing: ReadonlyArray<string>,
-): Promise<void> {
-  const rows = await Promise.all(
-    missing.map((id) => media.findOwned(userId, id)),
-  );
-  if (rows.some((row) => row?.mediaType === PDF_MEDIA_TYPE)) {
-    throw new BadRequestException('PDF attachments are not supported yet');
-  }
-}
-
-/**
  * The sanitized parts with every file part resolved under the sender's own
  * identity and relabelled from the stored media (vision-media D5):
  * `mediaType` is the original's, `filename` its stored name, whatever the
@@ -115,11 +95,6 @@ async function resolveOwnerFileParts(
   });
   // Reads nothing when the message carries no file part.
   const owned = await media.describeOwned(userId, ids);
-  await refuseOwnedPdfs(
-    media,
-    userId,
-    ids.filter((id) => !owned.has(id)),
-  );
   return parts.map((part): MessagePart => {
     if (part.type === 'text') return part;
     const id = parseMediaLocator(part.url);

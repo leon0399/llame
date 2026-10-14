@@ -457,7 +457,7 @@ export class FakeStreamingModelClient {
       }),
     };
     // A text-only fake: it declares no `input`.
-    installStepPreparation(streamOptions, input, undefined);
+    installStepPreparation(streamOptions, input, this);
     applyRequestUsageCallback(streamOptions, input);
     const result = sdkStreamText(streamOptions);
 

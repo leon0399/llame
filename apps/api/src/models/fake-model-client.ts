@@ -109,7 +109,11 @@ function createFakeStreamOutcome(input: ModelStreamInput): FakeStreamOutcome {
   };
 }
 
-function streamFakeResponse(response: string, input: ModelStreamInput) {
+function streamFakeResponse(
+  response: string,
+  input: ModelStreamInput,
+  client: Pick<ModelClient, 'input' | 'contextWindowTokens'>,
+) {
   const { handlers, completion } = createFakeStreamOutcome(input);
   const streamOptions = {
     model: new MockLanguageModelV3({
@@ -128,8 +132,8 @@ function streamFakeResponse(response: string, input: ModelStreamInput) {
     ...handlers,
   };
   applyToolCallingOptions(streamOptions, input, createToolCallGate());
-  // A text-only fake: it declares no `input`.
-  installStepPreparation(streamOptions, input, undefined);
+  // Text-only unless a test assigns the client an `input`.
+  installStepPreparation(streamOptions, input, client);
   applyRequestUsageCallback(streamOptions, input);
   const result = streamText(streamOptions);
   return wrapStreamTextResult(result, {
@@ -151,7 +155,7 @@ export function createFakeModelClient(
 ): ModelClient {
   let responseIndex = 0;
 
-  return {
+  const client: ModelClient = {
     model: 'fake-model',
     provider: 'fake',
     contextWindowTokens,
@@ -160,7 +164,8 @@ export function createFakeModelClient(
         responses.length === 0
           ? ''
           : responses[responseIndex++ % responses.length];
-      return streamFakeResponse(response, input);
+      return streamFakeResponse(response, input, client);
     },
   };
+  return client;
 }

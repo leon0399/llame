@@ -504,7 +504,7 @@ class HarnessModelClient implements ModelClient {
     applyRequestUsageCallback(streamOptions, input);
     // The same step preparation every production client installs: the
     // composer on every step, `onStepStart` and the cap only with tools.
-    installStepPreparation(streamOptions, input, this.input);
+    installStepPreparation(streamOptions, input, this);
     return awaitSettlementAfter(sdkStreamText(streamOptions), settlement);
   }
 }

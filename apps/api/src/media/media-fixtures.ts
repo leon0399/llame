@@ -7,14 +7,20 @@ import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 
 import type { MediaObject } from '../db/schema';
-import type { MediaDescriptor, RunMediaResolver } from './media-descriptors';
+import type {
+  ImageDescriptor,
+  MediaDescriptor,
+  PdfDescriptor,
+  RunMediaResolver,
+} from './media-descriptors';
 
 /** A 1600×900 PNG descriptor named after the id's last two characters. */
 export function descriptor(
   id: string,
-  overrides: Partial<Omit<MediaDescriptor, 'id'>> = {},
-): MediaDescriptor {
+  overrides: Partial<Omit<ImageDescriptor, 'id' | 'kind'>> = {},
+): ImageDescriptor {
   return {
+    kind: 'image',
     id,
     name: `${id.slice(-2)}.png`,
     mediaType: 'image/png',
@@ -28,9 +34,47 @@ export function descriptor(
   };
 }
 
+/** A small 10-page PDF descriptor named after the id's last two characters. */
+export function pdfDescriptor(
+  id: string,
+  overrides: Partial<Pick<PdfDescriptor, 'name' | 'pages' | 'byteSize'>> = {},
+): PdfDescriptor {
+  return {
+    kind: 'pdf',
+    id,
+    name: `${id.slice(-2)}.pdf`,
+    mediaType: 'application/pdf',
+    pages: 10,
+    byteSize: 3,
+    ...overrides,
+  };
+}
+
+/**
+ * The row `loadMediaDescriptors` selects for `d`: an image row without a page
+ * count, or a PDF row without dimensions or a model variant.
+ */
+export function descriptorRow(d: MediaDescriptor) {
+  const image = d.kind === 'image' ? d : undefined;
+  return {
+    id: d.id,
+    name: d.name,
+    mediaType: d.mediaType,
+    width: image?.width ?? null,
+    height: image?.height ?? null,
+    modelWidth: image?.modelWidth ?? null,
+    modelHeight: image?.modelHeight ?? null,
+    modelByteSize: image?.modelByteSize ?? null,
+    modelMediaType: image?.modelMediaType ?? null,
+    pageCount: d.kind === 'pdf' ? d.pages : null,
+    byteSize: d.kind === 'pdf' ? d.byteSize : d.modelByteSize,
+  };
+}
+
 /**
  * A resolver over fixed descriptors whose requested byte loads are recorded in
- * `loads`; an owned id loads one byte, any other id nothing.
+ * `loads`; an owned id loads one byte (its model variant or PDF original), any
+ * other id nothing.
  */
 export function fakeResolver(descriptors: ReadonlyArray<MediaDescriptor>) {
   const known = new Map(descriptors.map((entry) => [entry.id, entry]));

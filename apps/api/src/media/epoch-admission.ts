@@ -2,9 +2,11 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import type { FilePart, ImagePart, ModelMessage, ToolResultPart } from 'ai';
 import { z } from 'zod';
 
+import type { ModelInput } from '../models/model-catalog';
 import type { HeldImage, UnstoredImage } from './attempt-images';
 import type { MediaDescriptor, RunMediaResolver } from './media-descriptors';
 import { mediaLocator, parseMediaLocator } from './media-locator';
+import { PDF_MAX_PAGES } from './pdf-preparation';
 
 export type ToolResultOutput = ToolResultPart['output'];
 export type ToolContentPart = Extract<
@@ -14,12 +16,48 @@ export type ToolContentPart = Extract<
 
 /** Images one epoch may attach: Anthropic's per-request limit (vision-media D6). */
 export const EPOCH_MAX_IMAGES = 100;
-/** Summed base64 size of the attached model variants: 24 MiB. */
-export const EPOCH_MAX_BASE64_BYTES = 25_165_824;
+/**
+ * Summed base64 size of the attached images and PDFs: 28 MiB, the smallest
+ * round bound that admits one 20 MiB PDF (pdf-media D5).
+ */
+export const EPOCH_MAX_BASE64_BYTES = 29_360_128;
+/** The tokens an estimate charges each attached PDF page (pdf-media D6). */
+export const PDF_PAGE_TOKENS = 3000;
+/**
+ * `COMPACTION_WINDOW_RATIO`, restated: `compaction.ts` imports the step
+ * composer, which imports this module, so importing it here would be a cycle.
+ */
+const PDF_WINDOW_RATIO = 0.8;
 
 /** The base64 length of `byteSize` bytes, as the window counts a variant. */
 export function base64Size(byteSize: number): number {
   return 4 * Math.ceil(byteSize / 3);
+}
+
+/**
+ * The request's model as the epoch media window sees it: the kinds it
+ * declares as input, and the window and output reserve its PDF page bound is
+ * relative to.
+ */
+export type MediaAdmissionContext = {
+  input: ReadonlyArray<ModelInput>;
+  contextWindowTokens: number;
+  reservedOutputTokens: number | null;
+};
+
+/**
+ * The PDF pages one epoch may attach for the request's model (pdf-media D5):
+ * the smaller of the per-PDF ingest bound and what 80% of the window, less the
+ * output reserve, holds at 3,000 tokens a page, so attached PDFs alone never
+ * reach the default compaction threshold.
+ */
+export function pdfPageBound(ctx: MediaAdmissionContext): number {
+  const budget = Math.max(
+    0,
+    ctx.contextWindowTokens * PDF_WINDOW_RATIO -
+      (ctx.reservedOutputTokens ?? 0),
+  );
+  return Math.min(PDF_MAX_PAGES, Math.floor(budget / PDF_PAGE_TOKENS));
 }
 
 /**
@@ -31,67 +69,78 @@ export type UnstoredImageRef =
   | { readonly unstored: 'not-retained' }
   | { readonly unstored: 'held'; readonly modelByteSize: number };
 
-/** One image reference of a request: a `media://` id or an unstored image. */
-export type EpochImageRef = string | UnstoredImageRef;
+/** One media reference of a request: a `media://` id or an unstored image. */
+export type EpochMediaRef = string | UnstoredImageRef;
 
 export type MediaAdmission =
   | 'attached'
   | 'limit'
+  | 'omitted'
   | 'unavailable'
   | 'not-retained';
 
+/** What one attachable reference counts toward the window's bounds. */
+type WindowCost = { bytes: number; images: number; pages: number };
+
 /**
- * The epoch image window (vision-media D6, Q22): references in request order,
- * oldest first, a repeated id counting again. Only attachable references
- * count: a `media://` id the owner's store resolves, or an unstored image the
- * attempt's memory holds an entry for. An unresolvable id is `unavailable` and
- * an unstored image without an entry is `not-retained`; neither counts toward
- * anything. Attachable references attach while at most 100 images and 24 MiB
- * of base64 model variants hold; the first one that would exceed either bound,
- * and every later attachable one, is `limit`.
+ * The epoch media window (vision-media D6, Q22; pdf-media D5): references in
+ * request order, oldest first, a repeated id counting again. Only attachable
+ * references count: one of a kind `ctx.input` declares, and either a
+ * `media://` id the owner's store resolves or an unstored image the attempt's
+ * memory holds an entry for. An unresolvable id is `unavailable`, a resolvable
+ * reference of an undeclared kind `omitted`, and an unstored image without an
+ * entry `not-retained`; none counts toward anything. Attachable references
+ * attach while at most 100 images, 28 MiB of base64 (an image's model variant,
+ * a PDF's original), and `pdfPageBound(ctx)` PDF pages hold; the first one
+ * that would exceed any bound, and every later attachable one, is `limit`.
  *
  * Append-only: the statuses of a prefix of `refs` never depend on what follows
  * it, so a request prefix keeps its attachments as turns and steps are added.
  */
-export function admitEpochImages(
-  refs: ReadonlyArray<EpochImageRef>,
+export function admitEpochMedia(
+  refs: ReadonlyArray<EpochMediaRef>,
   descriptors: ReadonlyMap<string, MediaDescriptor>,
+  ctx: MediaAdmissionContext,
 ): ReadonlyArray<MediaAdmission> {
-  let images = 0;
-  let base64Bytes = 0;
+  const maxPages = pdfPageBound(ctx);
+  const used: WindowCost = { bytes: 0, images: 0, pages: 0 };
   let full = false;
   return refs.map((ref) => {
-    const counted = countedBytes(ref, descriptors);
-    if (counted === 'unavailable' || counted === 'not-retained') {
-      return counted;
-    }
-    const size = base64Size(counted);
-    if (
-      full ||
-      images === EPOCH_MAX_IMAGES ||
-      base64Bytes + size > EPOCH_MAX_BASE64_BYTES
-    ) {
-      full = true;
-      return 'limit';
-    }
-    images += 1;
-    base64Bytes += size;
+    const cost = windowCost(ref, descriptors, ctx.input);
+    if (isString(cost)) return cost;
+    full ||=
+      used.images + cost.images > EPOCH_MAX_IMAGES ||
+      used.bytes + cost.bytes > EPOCH_MAX_BASE64_BYTES ||
+      used.pages + cost.pages > maxPages;
+    if (full) return 'limit';
+    used.images += cost.images;
+    used.bytes += cost.bytes;
+    used.pages += cost.pages;
     return 'attached';
   });
 }
 
 /**
- * The model variant byte size an attachable reference counts, or the status
- * of a reference that never counts.
+ * What an attachable reference counts, or the status of a reference that never
+ * counts. A missing kind outranks retention (pdf-media D4).
  */
-function countedBytes(
-  ref: EpochImageRef,
+function windowCost(
+  ref: EpochMediaRef,
   descriptors: ReadonlyMap<string, MediaDescriptor>,
-): number | 'unavailable' | 'not-retained' {
-  if (isString(ref)) {
-    return descriptors.get(ref)?.modelByteSize ?? 'unavailable';
+  input: ReadonlyArray<ModelInput>,
+): WindowCost | 'unavailable' | 'omitted' | 'not-retained' {
+  if (!isString(ref)) {
+    if (!input.includes('image')) return 'omitted';
+    return ref.unstored === 'held'
+      ? { bytes: base64Size(ref.modelByteSize), images: 1, pages: 0 }
+      : 'not-retained';
   }
-  return ref.unstored === 'held' ? ref.modelByteSize : 'not-retained';
+  const d = descriptors.get(ref);
+  if (d === undefined) return 'unavailable';
+  if (!input.includes(d.kind)) return 'omitted';
+  return d.kind === 'pdf'
+    ? { bytes: base64Size(d.byteSize), images: 0, pages: d.pages }
+    : { bytes: base64Size(d.modelByteSize), images: 1, pages: 0 };
 }
 
 /**
@@ -283,9 +332,9 @@ export function collectMediaRefs(
 /**
  * How a request's media references are projected (vision-media D6): the
  * owner's descriptors for its stored references, the attempt's entries for
- * its unstored ones, and their epoch admission, in request order, for a model
- * that does or does not declare `image` input. The step composer projects a
- * request from it; the estimators size one with it.
+ * its unstored ones, and their epoch admission, in request order, under the
+ * request's model (`context`). The step composer projects a request from it;
+ * the estimators size one with it.
  *
  * A continuation estimate sizes only the request's trailing rows, so its
  * consumers align `statuses` to the END of the messages they project.
@@ -294,18 +343,18 @@ export type MediaSizing = {
   descriptors: ReadonlyMap<string, MediaDescriptor>;
   held: ReadonlyMap<string, HeldImage>;
   statuses: ReadonlyArray<MediaAdmission>;
-  imageInput: boolean;
+  context: MediaAdmissionContext;
 };
 
 /**
  * Collect `messages`' references, describe the stored ones, look the unstored
- * ones up in the attempt's memory, and admit them; `refs` are the references
- * `statuses` are aligned with.
+ * ones up in the attempt's memory, and admit them under `context`; `refs` are
+ * the references `statuses` are aligned with.
  */
 export async function loadMediaSizing(
   messages: ReadonlyArray<ModelMessage>,
   resolver: RunMediaResolver,
-  imageInput: boolean,
+  context: MediaAdmissionContext,
 ): Promise<MediaSizing & { refs: ReadonlyArray<MediaRef> }> {
   const refs = collectMediaRefs(messages);
   const descriptors = await resolver.describe(refs.filter(isString));
@@ -319,11 +368,12 @@ export async function loadMediaSizing(
     refs,
     descriptors,
     held,
-    statuses: admitEpochImages(
+    statuses: admitEpochMedia(
       refs.map((ref) => epochRef(ref, held)),
       descriptors,
+      context,
     ),
-    imageInput,
+    context,
   };
 }
 
@@ -336,7 +386,7 @@ export async function loadMediaSizing(
 function epochRef(
   image: string | UnstoredRef,
   held: ReadonlyMap<string, HeldImage>,
-): EpochImageRef {
+): EpochMediaRef {
   if (isString(image)) return image;
   const entry = held.get(image.key);
   const modelByteSize = entry?.model?.bytes.byteLength ?? entry?.modelByteSize;

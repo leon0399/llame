@@ -393,7 +393,7 @@ function buildStreamOptions(
     }),
   };
   applyToolCallingOptions(streamOptions, input, gate);
-  installStepPreparation(streamOptions, input, config.input);
+  installStepPreparation(streamOptions, input, config);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
   if (input.onTextDelta) {

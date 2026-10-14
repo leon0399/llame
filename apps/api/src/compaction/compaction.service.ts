@@ -114,10 +114,16 @@ export type CompactionSummaryRequest =
       readonly system: string;
       readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
       readonly effort?: string;
+      /**
+       * The configured output reserve, which the epoch media window's PDF
+       * page bound subtracts as the Run's own requests do (pdf-media D5).
+       */
+      readonly reservedOutputTokens: number | null;
       readonly abortSignal?: AbortSignal;
       /**
        * The Run owner's media, so the summary request projects the prefix's
-       * images for the summarizing client's own `input` (vision-media D9).
+       * images and PDFs for the summarizing client's own `input`
+       * (vision-media D9, pdf-media D5).
        */
       readonly media?: RunMediaResolver;
     }
@@ -206,6 +212,7 @@ export class CompactionService {
         ...(input.effort !== undefined && { effort: input.effort }),
         abortSignal: input.abortSignal,
         media: input.media,
+        reservedOutputTokens: input.reservedOutputTokens,
       });
     } catch (error) {
       if (input.abortSignal?.aborted) {
@@ -297,11 +304,11 @@ export class CompactionService {
         reservedOutputTokens: input.reservedOutputTokens,
         media:
           input.media &&
-          (await loadMediaSizing(
-            request.messages,
-            input.media,
-            client.input?.includes('image') ?? false,
-          )),
+          (await loadMediaSizing(request.messages, input.media, {
+            input: client.input ?? ['text'],
+            contextWindowTokens: client.contextWindowTokens,
+            reservedOutputTokens: input.reservedOutputTokens,
+          })),
       })
     ) {
       throw new ContextIncompatibleError(
@@ -320,6 +327,7 @@ export class CompactionService {
         ...(effort !== undefined && { effort }),
         abortSignal: input.abortSignal,
         media: input.media,
+        reservedOutputTokens: input.reservedOutputTokens,
       });
     } catch (error) {
       if (input.abortSignal?.aborted) {
@@ -389,6 +397,7 @@ export class CompactionService {
     effort?: string;
     abortSignal?: AbortSignal;
     media: RunMediaResolver | undefined;
+    reservedOutputTokens: number | null;
   }): Promise<SummaryInference> {
     const tools = schemaOnlyTools(input.toolDeclarations);
     const startedAt = Date.now();
@@ -406,6 +415,7 @@ export class CompactionService {
       chat: { id: input.chatId, lane: 'main' },
       abortSignal: input.abortSignal,
       ...(input.media !== undefined && { media: input.media }),
+      reservedOutputTokens: input.reservedOutputTokens,
       ...(input.effort !== undefined && { effort: input.effort }),
       ...(input.toolDeclarations.length > 0 && { tools }),
       toolChoice: 'none',

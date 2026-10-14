@@ -1,9 +1,10 @@
 /**
- * Owner image attachments (vision-media D5, `media-attachments`) over real
- * HTTP and Postgres: the send DTO's `file` parts, ownership under the
- * sender's identity, stored labels, and the end-to-end path from an uploaded
- * image to the provider prompt of the scripted model client, whose models
- * declare `input` so both the vision and the text-only branch run.
+ * Owner image and PDF attachments (vision-media D5, pdf-media D4,
+ * `media-attachments`) over real HTTP and Postgres: the send DTO's `file`
+ * parts, ownership under the sender's identity, stored labels, and the
+ * end-to-end path from an uploaded image or PDF to the provider prompt of the
+ * scripted model client, whose models declare `input` so both the attaching
+ * and the text-only branch run.
  *
  * Requires POSTGRES_URL to point at a migrated database, like every other
  * *.integration.test.ts here; the test:integration globalSetup provides it.
@@ -13,7 +14,9 @@ import type { LanguageModelV3CallOptions } from '@ai-sdk/provider';
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { type Server } from 'node:http';
+import { join } from 'node:path';
 import request from 'supertest';
 import { z } from 'zod';
 
@@ -51,6 +54,18 @@ const descriptorSchema = z.object({
 });
 type Descriptor = z.infer<typeof descriptorSchema>;
 
+const pdfDescriptorSchema = z.object({
+  id: z.string(),
+  locator: z.string(),
+  name: z.string(),
+  mediaType: z.literal('application/pdf'),
+  pages: z.number(),
+});
+type PdfDescriptor = z.infer<typeof pdfDescriptorSchema>;
+
+/** A file part's labels: what `file` sends and `stored` expects back. */
+type FileLabels = Pick<Descriptor, 'locator' | 'name' | 'mediaType'>;
+
 const UNKNOWN_ID = '01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e';
 
 /** The content of the last user message of a provider prompt. */
@@ -79,6 +94,7 @@ describe('owner image attachments (HTTP)', () => {
   const tag = Date.now();
   const VISION = `attach-vision-${tag}`;
   const TEXT_ONLY = `attach-text-${tag}`;
+  const PDF_MODEL = `attach-pdf-${tag}`;
   let cookieA = '';
   let userA = '';
   let cookieB = '';
@@ -139,7 +155,7 @@ describe('owner image attachments (HTTP)', () => {
   }
 
   const file = (
-    media: Descriptor,
+    media: FileLabels,
     labels: { mediaType?: string; filename?: string } = {},
   ) => ({
     type: 'file',
@@ -149,7 +165,7 @@ describe('owner image attachments (HTTP)', () => {
   });
 
   /** The part the server stores for `media`, whatever the client sent. */
-  const stored = (media: Descriptor) => ({
+  const stored = (media: FileLabels) => ({
     type: 'file',
     mediaType: media.mediaType,
     url: media.locator,
@@ -204,6 +220,8 @@ describe('owner image attachments (HTTP)', () => {
     models.register(VISION, { kind: 'complete', text: 'seen' });
     models.registerInput(VISION, ['text', 'image']);
     models.register(TEXT_ONLY, { kind: 'complete', text: 'read' });
+    models.register(PDF_MODEL, { kind: 'complete', text: 'paged' });
+    models.registerInput(PDF_MODEL, ['text', 'pdf']);
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
@@ -433,6 +451,183 @@ describe('owner image attachments (HTTP)', () => {
         `[image ${shot.locator} shot.png ${shot.width}×${shot.height}, omitted: this model has no image input]`,
       );
       expect(textOf(content[label + 2])).toBe('what is it?');
+    });
+  });
+
+  describe('PDF attachments', () => {
+    let onePage: Buffer;
+    /** A's one upload: re-uploading the same bytes reuses it (200, not 201). */
+    let pdf: PdfDescriptor;
+
+    /** `PDF 1 (media://<id>):`, the original as a named PDF file, then `text`. */
+    function expectLabelledPdfBefore(content: Array<PromptPart>, text: string) {
+      const label = content.findIndex(
+        (part) => textOf(part) === `PDF 1 (${pdf.locator}):`,
+      );
+      expect(label).toBeGreaterThanOrEqual(0);
+      expect(content[label + 1]).toMatchObject({
+        type: 'file',
+        mediaType: 'application/pdf',
+        filename: 'one-page.pdf',
+      });
+      expect(partBytes(content[label + 1]).equals(onePage)).toBe(true);
+      expect(content.findIndex((part) => textOf(part) === text)).toBe(
+        label + 2,
+      );
+    }
+
+    beforeAll(async () => {
+      onePage = await readFile(
+        join(__dirname, '../media/testing/pdf/one-page.pdf'),
+      );
+      const res = await request(http)
+        .post('/api/v1/media')
+        .set('Cookie', cookieA)
+        .attach('file', onePage, {
+          filename: 'one-page.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(201);
+      pdf = pdfDescriptorSchema.parse(res.body);
+    });
+
+    it('sends the labelled original before the text to a PDF model and stores the labels', async () => {
+      const chatId = await createChat(userA);
+
+      const prompts = await promptsDuring(() =>
+        send(
+          cookieA,
+          chatId,
+          [
+            { type: 'text', text: 'summarize this' },
+            file(pdf, { mediaType: 'image/png', filename: 'forged.png' }),
+          ],
+          PDF_MODEL,
+        ).expect(200),
+      );
+
+      expect(prompts).toHaveLength(1);
+      expectLabelledPdfBefore(lastUserContent(prompts[0]), 'summarize this');
+      const [message] = await userMessages(userA, chatId);
+      expectMessageParts(message.parts, [
+        { type: 'text', text: 'summarize this' },
+        {
+          type: 'file',
+          mediaType: 'application/pdf',
+          url: pdf.locator,
+          filename: 'one-page.pdf',
+        },
+      ]);
+    });
+
+    it('keeps the PDF when an infrastructure failure retries the Run', async () => {
+      const chatId = await createChat(userA);
+      // Only the first pickup fails; the spy then runs the real method.
+      const spy = vi
+        .spyOn(models, 'createClient')
+        .mockImplementationOnce(() => {
+          throw new Error('simulated infra failure');
+        });
+
+      const prompts = await promptsDuring(() =>
+        send(
+          cookieA,
+          chatId,
+          [file(pdf), { type: 'text', text: 'after retry' }],
+          PDF_MODEL,
+        ).expect(200),
+      );
+
+      expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(prompts).toHaveLength(1);
+      expectLabelledPdfBefore(lastUserContent(prompts[0]), 'after retry');
+    });
+
+    it("keeps the PDF in an owner fork's history", async () => {
+      const chatId = await createChat(userA);
+      await send(
+        cookieA,
+        chatId,
+        [file(pdf), { type: 'text', text: 'original turn' }],
+        PDF_MODEL,
+      ).expect(200);
+
+      const fork = await request(http)
+        .post(`/api/v1/chats/${chatId}/forks`)
+        .set('Cookie', cookieA)
+        .send({})
+        .expect(201);
+      const forkId = z.object({ id: z.string() }).parse(fork.body).id;
+
+      const prompts = await promptsDuring(() =>
+        send(
+          cookieA,
+          forkId,
+          [{ type: 'text', text: 'and now?' }],
+          PDF_MODEL,
+        ).expect(200),
+      );
+
+      expect(prompts).toHaveLength(1);
+      const [history] = prompts[0].filter((message) => message.role === 'user');
+      if (history?.role !== 'user') throw new Error('Expected history');
+      expectLabelledPdfBefore(history.content, 'original turn');
+    });
+
+    it('gives a text-only model the omitted PDF placeholder after the label', async () => {
+      const chatId = await createChat(userA);
+
+      const prompts = await promptsDuring(() =>
+        send(
+          cookieA,
+          chatId,
+          [file(pdf), { type: 'text', text: 'what is it?' }],
+          TEXT_ONLY,
+        ).expect(200),
+      );
+
+      expect(prompts).toHaveLength(1);
+      const content = lastUserContent(prompts[0]);
+      expect(content.some((part) => part.type === 'file')).toBe(false);
+      const label = content.findIndex(
+        (part) => textOf(part) === `PDF 1 (${pdf.locator}):`,
+      );
+      expect(label).toBeGreaterThanOrEqual(0);
+      expect(textOf(content[label + 1])).toBe(
+        `[pdf ${pdf.locator} one-page.pdf 1 pages, omitted: this model has no PDF input]`,
+      );
+      expect(textOf(content[label + 2])).toBe('what is it?');
+    });
+
+    it("rejects another owner's PDF id before any row, exactly like an unknown id", async () => {
+      const foreignChat = randomUUID();
+      const unknownChat = randomUUID();
+
+      const foreign = await send(
+        cookieB,
+        foreignChat,
+        [{ type: 'text', text: 'borrow' }, file(pdf)],
+        PDF_MODEL,
+      );
+      const unknown = await send(
+        cookieB,
+        unknownChat,
+        [
+          { type: 'text', text: 'borrow' },
+          { ...file(pdf), url: `media://${UNKNOWN_ID}` },
+        ],
+        PDF_MODEL,
+      );
+
+      expect(foreign.status).toBe(400);
+      expect(unknown.status).toBe(foreign.status);
+      expect(unknown.body).toEqual(foreign.body);
+      await expectNothingStored(userB, foreignChat);
+      await expectNothingStored(userB, unknownChat);
+      await request(http)
+        .get(`/api/v1/media/${pdf.id}`)
+        .set('Cookie', cookieB)
+        .expect(404);
     });
   });
 });

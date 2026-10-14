@@ -22,7 +22,11 @@ import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.r
 import { RunsRepository } from '../runs/runs-repository';
 import { ContextIncompatibleError } from '../runs/model-context-errors';
 import { ScriptedModelsService } from '../runs/scripted-model-client';
-import { descriptor, fakeResolver } from '../media/media-fixtures';
+import {
+  descriptor,
+  fakeResolver,
+  pdfDescriptor,
+} from '../media/media-fixtures';
 import type { CompactionPlan } from './compaction';
 import { COMPACTION_INSTRUCTION } from './compaction';
 import { CompactionService, toStoredMessages } from './compaction.service';
@@ -196,6 +200,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
 
     const summary = await setup.service.summarizeCheckpoint({
       variant: 'threshold',
+      reservedOutputTokens: 64_000,
       chatId,
       userId: ownerId,
       triggeringUserSeq: 3,
@@ -216,6 +221,8 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     expect(sent?.chat).toStrictEqual({ id: chatId, lane: 'main' });
     expect(sent?.toolChoice).toBe('none');
     expect(sent?.effort).toBe('high');
+    // The output reserve reaches the composer's PDF page bound (pdf-media D5).
+    expect(sent?.reservedOutputTokens).toBe(64_000);
 
     // Schema-only declarations: named and described, never executable — the
     // summarizer has no tool to call even though the turn's tools are declared.
@@ -250,6 +257,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
 
     const summary = await setup.service.summarizeCheckpoint({
       variant: 'threshold',
+      reservedOutputTokens: null,
       chatId,
       userId: ownerId,
       triggeringUserSeq: 3,
@@ -273,6 +281,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
 
     const summary = await setup.service.summarizeCheckpoint({
       variant: 'threshold',
+      reservedOutputTokens: null,
       chatId,
       userId: ownerId,
       triggeringUserSeq: 3,
@@ -300,6 +309,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
 
     await setup.service.summarizeCheckpoint({
       variant: 'threshold',
+      reservedOutputTokens: null,
       chatId,
       userId: ownerId,
       triggeringUserSeq: 3,
@@ -336,6 +346,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     await expect(
       setup.service.summarizeCheckpoint({
         variant: 'threshold',
+        reservedOutputTokens: null,
         chatId,
         userId: ownerId,
         triggeringUserSeq: 3,
@@ -366,6 +377,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     await expect(
       setup.service.summarizeCheckpoint({
         variant: 'threshold',
+        reservedOutputTokens: null,
         chatId,
         userId: ownerId,
         triggeringUserSeq: 3,
@@ -391,6 +403,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     await expect(
       setup.service.summarizeCheckpoint({
         variant: 'threshold',
+        reservedOutputTokens: null,
         chatId,
         userId: ownerId,
         triggeringUserSeq: 3,
@@ -413,6 +426,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     await expect(
       setup.service.summarizeCheckpoint({
         variant: 'threshold',
+        reservedOutputTokens: null,
         chatId,
         userId: ownerId,
         triggeringUserSeq: 3,
@@ -446,6 +460,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     await expect(
       setup.service.summarizeCheckpoint({
         variant: 'threshold',
+        reservedOutputTokens: null,
         chatId,
         userId: ownerId,
         triggeringUserSeq: 3,
@@ -477,6 +492,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     await expect(
       setup.service.summarizeCheckpoint({
         variant: 'threshold',
+        reservedOutputTokens: null,
         chatId,
         userId: ownerId,
         triggeringUserSeq: 3,
@@ -499,6 +515,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     await expect(
       setup.service.summarizeCheckpoint({
         variant: 'threshold',
+        reservedOutputTokens: null,
         chatId,
         userId: ownerId,
         triggeringUserSeq: 3,
@@ -824,6 +841,7 @@ describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
 
     const summary = await setup.service.summarizeCheckpoint({
       variant: 'threshold',
+      reservedOutputTokens: null,
       chatId,
       userId: ownerId,
       triggeringUserSeq: 4,
@@ -888,5 +906,83 @@ describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
 
     expect(summary).toMatchObject({ summary: 'summary text' });
     expect(calls[0]?.media).toBe(resolver);
+  });
+
+  describe('a PDF attachment', () => {
+    const pdfId = '0192f3a4-5b6c-7d8e-9f01-00000000000b';
+    const pdfPlan = (): CompactionPlan => ({
+      uptoSeq: 3,
+      absorb: toStoredMessages([
+        {
+          ...message(2),
+          parts: [
+            {
+              type: 'file',
+              mediaType: 'application/pdf',
+              url: `media://${pdfId}`,
+              filename: 'paper.pdf',
+            },
+            { type: 'text', text: 'summarize this' },
+          ],
+        },
+        message(3, 'assistant'),
+      ]),
+    });
+    const pdfMedia = () =>
+      fakeResolver([pdfDescriptor(pdfId, { name: 'paper.pdf', pages: 15 })])
+        .resolver;
+
+    it('reaches a summarizer that declares pdf input as a PDF file part', async () => {
+      const models = new ScriptedModelsService();
+      models.register('reader', { kind: 'complete', text: 'summary text' });
+      models.registerInput('reader', ['text', 'pdf']);
+      const client = models.createClient('reader');
+      const setup = makeService(client);
+      mockReads();
+
+      await setup.service.summarizeCheckpoint({
+        variant: 'threshold',
+        reservedOutputTokens: null,
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 4,
+        plan: pdfPlan(),
+        client,
+        system: 'system',
+        toolDeclarations: [],
+        media: pdfMedia(),
+      });
+
+      const sent = sentImages(models);
+      expect(sent.files).toEqual(['application/pdf']);
+      expect(sent.text).toContain(`PDF 1 (media://${pdfId}):`);
+    });
+
+    it('reaches a source model without pdf input as the omitted placeholder', async () => {
+      const models = new ScriptedModelsService();
+      models.register('source-model-1', {
+        kind: 'complete',
+        text: 'summary text',
+      });
+      models.registerInput('source-model-1', ['text', 'image']);
+      const setup = makeService(models.createClient('source-model-1'));
+      mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+      await setup.service.summarizeCheckpoint({
+        variant: 'window',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 4,
+        plan: pdfPlan(),
+        reservedOutputTokens: 10,
+        media: pdfMedia(),
+      });
+
+      const sent = sentImages(models);
+      expect(sent.files).toEqual([]);
+      expect(sent.text).toContain(
+        `[pdf media://${pdfId} paper.pdf 15 pages, omitted: this model has no PDF input]`,
+      );
+    });
   });
 });

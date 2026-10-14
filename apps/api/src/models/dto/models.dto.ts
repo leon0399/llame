@@ -95,7 +95,7 @@ export class AvailableModelResponse {
   contextWindowTokens!: number;
 
   @ApiProperty({
-    enum: ['text', 'image'],
+    enum: ['text', 'image', 'pdf'],
     isArray: true,
     description:
       'Input modalities this model accepts, in the operator-declared order. ' +

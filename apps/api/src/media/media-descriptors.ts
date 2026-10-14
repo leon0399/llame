@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { mediaBlobs, mediaObjects } from '../db/schema';
@@ -11,6 +11,7 @@ import {
   parseMediaLocator,
 } from './media-locator';
 import { mediaSourceLabel } from './media-source-label';
+import { PDF_MEDIA_TYPE } from './pdf-preparation';
 
 /** The formats ingest writes for a model variant (vision-media D2). */
 const modelMediaTypeSchema = z.enum(['image/png', 'image/jpeg']);
@@ -25,13 +26,15 @@ const imageColumnsSchema = z.object({
   modelMediaType: modelMediaTypeSchema,
 });
 
+type ImageColumns = z.infer<typeof imageColumnsSchema>;
+
 /**
  * The image columns of a stored row, or undefined for a PDF row and for a
  * row whose variant format ingest could not have written.
  */
 export function imageColumns(
-  row: Pick<MediaObject, keyof z.infer<typeof imageColumnsSchema>>,
-): z.infer<typeof imageColumnsSchema> | undefined {
+  row: Pick<MediaObject, keyof ImageColumns>,
+): ImageColumns | undefined {
   const parsed = imageColumnsSchema.safeParse(row);
   return parsed.success ? parsed.data : undefined;
 }
@@ -53,7 +56,8 @@ export const storedFilePartSchema = z.object({
  * file parts and shown in placeholders), and the model variant's dimensions,
  * size, and format (used to size and attach it). Never carries bytes.
  */
-export type MediaDescriptor = {
+export type ImageDescriptor = {
+  kind: 'image';
   id: string;
   name: string;
   mediaType: string;
@@ -64,6 +68,25 @@ export type MediaDescriptor = {
   modelByteSize: number;
   modelMediaType: z.infer<typeof modelMediaTypeSchema>;
 };
+
+/**
+ * One owned PDF without its bytes (pdf-media D5): the stored source label, its
+ * page count (shown in placeholders and charged by the estimate), and the
+ * original's byte size (counted by the window; a PDF has no model variant).
+ */
+export type PdfDescriptor = {
+  kind: 'pdf';
+  id: string;
+  name: string;
+  mediaType: typeof PDF_MEDIA_TYPE;
+  pages: number;
+  byteSize: number;
+};
+
+export type MediaDescriptor = ImageDescriptor | PdfDescriptor;
+
+/** The kind of media a reference names, matching the `ModelInput` it needs. */
+export type MediaKind = MediaDescriptor['kind'];
 
 /**
  * The descriptors of the given ids that the owner owns, read under the
@@ -88,6 +111,8 @@ export async function loadMediaDescriptors(
       modelHeight: mediaObjects.modelHeight,
       modelByteSize: mediaObjects.modelByteSize,
       modelMediaType: mediaObjects.modelMediaType,
+      pageCount: mediaObjects.pageCount,
+      byteSize: mediaObjects.byteSize,
     })
     .from(mediaObjects)
     .where(
@@ -96,16 +121,40 @@ export async function loadMediaDescriptors(
         eq(mediaObjects.ownerUserId, ownerUserId),
       ),
     );
-  // A PDF row, and a row whose variant format ingest could not have written,
-  // resolves as absent, like an unknown id.
   return new Map(
     rows.flatMap((row) => {
-      const image = imageColumns(row);
-      if (image === undefined) return [];
-      const { id, name, mediaType } = row;
-      return [[id, { id, name, mediaType, ...image }] as const];
+      const found = descriptorOf(row);
+      return found === undefined ? [] : [[row.id, found] as const];
     }),
   );
+}
+
+type DescriptorRow = Pick<
+  MediaObject,
+  'id' | 'name' | 'mediaType' | 'pageCount' | 'byteSize' | keyof ImageColumns
+>;
+
+/**
+ * A row's descriptor by its shape (`media_objects_shape`): a PDF has a page
+ * count. A row of neither shape that ingest could have written resolves as
+ * absent, like an unknown id.
+ */
+function descriptorOf(row: DescriptorRow): MediaDescriptor | undefined {
+  const { id, name, mediaType } = row;
+  if (row.pageCount !== null) {
+    return mediaType === PDF_MEDIA_TYPE
+      ? {
+          kind: 'pdf',
+          id,
+          name,
+          mediaType,
+          pages: row.pageCount,
+          byteSize: row.byteSize,
+        }
+      : undefined;
+  }
+  const image = imageColumns(row);
+  return image && { kind: 'image', id, name, mediaType, ...image };
 }
 
 /**
@@ -123,8 +172,9 @@ export type RunMediaResolver = {
     ids: ReadonlyArray<string>,
   ): Promise<ReadonlyMap<string, MediaDescriptor>>;
   /**
-   * The model variant bytes of the owned ids among `ids`; unknown, foreign,
-   * and non-canonical ids are absent.
+   * The bytes a request attaches for the owned ids among `ids`: an image's
+   * model variant, a PDF's original. Unknown, foreign, and non-canonical ids
+   * are absent.
    */
   loadModelBytes(
     ids: ReadonlyArray<string>,
@@ -134,10 +184,10 @@ export type RunMediaResolver = {
 /**
  * The resolver for one Run attempt, bound to the Run owner's identity.
  * Descriptors are immutable (media is never updated), so they are cached for
- * the attempt, misses included. Loaded model bytes are cached for the attempt
- * too, since the composer asks for them on every step: each attached blob is
- * read at most once, and the set is bounded by the epoch image window. Only
- * found bytes are cached, so a miss or a failed read is retried next step.
+ * the attempt, misses included. Loaded bytes are cached for the attempt too,
+ * since the composer asks for them on every step: each attached blob is read
+ * at most once, and the set is bounded by the epoch media window. Only found
+ * bytes are cached, so a miss or a failed read is retried next step.
  */
 export function createRunMediaResolver(
   tenantDb: TenantRunner,
@@ -163,7 +213,7 @@ export function createRunMediaResolver(
       );
       if (missing.length > 0) {
         const rows = await tenantDb.runAs(ownerUserId, (tx) =>
-          loadModelVariants(tx, ownerUserId, missing),
+          loadAttachedBlobs(tx, ownerUserId, missing),
         );
         for (const row of rows) bytes.set(row.id, row.data);
       }
@@ -185,8 +235,12 @@ function pickKnown<T>(
   return result;
 }
 
-/** The owner's model variant blobs among canonical `ids`, in one statement. */
-function loadModelVariants(
+/**
+ * The owner's attached blobs among canonical `ids`, in one statement: the
+ * original of a PDF row (it has no model variant), the model variant of any
+ * other row.
+ */
+function loadAttachedBlobs(
   tx: Db,
   ownerUserId: string,
   ids: ReadonlyArray<string>,
@@ -198,7 +252,10 @@ function loadModelVariants(
     .where(
       and(
         inArray(mediaBlobs.mediaId, ids),
-        eq(mediaBlobs.variant, 'model'),
+        eq(
+          mediaBlobs.variant,
+          sql`(case when ${mediaObjects.pageCount} is null then 'model' else 'original' end)::media_variant`,
+        ),
         eq(mediaObjects.ownerUserId, ownerUserId),
       ),
     );
@@ -207,13 +264,19 @@ function loadModelVariants(
 /** The canonical `media://` file parts of `parts`, raw persisted JSON. */
 function storedFileRefs(
   parts: ReadonlyArray<unknown>,
-): Array<{ id: string; filename: string | undefined }> {
+): Array<{ id: string; filename: string | undefined; mediaType: string }> {
   return parts.flatMap((part) => {
     const parsed = storedFilePartSchema.safeParse(part);
     if (!parsed.success) return [];
     const id = parseMediaLocator(parsed.data.url);
-    return id === undefined ? [] : [{ id, filename: parsed.data.filename }];
+    const { filename, mediaType } = parsed.data;
+    return id === undefined ? [] : [{ id, filename, mediaType }];
   });
+}
+
+/** The kind a file part's stored `mediaType` declares (pdf-media D4). */
+export function fileKind(mediaType: string): MediaKind {
+  return mediaType === PDF_MEDIA_TYPE ? 'pdf' : 'image';
 }
 
 /**
@@ -227,53 +290,70 @@ export function fileMediaIds(parts: ReadonlyArray<unknown>): Array<string> {
 
 /**
  * The cause-free line of each stored owner `file` part (`conversation_read`,
- * title input), in stored order: `[image media://<id> <name>]`, rendered from
- * the part alone. `<name>` is its `filename` through the source-label
- * sanitizer, so a forged part cannot break the line; a part without one
- * renders `[image media://<id>]`.
+ * title input), in stored order: `[pdf media://<id> <name>]` for a part whose
+ * stored `mediaType` is `application/pdf`, `[image media://<id> <name>]` for
+ * any other, rendered from the part alone. `<name>` is its `filename` through
+ * the source-label sanitizer, so a forged part cannot break the line; a part
+ * without one renders `[image media://<id>]` (or `[pdf …]`).
  */
-export function fileImageLines(parts: ReadonlyArray<unknown>): Array<string> {
-  return storedFileRefs(parts).map(
-    ({ id, filename }) =>
-      `[image ${mediaLocator(id)}${filename === undefined ? '' : ` ${mediaSourceLabel(filename)}`}]`,
-  );
+export function fileAttachmentLines(
+  parts: ReadonlyArray<unknown>,
+): Array<string> {
+  return storedFileRefs(parts).map(({ id, filename, mediaType }) => {
+    const name = filename === undefined ? '' : ` ${mediaSourceLabel(filename)}`;
+    return `[${fileKind(mediaType)} ${mediaLocator(id)}${name}]`;
+  });
 }
 
 /**
- * What a placeholder names (vision-media D6): `media://<id> <name>` for a
- * stored object, or an unstored image's locator as an exact JSON string
- * literal; and the original's dimensions.
+ * What a placeholder names (vision-media D6, pdf-media D4): `media://<id>
+ * <name>` for a stored object, or an unstored image's locator as an exact JSON
+ * string literal; and the original's dimensions, or a PDF's page count.
  */
-export type ImageSubject = { subject: string; width: number; height: number };
+export type ImageSubject = {
+  kind: 'image';
+  subject: string;
+  width: number;
+  height: number;
+};
 
-export function storedSubject(d: MediaDescriptor): ImageSubject {
-  return {
-    subject: `${mediaLocator(d.id)} ${d.name}`,
-    width: d.width,
-    height: d.height,
-  };
+export type PdfSubject = { kind: 'pdf'; subject: string; pages: number };
+
+export type MediaSubject = ImageSubject | PdfSubject;
+
+export function storedSubject(d: MediaDescriptor): MediaSubject {
+  const subject = `${mediaLocator(d.id)} ${d.name}`;
+  return d.kind === 'pdf'
+    ? { kind: 'pdf', subject, pages: d.pages }
+    : { kind: 'image', subject, width: d.width, height: d.height };
 }
 
 export function unstoredSubject(image: UnstoredImage): ImageSubject {
   return {
+    kind: 'image',
     subject: JSON.stringify(image.locator),
     width: image.width,
     height: image.height,
   };
 }
 
-function describe(s: ImageSubject): string {
-  return `image ${s.subject} ${s.width}×${s.height}`;
+function describe(s: MediaSubject): string {
+  return s.kind === 'pdf'
+    ? `pdf ${s.subject} ${s.pages} pages`
+    : `image ${s.subject} ${s.width}×${s.height}`;
 }
 
-/** A reference the owner's store cannot resolve. */
-export function unavailablePlaceholder(id: string): string {
-  return `[image ${mediaLocator(id)} unavailable]`;
+/** How a cause names each kind. */
+const KIND_NAME: Record<MediaKind, string> = { image: 'image', pdf: 'PDF' };
+
+/** A reference of `kind` the owner's store cannot resolve. */
+export function unavailablePlaceholder(id: string, kind: MediaKind): string {
+  return `[${kind} ${mediaLocator(id)} unavailable]`;
 }
 
-/** A resolvable image sent to a model that does not declare `image` input. */
-export function omittedPlaceholder(s: ImageSubject): string {
-  return `[${describe(s)}, omitted: this model has no image input]`;
+/** A resolvable reference sent to a model that does not declare its kind. */
+export function omittedPlaceholder(s: MediaSubject): string {
+  return `[${describe(s)}, omitted: this model has no ${KIND_NAME[s.kind]} input]`;
 }
 
 /**
@@ -283,11 +363,11 @@ export function omittedPlaceholder(s: ImageSubject): string {
  * one, and the `read` description already tells the model to read an image
  * again to view it in a later turn.
  */
-export function notRetainedPlaceholder(s: ImageSubject): string {
+export function notRetainedPlaceholder(s: MediaSubject): string {
   return `[${describe(s)}, not retained]`;
 }
 
-/** A resolvable image the epoch image window does not attach. */
-export function limitPlaceholder(s: ImageSubject): string {
-  return `[${describe(s)}, not attached: this context's image limit is reached]`;
+/** A resolvable reference the epoch media window does not attach. */
+export function limitPlaceholder(s: MediaSubject): string {
+  return `[${describe(s)}, not attached: this context's ${KIND_NAME[s.kind]} limit is reached]`;
 }

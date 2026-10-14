@@ -2950,12 +2950,18 @@ describe('loadInstanceConfig — models[].input (vision-media, task 2.1)', () =>
     expect(loadInstanceConfig().models[0]?.input).toEqual(['image', 'text']);
   });
 
+  it('retains a declared pdf input in declared order', () => {
+    writeModel(', "input": ["text", "pdf"]');
+    expect(loadInstanceConfig().models[0]?.input).toEqual(['text', 'pdf']);
+  });
+
   it.each([
     ['["image"]', 'an input without text'],
     ['[]', 'an empty input'],
     ['["text", "audio"]', 'an unknown modality'],
     ['["text", "text"]', 'a repeated text'],
     ['["text", "image", "image"]', 'a repeated image'],
+    ['["text", "pdf", "pdf"]', 'a repeated pdf'],
   ])(
     'fails startup on %s (%s), naming the model id and the input field',
     (input) => {

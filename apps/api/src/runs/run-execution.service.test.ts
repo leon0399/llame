@@ -129,7 +129,12 @@ import type {
 } from '../compaction/compaction.service';
 import { estimateContinuationTokens } from '../compaction/compaction';
 import type { MediaDescriptor } from '../media/media-descriptors';
-import { descriptor, randomPng } from '../media/media-fixtures';
+import {
+  descriptor,
+  descriptorRow,
+  pdfDescriptor,
+  randomPng,
+} from '../media/media-fixtures';
 import { composeStepMessages } from '../models/step-composer';
 
 import type { TitleCapability } from '../titles/title.service';
@@ -7135,7 +7140,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       const rows = input.mediaRows;
       // The resolver's descriptor read is `select().from().where()`; drizzle's
       // builders carry private state no structural double can satisfy.
-      const where = () => Promise.resolve(rows);
+      const where = () => Promise.resolve(rows.map(descriptorRow));
       // SAFETY: the double implements exactly the fluent calls the read makes.
       // eslint-disable-next-line typescript/no-unsafe-type-assertion
       vi.spyOn(execution.db, 'select').mockReturnValue({
@@ -7166,7 +7171,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     );
   });
 
-  describe('image overflow (vision-media D6)', () => {
+  describe('media overflow (vision-media D6, pdf-media D5)', () => {
     const earlierId = '0192f3a4-5b6c-7d8e-9f01-0000000000e1';
     /** A small-dimension image whose base64 model variant is `mib` MiB. */
     const image = (id: string, mib: number) =>
@@ -7194,7 +7199,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       return capturing;
     };
 
-    /** An earlier 20 MiB image, so the trigger's 5 MiB image overflows. */
+    /** An earlier 24 MiB image, so the trigger's 5 MiB image overflows. */
     async function overflowWithEarlierImage(
       summary?: CompactionSummary | null,
     ) {
@@ -7214,7 +7219,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
           { ...triggerTurn(), parts: triggerParts },
         ],
         triggerParts,
-        mediaRows: [image(earlierId, 20), image(triggerId, 5)],
+        mediaRows: [image(earlierId, 24), image(triggerId, 5)],
         ...(summary !== undefined && { summary }),
       });
       return { ...outcome, capturing, triggerId };
@@ -7246,7 +7251,11 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
               new Map(ids.map((id) => [id, new Uint8Array([1])] as const)),
             ),
         },
-        imageInput: true,
+        context: {
+          input: ['text', 'image'],
+          contextWindowTokens: 128_000,
+          reservedOutputTokens: null,
+        },
       });
       const userParts = composed.flatMap((message) =>
         message.role === 'user' && Array.isArray(message.content)
@@ -7273,7 +7282,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     });
 
     it('does not compact when the overflow lies in the triggering message alone', async () => {
-      const ids = triggerIds(5);
+      const ids = triggerIds(6);
       const triggerParts = [
         ...fileParts(ids),
         { type: 'text', text: 'all of these' },
@@ -7295,7 +7304,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     it("counts the triggering message's prompt-import images as its own", async () => {
       // The item lands on the stored row after the Run was queued, so the
       // queued parts carry none of its references.
-      const ids = triggerIds(5);
+      const ids = triggerIds(6);
       const triggerParts = [{ type: 'text', text: 'look at these' }];
       const item = createPromptImportsItem({
         runId,
@@ -7316,6 +7325,68 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         ],
         triggerParts,
         mediaRows: ids.map((id) => image(id, 5)),
+      });
+
+      expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+    });
+
+    it('takes the threshold variant on PDF overflow when an earlier row holds a stored PDF', async () => {
+      const capturing = triggerClient(400_000);
+      Object.assign(capturing.client, { input: ['text', 'pdf'] });
+      const [triggerId = ''] = triggerIds(1);
+      const pdfPart = (id: string) => ({
+        type: 'file',
+        mediaType: 'application/pdf',
+        url: `media://${id}`,
+        filename: 'paper.pdf',
+      });
+      const triggerParts = [pdfPart(triggerId), { type: 'text', text: 'and?' }];
+
+      const { execution } = await executeTriggerCase({
+        client: capturing.client,
+        historyRows: [
+          ...committedTurn({
+            contextTokens: 100,
+            parts: [pdfPart(earlierId), { type: 'text', text: 'read' }],
+          }),
+          { ...triggerTurn(), parts: triggerParts },
+        ],
+        triggerParts,
+        // 27,962,028 base64 bytes leave no room for the trigger's 2 MiB PDF.
+        mediaRows: [
+          pdfDescriptor(earlierId, { pages: 10, byteSize: 20 * 1024 * 1024 }),
+          pdfDescriptor(triggerId, { pages: 10, byteSize: 2 * 1024 * 1024 }),
+        ],
+      });
+
+      expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(1);
+      expect(execution.summarizeCheckpoint.mock.calls[0]?.[0]).toMatchObject({
+        variant: 'threshold',
+      });
+    });
+
+    it('does not compact image overflow when the only earlier reference is a PDF the model cannot take', async () => {
+      const ids = triggerIds(6);
+      const triggerParts = [...fileParts(ids), { type: 'text', text: 'these' }];
+
+      const { execution } = await executeTriggerCase({
+        client: visionClient().client,
+        historyRows: [
+          ...committedTurn({
+            contextTokens: 100,
+            parts: [
+              {
+                type: 'file',
+                mediaType: 'application/pdf',
+                url: `media://${earlierId}`,
+              },
+              { type: 'text', text: 'read' },
+            ],
+          }),
+          { ...triggerTurn(), parts: triggerParts },
+        ],
+        triggerParts,
+        mediaRows: [pdfDescriptor(earlierId), ...ids.map((id) => image(id, 5))],
       });
 
       expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
@@ -12816,7 +12887,11 @@ describe('RunExecutionService prompt imports', () => {
       if (sent?.media === undefined) throw new Error('no media resolver sent');
       const composed = await composeStepMessages(sent.messages, {
         resolver: sent.media,
-        imageInput,
+        context: {
+          input: imageInput ? ['text', 'image'] : ['text'],
+          contextWindowTokens: 128_000,
+          reservedOutputTokens: null,
+        },
       });
       const trigger = composed.at(-1);
       const content =

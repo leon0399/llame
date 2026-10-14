@@ -15,7 +15,7 @@ import {
 } from '../chats/conversation-logical-lines';
 import { neutralizeToolResult } from '../chats/tool-observation-part';
 import { type Db } from '../db/tenant-db.service';
-import { fileImageLines } from '../media/media-descriptors';
+import { fileAttachmentLines } from '../media/media-descriptors';
 import {
   conversationSourceChatIdSchema,
   conversationSourceLimitSchema,
@@ -143,7 +143,7 @@ export function renderConversationRead(
   // One LF-terminated placeholder line per `file` part, in stored order. These
   // lines sit outside the visible text: they are never line-numbered and count
   // toward no line coordinate or line bound, only the structured-result bound.
-  const placeholders = fileImageLines(source.parts)
+  const placeholders = fileAttachmentLines(source.parts)
     .map((line) => `${line}\n`)
     .join('');
   const { offset } = input;
