@@ -86,33 +86,54 @@ and CJS) opens each PDF to read its page count and encryption. It extracts no te
 
 A spike on this host (`~/.cache/llame-scripts/unpdf-spike/spike.mjs`, Node 22) gave these results:
 
-| Input                       | Result                                                          |
-| --------------------------- | --------------------------------------------------------------- |
-| 2.2 MB, 15-page arXiv PDF   | page count in about 100 ms                                      |
-| 300 blank pages             | about 16 ms                                                     |
-| truncated PDF               | `InvalidPDFException`                                           |
-| `%PDF-` followed by garbage | `InvalidPDFException`                                           |
-| user password set           | `PasswordException`                                             |
-| owner password only         | opens, but `getMetadata().info.EncryptFilterName` is `Standard` |
+| Input                       | Result                                                             |
+| --------------------------- | ------------------------------------------------------------------ |
+| 2.2 MB, 15-page arXiv PDF   | page count in about 100 ms                                         |
+| 300 blank pages             | about 16 ms                                                        |
+| truncated PDF               | `InvalidPDFException`                                              |
+| `%PDF-` followed by garbage | `InvalidPDFException`                                              |
+| user password set           | `PasswordException`                                                |
+| owner password only         | opens; `getPermissions()` returns the permission flags, not `null` |
 
 Preparation refuses:
 
-- every input that fails to open;
-- every input whose `EncryptFilterName` is non-null, because Anthropic rejects encrypted PDFs, and
-  a refused block in history fails every later request.
+- every input that fails to open (user password included: `PasswordException`);
+- every input whose trailer carries `/Encrypt`, read through `getPermissions()` (non-`null`), because
+  Anthropic rejects encrypted PDFs and a refused block in history fails every later request.
+  `getMetadata()` is not called: it decodes the whole XMP `/Metadata` stream, which preparation
+  does not need and which a deflate bomb can inflate without bound;
+- every input reporting fewer than 1 page: pdf.js accepts `/Count 0` and negative counts.
 
 Two properties of pdf.js shape the preparation, both confirmed on this host:
 
 - **It takes ownership of its input.** `getDocumentProxy(view)` transfers the view's `ArrayBuffer`,
-  so the caller's `Buffer` reads as length 0 afterwards. Preparation parses a copy
-  (`new Uint8Array(input)`) and keeps the caller's bytes for hashing, storage, and attempt memory.
-- **It parses on the calling thread.** The serverless build runs its "worker" in-thread, and a
-  crafted 20 MiB `%PDF-` body that forces xref recovery blocked the event loop for 3.1 s before
-  failing (reviewer measurement, round 1). Preparation therefore parses in a short-lived
-  `worker_threads` `Worker` with `resourceLimits` (256 MiB old generation) and a 10-second
-  wall-clock timeout; a timeout or a resource-limit exit terminates the worker and refuses the
-  input as `unsupported_media_type`. Only the copy crosses into the worker. Startup costs tens of
-  milliseconds per PDF, which is small next to the parse and the provider call.
+  so the caller's `Buffer` reads as length 0 afterwards. Preparation keeps the caller's bytes for
+  hashing, storage, and attempt memory, and parses a copy.
+- **It parses on the calling thread, with unbounded off-heap memory.** The serverless build runs its
+  "worker" in-thread: a crafted 20 MiB `%PDF-` body that forces xref recovery blocked the event loop
+  for 3.1 s (reviewer measurement, round 1). Flate decoding grows a `Uint8Array` by doubling with no
+  cap, outside the V8 heap, so a worker thread's `resourceLimits` would not bound it, and an
+  out-of-memory abort in a worker thread takes the whole process down.
+
+Preparation therefore parses in a **child process**: the API or Run worker spawns `node` on a small
+parse entry, writes the bytes to its stdin, and reads `{ pages, encrypted }` as JSON from stdout,
+killing it with `SIGKILL` after 10 seconds. A timeout, a non-zero exit, a signal, or unparseable
+output refuses the input as `unsupported_media_type`. The child's memory is its own: an
+out-of-memory abort or a container OOM kill ends only the child, which the kernel picks first as
+the largest process. A spike (`~/.cache/llame-scripts/unpdf-spike/child-spike.cjs`) measured:
+
+| Input                          | Result                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| 15-page paper                  | `{ pages: 15, encrypted: false }` in about 0.3 s, process start included |
+| owner-password PDF             | `encrypted: true` in about 0.6 s                                         |
+| user-password PDF              | `PasswordException` in about 0.5 s                                       |
+| crafted 20 MiB body, 2 s bound | killed at 2.0 s; a 10 ms parent interval kept firing (192 ticks)         |
+| child exhausting its heap      | child exits `SIGABRT`; the parent keeps running                          |
+
+The per-call start (about 0.3 s) is accepted over a pooled parser: PDFs are read seconds apart,
+each read is followed by a provider call, and a pool adds lifecycle code. Rejected: a
+`worker_threads` worker (round 1's first answer), because it bounds neither off-heap memory nor
+the blast radius of an abort.
 
 Rejected alternatives:
 
@@ -256,13 +277,16 @@ The admission and compaction estimate charges each attached PDF `3,000 × pages`
 its base64 length, as images are charged `ceil(w × h / 750)`. Anthropic documents 1,500–3,000 text
 tokens per page plus a page-image cost, so this is its upper text figure, not an upper bound.
 
-An overestimate does not always cost only an early compaction. When the PDF sits in the triggering
-message, compaction cannot absorb it, so a request whose charge exceeds the model's window fails
-`context_incompatible` under the canonical window condition: a PDF of 67 or more pages on a
-200,000-token model, or 43 or more on a 128,000-token model. Such a request is likely to exceed
-the provider's own count too (100 pages × 3,000 text tokens is already 300k), so failing before
-the call with a named cause is the accepted outcome. An underestimate would instead fail at the
-provider after the call is paid for.
+A PDF whose own charge exceeds the request model's context window minus the request's reserved
+output is never attached on that request: it takes the PDF limit placeholder and counts toward no
+bound of the window, so later references are admitted as if it were absent. That is a PDF of 67 or
+more pages on a 200,000-token model, or 43 or more on a 128,000-token model, before the system
+prompt and reserve. Without the rule (round 2), such a PDF would fail its first request
+`context_incompatible`, then sit in an earlier row where neither the Run request nor the
+compaction request that should absorb it could fit, so every later turn of the chat would fail.
+With it, the first request proceeds with the placeholder, and the next Run's overflow trigger
+compacts the row away. The rule applies to compaction requests too, which is what lets the
+summarizer absorb the row.
 
 A placeholder is counted as its text.
 
@@ -358,14 +382,16 @@ result: from memory in the importing attempt, from the store for `@media://`.
   `file` parts. The operator declares `pdf` only for models known to accept it; the default is
   `["text"]`.
 - **Cost and window fit.** A 100-page PDF is charged 300k tokens. On models with windows under
-  300k, the largest admissible PDF in a first message is bounded by the window, not by the 100-page
-  cap (D6).
+  about 300k, a large PDF is never attached on that model and the model sees the limit placeholder
+  (D6).
 - **Lying page counts.** pdf.js trusts the page tree's `/Count` (a 150-page PDF patched to
-  `/Count 1` reports 1 page, reviewer measurement). Such a PDF passes the bounds and may be
-  refused by the provider. The failure is bounded: an unstored read fails only its attempt, since
-  later turns get the not-retained placeholder; a stored upload fails its owner's requests until
-  compaction absorbs it. Walking the page tree ourselves is rejected: it duplicates the parser for an
-  attack that only hurts the attacker's own chat.
+  `/Count 1` reports 1 page, reviewer measurement), and `getPermissions()` returns `null` for an
+  encrypted PDF whose `/Encrypt` lacks a numeric `/P`. Such a PDF passes the bounds and the
+  provider may refuse the request. An unstored read fails only its attempt, since later turns get
+  the not-retained placeholder. A stored upload fails the chat's requests on PDF-declaring models,
+  compaction requests included, because the summarizer receives the same PDF; the owner continues
+  on a model without `pdf` input or in another chat. Walking the page tree ourselves is rejected:
+  it duplicates the parser for an input that only breaks its own uploader's chat.
 - **Context windows above about 650k tokens.** The 28 MiB budget leaves about 2.6 MB of headroom
   under Anthropic's 32 MB request limit (D5). The operator runbook says so for models configured
   with larger windows.

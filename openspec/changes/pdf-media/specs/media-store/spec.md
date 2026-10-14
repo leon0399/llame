@@ -28,10 +28,11 @@ yield no `media://` locator.
 
 ### Requirement: Unopenable or encrypted PDFs are refused
 
-An input whose bytes start with `%PDF-` but which cannot be opened, or which is encrypted, SHALL be
-refused as `unsupported_media_type` with the message `Only unencrypted PDFs that open are accepted`.
-A PDF protected only by an owner password SHALL count as encrypted even though it opens without a
-password. Every such refusal SHALL create no media object and store no bytes.
+An input whose bytes start with `%PDF-` but which cannot be opened, which reports fewer than 1 page,
+or which is encrypted, SHALL be refused as `unsupported_media_type` with the message
+`Only unencrypted PDFs that open are accepted`. A PDF protected only by an owner password SHALL
+count as encrypted even though it opens without a password. Every such refusal SHALL create no media
+object and store no bytes.
 
 #### Scenario: A truncated PDF is refused
 
@@ -42,6 +43,13 @@ password. Every such refusal SHALL create no media object and store no bytes.
 
 - **WHEN** an owner uploads a file whose bytes are `%PDF-` followed by bytes that form no PDF
 - **THEN** ingest refuses it as `unsupported_media_type` and stores nothing
+
+#### Scenario: A PDF with no pages is refused
+
+- **WHEN** an owner uploads a file that starts with `%PDF-` and whose page tree reports 0 pages
+- **THEN** ingest refuses it as `unsupported_media_type` with the message
+  `Only unencrypted PDFs that open are accepted`
+- **AND** no media object and no bytes are stored
 
 #### Scenario: A PDF that needs a user password is refused
 
@@ -59,22 +67,31 @@ password. Every such refusal SHALL create no media object and store no bytes.
 
 ### Requirement: PDF parsing is bounded in time and memory
 
-The structural parse of a PDF SHALL run outside the process's event loop, under a 10-second time
-bound and a memory bound the application fixes. A parse that exceeds either bound SHALL be stopped and
-refused as `unsupported_media_type` with the unopenable-PDF message, storing nothing, and SHALL NOT
-delay other requests of the process while it runs.
+The structural parse of a PDF SHALL run in a process separate from the API and Run-worker
+processes, under a 10-second time bound. A parse that exceeds the bound, or whose process runs out
+of memory or exits abnormally, SHALL be refused as `unsupported_media_type` with the unopenable-PDF
+message, SHALL store nothing, and SHALL NOT stop or stall the requesting process or its other
+requests.
 
-#### Scenario: A crafted PDF that parses too long is refused
+#### Scenario: A parse past the time bound is refused
 
-- **WHEN** an owner uploads, or a Run reads, a 20 MiB file that starts with `%PDF-` and whose
-  structure takes longer than 10 seconds to parse
-- **THEN** the parse is stopped and the input is refused as `unsupported_media_type`
+- **WHEN** an owner uploads, or a Run reads, a file that starts with `%PDF-` and whose structure
+  takes longer than 10 seconds to parse
+- **THEN** the input is refused as `unsupported_media_type` with the message
+  `Only unencrypted PDFs that open are accepted`
 - **AND** nothing is stored
+
+#### Scenario: A parse that runs out of memory is refused and the process keeps serving
+
+- **WHEN** an owner uploads a file that starts with `%PDF-` and whose parsing process runs out of
+  memory
+- **THEN** the upload is refused as `unsupported_media_type` and nothing is stored
+- **AND** the API process that received it keeps serving later requests
 
 #### Scenario: A slow parse does not stall other requests
 
 - **WHEN** one PDF's parse runs for several seconds
-- **THEN** other requests served by the same process keep completing during it
+- **THEN** other requests served by the requesting process keep completing during it
 
 ## MODIFIED Requirements
 

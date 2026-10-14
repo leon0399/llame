@@ -14,11 +14,14 @@ variant. No request SHALL be compacted by both variants.
 
 A prepared request SHALL also count as reaching the Run model's threshold when
 it carries an image or PDF reference that `media-attachments` does not attach
-because its epoch's bounds are reached and a stored image or PDF reference in a
-row before the triggering user message; an unstored image or PDF in an earlier
-row is never attached and never counts. Image or PDF overflow SHALL therefore
-select the threshold variant on the attempt's own model, because that request
-fits; a request that also does not fit SHALL select the window variant as above.
+because its epoch's bounds are reached or because it is a PDF too large for the
+Run model, and a stored reference attachable on the Run model, of a kind that
+model declares as input (a stored image when it declares `image`, a stored PDF
+when it declares `pdf`), in a row before the triggering user message; an
+unstored image or PDF in an earlier row is never attached and never counts.
+Image or PDF overflow SHALL therefore select the threshold variant on the
+attempt's own model, because that request fits; a request that also does not
+fit SHALL select the window variant as above.
 
 When image or PDF overflow is the only trigger condition and its compaction
 fails or yields no usable summary, the attempt SHALL proceed without a checkpoint
@@ -336,6 +339,15 @@ work.
 
 - **WHEN** only the triggering user message's own images exceed the epoch's
   bounds and no row before it carries a stored image or PDF reference
+- **THEN** no checkpoint is published
+- **AND** the overflowing images keep the limit placeholder and the attempt
+  proceeds
+
+#### Scenario: A stored PDF does not enable image overflow without PDF input
+
+- **WHEN** a prepared request on a model that declares `image` but not `pdf`
+  input carries only a stored PDF in the rows before the triggering user
+  message, and that message's own images exceed the epoch's bounds
 - **THEN** no checkpoint is published
 - **AND** the overflowing images keep the limit placeholder and the attempt
   proceeds

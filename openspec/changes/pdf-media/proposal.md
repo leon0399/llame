@@ -56,6 +56,8 @@ from a grilling round with Leo on 2026-10-14, recorded on #1275.
     or image counts only on a model that declares its kind.
   - An overflowing PDF gets
     `[pdf media://<id> <name> P pages, not attached: this context's PDF limit is reached]`.
+  - A PDF whose own page charge cannot fit the model's context window takes the same limit
+    placeholder and counts toward no bound, so it never fails the chat.
   - Overflow compacts at the next Run, as image overflow does.
 - **Placeholders and sizing.**
   - A model without `pdf` gets
@@ -120,8 +122,8 @@ None. PDFs extend `media-store` and `media-attachments`.
 ## Impact
 
 - **Dependency.** `unpdf` (MIT, pdf.js serverless build) in `apps/api`, used for page count and
-  encryption only, and run in a short-lived worker thread under a 10-second and memory bound so a
-  crafted PDF cannot stall the API or a Run worker (design D1).
+  encryption only, and run in a short-lived child process killed after 10 seconds, so a crafted
+  PDF cannot stall or crash the API or a Run worker (design D1).
 - **Database.** One migration on `media_objects`:
 
   - nullable dimension and model columns;

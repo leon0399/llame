@@ -101,8 +101,8 @@ window attaches whose entry holds no bytes SHALL reach the model as the not-reta
 
 #### Scenario: A released PDF read stays unattached in later steps
 
-- **WHEN** a Run on a model that declares `pdf` input, whose epoch carries no images or PDFs, reads
-  an 80-page PDF and then a 30-page PDF in successive steps
+- **WHEN** a Run on a 400,000-token model that declares `pdf` input, whose epoch carries no images
+  or PDFs, reads an 80-page PDF and then a 30-page PDF in successive steps
 - **THEN** the 30-page read's entry keeps its byte size and page count after its bytes are released
 - **AND** every later step's request sends the 80-page read as a PDF and the 30-page read as the
   limit placeholder
@@ -189,8 +189,9 @@ PDF's bytes SHALL be loaded from storage only when the epoch image window attach
 
 A compaction request SHALL carry the compactable prefix's PDFs as a Run request on the summarizing
 model would under the same epoch window: PDFs for the stored references it attaches when that model
-declares `pdf` input, and placeholders otherwise. Every unstored PDF in the prefix SHALL appear as
-its not-retained or omitted placeholder.
+declares `pdf` input, and placeholders otherwise, so a PDF too large for that model reaches the
+summarizer as the PDF limit placeholder. Every unstored PDF in the prefix SHALL appear as its
+not-retained or omitted placeholder.
 
 #### Scenario: A summarizer without PDF input receives placeholders
 
@@ -357,13 +358,48 @@ append-only admission within an attempt makes unreachable in practice.
 - **AND** every later step's request sends the first five reads as images and the sixth and seventh
   as the limit placeholder
 
+### Requirement: Attempt boundaries release unstored images from the window
+
+Append-only admission SHALL have two exceptions: the end of an attempt, and the start of a new
+attempt, a retry or a resume on any worker, whose memory starts empty. At either, the unstored images
+and unstored PDFs an earlier attempt held SHALL become not-retained in later requests and leave the
+window, and the references after them SHALL be admitted again oldest first.
+
+#### Scenario: A Run's unstored images leave the window when it ends
+
+- **WHEN** a Run on a vision model attaches two owner attachments and then reads one image, and the
+  owner sends the next turn
+- **THEN** the next request sends both attachments as images in the same positions
+- **AND** the read reaches the model as the not-retained placeholder and does not count toward the
+  epoch's bounds
+
+#### Scenario: A retry frees the window space of the failed attempt's reads
+
+- **WHEN** a vision-model epoch carries 99 attached owner attachments, an attempt reads one image,
+  which is attached as the 100th, and then fails, and the retry attempt reads another image
+- **THEN** the retry's requests carry the failed attempt's read as the not-retained placeholder
+  without counting it
+- **AND** they send the retry's own read as an image
+
+#### Scenario: A retry frees the window space of the failed attempt's unstored PDF
+
+- **WHEN** an attempt on a 400,000-token model that declares `pdf` input, whose epoch carries no
+  PDFs, reads `/work/report.pdf`, an 80-page PDF, which is attached, then reads `media://<id>`, a
+  stored 30-page PDF, which takes the limit placeholder, and fails, and the Run is retried
+- **THEN** the retry's requests carry the 80-page read as the not-retained placeholder without
+  counting it
+- **AND** they send the stored 30-page PDF as a PDF
+
 ### Requirement: An epoch image window selects which images are attached
 
 Within one compaction epoch, the rows after the active checkpoint plus the current attempt, requests
 SHALL admit attachable image and PDF references oldest first in request order, a repeated id
 counting again, while at most 100 images, at most 100 PDF pages, and at most 28 MiB (29,360,128
 bytes) of summed base64 sizes hold. The first reference that would exceed any bound, and every later
-one in that epoch, SHALL NOT be attached.
+one in that epoch, SHALL NOT be attached. A PDF whose own page charge, 3,000 tokens per page, exceeds
+the request model's context window minus the request's reserved output budget is too large for that
+model: on a Run or compaction request alike it SHALL NOT be attached, SHALL take the PDF limit
+placeholder, and SHALL count toward no bound, later references being admitted as if it were absent.
 
 #### Scenario: The 101st image in an epoch is not attached
 
@@ -394,8 +430,8 @@ one in that epoch, SHALL NOT be attached.
 
 #### Scenario: The page bound stops the window
 
-- **WHEN** a request on a model that declares `pdf` input carries an epoch whose oldest references
-  are a small 80-page PDF and then a small 30-page PDF
+- **WHEN** a request on a 400,000-token model that declares `pdf` input carries an epoch whose
+  oldest references are a small 80-page PDF and then a small 30-page PDF
 - **THEN** the 80-page PDF is sent as a PDF
 - **AND** the 30-page PDF and every later reference in the epoch reach the model as the limit
   placeholder
@@ -415,6 +451,13 @@ one in that epoch, SHALL NOT be attached.
   variant
 - **THEN** the PDF reaches the model as the omitted placeholder
 - **AND** all five images are sent as images
+
+#### Scenario: A PDF too large for the model takes the limit placeholder
+
+- **WHEN** a request on a 200,000-token model that declares `pdf` input carries an epoch whose oldest
+  references are a stored 80-page PDF and then a stored 5-page PDF
+- **THEN** the 80-page PDF, charged 240,000 tokens, reaches the model as the PDF limit placeholder
+- **AND** the 5-page PDF is sent as a PDF
 
 ### Requirement: The byte bound is summed from variant sizes before loading
 
@@ -448,8 +491,8 @@ An attachable reference SHALL be one of a kind the request's model declares as i
 image and `pdf` for a PDF: an owner file part, a `media://` tool result, or a `media://` prompt-import
 entry that resolves, an unstored image whose entry in the current attempt's memory records a
 model-variant byte size, or an unstored PDF whose entry in the current attempt's memory records its
-byte size, its bytes released or not. A not-retained, unavailable, or omitted reference SHALL NOT
-count toward any bound of the epoch image window.
+byte size, its bytes released or not. A not-retained, unavailable, or omitted reference, or a PDF
+too large for the request's model, SHALL NOT count toward any bound of the epoch image window.
 
 #### Scenario: A not-retained read does not count
 
@@ -460,8 +503,8 @@ count toward any bound of the epoch image window.
 
 #### Scenario: A not-retained PDF read does not count
 
-- **WHEN** an epoch on a model that declares `pdf` input carries an 80-page PDF `read` from an earlier
-  turn, and the owner sends a message attaching a stored 80-page PDF
+- **WHEN** an epoch on a 400,000-token model that declares `pdf` input carries an 80-page PDF `read`
+  from an earlier turn, and the owner sends a message attaching a stored 80-page PDF
 - **THEN** the owner's PDF is sent as a PDF
 - **AND** the earlier read reaches the model as the not-retained placeholder
 
@@ -478,7 +521,7 @@ count toward any bound of the epoch image window.
 Because admission is append-only within an epoch, adding a turn, a step, or an image reference SHALL
 NOT change whether an earlier reference in that epoch is attached, so the request prefix stays
 unchanged for prompt caching. The attached set SHALL NOT depend on which vision model the request
-targets among models that declare the same `image` and `pdf` input.
+targets among models that declare the same `image` and `pdf` input and the same context window.
 
 #### Scenario: Adding an image never changes an earlier image's attachment
 
@@ -490,7 +533,7 @@ targets among models that declare the same `image` and `pdf` input.
 #### Scenario: Switching between vision models keeps the attached set
 
 - **WHEN** a turn switches from one vision model to another that declares the same `image` and `pdf`
-  input within the same epoch
+  input and the same context window within the same epoch
 - **THEN** the new model's request attaches exactly the references the same turn's request would
   attach on the previous model
 - **AND** every reference beyond the epoch's bounds keeps the limit placeholder
@@ -515,11 +558,12 @@ SHALL instead take the PDF limit placeholder.
 
 Before a Run's first model step, a prepared request SHALL count as reaching its compaction threshold
 when it carries an image or PDF reference that the epoch image window does not attach because its
-epoch's bounds are reached and a stored image or PDF reference in a row before the triggering user
+epoch's bounds are reached or because it is a PDF too large for the request's model, and a stored
+reference attachable on the request's model, of a kind that model declares as input (a stored image
+when it declares `image`, a stored PDF when it declares `pdf`), in a row before the triggering user
 message. It SHALL trigger the compaction variant that `model-system-prompts` selects for it. The new
 epoch SHALL admit images and PDFs oldest first again. A Run SHALL NOT compact after its first model
-step. When PDF overflow is the only trigger condition, a failed compaction SHALL leave the Run to
-proceed as image overflow does.
+step.
 
 #### Scenario: Image overflow triggers compaction at the next Run
 
@@ -547,12 +591,45 @@ proceed as image overflow does.
 
 #### Scenario: PDF overflow triggers compaction at the next Run
 
-- **WHEN** a chat on a model that declares `pdf` input carries a stored 80-page PDF attached in an
-  earlier turn of its epoch, the request fits the model's window, and the owner sends a message
-  attaching a stored 30-page PDF
+- **WHEN** a chat on a 400,000-token model that declares `pdf` input carries a stored 80-page PDF
+  attached in an earlier turn of its epoch, the request fits the model's window, and the owner sends
+  a message attaching a stored 30-page PDF
 - **THEN** the threshold-triggered compaction runs on the Run's own model before its first model
   step
 - **AND** the Run's request admits the 30-page PDF under the new epoch and sends it as a PDF
+
+#### Scenario: A stored PDF does not enable image overflow on a model without PDF input
+
+- **WHEN** a chat on a model that declares `image` but not `pdf` input carries only a stored PDF in
+  the rows before the triggering user message, and that message's own images exceed the epoch's
+  bounds
+- **THEN** no compaction runs
+- **AND** the overflowing images reach the model as the limit placeholder
+
+#### Scenario: A PDF too large for the model does not fail later turns
+
+- **WHEN** a chat on a 200,000-token model that declares `pdf` input has a first message attaching a
+  stored 80-page PDF, and the owner sends a second message that fits the model's window
+- **THEN** neither turn fails, and the first turn's request carries the PDF as the PDF limit
+  placeholder
+- **AND** the second Run's threshold-triggered compaction runs before its first model step and
+  absorbs the first message's row
+
+### Requirement: A failed overflow compaction never fails the Run
+
+When image or PDF overflow is the only trigger condition and its compaction fails or yields no usable
+summary, the Run SHALL proceed without a checkpoint and the overflowing references SHALL keep the
+limit placeholder. The trigger SHALL be evaluated again before every Run's first model step, so
+those references stay unattached only until the next Run whose compaction succeeds and starts a new
+epoch.
+
+#### Scenario: A failed overflow compaction keeps the limit placeholder
+
+- **WHEN** a Run's only trigger condition is image overflow and its summarization call throws
+- **THEN** the Run proceeds without a checkpoint and the overflowing images reach the model as the
+  limit placeholder
+- **AND** the next Run evaluates the trigger again and, when its compaction succeeds, admits
+  images oldest first under the new epoch
 
 #### Scenario: A failed PDF overflow compaction does not fail the Run
 
