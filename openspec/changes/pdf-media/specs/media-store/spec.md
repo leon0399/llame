@@ -115,8 +115,8 @@ when memory runs out. A parse over a bound, or exiting abnormally, SHALL be refu
 
 #### Scenario: A parse process that cannot start is not blamed on the file
 
-- **WHEN** an owner uploads a valid PDF on a host where the parse process cannot start or cannot
-  apply its bounds
+- **WHEN** an owner uploads a valid PDF on a Linux host that cannot apply the parse bounds, or whose
+  address-space hard limit is below 1.25 GiB
 - **THEN** the upload is refused as `unsupported_media_type` with the message
   `PDF parsing is unavailable on this server`, and nothing is stored
 - **AND** the requesting process records the start failure at error level and keeps serving

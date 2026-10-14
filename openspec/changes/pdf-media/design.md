@@ -133,9 +133,11 @@ otherwise be an unhandled stream error that ends the API or Run worker (round 7)
 deploy target, the child runs under two OS-level bounds, set by spawning it through `sh` with the
 address-space limit clamped to the host's hard limit, so an inherited lower `RLIMIT_AS`
 (`docker run --ulimit as=`, systemd `LimitAS=`) applies instead of failing `EPERM`:
-`h=$(ulimit -H -v); [ "$h" = unlimited ] || [ "$h" -gt 2097152 ] && h=2097152; { ulimit -v "$h" &&
-echo 1000 > /proc/self/oom_score_adj; } || exit 70; exec node <entry>`. The chain fails closed: if a
-bound cannot be applied, `node` never starts and `sh` exits 70, a status the parse entry never
+`h=$(ulimit -H -v); [ "$h" = unlimited ] || [ "$h" -gt 2097152 ] && h=2097152; { [ "$h" -ge 1310720 ]
+&& ulimit -v "$h" && echo 1000 > /proc/self/oom_score_adj; } || exit 70; exec node <entry>`. The
+chain fails closed: if a bound cannot be applied, or the host's hard limit is below 1.25 GiB, under
+which V8 cannot reserve its code range and `node` would die of a signal (round 9), `node` never
+starts and `sh` exits 70, a status the parse entry never
 uses. The parent classifies on that status, not on how much of the body it managed to write
 (round 8: a small body fits the pipe buffer, so a write succeeds even after `sh` exited): exit 70
 with no output is a start failure, logged with its stderr at error level and refused with
@@ -145,8 +147,8 @@ must provide `sh` and a writable `/proc/self/oom_score_adj`; the operator runboo
 - an address-space limit (`RLIMIT_AS`) of 2 GiB, or the host's lower hard limit, which caps off-heap
   allocation too: an unbounded `Buffer` loop fails and the child exits non-zero, while a 23 MB PDF
   still parses. The floor measured by a reviewer is between 1,152 and 1,280 MiB (V8's start-up
-  reservation); 2 GiB leaves about 768 MiB of margin, less on a clamped host, where a hard limit
-  near that floor makes every parse fail and so surface as start or parse failures in the log.
+  reservation); 2 GiB leaves about 768 MiB of margin, less on a clamped host. A hard limit under
+  1.25 GiB is treated as a host that cannot apply the bounds (exit 70).
   Tests assert the non-zero exit, not an error message;
 - `oom_score_adj` 1000, which any process may set on itself, so if the container still runs out of
   memory the kernel prefers a parse child over the API or Run worker. It is a preference, not a
