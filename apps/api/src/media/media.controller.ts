@@ -26,6 +26,7 @@ import {
   ApiConsumes,
   ApiCookieAuth,
   ApiCreatedResponse,
+  ApiExtraModels,
   ApiNotFoundResponse,
   ApiNotModifiedResponse,
   ApiOkResponse,
@@ -45,13 +46,21 @@ import type { Options as MulterOptions } from 'multer';
 import { CurrentUser } from '../auth/auth-context';
 import { type MediaVariant } from '../db/schema';
 import {
+  MEDIA_RESPONSE_SCHEMA,
   MediaDescriptorResponse,
+  MediaPdfDescriptorResponse,
   MediaTooLargeErrorResponse,
   MediaUnsupportedErrorResponse,
   toMediaDescriptor,
+  type MediaResponse,
 } from './dto/media.dto';
-import { MEDIA_MAX_BYTES, MediaIngestError } from './media-ingest';
+import {
+  MEDIA_MAX_BYTES,
+  MEDIA_REFUSAL,
+  MediaIngestError,
+} from './media-ingest';
 import { MediaService } from './media.service';
+import { PDF_MEDIA_TYPE } from './pdf-preparation';
 
 /** One byte-route request: who asks for which variant. */
 type VariantRequest = {
@@ -73,7 +82,7 @@ const UPLOAD_OPTIONS = {
 
 /** The one HTTP body of each ingest refusal, whichever layer detects it. */
 function ingestRefusal(error: MediaIngestError): HttpException {
-  const tooLarge = error.code === 'image_too_large';
+  const tooLarge = error.code === 'media_too_large';
   const statusCode = tooLarge
     ? HttpStatus.PAYLOAD_TOO_LARGE
     : HttpStatus.UNSUPPORTED_MEDIA_TYPE;
@@ -91,12 +100,15 @@ function ingestRefusal(error: MediaIngestError): HttpException {
 /**
  * Multer's `LIMIT_FILE_SIZE` reaches Nest as a generic
  * `PayloadTooLargeException`; it is the only multer limit Nest maps to 413,
- * so every such exception on the upload route is the ingest byte bound.
+ * so every such exception on the upload route is the ingest byte bound,
+ * which fires before the format is detected.
  */
 @Catch(PayloadTooLargeException)
-class ImageTooLargeFilter implements ExceptionFilter {
+class UploadTooLargeFilter implements ExceptionFilter {
   catch(_exception: PayloadTooLargeException, host: ArgumentsHost): void {
-    const refusal = ingestRefusal(new MediaIngestError('image_too_large'));
+    const refusal = ingestRefusal(
+      new MediaIngestError('media_too_large', MEDIA_REFUSAL.fileTooLarge),
+    );
     host
       .switchToHttp()
       .getResponse<Response>()
@@ -118,6 +130,7 @@ const MEDIA_ID_PARAM = {
 @ApiTags('media')
 @ApiBearerAuth('bearer')
 @ApiCookieAuth('cookie')
+@ApiExtraModels(MediaDescriptorResponse, MediaPdfDescriptorResponse)
 @Controller('api/v1/media')
 export class MediaController {
   constructor(
@@ -136,24 +149,24 @@ export class MediaController {
     },
   })
   @ApiCreatedResponse({
-    type: MediaDescriptorResponse,
+    schema: MEDIA_RESPONSE_SCHEMA,
     description: 'A new media object was created',
   })
   @ApiOkResponse({
-    type: MediaDescriptorResponse,
+    schema: MEDIA_RESPONSE_SCHEMA,
     description: 'The same bytes were already stored and are reused',
   })
   @ApiBadRequestResponse({ description: 'No file, or more than one file' })
   @ApiUnauthorizedResponse()
   @ApiPayloadTooLargeResponse({ type: MediaTooLargeErrorResponse })
   @ApiUnsupportedMediaTypeResponse({ type: MediaUnsupportedErrorResponse })
-  @UseFilters(ImageTooLargeFilter)
+  @UseFilters(UploadTooLargeFilter)
   @UseInterceptors(FileInterceptor('file', UPLOAD_OPTIONS))
   async upload(
     @CurrentUser() userId: string,
     @UploadedFile() file: Express.Multer.File | undefined,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<MediaDescriptorResponse> {
+  ): Promise<MediaResponse> {
     if (file === undefined) {
       throw new BadRequestException('Exactly one file field named "file"');
     }
@@ -173,13 +186,13 @@ export class MediaController {
   @Get(':id')
   @ApiOperation({ operationId: 'getMedia' })
   @ApiParam(MEDIA_ID_PARAM)
-  @ApiOkResponse({ type: MediaDescriptorResponse })
+  @ApiOkResponse({ schema: MEDIA_RESPONSE_SCHEMA })
   @ApiUnauthorizedResponse()
   @ApiNotFoundResponse()
   async getMedia(
     @CurrentUser() userId: string,
     @Param('id') id: string,
-  ): Promise<MediaDescriptorResponse> {
+  ): Promise<MediaResponse> {
     const media = await this.media.findOwned(userId, id);
     if (media === undefined) throw new NotFoundException();
     return toMediaDescriptor(media);
@@ -188,7 +201,13 @@ export class MediaController {
   @Get(':id/original')
   @ApiOperation({ operationId: 'getMediaOriginal' })
   @ApiParam(MEDIA_ID_PARAM)
-  @ApiProduces('image/png', 'image/jpeg', 'image/gif', 'image/webp')
+  @ApiProduces(
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+    'application/pdf',
+  )
   @ApiOkResponse({ schema: { type: 'string', format: 'binary' } })
   @ApiNotModifiedResponse()
   @ApiUnauthorizedResponse()
@@ -221,7 +240,8 @@ export class MediaController {
 
   /**
    * Ownership resolves before `If-None-Match` is evaluated, so a validator
-   * cached under another owner's session earns a 404, never a 304.
+   * cached under another owner's session earns a 404, never a 304. A PDF has
+   * no model variant, so its `model` is that same 404 (pdf-media D2).
    */
   private async sendVariant(
     { userId, id, variant }: VariantRequest,
@@ -230,6 +250,9 @@ export class MediaController {
   ): Promise<void> {
     const media = await this.media.findOwned(userId, id);
     if (media === undefined) throw new NotFoundException();
+    if (variant === 'model' && media.mediaType === PDF_MEDIA_TYPE) {
+      throw new NotFoundException();
+    }
 
     // The bytes under an id never change, so digest + variant is a strong
     // validator.
@@ -243,10 +266,10 @@ export class MediaController {
 
     const bytes = await this.media.readVariant(userId, id, variant);
     if (bytes === undefined) throw new NotFoundException();
-    res.setHeader(
-      'Content-Type',
-      variant === 'original' ? media.mediaType : media.modelMediaType,
-    );
+    const contentType =
+      variant === 'original' ? media.mediaType : media.modelMediaType;
+    if (contentType === null) throw new NotFoundException();
+    res.setHeader('Content-Type', contentType);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', 'inline');
     res.setHeader('Content-Security-Policy', 'sandbox');

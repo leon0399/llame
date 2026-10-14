@@ -49,5 +49,6 @@ below state additional ordering where a change needs it.
   entries for vLLM-served models, token usage, and reasoning effort.
 - [Horizontal scaling](scaling.md): API and worker topology, worker profiles,
   and capacity.
-- [Media store](media.md): owner images in Postgres, ingest bounds, upload and
-  fetch routes, the `sharp` native dependency, and the no-deletion gap.
+- [Media store](media.md): owner images and PDFs in Postgres, ingest bounds,
+  PDF parsing bounds, upload and fetch routes, the `sharp` native dependency,
+  and the no-deletion gap.

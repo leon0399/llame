@@ -1,23 +1,25 @@
 ---
-summary: "Media store: owner images in Postgres, ingest bounds, upload and fetch routes, message file parts, models[].input, sharp, growth, and the no-deletion gap"
+summary: "Media store: owner images and PDFs in Postgres, ingest bounds, PDF parsing bounds, upload and fetch routes, message file parts, models[].input, sharp, growth, and the no-deletion gap"
 read_when:
   - you are deploying a release that ships the media store or building its production image
   - you are sizing the database or backups for stored images
   - you are declaring which models accept images
-  - you are troubleshooting an image upload or fetch
+  - you are troubleshooting an image or PDF upload or fetch
   - you are sending images in a chat message through the API
 ---
 
 # Media store
 
-The media store keeps images that chat owners upload. Each image is one media
-object owned by exactly one owner, addressed as `media://<id>`, and kept in the
-same Postgres database as the rest of the application state. This release
-ships the store, its upload and fetch routes, image attachments on owner
-messages, the per-model image input declaration, and image reads through
+The media store keeps images and PDFs that chat owners upload. Each upload is
+one media object owned by exactly one owner, addressed as `media://<id>`, and
+kept in the same Postgres database as the rest of the application state. This
+release ships the store, its upload and fetch routes, image attachments on
+owner messages, the per-model image input declaration, and image reads through
 `read`: a local, `kb://`, or `skill://` image file is decoded and stores
 nothing, kept only in the reading Run attempt's memory, and `media://<id>`
 reads an uploaded image (see [media://](../reference/locators/media.md)).
+PDFs can be uploaded and fetched but not yet attached or read; see
+[PDFs](#pdfs).
 
 There is nothing to enable: the store has no configuration keys, and its bounds
 are fixed by the application. Models opt into receiving images with
@@ -27,12 +29,13 @@ are fixed by the application. Models opt into receiving images with
 
 Two tenant tables hold the store:
 
-- `media_objects`: one row per image with its id, owner, detected format,
-  original byte size and dimensions, the model variant's format, byte size,
-  and dimensions, the SHA-256 digest of the original, a source label, and
-  creation time.
+- `media_objects`: one row per object with its id, owner, detected format,
+  original byte size, the SHA-256 digest of the original, a source label, and
+  creation time. An image row also has the original's dimensions and the
+  model variant's format, byte size, and dimensions; a PDF row has its page
+  count instead. A check constraint enforces one shape or the other.
 - `media_blobs`: one `bytea` row per `(media_id, variant)`, for the `original`
-  and `model` variants.
+  and `model` variants. A PDF has only `original`.
 
 Both tables have row-level security enabled and forced against the
 authenticated owner, like every tenant table, so a query without an owner
@@ -47,15 +50,18 @@ checks; object storage would add required infrastructure for every
 deployment. Keeping metadata and bytes in separate tables lets a later move to
 object storage replace only `media_blobs` rows.
 
-The migration adds both tables and touches no existing table. Apply it with
-`pnpm db:migrate` as for any release; no `db:provision-rls` change is needed.
+The migrations add both tables, then make the image-only columns nullable and
+add `page_count` and the shape check; they touch no other table. Apply them
+with `pnpm db:migrate` as for any release; no `db:provision-rls` change is
+needed.
 
 ### Growth and backups
 
 Every image costs its original, up to 20 MiB, plus its model variant, up to
-3.75 MiB, in `media_blobs`. Image formats are already compressed, so Postgres
-TOAST compression saves little. `pg_dump` output, base backups, and WAL volume
-grow by the same amount, and so do restore times. Watch the table with:
+3.75 MiB, in `media_blobs`; a PDF costs only its original, up to 20 MiB. Image
+and PDF formats are mostly compressed already, so Postgres TOAST compression
+saves little. `pg_dump` output, base backups, and WAL volume grow by the same
+amount, and so do restore times. Watch the table with:
 
 ```sql
 SELECT pg_size_pretty(pg_total_relation_size('media_blobs'));
@@ -67,15 +73,16 @@ owners uploading the same image store two objects.
 
 ## Ingest bounds
 
-Every image passes one ingest path. The bounds below are code constants, not
-configuration.
+Every image and PDF passes one ingest path. The bounds below are code
+constants, not configuration.
 
-| Check        | Bound                                                     | Refusal                  |
-| ------------ | --------------------------------------------------------- | ------------------------ |
-| Byte size    | at most 20 MiB, checked before decoding                   | `image_too_large`        |
-| Dimensions   | at most 40 megapixels, read from the header before decode | `image_too_large`        |
-| Format       | PNG, JPEG, GIF, or WebP, detected by magic bytes          | `unsupported_media_type` |
-| Decodability | the image must decode fully                               | `unsupported_media_type` |
+| Check        | Bound                                                                        | Refusal                  |
+| ------------ | ---------------------------------------------------------------------------- | ------------------------ |
+| Byte size    | at most 20 MiB, checked before decoding or parsing                           | `media_too_large`        |
+| Dimensions   | an image: at most 40 megapixels, read from the header before decode          | `media_too_large`        |
+| Pages        | a PDF: at most 100 pages, counted by parsing                                 | `media_too_large`        |
+| Format       | PNG, JPEG, GIF, WebP, or PDF (`%PDF-`), detected by magic bytes              | `unsupported_media_type` |
+| Decodability | an image must decode fully; a PDF must open, have a page, and be unencrypted | `unsupported_media_type` |
 
 Size the API and worker memory for concurrent ingests, not upload bytes. A
 40-megapixel image can upload as about 2 MiB but decodes to roughly 120–160 MB
@@ -84,16 +91,33 @@ the upload route holds for the request. Memory returns after each ingest, but
 the request rate limit does not bound how many ingests run at once.
 
 The filename, extension, and declared Content-Type never decide the format: a
-JPEG named `notes.txt` is stored as `image/jpeg`, and HTML named `shot.png` is
-refused. SVG is refused. A refused input stores nothing.
+JPEG named `notes.txt` is stored as `image/jpeg`, a PDF named `scan.png` as
+`application/pdf`, and HTML named `shot.png` or `report.pdf` is refused. SVG
+is refused. A refused input stores nothing.
 
 The original is stored byte for byte, embedded metadata such as EXIF GPS
 included, because only its owner can fetch it.
 
+### PDFs
+
+A PDF is refused as `unsupported_media_type` when it does not open (a user
+password included), reports no pages, or is encrypted. It counts as encrypted
+when it reports any permissions or when the bytes `/Encrypt` occur anywhere in
+the file, so an owner-password PDF that opens without a password is refused
+too. The scan has a deliberate false positive: an unencrypted PDF that carries
+the text `/Encrypt` uncompressed, such as a document about PDF encryption, is
+refused as well. So is a PDF whose parse exceeds a bound in
+[PDF parsing](#pdf-parsing).
+
+Ingest stores only a PDF's original and builds no model variant. Until a later
+release, PDFs cannot reach a model: a message whose `file` part references a
+stored PDF is refused with `400`, and `read` of a PDF's `media://` locator
+fails `unsupported_media_type`.
+
 ### Model variant
 
-Ingest also builds the model variant, the only form of an image that will be
-sent to a model provider:
+Ingest also builds the model variant of an image, the only form of an image
+that will be sent to a model provider:
 
 1. Apply the EXIF orientation and strip all embedded metadata.
 2. Keep only the first frame of an animated GIF or WebP.
@@ -115,12 +139,12 @@ owner route, so a same-site `<img>` element can load the byte routes. An
 unauthenticated request is `401`. Another owner's id, an unknown id, and an id
 that is not a canonical UUID all return the same `404`.
 
-| Route                            | Returns                              |
-| -------------------------------- | ------------------------------------ |
-| `POST /api/v1/media`             | the descriptor of the uploaded image |
-| `GET /api/v1/media/:id`          | the descriptor                       |
-| `GET /api/v1/media/:id/original` | the original bytes, unchanged        |
-| `GET /api/v1/media/:id/model`    | the model variant bytes              |
+| Route                            | Returns                                  |
+| -------------------------------- | ---------------------------------------- |
+| `POST /api/v1/media`             | the descriptor of the uploaded object    |
+| `GET /api/v1/media/:id`          | the descriptor                           |
+| `GET /api/v1/media/:id/original` | the original bytes, unchanged            |
+| `GET /api/v1/media/:id/model`    | the model variant bytes; `404` for a PDF |
 
 The web client loads every chat thumbnail from `/model` and a lightbox image
 from `/original`. What the owner sees is described under
@@ -137,16 +161,28 @@ curl -b "$SESSION_COOKIE" -F file=@screenshot.png https://llame.example/api/v1/m
 
 It returns `201` with the descriptor for a new object and `200` with the
 existing descriptor when the owner already stored the same bytes; the reused
-object keeps its first name. No file or more than one file is `400`. An
-unsupported or undecodable image is `415` with `code` `unsupported_media_type`;
-a file over 20 MiB or 40 megapixels is `413` with `code` `image_too_large`,
-whether the upload limit or ingest detects it. The JSON body limit of other
-routes is unchanged.
+object keeps its first name. No file or more than one file is `400`. The JSON
+body limit of other routes is unchanged. Refusals carry a `code` and a
+`message` naming what was detected:
 
-The descriptor has exactly `id`, `locator`, `mediaType`, `name`, `width`,
-`height`, `byteSize`, and `model`, an object with the model variant's
-`mediaType`, `width`, `height`, and `byteSize`. Top-level fields describe the
-original. It exposes no owner identifier and no digest.
+| Refusal                                            | Status | `code`                   | `message`                                           |
+| -------------------------------------------------- | ------ | ------------------------ | --------------------------------------------------- |
+| a file over 20 MiB, before its type is detected    | `413`  | `media_too_large`        | `File exceeds 20 MiB`                               |
+| an image over 40 megapixels                        | `413`  | `media_too_large`        | `Image exceeds 20 MiB or 40 megapixels`             |
+| a PDF over 100 pages                               | `413`  | `media_too_large`        | `PDF exceeds 20 MiB or 100 pages`                   |
+| an unsupported format or an undecodable image      | `415`  | `unsupported_media_type` | `Only PNG, JPEG, GIF, and WebP images are accepted` |
+| an unopenable, encrypted, or page-less PDF         | `415`  | `unsupported_media_type` | `Only unencrypted PDFs that open are accepted`      |
+| a PDF on a host that cannot apply the parse bounds | `415`  | `unsupported_media_type` | `PDF parsing is unavailable on this server`         |
+
+The upload limit refuses a file over 20 MiB before ingest reads it, so the
+first row applies to images and PDFs alike.
+
+The image descriptor has exactly `id`, `locator`, `mediaType`, `name`,
+`width`, `height`, `byteSize`, and `model`, an object with the model variant's
+`mediaType`, `width`, `height`, and `byteSize`. The PDF descriptor has exactly
+`id`, `locator`, `mediaType` (`application/pdf`), `name`, `byteSize`, and
+`pages`. Top-level fields describe the original. Neither exposes an owner
+identifier or a digest.
 
 ### Fetch
 
@@ -164,6 +200,9 @@ before it compares `If-None-Match` and answers `304` without a body. A browser
 profile shared by two owners therefore never serves one owner's cached image
 to the other. Proxies and CDNs in front of the API must not cache these
 responses for other users; `private` already forbids shared caching.
+
+`/model` of a PDF returns the same `404` as an unknown id, whatever its
+`If-None-Match`, because a PDF has no model variant.
 
 ## `media://` locators
 
@@ -292,6 +331,31 @@ arm64; macOS and Windows builds also exist for development.
   prebuilt binary, so `node_modules` copied from a different OS, libc, or CPU
   architecture is missing the right one.
 
+## PDF parsing
+
+Ingest opens each PDF with `unpdf` (pdf.js) to count its pages and detect
+encryption. The parse runs in a short-lived child process, at most two at
+once per API or worker process, with others waiting for a slot. A child is
+killed 10 s after it starts; a timeout, crash, or abnormal exit refuses the PDF
+as `unsupported_media_type` without stopping the requesting process.
+
+On Linux the child is started through `sh`, which applies two bounds before
+`node` starts:
+
+- an address-space limit of 2 GiB, or the host's hard limit when that is
+  lower;
+- `oom_score_adj` 1000, so the kernel prefers a parse child over the API or
+  worker if the container runs out of memory. Under cgroup v2
+  `memory.oom.group=1` the whole group dies instead.
+
+The production image therefore needs `sh` and a writable
+`/proc/self/oom_score_adj`. If either bound cannot be applied, or the hard
+address-space limit is below 1.25 GiB (the child's start-up floor), no parser
+starts: every PDF is refused with `PDF parsing is unavailable on this server`
+and the requesting process logs the start failure, with the shell's stderr,
+at error level. macOS and Windows development builds
+start `node` directly and get only the time bound and the concurrency cap.
+
 ## Known gap: nothing deletes media
 
 Media belongs to its owner, not to a chat or message, and this release ships
@@ -302,5 +366,5 @@ no way to delete it:
 - there is no delete route;
 - an upload that no sent message references is kept.
 
-An image pasted by mistake, including one containing a secret, stays stored
-and fetchable by its owner until a media library ships a delete action.
+An image or PDF uploaded by mistake, including one containing a secret, stays
+stored and fetchable by its owner until a media library ships a delete action.

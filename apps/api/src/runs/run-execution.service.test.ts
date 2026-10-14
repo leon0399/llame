@@ -12761,6 +12761,7 @@ describe('RunExecutionService prompt imports', () => {
         modelWidth: 1600,
         modelHeight: 900,
         modelByteSize: 100,
+        pageCount: null,
         sha256: 'digest',
         createdAt: new Date(0),
       };

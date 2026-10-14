@@ -6,6 +6,7 @@ import {
   encodeModelVariant,
   encodeThumbnail,
   MEDIA_MAX_BYTES,
+  MEDIA_REFUSAL,
   MediaIngestError,
   type MediaIngestErrorCode,
   prepareMedia,
@@ -44,26 +45,36 @@ function luminanceDcQuantizer(jpeg: Buffer): number {
   return jpeg[dqt + 5];
 }
 
-async function refusal(input: Buffer): Promise<MediaIngestErrorCode> {
+async function refusal(
+  input: Buffer,
+): Promise<{ code: MediaIngestErrorCode; message: string }> {
   try {
     await prepareMedia(input);
   } catch (error) {
-    if (error instanceof MediaIngestError) return error.code;
+    if (error instanceof MediaIngestError) {
+      return { code: error.code, message: error.message };
+    }
     throw error;
   }
   throw new Error('Expected a MediaIngestError refusal');
 }
 
-describe('MediaIngestError', () => {
-  it.each([
-    ['image_too_large', 'Image exceeds 20 MiB or 40 megapixels'],
-    [
-      'unsupported_media_type',
-      'Only PNG, JPEG, GIF, and WebP images are accepted',
-    ],
-  ] as const)('explains %s', (code, message) => {
-    const error = new MediaIngestError(code);
-    expect(error).toMatchObject({ name: 'MediaIngestError', code, message });
+const UNSUPPORTED = {
+  code: 'unsupported_media_type',
+  message: MEDIA_REFUSAL.unsupportedImage,
+};
+
+describe('MEDIA_REFUSAL', () => {
+  // pdf-media D3: the message names what was detected.
+  it('carries the shared refusal messages', () => {
+    expect(MEDIA_REFUSAL).toEqual({
+      imageTooLarge: 'Image exceeds 20 MiB or 40 megapixels',
+      pdfTooLarge: 'PDF exceeds 20 MiB or 100 pages',
+      fileTooLarge: 'File exceeds 20 MiB',
+      unsupportedImage: 'Only PNG, JPEG, GIF, and WebP images are accepted',
+      unopenablePdf: 'Only unencrypted PDFs that open are accepted',
+      pdfUnavailable: 'PDF parsing is unavailable on this server',
+    });
   });
 });
 
@@ -72,23 +83,23 @@ describe('prepareMedia refusals', () => {
     const svg = Buffer.from(
       '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
     );
-    expect(await refusal(svg)).toBe('unsupported_media_type');
+    expect(await refusal(svg)).toEqual(UNSUPPORTED);
   });
 
   it('refuses HTML regardless of any declared name', async () => {
     const html = Buffer.from('<!doctype html><html><body>shot</body></html>');
-    expect(await refusal(html)).toBe('unsupported_media_type');
+    expect(await refusal(html)).toEqual(UNSUPPORTED);
   });
 
   it('refuses a zero-length buffer as unsupported_media_type', async () => {
     // sharp's constructor throws synchronously on an empty buffer; the
     // refusal must still be the structured one, not a generic error.
-    expect(await refusal(Buffer.alloc(0))).toBe('unsupported_media_type');
+    expect(await refusal(Buffer.alloc(0))).toEqual(UNSUPPORTED);
   });
 
   it('refuses a PNG signature truncated after the header', async () => {
     const truncated = (await solid(10, 10).png().toBuffer()).subarray(0, 33);
-    expect(await refusal(truncated)).toBe('unsupported_media_type');
+    expect(await refusal(truncated)).toEqual(UNSUPPORTED);
   });
 
   it('refuses a JPEG signature with no decodable image', async () => {
@@ -96,15 +107,18 @@ describe('prepareMedia refusals', () => {
       Buffer.from([0xff, 0xd8, 0xff]),
       Buffer.alloc(64, 0),
     ]);
-    expect(await refusal(corrupt)).toBe('unsupported_media_type');
+    expect(await refusal(corrupt)).toEqual(UNSUPPORTED);
   });
 
-  it('refuses a 21 MiB input as image_too_large before decoding it', async () => {
+  it('refuses a 21 MiB input as media_too_large before decoding it', async () => {
     // A PNG signature followed by garbage: decoding it would fail as
-    // unsupported, so image_too_large proves the byte bound ran first.
+    // unsupported, so media_too_large proves the byte bound ran first.
     const signature = (await solid(1, 1).png().toBuffer()).subarray(0, 8);
     const big = Buffer.concat([signature, Buffer.alloc(21 << 20)]);
-    expect(await refusal(big)).toBe('image_too_large');
+    expect(await refusal(big)).toEqual({
+      code: 'media_too_large',
+      message: MEDIA_REFUSAL.fileTooLarge,
+    });
   });
 
   it('admits an input of exactly 20 MiB past the byte bound', async () => {
@@ -113,7 +127,7 @@ describe('prepareMedia refusals', () => {
       signature,
       Buffer.alloc(MEDIA_MAX_BYTES - signature.length),
     ]);
-    expect(await refusal(atBound)).toBe('unsupported_media_type');
+    expect(await refusal(atBound)).toEqual(UNSUPPORTED);
   });
 
   it('refuses a TIFF whose bytes 8-11 happen to read WEBP', async () => {
@@ -125,11 +139,11 @@ describe('prepareMedia refusals', () => {
       .tiff({ compression: 'none' })
       .toBuffer();
     expect(tiff.toString('latin1', 8, 12)).toBe('WEBP');
-    expect(await refusal(tiff)).toBe('unsupported_media_type');
+    expect(await refusal(tiff)).toEqual(UNSUPPORTED);
   });
 
   // The files carry one real pixel, so a full decode would fail as
-  // unsupported_media_type; image_too_large proves the header check ran.
+  // unsupported_media_type; media_too_large proves the header check ran.
   it.each([
     [8000, 5125],
     [20_000, 20_000],
@@ -137,9 +151,10 @@ describe('prepareMedia refusals', () => {
   ])(
     'refuses a small PNG whose header declares %i×%i',
     async (width, height) => {
-      expect(await refusal(await pngDeclaring(width, height))).toBe(
-        'image_too_large',
-      );
+      expect(await refusal(await pngDeclaring(width, height))).toEqual({
+        code: 'media_too_large',
+        message: MEDIA_REFUSAL.imageTooLarge,
+      });
     },
   );
 });

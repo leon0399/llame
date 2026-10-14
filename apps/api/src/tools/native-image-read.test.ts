@@ -14,7 +14,7 @@ import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
 import type { HeldImage } from '../media/attempt-images';
 import {
   MEDIA_MAX_BYTES,
-  MediaIngestError,
+  MEDIA_REFUSAL,
   prepareMedia,
   THUMBNAIL_MAX_CHARS,
 } from '../media/media-ingest';
@@ -68,6 +68,7 @@ function mediaObject(id: string, ownerUserId: string): MediaObject {
     modelWidth: 1600,
     modelHeight: 900,
     modelByteSize: 100,
+    pageCount: null,
     sha256: 'digest',
     createdAt: new Date(0),
   };
@@ -297,8 +298,8 @@ describe('native image reads', () => {
 
     expect(await runTool(nativeReadTool, { path }, context(), 5)).toEqual({
       status: 'error',
-      type: 'image_too_large',
-      message: 'Image exceeds 20 MiB or 40 megapixels',
+      type: 'media_too_large',
+      message: MEDIA_REFUSAL.imageTooLarge,
     });
     expect(held()).toBeUndefined();
   });
@@ -309,8 +310,8 @@ describe('native image reads', () => {
 
     expect(await runTool(nativeReadTool, { path }, context(), 5)).toEqual({
       status: 'error',
-      type: 'image_too_large',
-      message: new MediaIngestError('image_too_large').message,
+      type: 'media_too_large',
+      message: MEDIA_REFUSAL.imageTooLarge,
     });
     expect(held()).toBeUndefined();
   });
@@ -325,7 +326,7 @@ describe('native image reads', () => {
     expect(await runTool(nativeReadTool, { path }, context(), 5)).toEqual({
       status: 'error',
       type: 'unsupported_media_type',
-      message: new MediaIngestError('unsupported_media_type').message,
+      message: MEDIA_REFUSAL.unsupportedImage,
     });
     expect(held()).toBeUndefined();
   });

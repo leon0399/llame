@@ -85,6 +85,34 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   site's thread order with its score, from the site's keyless JSON API in one
   request.
 
+# 2026-10-14
+
+- Added PDF uploads to the media store (#1275). `POST /api/v1/media` accepts
+  a file whose bytes start with `%PDF-`, whatever its name or declared type,
+  and stores only its original: `GET /api/v1/media/:id/original` serves it,
+  `/model` of a PDF is `404`, and its descriptor is exactly `id`, `locator`,
+  `mediaType` (`application/pdf`), `name`, `byteSize`, and `pages`. A PDF over
+  20 MiB or 100 pages is `413` `media_too_large`; one that does not open,
+  reports no pages, or is encrypted (it reports permissions, or the bytes
+  `/Encrypt` occur anywhere in the file) is `415` `unsupported_media_type`.
+  Each PDF is parsed in a child process killed after 10 s, at most two at once
+  per process, and on Linux under an address-space limit of 2 GiB (or the
+  host's lower hard limit) with `oom_score_adj` 1000, which needs `sh` and a
+  writable `/proc/self/oom_score_adj` in the image; a host that cannot apply
+  those bounds refuses every PDF with
+  `PDF parsing is unavailable on this server` and logs the start failure.
+  macOS and Windows development builds get only the time bound.
+  PDFs cannot be attached to messages or read by the model yet: a message
+  referencing a stored PDF is `400`, and `read` of its `media://` locator fails
+  `unsupported_media_type`. The migration makes the image-only columns of
+  `media_objects` nullable and adds `page_count`. See
+  [media store](docs/product/operator/media.md#pdfs).
+  **Breaking:** `image_too_large` is now `media_too_large` on upload, `read`,
+  web `read`, and prompt imports, with a message naming what was detected:
+  `Image exceeds 20 MiB or 40 megapixels`, `PDF exceeds 20 MiB or 100 pages`,
+  or `File exceeds 20 MiB` for an upload over the byte bound before its type
+  is detected. There is no alias.
+
 # 2026-10-11
 
 - The search embed worker now copies an existing vector instead of calling

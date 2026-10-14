@@ -2,6 +2,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { mediaBlobs, mediaObjects } from '../db/schema';
+import type { MediaObject } from '../db/schema/media';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import type { HeldImage, UnstoredImage } from './attempt-images';
 import {
@@ -13,6 +14,27 @@ import { mediaSourceLabel } from './media-source-label';
 
 /** The formats ingest writes for a model variant (vision-media D2). */
 const modelMediaTypeSchema = z.enum(['image/png', 'image/jpeg']);
+
+/** The columns only an image row carries; a PDF row has them null. */
+const imageColumnsSchema = z.object({
+  width: z.number(),
+  height: z.number(),
+  modelWidth: z.number(),
+  modelHeight: z.number(),
+  modelByteSize: z.number(),
+  modelMediaType: modelMediaTypeSchema,
+});
+
+/**
+ * The image columns of a stored row, or undefined for a PDF row and for a
+ * row whose variant format ingest could not have written.
+ */
+export function imageColumns(
+  row: Pick<MediaObject, keyof z.infer<typeof imageColumnsSchema>>,
+): z.infer<typeof imageColumnsSchema> | undefined {
+  const parsed = imageColumnsSchema.safeParse(row);
+  return parsed.success ? parsed.data : undefined;
+}
 
 /**
  * A stored owner attachment part (vision-media D5), parsed from the raw
@@ -74,14 +96,14 @@ export async function loadMediaDescriptors(
         eq(mediaObjects.ownerUserId, ownerUserId),
       ),
     );
-  // A row whose variant format ingest could not have written resolves as
-  // absent, like an unknown id.
+  // A PDF row, and a row whose variant format ingest could not have written,
+  // resolves as absent, like an unknown id.
   return new Map(
     rows.flatMap((row) => {
-      const modelMediaType = modelMediaTypeSchema.safeParse(row.modelMediaType);
-      return modelMediaType.success
-        ? [[row.id, { ...row, modelMediaType: modelMediaType.data }] as const]
-        : [];
+      const image = imageColumns(row);
+      if (image === undefined) return [];
+      const { id, name, mediaType } = row;
+      return [[id, { id, name, mediaType, ...image }] as const];
     }),
   );
 }

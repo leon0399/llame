@@ -1,10 +1,12 @@
-/** HTTP-boundary tests for /api/v1/media (vision-media D3). */
+/** HTTP-boundary tests for /api/v1/media (vision-media D3, pdf-media D2-D3). */
 
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { eq } from 'drizzle-orm';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { type Server } from 'node:http';
+import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
 import request from 'supertest';
 import sharp from 'sharp';
@@ -12,11 +14,18 @@ import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
-import { mediaObjects } from '../db/schema';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { mediaBlobs, mediaObjects } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
+import { ModelsService } from '../models/models.service';
+import { ScriptedModelsService } from '../runs/scripted-model-client';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
+import { executeMediaRead } from '../tools/media-read';
 import { randomPng } from './media-fixtures';
+import { MEDIA_REFUSAL } from './media-ingest';
+import { MediaService } from './media.service';
+import { createToolMediaStore } from './tool-media-store';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -36,6 +45,19 @@ const descriptorSchema = z.strictObject({
   }),
 });
 
+const pdfDescriptorSchema = z.strictObject({
+  id: z.string(),
+  locator: z.string(),
+  mediaType: z.literal('application/pdf'),
+  name: z.string(),
+  byteSize: z.number(),
+  pages: z.number(),
+});
+
+/** A PDF fixture of the pdf-preparation suite. */
+const pdfFixture = (name: string) =>
+  readFile(join(__dirname, 'testing/pdf', name));
+
 const UNKNOWN_ID = '01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e';
 
 describe('/api/v1/media (HTTP)', () => {
@@ -43,6 +65,9 @@ describe('/api/v1/media (HTTP)', () => {
   let http: Server;
   let tenantDb: TenantDbService;
   const tag = Date.now();
+  // A scripted model, so a send reaches the attachment checks.
+  const models = new ScriptedModelsService();
+  const MODEL = `media-model-${tag}`;
   let cookieA = '';
   let cookieB = '';
   let userAId = '';
@@ -88,9 +113,12 @@ describe('/api/v1/media (HTTP)', () => {
   };
 
   beforeAll(async () => {
+    models.register(MODEL, { kind: 'complete', text: 'ok' });
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
+      .overrideProvider(ModelsService)
+      .useValue(models)
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -238,7 +266,7 @@ describe('/api/v1/media (HTTP)', () => {
       expect(await countOwned(userAId, empty)).toBe(0);
     });
 
-    it('answers a 21 MiB file 413 with the same image_too_large body as an ingest refusal', async () => {
+    it('answers a 21 MiB file 413 with the media_too_large body shape of an ingest refusal', async () => {
       const big = Buffer.concat([
         await randomPng(),
         Buffer.alloc(21 * 1024 * 1024),
@@ -248,13 +276,13 @@ describe('/api/v1/media (HTTP)', () => {
       expect(tooBig.body).toEqual({
         statusCode: 413,
         error: 'Payload Too Large',
-        message: 'Image exceeds 20 MiB or 40 megapixels',
-        code: 'image_too_large',
+        message: 'File exceeds 20 MiB',
+        code: 'media_too_large',
       });
       expect(await countOwned(userAId, big)).toBe(0);
 
       // A small file whose header declares 41 megapixels is refused by
-      // ingest, not by multer; both answer the identical body.
+      // ingest, not by multer; only the message, naming the image, differs.
       const header = await sharp({
         create: { width: 1, height: 1, channels: 3, background: '#000' },
       })
@@ -264,7 +292,12 @@ describe('/api/v1/media (HTTP)', () => {
       header.writeUInt32BE(5125, 20);
       header.writeUInt32BE(crc32(header.subarray(12, 29)), 29);
       const overPixels = await upload(cookieA, header).expect(413);
-      expect(overPixels.body).toEqual(tooBig.body);
+      expect(overPixels.body).toEqual({
+        statusCode: 413,
+        error: 'Payload Too Large',
+        message: 'Image exceeds 20 MiB or 40 megapixels',
+        code: 'media_too_large',
+      });
     });
 
     it('refuses a request with two files as 400 and stores nothing', async () => {
@@ -423,6 +456,196 @@ describe('/api/v1/media (HTTP)', () => {
           .expect(401);
         expect(res.headers['content-type']).not.toMatch(/^image\//u);
       }
+    });
+  });
+
+  describe('PDF', () => {
+    let onePage: Buffer;
+    let pdf: z.infer<typeof pdfDescriptorSchema>;
+
+    const uploadPdf = (cookie: string, bytes: Buffer, filename = 'scan.pdf') =>
+      upload(cookie, bytes, filename, 'application/pdf');
+
+    beforeAll(async () => {
+      onePage = await pdfFixture('one-page.pdf');
+      pdf = pdfDescriptorSchema.parse(
+        (await uploadPdf(cookieA, onePage).expect(201)).body,
+      );
+    });
+
+    it('returns the closed PDF descriptor and stores only the original', async () => {
+      expect(pdf).toEqual({
+        id: pdf.id,
+        locator: `media://${pdf.id}`,
+        mediaType: 'application/pdf',
+        name: 'scan.pdf',
+        byteSize: onePage.length,
+        pages: 1,
+      });
+      const res = await request(http)
+        .get(`/api/v1/media/${pdf.id}`)
+        .set('Cookie', cookieA)
+        .expect(200);
+      expect(pdfDescriptorSchema.parse(res.body)).toEqual(pdf);
+
+      const variants = await tenantDb.runAs(userAId, (tx) =>
+        tx
+          .select({ variant: mediaBlobs.variant })
+          .from(mediaBlobs)
+          .where(eq(mediaBlobs.mediaId, pdf.id)),
+      );
+      expect(variants).toEqual([{ variant: 'original' }]);
+    });
+
+    it("reuses the owner's PDF for the same bytes, whatever the declared type", async () => {
+      const again = await upload(
+        cookieA,
+        onePage,
+        'scan.png',
+        'image/png',
+      ).expect(200);
+
+      expect(pdfDescriptorSchema.parse(again.body)).toEqual(pdf);
+      expect(await countOwned(userAId, onePage)).toBe(1);
+    });
+
+    it('serves the original bytes as application/pdf with the safe headers', async () => {
+      const res = await request(http)
+        .get(`/api/v1/media/${pdf.id}/original`)
+        .set('Cookie', cookieA)
+        .responseType('blob')
+        .expect(200);
+
+      expect(onePage.equals(z.instanceof(Buffer).parse(res.body))).toBe(true);
+      expect(res.headers).toMatchObject({
+        'content-type': 'application/pdf',
+        'x-content-type-options': 'nosniff',
+        'content-disposition': 'inline',
+        'content-security-policy': 'sandbox',
+        'cache-control': 'private, no-cache',
+      });
+      expect(res.headers['etag']).toMatch(/^"[^"]+"$/u);
+    });
+
+    it('answers /model of a PDF with the 404 of an unknown id, never 304', async () => {
+      const sha256 = createHash('sha256').update(onePage).digest('hex');
+      const unknown = await request(http)
+        .get(`/api/v1/media/${UNKNOWN_ID}/model`)
+        .set('Cookie', cookieA)
+        .expect(404);
+
+      const cases: Array<Record<string, string>> = [
+        {},
+        { 'If-None-Match': `"${sha256}-model"` },
+      ];
+      for (const headers of cases) {
+        const res = await request(http)
+          .get(`/api/v1/media/${pdf.id}/model`)
+          .set('Cookie', cookieA)
+          .set(headers)
+          .expect(404);
+        expect(res.body).toEqual(unknown.body);
+        // Express sets its own body ETag on a 404; the variant validator is never set.
+        expect(res.headers['etag']).toBe(unknown.headers['etag']);
+      }
+    });
+
+    it("answers owner B's requests for owner A's PDF 404 on every route", async () => {
+      for (const suffix of ['', '/original', '/model']) {
+        const res = await request(http)
+          .get(`/api/v1/media/${pdf.id}${suffix}`)
+          .set('Cookie', cookieB)
+          .expect(404);
+        expect(res.headers['content-type']).not.toMatch(/^application\/pdf/u);
+      }
+    });
+
+    it('answers a 21 MiB PDF 413 before its format is detected', async () => {
+      const big = Buffer.concat([onePage, Buffer.alloc(21 * 1024 * 1024)]);
+      const res = await uploadPdf(cookieA, big, 'big.pdf').expect(413);
+
+      expect(res.body).toEqual({
+        statusCode: 413,
+        error: 'Payload Too Large',
+        message: 'File exceeds 20 MiB',
+        code: 'media_too_large',
+      });
+      expect(await countOwned(userAId, big)).toBe(0);
+    });
+
+    it('refuses a 101-page PDF 413 and stores nothing', async () => {
+      const bytes = await pdfFixture('hundred-one-pages.pdf');
+      const res = await uploadPdf(cookieA, bytes).expect(413);
+
+      expect(res.body).toEqual({
+        statusCode: 413,
+        error: 'Payload Too Large',
+        message: 'PDF exceeds 20 MiB or 100 pages',
+        code: 'media_too_large',
+      });
+      expect(await countOwned(userAId, bytes)).toBe(0);
+    });
+
+    it('refuses an encrypted PDF 415 and stores nothing', async () => {
+      const bytes = await pdfFixture('owner-password.pdf');
+      const res = await uploadPdf(cookieA, bytes).expect(415);
+
+      expect(res.body).toEqual({
+        statusCode: 415,
+        error: 'Unsupported Media Type',
+        message: MEDIA_REFUSAL.unopenablePdf,
+        code: 'unsupported_media_type',
+      });
+      expect(await countOwned(userAId, bytes)).toBe(0);
+    });
+
+    // Interim guard (pdf-store until pdf-attachments).
+    it('refuses a message naming a stored PDF 400 and stores no message', async () => {
+      const chatId = randomUUID();
+      const res = await request(http)
+        .post(`/api/v1/chats/${chatId}/messages`)
+        .set('Cookie', cookieA)
+        .send({
+          modelId: MODEL,
+          message: {
+            id: randomUUID(),
+            parts: [
+              { type: 'text', text: 'summarize' },
+              { type: 'file', mediaType: 'application/pdf', url: pdf.locator },
+            ],
+          },
+        })
+        .expect(400);
+
+      expect(res.body).toMatchObject({
+        message: 'PDF attachments are not supported yet',
+      });
+      await tenantDb.runAs(userAId, async (tx) => {
+        expect(
+          await new ChatsRepository(tx).findById(chatId, userAId),
+        ).toBeUndefined();
+        expect(
+          await new MessagesRepository(tx).findByChatId(chatId, userAId),
+        ).toEqual([]);
+      });
+    });
+
+    // Interim guard (pdf-store until pdf-read).
+    it('fails a media:// read of a stored PDF as unsupported_media_type', async () => {
+      const store = createToolMediaStore(
+        new MediaService(tenantDb),
+        userAId,
+        new Map(),
+        true,
+      );
+
+      expect(
+        await executeMediaRead(store, 'read', pdf.locator, undefined),
+      ).toEqual({
+        status: 'error',
+        type: 'unsupported_media_type',
+        message: 'PDF reads are not supported yet',
+      });
     });
   });
 

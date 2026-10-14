@@ -17,9 +17,10 @@ import {
   loadMediaDescriptors,
   type MediaDescriptor,
 } from './media-descriptors';
-import { prepareMedia, type PreparedMedia } from './media-ingest';
+import { prepareMedia } from './media-ingest';
 import { isCanonicalMediaId } from './media-locator';
 import { mediaSourceLabel } from './media-source-label';
+import { isPdfSignature, PDF_MEDIA_TYPE, preparePdf } from './pdf-preparation';
 
 export type MediaIngestInput = {
   bytes: Buffer;
@@ -35,36 +36,61 @@ export type MediaIngestResult = {
 
 type NewMediaObject = typeof mediaObjects.$inferInsert;
 
-/** The metadata row of a freshly prepared ingest, with a new UUIDv7 id. */
-function toMediaRow(
+/** A prepared ingest: its metadata row, with a new UUIDv7 id, and its blobs. */
+type PreparedObject = {
+  row: NewMediaObject;
+  blobs: Array<{ variant: MediaVariant; data: Buffer }>;
+};
+
+/**
+ * Every check and every decode or parse of an ingest, before any transaction.
+ * A PDF keeps only its original (pdf-media D2); an image keeps both variants.
+ */
+async function prepareObject(
   ownerUserId: string,
   input: MediaIngestInput,
-  prepared: PreparedMedia,
-): NewMediaObject {
-  return {
+): Promise<PreparedObject> {
+  const { bytes } = input;
+  const base = {
     id: uuidv7(),
     ownerUserId,
     name: mediaSourceLabel(input.source),
-    mediaType: prepared.original.mediaType,
-    width: prepared.original.width,
-    height: prepared.original.height,
-    byteSize: prepared.original.bytes.length,
-    modelMediaType: prepared.model.mediaType,
-    modelWidth: prepared.model.width,
-    modelHeight: prepared.model.height,
-    modelByteSize: prepared.model.bytes.length,
-    sha256: prepared.sha256,
+    byteSize: bytes.length,
+  };
+  if (isPdfSignature(bytes)) {
+    const { sha256, pages } = await preparePdf(bytes);
+    return {
+      row: { ...base, mediaType: PDF_MEDIA_TYPE, pageCount: pages, sha256 },
+      blobs: [{ variant: 'original', data: bytes }],
+    };
+  }
+  const { sha256, original, model } = await prepareMedia(bytes);
+  return {
+    row: {
+      ...base,
+      mediaType: original.mediaType,
+      width: original.width,
+      height: original.height,
+      modelMediaType: model.mediaType,
+      modelWidth: model.width,
+      modelHeight: model.height,
+      modelByteSize: model.bytes.length,
+      sha256,
+    },
+    blobs: [
+      { variant: 'original', data: original.bytes },
+      { variant: 'model', data: model.bytes },
+    ],
   };
 }
 
 /**
- * Insert the object and both variants, or return the owner's existing object
- * with the same digest. Runs inside the caller's owner-scoped transaction.
+ * Insert the object and its blobs, or return the owner's existing object with
+ * the same digest. Runs inside the caller's owner-scoped transaction.
  */
 async function storeOrReuse(
   tx: Db,
-  row: NewMediaObject,
-  prepared: PreparedMedia,
+  { row, blobs }: PreparedObject,
 ): Promise<MediaIngestResult> {
   const [inserted] = await tx
     .insert(mediaObjects)
@@ -92,14 +118,9 @@ async function storeOrReuse(
     return { media: existing, created: false };
   }
 
-  await tx.insert(mediaBlobs).values([
-    {
-      mediaId: inserted.id,
-      variant: 'original',
-      data: prepared.original.bytes,
-    },
-    { mediaId: inserted.id, variant: 'model', data: prepared.model.bytes },
-  ]);
+  await tx
+    .insert(mediaBlobs)
+    .values(blobs.map((blob) => ({ mediaId: inserted.id, ...blob })));
   return { media: inserted, created: true };
 }
 
@@ -112,19 +133,16 @@ export class MediaService {
 
   /**
    * The ingest path of `POST /api/v1/media`. Throws
-   * `MediaIngestError` (`image_too_large` | `unsupported_media_type`) and then
-   * stores nothing. Image work finishes before the transaction opens; the
-   * object and both variants commit together.
+   * `MediaIngestError` (`media_too_large` | `unsupported_media_type`) and then
+   * stores nothing. Image and PDF work finishes before the transaction opens;
+   * the object and its blobs commit together.
    */
   async ingest(
     ownerUserId: string,
     input: MediaIngestInput,
   ): Promise<MediaIngestResult> {
-    const prepared = await prepareMedia(input.bytes);
-    const row = toMediaRow(ownerUserId, input, prepared);
-    return this.tenantDb.runAs(ownerUserId, (tx) =>
-      storeOrReuse(tx, row, prepared),
-    );
+    const prepared = await prepareObject(ownerUserId, input);
+    return this.tenantDb.runAs(ownerUserId, (tx) => storeOrReuse(tx, prepared));
   }
 
   /**
@@ -189,5 +207,8 @@ export class MediaService {
   }
 }
 
-/** The one MediaService capability a send needs: the sender's ownership read. */
-export type MediaDescriber = Pick<MediaService, 'describeOwned'>;
+/**
+ * The MediaService capabilities a send needs: the sender's ownership read, and
+ * `findOwned` for the interim stored-PDF guard until pdf-attachments.
+ */
+export type MediaDescriber = Pick<MediaService, 'describeOwned' | 'findOwned'>;

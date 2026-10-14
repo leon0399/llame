@@ -24,9 +24,11 @@
         "src/**/*.integration.test.ts",
         "evals/**/*.test.ts",
         "stryker.config.json",
-        "src/instance-config/prompt-built-runtime.contract.ts"
+        "src/instance-config/prompt-built-runtime.contract.ts",
+        "src/media/pdf-parse-entry.ts"
       ],
-      "project": ["src/**/*.ts", "evals/**/*.ts"]
+      "project": ["src/**/*.ts", "evals/**/*.ts"],
+      "ignoreBinaries": ["prlimit"]
     },
     "apps/web": {
       "entry": [

@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { getTableColumns } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import sharp from 'sharp';
@@ -5,8 +7,14 @@ import sharp from 'sharp';
 import * as schema from '../db/schema';
 import { type MediaObject } from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
-import { MediaIngestError, prepareMedia } from './media-ingest';
+import {
+  MEDIA_MAX_BYTES,
+  MEDIA_REFUSAL,
+  MediaIngestError,
+  prepareMedia,
+} from './media-ingest';
 import { MediaService } from './media.service';
+import { preparePdf } from './pdf-preparation';
 
 const ID = '01927c1e-8f3a-7b2c-9d4e-5f6a7b8c9d0e';
 const OWNER = 'owner';
@@ -64,6 +72,7 @@ function stored(sha256: string): MediaObject {
     modelWidth: 3,
     modelHeight: 2,
     modelByteSize: 90,
+    pageCount: null,
     sha256,
     createdAt: new Date('2026-10-10T00:00:00.000Z'),
   };
@@ -77,6 +86,23 @@ const upload = async () => ({
     .toBuffer(),
   source: 'shot.png',
 });
+
+/** A stored one-page PDF row: no dimensions and no model variant. */
+function storedPdf(sha256: string, byteSize: number): MediaObject {
+  return {
+    ...stored(sha256),
+    name: 'scan.pdf',
+    mediaType: 'application/pdf',
+    width: null,
+    height: null,
+    byteSize,
+    modelMediaType: null,
+    modelWidth: null,
+    modelHeight: null,
+    modelByteSize: null,
+    pageCount: 1,
+  };
+}
 
 describe('MediaService authorization', () => {
   it.each([
@@ -115,6 +141,20 @@ describe('MediaService authorization', () => {
         source: 'x.svg',
       }),
     ).rejects.toBeInstanceOf(MediaIngestError);
+    expect(runAs).not.toHaveBeenCalled();
+  });
+
+  it('refuses a PDF over the byte bound before parsing or a transaction', async () => {
+    const { media, runAs } = service();
+    const bytes = Buffer.alloc(MEDIA_MAX_BYTES + 1);
+    bytes.write('%PDF-1.7\n');
+
+    await expect(
+      media.ingest('owner', { bytes, source: 'big.pdf' }),
+    ).rejects.toMatchObject({
+      code: 'media_too_large',
+      message: MEDIA_REFUSAL.pdfTooLarge,
+    });
     expect(runAs).not.toHaveBeenCalled();
   });
 
@@ -186,5 +226,29 @@ describe('MediaService ingest', () => {
       'Media dedup conflict without a visible row',
     );
     expect(statements).toHaveLength(2);
+  });
+
+  it('stores a PDF with only its original in the owner transaction', async () => {
+    const bytes = await readFile(join(__dirname, 'testing/pdf/one-page.pdf'));
+    const { sha256 } = await preparePdf(bytes);
+    const row = storedPdf(sha256, bytes.length);
+    const { media, statements, owners } = scriptedTenantDb([
+      [objectRow(row)],
+      [],
+    ]);
+
+    await expect(
+      media.ingest(OWNER, { bytes, source: 'scan.pdf' }),
+    ).resolves.toEqual({ media: row, created: true });
+
+    expect(owners).toEqual([OWNER]);
+    expect(statements).toHaveLength(2);
+    expect(statements[0]?.params).toEqual(
+      expect.arrayContaining(['application/pdf', 1, sha256, bytes.length]),
+    );
+    expect(statements[1]).toEqual({
+      sql: 'insert into "media_blobs" ("media_id", "variant", "data") values ($1, $2, $3)',
+      params: [ID, 'original', bytes],
+    });
   });
 });
