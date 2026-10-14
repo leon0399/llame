@@ -253,6 +253,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   unchanged; its lockfile hash updates with them. The lockfile now also
   records `pnpm@12.9.0` and its platform binaries, which pnpm 12 writes. No
   repository script uses one of the install flags pnpm 12 removed.
+  `minimumReleaseAgeStrict` is now on, pnpm 12's default when a cooldown is
+  set: `pnpm add` of a version younger than seven days fails instead of
+  appending a silent exclusion. `minimumReleaseAgeExcludePrune` drops
+  exact-version exclusions once they age out, which removed three that had
+  been added without review (`esbuild@0.24.3`, `image-size@2.0.3`,
+  `qs@6.15.4`). `enableGlobalVirtualStore: false` becomes its current name,
+  `virtualStoreType: project`. A global pnpm 11 older than 11.28.4 cannot hand
+  off to the pnpm 12 pin, so run pnpm from the Nix dev shell.
 
 - Chat images now open in a lightbox (#1166, #935). The `read` tool card shows
   a thumbnail for an image result and the prompt-imports chip one per imported

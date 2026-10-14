@@ -11,7 +11,13 @@ engineStrict: true
 # pnpm 11.0 Security & build defaults, written explicitly so a later major
 # cannot silently flip them. https://pnpm.io/blog/releases/11.0
 # `minimumReleaseAge` stays 10080 (7d); 11's default is 1440.
-minimumReleaseAgeStrict: false
+# Strict (pnpm 12's default whenever `minimumReleaseAge` is set): `pnpm add` of
+# a version younger than the cooldown fails instead of silently appending it to
+# `minimumReleaseAgeExclude`, so every exclusion below is a reviewed decision.
+minimumReleaseAgeStrict: true
+# Install and dedupe drop exact-version exclusions once that version has aged
+# past the cooldown; name patterns stay.
+minimumReleaseAgeExcludePrune: true
 blockExoticSubdeps: true
 strictDepBuilds: true
 optimisticRepeatInstall: true
@@ -50,9 +56,6 @@ minimumReleaseAgeExclude:
   - "@barney-media/crap-typescript-core@0.5.1"
   - fast-xml-parser@5.11.1
   - "@barney-media/crap-typescript@0.5.1"
-  - esbuild@0.24.3
-  - image-size@2.0.3
-  - qs@6.15.4
   # Released 2026-09-14, inside the 7-day resolution cooldown. Oxlint's JS
   # plugin API is itself alpha, so this linter tracks it closely and the
   # first published version is the only one that exists. Pinned exact, and
@@ -163,7 +166,7 @@ allowBuilds:
 # realpaths outside the project and @types identities split — apps/web typecheck
 # fails (children missing on ThemeProviderProps, NextError not a JSX component)
 # on the identical dependency versions. Revisit when tsgo/TS handle the layout.
-enableGlobalVirtualStore: false
+virtualStoreType: project
 
 patchedDependencies:
   "@orval/fetch@8.24.0": patches/@orval__fetch@8.24.0.patch
