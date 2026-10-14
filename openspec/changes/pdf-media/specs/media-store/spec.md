@@ -31,8 +31,9 @@ yield no `media://` locator.
 An input whose bytes start with `%PDF-` but which cannot be opened, which reports fewer than 1 page,
 or which is encrypted, SHALL be refused as `unsupported_media_type` with the message
 `Only unencrypted PDFs that open are accepted`. A PDF SHALL count as encrypted when it reports any
-permissions or when its bytes contain the `/Encrypt` name, whether or not it opens without a
-password. Every such refusal SHALL create no media object and store no bytes.
+permissions or when the byte sequence `/Encrypt` occurs anywhere in its bytes, whether or not it
+opens without a password, so an unencrypted PDF carrying that text uncompressed is refused too.
+Every such refusal SHALL create no media object and store no bytes.
 
 #### Scenario: A truncated PDF is refused
 
@@ -72,13 +73,20 @@ password. Every such refusal SHALL create no media object and store no bytes.
 - **THEN** ingest refuses it as `unsupported_media_type`
 - **AND** no media object and no bytes are stored
 
+#### Scenario: An unencrypted PDF with the literal text is refused
+
+- **WHEN** an owner uploads an unencrypted PDF whose uncompressed content stream contains the text
+  `/Encrypt`
+- **THEN** ingest refuses it as `unsupported_media_type`
+- **AND** no media object and no bytes are stored
+
 ### Requirement: PDF parsing is bounded in time and memory
 
 A PDF parse SHALL run in a process separate from the API and Run workers, at most two at once per
-requesting process, each under a 10-second bound from its start and a 2 GiB address-space limit,
-marked as the first process killed when memory runs out. A parse over either bound, or exiting
-abnormally, SHALL be refused as `unsupported_media_type` with the unopenable-PDF message, store
-nothing, and not stop or stall the requesting process.
+requesting process, each under a 10-second bound from its start. On Linux it SHALL also run under a
+2 GiB address-space limit, marked as the first process killed when memory runs out, and SHALL not
+start without them. A parse over a bound, or exiting abnormally, SHALL be refused as
+`unsupported_media_type`, store nothing, and not stop or stall the requesting process.
 
 #### Scenario: A parse past the time bound is refused
 
@@ -90,8 +98,8 @@ nothing, and not stop or stall the requesting process.
 
 #### Scenario: A parse that runs out of memory is refused and the process keeps serving
 
-- **WHEN** an owner uploads a file that starts with `%PDF-` whose parse allocates beyond the
-  2 GiB address-space limit
+- **WHEN** an owner on a Linux host uploads a file that starts with `%PDF-` whose parse allocates
+  beyond the 2 GiB address-space limit
 - **THEN** the upload is refused as `unsupported_media_type` and nothing is stored
 - **AND** the API process that received it keeps serving later requests
 

@@ -100,10 +100,15 @@ Preparation refuses:
 
 - every input that fails to open (user password included: `PasswordException`);
 - every encrypted input, because Anthropic rejects encrypted PDFs and a refused block in history
-  fails every later request. A PDF counts as encrypted when `getPermissions()` is non-`null` or its
-  bytes contain the `/Encrypt` name (`spike/encrypt-probe.cjs`: an encryption dictionary without
-  `/P` makes `getPermissions()` return `null`, round 5). The byte check alone can false-positive
-  on `/Encrypt` inside an uncompressed content stream, which refuses a valid PDF; that fails closed.
+  fails every later request. A PDF counts as encrypted when `getPermissions()` is non-`null` or the
+  byte sequence `/Encrypt` occurs anywhere in it (`spike/encrypt-probe.cjs`: an encryption
+  dictionary without `/P` makes `getPermissions()` return `null`, round 5). pdf.js also returns
+  `null` when resolving `/Encrypt` throws, and when `/Encrypt` references a missing object it reads
+  the file as unencrypted; the scan catches both. Its false positive, an unencrypted PDF carrying
+  the text `/Encrypt` uncompressed (a PDF about PDF encryption, an embedded file, an obsolete
+  encrypted revision), is refused by design: a whole-file scan is one line and fails closed, while
+  a trailer-only scan or a structural trailer read needs PDF syntax handling pdf.js does not expose
+  (round 6). The spec pins it with a scenario.
   `getMetadata()` is not called: it decodes the whole XMP `/Metadata` stream, which preparation
   does not need and which a deflate bomb can inflate without bound;
 - every input reporting fewer than 1 page: pdf.js accepts `/Count 0` and negative counts.
@@ -122,15 +127,26 @@ Two properties of pdf.js shape the preparation, both confirmed on this host:
 Preparation therefore parses in a **child process**: the API or Run worker spawns `node` on a small
 parse entry, writes the bytes to its stdin, and reads `{ pages, encrypted }` as JSON from stdout,
 killing it with `SIGKILL` after 10 seconds. A timeout, a non-zero exit, a signal, or unparseable
-output refuses the input as `unsupported_media_type`. The child runs under two OS-level bounds,
-set by spawning it through `sh -c 'ulimit -v 2097152; echo 1000 > /proc/self/oom_score_adj; exec
-node <entry>'` (round 5):
+output refuses the input as `unsupported_media_type`. On Linux, the deploy target, the child runs
+under two OS-level bounds, set by spawning it through `sh -c 'ulimit -v 2097152 && echo 1000 >
+/proc/self/oom_score_adj && exec node <entry>'` (rounds 5-6). The `&&` chain fails closed: if
+either bound cannot be applied, `node` never starts, the input is refused, and the parent logs the
+child's start failure at error level, so a host that cannot honour the bounds is visible instead of
+silently unbounded or indistinguishable from a corrupt file:
 
 - a 2 GiB address-space limit (`RLIMIT_AS`), which caps off-heap allocation too: an unbounded
-  `Buffer` loop fails `RangeError: Array buffer allocation failed` and the child exits 1, while a
-  23 MB PDF still parses (1 GiB is too low, because V8 reserves address space at start);
+  `Buffer` loop fails and the child exits non-zero, while a 23 MB PDF still parses. The floor
+  measured by a reviewer is between 1,152 and 1,280 MiB (V8's start-up reservation); 2 GiB leaves
+  about 768 MiB of margin for builds that reserve more. Tests assert the non-zero exit, not an
+  error message;
 - `oom_score_adj` 1000, which any process may set on itself, so if the container still runs out of
-  memory the kernel kills a parse child before the API or Run worker.
+  memory the kernel prefers a parse child over the API or Run worker. It is a preference, not a
+  guarantee: under cgroup v2 `memory.oom.group=1` the whole group dies.
+
+On macOS and Windows, which ship development builds only, the child is spawned as `node <entry>`
+directly with the 10-second bound and the concurrency cap and no memory bound: XNU has no
+enforced `RLIMIT_AS`, `/proc` is absent, and Windows has no `sh`. The operator media runbook states
+this.
 
 A spike (`~/.cache/llame-scripts/unpdf-spike/child-spike.cjs`) measured:
 
