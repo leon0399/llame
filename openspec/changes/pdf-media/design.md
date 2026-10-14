@@ -127,12 +127,19 @@ Two properties of pdf.js shape the preparation, both confirmed on this host:
 Preparation therefore parses in a **child process**: the API or Run worker spawns `node` on a small
 parse entry, writes the bytes to its stdin, and reads `{ pages, encrypted }` as JSON from stdout,
 killing it with `SIGKILL` after 10 seconds. A timeout, a non-zero exit, a signal, or unparseable
-output refuses the input as `unsupported_media_type`. On Linux, the deploy target, the child runs
-under two OS-level bounds, set by spawning it through `sh -c 'ulimit -v 2097152 && echo 1000 >
-/proc/self/oom_score_adj && exec node <entry>'` (rounds 5-6). The `&&` chain fails closed: if
-either bound cannot be applied, `node` never starts, the input is refused, and the parent logs the
-child's start failure at error level, so a host that cannot honour the bounds is visible instead of
-silently unbounded or indistinguishable from a corrupt file:
+output refuses the input as `unsupported_media_type`. The parent consumes `error` events on the
+child's stdin: a child killed or refused mid-write makes the write fail with `EPIPE`, which would
+otherwise be an unhandled stream error that ends the API or Run worker (round 7). On Linux, the
+deploy target, the child runs under two OS-level bounds, set by spawning it through `sh` with the
+address-space limit clamped to the host's hard limit, so an inherited lower `RLIMIT_AS`
+(`docker run --ulimit as=`, systemd `LimitAS=`) applies instead of failing `EPERM`:
+`h=$(ulimit -H -v); [ "$h" = unlimited ] || [ "$h" -gt 2097152 ] && h=2097152; ulimit -v "$h" &&
+echo 1000 > /proc/self/oom_score_adj && exec node <entry>`. The `&&` chain fails closed: if a
+bound cannot be applied, `node` never starts. The parent tells that apart from a bad file, because
+a child that exits before writing any output and before reading its whole input is a start
+failure: it logs the exit status and stderr at error level and refuses with
+`PDF parsing is unavailable on this server` instead of the unopenable-PDF message. The deploy image
+must provide `sh` and a writable `/proc/self/oom_score_adj`; the operator runbook lists both:
 
 - a 2 GiB address-space limit (`RLIMIT_AS`), which caps off-heap allocation too: an unbounded
   `Buffer` loop fails and the child exits non-zero, while a 23 MB PDF still parses. The floor

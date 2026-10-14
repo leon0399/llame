@@ -82,9 +82,9 @@ opens without a password. Every such refusal SHALL create no media object and st
 ### Requirement: PDF parsing is bounded in time and memory
 
 A PDF parse SHALL run in a process separate from the API and Run workers, at most two at once per
-requesting process, each under a 10-second bound from its start. On Linux it SHALL also run under a
-2 GiB address-space limit, marked as the first process killed when memory runs out, and SHALL not
-start without them. A parse over a bound, or exiting abnormally, SHALL be refused as
+requesting process, each under a 10-second bound from its start. On Linux it SHALL also run under an
+address-space limit of 2 GiB, or the host's lower hard limit, marked as the first process killed
+when memory runs out. A parse over a bound, or exiting abnormally, SHALL be refused as
 `unsupported_media_type`, store nothing, and not stop or stall the requesting process.
 
 #### Scenario: A parse past the time bound is refused
@@ -112,6 +112,14 @@ start without them. A parse over a bound, or exiting abnormally, SHALL be refuse
 - **WHEN** an owner sends five concurrent uploads of PDFs that each parse within 10 seconds
 - **THEN** at most two of their parses run at once
 - **AND** each upload is answered, and none is refused for waiting
+
+#### Scenario: A parse process that cannot start is not blamed on the file
+
+- **WHEN** an owner uploads a valid PDF on a host where the parse process cannot start or cannot
+  apply its bounds
+- **THEN** the upload is refused as `unsupported_media_type` with the message
+  `PDF parsing is unavailable on this server`, and nothing is stored
+- **AND** the requesting process records the start failure at error level and keeps serving
 
 ## MODIFIED Requirements
 
