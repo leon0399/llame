@@ -37,6 +37,11 @@ Dependencies and budget:
   merely silent about PDFs get ADDED siblings instead of MODIFIED copies, which keeps the restated
   text to blocks the change contradicts. Splitting the proposal would publish an incomplete
   contract.
+- `pdf-attachments` has Leo's approved review-budget exception (2026-10-14):
+  2,866 authored added-plus-deleted lines against `pdf-store`, comprising 893
+  source, 1,744 test, and 229 documentation lines. The shared epoch sizing and
+  owner attachment delivery stay in one layer so every sizing consumer changes
+  atomically. Generated OpenAPI and client output is counted separately.
 - `pdf-read` is the largest implementation layer; re-estimate at its boundary and split the Chat
   Completions move into its own layer if it would exceed the budget.
 - Generated output (Drizzle snapshot, OpenAPI document and client, lockfile) counts zero and is
