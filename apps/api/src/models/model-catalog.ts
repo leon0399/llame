@@ -138,6 +138,17 @@ export type PromptChatsInput = {
   compiledOn: string;
 };
 
+/**
+ * Positions of the `chats` entries whose values one render actually emitted.
+ *
+ * Private render metadata for the told-set: never a template variable, a
+ * receipt field, or stored tool-description metadata.
+ */
+export type PromptChatsDisclosure = {
+  readonly pinned: ReadonlySet<number>;
+  readonly recent: ReadonlySet<number>;
+};
+
 /** One proactively eligible skill as the prompt projects it. */
 export type PromptSkillEntry = {
   name: string;

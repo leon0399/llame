@@ -549,7 +549,6 @@ describe('ChatLoopService accept/worker context binding', () => {
     const recencyDigest: RecencyDigestResolver = recencyDigestOverride ?? {
       resolveCandidate: vi.fn().mockResolvedValue({
         baseline: baselineOverride ?? baseline(),
-        told: toldOverride ?? [],
         candidates: [],
       }),
     };
@@ -946,7 +945,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       Promise.resolve({ shareRecentChats: false }),
     );
     const resolveCandidate = vi.fn(() =>
-      Promise.resolve({ baseline: baseline(), told: [], candidates: [] }),
+      Promise.resolve({ baseline: baseline(), candidates: [] }),
     );
     const setBaseline = vi.spyOn(
       ChatsRepository.prototype,
@@ -998,7 +997,6 @@ describe('ChatLoopService accept/worker context binding', () => {
     const resolveCandidate = vi.fn(() =>
       Promise.resolve({
         baseline: digestBaseline,
-        told,
         candidates: [
           {
             chatId: 'resurfaced',
@@ -1053,7 +1051,7 @@ describe('ChatLoopService accept/worker context binding', () => {
 
   it('does not resolve or stage digest context when sharing is disabled for an existing baseline', async () => {
     const resolveCandidate = vi.fn(() =>
-      Promise.resolve({ baseline: baseline(), told: [], candidates: [] }),
+      Promise.resolve({ baseline: baseline(), candidates: [] }),
     );
     const {
       service,
@@ -1322,7 +1320,6 @@ describe('ChatLoopService accept/worker context binding', () => {
         resolveCandidate: () =>
           Promise.resolve({
             baseline: digestBaseline,
-            told: [],
             candidates: [],
           }),
       },
@@ -1378,7 +1375,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       },
       recencyDigest: {
         resolveCandidate: () =>
-          Promise.resolve({ baseline: baseline(), told: [], candidates: [] }),
+          Promise.resolve({ baseline: baseline(), candidates: [] }),
       },
     });
 
@@ -1402,7 +1399,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       },
       recencyDigest: {
         resolveCandidate: () =>
-          Promise.resolve({ baseline: baseline(), told: [], candidates: [] }),
+          Promise.resolve({ baseline: baseline(), candidates: [] }),
       },
     });
 

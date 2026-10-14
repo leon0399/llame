@@ -129,7 +129,7 @@ function renderFirstModel(): string {
     template: model.systemPromptTemplate,
     model,
     anchor: TEST_ANCHOR,
-  });
+  }).text;
 }
 
 describe('resolveConfigPath', () => {
@@ -2121,7 +2121,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
           template: model.systemPromptTemplate,
           model,
           anchor: TEST_ANCHOR,
-        }),
+        }).text,
       ).toBe('Relative prompt for m');
     });
 
@@ -2145,7 +2145,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
           template: model.systemPromptTemplate,
           model,
           anchor: TEST_ANCHOR,
-        }),
+        }).text,
       ).toBe('Absolute prompt');
     });
 
@@ -2211,7 +2211,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
           template: model.systemPromptTemplate,
           model,
           anchor: TEST_ANCHOR,
-        }),
+        }).text,
       ).toContain('You are the override.');
       // The worker-owned file map is internal, not client-facing.
       expect(model.toolPromptFiles).toEqual({ bash: 'prompts/bash.md' });
@@ -2251,7 +2251,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
           template: model.systemPromptTemplate,
           model,
           anchor: TEST_ANCHOR,
-        }),
+        }).text,
       ).toMatch(/\S/);
       expect(model).not.toHaveProperty('systemPromptFile');
     });

@@ -135,6 +135,8 @@ import { type ProductIdentityReader } from '../instance-config/product-identity'
 import { resolveConfigPath } from '../instance-config/config-loader';
 import {
   createToolPromptRenderer,
+  type PromptChatsDisclosure,
+  type RenderedPrompt,
   type ToolPromptRenderer,
 } from '../instance-config/prompt-loader';
 import {
@@ -282,6 +284,7 @@ import {
 import {
   RecencyDigestService,
   deriveRecencyDigestDelta,
+  disclosedRecencyDigestEntries,
   type RecencyDigestDelta,
   type RecencyDigestResolution,
   type RecencyDigestResolver,
@@ -435,14 +438,20 @@ type PreparedFirstStep = {
   readonly context: PreparedAttemptContext;
   readonly turnInstructions: TurnInstructions;
 };
-type AttemptDigestContext = {
+type AttemptDigestInputs = {
   shareRecentChats: ResolvedMemorySettings;
   promptDigestBaseline: Chat['recencyDigestBaseline'];
+  /** Present only under consent and an unchanged digest epoch. */
+  digestCandidate: RecencyDigestResolution | undefined;
+};
+
+/** Digest state derived from what this attempt's renders actually emitted. */
+type AttemptDigestDisclosure = {
   recencyDigestInitialization?: RecencyDigestInitialization;
   digestDelta: RecencyDigestDelta | null;
 };
 
-type AttemptPromptInputs = AttemptDigestContext & {
+type AttemptPromptInputs = AttemptDigestInputs & {
   chat: Chat;
   model: SystemModelCatalogEntry;
   user: PromptUserInput | undefined;
@@ -453,9 +462,10 @@ type AttemptPromptInputs = AttemptDigestContext & {
   skillState: SkillTurnState;
 };
 
-type AttemptPromptContext = AttemptPromptInputs & {
-  systemPrompt: string;
-};
+type AttemptPromptContext = AttemptPromptInputs &
+  AttemptDigestDisclosure & {
+    systemPrompt: string;
+  };
 
 type AttemptStagedContext = {
   stagedParts: Array<MessagePart>;
@@ -3676,6 +3686,7 @@ export class RunExecutionService {
       workspaceChat,
       workspaceRoot,
     );
+    const disclosures: Array<PromptChatsDisclosure> = [];
     let catalog: AttemptToolCatalog;
     try {
       catalog = await this.composeAttemptCatalog(
@@ -3683,6 +3694,7 @@ export class RunExecutionService {
         input,
         promptInputs,
         workspaceMcpKey,
+        disclosures,
       );
     } catch (error) {
       if (error instanceof ToolDescriptionRenderError) {
@@ -3692,16 +3704,24 @@ export class RunExecutionService {
       }
       throw error;
     }
+    const system = this.renderAttemptSystemPrompt({
+      model: promptInputs.model,
+      anchor: promptInputs.anchor,
+      user: promptInputs.user,
+      chats: promptInputs.promptDigestBaseline,
+      skills: promptInputs.skillState.baseline,
+      admittedToolIds: catalog.admittedIds,
+    });
+    disclosures.push(system.chatsDisclosure);
     const prompt: AttemptPromptContext = {
       ...promptInputs,
-      systemPrompt: this.renderAttemptSystemPrompt({
-        model: promptInputs.model,
-        anchor: promptInputs.anchor,
-        user: promptInputs.user,
-        chats: promptInputs.promptDigestBaseline,
-        skills: promptInputs.skillState.baseline,
-        admittedToolIds: catalog.admittedIds,
-      }),
+      ...(await this.accountAttemptDigestDisclosure({
+        tx,
+        input,
+        prompt: promptInputs,
+        disclosures,
+      })),
+      systemPrompt: system.text,
     };
     const effectiveContext = this.resolveAttemptEffectiveContext(
       prompt,
@@ -4065,11 +4085,14 @@ export class RunExecutionService {
       input.digestCandidate !== null &&
       input.shareRecentChats.shareRecentChats
     ) {
+      // The new epoch starts with nothing disclosed: the request this
+      // checkpoint precedes accounts for the entries its renders actually
+      // emit, and an unrendered entry stays eligible for an append.
       await chatsRepo.setRecencyDigest({
         chatId: input.run.chatId,
         ownerUserId: input.run.userId,
         baseline: input.digestCandidate.baseline,
-        told: input.digestCandidate.told,
+        told: [],
         rebakedFrom: input.checkpointId,
       });
     }
@@ -4198,7 +4221,7 @@ export class RunExecutionService {
     input: ExecuteRunInput;
     chatsRepo: ChatsRepository;
     chat: Chat;
-  }): Promise<AttemptDigestContext> {
+  }): Promise<AttemptDigestInputs> {
     let shareRecentChats = await this.memory.getForOwnerForBinding(
       input.tx,
       input.input.userId,
@@ -4241,42 +4264,68 @@ export class RunExecutionService {
       }
     }
 
-    const hadDigestBaseline = input.chat.recencyDigestBaseline !== null;
-    let promptDigestBaseline = input.chat.recencyDigestBaseline;
-    let recencyDigestInitialization: RecencyDigestInitialization | undefined;
-    if (
-      input.chat.recencyDigestBaseline === null &&
-      digestCandidate !== undefined &&
-      shareRecentChats.shareRecentChats
-    ) {
-      promptDigestBaseline = digestCandidate.baseline;
-      recencyDigestInitialization = {
-        baseline: digestCandidate.baseline,
-        told: digestCandidate.told,
-      };
-    }
-
-    let digestDelta: RecencyDigestDelta | null = null;
-    if (
-      hadDigestBaseline &&
-      digestCandidate !== undefined &&
-      input.chat.recencyDigestTold !== null &&
-      shareRecentChats.shareRecentChats
-    ) {
-      digestDelta = deriveRecencyDigestDelta({
-        candidate: digestCandidate,
-        told: input.chat.recencyDigestTold,
-        pinnedChatIds: await input.chatsRepo.findPinnedChatIds(
-          input.input.userId,
-          input.chat.recencyDigestTold.map(({ chatId }) => chatId),
-        ),
-      });
-    }
     return {
       shareRecentChats,
-      promptDigestBaseline,
-      recencyDigestInitialization,
-      digestDelta,
+      // An initializing attempt renders its own candidate; every later one
+      // renders the stored baseline.
+      promptDigestBaseline:
+        input.chat.recencyDigestBaseline ?? digestCandidate?.baseline ?? null,
+      digestCandidate,
+    };
+  }
+
+  /**
+   * The digest state this attempt's renders establish. The told-set records
+   * only chats the model actually received, so it is derived from the baseline
+   * entries either prompt surface emitted rather than from the baseline that
+   * was resolved: a template that omits the digest leaves every entry untold,
+   * to enter through an append.
+   */
+  private async accountAttemptDigestDisclosure(input: {
+    tx: Db;
+    input: ExecuteRunInput;
+    prompt: AttemptPromptInputs;
+    disclosures: ReadonlyArray<PromptChatsDisclosure>;
+  }): Promise<AttemptDigestDisclosure> {
+    const { chat, digestCandidate, promptDigestBaseline } = input.prompt;
+    if (digestCandidate === undefined || promptDigestBaseline === null) {
+      return { digestDelta: null };
+    }
+    const disclosed = disclosedRecencyDigestEntries({
+      baseline: promptDigestBaseline,
+      disclosures: input.disclosures,
+      candidates: digestCandidate.candidates,
+    });
+    if (chat.recencyDigestBaseline === null) {
+      return {
+        recencyDigestInitialization: {
+          baseline: digestCandidate.baseline,
+          told: disclosed,
+        },
+        digestDelta: null,
+      };
+    }
+    if (chat.recencyDigestTold === null) {
+      return { digestDelta: null };
+    }
+    // Prior told state wins over this render: a later append may have told
+    // the model a pin change the immutable baseline still contradicts.
+    const toldChatIds = new Set(
+      chat.recencyDigestTold.map(({ chatId }) => chatId),
+    );
+    const told = [
+      ...chat.recencyDigestTold,
+      ...disclosed.filter(({ chatId }) => !toldChatIds.has(chatId)),
+    ];
+    return {
+      digestDelta: deriveRecencyDigestDelta({
+        candidate: digestCandidate,
+        told,
+        pinnedChatIds: await new ChatsRepository(input.tx).findPinnedChatIds(
+          input.input.userId,
+          told.map(({ chatId }) => chatId),
+        ),
+      }),
     };
   }
 
@@ -4288,7 +4337,7 @@ export class RunExecutionService {
     /** The frozen catalog baseline; undefined renders no skill section. */
     skills: SkillCatalogBaseline | undefined;
     admittedToolIds: ReadonlyArray<string>;
-  }): string {
+  }): RenderedPrompt {
     const renderInput: SystemPromptRenderInput = {
       model: input.model,
       anchor: input.anchor,
@@ -4297,7 +4346,7 @@ export class RunExecutionService {
       ...(input.skills !== undefined && { skills: input.skills }),
       admittedToolIds: input.admittedToolIds,
     };
-    let rendered: string;
+    let rendered: RenderedPrompt;
     if (input.chats === null) {
       rendered = this.systemPrompts.render(renderInput);
     } else {
@@ -4310,17 +4359,22 @@ export class RunExecutionService {
         throw new Error('Failed to render system prompt');
       }
     }
-    if (rendered.trim().length === 0) {
+    if (rendered.text.trim().length === 0) {
       throw new ModelContextExecutionError('System prompt rendered empty.');
     }
     return rendered;
   }
 
+  /**
+   * Composes the attempt's catalog; `disclosures` receives each admitted
+   * description's digest disclosure, private to the told-set accounting.
+   */
   private async composeAttemptCatalog(
     tx: Db,
     input: ExecuteRunInput,
     prompt: AttemptPromptInputs,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
+    disclosures: Array<PromptChatsDisclosure>,
   ): Promise<AttemptToolCatalog> {
     const allowedToolRules = this.instanceConfig.config.tools.allowed;
     const callTimeoutSeconds =
@@ -4347,7 +4401,7 @@ export class RunExecutionService {
         if (source.type !== 'code_owned' || !isToolPromptId(id)) {
           return description;
         }
-        return this.toolPromptRenderer.render({
+        const rendered = this.toolPromptRenderer.render({
           toolId: id,
           model: prompt.model,
           anchor: prompt.anchor,
@@ -4355,6 +4409,8 @@ export class RunExecutionService {
           chats: prompt.promptDigestBaseline ?? undefined,
           admittedToolIds,
         });
+        disclosures.push(rendered.chatsDisclosure);
+        return rendered.text;
       },
     });
   }

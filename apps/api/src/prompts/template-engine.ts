@@ -123,6 +123,31 @@ export function promptValue(
   return promptSafeString(neutralize(trimmed));
 }
 
+/**
+ * The same projected value, reporting every time the engine emits it.
+ *
+ * Emission, not presence: an operator template can emit a value only through
+ * escaped output (the validator rejects unescaped output), and handlebars'
+ * escaping duck-types `toHTML` on a `SafeString`. A conditional or an
+ * iteration over the value never calls it, so `onEmit` fires exactly when the
+ * executed branch writes the value into the rendered text — without reading
+ * that text back.
+ */
+export function promptValueObserved(
+  value: PromptSafeValue | undefined,
+  onEmit: () => void,
+): PromptSafeValue | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const observed = promptSafeString(value.toHTML());
+  observed.toHTML = () => {
+    onEmit();
+    return value.toHTML();
+  };
+  return observed;
+}
+
 /** Which escaping a source is compiled under. Operator files take handlebars'
  *  default HTML escaping (they still pass no options object); packaged files
  *  compile with `noEscape`, because llame's own prose is model-facing text in

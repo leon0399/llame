@@ -16,6 +16,7 @@ import {
   parsePromptTemplate,
   promptSafeString,
   promptValue,
+  promptValueObserved,
   readPromptSource,
   type PromptFileAccess,
   type PromptSafeValue,
@@ -24,6 +25,7 @@ import { parseMcpToolId } from '../mcp/tool-id';
 import { isToolId } from '../tools/tool-id';
 import type {
   PromptChatDigestEntry,
+  PromptChatsDisclosure,
   PromptChatsInput,
   PromptSkillsInput,
   PromptUserInput,
@@ -31,6 +33,7 @@ import type {
 } from '../models/model-catalog';
 import type { TemporalAnchor } from '../prompts/temporal-anchor';
 export type {
+  PromptChatsDisclosure,
   PromptChatsInput,
   PromptSkillsInput,
   PromptUserInput,
@@ -216,8 +219,18 @@ export type ToolPromptRenderInput = Omit<
   toolId: ToolPromptId;
 };
 
+/**
+ * One render's text and which digest entries it actually emitted. The
+ * disclosure stays with the worker that accounts the told-set; it never reaches
+ * the model, a receipt, or owner output.
+ */
+export type RenderedPrompt = {
+  readonly text: string;
+  readonly chatsDisclosure: PromptChatsDisclosure;
+};
+
 export type ToolPromptRenderer = {
-  render(input: ToolPromptRenderInput): string;
+  render(input: ToolPromptRenderInput): RenderedPrompt;
 };
 /**
  * Renders one model's complete system prompt.
@@ -229,7 +242,7 @@ export type ToolPromptRenderer = {
  */
 export function renderSystemPromptTemplate(
   input: RenderSystemPromptInput,
-): string {
+): RenderedPrompt {
   return renderPrompt(input.template, input);
 }
 
@@ -389,7 +402,7 @@ function rendersEmptyForSomeGateState(
           chats,
           skills,
           admittedToolIds: probeToolIds,
-        }).trim().length === 0,
+        }).text.trim().length === 0,
     ),
   );
 }
@@ -1101,13 +1114,43 @@ function userContext(user: PromptUserInput | undefined) {
   return Object.keys(context).length === 0 ? undefined : context;
 }
 
-function chatEntryContext(entry: PromptChatDigestEntry) {
+/** Every field reports one emission of this entry, whichever field it is. */
+function chatEntryContext(entry: PromptChatDigestEntry, onEmit: () => void) {
   return {
-    title: promptValue(entry.title, sanitizeAuthoredText),
-    date: promptValue(entry.date, sanitizeAuthoredText),
-    messageCount: promptValue(String(entry.messageCount), sanitizeAuthoredText),
-    excerpt: promptValue(entry.excerpt ?? undefined, sanitizeAuthoredText),
+    title: promptValueObserved(
+      promptValue(entry.title, sanitizeAuthoredText),
+      onEmit,
+    ),
+    date: promptValueObserved(
+      promptValue(entry.date, sanitizeAuthoredText),
+      onEmit,
+    ),
+    messageCount: promptValueObserved(
+      promptValue(String(entry.messageCount), sanitizeAuthoredText),
+      onEmit,
+    ),
+    excerpt: promptValueObserved(
+      promptValue(entry.excerpt ?? undefined, sanitizeAuthoredText),
+      onEmit,
+    ),
   };
+}
+
+/**
+ * One digest list, normalized to "absent or non-empty" so the emptiness rule
+ * is stated in a single place: an empty ARRAY would be truthy, making `{{#if
+ * chats.recent}}` pass over nothing. Each entry records its own index in
+ * `emitted` when the render writes any of its values.
+ */
+function chatListContext(
+  entries: ReadonlyArray<PromptChatDigestEntry> | undefined,
+  emitted: Set<number>,
+) {
+  return entries === undefined || entries.length === 0
+    ? undefined
+    : entries.map((entry, index) =>
+        chatEntryContext(entry, () => emitted.add(index)),
+      );
 }
 
 /**
@@ -1115,23 +1158,16 @@ function chatEntryContext(entry: PromptChatDigestEntry) {
  * would make `{{#if user}}` true for digest-only owners and render an
  * operator's personalization framing around no personalization content.
  */
-function chatsContext(chats: PromptChatsInput | undefined) {
+function chatsContext(
+  chats: PromptChatsInput | undefined,
+  emitted: { pinned: Set<number>; recent: Set<number> },
+) {
   if (chats === undefined) {
     return undefined;
   }
 
-  // Normalized to "absent or non-empty" once, so the emptiness rule is stated
-  // in a single place. An empty ARRAY would be truthy, making `{{#if
-  // chats.recent}}` pass over nothing.
-  const projectList = (
-    entries: ReadonlyArray<PromptChatDigestEntry> | undefined,
-  ) =>
-    entries === undefined || entries.length === 0
-      ? undefined
-      : entries.map(chatEntryContext);
-
-  const pinned = projectList(chats.pinned);
-  const recent = projectList(chats.recent);
+  const pinned = chatListContext(chats.pinned, emitted.pinned);
+  const recent = chatListContext(chats.recent, emitted.recent);
   if (pinned === undefined && recent === undefined) {
     return undefined;
   }
@@ -1197,15 +1233,15 @@ function projectToolPredicates(
 function renderPrompt(
   source: string,
   fields: Omit<RenderSystemPromptInput, 'template'>,
-): string {
-  const template = compilePromptTemplate(source);
+): RenderedPrompt {
   const { model, anchor, user, chats, skills, admittedToolIds } = fields;
+  const emitted = { pinned: new Set<number>(), recent: new Set<number>() };
   // An allowlisted path with no value renders empty rather than failing, so
   // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
   // still fail loudly: an unknown path is rejected in
   // `assertSupportedTemplate`.
   const projectedUser = userContext(user);
-  const projectedChats = chatsContext(chats);
+  const projectedChats = chatsContext(chats, emitted);
   const projectedSkills = skillsContext(skills);
   type RenderPromptContext = {
     model: {
@@ -1237,7 +1273,8 @@ function renderPrompt(
   if (projectedUser !== undefined) renderContext.user = projectedUser;
   if (projectedChats !== undefined) renderContext.chats = projectedChats;
   if (projectedSkills !== undefined) renderContext.skills = projectedSkills;
-  return template(renderContext);
+  const text = compilePromptTemplate(source)(renderContext);
+  return { text, chatsDisclosure: emitted };
 }
 
 function promptReadError(field: string, error: unknown): InstanceConfigError {

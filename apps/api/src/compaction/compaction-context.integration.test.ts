@@ -258,7 +258,7 @@ function renderEpochPrompt(input: {
     chats: input.chats ?? undefined,
     skills: input.skills,
     admittedToolIds: [],
-  });
+  }).text;
 }
 
 /** A summary request, told apart from the Run's own request by its trailing instruction. */
@@ -1052,13 +1052,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       });
       expect(published.chat).toMatchObject({
         recencyDigestRebakedFrom: checkpoint.id,
-        recencyDigestTold: [
-          {
-            chatId: seeded.freshSource.id,
-            pinned: false,
-            title: 'Fresh source',
-          },
-        ],
+        // The refresh pre-marks nothing, and the dispatched request rendered
+        // its one entry without an append, so it advanced no told state.
+        recencyDigestTold: [],
         skillCatalogRebakedFrom: checkpoint.id,
         skillCatalogBaseline: LIVE_SKILLS,
         workspaceToldFrom: checkpoint.id,
@@ -1458,7 +1454,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         ),
         chats: digest,
         admittedToolIds: [],
-      });
+      }).text;
       // Guard the guard: if the block stopped rendering, every assertion below
       // would pass vacuously.
       expect(packagedPrompt).toContain('<user_chat_history>');
