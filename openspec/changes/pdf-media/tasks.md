@@ -79,7 +79,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 1.4 Replace `image_too_large` with `media_too_large` in `apps/api/src/prompts/tools/read.md`, `docs/product/reference/tools/read.md`, `docs/product/reference/locators/web.md`, and `docs/product/operator/web-read.md`; document PDF storage, bounds, refusals (including the literal-`/Encrypt` false positive), the parse bounds (Linux address-space and OOM bounds, which need `sh` and a writable `/proc/self/oom_score_adj` in the image; time bound only on macOS and Windows development builds) and the `PDF parsing is unavailable on this server` refusal, and `media_too_large` in `docs/product/operator/media.md`; add the dated `CHANGELOG.md` entry marking the rename **Breaking**; verify `pnpm lint:markdown`, `pnpm format:check`, and a search finding no `image_too_large` in `apps/`, `packages/`, `docs/`, `README.md`, or `SPEC.md` (canonical specs change at `finalize`; `CHANGELOG.md` history and archived changes keep it)
 - [x] 1.5 Verify `pnpm --filter api lint`, `typecheck`, `pnpm --filter @workspace/native-file-tools test`, `pnpm --filter web lint typecheck`, the focused unit tests, and the touched integration suites
 - [x] 1.6 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
-- [ ] 1.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 1.7 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 2. `pdf-media/pdf-attachments` — input declaration, window, owner PDFs (design D4–D6, D8)
 
