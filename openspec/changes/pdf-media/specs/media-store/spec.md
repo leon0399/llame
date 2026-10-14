@@ -98,7 +98,7 @@ when memory runs out. A parse over a bound, or exiting abnormally, SHALL be refu
 #### Scenario: A parse that runs out of memory is refused and the process keeps serving
 
 - **WHEN** an owner on a Linux host uploads a file that starts with `%PDF-` whose parse allocates
-  beyond the 2 GiB address-space limit
+  beyond its address-space limit
 - **THEN** the upload is refused as `unsupported_media_type` and nothing is stored
 - **AND** the API process that received it keeps serving later requests
 

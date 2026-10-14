@@ -133,19 +133,21 @@ otherwise be an unhandled stream error that ends the API or Run worker (round 7)
 deploy target, the child runs under two OS-level bounds, set by spawning it through `sh` with the
 address-space limit clamped to the host's hard limit, so an inherited lower `RLIMIT_AS`
 (`docker run --ulimit as=`, systemd `LimitAS=`) applies instead of failing `EPERM`:
-`h=$(ulimit -H -v); [ "$h" = unlimited ] || [ "$h" -gt 2097152 ] && h=2097152; ulimit -v "$h" &&
-echo 1000 > /proc/self/oom_score_adj && exec node <entry>`. The `&&` chain fails closed: if a
-bound cannot be applied, `node` never starts. The parent tells that apart from a bad file, because
-a child that exits before writing any output and before reading its whole input is a start
-failure: it logs the exit status and stderr at error level and refuses with
+`h=$(ulimit -H -v); [ "$h" = unlimited ] || [ "$h" -gt 2097152 ] && h=2097152; { ulimit -v "$h" &&
+echo 1000 > /proc/self/oom_score_adj; } || exit 70; exec node <entry>`. The chain fails closed: if a
+bound cannot be applied, `node` never starts and `sh` exits 70, a status the parse entry never
+uses. The parent classifies on that status, not on how much of the body it managed to write
+(round 8: a small body fits the pipe buffer, so a write succeeds even after `sh` exited): exit 70
+with no output is a start failure, logged with its stderr at error level and refused with
 `PDF parsing is unavailable on this server` instead of the unopenable-PDF message. The deploy image
 must provide `sh` and a writable `/proc/self/oom_score_adj`; the operator runbook lists both:
 
-- a 2 GiB address-space limit (`RLIMIT_AS`), which caps off-heap allocation too: an unbounded
-  `Buffer` loop fails and the child exits non-zero, while a 23 MB PDF still parses. The floor
-  measured by a reviewer is between 1,152 and 1,280 MiB (V8's start-up reservation); 2 GiB leaves
-  about 768 MiB of margin for builds that reserve more. Tests assert the non-zero exit, not an
-  error message;
+- an address-space limit (`RLIMIT_AS`) of 2 GiB, or the host's lower hard limit, which caps off-heap
+  allocation too: an unbounded `Buffer` loop fails and the child exits non-zero, while a 23 MB PDF
+  still parses. The floor measured by a reviewer is between 1,152 and 1,280 MiB (V8's start-up
+  reservation); 2 GiB leaves about 768 MiB of margin, less on a clamped host, where a hard limit
+  near that floor makes every parse fail and so surface as start or parse failures in the log.
+  Tests assert the non-zero exit, not an error message;
 - `oom_score_adj` 1000, which any process may set on itself, so if the container still runs out of
   memory the kernel prefers a parse child over the API or Run worker. It is a preference, not a
   guarantee: under cgroup v2 `memory.oom.group=1` the whole group dies.
