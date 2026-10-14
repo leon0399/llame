@@ -5,7 +5,7 @@ import { type MediaObject } from '../../db/schema';
 import { imageColumns } from '../media-descriptors';
 import { MODEL_MEDIA_TYPES, ORIGINAL_MEDIA_TYPES } from '../media-ingest';
 import { mediaLocator } from '../media-locator';
-import { PDF_MEDIA_TYPE } from '../pdf-preparation';
+import { PDF_MAX_PAGES, PDF_MEDIA_TYPE } from '../pdf-preparation';
 
 /** The model variant's own format, size, and dimensions. */
 export class MediaModelVariantResponse {
@@ -72,7 +72,7 @@ export class MediaPdfDescriptorResponse {
   @ApiProperty()
   byteSize!: number;
 
-  @ApiProperty({ minimum: 1, maximum: 100 })
+  @ApiProperty({ minimum: 1, maximum: PDF_MAX_PAGES })
   pages!: number;
 }
 

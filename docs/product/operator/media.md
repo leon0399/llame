@@ -201,6 +201,14 @@ responses for other users; `private` already forbids shared caching.
 `/model` of a PDF returns the same `404` as an unknown id, whatever its
 `If-None-Match`, because a PDF has no model variant.
 
+Browsers' built-in PDF viewers ignore `Content-Security-Policy`: Chromium
+strips it from every `application/pdf` response before its viewer loads. For a
+PDF, `sandbox` is therefore not a control. Chromium and Firefox render PDF bytes
+in a viewer page, not as HTML, so a PDF cannot run script in the API origin,
+but its links and actions still navigate as the signed-in owner. Only the owner
+can fetch a PDF's bytes, so this exposes owners to PDFs they uploaded
+themselves; treat an untrusted PDF the way you would any downloaded file.
+
 ## `media://` locators
 
 A media locator is `media://` followed by the object id as a lower-case

@@ -1,5 +1,5 @@
 {
-  "id": "480deba5-3860-4df7-8454-cf79c528bfe7",
+  "id": "9722b849-630b-4a6a-848b-14462b8f2047",
   "prevId": "afb47cd0-7966-485c-bb3c-2dab3940052f",
   "version": "7",
   "dialect": "postgresql",
@@ -1964,7 +1964,7 @@
       "checkConstraints": {
         "media_objects_shape": {
           "name": "media_objects_shape",
-          "value": "(\"media_objects\".\"media_type\" <> 'application/pdf'\n        AND \"media_objects\".\"width\" IS NOT NULL AND \"media_objects\".\"height\" IS NOT NULL\n        AND \"media_objects\".\"model_media_type\" IS NOT NULL AND \"media_objects\".\"model_width\" IS NOT NULL\n        AND \"media_objects\".\"model_height\" IS NOT NULL AND \"media_objects\".\"model_byte_size\" IS NOT NULL\n        AND \"media_objects\".\"page_count\" IS NULL)\n      OR (\"media_objects\".\"media_type\" = 'application/pdf'\n        AND \"media_objects\".\"page_count\" BETWEEN 1 AND 100\n        AND \"media_objects\".\"width\" IS NULL AND \"media_objects\".\"height\" IS NULL\n        AND \"media_objects\".\"model_media_type\" IS NULL AND \"media_objects\".\"model_width\" IS NULL\n        AND \"media_objects\".\"model_height\" IS NULL AND \"media_objects\".\"model_byte_size\" IS NULL)"
+          "value": "(\"media_objects\".\"media_type\" <> 'application/pdf'\n        AND \"media_objects\".\"width\" IS NOT NULL AND \"media_objects\".\"height\" IS NOT NULL\n        AND \"media_objects\".\"model_media_type\" IS NOT NULL AND \"media_objects\".\"model_width\" IS NOT NULL\n        AND \"media_objects\".\"model_height\" IS NOT NULL AND \"media_objects\".\"model_byte_size\" IS NOT NULL\n        AND \"media_objects\".\"page_count\" IS NULL)\n      OR (\"media_objects\".\"media_type\" = 'application/pdf'\n        AND \"media_objects\".\"page_count\" IS NOT NULL AND \"media_objects\".\"page_count\" BETWEEN 1 AND 100\n        AND \"media_objects\".\"width\" IS NULL AND \"media_objects\".\"height\" IS NULL\n        AND \"media_objects\".\"model_media_type\" IS NULL AND \"media_objects\".\"model_width\" IS NULL\n        AND \"media_objects\".\"model_height\" IS NULL AND \"media_objects\".\"model_byte_size\" IS NULL)"
         }
       },
       "isRLSEnabled": true

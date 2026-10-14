@@ -272,6 +272,10 @@ describe('RLS integration — media store tenancy', () => {
       { mediaType: 'application/pdf', width: null, model: null, pages: 101 },
     ],
     [
+      'a PDF without a page count',
+      { mediaType: 'application/pdf', width: null, model: null, pages: null },
+    ],
+    [
       'an image without model columns',
       { mediaType: 'image/png', width: 1, model: null, pages: null },
     ],

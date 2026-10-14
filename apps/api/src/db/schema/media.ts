@@ -67,6 +67,8 @@ export const mediaObjects = pgTable(
     // Per-owner dedup, concurrency-safe: a racing identical ingest hits this
     // constraint and reuses the winner's row.
     unique('media_objects_owner_sha256_unique').on(t.ownerUserId, t.sha256),
+    // The 100 here copies `PDF_MAX_PAGES`
+    // (media/pdf-preparation.ts); the schema cannot import from src/media.
     check(
       'media_objects_shape',
       sql`(${t.mediaType} <> 'application/pdf'
@@ -75,7 +77,7 @@ export const mediaObjects = pgTable(
         AND ${t.modelHeight} IS NOT NULL AND ${t.modelByteSize} IS NOT NULL
         AND ${t.pageCount} IS NULL)
       OR (${t.mediaType} = 'application/pdf'
-        AND ${t.pageCount} BETWEEN 1 AND 100
+        AND ${t.pageCount} IS NOT NULL AND ${t.pageCount} BETWEEN 1 AND 100
         AND ${t.width} IS NULL AND ${t.height} IS NULL
         AND ${t.modelMediaType} IS NULL AND ${t.modelWidth} IS NULL
         AND ${t.modelHeight} IS NULL AND ${t.modelByteSize} IS NULL)`,

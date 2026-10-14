@@ -19,7 +19,7 @@ import {
   loadMediaDescriptors,
   type MediaDescriptor,
 } from './media-descriptors';
-import { prepareMedia } from './media-ingest';
+import { prepareMedia, type PreparedMedia } from './media-ingest';
 import { isCanonicalMediaId } from './media-locator';
 import { mediaSourceLabel } from './media-source-label';
 import { isPdfSignature, PDF_MEDIA_TYPE, preparePdf } from './pdf-preparation';
@@ -44,33 +44,17 @@ type PreparedObject = {
   blobs: Array<{ variant: MediaVariant; data: Buffer }>;
 };
 
-/**
- * Every check and every decode or parse of an ingest, before any transaction.
- * A PDF keeps only its original (pdf-media D2); an image keeps both variants.
- */
-async function prepareObject(
-  ownerUserId: string,
-  input: MediaIngestInput,
-): Promise<PreparedObject> {
-  const { bytes } = input;
-  const base = {
-    id: uuidv7(),
-    ownerUserId,
-    name: mediaSourceLabel(input.source),
-    byteSize: bytes.length,
-    sha256: createHash('sha256').update(bytes).digest('hex'),
-  };
-  if (isPdfSignature(bytes)) {
-    const pageCount = await preparePdf(bytes);
-    return {
-      row: { ...base, mediaType: PDF_MEDIA_TYPE, pageCount },
-      blobs: [{ variant: 'original', data: bytes }],
-    };
-  }
-  const { original, model } = await prepareMedia(bytes);
+type PreparedKind = Pick<PreparedObject, 'blobs'> & {
+  columns: Omit<
+    NewMediaObject,
+    'id' | 'ownerUserId' | 'name' | 'byteSize' | 'sha256'
+  >;
+};
+
+/** An image keeps both variants and their dimensions. */
+function imageObject({ original, model }: PreparedMedia): PreparedKind {
   return {
-    row: {
-      ...base,
+    columns: {
       mediaType: original.mediaType,
       width: original.width,
       height: original.height,
@@ -84,6 +68,36 @@ async function prepareObject(
       { variant: 'model', data: model.bytes },
     ],
   };
+}
+
+/**
+ * Every check and every decode or parse of an ingest, before any transaction.
+ * A PDF keeps only its original (pdf-media D2). The digest is taken only after
+ * preparation accepts the bytes.
+ */
+async function prepareObject(
+  ownerUserId: string,
+  input: MediaIngestInput,
+): Promise<PreparedObject> {
+  const { bytes } = input;
+  const { columns, blobs } = isPdfSignature(bytes)
+    ? {
+        columns: {
+          mediaType: PDF_MEDIA_TYPE,
+          pageCount: await preparePdf(bytes),
+        },
+        blobs: [{ variant: 'original' as const, data: bytes }],
+      }
+    : imageObject(await prepareMedia(bytes));
+  const row = {
+    ...columns,
+    id: uuidv7(),
+    ownerUserId,
+    name: mediaSourceLabel(input.source),
+    byteSize: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+  return { row, blobs };
 }
 
 /**
