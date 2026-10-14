@@ -53,12 +53,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   check as `pins_owner_insert`. Pin reorder is unaffected because it only
   rewrites the rank of pins whose item is still accessible.
 
-- Fixed explicit `$skill` activation loading a skill's instructions and
-  imported package files when `read` is not in `tools.allowed` (#1264).
-  Activation now loads nothing without `read`, in `default` and `bypass`
-  modes alike, matching proactive skill reads, prompt imports, and
-  instruction loading.
-
 - Fixed opening `/chat/<id>#msg-N` not landing on the target message
   (#1237). The target scroll ran before the transcript had rendered while the
   Markdown renderers were still loading, found no row and never retried; when
@@ -77,6 +71,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   appends instead of never. A checkpoint refresh now starts the new epoch with
   nothing told. The next request still does not re-announce the entries it
   renders, and appends the ones it does not.
+
+- Fixed explicit `$skill` activation loading a skill's instructions and
+  imported package files when `read` is not in `tools.allowed` (#1264).
+  Activation now loads nothing without `read`, in `default` and `bypass`
+  modes alike, matching proactive skill reads, prompt imports, and
+  instruction loading.
 
 - Moved the admin organization tree's, the parked members panel's, the chat
   command palette's, the share chat dialog's, the chat rename and delete
@@ -242,6 +242,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   SHA-256 instead of piping the vendor's unpinned install script into `bash`.
 
 # 2026-10-10
+
+- **pnpm 11 → 12** (#634). `packageManager` pins `pnpm@12.9.0`, the version
+  nixpkgs packages as `pnpm_12`, and the Nix dev shell switches to
+  `pkgs.pnpm_12` on a nixpkgs lock bumped to 2026-10-08, which also moves its
+  Node to 22.23.3 (CI still reads `.node-version`). pnpm 12's patch parser
+  rejected `patches/@orval__fetch@8.24.0.patch`, whose last three hunks had
+  new-side starts that ignored the lines earlier hunks add. pnpm 11 never
+  read those numbers. The headers are corrected and the patch's content is
+  unchanged; its lockfile hash updates with them. The lockfile now also
+  records `pnpm@12.9.0` and its platform binaries, which pnpm 12 writes. No
+  repository script uses one of the install flags pnpm 12 removed.
+  `minimumReleaseAgeStrict` is now on, pnpm 12's default when a cooldown is
+  set: `pnpm add` of a version younger than seven days fails instead of
+  appending a silent exclusion. `minimumReleaseAgeExcludePrune` drops
+  exact-version exclusions once they age out, which removed three that had
+  been added without review (`esbuild@0.24.3`, `image-size@2.0.3`,
+  `qs@6.15.4`). `enableGlobalVirtualStore: false` becomes its current name,
+  `virtualStoreType: project`. A global pnpm 11 older than 11.28.4 cannot hand
+  off to the pnpm 12 pin, so run pnpm from the Nix dev shell.
 
 - Chat images now open in a lightbox (#1166, #935). The `read` tool card shows
   a thumbnail for an image result and the prompt-imports chip one per imported

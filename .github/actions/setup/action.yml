@@ -1,6 +1,6 @@
 name: Setup workspace
 description: >-
-  pnpm 11 + Node (pinned by .node-version) + a frozen-lockfile install, and
+  pnpm 12 + Node (pinned by .node-version) + a frozen-lockfile install, and
   optionally the Turborepo local cache for a task.
 
 # Every CI job repeats the same setup after checkout. It lives here so a

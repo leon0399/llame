@@ -1,6 +1,6 @@
 # Runtime and package manager
 
-llame uses Node >=22.19 and pnpm 11. Revisit Bun only when all hard triggers
+llame uses Node >=22.19 and pnpm 12. Revisit Bun only when all hard triggers
 below change.
 
 ## Why Node remains
@@ -27,9 +27,26 @@ in-place API migration.
 - Put dependencies shared by two or more workspaces in
   `pnpm-workspace.yaml`'s `catalog:`.
 - `allowBuilds` is the reviewed install-script allowlist; unlisted scripts are
-  blocked.
-- Keep `enableGlobalVirtualStore` off: tsgo resolves global-store realpaths into
-  split `@types` identities. Revisit when tsgo supports that layout.
-- Stay current on pnpm 11. Security/build defaults are pinned in
-  `pnpm-workspace.yaml`; `minimumReleaseAge` is seven days and `engineStrict`
-  lives there. pnpm 12 is #634.
+  blocked. Record a decision with `pnpm add <pkg> --allow-build=<pkg>` (or
+  `--allow-build=!<pkg>` to deny) rather than editing the list by hand.
+- Keep `virtualStoreType: project`: with the global virtual store, tsgo
+  resolves global-store realpaths into split `@types` identities. Revisit when
+  tsgo supports that layout.
+- Stay current on pnpm 12, pinned to the version nixpkgs packages as
+  `pnpm_12` so the Nix dev shell and `packageManager` agree. Security/build
+  defaults are pinned in `pnpm-workspace.yaml`; `minimumReleaseAge` is seven
+  days and `engineStrict` lives there.
+- `minimumReleaseAgeStrict` is on: a version younger than the cooldown fails
+  `pnpm add`/`pnpm update` instead of being excluded silently. An exclusion is
+  a reviewed entry with a comment; `minimumReleaseAgeExcludePrune` removes
+  exact-version entries once they age past the window.
+- pnpm 12 fails every command on a `pnpm-workspace.yaml` key the pinned
+  version does not know. Add a setting from a newer pnpm only in the change
+  that bumps the Nix `pnpm_12` and `packageManager` to that version.
+- Run pnpm from the Nix dev shell (`.envrc` loads it through direnv, or
+  `nix develop`). A global pnpm 11 older than 11.28.4 cannot switch to the
+  pnpm 12 pin and exits with `SyntaxError: Invalid or unexpected token`; with
+  `pmOnFail: ignore` it runs as the old version instead, without warning.
+- pnpm 12 validates patch hunk positions that pnpm 11 ignored: each hunk's
+  new-side start must include the lines earlier hunks added. Prefer
+  regenerating a patch with `pnpm patch`/`pnpm patch-commit` over editing it.
