@@ -59,6 +59,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   modes alike, matching proactive skill reads, prompt imports, and
   instruction loading.
 
+- Fixed opening `/chat/<id>#msg-N` not landing on the target message
+  (#1237). The target scroll ran before the transcript had rendered while the
+  Markdown renderers were still loading, found no row and never retried; when
+  it did run, stick-to-bottom pulled the view straight back to the newest
+  message. The scroll now runs when the transcript mounts and releases the
+  bottom pin, so the target (centred, even when taller than the screen) stays
+  in view until the reader scrolls. Ordinary opens still land on the newest
+  message. The product E2E suite now checks the target is in view without
+  scrolling to it.
+
 - Fixed the recency digest marking chats as told that the model never saw
   (#1206). Both prompt renders now report which digest entries they actually
   emitted, and the told-set records only those. An operator template that

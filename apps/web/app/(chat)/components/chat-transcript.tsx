@@ -1,8 +1,10 @@
 "use client";
 
+import { useLayoutEffect, useRef, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 
 import type { ChatStatus, UIMessage } from "ai";
+import type { StickToBottomContext } from "use-stick-to-bottom";
 
 import {
   Conversation,
@@ -18,7 +20,11 @@ import {
 import { ChatLoadOlder } from "./chat-load-older";
 import { CompactionBoundary } from "./compaction-boundary";
 import { ChatMessageRow, messageBoundaries } from "./chat-message-row";
-import { messageRenderKey, type Compaction } from "@/lib/services/chat/history";
+import {
+  messageRenderKey,
+  messageSeqFromMetadata,
+  type Compaction,
+} from "@/lib/services/chat/history";
 import type { AvailableModel } from "@/lib/services/models/queries";
 
 type ChatTranscriptMessageProps = {
@@ -215,9 +221,51 @@ function ChatTranscriptBody({
   );
 }
 
+/**
+ * Lands a `#msg-N` open on its target row (#1237). Runs from the component
+ * that owns the `Conversation`, so it fires on the commit that first mounts
+ * the transcript — which waits for the Markdown renderers, so the row exists —
+ * after the stick-to-bottom context has attached. Layout effects run child
+ * first, so `ChatLoadOlder`'s pre-paint bottom pin has already run (and
+ * latched) by then; this scroll simply overrides it. What pulls the reader
+ * back afterwards is every writer that runs on LATER frames while the lock
+ * holds: the library's content ResizeObserver (its initial bottom snap and
+ * each growth catch-up, a `scrollToBottom` whose rAF loop continues only
+ * while `state.isAtBottom`) and `ChatLoadOlder`'s synchronous re-pin on
+ * resize (gated on `isAtBottom` / `escapedFromLock`). `stopScroll` — the
+ * library's own escape, what its wheel handler calls when the reader scrolls
+ * up — clears `isAtBottom` and sets `escapedFromLock`, which disarms all of
+ * them. Ordinary opens (no target) keep the bottom pin.
+ */
+function useTargetScroll(
+  conversationRef: RefObject<StickToBottomContext | null>,
+  displayMessages: Array<UIMessage>,
+  targetSeq: number | null,
+) {
+  const targetLoaded =
+    targetSeq !== null &&
+    displayMessages.some(
+      (message) => messageSeqFromMetadata(message.metadata) === targetSeq,
+    );
+  const scrolledTargetRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (!targetLoaded || scrolledTargetRef.current === targetSeq) return;
+    const target = document.getElementById(`msg-${targetSeq}`);
+    if (!target) return;
+    conversationRef.current?.stopScroll();
+    target.scrollIntoView({ block: "center" });
+    scrolledTargetRef.current = targetSeq;
+  }, [conversationRef, targetLoaded, targetSeq]);
+}
+
 /** The scrollable message log. Split out of `ChatSessionContent` as its own
  *  self-contained region. */
-export function ChatTranscript(props: ChatTranscriptProps) {
+export function ChatTranscript({
+  targetSeq,
+  ...props
+}: ChatTranscriptProps & { targetSeq: number | null }) {
+  const conversationRef = useRef<StickToBottomContext>(null);
+  useTargetScroll(conversationRef, props.displayMessages, targetSeq);
   return (
     <div className="relative flex-1 overflow-hidden">
       {/* initial="instant": the reader must LAND at the newest message, not
@@ -228,7 +276,12 @@ export function ChatTranscript(props: ChatTranscriptProps) {
           through ChatMarkdownProvider before the transcript mounts, so on a
           hard reload growth should not come from empty shells filling in.
           Instant still covers streaming growth and older-page prepends. */}
-      <Conversation className="h-full" initial="instant" resize="instant">
+      <Conversation
+        className="h-full"
+        initial="instant"
+        resize="instant"
+        contextRef={conversationRef}
+      >
         {/* TODO(#187): a reader who walks a several-thousand-message chat
             to the top accumulates the whole transcript in the DOM. If that
             ever measures heavy, [content-visibility:auto] on message rows
