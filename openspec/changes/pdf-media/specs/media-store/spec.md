@@ -68,10 +68,10 @@ object and store no bytes.
 ### Requirement: PDF parsing is bounded in time and memory
 
 The structural parse of a PDF SHALL run in a process separate from the API and Run-worker
-processes, under a 10-second time bound. A parse that exceeds the bound, or whose process runs out
-of memory or exits abnormally, SHALL be refused as `unsupported_media_type` with the unopenable-PDF
-message, SHALL store nothing, and SHALL NOT stop or stall the requesting process or its other
-requests.
+processes, at most two at once per requesting process, others waiting, each under a 10-second bound
+from its own start. A parse over the bound, or whose process runs out of memory or exits abnormally,
+SHALL be refused as `unsupported_media_type` with the unopenable-PDF message, store nothing, and not
+stop or stall the requesting process or its other requests.
 
 #### Scenario: A parse past the time bound is refused
 
@@ -92,6 +92,12 @@ requests.
 
 - **WHEN** one PDF's parse runs for several seconds
 - **THEN** other requests served by the requesting process keep completing during it
+
+#### Scenario: Concurrent parses wait for a free slot
+
+- **WHEN** an owner sends five concurrent uploads of PDFs that each parse within 10 seconds
+- **THEN** at most two of their parses run at once
+- **AND** each upload is answered, and none is refused for waiting
 
 ## MODIFIED Requirements
 

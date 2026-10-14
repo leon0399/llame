@@ -131,9 +131,12 @@ the largest process. A spike (`~/.cache/llame-scripts/unpdf-spike/child-spike.cj
 | child exhausting its heap      | child exits `SIGABRT`; the parent keeps running                          |
 
 The per-call start (about 0.3 s) is accepted over a pooled parser: PDFs are read seconds apart,
-each read is followed by a provider call, and a pool adds lifecycle code. Rejected: a
-`worker_threads` worker (round 1's first answer), because it bounds neither off-heap memory nor
-the blast radius of an abort.
+each read is followed by a provider call, and a pool adds lifecycle code. At most two parse
+children run at once per process; further parses wait for a slot, and the 10-second bound runs
+from a child's start. Without the cap, several crafted uploads at once could exhaust the container
+together while each child stays smaller than its parent, so the OOM killer would pick the parent
+(round 3). Rejected: a `worker_threads` worker (round 1's first answer), because it bounds neither
+off-heap memory nor the blast radius of an abort.
 
 Rejected alternatives:
 
@@ -230,22 +233,33 @@ locator's URL path), or `document.pdf` when there is none.
 The kind of every reference is known: a stored file part carries `mediaType`, an import entry
 carries `kind`, and a read envelope carries `kind`. The unavailable form follows it.
 
-### D5: One epoch media window: 28 MiB, 100 images, 100 PDF pages
+### D5: One epoch media window: 28 MiB, 100 images, a model-relative PDF page bound
 
 `admitEpochImages` becomes the epoch media window. It keeps:
 
 - the same order: oldest first, request order, a repeated id counting again;
 - the same append-only admission and attempt-boundary exceptions.
 
-It enforces three bounds together:
+It enforces three bounds together; the first reference that would exceed any of them, and every
+later one in the epoch, is not attached:
 
-| Bound              | Value                                     |
-| ------------------ | ----------------------------------------- |
-| summed base64 size | 29,360,128 bytes (28 MiB), up from 24 MiB |
-| attached images    | 100                                       |
-| attached PDF pages | 100                                       |
+| Bound              | Value                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| summed base64 size | 29,360,128 bytes (28 MiB), up from 24 MiB                                                 |
+| attached images    | 100                                                                                       |
+| attached PDF pages | the smaller of 100 and `floor(contextWindowTokens × 0.8 / 3,000)` for the request's model |
 
 A PDF's base64 size is `4 × ceil(byteSize / 3)` of its original.
+
+The page bound is 53 pages on a 200,000-token model, 34 on 128,000, and 100 from 375,000 up. The
+0.8 is `COMPACTION_WINDOW_RATIO`, the share of the window the default compaction threshold already
+reserves for history, so attached PDFs alone never reach the default threshold and 20% stays for
+the system prompt, tools, the rest of the history, and output. Rounds 2 and 3 replaced two
+narrower rules with this one: a per-PDF "too large for the window" exclusion missed several PDFs
+that only overflow together and a PDF that fits alone but not with the system prompt, and either
+would leave a chat whose every request, compaction included, fails `context_incompatible`. With an
+ordinary bound, such a PDF takes the limit placeholder, its first request proceeds, and the next
+Run's overflow trigger compacts its row away.
 
 A reference counts only when the request's model declares its kind: an image on a model without
 `image` input and a PDF on a model without `pdf` input take the omitted placeholder and consume no
@@ -277,16 +291,8 @@ The admission and compaction estimate charges each attached PDF `3,000 × pages`
 its base64 length, as images are charged `ceil(w × h / 750)`. Anthropic documents 1,500–3,000 text
 tokens per page plus a page-image cost, so this is its upper text figure, not an upper bound.
 
-A PDF whose own charge exceeds the request model's context window minus the request's reserved
-output is never attached on that request: it takes the PDF limit placeholder and counts toward no
-bound of the window, so later references are admitted as if it were absent. That is a PDF of 67 or
-more pages on a 200,000-token model, or 43 or more on a 128,000-token model, before the system
-prompt and reserve. Without the rule (round 2), such a PDF would fail its first request
-`context_incompatible`, then sit in an earlier row where neither the Run request nor the
-compaction request that should absorb it could fit, so every later turn of the chat would fail.
-With it, the first request proceeds with the placeholder, and the next Run's overflow trigger
-compacts the row away. The rule applies to compaction requests too, which is what lets the
-summarizer absorb the row.
+With the model-relative page bound (D5), attached PDFs are charged at most 80% of the window, so
+the estimate cannot by itself make a request fail `context_incompatible`.
 
 A placeholder is counted as its text.
 
@@ -382,8 +388,13 @@ result: from memory in the importing attempt, from the store for `@media://`.
   `file` parts. The operator declares `pdf` only for models known to accept it; the default is
   `["text"]`.
 - **Cost and window fit.** A 100-page PDF is charged 300k tokens. On models with windows under
-  about 300k, a large PDF is never attached on that model and the model sees the limit placeholder
-  (D6).
+  375k tokens, the page bound is lower than 100 (53 at 200k), so a longer PDF takes the limit
+  placeholder on that model even though the provider might have accepted it. That is the price of
+  a conservative estimate; text extraction (#1276) is the path for long documents on small windows.
+- **One wasted compaction.** A PDF longer than the model's page bound, attached in a turn whose
+  earlier rows hold a stored reference, triggers overflow compaction at the next Run that cannot
+  admit it in the new epoch either; the Run after that compacts its row away. Two summaries for
+  one oversized upload are accepted over a rule that predicts whether a new epoch would admit it.
 - **Lying page counts.** pdf.js trusts the page tree's `/Count` (a 150-page PDF patched to
   `/Count 1` reports 1 page, reviewer measurement), and `getPermissions()` returns `null` for an
   encrypted PDF whose `/Encrypt` lacks a numeric `/P`. Such a PDF passes the bounds and the

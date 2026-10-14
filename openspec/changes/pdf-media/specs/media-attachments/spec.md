@@ -2,11 +2,12 @@
 
 ### Requirement: Each PDF reference takes exactly one model-facing form
 
-Each PDF reference SHALL reach the model as exactly one form, chosen in this order: the unavailable
-placeholder `[pdf media://<id> unavailable]` for an unresolvable `media://` reference; the omitted
-placeholder when the request's model does not declare `pdf` input; the not-retained placeholder for
-an unstored PDF whose attempt-memory entry is absent or, when attached, holds no bytes; the PDF
-itself when the epoch image window attaches it; and the limit placeholder otherwise.
+Each PDF reference SHALL reach the model as exactly one form, in this order:
+`[pdf media://<id> unavailable]` when unresolvable;
+`[pdf <subject> <P> pages, omitted: this model has no PDF input]` when the request's model lacks
+`pdf` input; `[pdf <locator> <P> pages, not retained]` for an unstored PDF whose memory entry is
+absent or, attached, holds no bytes; the PDF when the epoch image window attaches it; else
+`[pdf <subject> <P> pages, not attached: this context's PDF limit is reached]`.
 
 #### Scenario: A model without PDF input receives the omitted placeholder
 
@@ -32,11 +33,11 @@ itself when the epoch image window attaches it; and the limit placeholder otherw
 
 ### Requirement: PDF placeholders name the PDF by its locator and page count
 
-A PDF placeholder other than the unavailable one SHALL name a stored object by `media://<id> <name>`,
-with `<name>` its single-line source label that `media-store` defines, and an unstored PDF by its
-locator, the one the model submitted to `read` or the owner wrote in the import marker, written as
-an exact `JSON.stringify` literal, never truncated, that `JSON.parse` returns exactly. `<P>` SHALL be
-the original's page count.
+In a PDF placeholder, `<subject>` SHALL be `media://<id> <name>` for a stored object, with `<name>`
+its single-line source label that `media-store` defines, and `<locator>` for an unstored PDF.
+`<locator>` SHALL be the locator the model submitted to `read` or the owner wrote in the import
+marker, written as an exact `JSON.stringify` literal, never truncated, that `JSON.parse` returns
+exactly. `<P>` SHALL be the original's page count.
 
 #### Scenario: A placeholder names the submitted PDF locator
 
@@ -61,14 +62,14 @@ request time, for a `media://` result or entry, and otherwise the one the attemp
 
 #### Scenario: A read PDF reaches the model as tool output
 
-- **WHEN** an earlier step of a Run read `/work/paper.pdf`, a 15-page PDF, and the request's model
-  declares `pdf` input on a Responses or Messages wire
+- **WHEN** an earlier step of a Run read `/work/paper.pdf`, a 15-page PDF, the request's model
+  declares `pdf` input on a Responses or Messages wire, and the epoch image window attaches the PDF
 - **THEN** that tool result's output carries the result's text and the PDF's original bytes
 
 #### Scenario: An imported PDF follows its item's text
 
-- **WHEN** the owner's message imports `@media://<id>`, a stored PDF, and the request's model declares
-  `pdf` input
+- **WHEN** the owner's message imports `@media://<id>`, a stored PDF, the request's model declares
+  `pdf` input, and the epoch image window attaches the PDF
 - **THEN** the prompt-imports item reaches the model as its text followed by a PDF file part carrying
   the stored original
 
@@ -188,10 +189,9 @@ PDF's bytes SHALL be loaded from storage only when the epoch image window attach
 ### Requirement: Compaction requests carry PDFs as a Run would
 
 A compaction request SHALL carry the compactable prefix's PDFs as a Run request on the summarizing
-model would under the same epoch window: PDFs for the stored references it attaches when that model
-declares `pdf` input, and placeholders otherwise, so a PDF too large for that model reaches the
-summarizer as the PDF limit placeholder. Every unstored PDF in the prefix SHALL appear as its
-not-retained or omitted placeholder.
+model would under the same epoch window, its bounds applied for the summarizing model: PDFs for the
+stored references it attaches when that model declares `pdf` input, and placeholders otherwise.
+Every unstored PDF in the prefix SHALL appear as its not-retained or omitted placeholder.
 
 #### Scenario: A summarizer without PDF input receives placeholders
 
@@ -304,7 +304,8 @@ file part with media type `application/pdf` and the stored name as its filename.
 #### Scenario: Images and PDFs are counted separately
 
 - **WHEN** a user message stores text `summarize` and file parts for image `A`, PDF `B` uploaded as
-  `paper.pdf`, and image `C`, and the request's model declares `image` and `pdf` input
+  `paper.pdf`, and image `C`, the request's model declares `image` and `pdf` input, and the epoch
+  image window attaches all three
 - **THEN** after the message's rail items and temporal row the model receives
   `Image 1 (media://A):`, the model variant of `A`, `PDF 1 (media://B):`, a file part carrying the
   original of `B` with media type `application/pdf` and filename `paper.pdf`,
@@ -394,12 +395,12 @@ window, and the references after them SHALL be admitted again oldest first.
 
 Within one compaction epoch, the rows after the active checkpoint plus the current attempt, requests
 SHALL admit attachable image and PDF references oldest first in request order, a repeated id
-counting again, while at most 100 images, at most 100 PDF pages, and at most 28 MiB (29,360,128
-bytes) of summed base64 sizes hold. The first reference that would exceed any bound, and every later
-one in that epoch, SHALL NOT be attached. A PDF whose own page charge, 3,000 tokens per page, exceeds
-the request model's context window minus the request's reserved output budget is too large for that
-model: on a Run or compaction request alike it SHALL NOT be attached, SHALL take the PDF limit
-placeholder, and SHALL count toward no bound, later references being admitted as if it were absent.
+counting again, while at most 100 images, at most 28 MiB (29,360,128 bytes) of summed base64 sizes,
+at most 100 PDF pages, and at most `floor(contextWindowTokens × 0.8 / 3,000)` PDF pages for the
+request's model hold, where 0.8 is the compaction window ratio that sets the default compaction
+threshold and 3,000 the tokens charged per page: 53 pages on a 200,000-token model, 34 on 128,000,
+and 100 on 400,000 or more. The first reference that would exceed any bound, and every later one in
+that epoch, SHALL NOT be attached.
 
 #### Scenario: The 101st image in an epoch is not attached
 
@@ -438,9 +439,9 @@ placeholder, and SHALL count toward no bound, later references being admitted as
 
 #### Scenario: Images and PDFs share the byte bound
 
-- **WHEN** a request on a model that declares `image` and `pdf` input carries an epoch whose oldest
-  reference is a 20 MiB PDF, 27,962,028 bytes of base64, followed by an image with a 2 MiB base64
-  model variant
+- **WHEN** a request on a 200,000-token model that declares `image` and `pdf` input carries an epoch
+  whose oldest reference is a 10-page 20 MiB PDF, 27,962,028 bytes of base64, followed by an image
+  with a 2 MiB base64 model variant
 - **THEN** the PDF is sent as a PDF
 - **AND** the image reaches the model as the limit placeholder
 
@@ -452,12 +453,14 @@ placeholder, and SHALL count toward no bound, later references being admitted as
 - **THEN** the PDF reaches the model as the omitted placeholder
 - **AND** all five images are sent as images
 
-#### Scenario: A PDF too large for the model takes the limit placeholder
+#### Scenario: A stored 64-page PDF on a 200,000-token model takes the limit placeholder
 
 - **WHEN** a request on a 200,000-token model that declares `pdf` input carries an epoch whose oldest
-  references are a stored 80-page PDF and then a stored 5-page PDF
-- **THEN** the 80-page PDF, charged 240,000 tokens, reaches the model as the PDF limit placeholder
-- **AND** the 5-page PDF is sent as a PDF
+  references are a stored 64-page PDF and then a stored 5-page PDF
+- **THEN** the 64-page PDF, over that model's 53-page bound, reaches the model as the PDF limit
+  placeholder
+- **AND** the 5-page PDF and every later reference in the epoch reach the model as the limit
+  placeholder
 
 ### Requirement: The byte bound is summed from variant sizes before loading
 
@@ -478,9 +481,9 @@ are loaded, independently of the dimension-based and page-based token estimates.
 
 #### Scenario: A PDF counts its original's size
 
-- **WHEN** an epoch on a model that declares `image` and `pdf` input carries a stored PDF whose
-  descriptor `byteSize` is 20,971,520 bytes, followed by an owner image whose `model.byteSize` is
-  1,200,000 bytes
+- **WHEN** an epoch on a 200,000-token model that declares `image` and `pdf` input carries a stored
+  10-page PDF whose descriptor `byteSize` is 20,971,520 bytes, followed by an owner image whose
+  `model.byteSize` is 1,200,000 bytes
 - **THEN** the window counts the PDF as 27,962,028 base64 bytes and the image as 1,600,000, before
   loading either
 - **AND** the PDF is sent as a PDF and the image reaches the model as the limit placeholder
@@ -491,8 +494,8 @@ An attachable reference SHALL be one of a kind the request's model declares as i
 image and `pdf` for a PDF: an owner file part, a `media://` tool result, or a `media://` prompt-import
 entry that resolves, an unstored image whose entry in the current attempt's memory records a
 model-variant byte size, or an unstored PDF whose entry in the current attempt's memory records its
-byte size, its bytes released or not. A not-retained, unavailable, or omitted reference, or a PDF
-too large for the request's model, SHALL NOT count toward any bound of the epoch image window.
+byte size, its bytes released or not. A not-retained, unavailable, or omitted reference SHALL NOT
+count toward any bound of the epoch image window.
 
 #### Scenario: A not-retained read does not count
 
@@ -558,7 +561,7 @@ SHALL instead take the PDF limit placeholder.
 
 Before a Run's first model step, a prepared request SHALL count as reaching its compaction threshold
 when it carries an image or PDF reference that the epoch image window does not attach because its
-epoch's bounds are reached or because it is a PDF too large for the request's model, and a stored
+epoch's bounds are reached, and a stored
 reference attachable on the request's model, of a kind that model declares as input (a stored image
 when it declares `image`, a stored PDF when it declares `pdf`), in a row before the triggering user
 message. It SHALL trigger the compaction variant that `model-system-prompts` selects for it. The new
@@ -606,14 +609,14 @@ step.
 - **THEN** no compaction runs
 - **AND** the overflowing images reach the model as the limit placeholder
 
-#### Scenario: A PDF too large for the model does not fail later turns
+#### Scenario: A PDF over the model's page bound does not fail later turns
 
 - **WHEN** a chat on a 200,000-token model that declares `pdf` input has a first message attaching a
-  stored 80-page PDF, and the owner sends a second message that fits the model's window
-- **THEN** neither turn fails, and the first turn's request carries the PDF as the PDF limit
-  placeholder
-- **AND** the second Run's threshold-triggered compaction runs before its first model step and
-  absorbs the first message's row
+  stored 64-page PDF, and the owner sends a second message that fits the model's window
+- **THEN** neither turn fails, and the first turn proceeds without compaction, its request carrying
+  the PDF as the PDF limit placeholder
+- **AND** the second Run's threshold-triggered compaction runs before its first model step, because
+  the PDF is a stored reference in an earlier row, and absorbs the first message's row
 
 ### Requirement: A failed overflow compaction never fails the Run
 

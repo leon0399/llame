@@ -51,14 +51,15 @@ from a grilling round with Leo on 2026-10-14, recorded on #1275.
   attached in the importing attempt, or replayed from the store for `@media://`.
 - **One window for images and PDFs.**
   - The epoch window attaches images and PDFs together, oldest first and append-only, up to 100
-    images, 100 PDF pages, and 28 MiB of base64 (up from 24 MiB). A 20 MiB PDF fits, and a request
-    stays inside Anthropic's 32 MB and 100-page limits while its text is under about 2.6 MB. A PDF
-    or image counts only on a model that declares its kind.
+    images, 28 MiB of base64 (up from 24 MiB), and a PDF page bound of 100 pages or
+    `floor(contextWindowTokens × 0.8 / 3,000)` for the model, whichever is smaller (53 pages on a
+    200,000-token model). A 20 MiB PDF fits, and a request stays inside Anthropic's 32 MB and
+    100-page limits while its text is under about 2.6 MB. A PDF or image counts only on a model
+    that declares its kind.
   - An overflowing PDF gets
     `[pdf media://<id> <name> P pages, not attached: this context's PDF limit is reached]`.
-  - A PDF whose own page charge cannot fit the model's context window takes the same limit
-    placeholder and counts toward no bound, so it never fails the chat.
-  - Overflow compacts at the next Run, as image overflow does.
+  - Overflow compacts at the next Run, as image overflow does, so a PDF too big for the model
+    never leaves the chat unable to answer.
 - **Placeholders and sizing.**
   - A model without `pdf` gets
     `[pdf <subject> P pages, omitted: this model has no PDF input]`.
@@ -97,7 +98,7 @@ None. PDFs extend `media-store` and `media-attachments`.
   - PDF attachments and their label;
   - PDF tool-result and prompt-import parts;
   - attempt memory for unstored PDFs;
-  - the shared epoch window (28 MiB, 100 PDF pages);
+  - the shared epoch window (28 MiB, a model-relative PDF page bound);
   - the PDF placeholders;
   - per-page sizing;
   - the Chat Completions move and header;

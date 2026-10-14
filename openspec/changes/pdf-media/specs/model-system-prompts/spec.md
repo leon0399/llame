@@ -14,8 +14,8 @@ variant. No request SHALL be compacted by both variants.
 
 A prepared request SHALL also count as reaching the Run model's threshold when
 it carries an image or PDF reference that `media-attachments` does not attach
-because its epoch's bounds are reached or because it is a PDF too large for the
-Run model, and a stored reference attachable on the Run model, of a kind that
+because its epoch's bounds are reached, and a stored reference attachable on the
+Run model, of a kind that
 model declares as input (a stored image when it declares `image`, a stored PDF
 when it declares `pdf`), in a row before the triggering user message; an
 unstored image or PDF in an earlier row is never attached and never counts.
