@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-15
 
+- Fixed the composer textarea jumping back to the top on every keystroke once
+  the prompt grew past its `maxHeight` (#1287). The auto-resize collapses the
+  textarea to `height: auto` to re-measure, and `Textarea`'s
+  `field-sizing: content` made that fit the whole value, so the box had no
+  overflow for one layout and the browser clamped `scrollTop` to 0 — discarding
+  both a manual scroll and the offset the browser had just set to reveal the
+  caret. The offset is restored after the height is written, and a composer
+  story types at the end of an overflowing prompt and asserts it did not move.
+
 - Dependency security pass across the workspace: `pnpm audit` goes from 72
   advisories over 28 packages (5 critical, 25 high) to one, and every open
   Dependabot alert is cleared. The one survivor, `braces`, has no patched
