@@ -165,39 +165,48 @@ patchedDependencies:
   # merged web coverage report. Drop this when vitest ships the fix.
   "vitest@4.1.11": patches/vitest@4.1.11.patch
 
-# Advisories whose only route to a patched version runs through a parent that
-# pins below the fix. Each key is the vulnerable version range and each value
-# the patched version to force; the parent that makes the entry necessary is
-# named beside it. Advisories whose parents already admit the patched version
-# in their declared ranges get no entry — the lockfile carries the fix on its
-# own once it is re-resolved. `pnpm audit --fix` regenerates this shape; drop an
-# entry once its parent moves past the advisory.
 overrides:
+  # Advisories whose only path to a patched version runs through a parent that
+  # pins below the fix. Every key names that parent, so the removal criterion is
+  # that parent's own pin moving: delete the entry then, and let `pnpm audit`
+  # confirm. `pnpm audit --fix` regenerates the whole set.
   # @barney-media/crap-typescript-core pins ~2.1.0.
-  "@toon-format/toon@<2.3.1": 2.3.1
-  # @vitest/browser and @vitest/browser-playwright pin 4.1.10 exactly.
-  "@vitest/mocker@>=2.1.0 <4.1.11": 4.1.11
+  "@barney-media/crap-typescript-core>@toon-format/toon": 2.3.1
   # @esbuild-kit/core-utils, a deprecated dependency of drizzle-kit, pins
-  # ~0.18.20. Its own subtree only ever runs the bundler for drizzle-kit.
-  "esbuild@<=0.24.2": 0.25.0
-  # @xhmikosr/{archive-type,downloader,decompress-*} pin ^20.5.0.
-  "file-type@>=13.0.0 <=21.3.1": 21.3.4
-  # orval pins 4.3.1.
-  "js-yaml@>=4.0.0 <4.3.2": 4.3.2
-  # @nestjs/swagger pins 5.2.1 and markdownlint-cli2 pins 5.2.2.
-  "js-yaml@>=5.0.0 <=5.4.0": 5.4.1
+  # ~0.18.20. Its own subtree only ever bundles for drizzle-kit.
+  "@esbuild-kit/core-utils>esbuild": "^0.25.12"
+  # @nestjs/platform-express pins 2.2.0.
+  "@nestjs/platform-express>multer": 2.4.0
+  # @nestjs/swagger pins 5.2.1.
+  "@nestjs/swagger>js-yaml": 5.4.1
+  # @storybook/addon-mcp and @storybook/mcp pin 1.2.0.
+  "@storybook/addon-mcp>valibot": 1.4.2
+  "@storybook/mcp>valibot": 1.4.2
   # @streamdown/math, rehype-katex, mermaid, and micromark-extension-math all
   # pin ^0.16. rehype-katex only calls katex.renderToString, which 0.18 keeps.
-  "katex@>=0.11.0 <0.18.2": 0.18.2
-  # markdownlint-cli2 pins 14.3.0.
-  "markdown-it@<14.3.1": 14.3.1
-  # @nestjs/platform-express pins 2.2.0.
-  "multer@>=2.2.0 <2.4.0": 2.4.0
+  "@streamdown/math>katex": 0.18.2
+  "mermaid>katex": 0.18.2
+  "micromark-extension-math>katex": 0.18.2
+  "rehype-katex>katex": 0.18.2
   # @tailwindcss/typography pins 6.0.10; the advisory has no 6.x fix.
-  "postcss-selector-parser@<7.1.6": 7.1.6
+  "@tailwindcss/typography>postcss-selector-parser": 7.1.6
+  # @vitest/browser and @vitest/browser-playwright pin 4.1.10 exactly.
+  "@vitest/browser>@vitest/mocker": 4.1.11
+  "@vitest/browser-playwright>@vitest/mocker": 4.1.11
+  # @xhmikosr/{archive-type,downloader,decompress-*}, reached through @swc/cli,
+  # pin ^20.5.0.
+  "@xhmikosr/archive-type>file-type": 21.3.4
+  "@xhmikosr/decompress-tar>file-type": 21.3.4
+  "@xhmikosr/decompress-tarbz2>file-type": 21.3.4
+  "@xhmikosr/decompress-targz>file-type": 21.3.4
+  "@xhmikosr/decompress-unzip>file-type": 21.3.4
+  "@xhmikosr/downloader>file-type": 21.3.4
+  # markdownlint-cli2 pins js-yaml 5.2.2, markdown-it 14.3.0, and smol-toml
+  # 1.7.0.
+  "markdownlint-cli2>js-yaml": 5.4.1
+  "markdownlint-cli2>markdown-it": 14.3.1
+  "markdownlint-cli2>smol-toml": 1.9.0
+  # orval pins 4.3.1.
+  "orval>js-yaml": 4.3.2
   # typed-rest-client pins 6.15.1.
-  "qs@>=2.2.5 <6.16.0": 6.16.0
-  # markdownlint-cli2 pins 1.7.0.
-  "smol-toml@<=1.8.0": 1.9.0
-  # @storybook/addon-mcp and @storybook/mcp pin 1.2.0.
-  "valibot@<=1.4.1": 1.4.2
+  "typed-rest-client>qs": 6.16.0
