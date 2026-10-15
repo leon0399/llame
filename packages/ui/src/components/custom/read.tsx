@@ -19,6 +19,7 @@ import {
   type MediaLightboxSlide,
   mediaCaption,
 } from "@workspace/ui/components/custom/media-lightbox";
+import { ScrollRegion } from "@workspace/ui/components/custom/scroll-region";
 import { SearchLink } from "@workspace/ui/components/custom/web-search";
 import { inlineThumbnailSchema } from "@workspace/ui/lib/inline-thumbnail";
 
@@ -240,10 +241,17 @@ function ReadBody({
         {output.content === "" ? (
           <p className="text-muted-foreground text-sm">No content.</p>
         ) : (
-          // Wrapped, not scrolled: a scroll container would need keyboard focus.
-          <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 font-mono text-xs">
-            {output.content}
-          </pre>
+          // Cap height so a large read cannot inflate the transcript when
+          // expanded. ScrollRegion is tab-focusable — Firefox/Safari omit
+          // bare overflow nodes from the tab order (Chromium does not).
+          <ScrollRegion
+            label="File contents"
+            className="rounded-md bg-muted/50"
+          >
+            <pre className="whitespace-pre-wrap break-words p-3 font-mono text-xs">
+              {output.content}
+            </pre>
+          </ScrollRegion>
         )}
       </div>
       <ReadMetadata rows={metadataRows(output)} />

@@ -2,6 +2,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-15
 
+- Fixed chat UI jank on tool-heavy Runs and long transcripts. Idle message
+  objects stay referentially stable across stream ticks so memoized rows skip
+  reconciling prior turns that carry dozens of tool headers; tool and
+  reasoning chrome use `content-visibility: auto` (not message rows — those
+  carry scroll-anchor geometry); expanded tool JSON and `read` bodies are
+  height-capped behind a focusable scrollport for Firefox/Safari. Harness
+  (`chat-transcript.perf.test.tsx`, 87-tool fixture): 50 stream ticks cost
+  ~1506ms / 50 idle commits when identity breaks each tick vs ~3ms / 0 commits
+  when identity holds; first mount of 87 collapsed tool rows ~70ms in jsdom.
+  `content-visibility` paint savings are not measured here (jsdom).
+
 - The native `lobsters` web adapter reads `lobste.rs/s/` story links, which
   the generic converter reduced to a stray comment, as x.md threads: the
   story with its title, link, tags, and score, then every comment in the

@@ -20,6 +20,7 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { isValidElement } from "react";
 import { CodeBlock } from "@workspace/ui/components/ai-elements/code-block";
+import { ScrollRegion } from "@workspace/ui/components/custom/scroll-region";
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
@@ -49,6 +50,9 @@ export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible
     // `group` so ToolHeader's chevron `group-data-[state=open]:rotate-180`
     // has a data-state-bearing ancestor to match.
+    // `data-transcript-tool`: off-screen paint deferred via globals.css
+    // (content-visibility), matching OpenCode's tool-trigger treatment.
+    data-transcript-tool=""
     className={cn("group not-prose mb-4 w-full rounded-md border", className)}
     {...props}
   />
@@ -186,9 +190,9 @@ export const ToolInput = ({ className, input, ...props }: ToolInputProps) => {
       <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
         Parameters
       </h4>
-      <div className="rounded-md bg-muted/50">
+      <ScrollRegion label="Parameters" className="rounded-md bg-muted/50">
         <CodeBlock code={safeStringify(input)} language="json" />
-      </div>
+      </ScrollRegion>
     </div>
   );
 };
@@ -236,9 +240,10 @@ export const ToolOutput = ({
       <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
         {errorText ? (cancelled ? "Cancelled" : "Error") : "Result"}
       </h4>
-      <div
+      <ScrollRegion
+        label={errorText ? (cancelled ? "Cancelled" : "Error") : "Result"}
         className={cn(
-          "overflow-x-auto rounded-md text-xs [&_table]:w-full",
+          "rounded-md text-xs [&_table]:w-full",
           errorText && !cancelled
             ? "bg-destructive/10 text-destructive"
             : "bg-muted/50 text-foreground",
@@ -246,7 +251,7 @@ export const ToolOutput = ({
       >
         {errorText && <div>{errorText}</div>}
         {Output}
-      </div>
+      </ScrollRegion>
     </div>
   );
 };

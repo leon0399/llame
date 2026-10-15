@@ -429,6 +429,75 @@ describe("trusted model-context projection", () => {
       null,
     );
   });
+
+  // Streaming re-runs this merge on every token. Returning a fresh object for
+  // every idle row forces every ChatMessageRow to reconcile — catastrophic
+  // when a prior turn carries 80+ tool parts (see chats 23b5e438 / d0adafa6).
+  it("keeps the live message object when the merge changes nothing", () => {
+    const idleAssistant: UIMessage = {
+      id: "assistant-idle",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "Done." },
+        {
+          type: "tool-bash",
+          toolCallId: "c1",
+          state: "output-available",
+          input: { command: "true" },
+          output: "ok",
+        },
+      ],
+    };
+    const streamingTail: UIMessage = {
+      id: "assistant-live",
+      role: "assistant",
+      parts: [{ type: "text", text: "Streaming…" }],
+    };
+
+    const first = mergeTrustedModelContextParts(
+      [idleAssistant, streamingTail],
+      [],
+    );
+    const nextTail: UIMessage = {
+      ...streamingTail,
+      parts: [{ type: "text", text: "Streaming… more" }],
+    };
+    const second = mergeTrustedModelContextParts([idleAssistant, nextTail], []);
+
+    expect(first[0]).toBe(idleAssistant);
+    expect(second[0]).toBe(idleAssistant);
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).not.toBe(first[1]);
+    expect(second[1]?.parts[0]).toEqual({
+      type: "text",
+      text: "Streaming… more",
+    });
+  });
+
+  it("keeps an already-merged message object on a no-op re-merge", () => {
+    const live: UIMessage = {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Continue" }],
+    };
+    const server: UIMessage = {
+      id: "user-1",
+      role: "user",
+      // SAFETY: `switchPart` is narrower than the SDK part union — same cast
+      // the merge itself uses at the re-insert boundary.
+      parts: [switchPart as never, { type: "text", text: "Continue" }],
+    };
+
+    const [merged] = mergeTrustedModelContextParts([live], [server]);
+    expect(merged?.parts).toEqual([
+      switchPart,
+      { type: "text", text: "Continue" },
+    ]);
+    // A later stream tick re-merges the previous result against the same
+    // server page — the control parts are already correct, so identity holds.
+    const [again] = mergeTrustedModelContextParts([merged!], [server]);
+    expect(again).toBe(merged);
+  });
 });
 
 describe("instructions context items", () => {

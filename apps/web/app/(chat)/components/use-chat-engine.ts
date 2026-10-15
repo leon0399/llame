@@ -22,9 +22,12 @@ import { chatQueryKeys } from "@/lib/services/chat/queries";
 import { pinQueryKeys } from "@/lib/services/pins/queries";
 import {
   hasModelId,
+  type AvailableModel,
   type ModelsResponse,
   useModelsQuery,
 } from "@/lib/services/models/queries";
+
+const EMPTY_AVAILABLE_MODELS: ReadonlyArray<AvailableModel> = [];
 import { parseTurnUsage } from "./message-usage";
 import {
   permissionModesQueryKey,
@@ -54,7 +57,9 @@ export function useChatModelSelection(
   setSelectedModel: (modelId: string) => void,
 ) {
   const modelsQuery = useModelsQuery();
-  const availableModels = modelsQuery.data?.models ?? [];
+  // Stable empty sentinel — `?? []` would allocate a new array every render
+  // and defeat memoized transcript rows while models are still loading.
+  const availableModels = modelsQuery.data?.models ?? EMPTY_AVAILABLE_MODELS;
   const selectedModelAvailable = hasModelId(availableModels, selectedModel);
 
   useEffect(() => {
