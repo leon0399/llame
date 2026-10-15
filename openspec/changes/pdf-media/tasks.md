@@ -115,7 +115,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 4.2 Update `apps/api/src/prompts/tools/read.md` (a web PDF body is read like a local PDF; other binary bodies stay refused), the web-read operator runbook, `docs/product/reference/locators/web.md`, and `docs/product/reference/tools/read.md`; add the dated `CHANGELOG.md` entry; this layer completes web PDF reads, so its PR carries `Closes #916`; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 4.3 Verify `pnpm --filter api lint`, `typecheck`, the focused unit tests, and the web-read integration suite
 - [x] 4.4 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
-- [ ] 4.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 4.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 5. `pdf-media/prompt-import-pdfs` — PDF entries (design D9)
 
