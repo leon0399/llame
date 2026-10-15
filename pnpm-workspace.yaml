@@ -46,29 +46,12 @@ minimumReleaseAgeExclude:
   # bindings are only ever pulled at the parent's exact version).
   - oxc-resolver
   - "@oxc-resolver/*"
-  # First-party package (github.com/leon0399/storyproof), extracted from this
-  # repo's own Storybook visual-tests addon with history and published by the
-  # same maintainer. 0.0.1-alpha.1 is the pre-extraction placeholder tarball,
-  # already verified runtime-identical to the workspace copy it replaces — not
-  # a third party whose release needs a detection window. Remove this
-  # exclusion once a version has been on the registry past the cooldown.
-  - storyproof
-  - "@barney-media/crap-typescript-core@0.5.1"
-  - fast-xml-parser@5.11.1
-  - "@barney-media/crap-typescript@0.5.1"
-  # Released 2026-09-14, inside the 7-day resolution cooldown. Oxlint's JS
-  # plugin API is itself alpha, so this linter tracks it closely and the
-  # first published version is the only one that exists. Pinned exact, and
-  # its own `cn` dependency (0.2.6) is already past the cooldown. Remove
-  # this exclusion once a version has been on the registry past the window.
-  - "@shadcn/lint@0.1.0"
-  # Released 2026-09-13, inside the 7-day resolution cooldown. Taken for
-  # 4.6.0's fix to the recursive-schema memory retention that 4.5 regressed
-  # (an OOM on long-lived schemas) and for `.validate()` as a method, plus
-  # the 4.6.1-4.6.5 fixes to defaulted discriminators, prefault outputs, and
-  # recursive object inference. Remove this exclusion once 4.6.5 has been on
-  # the registry past the window.
-  - zod@4.6.5
+  # Every other exclusion that stood here has aged past the 7-day window and is
+  # gone: `storyproof` (2026-07-26), `@barney-media/crap-typescript` and its
+  # `-core` (2026-08-29), `fast-xml-parser@5.11.1` (2026-08-27),
+  # `@shadcn/lint@0.1.0` (2026-09-14), and `zod@4.6.5` (2026-09-13). Those
+  # versions stay in the lockfile and in the catalog; they simply no longer
+  # need to skip the cooldown to be resolved.
 
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
@@ -80,8 +63,10 @@ catalog:
   # Pinned exact, alongside `@ai-sdk/mcp`: apps/api pairs the AI SDK's MCP
   # client with this package's `StdioClientTransport`, so the two move
   # together. Only the stdio transport is used from here — the HTTP path
-  # stays on `@ai-sdk/mcp`'s own transport.
-  "@modelcontextprotocol/sdk": 1.29.0
+  # stays on `@ai-sdk/mcp`'s own transport. 1.31.0 clears the GHSA-6qxp
+  # advisory; it is the newest release whose transport surface apps/api uses
+  # unchanged.
+  "@modelcontextprotocol/sdk": 1.31.0
   # `@playwright/test` and `playwright` are separate packages that MUST move
   # together: they share a `playwright-core`, and `playwright install` only
   # fetches the browser build its own version pins. A split (root on one
@@ -111,7 +96,10 @@ catalog:
   motion: ^12.23.0
   # apps/web and apps/storybook must run the same Next (storybook compiles ui
   # stories through Next's compiler via @storybook/nextjs-vite).
-  next: ^16.3.4
+  # Patch-level on purpose: 16.3.8 carries the 16.3 line's security fixes, and a
+  # caret here would resolve 16.4.0 (2026-10-06) on the next re-resolution —
+  # a minor llame adopts deliberately, not as a side effect of a security pass.
+  next: ~16.3.8
   next-themes: ^0.4.4
   oxlint: 1.82.0
   oxlint-tsgolint: 7.0.2001
@@ -134,10 +122,11 @@ catalog:
   "@vitest/coverage-v8": 4.1.10
   "@barney-media/crap-typescript": 0.5.1
   vitest: ^4.1.11
-  # Exact, not a range: 4.6.5 is inside the resolution cooldown (excluded
-  # above), and the 4.6.x line is still settling — 4.6.3 reverted 4.6.0's
-  # standalone z.properties() and 4.6.4 landed a z.url() rewrite. Widen to a
-  # caret once 4.6 has aged past the window.
+  # Exact, not a range: the 4.6.x line is still settling — 4.6.3 reverted
+  # 4.6.0's standalone z.properties(), 4.6.4 landed a z.url() rewrite, and
+  # 4.6.6/4.6.7 are days old. 4.6.5 itself has aged past the cooldown, so it
+  # needs no `minimumReleaseAgeExclude` entry; widen to a caret once the line
+  # stops moving.
   zod: 4.6.5
 
 # Successor to onlyBuiltDependencies (v10.26+; the only mechanism in pnpm 11).
@@ -175,3 +164,51 @@ patchedDependencies:
   # as an all-zero "uncovered" placeholder, doubling its statements in the
   # merged web coverage report. Drop this when vitest ships the fix.
   "vitest@4.1.11": patches/vitest@4.1.11.patch
+
+overrides:
+  # Advisories whose only path to a patched version runs through a parent that
+  # pins below the fix. Every key names that parent, so the removal criterion is
+  # that parent's own pin moving: delete the entry then, and let `pnpm audit`
+  # confirm. `pnpm audit --fix` re-emits the affected packages unscoped — its
+  # keys are workspace-wide, not parent-scoped — so re-scope each entry to the
+  # parent that pins below the fix before committing its output.
+  # @barney-media/crap-typescript-core pins ~2.1.0.
+  "@barney-media/crap-typescript-core>@toon-format/toon": 2.3.1
+  # @esbuild-kit/core-utils, a deprecated dependency of drizzle-kit, pins
+  # ~0.18.20. Its own subtree only ever bundles for drizzle-kit.
+  "@esbuild-kit/core-utils>esbuild": "^0.25.12"
+  # @nestjs/platform-express pins 2.2.0.
+  "@nestjs/platform-express>multer": 2.4.0
+  # @nestjs/swagger pins 5.2.1.
+  "@nestjs/swagger>js-yaml": 5.4.1
+  # @storybook/addon-mcp and @storybook/mcp pin 1.2.0.
+  "@storybook/addon-mcp>valibot": 1.4.2
+  "@storybook/mcp>valibot": 1.4.2
+  # @streamdown/math, rehype-katex, mermaid, and micromark-extension-math all
+  # pin ^0.16. rehype-katex only calls katex.renderToString, which 0.18 keeps.
+  "@streamdown/math>katex": 0.18.2
+  "mermaid>katex": 0.18.2
+  "micromark-extension-math>katex": 0.18.2
+  "rehype-katex>katex": 0.18.2
+  # @tailwindcss/typography pins 6.0.10; the advisory has no 6.x fix.
+  "@tailwindcss/typography>postcss-selector-parser": 7.1.6
+  # @vitest/browser and @vitest/browser-playwright pin 4.1.10 exactly.
+  "@vitest/browser>@vitest/mocker": 4.1.11
+  "@vitest/browser-playwright>@vitest/mocker": 4.1.11
+  # @xhmikosr/{archive-type,downloader,decompress-*}, reached through @swc/cli,
+  # pin ^20.5.0.
+  "@xhmikosr/archive-type>file-type": 21.3.4
+  "@xhmikosr/decompress-tar>file-type": 21.3.4
+  "@xhmikosr/decompress-tarbz2>file-type": 21.3.4
+  "@xhmikosr/decompress-targz>file-type": 21.3.4
+  "@xhmikosr/decompress-unzip>file-type": 21.3.4
+  "@xhmikosr/downloader>file-type": 21.3.4
+  # markdownlint-cli2 pins js-yaml 5.2.2, markdown-it 14.3.0, and smol-toml
+  # 1.7.0.
+  "markdownlint-cli2>js-yaml": 5.4.1
+  "markdownlint-cli2>markdown-it": 14.3.1
+  "markdownlint-cli2>smol-toml": 1.9.0
+  # orval pins 4.3.1.
+  "orval>js-yaml": 4.3.2
+  # typed-rest-client pins 6.15.1.
+  "typed-rest-client>qs": 6.16.0

@@ -52,7 +52,7 @@ export function readPromptSource(
  * are escaped when the context is built instead (`escapeForPrompt`).
  *
  * ONE environment for every regime, packaged templates included. That is a
- * simplification, not a correctness requirement: handlebars 4.7.9 shares
+ * simplification, not a correctness requirement: handlebars 4.7.10 shares
  * `SafeString`, `Utils`, and `escapeExpression` across every `create()`
  * environment, and escaping duck-types `value.toHTML` rather than testing
  * `instanceof`, so a second environment would render the same projected
