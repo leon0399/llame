@@ -29,13 +29,15 @@ type ImportedImage = {
   slide: MediaLightboxSlide;
 };
 
-/** An imported image's thumbnail and lightbox slide, or `null` when it has
- *  no thumbnail: a stored image opens its original, captioned with its
+/** An imported image's thumbnail and lightbox slide, or `null` when the
+ *  entry is not one: a stored image opens its original, captioned with its
  *  `media://` locator; an unstored one opens its inline thumbnail, captioned
  *  with the original's size and the locator as written. */
 function importedImage(entry: ImportEntry, key: string): ImportedImage | null {
+  // PDF tiles ship in web-ui; never request an image model variant for them.
+  if ("kind" in entry) return null;
   const alt = entry.locator;
-  if (entry.media !== undefined) {
+  if ("media" in entry) {
     const sources = storedImageSources(entry.media);
     if (sources === null) return null;
     const caption = mediaCaption(entry.media);
@@ -44,7 +46,7 @@ function importedImage(entry: ImportEntry, key: string): ImportedImage | null {
       slide: { key, src: sources.original, alt, caption },
     };
   }
-  if (entry.thumbnail === undefined) return null;
+  if (!("thumbnail" in entry) || entry.thumbnail === undefined) return null;
   const caption = mediaCaption(entry.locator, entry);
   return {
     thumbnail: { src: entry.thumbnail, alt },
@@ -57,11 +59,11 @@ type ImportedTile =
   | { key: string; image: ImportedImage }
   | { key: string; size: MediaImageSize };
 
-/** An import's tile, or `null` for an entry that is not an image. */
+/** An import's tile, or `null` for an entry that has none. */
 function importedTile(entry: ImportEntry, key: string): ImportedTile | null {
   const image = importedImage(entry, key);
   if (image !== null) return { key, image };
-  if (entry.width === undefined) return null;
+  if (!("width" in entry)) return null;
   const { width, height, mediaType } = entry;
   return { key, size: { width, height, mediaType } };
 }
@@ -112,13 +114,14 @@ function ImportedImages({ imports }: Pick<PromptImportsPayload, "imports">) {
  * a user prompt carried, marked when the result was truncated, denied by the
  * `read` permission group, failed to read, or omitted past a bound. An
  * imported image also shows its thumbnail, which opens a lightbox over the
- * chip's images. The
+ * chip's images; an imported PDF is disclosed by its chip alone until its
+ * own tile ships, and never requests an image. The
  * model text names denied, failed, and omitted targets only as not imported;
  * the outcomes and resolved paths shown here are owner-only and never reach a
  * public share. It renders at the top of the triggering user turn, live and
  * reloaded alike.
  *
- * @summary owner chip for imported, truncated, denied, failed, and omitted prompt files and images
+ * @summary owner chip for imported, truncated, denied, failed, and omitted prompt files, images, and PDFs
  */
 export function PromptImportsPart(payload: PromptImportsPayload) {
   return (
@@ -126,7 +129,9 @@ export function PromptImportsPart(payload: PromptImportsPayload) {
       <ContextChipGroup icon={<AtSignIcon />} label="Imports">
         {payload.imports.map((entry) => {
           const state: ContextFileState =
-            entry.outcome === "imported" && entry.truncated
+            entry.outcome === "imported" &&
+            "truncated" in entry &&
+            entry.truncated
               ? "truncated"
               : entry.outcome;
           const detail =

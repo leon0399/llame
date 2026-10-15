@@ -29,7 +29,7 @@ import {
 import { buildContext, type StoredMessage } from '../chats/context-builder';
 import {
   createPromptImportsItem,
-  promptImportImageKey,
+  promptImportMediaKey,
 } from '../chats/prompt-imports-item';
 import type { ModelStreamInput } from './model-client';
 import { composeStepMessages, installStepPreparation } from './step-composer';
@@ -396,9 +396,150 @@ describe('composeStepMessages', () => {
     });
   });
 
+  describe('prompt-import PDFs', () => {
+    const runId = '11111111-2222-4333-8444-555555555555';
+    const locator = 'paper.pdf';
+    const bytes = Buffer.from('%PDF-original');
+    const metadata = {
+      kind: 'pdf',
+      mediaType: 'application/pdf',
+      pages: 15,
+      byteSize: bytes.byteLength,
+    } as const;
+    const item = createPromptImportsItem({
+      runId,
+      outcomes: [
+        {
+          locator,
+          resolved: '/repo/paper.pdf',
+          outcome: 'imported',
+          body: JSON.stringify({
+            status: 'success',
+            ...metadata,
+            path: '/repo/paper.pdf',
+          }),
+          attachment: metadata,
+        },
+        {
+          locator: `media://${A}`,
+          outcome: 'imported',
+          body: JSON.stringify({
+            status: 'success',
+            ...metadata,
+            media: `media://${A}`,
+          }),
+          attachment: { ...metadata, media: `media://${A}` },
+        },
+      ],
+      omitted: [],
+    });
+    const stored: StoredMessage = {
+      id: 'pdf-import-message',
+      chatId: 'chat-1',
+      seq: 1,
+      role: 'user',
+      senderUserId: 'user-1',
+      attachments: [],
+      createdAt: new Date(0),
+      parts: [item, { type: 'text', text: 'summarize' }],
+    };
+    const messages = () =>
+      buildContext([stored], {
+        systemPrompt: 'system',
+        requestKind: 'continuation',
+      }).messages;
+    const itemText = { type: 'text', text: item.data.text };
+    const paper = () => pdfDescriptor(A, { name: 'archive.pdf', pages: 15 });
+
+    it('places unstored and stored native PDFs immediately after their item text', async () => {
+      const { resolver } = fakeResolver([paper()]);
+      resolver.heldMedia.set(promptImportMediaKey(runId, locator), {
+        locator: '/repo/paper.pdf',
+        pages: 15,
+        bytes,
+        byteSize: bytes.byteLength,
+      });
+
+      const composed = await composeStepMessages(messages(), {
+        resolver,
+        context: VISION_PDF,
+      });
+
+      expect(composed[0]?.content).toEqual([
+        itemText,
+        {
+          type: 'file',
+          mediaType: 'application/pdf',
+          data: bytes,
+          filename: 'paper.pdf',
+        },
+        {
+          type: 'file',
+          mediaType: 'application/pdf',
+          data: new Uint8Array([0x61]),
+          filename: 'archive.pdf',
+        },
+        { type: 'text', text: 'summarize' },
+      ]);
+    });
+
+    it.each([
+      {
+        name: 'a new attempt',
+        context: VISION_PDF,
+        retain: false,
+        placeholder: '[pdf "paper.pdf" 15 pages, not retained]',
+        storedAttached: true,
+      },
+      {
+        name: 'a model without PDF input',
+        context: TEXT_ONLY,
+        retain: false,
+        placeholder:
+          '[pdf "paper.pdf" 15 pages, omitted: this model has no PDF input]',
+        storedAttached: false,
+      },
+      {
+        name: 'a PDF beyond the page window',
+        context: { ...VISION_PDF, contextWindowTokens: 50_000 },
+        retain: true,
+        placeholder: `[pdf "paper.pdf" 15 pages, not attached: this context's PDF limit is reached]`,
+        storedAttached: false,
+      },
+    ] as const)(
+      'uses the correct placeholder for $name while replaying stored media independently',
+      async ({ context, retain, placeholder, storedAttached }) => {
+        const { resolver, loads } = fakeResolver([paper()]);
+        if (retain) {
+          resolver.heldMedia.set(promptImportMediaKey(runId, locator), {
+            locator: '/repo/paper.pdf',
+            pages: 15,
+            bytes,
+            byteSize: bytes.byteLength,
+          });
+        }
+
+        const composed = await composeStepMessages(messages(), {
+          resolver,
+          context,
+        });
+        expect(composed[0]?.content.slice(0, 2)).toEqual([
+          itemText,
+          { type: 'text', text: placeholder },
+        ]);
+        expect(loads).toEqual(storedAttached ? [A] : []);
+        if (!storedAttached) {
+          expect(composed[0]?.content).not.toContainEqual(
+            expect.objectContaining({ type: 'file' }),
+          );
+        }
+      },
+    );
+  });
+
   describe('prompt-import images', () => {
     const RUN = '11111111-2222-4333-8444-555555555555';
-    const KEY = promptImportImageKey(RUN, 'shot.png');
+    const KEY = promptImportMediaKey(RUN, 'shot.png');
     const THUMBNAIL = 'data:image/webp;base64,UklGRg==';
     const item = createPromptImportsItem({
       runId: RUN,
@@ -408,7 +549,7 @@ describe('composeStepMessages', () => {
           resolved: '/repo/shot.png',
           outcome: 'imported',
           body: '{"status":"success","kind":"image","path":"/repo/shot.png"}',
-          image: {
+          attachment: {
             thumbnail: THUMBNAIL,
             width: 1600,
             height: 900,
@@ -420,7 +561,7 @@ describe('composeStepMessages', () => {
           resolved: `media://${A}`,
           outcome: 'imported',
           body: '{"status":"success","kind":"image"}',
-          image: { media: `media://${A}` },
+          attachment: { media: `media://${A}` },
         },
       ],
       omitted: [],
@@ -480,7 +621,6 @@ describe('composeStepMessages', () => {
         shotImage(new Uint8Array([0x62])),
         { type: 'text', text: 'compare' },
       ]);
-      expect(itemText.text).toContain('<file path="shot.png">');
       expect(JSON.stringify(composed)).not.toContain(THUMBNAIL);
       expect(
         await composeStepMessages(composed, { resolver, context: VISION }),

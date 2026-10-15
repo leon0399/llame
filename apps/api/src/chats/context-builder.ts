@@ -27,7 +27,7 @@ import { userImagePart } from '../media/epoch-admission';
 import { storedFilePartSchema } from '../media/media-descriptors';
 import { parseMediaLocator } from '../media/media-locator';
 import { isContextItemPart, type ContextItemPart } from './context-item';
-import { promptImportImageRefs } from './prompt-imports-item';
+import { promptImportMediaRefs } from './prompt-imports-item';
 import type { UnknownRecord } from '@workspace/runtime-safety';
 import {
   projectToolObservations,
@@ -216,7 +216,7 @@ export function userPartsToModelContent(
       if (text !== undefined && text.length > 0) {
         content.push(
           { type: 'text', text },
-          ...promptImportImageRefs(part).map(userImagePart),
+          ...promptImportMediaRefs(part).map(userImagePart),
         );
       }
       afterLastItem = content.length;

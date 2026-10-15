@@ -212,9 +212,8 @@ const UNSTORED_MEDIA_OPTION = 'llameUnstoredMedia';
 
 /**
  * The reference a model-message image part carries, or undefined: the
- * unstored image or `media://` id `buildContext` emits after a prompt-imports
- * item's text (vision-media D8, see `userImagePart`); projected images carry
- * bytes.
+ * unstored media or `media://` id `buildContext` emits after a prompt-imports
+ * item's text (see `userImagePart`); projected parts carry bytes instead.
  */
 export function userImageRef(part: ImagePart): MediaRef | undefined {
   const unstored = unstoredRefSchema.safeParse(
@@ -225,10 +224,9 @@ export function userImageRef(part: ImagePart): MediaRef | undefined {
 }
 
 /**
- * The image part referencing `ref` in a user message: a `media://` string, or
- * an unstored image, keyed by its prompt-import entry, in llame's own provider
- * option. The step composer replaces it on every step, so it never reaches a
- * provider adapter.
+ * An SDK image-shaped reference marker for a prompt-import image or PDF. The
+ * step composer replaces it with the kind's actual part on every step, so
+ * this marker never reaches a provider adapter.
  */
 export function userImagePart(ref: MediaRef): ImagePart {
   return isString(ref)
