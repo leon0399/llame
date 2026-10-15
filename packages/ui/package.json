@@ -24,7 +24,7 @@
     "class-variance-authority": "catalog:",
     "cmdk": "^1.1.1",
     "cn": "0.2.6",
-    "katex": "0.16.27",
+    "katex": "0.18.2",
     "lucide-react": "catalog:",
     "marked": "^16.4.2",
     "micromark-util-decode-string": "^2.0.1",
