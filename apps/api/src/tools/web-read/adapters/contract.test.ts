@@ -208,6 +208,14 @@ describe('createWebAdapters', () => {
     expect(adapter.match(new URL('https://t.me/durov/400'))).toBe(true);
   });
 
+  it('creates a native Lobsters adapter with the configured id', () => {
+    const [adapter] = createWebAdapters([{ id: 'lobsters', use: 'lobsters' }]);
+    if (adapter === undefined) throw new Error('expected Lobsters adapter');
+
+    expect(adapter).toMatchObject({ id: 'lobsters', route: 'native' });
+    expect(adapter.match(new URL('https://lobste.rs/s/o0ixth'))).toBe(true);
+  });
+
   it('creates a native OSV adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'advisories', use: 'osv' }]);
     if (adapter === undefined) throw new Error('expected OSV adapter');

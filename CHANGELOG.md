@@ -1,5 +1,13 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-15
+
+- The native `lobsters` web adapter reads `lobste.rs/s/` story links, which
+  the generic converter reduced to a stray comment, as x.md threads: the
+  story with its title, link, tags, and score, then every comment in the
+  site's thread order with its score, from the site's keyless JSON API in one
+  request.
+
 # 2026-10-11
 
 - The search embed worker now copies an existing vector instead of calling
