@@ -41,7 +41,7 @@ argument: the selector in `path` carries all of that. See
 | [`kb://`](../locators/kb.md)                   | no       | yes     | the owner's Knowledge Space tree         |
 | [`skill://`](../locators/skill.md)             | no       | no      | an installed skill package, read-only    |
 | [`http(s)://`](../locators/web.md)             | no       | no      | the public web, through the API process  |
-| [`media://`](../locators/media.md)             | no       | no      | the owner's stored images, read-only     |
+| [`media://`](../locators/media.md)             | no       | no      | the owner's stored media, read-only      |
 
 ## Result
 

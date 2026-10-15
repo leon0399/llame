@@ -107,7 +107,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 3.3 Update `apps/api/src/prompts/tools/read.md` (PDFs are returned to models with PDF input, take no selector, and only `media://` PDFs are kept across turns; keep the `TODO(#1074)` line), `docs/product/reference/tools/read.md`, and `docs/product/reference/locators/media.md`; update `SPEC.md`; add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 3.4 Verify `pnpm --filter api lint`, `typecheck`, `pnpm --filter @workspace/native-file-tools test`, the focused unit tests, and the touched integration suites
 - [x] 3.5 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
-- [ ] 3.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 3.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 4. `pdf-media/pdf-read-web` — web PDF bodies (design D7)
 
