@@ -9,7 +9,6 @@ import type {
   BashTimedOutResult,
   BashUnavailableResult,
 } from "./types";
-import { resetAttemptLedgerForTests } from "./attempt-ledger";
 import { managedChildEnvironment, managedEnvironmentCollision } from "./env";
 import { MANAGED_EXECUTOR } from "./managed-constants";
 import { requireManagedBoundary } from "./sanitize";
@@ -43,7 +42,6 @@ type RunRequest = {
 
 export function resetManagedExecutorForTests(): void {
   activeProcesses = 0;
-  resetAttemptLedgerForTests();
 }
 
 function measureInput(input: BashCommandInput): number {

@@ -1,4 +1,4 @@
-import { isBashTool, isHostCapabilityTool } from './bash';
+import { isBashTool } from './bash';
 import { isNativeFileTool } from './native-files';
 import { Logger } from '@nestjs/common';
 
@@ -342,41 +342,45 @@ async function executeAdmittedTool(
   context: ToolContext,
   callTimeoutSeconds: number,
 ): Promise<ToolResult> {
-  const {
-    context: preparedContext,
-    timeoutSignal,
-    composedSignal,
-  } = prepareToolExecution(tool, context, callTimeoutSeconds);
+  const prepared = prepareToolExecution(tool, context, callTimeoutSeconds);
+  return settleAdmittedExecution(tool, validArgs, context, prepared);
+}
+
+async function settleAdmittedExecution(
+  tool: Tool,
+  validArgs: UnknownRecord,
+  context: ToolContext,
+  prepared: PreparedToolExecution,
+): Promise<ToolResult> {
   let mcpDispatchRecorded = false;
   const executionContext = {
-    ...preparedContext,
+    ...prepared.context,
     onMcpDispatchRecorded: () => {
       mcpDispatchRecorded = true;
     },
   };
   try {
-    const execution = Promise.resolve(
-      tool.execute(executionContext, validArgs),
-    );
     const result = await withAbort(
-      execution,
-      composedSignal,
+      Promise.resolve(tool.execute(executionContext, validArgs)),
+      prepared.composedSignal,
       isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
     );
     notifyUnknownOutcome(tool, context, result);
     return truncateOversizedResult(result);
   } catch (error) {
-    return classifyToolExecutionError(
+    const result = classifyToolExecutionError(
       error,
       context,
-      timeoutSignal,
+      prepared.timeoutSignal,
       tool,
       mcpDispatchRecorded,
     );
+    notifyUnknownOutcome(tool, context, result);
+    return truncateOversizedResult(result);
   }
 }
 
-function unknownMcpExecution(_context: ToolContext): ToolResult {
+function unknownMcpExecution(): ToolResult {
   return {
     status: 'error',
     type: 'outcome_unknown',
@@ -385,28 +389,23 @@ function unknownMcpExecution(_context: ToolContext): ToolResult {
   };
 }
 
+/** Abort only uncertain native file mutations. Live bash/MCP unknowns are
+ * observations; the model keeps the structured result and the Run continues. */
 function notifyUnknownOutcome(
   tool: Tool,
   context: ToolContext,
   result: ToolResult,
 ): void {
-  if (
-    result.status !== 'error' ||
-    result.type !== 'outcome_unknown' ||
-    isBashTool(tool) ||
-    tool.id.startsWith('mcp__')
-  ) {
+  if (result.status !== 'error' || result.type !== 'outcome_unknown') {
     return;
   }
-  if (isHostCapabilityTool(tool)) {
-    context.onNativeMutationUnknown?.();
+  if (!isNativeFileTool(tool) || tool.id === 'read') {
+    return;
   }
+  context.onNativeMutationUnknown?.();
 }
 
-function unknownNativeExecution(context: ToolContext, tool: Tool): ToolResult {
-  if (!isBashTool(tool)) {
-    context.onNativeMutationUnknown?.();
-  }
+function unknownNativeExecution(tool: Tool): ToolResult {
   return {
     status: 'error',
     type: 'outcome_unknown',
@@ -428,10 +427,10 @@ function classifyToolExecutionError(
   mcpDispatchRecorded: boolean,
 ): ToolResult {
   if (tool.id.startsWith('mcp__') && mcpDispatchRecorded) {
-    return unknownMcpExecution(context);
+    return unknownMcpExecution();
   }
   if (isBashTool(tool) || (isNativeFileTool(tool) && tool.id !== 'read')) {
-    return unknownNativeExecution(context, tool);
+    return unknownNativeExecution(tool);
   }
   const toolId = tool.id;
   if (context.abortSignal?.aborted) {

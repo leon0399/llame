@@ -7,7 +7,7 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { bashTool } from './bash';
-import { nativeReadTool } from './native-files';
+import { nativeEditTool, nativeReadTool } from './native-files';
 import { previewToolPermission, runTool } from './runner';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
@@ -193,6 +193,8 @@ describe('runTool', () => {
     expect(result).toMatchObject({
       status: 'error',
       type: 'outcome_unknown',
+      message:
+        'The MCP operation may have executed; inspect the current state before retrying. It will not be repeated automatically.',
     });
   });
   it('does not abort the Run when a recorded MCP attempt returns outcome_unknown', async () => {
@@ -282,7 +284,225 @@ describe('runTool', () => {
     await expect(resultPromise).resolves.toMatchObject({
       status: 'error',
       type: 'outcome_unknown',
+      message:
+        'The MCP operation may have executed; inspect the current state before retrying. It will not be repeated automatically.',
     });
+  });
+
+  it('aborts the Run when a native edit returns outcome_unknown', async () => {
+    const onNativeMutationUnknown = vi.fn();
+    vi.spyOn(nativeEditTool, 'execute').mockResolvedValue({
+      status: 'error',
+      type: 'outcome_unknown',
+      message: 'Unsettled mutation.',
+    });
+
+    const result = await runTool(
+      nativeEditTool,
+      { path: '/tmp/file', oldText: 'a', newText: 'b' },
+      {
+        ...fakeContext(),
+        onNativeMutationUnknown,
+        permissionPolicy: compileTestPermissionPolicy(['edit']),
+      },
+      15,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+      message: 'Unsettled mutation.',
+    });
+    expect(onNativeMutationUnknown).toHaveBeenCalledOnce();
+  });
+
+  it('does not abort the Run when a native read returns outcome_unknown', async () => {
+    const onNativeMutationUnknown = vi.fn();
+    vi.spyOn(nativeReadTool, 'execute').mockResolvedValue({
+      status: 'error',
+      type: 'outcome_unknown',
+      message: 'Unsettled read.',
+    });
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: '/tmp/file' },
+      {
+        ...fakeContext(),
+        onNativeMutationUnknown,
+        permissionPolicy: compileTestPermissionPolicy(['read']),
+      },
+      15,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+      message: 'Unsettled read.',
+    });
+    expect(onNativeMutationUnknown).not.toHaveBeenCalled();
+  });
+
+  it('keeps a native read parent abort as cancelled rather than outcome_unknown', async () => {
+    const onNativeMutationUnknown = vi.fn();
+    const abort = new AbortController();
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    vi.spyOn(nativeReadTool, 'execute').mockImplementation(
+      ({ abortSignal }) => {
+        started();
+        return new Promise((_resolve, reject) => {
+          abortSignal?.addEventListener(
+            'abort',
+            () => reject(new Error('read interrupt')),
+            { once: true },
+          );
+        });
+      },
+    );
+
+    const resultPromise = runTool(
+      nativeReadTool,
+      { path: '/tmp/file' },
+      {
+        ...fakeContext(),
+        abortSignal: abort.signal,
+        onNativeMutationUnknown,
+        permissionPolicy: compileTestPermissionPolicy(['read']),
+      },
+      15,
+    );
+    await startedPromise;
+    abort.abort();
+
+    await expect(resultPromise).resolves.toMatchObject({
+      status: 'error',
+      type: 'cancelled',
+    });
+    expect(onNativeMutationUnknown).not.toHaveBeenCalled();
+  });
+
+  it('does not abort the Run when bash returns outcome_unknown', async () => {
+    const onNativeMutationUnknown = vi.fn();
+    vi.spyOn(bashTool, 'execute').mockResolvedValue({
+      status: 'error',
+      type: 'outcome_unknown',
+      message:
+        'Command outcome could not be established; inspect the workspace before retrying. The attempt will not be replayed automatically.',
+    });
+
+    const result = await runTool(
+      bashTool,
+      { command: 'true' },
+      {
+        ...fakeContext(),
+        onNativeMutationUnknown,
+        permissionPolicy: compileTestPermissionPolicy(['bash']),
+      },
+      15,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+      message:
+        'Command outcome could not be established; inspect the workspace before retrying. The attempt will not be replayed automatically.',
+    });
+    expect(onNativeMutationUnknown).not.toHaveBeenCalled();
+  });
+
+  it('does not abort the Run when a native edit fails without outcome_unknown', async () => {
+    const onNativeMutationUnknown = vi.fn();
+    vi.spyOn(nativeEditTool, 'execute').mockResolvedValue({
+      status: 'error',
+      type: 'execution_failed',
+      message: 'The tool failed to execute.',
+    });
+
+    const result = await runTool(
+      nativeEditTool,
+      { path: '/tmp/file', oldText: 'a', newText: 'b' },
+      {
+        ...fakeContext(),
+        onNativeMutationUnknown,
+        permissionPolicy: compileTestPermissionPolicy(['edit']),
+      },
+      15,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'execution_failed',
+    });
+    expect(onNativeMutationUnknown).not.toHaveBeenCalled();
+  });
+
+  it('does not abort the Run when a successful native edit carries an unknown-looking type', async () => {
+    const onNativeMutationUnknown = vi.fn();
+    vi.spyOn(nativeEditTool, 'execute').mockResolvedValue({
+      status: 'success',
+      type: 'outcome_unknown',
+      path: '/tmp/file',
+    });
+
+    const result = await runTool(
+      nativeEditTool,
+      { path: '/tmp/file', oldText: 'a', newText: 'b' },
+      {
+        ...fakeContext(),
+        onNativeMutationUnknown,
+        permissionPolicy: compileTestPermissionPolicy(['edit']),
+      },
+      15,
+    );
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(onNativeMutationUnknown).not.toHaveBeenCalled();
+  });
+
+  it('aborts the Run when a native edit interrupt settles as outcome_unknown', async () => {
+    const onNativeMutationUnknown = vi.fn();
+    const abort = new AbortController();
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    vi.spyOn(nativeEditTool, 'execute').mockImplementation(
+      ({ abortSignal }) => {
+        started();
+        return new Promise((_resolve, reject) => {
+          abortSignal?.addEventListener(
+            'abort',
+            () => reject(new Error('native interrupt')),
+            { once: true },
+          );
+        });
+      },
+    );
+
+    const resultPromise = runTool(
+      nativeEditTool,
+      { path: '/tmp/file', oldText: 'a', newText: 'b' },
+      {
+        ...fakeContext(),
+        abortSignal: abort.signal,
+        onNativeMutationUnknown,
+        permissionPolicy: compileTestPermissionPolicy(['edit']),
+      },
+      15,
+    );
+    await startedPromise;
+    abort.abort();
+
+    await expect(resultPromise).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+      message:
+        'The host command or mutation did not settle before interruption. Do not repeat it automatically.',
+    });
+    expect(onNativeMutationUnknown).toHaveBeenCalledOnce();
   });
 
   it('classifies a parent run abort as cancelled without logging it as an execution failure', async () => {
