@@ -274,8 +274,8 @@ function storedFileRefs(
   });
 }
 
-/** The kind a file part's stored `mediaType` declares (pdf-media D4). */
-export function fileKind(mediaType: string): MediaKind {
+/** A media part's kind; an untyped image marker stays an image (pdf-media D4). */
+export function fileKind(mediaType: string | undefined): MediaKind {
   return mediaType === PDF_MEDIA_TYPE ? 'pdf' : 'image';
 }
 

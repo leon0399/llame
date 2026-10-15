@@ -419,7 +419,7 @@ function mapUserContentRefs(
       const image = userImageRef(part);
       if (image !== undefined) {
         mapped = true;
-        return next(image, fileKind(part.mediaType ?? ''));
+        return next(image, fileKind(part.mediaType));
       }
     }
     if (part.type !== 'file') return [part];
