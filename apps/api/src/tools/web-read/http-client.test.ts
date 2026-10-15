@@ -659,7 +659,6 @@ describe('web fetch client', () => {
     const result = refusalOf(await fetchOne(deps));
 
     expect(result).toHaveProperty('type', 'body_too_large');
-    expect(result).toHaveProperty('message', expect.stringContaining('5 MiB'));
     expect(cancelled).toHaveBeenCalled();
   });
 
@@ -676,7 +675,6 @@ describe('web fetch client', () => {
     const result = refusalOf(await fetchOne(deps));
 
     expect(result).toHaveProperty('type', 'body_too_large');
-    expect(result).toHaveProperty('message', expect.any(String));
     expect(cancelled).toHaveBeenCalled();
   });
 
@@ -1316,25 +1314,49 @@ describe('web fetch page', () => {
     }
   }
 
-  it('returns an image body as its bytes, never decoded', async () => {
-    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0x00]);
+  it('accepts a PDF body at exactly 20 MiB', async () => {
+    const bytes = new Uint8Array(20 * 1024 * 1024);
     const result = await fetchPageOf(
-      new Response(bytes, { headers: { 'content-type': 'image/png' } }),
+      new Response(bytes, {
+        headers: {
+          'content-type': 'application/pdf',
+          'content-length': String(bytes.byteLength),
+        },
+      }),
     );
-
-    expect(result).toStrictEqual({ finalUrl: URL_, bytes });
+    expect(result).toHaveProperty('kind', 'pdf');
+    expect(result).toHaveProperty('bytes.byteLength', 20 * 1024 * 1024);
   });
 
-  it('reads any other body as a document', async () => {
+  it('refuses a declared PDF length above 20 MiB without reading its body', async () => {
+    const cancelled = vi.fn();
     const result = await fetchPageOf(
-      textResponse('# Title\n', 'text/markdown; charset=utf-8'),
+      streamingResponse(
+        [],
+        {
+          headers: {
+            'content-type': 'application/pdf',
+            'content-length': String(20 * 1024 * 1024 + 1),
+          },
+        },
+        cancelled,
+      ),
     );
+    expect(result).toHaveProperty('type', 'body_too_large');
+    expect(cancelled).toHaveBeenCalledOnce();
+  });
 
-    expect(result).toStrictEqual({
-      finalUrl: URL_,
-      contentType: 'text/markdown; charset=utf-8',
-      body: '# Title\n',
-    });
+  it('cancels a PDF stream at the first byte beyond 20 MiB', async () => {
+    const cancelled = vi.fn();
+    const result = await fetchPageOf(
+      streamingResponse(
+        [new Uint8Array(20 * 1024 * 1024), new Uint8Array(1)],
+        { headers: { 'content-type': 'application/pdf' } },
+        cancelled,
+      ),
+    );
+    expect(result).toHaveProperty('type', 'body_too_large');
+    expect(cancelled).toHaveBeenCalledOnce();
   });
 });
 

@@ -48,6 +48,11 @@ export type FetchDeadline = {
 export type CallDeadline = {
   /** Scopes the header bound to one locator and the hops it follows. */
   startFetch(): FetchDeadline;
+  /** Includes asynchronous media preparation in this call's existing budget. */
+  untilDeadline<T>(
+    this: void,
+    run: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T | WebFetchFailure>;
   dispose(): void;
 };
 
@@ -72,6 +77,7 @@ export function abortFailure(reason: AbortReason | undefined): WebFetchFailure {
 export function startCallDeadline(options: WebFetchOptions): CallDeadline {
   const controller = new AbortController();
   let reason: AbortReason | undefined;
+  const currentReason = (): AbortReason | undefined => reason;
   const abort = (next: AbortReason): void => {
     reason ??= next;
     controller.abort();
@@ -85,12 +91,31 @@ export function startCallDeadline(options: WebFetchOptions): CallDeadline {
     Math.min(options.deadlineMs ?? CALL_TIMEOUT_MS, CALL_TIMEOUT_MS),
   );
   return {
-    startFetch: () => startFetchDeadline(controller.signal, () => reason),
+    startFetch: () => startFetchDeadline(controller.signal, currentReason),
+    untilDeadline: (run) => beforeAbort(controller.signal, currentReason, run),
     dispose: () => {
       clearTimeout(callTimer);
       options.signal?.removeEventListener('abort', onCallerAbort);
     },
   };
+}
+
+async function beforeAbort<T>(
+  signal: AbortSignal,
+  reason: () => AbortReason | undefined,
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<T | WebFetchFailure> {
+  if (signal.aborted) return abortFailure(reason());
+  let onAbort!: () => void;
+  const cancelled = new Promise<WebFetchFailure>((resolve) => {
+    onAbort = () => resolve(abortFailure(reason()));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([run(signal), cancelled]);
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
 }
 
 function startFetchDeadline(

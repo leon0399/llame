@@ -677,6 +677,7 @@ describe('web locator dispatch', () => {
           return response;
         },
         fetchPage: session.fetchPage,
+        untilDeadline: session.untilDeadline,
         dispose: session.dispose,
       };
     };
@@ -718,6 +719,7 @@ describe('web locator dispatch', () => {
       return {
         fetch: session.fetch,
         fetchPage: session.fetchPage,
+        untilDeadline: session.untilDeadline,
         dispose: () => {
           session.dispose();
           dispose();
@@ -769,6 +771,7 @@ describe('web locator dispatch', () => {
           return response;
         },
         dispose: session.dispose,
+        untilDeadline: session.untilDeadline,
       };
     };
     fetchDouble.mockImplementationOnce(() =>

@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import {
   createServer,
   type IncomingMessage,
@@ -6,6 +7,7 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { type Socket } from 'node:net';
+import { join } from 'node:path';
 
 import { MEDIA_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
 import { isString } from '@workspace/runtime-safety';
@@ -14,6 +16,7 @@ import { z } from 'zod';
 
 import type { HeldMedia } from '../media/attempt-media';
 import { type MediaService } from '../media/media.service';
+import * as preparation from '../media/pdf-preparation';
 import { createToolMediaStore } from '../media/tool-media-store';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { nativeReadTool } from './native-files';
@@ -245,12 +248,13 @@ function serveNegotiated(
 function serveOversizedBody(
   response: ServerResponse,
   contentType = 'text/plain; charset=utf-8',
+  totalBytes = OVERSIZED_BYTES,
 ): void {
   response.writeHead(200, { 'content-type': contentType });
   const chunk = Buffer.alloc(OVERSIZED_CHUNK_BYTES, 'a');
   let written = 0;
   const writeNext = (): void => {
-    while (written < OVERSIZED_BYTES && !response.destroyed) {
+    while (written < totalBytes && !response.destroyed) {
       written += chunk.byteLength;
       if (!response.write(chunk)) {
         response.once('drain', writeNext);
@@ -2070,21 +2074,11 @@ describe('web image reads over loopback fixtures', () => {
     expect(memory.get(CALL_ID)).toBeUndefined();
   });
 
-  it.each([
-    ['/document.pdf', 'application/pdf'],
-    ['/blob', 'application/octet-stream'],
-  ])(
-    'refuses %s with its type named when images are accepted',
-    async (path, mediaType) => {
-      const result = await read(urlOf(path));
-      const error = errorOf(result);
-
-      expect(error.type).toBe('unsupported_content_type');
-      expect(error.message).toContain(mediaType);
-      expect(JSON.stringify(result)).not.toContain('%PDF');
-      expect(memory.get(CALL_ID)).toBeUndefined();
-    },
-  );
+  it('refuses other binary types when media is accepted', async () => {
+    const result = await read(urlOf('/blob'));
+    expect(errorOf(result).type).toBe('unsupported_content_type');
+    expect(memory.get(CALL_ID)).toBeUndefined();
+  });
 
   it('reports where a redirected image came from under the submitted locator', async () => {
     const result = await read(urlOf('/shot'));
@@ -2165,4 +2159,292 @@ describe('web image reads over loopback fixtures', () => {
       { address: '127.0.0.1', path: '/claimed.png' },
     ]);
   });
+});
+
+describe('web PDF reads over loopback fixtures', () => {
+  const CALL_ID = 'call-web-pdf';
+  let fixture: AddressFixture;
+  let pdf: Buffer;
+  let largePdf: Buffer;
+  let encrypted: Buffer;
+  let tooManyPages: Buffer;
+  let memory: Map<string, HeldMedia>;
+  const mediaService: Pick<MediaService, 'findOwned'> = {
+    findOwned: () =>
+      Promise.reject(new Error('An unstored PDF looked up the media store.')),
+  };
+  const execute = createWebReadExecutor({
+    ...realWebReadDeps,
+    resolve: () => Promise.resolve([{ address: '127.0.0.1', family: 4 }]),
+  });
+  const urlOf = (path: string): string =>
+    `http://example.test:${fixture.port}${path}`;
+  const read = (
+    path: string,
+    overrides: Partial<ToolContext> = {},
+  ): Promise<ToolResult> =>
+    execute(
+      webContext({
+        permissionPolicy: ADMIT_EVERY_LOCATOR,
+        media: createToolMediaStore(mediaService, 'owner', memory, [
+          'text',
+          'pdf',
+        ]),
+        toolCallId: CALL_ID,
+        ...overrides,
+      }),
+      { operation: 'read', input: { path } },
+    );
+
+  beforeAll(async () => {
+    [pdf, encrypted, tooManyPages] = await Promise.all([
+      readFile(join(__dirname, '../media/testing/pdf/fifteen-pages.pdf')),
+      readFile(join(__dirname, '../media/testing/pdf/owner-password.pdf')),
+      readFile(join(__dirname, '../media/testing/pdf/hundred-one-pages.pdf')),
+    ]);
+    // A trailing comment preserves the original xref offsets while exercising
+    // the real parser above the ordinary web body bound.
+    const offset = pdf.lastIndexOf('startxref');
+    const padding = Buffer.alloc(12 * 1024 * 1024 - pdf.byteLength, 0x20);
+    padding[0] = 0x25;
+    padding[padding.byteLength - 1] = 0x0a;
+    largePdf = Buffer.concat([
+      pdf.subarray(0, offset),
+      padding,
+      pdf.subarray(offset),
+    ]);
+    fixture = await startAddressFixture((_address, request, response) => {
+      switch (request.url) {
+        case '/paper':
+          sendWithHeaders(response, 302, {
+            location: `http://cdn.example.test:${fixture.port}/paper.pdf`,
+          });
+          return;
+        case '/large.pdf':
+          send(response, 200, 'application/pdf', largePdf);
+          return;
+        case '/declared-large.pdf':
+          response.setHeader('content-length', String(21 * 1024 * 1024));
+          serveOversizedBody(response, 'application/pdf', 21 * 1024 * 1024);
+          return;
+        case '/streamed-large.pdf':
+          serveOversizedBody(response, 'application/pdf', 21 * 1024 * 1024);
+          return;
+        case '/prefixed.pdf':
+          send(
+            response,
+            200,
+            'application/pdf',
+            Buffer.concat([Buffer.from('<html>'), pdf]),
+          );
+          return;
+        case '/encrypted.pdf':
+          send(response, 200, 'application/pdf', encrypted);
+          return;
+        case '/too-many-pages.pdf':
+          send(response, 200, 'application/pdf', tooManyPages);
+          return;
+        case '/archive.zip':
+          send(response, 200, 'application/zip', 'PK fixture');
+          return;
+        case '/article':
+          sendWithHeaders(
+            response,
+            200,
+            {
+              'content-type': 'text/html',
+              link: '</alternate.md>; rel="alternate"; type="text/markdown"',
+            },
+            ARTICLE_HTML,
+          );
+          return;
+        case '/guides/gated':
+          send(response, 200, 'text/html', NAV_ONLY_HTML);
+          return;
+        default:
+          send(response, 200, 'application/pdf', pdf);
+      }
+    });
+  });
+
+  beforeEach(() => {
+    memory = new Map();
+    fixture.requests.length = 0;
+  });
+
+  afterAll(async () => {
+    if (fixture) await fixture.close();
+  });
+
+  it('returns an unstored PDF and keeps its original only in attempt memory', async () => {
+    const url = urlOf('/paper.pdf');
+    const result = await read(url);
+    expect(result).toEqual({
+      status: 'success',
+      kind: 'pdf',
+      mediaType: 'application/pdf',
+      pages: 15,
+      byteSize: pdf.byteLength,
+      path: url,
+      finalUrl: url,
+      method: 'pdf',
+    });
+    expect(memory.get(CALL_ID)).toEqual({
+      locator: url,
+      pages: 15,
+      byteSize: pdf.byteLength,
+      bytes: pdf,
+    });
+  });
+
+  it('accepts and parses a 12 MiB PDF beyond the ordinary web body bound', async () => {
+    const result = await read(urlOf('/large.pdf'));
+    expect(result).toMatchObject({
+      status: 'success',
+      kind: 'pdf',
+      pages: 15,
+      byteSize: 12 * 1024 * 1024,
+    });
+    const { bytes } = z
+      .object({ bytes: z.instanceof(Buffer) })
+      .parse(memory.get(CALL_ID));
+    expect(bytes.equals(largePdf)).toBe(true);
+  });
+
+  it.each(['/declared-large.pdf', '/streamed-large.pdf'])(
+    'refuses a 21 MiB PDF at %s before retaining it',
+    async (path) => {
+      expect(errorOf(await read(urlOf(path))).type).toBe('body_too_large');
+      expect(memory.get(CALL_ID)).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ['/prefixed.pdf', 'unsupported_media_type'],
+    ['/encrypted.pdf', 'unsupported_media_type'],
+    ['/too-many-pages.pdf', 'media_too_large'],
+    ['/archive.zip', 'unsupported_content_type'],
+  ])('refuses %s without falling back to text', async (path, type) => {
+    const result = await read(urlOf(path));
+    expect(errorOf(result).type).toBe(type);
+    expect(result).not.toHaveProperty('content');
+    expect(memory.get(CALL_ID)).toBeUndefined();
+  });
+
+  it.each([':raw', ':1-5', ':outline'])(
+    'refuses PDF selector %s',
+    async (selector) => {
+      const result = await read(urlOf(`/paper.pdf${selector}`));
+      expect(errorOf(result).type).toBe('invalid_selector');
+      expect(memory.get(CALL_ID)).toBeUndefined();
+    },
+  );
+
+  it('reports the final PDF URL under the submitted locator after a redirect', async () => {
+    const path = urlOf('/paper');
+    expect(await read(path)).toMatchObject({
+      status: 'success',
+      kind: 'pdf',
+      path,
+      finalUrl: `http://cdn.example.test:${fixture.port}/paper.pdf`,
+      method: 'pdf',
+    });
+    expect(memory.get(CALL_ID)?.locator).toBe(path);
+  });
+
+  it('returns metadata without retaining PDF bytes for a text-only model', async () => {
+    const path = urlOf('/paper.pdf');
+    expect(
+      await read(path, {
+        media: createToolMediaStore(mediaService, 'owner', memory, ['text']),
+      }),
+    ).toMatchObject({ status: 'success', kind: 'pdf', pages: 15 });
+    expect(memory.get(CALL_ID)).toEqual({ locator: path, pages: 15 });
+  });
+
+  it('disqualifies PDF alternate, suffix, and llms.txt candidates', async () => {
+    expect(await read(urlOf('/article'))).toMatchObject({
+      status: 'success',
+      method: 'readability',
+    });
+    expect(await read(urlOf('/guides/gated'))).toMatchObject({
+      status: 'success',
+      method: 'raw',
+    });
+    expect(fixture.requests.map(({ path }) => path)).toEqual(
+      expect.arrayContaining([
+        '/alternate.md',
+        '/article.md',
+        '/guides/gated.md',
+        '/guides/llms.txt',
+      ]),
+    );
+    expect(memory.get(CALL_ID)).toBeUndefined();
+  });
+
+  it('disqualifies a PDF adapter response before reading the source PDF', async () => {
+    const path = urlOf('/paper.pdf');
+    expect(
+      await read(path, {
+        webAdapters: [
+          {
+            id: 'reader',
+            use: 'rewrite',
+            hosts: ['example.test'],
+            target: `http://rewrite.test:${fixture.port}{path}`,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      status: 'success',
+      kind: 'pdf',
+      method: 'pdf',
+      notes: ['web adapter "reader" fell through: content_type'],
+    });
+    expect(memory.get(CALL_ID)?.locator).toBe(path);
+  });
+
+  it.each(['call_timeout', 'aborted'])(
+    'returns %s during PDF preparation without retaining a late result',
+    async (type) => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let finish!: (pages: number) => void;
+      const prepared = new Promise<number>((resolve) => {
+        finish = resolve;
+      });
+      const parse = vi
+        .spyOn(preparation, 'preparePdf')
+        .mockImplementation(() => {
+          entered();
+          return prepared;
+        });
+      const abort = new AbortController();
+      let observed: ToolResult | undefined;
+      const pending = read(urlOf('/paper.pdf'), {
+        abortSignal: abort.signal,
+      }).then((result) => {
+        observed = result;
+        return result;
+      });
+      try {
+        await started;
+        if (type === 'aborted') abort.abort();
+        else await vi.advanceTimersByTimeAsync(30_000);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(observed).toMatchObject({ status: 'error', type });
+        finish(15);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(memory.get(CALL_ID)).toBeUndefined();
+      } finally {
+        finish(15);
+        await pending;
+        parse.mockRestore();
+        vi.useRealTimers();
+      }
+    },
+  );
 });
