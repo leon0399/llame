@@ -81,7 +81,8 @@ opens without a password. Every such refusal SHALL create no media object and st
 
 ### Requirement: PDF parsing is bounded in time and memory
 
-A PDF parse SHALL run separately, at most two at once per process, for at most 10 seconds from start.
+A PDF parse SHALL run in a child process separate from the API and Run workers, at most two at once
+per requesting process, for at most 10 seconds from its start.
 On Linux it SHALL cap address space at min(2 GiB, the host hard limit), refuse to start below
 1.25 GiB, and set `oom_score_adj=1000`. Bound or child failures SHALL be refused as
 `unsupported_media_type` without storing, stopping, or stalling the requester. OOM survival is
@@ -95,10 +96,10 @@ preferential, not guaranteed under group-kill policies.
   `Only unencrypted PDFs that open are accepted`
 - **AND** nothing is stored
 
-#### Scenario: A parse that runs out of memory is refused and the process keeps serving
+#### Scenario: An address-space allocation failure is isolated from the requester
 
-- **WHEN** an owner on a Linux host uploads a file that starts with `%PDF-` whose parse allocates
-  beyond its address-space limit
+- **WHEN** an owner on a Linux host uploads a file that starts with `%PDF-` whose parse fails an
+  allocation because of its address-space limit
 - **THEN** the upload is refused as `unsupported_media_type` and nothing is stored
 - **AND** the API process that received it keeps serving later requests
 
