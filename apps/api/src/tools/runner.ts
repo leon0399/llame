@@ -376,12 +376,12 @@ async function executeAdmittedTool(
   }
 }
 
-function unknownMcpExecution(context: ToolContext): ToolResult {
-  context.onNativeMutationUnknown?.();
+function unknownMcpExecution(_context: ToolContext): ToolResult {
   return {
     status: 'error',
     type: 'outcome_unknown',
-    message: 'The MCP operation may have executed; it will not be repeated.',
+    message:
+      'The MCP operation may have executed; inspect the current state before retrying. It will not be repeated automatically.',
   };
 }
 
@@ -391,21 +391,28 @@ function notifyUnknownOutcome(
   result: ToolResult,
 ): void {
   if (
-    (isHostCapabilityTool(tool) || tool.id.startsWith('mcp__')) &&
-    result.status === 'error' &&
-    result.type === 'outcome_unknown'
+    result.status !== 'error' ||
+    result.type !== 'outcome_unknown' ||
+    isBashTool(tool) ||
+    tool.id.startsWith('mcp__')
   ) {
+    return;
+  }
+  if (isHostCapabilityTool(tool)) {
     context.onNativeMutationUnknown?.();
   }
 }
 
-function unknownNativeExecution(context: ToolContext): ToolResult {
-  context.onNativeMutationUnknown?.();
+function unknownNativeExecution(context: ToolContext, tool: Tool): ToolResult {
+  if (!isBashTool(tool)) {
+    context.onNativeMutationUnknown?.();
+  }
   return {
     status: 'error',
     type: 'outcome_unknown',
-    message:
-      'The host command or mutation did not settle before interruption. Do not repeat it automatically.',
+    message: isBashTool(tool)
+      ? 'Command outcome could not be established; inspect the workspace before retrying. The attempt will not be replayed automatically.'
+      : 'The host command or mutation did not settle before interruption. Do not repeat it automatically.',
   };
 }
 
@@ -424,7 +431,7 @@ function classifyToolExecutionError(
     return unknownMcpExecution(context);
   }
   if (isBashTool(tool) || (isNativeFileTool(tool) && tool.id !== 'read')) {
-    return unknownNativeExecution(context);
+    return unknownNativeExecution(context, tool);
   }
   const toolId = tool.id;
   if (context.abortSignal?.aborted) {

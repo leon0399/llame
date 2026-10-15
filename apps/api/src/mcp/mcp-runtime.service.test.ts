@@ -377,11 +377,12 @@ describe('McpRuntimeService', () => {
     ).resolves.toEqual({
       status: 'error',
       type: 'outcome_unknown',
-      message: 'The MCP operation may have executed; it will not be repeated.',
+      message:
+        'The MCP operation may have executed; inspect the current state before retrying. It will not be repeated automatically.',
     });
     expect(begin).toHaveBeenCalledOnce();
     expect(append).toHaveBeenCalledOnce();
-    expect(unknown).toHaveBeenCalledOnce();
+    expect(unknown).not.toHaveBeenCalled();
     expect(client.close).toHaveBeenCalledOnce();
     expect(runtime.resolveDynamicTool('mcp__web__persist-failure')).toEqual({
       state: 'unavailable',

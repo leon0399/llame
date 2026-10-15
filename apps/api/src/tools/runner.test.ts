@@ -195,7 +195,7 @@ describe('runTool', () => {
       type: 'outcome_unknown',
     });
   });
-  it('notifies the Run when a recorded MCP attempt returns outcome_unknown', async () => {
+  it('does not abort the Run when a recorded MCP attempt returns outcome_unknown', async () => {
     const id = 'mcp__demo__replayed';
     const onNativeMutationUnknown = vi.fn();
     const tool: Tool = {
@@ -224,7 +224,7 @@ describe('runTool', () => {
     );
 
     expect(result).toMatchObject({ status: 'error', type: 'outcome_unknown' });
-    expect(onNativeMutationUnknown).toHaveBeenCalledOnce();
+    expect(onNativeMutationUnknown).not.toHaveBeenCalled();
   });
 
   it('keeps an MCP timeout before dispatch as timeout', async () => {

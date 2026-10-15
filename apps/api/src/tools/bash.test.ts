@@ -631,7 +631,7 @@ describe('bash durable admission', () => {
         status: 'error',
         type: 'outcome_unknown',
         message:
-          'The host command or mutation did not settle before interruption. Do not repeat it automatically.',
+          'Command outcome could not be established; inspect the workspace before retrying. The attempt will not be replayed automatically.',
       });
       await expect(readFile(path)).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
@@ -728,7 +728,7 @@ describe('bash durable admission', () => {
         status: 'error',
         type: 'outcome_unknown',
       });
-      expect(onNativeMutationUnknown).toHaveBeenCalledOnce();
+      expect(onNativeMutationUnknown).not.toHaveBeenCalled();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

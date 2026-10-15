@@ -9,10 +9,7 @@ import type {
   BashTimedOutResult,
   BashUnavailableResult,
 } from "./types";
-import {
-  rejectQuarantinedGroups,
-  resetAttemptLedgerForTests,
-} from "./attempt-ledger";
+import { resetAttemptLedgerForTests } from "./attempt-ledger";
 import { managedChildEnvironment, managedEnvironmentCollision } from "./env";
 import { MANAGED_EXECUTOR } from "./managed-constants";
 import { requireManagedBoundary } from "./sanitize";
@@ -132,8 +129,6 @@ function rejectIfNotAdmitted(
 ): BashUnavailableResult | BashTimedOutResult | null {
   const boundary = requireManagedBoundary(context);
   if (boundary) return boundary;
-  const quarantine = rejectQuarantinedGroups();
-  if (quarantine) return quarantine;
   const collision = managedEnvironmentCollision(input.env);
   if (collision !== undefined) {
     return {
