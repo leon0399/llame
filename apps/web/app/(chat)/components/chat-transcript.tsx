@@ -46,11 +46,40 @@ type ChatTranscriptMessageProps = {
   onForked: (forkedChatId: string) => void;
 };
 
+/** Test-only commit probe — fires when a memoized transcript row actually
+ *  renders (not when memo bails). Used by the stream-tick harness. */
+let transcriptMessageCommitProbe: ((renderKey: string) => void) | null = null;
+
+export function setTranscriptMessageCommitProbe(
+  probe: ((renderKey: string) => void) | null,
+): void {
+  transcriptMessageCommitProbe = probe;
+}
+
 /** One row's boundary computation plus its `ChatMessageRow` — split out of
  *  `ChatTranscriptMessages` as its own self-contained region. Memoized so a
  *  streaming token on the live tail does not reconcile idle fat turns (80+
  *  tool headers) when `mergeTrustedModelContextParts` preserved their
- *  message identity. */
+ *  message identity. Explicit propsEqual: default shallow compare was not
+ *  enough to keep idle rows stable under this parent's re-create pattern. */
+function transcriptMessagePropsEqual(
+  prev: ChatTranscriptMessageProps,
+  next: ChatTranscriptMessageProps,
+): boolean {
+  return (
+    prev.message === next.message &&
+    prev.index === next.index &&
+    prev.isLast === next.isLast &&
+    prev.compaction === next.compaction &&
+    prev.compactionIndex === next.compactionIndex &&
+    prev.availableModels === next.availableModels &&
+    prev.status === next.status &&
+    prev.chatId === next.chatId &&
+    prev.onInspectContext === next.onInspectContext &&
+    prev.onForked === next.onForked
+  );
+}
+
 const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
   chatId,
   message,
@@ -64,6 +93,7 @@ const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
   onForked,
 }: ChatTranscriptMessageProps) {
   const renderKey = messageRenderKey(message);
+  transcriptMessageCommitProbe?.(renderKey);
   const { boundary, modelBoundary } = messageBoundaries({
     message,
     index,
@@ -87,7 +117,7 @@ const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
       onInspectContext={onInspectContext}
     />
   );
-});
+}, transcriptMessagePropsEqual);
 
 type ChatTranscriptCompactionBoundaryProps = {
   compaction: Compaction;
@@ -123,8 +153,9 @@ type ChatTranscriptMessageListProps = ChatTranscriptMessagesProps & {
 };
 
 /** The mapped message rows only — kept separate so the parent stays under
- *  the per-function line budget after the stable `onForked` callback. */
-function ChatTranscriptMessageList({
+ *  the per-function line budget after the stable `onForked` callback.
+ *  Exported for the memo regression harness (stream-tick idle-row commits). */
+export function ChatTranscriptMessageList({
   chatId,
   displayMessages,
   compaction,

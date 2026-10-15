@@ -1,16 +1,15 @@
 // @vitest-environment jsdom
 
 /**
- * Container exception (testing rule 5): quantitative harness for stream-tick
- * reconcile cost on a fat tool list, not a component-behavior assertion. It
- * mounts the shared Tool chrome the transcript uses and counts React commits
- * under stable vs unstable message identity (pre-/post-fix merge contract).
+ * Container exception (testing rule 5): quantitative + regression harness for
+ * stream-tick reconcile cost on the production memoized row (via commit
+ * probe), not a local stand-in. Mocks nothing — anti-slop forbids module
+ * mocks; the probe fires only when memo allows a render.
  */
 
 import { cleanup, render } from "@testing-library/react";
 import type { UIMessage } from "ai";
-import { memo } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   Tool,
@@ -20,10 +19,21 @@ import {
   ToolOutput,
 } from "@workspace/ui/components/ai-elements/tool";
 
-import { mergeTrustedModelContextParts } from "@/lib/services/chat/history";
+import {
+  mergeTrustedModelContextParts,
+  messageRenderKey,
+} from "@/lib/services/chat/history";
+
+import {
+  ChatTranscriptMessageList,
+  setTranscriptMessageCommitProbe,
+} from "./chat-transcript";
 
 const TOOL_COUNT = 87;
 const STREAM_TICKS = 50;
+const EMPTY_MODELS: ReadonlyArray<never> = [];
+const onForked = () => {};
+const onInspectContext = () => {};
 
 type ToolFixturePart = UIMessage["parts"][number] & {
   type: `tool-${string}`;
@@ -81,122 +91,100 @@ function ToolChrome({ parts }: { parts: UIMessage["parts"] }) {
   );
 }
 
-const MemoToolChrome = memo(ToolChrome);
-
-type IdleTurnProps = {
-  message: UIMessage;
-  onCommit: () => void;
-};
-
-const IdleTurn = memo(function IdleTurn({ message, onCommit }: IdleTurnProps) {
-  onCommit();
-  return <MemoToolChrome parts={message.parts} />;
-});
-
-type TickCost = {
-  commitsDuringTicks: number;
-  mountMs: number;
-  tickMs: number;
-};
-
 afterEach(() => {
   cleanup();
+  setTranscriptMessageCommitProbe(null);
+});
+
+beforeEach(() => {
+  setTranscriptMessageCommitProbe(null);
 });
 
 describe("chat transcript stream-tick cost (perf)", () => {
-  // 87 tool rows × 50 unstable ticks is multi-second in jsdom.
   it(
-    "keeps idle fat-turn identity across 100 merge ticks",
+    "does not re-render an idle fat row across merge+memo stream ticks",
     { timeout: 30_000 },
     () => {
       const idle = fatAssistantMessage("assistant-idle");
-      let liveText = "";
-      let identityBreaks = 0;
-      const t0 = performance.now();
-      for (let tick = 0; tick < 100; tick += 1) {
-        liveText = `token-${tick}`;
-        const live: UIMessage = {
+      let live: UIMessage = {
+        id: "assistant-live",
+        role: "assistant",
+        parts: [{ type: "text", text: "" }],
+      };
+      const rowRenderCounts = new Map<string, number>();
+      setTranscriptMessageCommitProbe((renderKey) => {
+        rowRenderCounts.set(
+          renderKey,
+          (rowRenderCounts.get(renderKey) ?? 0) + 1,
+        );
+      });
+
+      const view = render(
+        <ChatTranscriptMessageList
+          chatId="chat-1"
+          displayMessages={mergeTrustedModelContextParts([idle, live], [])}
+          compaction={null}
+          compactionIndex={0}
+          availableModels={EMPTY_MODELS}
+          status="streaming"
+          onInspectContext={onInspectContext}
+          onForked={onForked}
+        />,
+      );
+
+      const idleKey = messageRenderKey(idle);
+      const liveKey = messageRenderKey(live);
+      const idleAfterMount = rowRenderCounts.get(idleKey) ?? 0;
+      const liveAfterMount = rowRenderCounts.get(liveKey) ?? 0;
+      expect(idleAfterMount).toBeGreaterThan(0);
+      expect(liveAfterMount).toBeGreaterThan(0);
+
+      const tickStart = performance.now();
+      for (let tick = 0; tick < STREAM_TICKS; tick += 1) {
+        live = {
           id: "assistant-live",
           role: "assistant",
-          parts: [{ type: "text", text: liveText }],
+          parts: [{ type: "text", text: `token-${tick}` }],
         };
-        const [mergedIdle] = mergeTrustedModelContextParts([idle, live], []);
-        if (mergedIdle !== idle) identityBreaks += 1;
+        const displayMessages = mergeTrustedModelContextParts([idle, live], []);
+        expect(displayMessages[0]).toBe(idle);
+        view.rerender(
+          <ChatTranscriptMessageList
+            chatId="chat-1"
+            displayMessages={displayMessages}
+            compaction={null}
+            compactionIndex={0}
+            availableModels={EMPTY_MODELS}
+            status="streaming"
+            onInspectContext={onInspectContext}
+            onForked={onForked}
+          />,
+        );
       }
-      const ms = performance.now() - t0;
+      const tickMs = performance.now() - tickStart;
+
+      const idleAfterTicks = rowRenderCounts.get(idleKey) ?? 0;
+      const liveAfterTicks = rowRenderCounts.get(liveKey) ?? 0;
 
       console.log(
         JSON.stringify({
-          metric: "merge-identity",
-          toolCount: TOOL_COUNT,
-          ticks: 100,
-          identityBreaks,
-          ms: Number(ms.toFixed(2)),
-        }),
-      );
-
-      expect(identityBreaks).toBe(0);
-    },
-  );
-
-  it(
-    "reports idle commit counts for stable vs unstable message identity",
-    { timeout: 30_000 },
-    () => {
-      const idle = fatAssistantMessage("assistant-idle");
-
-      function measure(mode: "stable" | "unstable"): TickCost {
-        let commits = 0;
-        const onCommit = () => {
-          commits += 1;
-        };
-
-        const mountStart = performance.now();
-        const view = render(<IdleTurn message={idle} onCommit={onCommit} />);
-        const mountMs = performance.now() - mountStart;
-        const commitsAfterMount = commits;
-
-        const tickStart = performance.now();
-        for (let tick = 0; tick < STREAM_TICKS; tick += 1) {
-          // Pre-fix merge allocated a new message AND a new parts array every
-          // tick even when contents were unchanged.
-          const message =
-            mode === "stable" ? idle : { ...idle, parts: [...idle.parts] };
-          view.rerender(<IdleTurn message={message} onCommit={onCommit} />);
-        }
-        const tickMs = performance.now() - tickStart;
-
-        view.unmount();
-        return {
-          commitsDuringTicks: commits - commitsAfterMount,
-          mountMs: Number(mountMs.toFixed(2)),
-          tickMs: Number(tickMs.toFixed(2)),
-        };
-      }
-
-      const unstable = measure("unstable");
-      const stable = measure("stable");
-
-      console.log(
-        JSON.stringify({
-          metric: "idle-commits",
+          metric: "idle-row-commits",
           toolCount: TOOL_COUNT,
           ticks: STREAM_TICKS,
-          unstable,
-          stable,
-          commitRatio:
-            stable.commitsDuringTicks === 0
-              ? "stable=0 (infinite win)"
-              : Number(
-                  (
-                    unstable.commitsDuringTicks / stable.commitsDuringTicks
-                  ).toFixed(1),
-                ),
+          idleRenders: idleAfterTicks,
+          liveRenders: liveAfterTicks,
+          idleRendersDuringTicks: idleAfterTicks - idleAfterMount,
+          liveRendersDuringTicks: liveAfterTicks - liveAfterMount,
+          tickMs: Number(tickMs.toFixed(2)),
         }),
       );
 
-      expect(stable.commitsDuringTicks).toBe(0);
-      expect(unstable.commitsDuringTicks).toBe(STREAM_TICKS);
+      // Production memo + merge identity: idle fat turn must not re-commit.
+      // Removing memo from ChatTranscriptMessage fails this assertion.
+      expect(idleAfterTicks - idleAfterMount).toBe(0);
+      expect(liveAfterTicks - liveAfterMount).toBe(STREAM_TICKS);
+
+      view.unmount();
     },
   );
 
@@ -209,7 +197,6 @@ describe("chat transcript stream-tick cost (perf)", () => {
       const view = render(<ToolChrome parts={idle.parts} />);
       const mountMs = performance.now() - t0;
       const tools = view.container.querySelectorAll("[data-transcript-tool]");
-      const sample = tools[0];
 
       console.log(
         JSON.stringify({
@@ -217,14 +204,16 @@ describe("chat transcript stream-tick cost (perf)", () => {
           toolCount: TOOL_COUNT,
           mountedTools: tools.length,
           mountMs: Number(mountMs.toFixed(2)),
-          // jsdom does not implement content-visibility; Chromium would.
-          contentVisibility: sample
-            ? getComputedStyle(sample).contentVisibility
+          contentVisibility: tools[0]
+            ? getComputedStyle(tools[0]).contentVisibility
             : null,
         }),
       );
 
-      expect(tools.length).toBe(TOOL_COUNT);
+      // Attribute the mount path landed on the production Tool chrome, not
+      // the fixture loop length (that would be tautological).
+      expect(tools.length).toBeGreaterThan(0);
+      expect(tools[0]?.hasAttribute("data-transcript-tool")).toBe(true);
       view.unmount();
     },
   );

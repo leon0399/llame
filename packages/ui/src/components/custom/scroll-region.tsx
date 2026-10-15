@@ -14,8 +14,9 @@ type ScrollRegionProps = {
  *
  * Chromium puts `overflow: auto` nodes in the tab order when they scroll;
  * Firefox and Safari do not, so a bare capped `<pre>` / `<div>` hides lines
- * below the fold from keyboard-only readers. `tabIndex={0}` matches the
- * dialog sticky-footer scrollport pattern in `dialog.stories.tsx`.
+ * below the fold from keyboard-only readers. A labeled `<fieldset>` is the
+ * semantic group role (axe rejects `aria-label` on a role-less `div`; a
+ * labeled `<section>` would flood the landmark list across 87 tools).
  */
 export function ScrollRegion({
   label,
@@ -23,15 +24,18 @@ export function ScrollRegion({
   children,
 }: ScrollRegionProps) {
   return (
-    <section
+    <fieldset
       aria-label={label}
       // Scrollport focus target: Firefox/Safari omit bare overflow nodes from
       // the tab order (Chromium does not). See JSDoc.
       // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
       tabIndex={0}
-      className={cn("max-h-60 overflow-auto", className)}
+      className={cn(
+        "m-0 min-w-0 border-0 p-0 max-h-60 overflow-auto",
+        className,
+      )}
     >
       {children}
-    </section>
+    </fieldset>
   );
 }
