@@ -464,7 +464,7 @@ describe('buildContext', () => {
               type: 'image',
               image: '',
               providerOptions: {
-                llameUnstoredImage: {
+                llameUnstoredMedia: {
                   locator: 'shot.png',
                   width: 1600,
                   height: 900,

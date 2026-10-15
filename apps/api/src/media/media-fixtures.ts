@@ -80,7 +80,7 @@ export function fakeResolver(descriptors: ReadonlyArray<MediaDescriptor>) {
   const known = new Map(descriptors.map((entry) => [entry.id, entry]));
   const loads: Array<string> = [];
   const resolver: RunMediaResolver = {
-    images: new Map(),
+    heldMedia: new Map(),
     describe: (ids) =>
       Promise.resolve(
         new Map(

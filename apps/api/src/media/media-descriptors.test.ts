@@ -306,14 +306,14 @@ describe('createRunMediaResolver images', () => {
   it('starts every attempt with empty memory, shared with no other attempt', () => {
     const first = scriptedResolver([]).resolver;
     const second = scriptedResolver([]).resolver;
-    first.images.set('call-1', {
+    first.heldMedia.set('call-1', {
       locator: '/work/shot.png',
       width: 1600,
       height: 900,
     });
 
-    expect(first.images.get('call-1')).toBeDefined();
-    expect(second.images.get('call-1')).toBeUndefined();
+    expect(first.heldMedia.get('call-1')).toBeDefined();
+    expect(second.heldMedia.get('call-1')).toBeUndefined();
   });
 });
 

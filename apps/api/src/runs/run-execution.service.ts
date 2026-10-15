@@ -62,7 +62,7 @@ import {
   type CompactionPlan,
 } from '../compaction/compaction';
 import {
-  imageResultRef,
+  mediaResultRef,
   loadMediaSizing,
   submittedLocator,
   toolResultOutput,
@@ -71,7 +71,7 @@ import {
 } from '../media/epoch-admission';
 import { mediaLocator, parseMediaLocator } from '../media/media-locator';
 import { MediaService } from '../media/media.service';
-import { type HeldImage, releaseImage } from '../media/attempt-images';
+import { type HeldMedia, releaseMedia } from '../media/attempt-media';
 import { createToolMediaStore } from '../media/tool-media-store';
 import {
   createRunMediaResolver,
@@ -341,8 +341,8 @@ type PromptImportStep = {
   readonly effectivePermissionMode: PermissionMode;
   readonly skillSelection: ReadonlySet<string>;
   readonly detaching: boolean;
-  /** The attempt's memory of unstored images (vision-media R1.4). */
-  readonly images: Map<string, HeldImage>;
+  /** The attempt's memory of unstored media. */
+  readonly heldMedia: Map<string, HeldMedia>;
 };
 
 type WorkspaceStagedContext = {
@@ -1001,7 +1001,7 @@ export class RunExecutionService {
       effectivePermissionMode,
       skillSelection,
       detaching: workspacePreparation.detaching,
-      images: media.images,
+      heldMedia: media.heldMedia,
     });
     // Prompt/catalog resolution, the single pre-step compaction trigger, and the
     // request this Run actually sends (design D4/D5): both prompt surfaces come
@@ -1231,8 +1231,8 @@ export class RunExecutionService {
       media: createToolMediaStore(
         new MediaService(this.tenantDb),
         input.userId,
-        media.images,
-        input.client.input?.includes('image') ?? false,
+        media.heldMedia,
+        input.client.input ?? [],
       ),
       queryEmbedder: this.queryEmbedder,
       permissionPolicy: this.permissionPolicy,
@@ -1608,7 +1608,7 @@ export class RunExecutionService {
             }) =>
               toolResultOutput(
                 serializeNativeModelOutput(output),
-                imageResultRef(output, submittedLocator(call)),
+                mediaResultRef(output, submittedLocator(call)),
               ),
           }
         : {};
@@ -2448,7 +2448,7 @@ export class RunExecutionService {
     // An image read and then omitted at the output bound has no entry to
     // attach it, so it keeps no bytes (vision-media R1.4).
     for (const locator of omitted) {
-      releaseImage(step.images, promptImportImageKey(input.runId, locator));
+      releaseMedia(step.heldMedia, promptImportImageKey(input.runId, locator));
     }
     // An aborted attempt publishes nothing; the abort settles the Run.
     if (input.abortSignal?.aborted) return;
@@ -2482,8 +2482,8 @@ export class RunExecutionService {
     const media = createToolMediaStore(
       new MediaService(this.tenantDb),
       input.userId,
-      step.images,
-      input.client.input?.includes('image') ?? false,
+      step.heldMedia,
+      input.client.input ?? [],
     );
     const context: ToolContext = {
       ...this.buildSystemReadContext(
@@ -2512,7 +2512,7 @@ export class RunExecutionService {
       probeMedia: async (locator) => {
         const id = parseMediaLocator(locator);
         if (id === undefined) return undefined;
-        return (await media.findImage(id)) === undefined
+        return (await media.findMedia(id)) === undefined
           ? undefined
           : mediaLocator(id);
       },
@@ -2524,7 +2524,13 @@ export class RunExecutionService {
             ...context,
             media: {
               ...media,
-              readImage: (submitted) => media.readImage(submitted, key),
+              readMedia: (submitted) => async (file) => {
+                const result = await media.readMedia(submitted, key)(file);
+                if (result.status === 'success' && result.kind === 'pdf') {
+                  releaseMedia(step.heldMedia, key);
+                }
+                return result;
+              },
             },
           },
           path,
@@ -2840,7 +2846,7 @@ export class RunExecutionService {
     const toolInput = { path: selectorPath };
     const derivedDecisions: Array<DerivedDecisionRecord> = [];
     let admission: PermissionDecision | undefined;
-    const result = await runTool(
+    const observed = await runTool(
       nativeReadTool,
       toolInput,
       {
@@ -2862,6 +2868,17 @@ export class RunExecutionService {
         );
       },
     );
+    // Interim guard until PDF prompt-import entries are supported.
+    const result: ToolResult =
+      origin === ORIGIN_PROMPT_IMPORT &&
+      observed.status === 'success' &&
+      observed.kind === 'pdf'
+        ? {
+            status: 'error',
+            type: 'unsupported_media_type',
+            message: 'PDF imports are not supported yet',
+          }
+        : observed;
     await this.recordSystemReadCompletion(
       input,
       toolCallId,

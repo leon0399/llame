@@ -7,12 +7,12 @@ import {
 } from 'node:http';
 import { type Socket } from 'node:net';
 
-import { IMAGE_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
+import { MEDIA_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
 import { isString } from '@workspace/runtime-safety';
 import sharp from 'sharp';
 import { z } from 'zod';
 
-import type { HeldImage } from '../media/attempt-images';
+import type { HeldMedia } from '../media/attempt-media';
 import { type MediaService } from '../media/media.service';
 import { createToolMediaStore } from '../media/tool-media-store';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
@@ -1806,7 +1806,7 @@ describe('web image reads over loopback fixtures', () => {
 
   let fixture: AddressFixture;
   let images: Images;
-  let memory: Map<string, HeldImage>;
+  let memory: Map<string, HeldMedia>;
 
   /** The owner's store: a web image never reaches it, so any lookup fails the
    *  test. */
@@ -1925,7 +1925,10 @@ describe('web image reads over loopback fixtures', () => {
     execute(
       webContext({
         permissionPolicy: ADMIT_EVERY_LOCATOR,
-        media: createToolMediaStore(mediaService, 'owner', memory, true),
+        media: createToolMediaStore(mediaService, 'owner', memory, [
+          'text',
+          'image',
+        ]),
         toolCallId: CALL_ID,
         ...overrides,
       }),
@@ -1977,7 +1980,10 @@ describe('web image reads over loopback fixtures', () => {
     });
     // The attempt keeps the model variant under the call id; nothing else
     // holds the image.
-    const { model, ...held } = memory.get(CALL_ID) ?? {};
+    const entry = memory.get(CALL_ID);
+    if (entry === undefined || 'pages' in entry)
+      throw new Error('Expected a retained image');
+    const { model, ...held } = entry;
     expect(held).toStrictEqual({
       locator: urlOf('/shot.png'),
       width: 1600,
@@ -2038,7 +2044,7 @@ describe('web image reads over loopback fixtures', () => {
       expect(result).toStrictEqual({
         status: 'error',
         type: 'invalid_selector',
-        message: IMAGE_SELECTOR_MESSAGE,
+        message: MEDIA_SELECTOR_MESSAGE,
       });
       expect(memory.get(CALL_ID)).toBeUndefined();
       expect(JSON.stringify(result)).not.toContain('PNG');

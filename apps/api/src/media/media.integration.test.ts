@@ -76,6 +76,7 @@ describe('/api/v1/media (HTTP)', () => {
   let cookieA = '';
   let cookieB = '';
   let userAId = '';
+  let userBId = '';
 
   async function register(email: string, name: string) {
     const res = await request(http)
@@ -135,8 +136,9 @@ describe('/api/v1/media (HTTP)', () => {
     const a = await register(`media-a-${tag}@test.com`, 'Media Owner A');
     cookieA = a.cookie;
     userAId = a.userId;
-    cookieB = (await register(`media-b-${tag}@test.com`, 'Media Owner B'))
-      .cookie;
+    const b = await register(`media-b-${tag}@test.com`, 'Media Owner B');
+    cookieB = b.cookie;
+    userBId = b.userId;
   });
 
   afterAll(async () => {
@@ -664,22 +666,31 @@ describe('/api/v1/media (HTTP)', () => {
       ]);
     });
 
-    // Interim guard (pdf-store until pdf-read).
-    it('fails a media:// read of a stored PDF as unsupported_media_type', async () => {
-      const store = createToolMediaStore(
-        new MediaService(tenantDb),
-        userAId,
-        new Map(),
-        true,
-      );
+    it('reads an owned stored PDF and refuses the same locator for another owner', async () => {
+      const media = new MediaService(tenantDb);
+      const store = createToolMediaStore(media, userAId, new Map(), [
+        'text',
+        'pdf',
+      ]);
 
       expect(
         await executeMediaRead(store, 'read', pdf.locator, undefined),
       ).toEqual({
-        status: 'error',
-        type: 'unsupported_media_type',
-        message: 'PDF reads are not supported yet',
+        status: 'success',
+        kind: 'pdf',
+        media: pdf.locator,
+        path: pdf.locator,
+        mediaType: 'application/pdf',
+        pages: 1,
+        byteSize: onePage.byteLength,
       });
+      const foreign = createToolMediaStore(media, userBId, new Map(), [
+        'text',
+        'pdf',
+      ]);
+      await expect(
+        executeMediaRead(foreign, 'read', pdf.locator, undefined),
+      ).resolves.toMatchObject({ status: 'error', type: 'not_found' });
     });
   });
 

@@ -902,7 +902,7 @@ describe('media sizing (vision-media D6, pdf-media D6)', () => {
             {
               role: 'user',
               content: [
-                { type: 'text', text: 'Images from tool results:' },
+                { type: 'text', text: 'Files from tool results:' },
                 { type: 'text', text: `Image from read "media://${A}":` },
               ],
             },

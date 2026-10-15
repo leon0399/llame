@@ -1,5 +1,5 @@
 import {
-  IMAGE_SELECTOR_MESSAGE,
+  MEDIA_SELECTOR_MESSAGE,
   splitSelectorSuffix,
 } from '@workspace/native-file-tools';
 
@@ -40,15 +40,10 @@ export async function executeMediaRead(
     );
   }
   if (selector !== undefined) {
-    return refusal('invalid_selector', IMAGE_SELECTOR_MESSAGE);
+    return refusal('invalid_selector', MEDIA_SELECTOR_MESSAGE);
   }
   signal?.throwIfAborted();
-  const found = await media.findImage(id);
-  if (found === undefined) return refusal('not_found', 'Image not found.');
-  // Interim guard (pdf-media `pdf-store`, deleted by `pdf-read`): this also
-  // fails an `@media://` prompt import of a stored PDF.
-  if (found.kind === 'pdf') {
-    return refusal('unsupported_media_type', 'PDF reads are not supported yet');
-  }
+  const found = await media.findMedia(id);
+  if (found === undefined) return refusal('not_found', 'Media not found.');
   return { ...found, path };
 }

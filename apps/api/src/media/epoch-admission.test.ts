@@ -6,7 +6,7 @@ import {
   collectMediaRefs,
   EPOCH_MAX_BASE64_BYTES,
   EPOCH_MAX_IMAGES,
-  imageResultRef,
+  mediaResultRef,
   loadMediaSizing,
   pdfPageBound,
   submittedLocator,
@@ -196,8 +196,8 @@ describe('admitEpochMedia', () => {
     const statuses = admit(
       [
         id,
-        { unstored: 'held', modelByteSize: 3 },
-        { unstored: 'not-retained' },
+        { unstored: 'held', kind: 'image', modelByteSize: 3 },
+        { unstored: 'not-retained', kind: 'image' },
       ],
       [descriptor(id)],
       model(['text', 'pdf']),
@@ -260,7 +260,11 @@ describe('admitEpochMedia', () => {
   it('never counts a not-retained read: 99 attachments, an earlier read, and one more attach all 100', () => {
     const owner = range(100).map(mediaId);
     const statuses = admit(
-      [...owner.slice(0, 99), { unstored: 'not-retained' }, ...owner.slice(99)],
+      [
+        ...owner.slice(0, 99),
+        { unstored: 'not-retained', kind: 'image' },
+        ...owner.slice(99),
+      ],
       owner.map((id) => descriptor(id)),
     );
 
@@ -273,6 +277,7 @@ describe('admitEpochMedia', () => {
   it('sizes an unstored image held with bytes like a stored one', () => {
     const held = {
       unstored: 'held',
+      kind: 'image',
       modelByteSize: FIVE_MIB_BASE64_RAW,
     } as const;
     const statuses = admit(
@@ -427,10 +432,10 @@ describe('imageResultRef', () => {
   it('names the media of a successful media image result', () => {
     const media = `media://${mediaId(4)}`;
     expect(
-      imageResultRef({ status: 'success', kind: 'image', media }, 'x'),
+      mediaResultRef({ status: 'success', kind: 'image', media }, 'x'),
     ).toBe(mediaId(4));
     expect(
-      imageResultRef(
+      mediaResultRef(
         { status: 'success', kind: 'image', media: `MEDIA://${mediaId(4)}` },
         'x',
       ),
@@ -447,17 +452,17 @@ describe('imageResultRef', () => {
       path: '/host/projected/shot.png',
       thumbnail: 'data:image/webp;base64,UklGRg==',
     };
-    expect(imageResultRef(result, SHOT.locator)).toEqual(SHOT);
-    expect(imageResultRef(result, undefined)).toBeUndefined();
+    expect(mediaResultRef(result, SHOT.locator)).toEqual(SHOT);
+    expect(mediaResultRef(result, undefined)).toBeUndefined();
   });
 
   it('names nothing for a non-image or failed result', () => {
     const image = { kind: 'image', width: 1, height: 1 };
     expect(
-      imageResultRef({ ...image, status: 'success', kind: 'file' }, 'x'),
+      mediaResultRef({ ...image, status: 'success', kind: 'file' }, 'x'),
     ).toBeUndefined();
-    expect(imageResultRef({ ...image, status: 'error' }, 'x')).toBeUndefined();
-    expect(imageResultRef('media', 'x')).toBeUndefined();
+    expect(mediaResultRef({ ...image, status: 'error' }, 'x')).toBeUndefined();
+    expect(mediaResultRef('media', 'x')).toBeUndefined();
   });
 
   it('reads the locator a read call submitted', () => {
@@ -511,8 +516,8 @@ describe('loadMediaSizing', () => {
       width: 1600,
       height: 900,
     };
-    resolver.images.set('c1', { ...SHOT, model: variant });
-    resolver.images.set('c2', { ...SHOT, model: variant });
+    resolver.heldMedia.set('c1', { ...SHOT, model: variant });
+    resolver.heldMedia.set('c2', { ...SHOT, model: variant });
     const result = (toolCallId: string): ModelMessage => ({
       role: 'tool',
       content: [

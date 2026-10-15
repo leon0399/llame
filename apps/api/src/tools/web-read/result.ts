@@ -9,7 +9,7 @@ import {
   selectSourceLines,
   splitSourceLines,
   type DirectorySuccess,
-  type ImageDecodeSuccess,
+  type MediaDecodeSuccess,
   type ReadSuccess,
   type ReadTarget,
 } from '@workspace/native-file-tools';
@@ -111,9 +111,11 @@ export async function buildWebReadResult(
 export function buildWebImageResult(
   locator: WebLocator,
   finalUrl: string,
-  image: ImageDecodeSuccess,
+  image: Extract<MediaDecodeSuccess, { kind: 'image' }>,
   notes: ReadonlyArray<string>,
-): ImageDecodeSuccess & WebResultEnvelope & UnknownRecord {
+): Extract<MediaDecodeSuccess, { kind: 'image' }> &
+  WebResultEnvelope &
+  UnknownRecord {
   return {
     ...image,
     kind: 'image',

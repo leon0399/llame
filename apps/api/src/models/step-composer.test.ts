@@ -13,7 +13,7 @@ import {
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
 
-import type { HeldImage, RetainedVariant } from '../media/attempt-images';
+import type { HeldMedia, RetainedVariant } from '../media/attempt-media';
 import {
   EPOCH_MAX_BASE64_BYTES,
   loadMediaSizing,
@@ -68,6 +68,11 @@ const pdfRef = (id: string) =>
     mediaType: 'application/pdf',
     filename: 'paper.pdf',
   }) as const;
+
+function heldImageModel(resolver: RunMediaResolver, key: string) {
+  const entry = resolver.heldMedia.get(key);
+  return entry !== undefined && !('pages' in entry) ? entry.model : undefined;
+}
 
 describe('composeStepMessages', () => {
   it('labels each attachment and sends the model variant after the rail items, before the text', async () => {
@@ -448,7 +453,7 @@ describe('composeStepMessages', () => {
       ({ type: 'image', image: bytes, mediaType: 'image/png' }) as const;
     /** The importing attempt's entry for `@shot.png`, with its variant. */
     const holdShot = (resolver: RunMediaResolver, bytes: Buffer | undefined) =>
-      resolver.images.set(KEY, {
+      resolver.heldMedia.set(KEY, {
         locator: '/repo/shot.png',
         width: 1600,
         height: 900,
@@ -579,7 +584,7 @@ describe('composeStepMessages', () => {
         type: 'text',
         text: `[image "shot.png" 1600×900, not attached: this context's image limit is reached]`,
       });
-      expect(resolver.images.get(KEY)?.model).toBeUndefined();
+      expect(heldImageModel(resolver, KEY)).toBeUndefined();
     });
 
     it('admits the import of a compacting attempt in the new epoch', async () => {
@@ -594,7 +599,7 @@ describe('composeStepMessages', () => {
         VISION,
       );
       expect(estimate.statuses).toEqual(['attached', 'limit', 'limit']);
-      expect(resolver.images.get(KEY)?.model?.bytes).toBe(shot);
+      expect(heldImageModel(resolver, KEY)?.bytes).toBe(shot);
       // Compaction absorbed the earlier turn: the first request carries the
       // import as an image and the attempt keeps it.
       const composed = await composeStepMessages(replay([trigger]), {
@@ -606,7 +611,7 @@ describe('composeStepMessages', () => {
       const sent = Array.isArray(content) ? content[1] : undefined;
       expect(sent).toMatchObject({ type: 'image', mediaType: 'image/png' });
       expect(sent?.type === 'image' && sent.image).toBe(shot);
-      expect(resolver.images.get(KEY)?.model?.bytes).toBe(shot);
+      expect(heldImageModel(resolver, KEY)?.bytes).toBe(shot);
     });
   });
 
@@ -666,10 +671,10 @@ describe('composeStepMessages', () => {
       'gives %s a text output with the placeholder and no image',
       async (_, descriptors, context, placeholder) => {
         const { resolver, loads } = fakeResolver(descriptors);
-        for (const moveToolImages of [false, true]) {
+        for (const moveToolMedia of [false, true]) {
           const composed = await composeStepMessages(
             [readResult('call-1', A)],
-            { resolver, context, moveToolImages },
+            { resolver, context, moveToolMedia },
           );
           expect(composed).toHaveLength(1);
           expect(outputOf(composed[0])).toEqual({
@@ -712,7 +717,7 @@ describe('composeStepMessages', () => {
             call('call-3'),
             readResult('call-3', A),
           ],
-          { resolver, context: VISION, moveToolImages: true },
+          { resolver, context: VISION, moveToolMedia: true },
         );
 
         expect(loads).toEqual([A, B]);
@@ -722,7 +727,7 @@ describe('composeStepMessages', () => {
         expect(composed[3]).toEqual({
           role: 'user',
           content: [
-            { type: 'text', text: 'Images from tool results:' },
+            { type: 'text', text: 'Files from tool results:' },
             label(A),
             image(0x61),
             label(B),
@@ -734,7 +739,7 @@ describe('composeStepMessages', () => {
         expect(composed[6]).toEqual({
           role: 'user',
           content: [
-            { type: 'text', text: 'Images from tool results:' },
+            { type: 'text', text: 'Files from tool results:' },
             label(A),
             image(0x61),
           ],
@@ -752,7 +757,7 @@ describe('composeStepMessages', () => {
         }
         const composed = await composeStepMessages(
           [{ role: 'tool', content: [...first.content, ...second.content] }],
-          { resolver, context: VISION, moveToolImages: true },
+          { resolver, context: VISION, moveToolMedia: true },
         );
 
         expect(composed).toEqual([
@@ -766,7 +771,7 @@ describe('composeStepMessages', () => {
           {
             role: 'user',
             content: [
-              { type: 'text', text: 'Images from tool results:' },
+              { type: 'text', text: 'Files from tool results:' },
               label(B),
               image(0x62),
               label(A),
@@ -792,7 +797,7 @@ describe('composeStepMessages', () => {
 
         const composed = await composeStepMessages(
           [{ role: 'tool', content: [plain, ...read.content] }],
-          { resolver, context: VISION, moveToolImages: true },
+          { resolver, context: VISION, moveToolMedia: true },
         );
 
         expect(composed).toEqual([
@@ -806,7 +811,7 @@ describe('composeStepMessages', () => {
           {
             role: 'user',
             content: [
-              { type: 'text', text: 'Images from tool results:' },
+              { type: 'text', text: 'Files from tool results:' },
               label(A),
               image(0x61),
             ],
@@ -830,15 +835,15 @@ describe('composeStepMessages', () => {
               ],
             },
           ],
-          { resolver, context: VISION, moveToolImages: true },
+          { resolver, context: VISION, moveToolMedia: true },
         );
 
         expect(outputOf(composed[0])).toEqual({
           type: 'text',
-          value: 'The image follows in the next message.',
+          value: 'The files follow in the next message.',
         });
         expect(composed[1]?.content).toEqual([
-          { type: 'text', text: 'Images from tool results:' },
+          { type: 'text', text: 'Files from tool results:' },
           { type: 'text', text: `Image from view "media://${A}":` },
           image(0x61),
         ]);
@@ -852,7 +857,7 @@ describe('composeStepMessages', () => {
         ]);
         const composed = await composeStepMessages(
           [{ role: 'user', content: [fileRef(A)] }, readResult('call-1', B)],
-          { resolver, context: VISION, moveToolImages: true },
+          { resolver, context: VISION, moveToolMedia: true },
         );
 
         expect(loads).toEqual([A]);
@@ -996,7 +1001,7 @@ describe('composeStepMessages', () => {
     const held = (
       model: RetainedVariant | undefined,
       image = SHOT,
-    ): HeldImage => ({ ...image, ...(model && { model }) });
+    ): HeldMedia => ({ ...image, ...(model && { model }) });
     const unstoredResult = (
       toolCallId: string,
       image = SHOT,
@@ -1019,7 +1024,7 @@ describe('composeStepMessages', () => {
 
     it('attaches a read image from the attempt memory without any store read', async () => {
       const { resolver, loads } = fakeResolver([]);
-      resolver.images.set('call-1', held(variant()));
+      resolver.heldMedia.set('call-1', held(variant()));
 
       const [composed] = await composeStepMessages([unstoredResult('call-1')], {
         resolver,
@@ -1054,7 +1059,7 @@ describe('composeStepMessages', () => {
 
     it('gives a text-only model the omitted placeholder whether or not the attempt holds the image', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.images.set('call-1', held(undefined));
+      resolver.heldMedia.set('call-1', held(undefined));
 
       const composed = await composeStepMessages(
         [unstoredResult('call-1'), unstoredResult('call-2')],
@@ -1070,11 +1075,11 @@ describe('composeStepMessages', () => {
 
     it('moves a held read image, labelled by its submitted locator, into the image message and keeps the not-retained placeholder in place on a Chat Completions wire', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.images.set('call-1', held(variant()));
+      resolver.heldMedia.set('call-1', held(variant()));
 
       const composed = await composeStepMessages(
         [unstoredResult('call-1'), unstoredResult('call-2')],
-        { resolver, context: VISION, moveToolImages: true },
+        { resolver, context: VISION, moveToolMedia: true },
       );
 
       expect(composed.map(outputOf)).toEqual([
@@ -1085,7 +1090,7 @@ describe('composeStepMessages', () => {
       expect(composed[2]).toEqual({
         role: 'user',
         content: [
-          { type: 'text', text: 'Images from tool results:' },
+          { type: 'text', text: 'Files from tool results:' },
           { type: 'text', text: 'Image from read "/work/shot.png":' },
           { type: 'image', image: variant().bytes, mediaType: 'image/png' },
         ],
@@ -1126,7 +1131,7 @@ describe('composeStepMessages', () => {
       expect(JSON.parse(literal)).toBe(bracketed.locator);
 
       // A read of the locator the literal parses to is held and attached.
-      resolver.images.set('call-2', held(variant(), bracketed));
+      resolver.heldMedia.set('call-2', held(variant(), bracketed));
       const composed = await composeStepMessages(
         [
           unstoredResult('call-1', bracketed),
@@ -1144,8 +1149,8 @@ describe('composeStepMessages', () => {
     it('drops for good the bytes of a read the window refuses on entry', async () => {
       const { resolver } = fakeResolver([]);
       const half = variant((EPOCH_MAX_BASE64_BYTES * 3) / 8 + 3);
-      resolver.images.set('call-1', held(half));
-      resolver.images.set('call-2', held(half));
+      resolver.heldMedia.set('call-1', held(half));
+      resolver.heldMedia.set('call-2', held(half));
       const messages = [unstoredResult('call-1'), unstoredResult('call-2')];
 
       const first = await composeStepMessages(messages, {
@@ -1157,9 +1162,9 @@ describe('composeStepMessages', () => {
         ...vision,
       });
 
-      expect(resolver.images.get('call-1')?.model).toBe(half);
+      expect(heldImageModel(resolver, 'call-1')).toBe(half);
       // The released entry keeps the size the window refused, not the bytes.
-      expect(resolver.images.get('call-2')).toEqual({
+      expect(resolver.heldMedia.get('call-2')).toEqual({
         ...SHOT,
         modelByteSize: half.bytes.byteLength,
       });
@@ -1174,7 +1179,7 @@ describe('composeStepMessages', () => {
 
     it('gives an attached entry without bytes the not-retained placeholder rather than failing', async () => {
       const { resolver } = fakeResolver([]);
-      resolver.images.set('call-1', { ...SHOT, modelByteSize: 3 });
+      resolver.heldMedia.set('call-1', { ...SHOT, modelByteSize: 3 });
 
       const [composed] = await composeStepMessages([unstoredResult('call-1')], {
         resolver,
@@ -1189,7 +1194,7 @@ describe('composeStepMessages', () => {
 
     it('holds none of a superseded attempt in a new one, even in the same process', async () => {
       const failed = fakeResolver([]).resolver;
-      failed.images.set('call-1', held(variant()));
+      failed.heldMedia.set('call-1', held(variant()));
       const retry = fakeResolver([]).resolver;
       const messages = [unstoredResult('call-1')];
 
@@ -1201,7 +1206,7 @@ describe('composeStepMessages', () => {
         resolver: retry,
         ...vision,
       });
-      retry.images.set('call-2', held(variant()));
+      retry.heldMedia.set('call-2', held(variant()));
       const reread = await composeStepMessages(
         [...messages, unstoredResult('call-2')],
         { resolver: retry, ...vision },
@@ -1225,7 +1230,7 @@ describe('composeStepMessages', () => {
         (_, n) => `0192f3a4-5b6c-7d8e-9f01-${String(n).padStart(12, '0')}`,
       );
       const { resolver } = fakeResolver(owner.map((id) => descriptor(id)));
-      resolver.images.set('call-2', held(variant()));
+      resolver.heldMedia.set('call-2', held(variant()));
 
       const composed = await composeStepMessages(
         [
@@ -1450,7 +1455,7 @@ describe('installStepPreparation', () => {
     const modelByteSize = (5 * 2 ** 20 * 3) / 4;
 
     /** A Run that reads `IDS` one per step and then answers. */
-    async function readSix(moveToolImages?: boolean) {
+    async function readSix(moveToolMedia?: boolean) {
       const { resolver } = fakeResolver(
         IDS.map((id) => descriptor(id, { modelByteSize })),
       );
@@ -1479,7 +1484,7 @@ describe('installStepPreparation', () => {
         streamOptions,
         input,
         { input: ['text', 'image'], ...WINDOW },
-        { moveToolImages },
+        { moveToolMedia },
       );
       await expect(streamText(streamOptions).text).resolves.toBe('ok');
       return prompts;
@@ -1540,7 +1545,7 @@ describe('installStepPreparation', () => {
             inputSchema: z.object({}),
             // What the read hook does: hold the decoded variant in the attempt.
             execute: (_, { toolCallId }) => {
-              resolver.images.set(toolCallId, {
+              resolver.heldMedia.set(toolCallId, {
                 ...image(toolCallId),
                 model: {
                   bytes: Buffer.alloc(modelByteSize),
@@ -1572,13 +1577,13 @@ describe('installStepPreparation', () => {
 
       const calls = Array.from({ length: 10 }, (_, n) => `call-${n + 1}`);
       const retained = calls.filter(
-        (call) => resolver.images.get(call)?.model !== undefined,
+        (call) => heldImageModel(resolver, call) !== undefined,
       );
       expect(retained).toEqual(calls.slice(0, 5));
       const retainedBase64 = retained.map(
         (call) =>
           4 *
-          Math.ceil((resolver.images.get(call)?.model?.bytes.length ?? 0) / 3),
+          Math.ceil((heldImageModel(resolver, call)?.bytes.length ?? 0) / 3),
       );
       expect(retainedBase64.reduce((sum, size) => sum + size, 0)).toBe(
         5 * 5 * 2 ** 20,
@@ -1613,7 +1618,7 @@ describe('installStepPreparation', () => {
       const imageMessage = (id: string) => ({
         role: 'user',
         content: [
-          { type: 'text', text: 'Images from tool results:' },
+          { type: 'text', text: 'Files from tool results:' },
           { type: 'text', text: `Image from noop "media://${id}":` },
           expect.objectContaining({
             type: 'file',

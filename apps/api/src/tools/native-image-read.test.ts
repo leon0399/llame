@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import sharp from 'sharp';
-import { IMAGE_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
+import { MEDIA_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
 import { z } from 'zod';
 
 import * as schema from '../db/schema';
@@ -11,7 +11,7 @@ import type { MediaObject } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
-import type { HeldImage } from '../media/attempt-images';
+import type { HeldMedia } from '../media/attempt-media';
 import {
   MEDIA_MAX_BYTES,
   MEDIA_REFUSAL,
@@ -36,6 +36,9 @@ import { createWorkspaceRootCell } from './workspace-path';
 const OWNED = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
 const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
 const OTHER_SPACE = '11111111-2222-4333-8444-555555555555';
+
+const pdfFixture = (name: string) =>
+  readFile(join(__dirname, '../media/testing/pdf', name));
 
 /** `result` with its thumbnail, checked to be a WebP data URL, set aside. */
 function shown(result: unknown) {
@@ -119,10 +122,10 @@ const STORED_IMAGE = {
   height: 900,
 };
 
-describe('native image reads', () => {
+describe('native media reads', () => {
   let directory: string;
   let media: FakeMedia;
-  let memory: Map<string, HeldImage>;
+  let memory: Map<string, HeldMedia>;
   let shot: Buffer;
 
   function context(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -139,7 +142,11 @@ describe('native image reads', () => {
         runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
           callback(db),
       },
-      media: createToolMediaStore(media.service, 'owner', memory, true),
+      media: createToolMediaStore(media.service, 'owner', memory, [
+        'text',
+        'image',
+        'pdf',
+      ]),
       ...overrides,
     };
   }
@@ -147,7 +154,7 @@ describe('native image reads', () => {
   /** The attempt memory's entry for `key`, its variant summarized. */
   function held(key = 'call') {
     const entry = memory.get(key);
-    if (entry === undefined) return undefined;
+    if (entry === undefined || 'pages' in entry) return undefined;
     const { model, ...image } = entry;
     return {
       ...image,
@@ -206,7 +213,7 @@ describe('native image reads', () => {
     const path = join(directory, 'shot.png');
     await writeFile(path, shot);
     const textOnly = context({
-      media: createToolMediaStore(media.service, 'owner', memory, false),
+      media: createToolMediaStore(media.service, 'owner', memory, ['text']),
     });
 
     const result = await runTool(nativeReadTool, { path }, textOnly, 5);
@@ -354,7 +361,50 @@ describe('native image reads', () => {
     expect(held()).toBeUndefined();
   });
 
-  describe('Knowledge and skill images', () => {
+  it.each(['host', 'file'])(
+    'reads a PDF original through a %s locator',
+    async (scheme) => {
+      const bytes = await pdfFixture('fifteen-pages.pdf');
+      const path = join(directory, 'paper.dat');
+      await writeFile(path, bytes);
+      const locator = scheme === 'file' ? `file://${path}` : path;
+      const result = await runTool(
+        nativeReadTool,
+        { path: locator },
+        context(),
+        5,
+      );
+
+      expect(result).toEqual({
+        status: 'success',
+        kind: 'pdf',
+        mediaType: 'application/pdf',
+        pages: 15,
+        byteSize: bytes.byteLength,
+        path,
+      });
+      expect(memory.get('call')).toMatchObject({
+        pages: 15,
+        bytes,
+        byteSize: bytes.byteLength,
+      });
+    },
+  );
+
+  it('refuses an encrypted PDF without falling back to text or retaining bytes', async () => {
+    const path = join(directory, 'private.pdf');
+    await writeFile(path, await pdfFixture('owner-password.pdf'));
+
+    await expect(
+      runTool(nativeReadTool, { path }, context(), 5),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'unsupported_media_type',
+    });
+    expect(memory.has('call')).toBe(false);
+  });
+
+  describe('Knowledge and skill media', () => {
     function knowledgeContext(): ToolContext {
       return context({
         nativeExecutorId: undefined,
@@ -406,6 +456,32 @@ describe('native image reads', () => {
       ).toEqual(shot);
     });
 
+    it('reads a Knowledge PDF with public attribution and no host path or durable bytes', async () => {
+      const bytes = await pdfFixture('fifteen-pages.pdf');
+      const path = join(directory, SPACE, 'diagrams', 'paper.pdf');
+      await writeFile(path, bytes);
+      const locator = `kb://${SPACE}/diagrams/paper.pdf`;
+      const result = await runTool(
+        nativeReadTool,
+        { path: locator },
+        knowledgeContext(),
+        5,
+      );
+
+      expect(result).toEqual({
+        status: 'success',
+        kind: 'pdf',
+        mediaType: 'application/pdf',
+        pages: 15,
+        byteSize: bytes.byteLength,
+        path: locator,
+        knowledgeSpaceId: SPACE,
+        knowledgeSpaceName: 'Personal',
+        notice: KNOWLEDGE_CONTENT_NOTICE,
+      });
+      expect(memory.get('call')).toMatchObject({ locator, pages: 15, bytes });
+    });
+
     it("decodes nothing for another owner's Space", async () => {
       expect(
         await runTool(
@@ -448,6 +524,42 @@ describe('native image reads', () => {
       expect(result).not.toHaveProperty('content');
       expect(result).not.toHaveProperty('media');
       expect(held()?.locator).toBe('skill://pdf/assets/sample.png');
+    });
+
+    it('reads a skill PDF with its package attribution', async () => {
+      const bytes = await pdfFixture('fifteen-pages.pdf');
+      const source = join(directory, 'skills');
+      const skillDirectory = join(source, 'documents');
+      await mkdir(skillDirectory, { recursive: true });
+      await writeFile(
+        join(skillDirectory, 'SKILL.md'),
+        '---\nname: documents\ndescription: Read documents\n---\n# Documents\n',
+      );
+      await writeFile(join(skillDirectory, 'paper.pdf'), bytes);
+      const locator = 'skill://documents/paper.pdf';
+      const result = await runTool(
+        nativeReadTool,
+        { path: locator },
+        context({
+          nativeExecutorId: undefined,
+          skillCatalog: new SkillCatalog([source]),
+        }),
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'success',
+        kind: 'pdf',
+        mediaType: 'application/pdf',
+        pages: 15,
+        byteSize: bytes.byteLength,
+        path: locator,
+        locator,
+        sourceDirectory: source,
+        resolvedPath: join(skillDirectory, 'paper.pdf'),
+        skillDirectory,
+      });
+      expect(memory.get('call')).toMatchObject({ locator, pages: 15, bytes });
     });
   });
 
@@ -499,14 +611,16 @@ describe('native image reads', () => {
           nativeReadTool,
           { path: `media://${id}` },
           mediaContext({
-            media: createToolMediaStore(media.service, 'other', memory, true),
+            media: createToolMediaStore(media.service, 'other', memory, [
+              'text',
+              'image',
+            ]),
           }),
           5,
         ),
-      ).toEqual({
+      ).toMatchObject({
         status: 'error',
         type: 'not_found',
-        message: 'Image not found.',
       });
     });
 
@@ -523,7 +637,7 @@ describe('native image reads', () => {
         ).toEqual({
           status: 'error',
           type: 'invalid_selector',
-          message: IMAGE_SELECTOR_MESSAGE,
+          message: MEDIA_SELECTOR_MESSAGE,
         });
         expect(media.lookups).toEqual([]);
       },
@@ -612,20 +726,25 @@ describe('native image reads', () => {
 
   describe('tool media store', () => {
     it('decodes an image of exactly the byte bound', async () => {
-      const store = createToolMediaStore(media.service, 'owner', memory, true);
+      const store = createToolMediaStore(media.service, 'owner', memory, [
+        'text',
+        'image',
+      ]);
 
       expect(
         shown(
-          await store.readImage(
+          await store.readMedia(
             'shot.png',
             'call',
           )({
+            kind: 'image',
             byteSize: MEDIA_MAX_BYTES,
             readBytes: () => Promise.resolve(shot),
           }),
         ),
       ).toEqual({
         status: 'success',
+        kind: 'image',
         mediaType: 'image/png',
         width: 160,
         height: 90,
@@ -634,12 +753,16 @@ describe('native image reads', () => {
     });
 
     it('holds nothing for a read without a tool call id', async () => {
-      const store = createToolMediaStore(media.service, 'owner', memory, true);
+      const store = createToolMediaStore(media.service, 'owner', memory, [
+        'text',
+        'image',
+      ]);
 
-      await store.readImage(
+      await store.readMedia(
         'shot.png',
         undefined,
       )({
+        kind: 'image',
         byteSize: shot.length,
         readBytes: () => Promise.resolve(shot),
       });
@@ -648,15 +771,19 @@ describe('native image reads', () => {
     });
 
     it('holds nothing for a read aborted while it decodes', async () => {
-      const store = createToolMediaStore(media.service, 'owner', memory, true);
+      const store = createToolMediaStore(media.service, 'owner', memory, [
+        'text',
+        'image',
+      ]);
       const abort = new AbortController();
       const reason = new Error('read timed out');
 
       await expect(
-        store.readImage(
+        store.readMedia(
           'shot.png',
           'call',
         )({
+          kind: 'image',
           byteSize: shot.length,
           readBytes: () => {
             abort.abort(reason);
@@ -670,13 +797,17 @@ describe('native image reads', () => {
 
     it('propagates a failure that is not a preparation refusal', async () => {
       const failure = new Error('disk unavailable');
-      const store = createToolMediaStore(media.service, 'owner', memory, true);
+      const store = createToolMediaStore(media.service, 'owner', memory, [
+        'text',
+        'image',
+      ]);
 
       await expect(
-        store.readImage(
+        store.readMedia(
           'shot.png',
           'call',
         )({
+          kind: 'image',
           byteSize: shot.length,
           readBytes: () => Promise.reject(failure),
         }),

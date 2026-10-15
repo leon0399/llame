@@ -7244,7 +7244,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       // What the composer the clients install makes of the sent request.
       const composed = await composeStepMessages(sent.messages, {
         resolver: {
-          images: media.images,
+          heldMedia: media.heldMedia,
           describe: (ids) => media.describe(ids),
           loadModelBytes: (ids) =>
             Promise.resolve(
@@ -12984,7 +12984,7 @@ describe('RunExecutionService prompt imports', () => {
 
         const sent = stream.mock.calls[0]?.[0];
         expect(
-          sent?.media?.images.get(promptImportImageKey(runId, 'shot.png')),
+          sent?.media?.heldMedia.get(promptImportImageKey(runId, 'shot.png')),
         ).toEqual({
           locator: `${root}/shot.png`,
           width: 160,

@@ -200,7 +200,7 @@ async function sentBody(
     const resolver =
       scenario.media ??
       fakeResolver([descriptor(ID), descriptor(ID2)]).resolver;
-    if (scenario.held) resolver.images.set('call-1', HELD_IMAGE);
+    if (scenario.held) resolver.heldMedia.set('call-1', HELD_IMAGE);
     await expect(
       build(input).streamText({
         chat: CHAT,
@@ -331,7 +331,7 @@ describe('a replayed read image on each wire', () => {
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Images from tool results:' },
+            { type: 'text', text: 'Files from tool results:' },
             { type: 'text', text: `Image from read "media://${ID}":` },
             {
               type: 'image_url',
@@ -360,7 +360,7 @@ describe('a replayed read image on each wire', () => {
       const serialized = JSON.stringify(body);
       for (const absent of [
         'Image from',
-        'Images from tool results:',
+        'Files from tool results:',
         'image_url',
       ]) {
         expect(serialized).not.toContain(absent);
@@ -418,7 +418,7 @@ describe('an unstored read image on each wire', () => {
           ],
         }),
       );
-      expect(JSON.stringify(body)).not.toContain('llameUnstoredImage');
+      expect(JSON.stringify(body)).not.toContain('llameUnstoredMedia');
     },
   );
 
@@ -503,7 +503,7 @@ describe('an unstored read image on each wire', () => {
         {
           role: 'user',
           content: [
-            { type: 'text', text: 'Images from tool results:' },
+            { type: 'text', text: 'Files from tool results:' },
             { type: 'text', text: 'Image from read "/work/shot.png":' },
             {
               type: 'image_url',
@@ -512,7 +512,7 @@ describe('an unstored read image on each wire', () => {
           ],
         },
       ]);
-      expect(JSON.stringify(body)).not.toContain('llameUnstoredImage');
+      expect(JSON.stringify(body)).not.toContain('llameUnstoredMedia');
     });
 
     it('keeps the not-retained placeholder in the tool message and adds no image message', async () => {
@@ -528,7 +528,7 @@ describe('an unstored read image on each wire', () => {
       const serialized = JSON.stringify(body);
       for (const absent of [
         'Image from',
-        'Images from tool results:',
+        'Files from tool results:',
         'image_url',
       ]) {
         expect(serialized).not.toContain(absent);
@@ -679,6 +679,130 @@ describe('an owner PDF attachment on each wire', () => {
         }),
         { type: 'text', text: PROMPT },
       ],
+    });
+  });
+
+  describe('a read PDF', () => {
+    const locator = '/work/paper.pdf';
+    const envelope = JSON.stringify({
+      status: 'success',
+      kind: 'pdf',
+      mediaType: 'application/pdf',
+      pages: 1,
+      byteSize: PDF_BYTES.length,
+      path: locator,
+    });
+    const read = (): Scenario => {
+      const media = paperResolver();
+      media.heldMedia.set('call-1', {
+        locator,
+        pages: 1,
+        bytes: PDF_BYTES,
+        byteSize: PDF_BYTES.length,
+      });
+      return {
+        media,
+        held: false,
+        messages: [
+          ...messages.slice(0, 2),
+          {
+            role: 'tool',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'call-1',
+                toolName: 'read',
+                output: toolResultOutput(envelope, { locator, pages: 1 }),
+              },
+            ],
+          },
+        ],
+      };
+    };
+
+    it.each([
+      ['Responses', responses],
+      ['Codex', codex],
+    ])(
+      'sends the native text envelope and named input_file on %s',
+      async (_, build) => {
+        const body = await sentBody(build, RESPONSES_STREAM, READS_PDF, read());
+        expect(body.input).toContainEqual(
+          expect.objectContaining({
+            type: 'function_call_output',
+            call_id: 'call-1',
+            output: [
+              { type: 'input_text', text: envelope },
+              {
+                type: 'input_file',
+                filename: 'paper.pdf',
+                file_data: PDF_DATA_URL,
+              },
+            ],
+          }),
+        );
+        expect(JSON.stringify(body)).not.toContain('llameUnstoredPdf');
+      },
+    );
+
+    it.each([
+      ['openai-completions', completions],
+      ['opencode-go', openCodeGo],
+    ])(
+      'moves the PDF behind the text-only tool output on %s',
+      async (_, build) => {
+        const body = await sentBody(
+          build,
+          COMPLETIONS_STREAM,
+          READS_PDF,
+          read(),
+        );
+        expect(Array.isArray(body.messages) && body.messages.slice(2)).toEqual([
+          { role: 'tool', tool_call_id: 'call-1', content: envelope },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'Files from tool results:' },
+              { type: 'text', text: 'PDF from read "/work/paper.pdf":' },
+              {
+                type: 'file',
+                file: { filename: 'paper.pdf', file_data: PDF_DATA_URL },
+              },
+            ],
+          },
+        ]);
+        expect(JSON.stringify(body)).not.toContain('llameUnstoredPdf');
+      },
+    );
+
+    it('sends a native document beside the text envelope on Messages', async () => {
+      const body = await sentBody(
+        anthropic,
+        MESSAGES_STREAM,
+        READS_PDF,
+        read(),
+      );
+      expect(body.messages).toContainEqual({
+        role: 'user',
+        content: [
+          expect.objectContaining({
+            type: 'tool_result',
+            tool_use_id: 'call-1',
+            content: [
+              { type: 'text', text: envelope },
+              expect.objectContaining({
+                type: 'document',
+                source: {
+                  type: 'base64',
+                  media_type: 'application/pdf',
+                  data: PDF_BYTES.toString('base64'),
+                },
+              }),
+            ],
+          }),
+        ],
+      });
+      expect(JSON.stringify(body)).not.toContain('llameUnstoredPdf');
     });
   });
 

@@ -188,10 +188,11 @@ export function truncateOversizedResult(result: ToolResult): ToolResult {
     throw new TypeError("Malformed oversized tool result projection.");
   }
   const { status: _status, ...payload } = parsed;
-  // An image result's `media` locator is its only handle on the image, so it
-  // is kept whole and ahead of every other field: no pass shortens or omits it.
+  // A media result's locator is its only handle on the file, so no pass may
+  // shorten or omit it.
   const { media, ...rest } = payload;
-  const pinsMedia = payload.kind === "image" && isString(media);
+  const pinsMedia =
+    (payload.kind === "image" || payload.kind === "pdf") && isString(media);
   const source: TruncationSource = {
     payload: pinsMedia ? rest : payload,
     pinned: pinsMedia ? { media } : {},

@@ -64,6 +64,10 @@ given; `realPath` counts within the result bound, and the header and line
 numbering stay those of the path as given. A directory listing never carries it,
 and neither does a `kb://` or `skill://` read.
 
+A multi-range read reports the plural `requestedRanges` (the merged request) and
+`shownRanges` (emitted lines); continuation and trimming are under
+[selectors](../selectors.md#result-bounds).
+
 ### Image result
 
 A host, `file://`, Workspace-relative, `kb://`, or `skill://` regular file whose
@@ -110,9 +114,24 @@ instead. A [`media://`](../locators/media.md) read returns a stored object with
 its `media` locator and no `thumbnail`, and is the only image read kept across
 turns.
 
-A multi-range read reports the plural `requestedRanges` (the merged request) and
-`shownRanges` (emitted lines); continuation and trimming are under
-[selectors](../selectors.md#result-bounds).
+### PDF result
+
+A host, `file://`, Workspace-relative, `kb://`, or `skill://` regular file
+starting with `%PDF-` returns `kind: "pdf"`, `mediaType: "application/pdf"`,
+`pages`, and `byteSize`, with the same source attribution as a text read.
+There is no `content`, line metadata, thumbnail, or embedded PDF data. The
+extension never decides: an HTML file named `.pdf` stays text.
+
+The worker validates the original without storing it. Only a model with PDF
+input receives its bytes in the reading attempt's later steps, under the
+shared [media window](../../operator/media.md#media-window). On a later
+turn, retry, resume, compaction, or fork, the result instead carries
+`[pdf "<path>" <P> pages, not retained]`; read the locator again to view it.
+A model without PDF input receives an omitted placeholder. A
+[`media://`](../locators/media.md) PDF result also carries its stored `media`
+locator and can replay from the store across turns.
+
+PDF prompt imports are not yet supported: a PDF target is reported as failed.
 
 ## Behavior
 
@@ -153,10 +172,12 @@ message naming the working forms; see
 [selectors](../selectors.md#malformed-selectors). A `-K` member on a web
 adapter document cut at the document bound fails as `representation_too_large`
 instead ([selectors](../selectors.md#media-types-and-errors)).
-A selector on an image is `invalid_selector` (`An image is read without a
-selector.`). An image over 20 MiB fails `media_too_large` before it is read
-whole, as does one over 40 megapixels; bytes that match a signature but cannot
-be decoded fail `unsupported_media_type`. Neither falls back to text.
+A selector on an image or PDF is `invalid_selector`
+(`An image or PDF is read without a selector.`), including `:raw`, `:outline`,
+tail, open-ended, and multi-range selectors. An image or PDF over 20 MiB fails
+`media_too_large` before it is read whole, as does an image over 40 megapixels
+or a PDF over 100 pages. An encrypted or unopenable PDF, or image bytes that
+cannot be decoded, fails `unsupported_media_type`. Neither falls back to text.
 `unsupported_operation` is a `skill://` or `media://` mutation refusal, and
 `skill_requires_explicit_selection` a manual-only package refusal; both are in
 [skill](../locators/skill.md#errors).
