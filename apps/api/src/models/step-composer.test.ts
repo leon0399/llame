@@ -654,6 +654,41 @@ describe('composeStepMessages', () => {
       });
     });
 
+    it('materializes a stored PDF tool reference as a named file', async () => {
+      const { resolver } = fakeResolver([
+        pdfDescriptor(A, { name: 'paper.pdf' }),
+      ]);
+      const envelope = '{"status":"success","kind":"pdf"}';
+      const [composed] = await composeStepMessages(
+        [
+          {
+            role: 'tool',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'call-1',
+                toolName: 'read',
+                output: toolResultOutput(envelope, { kind: 'pdf', id: A }),
+              },
+            ],
+          },
+        ],
+        { resolver, context: VISION_PDF },
+      );
+      expect(outputOf(composed)).toEqual({
+        type: 'content',
+        value: [
+          { type: 'text', text: envelope },
+          {
+            type: 'file-data',
+            filename: 'paper.pdf',
+            mediaType: 'application/pdf',
+            data: Buffer.from([0x61]).toString('base64'),
+          },
+        ],
+      });
+    });
+
     it.each([
       [
         'a text-only model',
@@ -983,6 +1018,69 @@ describe('composeStepMessages', () => {
         },
       });
     });
+  });
+  describe('unstored read PDFs', () => {
+    const ENVELOPE = '{"status":"success","kind":"pdf","path":"report.pdf"}';
+    const bytes = Buffer.from('%PDF-opaque-test-bytes');
+
+    it.each([
+      [
+        'an http URL without its query or fragment',
+        'http://example.test/read/report.pdf?download=1#page=2',
+        'report.pdf',
+      ],
+      [
+        'a host path with an embedded https:// segment',
+        '/work/https://example.test/read/report.pdf',
+        'report.pdf',
+      ],
+      ['a URL root', 'http://example.test/', 'document.pdf'],
+    ])(
+      'attaches %s with the derived filename',
+      async (_, locator, filename) => {
+        const { resolver } = fakeResolver([]);
+        resolver.heldMedia.set('call-1', {
+          locator,
+          pages: 1,
+          bytes,
+          byteSize: bytes.byteLength,
+        });
+
+        const [composed] = await composeStepMessages(
+          [
+            {
+              role: 'tool',
+              content: [
+                {
+                  type: 'tool-result',
+                  toolCallId: 'call-1',
+                  toolName: 'read',
+                  output: toolResultOutput(ENVELOPE, { locator, pages: 1 }),
+                },
+              ],
+            },
+          ],
+          { resolver, context: VISION_PDF },
+        );
+
+        expect(
+          composed?.role === 'tool' &&
+            composed.content[0]?.type === 'tool-result'
+            ? composed.content[0].output
+            : undefined,
+        ).toMatchObject({
+          type: 'content',
+          value: [
+            { type: 'text', text: ENVELOPE },
+            {
+              type: 'file-data',
+              mediaType: 'application/pdf',
+              filename,
+            },
+          ],
+        });
+      },
+    );
   });
 
   describe('unstored read images', () => {

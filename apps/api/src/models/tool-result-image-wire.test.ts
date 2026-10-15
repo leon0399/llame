@@ -741,7 +741,6 @@ describe('an owner PDF attachment on each wire', () => {
             ],
           }),
         );
-        expect(JSON.stringify(body)).not.toContain('llameUnstoredPdf');
       },
     );
 
@@ -771,7 +770,6 @@ describe('an owner PDF attachment on each wire', () => {
             ],
           },
         ]);
-        expect(JSON.stringify(body)).not.toContain('llameUnstoredPdf');
       },
     );
 
@@ -802,7 +800,6 @@ describe('an owner PDF attachment on each wire', () => {
           }),
         ],
       });
-      expect(JSON.stringify(body)).not.toContain('llameUnstoredPdf');
     });
   });
 

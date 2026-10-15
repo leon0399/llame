@@ -728,6 +728,16 @@ describe('native file authority and durable effects', () => {
       source: 'shot.png',
     });
     const locator = `media://${upload.id}`;
+    for (const selector of [':1', ':raw', ':img']) {
+      expect(
+        await runTool(
+          nativeReadTool,
+          { path: `${locator}${selector}` },
+          ownerContext,
+          5,
+        ),
+      ).toMatchObject({ status: 'error', type: 'invalid_selector' });
+    }
     expect(
       await runTool(nativeReadTool, { path: locator }, ownerContext, 5),
     ).toEqual({

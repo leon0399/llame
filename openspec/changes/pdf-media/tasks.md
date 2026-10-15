@@ -46,6 +46,9 @@ Dependencies and budget:
   Completions move into its own layer if it would exceed the budget.
 - Generated output (Drizzle snapshot, OpenAPI document and client, lockfile) counts zero and is
   reported separately.
+- `pdf-read` has Leo's approved review-budget exception (2026-10-15): up to 2,200 authored
+  added-plus-deleted lines, keeping native PDF reads, provider delivery, and behavioral regression
+  coverage in one atomic layer without adding product scope.
 - Three interim guards keep PDFs away from code that cannot carry them yet. Each fails closed,
   names its cause, and is deleted by the layer named:
   - from `pdf-store` until `pdf-attachments`, a message whose file part references a stored PDF is

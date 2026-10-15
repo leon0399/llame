@@ -539,4 +539,37 @@ describe('loadMediaSizing', () => {
     expect(sizing.statuses).toEqual(['not-retained', 'attached', 'limit']);
     expect([...sizing.held.keys()]).toEqual(['c1', 'c2']);
   });
+
+  it('keeps a released PDF beyond the append-only byte window', async () => {
+    const byteSize = 12 * 1024 * 1024;
+    const { resolver } = fakeResolver([
+      pdfDescriptor(mediaId(1), { pages: 1, byteSize }),
+    ]);
+    const ref = { locator: '/work/second.pdf', pages: 1 };
+    resolver.heldMedia.set('c2', { ...ref, byteSize });
+    const sizing = await loadMediaSizing(
+      [
+        {
+          role: 'tool',
+          content: [
+            {
+              type: 'tool-result',
+              toolCallId: 'c1',
+              toolName: 'read',
+              output: toolResultOutput('', { kind: 'pdf', id: mediaId(1) }),
+            },
+            {
+              type: 'tool-result',
+              toolCallId: 'c2',
+              toolName: 'read',
+              output: toolResultOutput('', ref),
+            },
+          ],
+        },
+      ],
+      resolver,
+      VISION_PDF,
+    );
+    expect(sizing.statuses).toEqual(['attached', 'limit']);
+  });
 });
