@@ -25,6 +25,7 @@ import { executeMediaRead } from '../tools/media-read';
 import { randomPng } from './media-fixtures';
 import { MEDIA_REFUSAL } from './media-ingest';
 import { MediaService } from './media.service';
+import * as preparation from './pdf-preparation';
 import { createToolMediaStore } from './tool-media-store';
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -471,6 +472,43 @@ describe('/api/v1/media (HTTP)', () => {
       pdf = pdfDescriptorSchema.parse(
         (await uploadPdf(cookieA, onePage).expect(201)).body,
       );
+    });
+
+    it('serves another media request while a PDF parser is stalled', async () => {
+      const original = preparation.preparePdf;
+      // Real HTTP and child deadlines: fake time cannot prove concurrent request availability.
+      const child = preparation.pdfParseChild(
+        ['-e', 'setTimeout(() => undefined, 60000)'],
+        5000,
+      );
+      let entered = false;
+      let finished = false;
+      const parse = vi
+        .spyOn(preparation, 'preparePdf')
+        .mockImplementation((bytes) => {
+          entered = true;
+          return original(bytes, child);
+        });
+      const pending = uploadPdf(
+        cookieA,
+        Buffer.from('%PDF- stalled parser fixture'),
+      ).then((response) => {
+        finished = true;
+        return response;
+      });
+      try {
+        await vi.waitFor(() => expect(entered).toBe(true), { timeout: 2000 });
+        await request(http)
+          .get(`/api/v1/media/${pdf.id}`)
+          .set('Cookie', cookieA)
+          .timeout({ deadline: 2000 })
+          .expect(200);
+        expect(finished).toBe(false);
+        expect((await pending).status).toBe(415);
+      } finally {
+        parse.mockRestore();
+        await pending;
+      }
     });
 
     it('returns the closed PDF descriptor and stores only the original', async () => {
