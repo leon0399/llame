@@ -169,7 +169,9 @@ overrides:
   # Advisories whose only path to a patched version runs through a parent that
   # pins below the fix. Every key names that parent, so the removal criterion is
   # that parent's own pin moving: delete the entry then, and let `pnpm audit`
-  # confirm. `pnpm audit --fix` regenerates the whole set.
+  # confirm. `pnpm audit --fix` re-emits the affected packages unscoped — its
+  # keys are workspace-wide, not parent-scoped — so re-scope each entry to the
+  # parent that pins below the fix before committing its output.
   # @barney-media/crap-typescript-core pins ~2.1.0.
   "@barney-media/crap-typescript-core>@toon-format/toon": 2.3.1
   # @esbuild-kit/core-utils, a deprecated dependency of drizzle-kit, pins

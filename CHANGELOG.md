@@ -4,9 +4,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Dependency security pass across the workspace: `pnpm audit` goes from 72
   advisories over 28 packages (5 critical, 25 high) to one, and every open
-  Dependabot alert is cleared. The one survivor, `braces`, sits on a dev-only
-  path through `micromatch` and has no patched release upstream, and it carries
-  no alert. Direct dependencies moved to their patched versions: `next` 16.3.4
+  Dependabot alert is cleared. The one survivor, `braces`, has no patched
+  release upstream — `micromatch` pins `^3.0.3` — and no runtime import path in
+  llame, though it is not dev-only by `pnpm audit`'s classification: production
+  `shadcn` in `packages/ui` is one of its eight paths. It carries no Dependabot
+  alert. Direct dependencies moved to their patched versions: `next` 16.3.4
   → 16.3.8 (patch-level inside 16.3, whose security fixes are the payload the
   superseded Dependabot PR #1067 could not land inside the 7-day
   `minimumReleaseAge` cooldown), `@modelcontextprotocol/sdk` 1.29.0 → 1.31.0,
