@@ -123,7 +123,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 5.2 Update the prompt-imports reference page; add the dated `CHANGELOG.md` entry; this layer completes #1275's acceptance, so its PR carries `Closes #1275`; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 5.3 Verify `pnpm --filter api lint`, `typecheck`, `pnpm --filter web lint typecheck`, the focused unit tests, and the touched integration suites
 - [x] 5.4 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
-- [ ] 5.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 5.5 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 6. `pdf-media/web-ui` — PDF tiles and composer (design D10)
 
