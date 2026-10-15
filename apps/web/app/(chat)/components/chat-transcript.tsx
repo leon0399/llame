@@ -46,40 +46,23 @@ type ChatTranscriptMessageProps = {
   onForked: (forkedChatId: string) => void;
 };
 
-/** Test-only commit probe — fires when a memoized transcript row actually
- *  renders (not when memo bails). Used by the stream-tick harness. */
-let transcriptMessageCommitProbe: ((renderKey: string) => void) | null = null;
+/** Test-only render probe — fires when a memoized transcript row actually
+ *  renders (not when memo bails). Used by the stream-tick harness. Counts
+ *  render-phase invocations, including ones React may discard. */
+let transcriptMessageRenderProbe: ((renderKey: string) => void) | null = null;
 
-export function setTranscriptMessageCommitProbe(
+export function setTranscriptMessageRenderProbe(
   probe: ((renderKey: string) => void) | null,
 ): void {
-  transcriptMessageCommitProbe = probe;
+  transcriptMessageRenderProbe = probe;
 }
 
 /** One row's boundary computation plus its `ChatMessageRow` — split out of
  *  `ChatTranscriptMessages` as its own self-contained region. Memoized so a
  *  streaming token on the live tail does not reconcile idle fat turns (80+
  *  tool headers) when `mergeTrustedModelContextParts` preserved their
- *  message identity. Explicit propsEqual: default shallow compare was not
- *  enough to keep idle rows stable under this parent's re-create pattern. */
-function transcriptMessagePropsEqual(
-  prev: ChatTranscriptMessageProps,
-  next: ChatTranscriptMessageProps,
-): boolean {
-  return (
-    prev.message === next.message &&
-    prev.index === next.index &&
-    prev.isLast === next.isLast &&
-    prev.compaction === next.compaction &&
-    prev.compactionIndex === next.compactionIndex &&
-    prev.availableModels === next.availableModels &&
-    prev.status === next.status &&
-    prev.chatId === next.chatId &&
-    prev.onInspectContext === next.onInspectContext &&
-    prev.onForked === next.onForked
-  );
-}
-
+ *  message identity. Default shallow compare is enough once parent props
+ *  (`onForked`, `availableModels`, message refs) stay stable across ticks. */
 const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
   chatId,
   message,
@@ -93,7 +76,7 @@ const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
   onForked,
 }: ChatTranscriptMessageProps) {
   const renderKey = messageRenderKey(message);
-  transcriptMessageCommitProbe?.(renderKey);
+  transcriptMessageRenderProbe?.(renderKey);
   const { boundary, modelBoundary } = messageBoundaries({
     message,
     index,
@@ -117,7 +100,7 @@ const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
       onInspectContext={onInspectContext}
     />
   );
-}, transcriptMessagePropsEqual);
+});
 
 type ChatTranscriptCompactionBoundaryProps = {
   compaction: Compaction;
