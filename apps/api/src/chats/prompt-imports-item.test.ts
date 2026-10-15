@@ -5,7 +5,7 @@ import {
   isPromptImportsPayload,
   promptImportMedia,
   promptImportMediaKey,
-  promptImportMediaRefs,
+  promptImportMediaParts,
 } from './prompt-imports-item';
 
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
@@ -105,18 +105,7 @@ describe('prompt imports item', () => {
         },
       ],
     });
-    expect(item.data.text).toContain(
-      `<file path="shot.png">\n${IMAGE_BODY}\n</file>`,
-    );
     expect(item.data.text).not.toContain(THUMBNAIL);
-    expect(promptImportMediaRefs(item)).toEqual([
-      {
-        locator: 'shot.png',
-        width: 1600,
-        height: 900,
-        key: promptImportMediaKey(RUN_ID, 'shot.png'),
-      },
-    ]);
   });
 
   it('records an unstored image entry over the thumbnail cap by its size alone', () => {
@@ -137,17 +126,9 @@ describe('prompt imports item', () => {
     expect(item.data.payload).toEqual({
       imports: [{ locator: 'noise.png', outcome: 'imported', ...original }],
     });
-    expect(promptImportMediaRefs(item)).toEqual([
-      {
-        locator: 'noise.png',
-        width: 1600,
-        height: 900,
-        key: promptImportMediaKey(RUN_ID, 'noise.png'),
-      },
-    ]);
   });
 
-  it('records a media entry locator alone and refers to it by its id', () => {
+  it('records a stored image locator without image fields', () => {
     const item = createPromptImportsItem({
       runId: RUN_ID,
       outcomes: [
@@ -169,7 +150,6 @@ describe('prompt imports item', () => {
         { locator: 'notes.md', outcome: 'imported' },
       ],
     });
-    expect(promptImportMediaRefs(item)).toEqual([MEDIA_ID]);
   });
 
   it('lists no image references for another producer or an invalid payload', () => {
@@ -187,13 +167,13 @@ describe('prompt imports item', () => {
     });
 
     expect(
-      promptImportMediaRefs({
+      promptImportMediaParts({
         ...item,
         data: { ...item.data, producer: 'instructions' },
       }),
     ).toEqual([]);
     expect(
-      promptImportMediaRefs({
+      promptImportMediaParts({
         ...item,
         data: {
           ...item.data,
@@ -437,7 +417,7 @@ describe('PDF import metadata', () => {
   } as const;
   const entry = { locator: 'paper.pdf', outcome: 'imported', ...pdf };
 
-  it('persists PDF attribution and reconstructs unstored and stored references in order', () => {
+  it('persists unstored and stored PDF attribution', () => {
     const body = JSON.stringify({
       status: 'success',
       ...pdf,
@@ -461,15 +441,6 @@ describe('PDF import metadata', () => {
       imports: [entry, { ...entry, locator: MEDIA, media: MEDIA }],
     });
     expect(isPromptImportsPayload(item.data.payload)).toBe(true);
-    expect(promptImportMediaRefs(item)).toEqual([
-      {
-        locator: 'paper.pdf',
-        pages: 15,
-        key: promptImportMediaKey(RUN_ID, 'paper.pdf'),
-      },
-      MEDIA_ID,
-    ]);
-    expect(item.data.text).toContain(body);
   });
 
   it.each([

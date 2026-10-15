@@ -180,7 +180,7 @@ import { PromptImportPartsRepository } from '../chats/prompt-import-parts.reposi
 import {
   createPromptImportsItem,
   promptImportMediaKey,
-  promptImportMediaRefs,
+  promptImportMediaParts,
 } from '../chats/prompt-imports-item';
 import {
   PROMPT_IMPORT_KNOWLEDGE_CANCELLED,
@@ -2445,8 +2445,8 @@ export class RunExecutionService {
     const { outcomes, omitted } = await resolvePromptImportTargets(
       this.promptImportRequest(step),
     );
-    // An image read and then omitted at the output bound has no entry to
-    // attach it, so it keeps no bytes (vision-media R1.4).
+    // Media omitted at the output bound has no entry to attach it, so release
+    // its attempt bytes (vision-media R1.4, pdf-media D9).
     for (const locator of omitted) {
       releaseMedia(step.heldMedia, promptImportMediaKey(input.runId, locator));
     }
@@ -2468,8 +2468,8 @@ export class RunExecutionService {
    * read context: the same silent `read` pre-evaluation the instruction loader
    * uses, the same native-executor and Knowledge-root gates, an owner-scoped
    * Knowledge probe, and the owner's media, which answers the `media://` probe
-   * and decodes an image target without storing it, holding it in the
-   * attempt's memory under its entry's key (vision-media D8).
+   * and decodes an image or PDF without storing it, holding its bytes in the
+   * attempt's memory under its entry's key (vision-media D8, pdf-media D9).
    */
   private promptImportRequest(step: PromptImportStep): PromptImportRequest {
     const { input } = step;
@@ -3002,7 +3002,7 @@ export class RunExecutionService {
         input.media,
         fileMediaIds(triggerParts).length +
           triggerParts.flatMap((part) =>
-            isContextItemPart(part) ? promptImportMediaRefs(part) : [],
+            isContextItemPart(part) ? promptImportMediaParts(part) : [],
           ).length,
       )
     ) {

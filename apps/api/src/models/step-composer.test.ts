@@ -483,6 +483,18 @@ describe('composeStepMessages', () => {
       ]);
     });
 
+    it('keeps the PDF kind when a stored import has no descriptor', async () => {
+      const { resolver } = fakeResolver([]);
+      const composed = await composeStepMessages(messages(), {
+        resolver,
+        context: VISION_PDF,
+      });
+      expect(composed[0]?.content).toContainEqual({
+        type: 'text',
+        text: `[pdf media://${A} unavailable]`,
+      });
+    });
+
     it.each([
       {
         name: 'a new attempt',

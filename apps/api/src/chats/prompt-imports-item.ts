@@ -18,7 +18,7 @@ import {
 } from '@workspace/runtime-safety';
 import { z } from 'zod';
 
-import type { MediaRef } from '../media/epoch-admission';
+import { userImagePart, type MediaRef } from '../media/epoch-admission';
 import {
   isThumbnailDataUrl,
   ORIGINAL_MEDIA_TYPES,
@@ -38,6 +38,7 @@ import {
   isExactRecord,
   isNonEmptyString,
 } from './context-item-shared';
+import type { ImagePart } from 'ai';
 
 const PROMPT_IMPORT_OUTCOMES = ['imported', 'denied', 'failed'] as const;
 
@@ -204,41 +205,44 @@ export function promptImportMediaKey(runId: string, locator: string): string {
 }
 
 /**
- * Media references in entry order: stored ids or unstored references keyed by
- * `promptImportMediaKey`; none for another producer or an invalid payload.
+ * Reference markers in entry order, retaining a PDF's media type even if its
+ * stored descriptor disappears; none for another producer or invalid payload.
  */
-export function promptImportMediaRefs(part: ContextItemPart): Array<MediaRef> {
+export function promptImportMediaParts(
+  part: ContextItemPart,
+): Array<ImagePart> {
   const { producer, payload, runId } = part.data;
   if (producer !== 'prompt-imports' || !isPromptImportsPayload(payload)) {
     return [];
   }
-  return payload.imports.flatMap((entry): Array<MediaRef> => {
+  return payload.imports.flatMap((entry): Array<ImagePart> => {
     const id =
       'media' in entry && entry.media !== undefined
         ? parseMediaLocator(entry.media)
         : undefined;
-    if (id !== undefined) return [id];
     const { locator } = entry;
-    if ('kind' in entry) {
-      return [
-        {
-          locator,
-          pages: entry.pages,
-          key: promptImportMediaKey(runId, locator),
-        },
-      ];
+    let ref: MediaRef;
+    if (id !== undefined) {
+      ref = id;
+    } else if ('kind' in entry) {
+      ref = {
+        locator,
+        pages: entry.pages,
+        key: promptImportMediaKey(runId, locator),
+      };
+    } else if ('width' in entry) {
+      ref = {
+        locator,
+        width: entry.width,
+        height: entry.height,
+        key: promptImportMediaKey(runId, locator),
+      };
+    } else {
+      return [];
     }
-    if ('width' in entry) {
-      return [
-        {
-          locator,
-          width: entry.width,
-          height: entry.height,
-          key: promptImportMediaKey(runId, locator),
-        },
-      ];
-    }
-    return [];
+    const marker = userImagePart(ref);
+    if ('kind' in entry) marker.mediaType = entry.mediaType;
+    return [marker];
   });
 }
 

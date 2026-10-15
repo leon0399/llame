@@ -43,9 +43,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   and `@media://` targets now record PDF metadata and send the original to
   models declaring PDF input. Unstored bytes remain in the importing attempt;
   later turns and resumed attempts use a not-retained placeholder, while
-  stored PDF imports replay from the owner-scoped media store. PDFs share the
-  eight-target bound and contribute only their read envelope to the 128 KiB
-  text bound. Selectors and refused PDFs remain not imported.
+  stored PDF imports replay from the owner-scoped media store and retain their
+  PDF kind when the stored object is unavailable. PDFs share the eight-target
+  bound and contribute only their read envelope to the 128 KiB text bound.
+  Selectors and refused PDFs remain not imported.
 
 # 2026-10-15
 

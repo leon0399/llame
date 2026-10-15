@@ -415,10 +415,12 @@ function mapUserContentRefs(
   const labels: Record<MediaKind, number> = { image: 0, pdf: 0 };
   let mapped = false;
   const content = parts.flatMap((part): Array<UserContentPart> => {
-    const image = part.type === 'image' ? userImageRef(part) : undefined;
-    if (image !== undefined) {
-      mapped = true;
-      return next(image, 'image');
+    if (part.type === 'image') {
+      const image = userImageRef(part);
+      if (image !== undefined) {
+        mapped = true;
+        return next(image, fileKind(part.mediaType ?? ''));
+      }
     }
     if (part.type !== 'file') return [part];
     const id = fileMediaRef(part);
