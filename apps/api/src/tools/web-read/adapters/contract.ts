@@ -21,6 +21,7 @@ import { createDoiAdapter } from './doi/adapter';
 import { createGithubAdapter } from './github/adapter';
 import { createHackernewsAdapter } from './hackernews/adapter';
 import { createHuggingfaceAdapter } from './huggingface/adapter';
+import { createLobstersAdapter } from './lobsters/adapter';
 import { createNpmAdapter } from './npm/adapter';
 import { createOsvAdapter } from './osv/adapter';
 import { createRewriteAdapter } from './rewrite';
@@ -317,40 +318,44 @@ function truncateAdapterDocument(content: string) {
 export function createWebAdapters(
   configs: ReadonlyArray<WebAdapterConfig>,
 ): ReadonlyArray<WebAdapter> {
-  return configs.map((config) => {
-    switch (config.use) {
-      case 'github':
-        return createGithubAdapter(config);
-      case 'bluesky':
-        return createBlueskyAdapter(config);
-      case 'npm':
-        return createNpmAdapter(config);
-      case 'huggingface':
-        return createHuggingfaceAdapter(config);
-      case 'arxiv':
-        return createArxivAdapter(config);
-      case 'stackexchange':
-        return createStackexchangeAdapter(config);
-      case 'crates':
-        return createCratesAdapter(config);
-      case 'hackernews':
-        return createHackernewsAdapter(config);
-      case 'doi':
-        return createDoiAdapter(config);
-      case 'discourse':
-        return createDiscourseAdapter(config);
-      case 'devto':
-        return createDevtoAdapter(config);
-      case 'substack':
-        return createSubstackAdapter(config);
-      case 'osv':
-        return createOsvAdapter(config);
-      case 'wikipedia':
-        return createWikipediaAdapter(config);
-      case 'telegram':
-        return createTelegramAdapter(config);
-      case 'rewrite':
-        return createRewriteAdapter(config);
-    }
-  });
+  return configs.map((config) => createAdapter(config));
+}
+
+function createAdapter(config: WebAdapterConfig): WebAdapter {
+  switch (config.use) {
+    case 'github':
+      return createGithubAdapter(config);
+    case 'bluesky':
+      return createBlueskyAdapter(config);
+    case 'npm':
+      return createNpmAdapter(config);
+    case 'huggingface':
+      return createHuggingfaceAdapter(config);
+    case 'arxiv':
+      return createArxivAdapter(config);
+    case 'stackexchange':
+      return createStackexchangeAdapter(config);
+    case 'crates':
+      return createCratesAdapter(config);
+    case 'hackernews':
+      return createHackernewsAdapter(config);
+    case 'doi':
+      return createDoiAdapter(config);
+    case 'discourse':
+      return createDiscourseAdapter(config);
+    case 'devto':
+      return createDevtoAdapter(config);
+    case 'substack':
+      return createSubstackAdapter(config);
+    case 'osv':
+      return createOsvAdapter(config);
+    case 'wikipedia':
+      return createWikipediaAdapter(config);
+    case 'telegram':
+      return createTelegramAdapter(config);
+    case 'lobsters':
+      return createLobstersAdapter(config);
+    case 'rewrite':
+      return createRewriteAdapter(config);
+  }
 }

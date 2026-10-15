@@ -966,6 +966,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
     const osv = { id: 'advisories', use: 'osv' as const };
     const wikipedia = { id: 'wikipedia', use: 'wikipedia' as const };
     const telegram = { id: 'telegram', use: 'telegram' as const };
+    const lobsters = { id: 'lobsters', use: 'lobsters' as const };
     const forums = {
       id: 'forums',
       use: 'discourse' as const,
@@ -991,6 +992,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
             osv,
             wikipedia,
             telegram,
+            lobsters,
           ],
         },
       }),
@@ -1013,6 +1015,7 @@ describe('loadInstanceConfig — tools.webAdapters', () => {
       osv,
       wikipedia,
       telegram,
+      lobsters,
     ]);
   });
 

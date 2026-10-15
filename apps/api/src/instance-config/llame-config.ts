@@ -535,7 +535,7 @@ export type RawWebAdapterEntry =
     }
   | {
       id: string;
-      use: 'devto' | 'substack' | 'osv' | 'wikipedia' | 'telegram';
+      use: 'devto' | 'substack' | 'osv' | 'wikipedia' | 'telegram' | 'lobsters';
     };
 
 /** Schema-validated composite fields consumed from the raw tools block. */
@@ -573,45 +573,23 @@ export type GithubWebAdapterConfig = {
   readonly token?: string;
 };
 
-export type BlueskyWebAdapterConfig = {
+/** A native adapter entry that takes no field beyond its id. */
+type FieldlessWebAdapterConfig<Use extends string> = {
   readonly id: string;
-  readonly use: 'bluesky';
+  readonly use: Use;
 };
 
-export type NpmWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'npm';
-};
-
-export type HuggingfaceWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'huggingface';
-};
-
-export type ArxivWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'arxiv';
-};
-
-export type StackexchangeWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'stackexchange';
-};
-
-export type CratesWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'crates';
-};
-
-export type HackernewsWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'hackernews';
-};
-
-export type DoiWebAdapterConfig = {
-  readonly id: string;
-  readonly use: 'doi';
-};
+export type BlueskyWebAdapterConfig = FieldlessWebAdapterConfig<'bluesky'>;
+export type NpmWebAdapterConfig = FieldlessWebAdapterConfig<'npm'>;
+export type HuggingfaceWebAdapterConfig =
+  FieldlessWebAdapterConfig<'huggingface'>;
+export type ArxivWebAdapterConfig = FieldlessWebAdapterConfig<'arxiv'>;
+export type StackexchangeWebAdapterConfig =
+  FieldlessWebAdapterConfig<'stackexchange'>;
+export type CratesWebAdapterConfig = FieldlessWebAdapterConfig<'crates'>;
+export type HackernewsWebAdapterConfig =
+  FieldlessWebAdapterConfig<'hackernews'>;
+export type DoiWebAdapterConfig = FieldlessWebAdapterConfig<'doi'>;
 
 /** Discourse runs on any host, so the operator lists the forums by exact
  *  canonical hostname (lowercase, no port). */
@@ -621,17 +599,12 @@ export type DiscourseWebAdapterConfig = {
   readonly hosts: ReadonlyArray<string>;
 };
 
-/** A native adapter entry that takes no field beyond its id. */
-type FieldlessWebAdapterConfig<Use extends string> = {
-  readonly id: string;
-  readonly use: Use;
-};
-
 export type DevtoWebAdapterConfig = FieldlessWebAdapterConfig<'devto'>;
 export type SubstackWebAdapterConfig = FieldlessWebAdapterConfig<'substack'>;
 export type OsvWebAdapterConfig = FieldlessWebAdapterConfig<'osv'>;
 export type WikipediaWebAdapterConfig = FieldlessWebAdapterConfig<'wikipedia'>;
 export type TelegramWebAdapterConfig = FieldlessWebAdapterConfig<'telegram'>;
+export type LobstersWebAdapterConfig = FieldlessWebAdapterConfig<'lobsters'>;
 
 export type WebAdapterConfig =
   | RewriteWebAdapterConfig
@@ -649,7 +622,8 @@ export type WebAdapterConfig =
   | SubstackWebAdapterConfig
   | OsvWebAdapterConfig
   | WikipediaWebAdapterConfig
-  | TelegramWebAdapterConfig;
+  | TelegramWebAdapterConfig
+  | LobstersWebAdapterConfig;
 
 export type LlameConfig = {
   defaults: {

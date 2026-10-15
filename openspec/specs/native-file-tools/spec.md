@@ -2941,6 +2941,32 @@ service messages. A read SHALL fetch one page.
 - **WHEN** the preview serves the channel header, a "No posts found" placeholder without a post id, and a page link whose cursor value is empty, such as `/s/durov?before=`
 - **THEN** the text is the header with no entries and no cursor line
 
+### Requirement: Lobsters native adapter reads story threads
+
+A configured `lobsters` adapter SHALL claim only HTTPS `lobste.rs` locators
+whose path is `/s/{short_id}` or `/s/{short_id}/{slug}`, where `{short_id}` is
+lowercase alphanumeric; every other host and path SHALL be unclaimed. The
+adapter SHALL send one unauthenticated `GET` to
+`https://lobste.rs/s/{short_id}.json`, whatever form and query the locator
+carried; a failed or unparsable response SHALL fall through, and a response
+whose final URL left `https://lobste.rs` SHALL fall through as `status`.
+
+The render SHALL use x.md's thread layout: the story as
+`## Post · 1/{n} — @{author}`, then every comment in the response's order,
+which is the site's thread order, as `## Reply · {i}/{n} — @{author}`, with a
+`Replying to @{author}` line when the comment answers another comment. The
+story entry carries its title in bold, its description converted to Markdown
+when present, `Link:` and `Tags:` lines when the story has them, `Score:`, and
+`Source:` and `Date:` lines; every comment entry carries `Score:`, `Source:`,
+and `Date:`. A user the API does not report renders as `[deleted]`, and
+entries SHALL be separated by a `---` line between blank lines.
+
+#### Scenario: A story renders with its comment thread
+
+- **WHEN** the model reads `https://lobste.rs/s/o0ixth`
+- **THEN** the adapter requests only `https://lobste.rs/s/o0ixth.json`
+- **AND** the text has one `Post` entry followed by one `Reply` entry per comment in the response's order, each with `Source:` and `Date:` lines
+
 ### Requirement: Operator rewrite adapters are validated and opt-in
 
 A `rewrite` adapter entry SHALL be enabled only when an operator declares it.
