@@ -1,4 +1,9 @@
-import { type ComponentProps, type ReactNode, useEffect } from "react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, screen, waitFor, within } from "storybook/test";
 import { vi } from "vitest";
@@ -544,5 +549,56 @@ export const ComposerThumbnailOpensLightbox: Story = {
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => expect(opener).toHaveFocus());
+  },
+};
+
+/** A prompt far taller than the composer's `maxHeight`, ending in a short
+ *  line so one more character at the end wraps nothing. */
+const LONG_PROMPT = [
+  ...Array.from({ length: 20 }, (_, index) => `Prompt line ${index + 1}`),
+  "tail",
+].join("\n");
+
+/** The composer over its own input state, as the chat page wires it, so a
+ *  keystroke drives the same controlled re-render. */
+function TypingComposer({
+  initialInput,
+  ...args
+}: ComponentProps<typeof ChatComposer> & { initialInput: string }) {
+  const [input, setInput] = useState(initialInput);
+  return <ChatComposer {...args} input={input} onInputChange={setInput} />;
+}
+
+/**
+ * A prompt taller than the composer scrolls; typing at its end keeps the
+ * textarea where it was scrolled, instead of jumping back to the top.
+ *
+ * @summary a long prompt keeps its scroll position while typing
+ */
+export const LongPromptKeepsItsScrollPosition: Story = {
+  tags: ["ai-generated"],
+  render: (args) => <TypingComposer {...args} initialInput={LONG_PROMPT} />,
+  play: async ({ canvasElement, userEvent }) => {
+    const textarea =
+      within(canvasElement).getByRole<HTMLTextAreaElement>("textbox");
+    // The offset only exists once the value overflows the maxHeight clamp.
+    await waitFor(() =>
+      expect(textarea.scrollHeight).toBeGreaterThan(textarea.clientHeight),
+    );
+
+    textarea.scrollTop = textarea.scrollHeight;
+    const scrolled = textarea.scrollTop;
+    await expect(scrolled).toBeGreaterThan(0);
+
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    await userEvent.keyboard("x");
+    // The hook resizes on the frame after `input`; measuring before that
+    // frame reads the pre-resize offset and would assert nothing.
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+
+    await expect(textarea).toHaveValue(`${LONG_PROMPT}x`);
+    await expect(textarea.scrollTop).toBe(scrolled);
   },
 };
