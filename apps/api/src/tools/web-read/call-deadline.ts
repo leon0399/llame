@@ -106,13 +106,11 @@ async function beforeAbort<T>(
   run: (signal: AbortSignal) => Promise<T>,
 ): Promise<T | WebFetchFailure> {
   if (signal.aborted) return abortFailure(reason());
-  let onAbort!: () => void;
-  const cancelled = new Promise<WebFetchFailure>((resolve) => {
-    onAbort = () => resolve(abortFailure(reason()));
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
+  const { promise, resolve } = Promise.withResolvers<WebFetchFailure>();
+  const onAbort = () => resolve(abortFailure(reason()));
+  signal.addEventListener('abort', onAbort);
   try {
-    return await Promise.race([run(signal), cancelled]);
+    return await Promise.race([run(signal), promise]);
   } finally {
     signal.removeEventListener('abort', onAbort);
   }

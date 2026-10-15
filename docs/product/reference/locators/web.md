@@ -142,7 +142,7 @@ probe with an image type is a refused content type, never an image.
 
 A page response declaring `application/pdf` and starting with `%PDF-` returns
 the [PDF result](../tools/read.md#pdf-result), with `path`, `finalUrl`,
-`method: "pdf"`, and non-empty `notes`. It has no content, range fields,
+`method: "pdf"`, and `notes` only when non-empty. It has no content, range fields,
 thumbnail, embedded data, or `media` locator. The original is unstored and
 available only in the reading attempt to models with PDF input. Any selector
 is refused. Adapter responses and alternate, suffix, and `llms.txt` probes

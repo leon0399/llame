@@ -124,8 +124,8 @@ extension never decides: an HTML file named `.pdf` stays text.
 
 An [`http(s)://`](../locators/web.md#behavior) page declaring
 `application/pdf` and starting with `%PDF-` returns the same PDF result with
-`finalUrl`, `method: "pdf"`, and non-empty `notes`. Its body bound is 20 MiB;
-it is also unstored and takes no selector.
+`finalUrl`, `method: "pdf"`, and `notes` only when non-empty. Its body bound is
+20 MiB; it is also unstored and takes no selector.
 
 The worker validates the original without storing it. Only a model with PDF
 input receives its bytes in the reading attempt's later steps, under the

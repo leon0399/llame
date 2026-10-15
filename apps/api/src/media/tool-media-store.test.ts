@@ -146,4 +146,34 @@ describe('createToolMediaStore', () => {
     ).rejects.toBe(reason);
     expect(held.has('call-1')).toBe(false);
   });
+
+  it('reports a cancelled read, not the refusal it would otherwise take', async () => {
+    // An encrypted PDF is a preparation refusal; the same read cancelled
+    // before preparation is the cancellation, so the parser saw the signal.
+    const bytes = readFileSync(
+      path.join(__dirname, 'testing/pdf/owner-password.pdf'),
+    );
+    const held = new Map<string, HeldMedia>();
+    const controller = new AbortController();
+    const reason = new Error('read abandoned');
+    const store = createToolMediaStore({ findOwned: vi.fn() }, OWNER, held, [
+      'pdf',
+    ]);
+
+    await expect(
+      store.readMedia(
+        '/work/private.pdf',
+        'call-1',
+      )({
+        kind: 'pdf',
+        byteSize: bytes.byteLength,
+        signal: controller.signal,
+        readBytes: () => {
+          controller.abort(reason);
+          return Promise.resolve(bytes);
+        },
+      }),
+    ).rejects.toBe(reason);
+    expect(held.has('call-1')).toBe(false);
+  });
 });

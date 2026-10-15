@@ -1358,6 +1358,32 @@ describe('web fetch page', () => {
     expect(result).toHaveProperty('type', 'body_too_large');
     expect(cancelled).toHaveBeenCalledOnce();
   });
+
+  it('routes a page outside the binary types to the document path and decodes its charset', async () => {
+    const markup = '<html><body>café</body></html>';
+    const result = await fetchPageOf(
+      new Response(Buffer.from(markup, 'latin1'), {
+        headers: { 'content-type': 'text/html; charset=iso-8859-1' },
+      }),
+    );
+
+    expect(result).toStrictEqual({
+      finalUrl: URL_,
+      contentType: 'text/html; charset=iso-8859-1',
+      body: markup,
+    });
+  });
+
+  it('refuses an image page body past the 5 MiB document bound', async () => {
+    const bytes = new Uint8Array(CAP_BYTES + 1);
+
+    const result = await fetchPageOf(
+      new Response(bytes, { headers: { 'content-type': 'image/png' } }),
+    );
+
+    expect('type' in result ? result.type : undefined).toBe('body_too_large');
+    expect(result).not.toHaveProperty('kind');
+  });
 });
 
 describe('web fetch redirects', () => {

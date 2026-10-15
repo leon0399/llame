@@ -134,6 +134,7 @@ const TEXT_MEDIA_TYPE = /^text\/|^application\/(?:json|xml)$|\+(?:json|xml)$/u;
 
 /** Binary types accepted only for the page response, never a probe or adapter. */
 const PAGE_MEDIA_TYPE = /^(?:image\/(?:png|jpeg|gif|webp)|application\/pdf)$/u;
+// Keep fetch admission independent of the image codec loaded by media ingestion.
 const MAX_PDF_BODY_BYTES = 20 * 1024 * 1024;
 
 /** Neither message names the target: a `Location` is server-chosen text. */

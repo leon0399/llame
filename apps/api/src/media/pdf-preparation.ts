@@ -97,20 +97,25 @@ export function pdfParseChild(
 }
 
 /**
- * Refuses a PDF or returns its page count; the caller's buffer is never
- * modified. Tests inject the parse child.
+ * Refuses a PDF or returns its page count without modifying the input.
+ * Cancellation removes queued work or kills a running child; its slot is
+ * released only after that child closes. Tests inject the parse child.
  */
 export async function preparePdf(
   input: Buffer,
   child: PdfParseChild = defaultParseChild(),
+  signal?: AbortSignal,
 ): Promise<number> {
+  signal?.throwIfAborted();
   if (input.length > MEDIA_MAX_BYTES) {
     throw new MediaIngestError(MEDIA_REFUSAL.pdfTooLarge);
   }
   if (input.includes(ENCRYPT_TOKEN)) {
     throw new MediaIngestError(MEDIA_REFUSAL.unopenablePdf);
   }
-  const report = classify(await withParseSlot(() => runChild(input, child)));
+  const report = classify(
+    await withParseSlot(() => runChild(input, child, signal), signal),
+  );
   if (report.encrypted || report.pages < 1) {
     throw new MediaIngestError(MEDIA_REFUSAL.unopenablePdf);
   }
@@ -136,50 +141,96 @@ function classify(outcome: ChildOutcome): ParseReport {
 }
 
 let liveParses = 0;
+/** The handoff of each parse waiting for a slot, oldest first. */
 const waitingParses: Array<() => void> = [];
 
-/** At most two parse children per process; later parses wait for a slot. */
-async function withParseSlot<T>(task: () => Promise<T>): Promise<T> {
-  if (liveParses < MAX_LIVE_PARSES) liveParses += 1;
-  else await new Promise<void>((resolve) => waitingParses.push(resolve));
+/**
+ * At most two parse children per process; later parses wait for a slot. A
+ * cancelled wait leaves the queue instead of being handed a slot, and a
+ * cancellation after the handoff releases that slot through the `finally`.
+ */
+async function withParseSlot<T>(
+  task: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  await acquireParseSlot(signal);
   try {
+    signal?.throwIfAborted();
     return await task();
   } finally {
-    const next = waitingParses.shift();
-    if (next) next();
-    else liveParses -= 1;
+    releaseParseSlot();
   }
 }
 
-/** Runs one child to exit; a timeout ends it with `SIGKILL` (status null). */
-function runChild(input: Buffer, child: PdfParseChild): Promise<ChildOutcome> {
-  return new Promise((resolve) => {
-    const proc = spawn(child.command, child.args, {
-      // `--import tsx` (tests) resolves its specifier from the working directory.
-      cwd: __dirname,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    const stdout: Array<Buffer> = [];
-    const stderr: Array<Buffer> = [];
-    const timer = setTimeout(() => proc.kill('SIGKILL'), child.timeoutMs);
-    const finish = (status: number | null) => {
-      clearTimeout(timer);
+/**
+ * Resolves once this parse holds a slot, registering the wait synchronously.
+ * Rejects with the signal's reason when a cancelled parse is still queued, so
+ * the queue holds no work the caller no longer wants.
+ */
+function acquireParseSlot(signal?: AbortSignal): Promise<void> {
+  if (liveParses < MAX_LIVE_PARSES) {
+    liveParses += 1;
+    return Promise.resolve();
+  }
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  const receiveSlot = () => {
+    signal?.removeEventListener('abort', cancel);
+    resolve();
+  };
+  const cancel = () => {
+    const queuedAt = waitingParses.indexOf(receiveSlot);
+    if (queuedAt !== -1) waitingParses.splice(queuedAt, 1);
+    reject(signal?.reason);
+  };
+  waitingParses.push(receiveSlot);
+  signal?.addEventListener('abort', cancel, { once: true });
+  return promise;
+}
+
+/** Hands the slot to the next queued parse, or frees it. */
+function releaseParseSlot(): void {
+  const next = waitingParses.shift();
+  if (next) next();
+  else liveParses -= 1;
+}
+
+/** Runs one child to close, preserving the slot until killed work is reaped. */
+function runChild(
+  input: Buffer,
+  child: PdfParseChild,
+  signal?: AbortSignal,
+): Promise<ChildOutcome> {
+  const { promise, resolve, reject } = Promise.withResolvers<ChildOutcome>();
+  const proc = spawn(child.command, child.args, {
+    // `--import tsx` resolves from the working directory in tests.
+    cwd: __dirname,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const stdout: Array<Buffer> = [];
+  const stderr: Array<Buffer> = [];
+  const timer = setTimeout(() => proc.kill('SIGKILL'), child.timeoutMs);
+  const onCancel = () => proc.kill('SIGKILL');
+  let startFailed = false;
+  proc.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+  proc.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
+  // A child exiting mid-write produces EPIPE; its exit classifies the failure.
+  proc.stdin.on('error', () => undefined);
+  proc.on('error', (error) => {
+    startFailed = true;
+    stderr.push(Buffer.from(error.message));
+  });
+  proc.on('close', (status) => {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', onCancel);
+    if (signal?.aborted === true) reject(signal.reason);
+    else
       resolve({
-        status,
+        status: startFailed ? START_FAILURE_STATUS : status,
         stdout: Buffer.concat(stdout).toString('utf8'),
         stderr: Buffer.concat(stderr).toString('utf8'),
       });
-    };
-    proc.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
-    proc.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
-    // A child that exits mid-write fails the write with EPIPE; its exit status classifies it.
-    proc.stdin.on('error', () => undefined);
-    // A child that never started classifies like a bound that could not apply.
-    proc.on('error', (error) => {
-      stderr.push(Buffer.from(error.message));
-      finish(START_FAILURE_STATUS);
-    });
-    proc.on('close', (status) => finish(status));
-    proc.stdin.end(input);
   });
+  signal?.addEventListener('abort', onCancel, { once: true });
+  proc.stdin.end(input);
+  return promise;
 }

@@ -16,7 +16,6 @@ import { z } from 'zod';
 
 import type { HeldMedia } from '../media/attempt-media';
 import { type MediaService } from '../media/media.service';
-import * as preparation from '../media/pdf-preparation';
 import { createToolMediaStore } from '../media/tool-media-store';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { nativeReadTool } from './native-files';
@@ -2403,48 +2402,4 @@ describe('web PDF reads over loopback fixtures', () => {
     });
     expect(memory.get(CALL_ID)?.locator).toBe(path);
   });
-
-  it.each(['call_timeout', 'aborted'])(
-    'returns %s during PDF preparation without retaining a late result',
-    async (type) => {
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      let entered!: () => void;
-      const started = new Promise<void>((resolve) => {
-        entered = resolve;
-      });
-      let finish!: (pages: number) => void;
-      const prepared = new Promise<number>((resolve) => {
-        finish = resolve;
-      });
-      const parse = vi
-        .spyOn(preparation, 'preparePdf')
-        .mockImplementation(() => {
-          entered();
-          return prepared;
-        });
-      const abort = new AbortController();
-      let observed: ToolResult | undefined;
-      const pending = read(urlOf('/paper.pdf'), {
-        abortSignal: abort.signal,
-      }).then((result) => {
-        observed = result;
-        return result;
-      });
-      try {
-        await started;
-        if (type === 'aborted') abort.abort();
-        else await vi.advanceTimersByTimeAsync(30_000);
-        await vi.advanceTimersByTimeAsync(0);
-        expect(observed).toMatchObject({ status: 'error', type });
-        finish(15);
-        await vi.advanceTimersByTimeAsync(0);
-        expect(memory.get(CALL_ID)).toBeUndefined();
-      } finally {
-        finish(15);
-        await pending;
-        parse.mockRestore();
-        vi.useRealTimers();
-      }
-    },
-  );
 });

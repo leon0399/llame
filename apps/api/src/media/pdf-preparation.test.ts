@@ -1,7 +1,14 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { MEDIA_MAX_BYTES, MEDIA_REFUSAL } from './media-ingest';
 import {
@@ -349,6 +356,173 @@ describe('parse child bounds', () => {
       expect(Math.max(...results)).toBeLessThan(3);
     } finally {
       rmSync(liveDir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * A parse child that watches `dir` and reports one page once a `gate` file
+ * appears there. It writes its `started-<pid>` marker only after the watcher
+ * is armed, so the parent can tell started work from queued work and release
+ * a parked child by creating that file: no signal, no polling in the child,
+ * and no event it can miss.
+ */
+const PARKED_CHILD = `const fs = require('node:fs');
+const path = require('node:path');
+const dir = process.argv[1];
+const gate = path.join(dir, 'gate');
+const watcher = fs.watch(dir);
+let released = false;
+const release = () => {
+  if (released || !fs.existsSync(gate)) return;
+  released = true;
+  watcher.close();
+  process.stdout.write(JSON.stringify({ pages: 1, encrypted: false }));
+};
+watcher.on('change', release);
+fs.writeFileSync(path.join(dir, 'started-' + process.pid), '');
+release();`;
+
+function parkedEntry(dir: string) {
+  return pdfParseChild(['-e', PARKED_CHILD, dir]);
+}
+
+/** The pids of the parked children that reached their marker, from its name. */
+function startedPids(dir: string): Array<number> {
+  return readdirSync(dir).flatMap((name) =>
+    name.startsWith('started-') ? [Number(name.slice('started-'.length))] : [],
+  );
+}
+
+/** Wait for OS state, bounded by the test runner's cancellation signal. */
+async function waitUntil(
+  condition: () => boolean,
+  signal: AbortSignal,
+): Promise<void> {
+  while (!condition()) await delay(5, undefined, { signal });
+}
+
+describe('cancelled PDF reads', () => {
+  it('drops a queued parse without losing either parser slot', async ({
+    signal,
+    onTestFinished,
+  }) => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pdf-parse-queue-'));
+    const after = mkdtempSync(path.join(tmpdir(), 'pdf-parse-capacity-'));
+    const jobs: Array<Promise<number>> = [];
+    onTestFinished(async () => {
+      writeFileSync(path.join(dir, 'gate'), '');
+      writeFileSync(path.join(after, 'gate'), '');
+      await Promise.allSettled(jobs);
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(after, { recursive: true, force: true });
+    });
+    const parked = parkedEntry(dir);
+    const blockers = [
+      preparePdf(fixture('one-page.pdf'), parked, signal),
+      preparePdf(fixture('one-page.pdf'), parked, signal),
+    ];
+    jobs.push(...blockers);
+    await waitUntil(() => startedPids(dir).length === 2, signal);
+    const controller = new AbortController();
+    const reason = new Error('call cancelled');
+    const queued = preparePdf(
+      fixture('one-page.pdf'),
+      parked,
+      AbortSignal.any([signal, controller.signal]),
+    );
+    jobs.push(queued);
+    controller.abort(reason);
+    await expect(queued).rejects.toBe(reason);
+    writeFileSync(path.join(dir, 'gate'), '');
+    await expect(Promise.all(blockers)).resolves.toEqual([1, 1]);
+    expect(startedPids(dir)).toHaveLength(2);
+    const following = [
+      preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
+      preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
+    ];
+    jobs.push(...following);
+    await waitUntil(() => startedPids(after).length === 2, signal);
+    writeFileSync(path.join(after, 'gate'), '');
+    await expect(Promise.all(following)).resolves.toEqual([1, 1]);
+  });
+
+  it('kills a running parser without freeing its slot early', async ({
+    signal,
+    onTestFinished,
+  }) => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pdf-parse-kill-'));
+    const after = mkdtempSync(path.join(tmpdir(), 'pdf-parse-slots-'));
+    const jobs: Array<Promise<number>> = [];
+    onTestFinished(async () => {
+      writeFileSync(path.join(dir, 'gate'), '');
+      writeFileSync(path.join(after, 'gate'), '');
+      await Promise.allSettled(jobs);
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(after, { recursive: true, force: true });
+    });
+    const controller = new AbortController();
+    const reason = new Error('call cancelled');
+    const pending = preparePdf(
+      fixture('one-page.pdf'),
+      parkedEntry(dir),
+      AbortSignal.any([signal, controller.signal]),
+    );
+    jobs.push(pending);
+    let closed = false;
+    void pending.then(
+      () => {
+        closed = true;
+      },
+      () => {
+        closed = true;
+      },
+    );
+    await waitUntil(() => startedPids(dir).length === 1, signal);
+    controller.abort(reason);
+    // Drain the async call chain without advancing to the child's close event.
+    for (let tick = 0; tick < 16; tick += 1) await Promise.resolve();
+    expect(closed).toBe(false);
+    await expect(pending).rejects.toBe(reason);
+    const [pid] = startedPids(dir);
+    expect(() => process.kill(pid, 0)).toThrow(
+      expect.objectContaining({ code: 'ESRCH' }),
+    );
+    const following = [
+      preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
+      preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
+    ];
+    jobs.push(...following);
+    await waitUntil(() => startedPids(after).length === 2, signal);
+    writeFileSync(path.join(after, 'gate'), '');
+    await expect(Promise.all(following)).resolves.toEqual([1, 1]);
+  });
+
+  it('does no work at all for an already-cancelled read', async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'pdf-parse-cancelled-'));
+    const controller = new AbortController();
+    const reason = new Error('call cancelled');
+    controller.abort(reason);
+    try {
+      await expect(
+        preparePdf(
+          fixture('one-page.pdf'),
+          parkedEntry(dir),
+          controller.signal,
+        ),
+      ).rejects.toBe(reason);
+      expect(startedPids(dir)).toEqual([]);
+      // Cancellation precedes the refusals: an over-bound body is not scanned.
+      await expect(
+        preparePdf(
+          paddedPdf(21 * 1024 * 1024),
+          parkedEntry(dir),
+          controller.signal,
+        ),
+      ).rejects.toBe(reason);
+      expect(startedPids(dir)).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });
