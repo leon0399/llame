@@ -39,9 +39,6 @@ export type MessageProps = HTMLAttributes<HTMLDivElement> & {
  */
 export const Message = ({ className, from, ...props }: MessageProps) => (
   <div
-    // Off-screen paint deferred via globals.css (content-visibility), matching
-    // Open WebUI's message-virtualized treatment for long transcripts.
-    data-transcript-row=""
     className={cn(
       "group flex w-full max-w-[95%] flex-col gap-2",
       from === "user" ? "is-user ml-auto justify-end" : "is-assistant",

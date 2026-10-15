@@ -214,12 +214,13 @@
 }
 
 /*
- * Defer layout/paint for off-screen transcript chrome. A single fat Run can
- * mount 80+ collapsed tool headers plus interleaved reasoning triggers
- * (Open WebUI / OpenCode). `contain-intrinsic-size` keeps scroll range
- * stable while the browser skips painting rows outside the viewport.
+ * Defer layout/paint for off-screen tool/reasoning chrome inside a fat Run
+ * (OpenCode). Do NOT put content-visibility on the message row itself: that
+ * node carries `data-message-key` / `id="msg-N"` and
+ * `usePrependScrollAnchor` / `useTargetScroll` read its real offsetTop /
+ * scrollIntoView geometry — skipped rows resolve against
+ * contain-intrinsic-size instead.
  */
-[data-transcript-row],
 [data-transcript-tool],
 [data-transcript-reasoning] {
   content-visibility: auto;

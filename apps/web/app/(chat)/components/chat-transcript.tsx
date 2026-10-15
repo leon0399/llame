@@ -325,8 +325,9 @@ export function ChatTranscript({
         resize="instant"
         contextRef={conversationRef}
       >
-        {/* #187: message/tool/reasoning rows use content-visibility:auto
-            (globals.css). True list virtualization remains deferred until a
+        {/* #187: tool/reasoning chrome uses content-visibility:auto
+            (globals.css); message rows do not — they own scroll-anchor
+            geometry. True list virtualization remains deferred until a
             several-thousand-message walk still measures heavy after that. */}
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {/* The message column's own rhythm: 20px gutters, 48px of air above

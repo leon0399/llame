@@ -4,9 +4,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Fixed chat UI jank on tool-heavy Runs and long transcripts. Idle message
   objects stay referentially stable across stream ticks so memoized rows skip
-  reconciling prior turns that carry dozens of tool headers; message, tool,
-  and reasoning chrome use `content-visibility: auto` (Open WebUI / OpenCode);
-  expanded tool JSON and `read` bodies are height-capped. Harness
+  reconciling prior turns that carry dozens of tool headers; tool and
+  reasoning chrome use `content-visibility: auto` (not message rows — those
+  carry scroll-anchor geometry); expanded tool JSON and `read` bodies are
+  height-capped behind a focusable scrollport for Firefox/Safari. Harness
   (`chat-transcript.perf.test.tsx`, 87-tool fixture): 50 stream ticks cost
   ~1506ms / 50 idle commits when identity breaks each tick vs ~3ms / 0 commits
   when identity holds; first mount of 87 collapsed tool rows ~70ms in jsdom.
