@@ -1,6 +1,12 @@
 "use client";
 
-import { useLayoutEffect, useRef, type RefObject } from "react";
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  type RefObject,
+} from "react";
 import { useRouter } from "next/navigation";
 
 import type { ChatStatus, UIMessage } from "ai";
@@ -41,8 +47,11 @@ type ChatTranscriptMessageProps = {
 };
 
 /** One row's boundary computation plus its `ChatMessageRow` — split out of
- *  `ChatTranscriptMessages` as its own self-contained region. */
-function ChatTranscriptMessage({
+ *  `ChatTranscriptMessages` as its own self-contained region. Memoized so a
+ *  streaming token on the live tail does not reconcile idle fat turns (80+
+ *  tool headers) when `mergeTrustedModelContextParts` preserved their
+ *  message identity. */
+const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
   chatId,
   message,
   index,
@@ -78,7 +87,7 @@ function ChatTranscriptMessage({
       onInspectContext={onInspectContext}
     />
   );
-}
+});
 
 type ChatTranscriptCompactionBoundaryProps = {
   compaction: Compaction;
@@ -109,6 +118,39 @@ type ChatTranscriptMessagesProps = {
   onInspectContext: (runId: string) => void;
 };
 
+type ChatTranscriptMessageListProps = ChatTranscriptMessagesProps & {
+  onForked: (forkedChatId: string) => void;
+};
+
+/** The mapped message rows only — kept separate so the parent stays under
+ *  the per-function line budget after the stable `onForked` callback. */
+function ChatTranscriptMessageList({
+  chatId,
+  displayMessages,
+  compaction,
+  compactionIndex,
+  availableModels,
+  status,
+  onInspectContext,
+  onForked,
+}: ChatTranscriptMessageListProps) {
+  return displayMessages.map((message, index) => (
+    <ChatTranscriptMessage
+      key={`message-${messageRenderKey(message)}`}
+      chatId={chatId}
+      message={message}
+      index={index}
+      isLast={index === displayMessages.length - 1}
+      compaction={compaction}
+      compactionIndex={compactionIndex}
+      availableModels={availableModels}
+      status={status}
+      onInspectContext={onInspectContext}
+      onForked={onForked}
+    />
+  ));
+}
+
 /** Every message row, plus the trailing compaction boundary when it lands
  *  after the last loaded message. Split out of `ChatTranscript` as its own
  *  self-contained region. */
@@ -122,24 +164,25 @@ function ChatTranscriptMessages({
   onInspectContext,
 }: ChatTranscriptMessagesProps) {
   const router = useRouter();
+  const onForked = useCallback(
+    (forkedChatId: string) => {
+      router.push(`/chat/${forkedChatId}`);
+    },
+    [router],
+  );
 
   return (
     <>
-      {displayMessages.map((message, index) => (
-        <ChatTranscriptMessage
-          key={`message-${messageRenderKey(message)}`}
-          chatId={chatId}
-          message={message}
-          index={index}
-          isLast={index === displayMessages.length - 1}
-          compaction={compaction}
-          compactionIndex={compactionIndex}
-          availableModels={availableModels}
-          status={status}
-          onInspectContext={onInspectContext}
-          onForked={(forkedChatId) => router.push(`/chat/${forkedChatId}`)}
-        />
-      ))}
+      <ChatTranscriptMessageList
+        chatId={chatId}
+        displayMessages={displayMessages}
+        compaction={compaction}
+        compactionIndex={compactionIndex}
+        availableModels={availableModels}
+        status={status}
+        onInspectContext={onInspectContext}
+        onForked={onForked}
+      />
       {/* All loaded messages are within the summarized span → boundary sits
           after the last one. */}
       {compaction && compactionIndex === displayMessages.length && (
@@ -282,11 +325,9 @@ export function ChatTranscript({
         resize="instant"
         contextRef={conversationRef}
       >
-        {/* TODO(#187): a reader who walks a several-thousand-message chat
-            to the top accumulates the whole transcript in the DOM. If that
-            ever measures heavy, [content-visibility:auto] on message rows
-            (or the virtualization #187 originally named) is the next step
-            — measure before reaching for either. */}
+        {/* #187: message/tool/reasoning rows use content-visibility:auto
+            (globals.css). True list virtualization remains deferred until a
+            several-thousand-message walk still measures heavy after that. */}
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {/* The message column's own rhythm: 20px gutters, 48px of air above
               and below, 48px between rows — the 32px the primitive's gap-8

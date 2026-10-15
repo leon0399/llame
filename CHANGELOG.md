@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-15
 
+- Fixed chat UI jank on tool-heavy Runs and long transcripts. Idle message
+  objects stay referentially stable across stream ticks so memoized rows skip
+  reconciling prior turns that carry dozens of tool headers; message, tool,
+  and reasoning chrome use `content-visibility: auto` (Open WebUI / OpenCode);
+  expanded tool JSON and `read` bodies are height-capped.
+
 - The native `lobsters` web adapter reads `lobste.rs/s/` story links, which
   the generic converter reduced to a stray comment, as x.md threads: the
   story with its title, link, tags, and score, then every comment in the

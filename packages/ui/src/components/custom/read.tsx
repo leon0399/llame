@@ -240,8 +240,9 @@ function ReadBody({
         {output.content === "" ? (
           <p className="text-muted-foreground text-sm">No content.</p>
         ) : (
-          // Wrapped, not scrolled: a scroll container would need keyboard focus.
-          <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 font-mono text-xs">
+          // Cap height so a large read cannot inflate the transcript when
+          // expanded. Full text remains in the accessibility tree.
+          <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 font-mono text-xs">
             {output.content}
           </pre>
         )}

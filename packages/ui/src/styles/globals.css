@@ -212,3 +212,16 @@
     @apply bg-background text-foreground;
   }
 }
+
+/*
+ * Defer layout/paint for off-screen transcript chrome. A single fat Run can
+ * mount 80+ collapsed tool headers plus interleaved reasoning triggers
+ * (Open WebUI / OpenCode). `contain-intrinsic-size` keeps scroll range
+ * stable while the browser skips painting rows outside the viewport.
+ */
+[data-transcript-row],
+[data-transcript-tool],
+[data-transcript-reasoning] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3.5rem;
+}

@@ -524,6 +524,19 @@ function trustedContextParts(message: {
  * indices ascend, and a live turn carrying fewer parts than the server copy
  * clamps the insert to its end.
  */
+/** True when `next` is the same part list as `prev` by reference at each
+ *  index — enough to prove a merge was a no-op without walking part fields. */
+function samePartList(
+  prev: UIMessage["parts"],
+  next: ReadonlyArray<unknown>,
+): boolean {
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i += 1) {
+    if (prev[i] !== next[i]) return false;
+  }
+  return true;
+}
+
 export function mergeTrustedModelContextParts(
   liveMessages: ReadonlyArray<UIMessage>,
   serverMessages: ReadonlyArray<UIMessage>,
@@ -548,6 +561,12 @@ export function mergeTrustedModelContextParts(
     (trustedByMessageId.get(message.id) ?? []).forEach(
       ({ index, part }, placed) => visibleParts.splice(index + placed, 0, part),
     );
+    // Streaming re-runs this merge on every token. Reusing the live object
+    // when the part list is unchanged keeps idle fat turns (80+ tool rows)
+    // referentially stable so memoized rows can skip reconciliation.
+    if (samePartList(message.parts, visibleParts)) {
+      return message;
+    }
     return {
       ...message,
       // SAFETY: `part` is this app's own `data-context` part and
