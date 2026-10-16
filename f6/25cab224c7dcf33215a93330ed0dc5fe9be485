@@ -1,0 +1,23 @@
+docs/research/realtime/2026-10-16-push-transport-and-asyncapi.md
+  6c7fcdc962597e7d 1-43,46-50,52-59,61-100,110-157,159-163,165,173-223,225-260,262,264-269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "f625cab224c7dcf33215a93330ed0dc5fe9be485",
+  "prompts": {
+    "6c7fcdc962597e7d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9af45d1e-990b-48cf-bd63-4bacd9ff0fc0",
+        "model": "unknown"
+      },
+      "human_author": "leon0399 <leon.03.99@gmail.com>",
+      "messages": [],
+      "total_additions": 1956,
+      "total_deletions": 105,
+      "accepted_lines": 1819,
+      "overriden_lines": 122
+    }
+  }
+}
