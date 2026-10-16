@@ -65,8 +65,9 @@ Bodies have no line-number prefixes. Reserved delimiters inside a body are
 neutralized before the item is stored.
 
 The owner transcript shows a chip on that message. The chip lists paths in
-injection order, indents each import under its importer, and marks truncated
-and denied files. The model-visible text never names a denied or missing file.
+injection order, indents each loaded import under its importer, and marks
+truncated and denied files. A denied path is listed flat. The model-visible
+text never names a denied or missing file.
 
 ## Host chains
 
@@ -209,8 +210,9 @@ The shapes, recognized outside fenced and inline code, are:
 The marker stays literal. Host imports resolve absolute paths as written or relative
 to the importing file's directory. `~/` and any schemed target stay literal. A
 Knowledge import resolves only a relative target within the importer's Space;
-absolute, escaping, `~/`, and schemed targets stay literal. Selectors are not
-interpreted: an import names a whole file.
+absolute, escaping, `~/`, and schemed targets stay literal. A selector-bearing
+target stays literal and loads nothing, including when a file's name is exactly
+that string.
 
 Each resolved target is silently pre-evaluated against the `read` group before
 probing. An admitted existing regular target is read as a separate system-origin

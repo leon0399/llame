@@ -43,13 +43,15 @@ each row owns the rule.
 On the first dispatch of an accepted turn, the document items that apply are
 stored on your message in this order, each in its own block, and your text
 follows them: `instructions`, then `skill-catalog`, then `skill-activation`,
-then `prompt-imports`. A retry whose earlier attempt already dispatched keeps
-those stored items in place and appends only newly derived items after the last
-stored context item, in that producer order among the new items. A stored
-`prompt-imports` item can therefore precede an instruction bundle discovered on
-the retry. An instruction load caused by `enter_workspace`, `read`, `edit`, or
-`write` during a Run is stored on the assistant message after that step's last
-tool result, and the next model step reads it there.
+then `prompt-imports`. A retry keeps stored items in place. A newly derived
+`instructions` or `skill-catalog` item is appended after the last stored
+context item, so a stored `prompt-imports` item can precede an instruction
+bundle found on the retry. A `skill-activation` item first resolved on a retry
+is inserted at its own rank, and can precede that stored `prompt-imports`
+item. `prompt-imports` is stored once. An instruction load caused by
+`enter_workspace`, `read`, `edit`, or `write` during a Run is stored on the
+assistant message after that step's last tool result, and the next model step
+reads it there.
 
 Every item that carries text llame did not author says, in the item, that the
 text ranks below the system instructions and below your request, and that it
@@ -70,13 +72,12 @@ The backtick form is an `@` before a code span.
 What the marker does depends on the file that contains it. The grammar is
 shared; resolution, admission, and the item that receives the bytes are not.
 An email address such as `leo@example.com` is never a marker. An instruction
-import does not apply a selector: `@foo.md:30-35` stays literal when only
-`foo.md` exists, and a file whose name is exactly `foo.md:30-35` is imported
-whole.
+import does not apply a selector: `@foo.md:30-35` stays literal and loads
+nothing, including when a file has that exact name.
 
 | Written in                 | Resolves                                                                                  | Selectors                                                          | Injected as                                 |
 | -------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------- |
-| A project instruction file | a whole file in the same store: host path, or a relative path inside that Knowledge Space | not applied; the whole target is the file name                     | a file block in the `instructions` item     |
+| A project instruction file | a whole file in the same store: host path, or a relative path inside that Knowledge Space | not applied; a selector-bearing target stays literal               | a file block in the `instructions` item     |
 | Your message               | any [`read`](tools/read.md) locator, including a range, `:raw`, or `:outline`             | honored; the body is what `read` returns                           | a file block in the `prompt-imports` item   |
 | A skill's `SKILL.md`       | a file inside that package                                                                | selector-bearing, absolute, `~/`, and schemed targets stay literal | a file block in the `skill-activation` item |
 
@@ -141,8 +142,8 @@ descriptions only. Package form, invocation controls, and import bounds are in
 ## What you can check
 
 The transcript shows a chip on the message that carries the item. An
-instruction chip lists loaded paths, nests each import under its importer, and
-marks truncated and denied files. A prompt-import chip lists each locator as
+instruction chip lists loaded paths, nests each loaded import under its
+importer, and marks a truncated or denied file. A denied path is listed flat. A prompt-import chip lists each locator as
 imported, truncated, denied, failed, or omitted. Other owners, public shares,
 transcript exports, and search see neither the item text nor that metadata.
 
