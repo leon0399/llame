@@ -1,3 +1,8 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: A media object is owner-owned metadata plus original and model bytes`
+- TO: `### Requirement: A media object contains owner-owned metadata and media-type-specific byte variants`
+
 ## ADDED Requirements
 
 ### Requirement: PDF preparation is shared with unstored PDF reads
@@ -124,7 +129,7 @@ preferential, not guaranteed under group-kill policies.
 
 ## MODIFIED Requirements
 
-### Requirement: A media object is owner-owned metadata plus original and model bytes
+### Requirement: A media object contains owner-owned metadata and media-type-specific byte variants
 
 Every stored image or PDF SHALL be one media object owned by exactly one owner, taken only from the
 authenticated request context, and only an owner upload SHALL create one. It SHALL carry a UUIDv7
