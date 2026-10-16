@@ -2,14 +2,15 @@
 
 ## Purpose
 
-Defines the owner-owned media store of uploaded images: the media object and its two stored
-variants, image preparation (formats, bounds, and the model variant) shared with unstored image
-reads, per-owner deduplication, the upload and fetch routes, the `media://` locator grammar and its
-owner-only resolution, retention without deletion, and datastore-enforced tenant isolation.
+Defines the owner-owned media store of uploaded images and PDFs: each image has original and model
+variants, and each PDF has only its original. Image preparation (formats, bounds, and the model
+variant) and PDF validation are shared with unstored reads. It also defines per-owner deduplication,
+the upload and fetch routes, the `media://` locator grammar and owner-only resolution, retention
+without deletion, and datastore-enforced tenant isolation.
 
 ## Requirements
 
-### Requirement: A media object is owner-owned metadata plus original and model bytes
+### Requirement: A media object contains owner-owned metadata and media-type-specific byte variants
 
 Every stored image or PDF SHALL be one media object owned by exactly one owner, taken only from the
 authenticated request context, and only an owner upload SHALL create one. It SHALL carry a UUIDv7
