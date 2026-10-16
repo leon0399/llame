@@ -6,10 +6,12 @@ A managed bash process bound of one per worker process makes any step that issue
 more than one `bash` call fail the excess deterministically, and because the
 counter is module-global, concurrent Runs in one worker compete for the same
 slot: #1050 measured 6 of 38 tool calls rejected in the Run that motivated #1038,
-and the refusal reproduces on every same-step pair. The refusal is also
-indistinguishable from a missing capability, because it reuses `unavailable` —
-the result the bash spec reserves for an unset `tools.nativeExecutorId` — so
-neither the model nor the owner can tell a busy worker from an absent one.
+and both tested same-step pairs reproduced the refusal. Process pressure also
+uses the package's generic `unavailable` classification, which covers multiple
+admission failures. The API separately reports missing native identity as
+`executor_unavailable`. A dedicated process-pressure classification and an
+explanatory message make temporary saturation actionable without implying that
+execution capability is missing.
 
 ## What Changes
 
@@ -21,12 +23,15 @@ neither the model nor the owner can tell a busy worker from an absent one.
 - Give an exhausted bound its own result classification instead of
   `unavailable`, so the refusal names the cause and states that a retry may
   succeed.
-- Remove `maxProcesses` from the per-call `BashExecutorContext`, so no caller
-  can attribute a different bound to a process-global resource, and drop the
-  `maxProcesses <= 0` sanitize rule with it.
-- **BREAKING** (internal only): `BashExecutorContext.maxProcesses` is deleted;
-  internal callers and tests move atomically. No operator-visible configuration
-  changes and no compatibility shim is added.
+- Add operator setting `tools.bashMaxProcesses`, default four, validated as a
+  positive safe integer at startup. A value of one intentionally restores serial
+  admission; changing the setting requires restarting each worker.
+- Replace the module-global counter and per-call `maxProcesses` number with a
+  worker-owned `BashProcessLimiter` shared by every Run in that worker. Its
+  immutable capacity and active reservations belong to the same object.
+- **BREAKING** (internal only): `BashExecutorContext.maxProcesses` is replaced
+  by the shared limiter; internal callers and tests move atomically without a
+  compatibility shim.
 - Document the bound, its scope, and its refusal in the `bash` reference page
   and the tool description.
 
@@ -49,7 +54,7 @@ None.
 - Background or queued `bash` execution (#1051).
 - A bound shared across worker replicas: the counter stays per process, and N
   replicas allow N × the bound.
-- Operator tuning of the bound; see design D4.
+- Live resizing or per-Run/model-selected process limits.
 
 ## Assumptions
 
@@ -68,4 +73,21 @@ None.
 - `apps/api/src/tools/bash.ts` (context construction and result mapping),
   `apps/api/src/prompts/tools/bash.md`,
   `docs/product/reference/tools/bash.md`, `CHANGELOG.md`.
-- No durable data, schema, API, dependency, or configuration change.
+- `apps/api/src/instance-config`: configuration type, defaults, parser, schema,
+  and focused validation tests; `apps/api/llame.config.jsonc.example`.
+- `apps/api/src/runs/run-execution.service.ts`, `apps/api/src/tools/types.ts`:
+  one worker-owned limiter supplied to all Run tool contexts.
+- `docs/product/operator/native-files.md`: operator setting and restart scope;
+  `docs/product/operator/scaling.md`: link to that setting's owning page.
+- No durable data, database schema, HTTP API, or dependency change.
+
+## Revision history
+
+- **v2 (2026-10-16):** Restore approved operator tuning; couple capacity and
+  reservations in one worker-owned limiter; require two free slots for the
+  two-call scenario; distinguish fresh retry from automatic replay; add
+  reservation-lifecycle proof and explicit delivery budgets. Independent review
+  findings are checked against the executor and API admission paths. The finding
+  that the timeout split contradicts issue ownership is rejected: this change
+  deliberately leaves #1050 open for its remaining timeout acceptance.
+- **v1:** Initial proposal, commit `d11db9c7`.

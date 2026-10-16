@@ -123,34 +123,76 @@ command/result contract.
 
 ### Requirement: The managed process bound belongs to the worker and refuses beyond it
 
-When the worker process already holds its full set of managed bash processes, a
-new call SHALL be refused before any process starts and before any attempt is
-recorded. The bound SHALL be a property of the worker process and SHALL be
-shared by every Run that worker executes, so a call in one Run is refused while
-another holds the bound. The refusal SHALL name the bound as its cause, SHALL
-state that a retry may succeed, and SHALL NOT carry the result reserved for a
-missing native executor.
+Each worker SHALL share one managed-bash capacity across its Runs. Admission
+SHALL reserve a slot before recording an attempt. A call beyond capacity SHALL
+return `process_limit` immediately, without a process or attempt, naming the
+capacity, per-worker scope, and possibility of a fresh retry. It SHALL NOT queue,
+automatically retry, or replay the refused call. Reservations SHALL release
+exactly once; existing unknown-outcome quarantine SHALL remain enforced.
 
 #### Scenario: Calls within the bound are admitted concurrently
 
-- **WHEN** a step issues two bash calls and the worker holds fewer than its bound
+- **WHEN** a step issues two otherwise-valid bash calls with two free slots and no competing admissions or quarantine
 - **THEN** both are admitted and each starts its own process
 - **AND** each records its own attempt and result
 
+#### Scenario: Two calls compete for one remaining slot
+
+- **WHEN** two otherwise-valid calls arrive with one free slot and the first admitted call remains active
+- **THEN** exactly one is admitted and the other returns `process_limit`
+- **AND** no capacity is oversubscribed
+
 #### Scenario: Exhausted bound refuses before the attempt
 
-- **WHEN** the worker holds its bound of managed processes and another bash call arrives
+- **WHEN** the worker holds its bound of reservations and another otherwise-valid bash call arrives
 - **THEN** the call is refused immediately with no process started and no attempt recorded
 - **AND** the refused command does not start later on its own
 
-#### Scenario: Refusal names the bound and permits a retry
+#### Scenario: Refusal names the bound and permits a fresh retry
 
 - **WHEN** a call is refused because the worker holds its bound
-- **THEN** the result identifies the process bound as the cause and states that a retry may succeed
-- **AND** its classification differs from the one an unset `tools.nativeExecutorId` produces
+- **THEN** the result carries `process_limit`, names the configured capacity and per-worker scope, and states that a fresh call may succeed
+- **AND** the missing native executor classification is unchanged
 
 #### Scenario: Runs on one worker share the bound
 
 - **WHEN** two Runs execute concurrently on one worker and the first holds the bound
 - **THEN** a bash call in the second Run is refused under the same bound
-- **AND** it is admitted once a process of the first Run has ended
+- **AND** after one reservation is released, a fresh otherwise-valid call in the second Run is admitted if no competitor takes that slot and no quarantine applies
+
+#### Scenario: Pending attempt writes consume capacity
+
+- **WHEN** all slots are reserved by calls waiting for their durable attempt writes
+- **THEN** another otherwise-valid call is refused as `process_limit` without recording an attempt or starting a process
+
+#### Scenario: Reservations are released exactly once
+
+- **WHEN** an admission is cancelled or abandoned before execution, its attempt write fails, its existing attempt is recovered, or its execution settles
+- **THEN** its reservation is released exactly once
+- **AND** cancellation after execution starts does not free that slot before execution settles
+- **AND** releasing capacity does not clear surviving-process quarantine
+
+### Requirement: Operators configure the worker process capacity
+
+`tools.bashMaxProcesses` SHALL accept a positive safe integer and default to
+four. Invalid resolved values SHALL fail startup naming the field. Each worker
+process SHALL bind its capacity at startup until restart. Capacities SHALL be
+independent across worker processes, not a host-wide or per-owner limit.
+
+#### Scenario: Default and configured capacities
+
+- **WHEN** a worker starts without `tools.bashMaxProcesses`
+- **THEN** its capacity is four
+- **AND** configuring a positive safe integer instead binds that capacity until the worker restarts
+
+#### Scenario: Invalid capacity fails startup
+
+- **WHEN** the resolved capacity is zero, negative, fractional, non-finite, unsafe as an integer, null, or a value of the wrong type
+- **THEN** startup fails naming `tools.bashMaxProcesses`
+- **AND** no worker starts with an invalid bound
+
+#### Scenario: Separate workers have independent capacities
+
+- **WHEN** one worker is saturated and a second worker has a free slot
+- **THEN** an otherwise-valid call on the second worker can be admitted without waiting for the first worker
+- **AND** aggregate capacity is the sum of worker capacities, not a host-wide bound

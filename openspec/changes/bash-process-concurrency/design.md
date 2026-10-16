@@ -10,9 +10,10 @@ that `apps/api/src/tools/bash.ts:41` sets to `1`. Admission reserves the slot
 before the durable `native.attempt` write and `runAdmitted` releases it in a
 `finally`, so a refused call records no attempt and never becomes
 `outcome_unknown`. The refusal returns `{ status: "error", type: "unavailable",
-message: "Managed process limit reached." }`, and `unavailable` is the member
-the `bash-execution` spec assigns to an unset `tools.nativeExecutorId`. A
-different, untouched refusal path already exists for a process group that
+message: "Managed process limit reached." }`. This is a generic package
+admission classification, not an exact tag assigned by the spec to executor
+absence; the API's missing native identity path returns `executor_unavailable`.
+A different, untouched refusal path already exists for a process group that
 outlived an `outcome_unknown` Run (`openspec/specs/bash-execution/spec.md`,
 "Unknown command effects are never replayed automatically").
 
@@ -29,16 +30,26 @@ admission, background execution, and the long-command timeout contract.
 
 ### D1. The bound belongs to the worker, not to the call
 
-`maxProcesses` is deleted from `BashExecutorContext`, and the executor owns the
-bound as one named constant beside the other managed-executor limits that
-`apps/api/src/tools/bash.ts` declares. A per-call field over a process-global
-counter lets two callers bound the same resource differently, which is the shape
-that made "the limit" ambiguous in #1050.
+Replace `BashExecutorContext.maxProcesses` and the module-global counter with
+one `BashProcessLimiter` holding immutable capacity and active reservations.
+The API's singleton worker composition creates it once from resolved instance
+configuration and passes the same object through every Run's trusted
+`ToolContext` to the executor. Do not construct it per call or per Run. The
+co-located and dedicated worker entrypoints use the same composition; each
+worker process has its own instance. Tests may construct isolated limiters.
 
-Alternatives: keep the field and raise its value (rejected — it preserves the
-ambiguity and the ability to under-bound a shared resource); a host-wide
-semaphore across replicas (rejected — it needs a cross-process primitive llame
-does not have and adds a fail-open/fail-closed decision; see D4).
+Admission synchronously acquires a reservation before any asynchronous durable
+attempt write. Its release is idempotent. Before execution begins, abort,
+existing-attempt recovery, or a failed attempt write releases the reservation;
+after execution starts, only the executor completion path releases it. Preserve
+surviving-process quarantine independently: freeing a reservation never clears
+an unknown-outcome fence or makes replay safe. No queue or timer is introduced.
+
+Alternatives: raise the per-call number (rejected — capacity can still disagree
+for one shared counter); a host-wide semaphore across replicas (rejected — it
+needs a cross-process primitive and a separate failure policy). A small concrete
+class is justified by coupled state and behavior; no interface, registry, or
+limiter factory is needed.
 
 ### D2. Refuse rather than wait or queue
 
@@ -49,26 +60,43 @@ a named cause. Background execution is #1051's concern.
 
 ### D3. The refusal gets its own result member
 
-`process_limit` is added to the refusal union in `BashUnavailableResult`, and
-`apps/api/src/tools/bash.ts` maps it to a message that names the bound and states
-that a retry may succeed. `unavailable` stays reserved for a missing executor, so
-the model can tell "busy" from "absent" and the owner reads the cause in the
-transcript.
+`process_limit` is added to the refusal union in `BashUnavailableResult`. The
+executor supplies a message naming the actual capacity and saying a fresh call
+may succeed; `apps/api/src/tools/bash.ts` preserves both type and message through
+its existing generic error mapping. No specialized mapping is needed.
+
+The API currently returns `executor_unavailable` for missing Run/executor/call
+identity, whereas the package uses `unavailable` for several admission failures,
+including process pressure. Preserve those other classifications. The current
+spec calls a missing executor unavailable in prose, not an exact result tag;
+this change gives process pressure a dedicated tag rather than claiming that
+`unavailable` was exclusively reserved for executor absence.
 
 Alternatives: keep `unavailable` (rejected — it is the ambiguity this change
 exists to remove); reuse `boundary_missing` (rejected — it names a different
 cause).
 
-### D4. The bound is four, as a constant rather than configuration
+### D4. Operator-tunable capacity, default four
 
-The value is four: an observed step issues two or three parallel commands, so
-four admits those with headroom while keeping a brake on a runaway loop. It is a
-code constant with no new configuration key. Nothing yet shows
-two boxes needing different values, and a key would cost instance-config
-validation, an operator page, and a boot-failure path for a number an operator
-cannot measure. Tunability can be added when a second deployment needs it; the
-binding constraint is that the value belongs to the worker, which the constant
-already expresses.
+`tools.bashMaxProcesses` is a positive safe integer resolved at startup using the
+existing numeric configuration machinery, with a default of four. Reject zero,
+negative, fractional, non-finite, unsafe-integer, and wrong-type values with a
+field-specific startup error. Match existing whole-value interpolation behavior
+and validate the resolved value. This is server configuration, never a model
+argument, per-Run preference, or live mutable setting. Restart every affected
+worker after changing it. A value of one intentionally restores serial admission.
+
+Four is a proposed conservative default, not a measured host capacity: it admits
+the reproduced pair with spare capacity when otherwise idle. Contention or larger
+batches may still refuse calls. No claim of host load detection, fairness, or
+cross-owner reservation is made. With N replicas the total ceiling is the sum
+of their configured capacities, N times the bound only when all are equal.
+
+The reference and packaged description state the operator-selected per-worker
+scope without hardcoding a tunable number; refusal text names the actual capacity
+and says a fresh call may succeed after capacity frees. No automatic retry or
+replay is added. The operator page owns the key, default, validation, and restart
+instructions. A hardcoded four is rejected because it contradicts Q2-A.
 
 ## Risks / Trade-offs
 
@@ -89,6 +117,9 @@ already expresses.
 
 ## Migration Plan
 
-No durable data, schema, API, or configuration change. Rollback is reverting the
-commit, which returns the bound to one and the refusal to `unavailable`. API and
-workers deploy together because the executor context shape changes.
+No durable data, database schema, or HTTP API change. Configuration gains
+`tools.bashMaxProcesses`; existing configurations use four without edits. Roll
+out API and workers together because the executor context shape changes. To
+rollback, remove the new setting from configuration before deploying the old
+revision, then restart the affected processes; that revision restores a bound
+of one and the old process-limit classification. No compatibility shim is added.
