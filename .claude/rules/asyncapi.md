@@ -1,9 +1,8 @@
 ---
 paths:
-  - "apps/api/asyncapi.yaml"
-  - "apps/api/src/live/generated/**"
-  - "apps/web/lib/api/live-generated/**"
-  - "scripts/generate-live-protocol*.mjs"
+  # One brace-expanded entry: a multi-entry list does not match.
+  # https://github.com/anthropics/claude-code/issues/16853
+  - "{apps/api/asyncapi.yaml,apps/api/src/live/generated/**,apps/web/lib/api/live-generated/**,scripts/generate-live-protocol*.mjs}"
 ---
 
 # AsyncAPI live protocol
