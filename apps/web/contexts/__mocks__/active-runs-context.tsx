@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { fn } from "storybook/test";
 
+import type { RunPhase } from "@/lib/services/live/live-messages";
+
 // Storybook manual mock for the active-runs context (registered globally via
 // `sb.mock` in .storybook/preview.tsx). The real provider fetches + polls runs
 // and `useActiveRuns` throws outside it; here it is a controllable spy so
@@ -17,6 +19,7 @@ type ActiveRunsContextValue = {
   completedChats: ReadonlySet<string>;
   markChatSeen: (chatId: string) => void;
   activeChatIds: ReadonlySet<string>;
+  runPhaseByChatId: ReadonlyMap<string, RunPhase>;
 };
 
 /** A neutral, idle context value — no processing/unread chats. */
@@ -28,6 +31,7 @@ export function emptyActiveRuns(): ActiveRunsContextValue {
     completedChats: new Set(),
     markChatSeen: () => {},
     activeChatIds: new Set(),
+    runPhaseByChatId: new Map(),
   };
 }
 

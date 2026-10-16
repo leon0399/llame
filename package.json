@@ -19,7 +19,7 @@
     "generate:api-client": "pnpm generate:api-schema && pnpm generate:web-client",
     "generate:api-schema": "pnpm --filter api build",
     "generate:web-client": "pnpm --filter web generate:client",
-    "lint": "pnpm lint:code && pnpm lint:markdown && pnpm lint:openapi && pnpm lint:dead-code && pnpm lint:duplicates && pnpm lint:complexity",
+    "lint": "pnpm lint:code && pnpm lint:markdown && pnpm lint:openapi && pnpm lint:asyncapi && pnpm lint:dead-code && pnpm lint:duplicates && pnpm lint:complexity",
     "lint:code": "oxlint --deny-warnings --report-unused-disable-directives --threads=1 e2e playwright.config.ts && turbo run lint",
     "lint:complexity": "node scripts/quality-metrics.mjs halstead",
     "lint:dead-code": "knip",
@@ -27,6 +27,7 @@
     "lint:fix": "oxlint --deny-warnings --fix --threads=1 e2e playwright.config.ts && turbo run lint:fix",
     "lint:markdown": "markdownlint-cli2 && node scripts/check-markdown-links.mjs",
     "lint:openapi": "redocly lint --config apps/api/redocly.yaml",
+    "lint:asyncapi": "node scripts/generate-live-protocol.mjs --validate apps/api/asyncapi.yaml",
     "prepare": "lefthook install && git config merge.changelog.driver 'node scripts/merge-changelog.mjs %O %A %B %L'",
     "test": "pnpm test:scripts && turbo run test --concurrency=1",
     "test:coverage": "turbo run test:coverage --concurrency=1",
@@ -44,6 +45,8 @@
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
+    "@asyncapi/openapi-schema-parser": "3.1.0",
+    "@asyncapi/parser": "3.6.3",
     "@oxlint/plugins": "1.82.0",
     "@playwright/test": "catalog:",
     "@redocly/cli": "2.46.2",
@@ -51,6 +54,7 @@
     "@workspace/config-typescript": "workspace:*",
     "eslint-plugin-sonarjs": "4.2.0",
     "jscpd": "5.0.16",
+    "json-schema-to-zod": "2.8.1",
     "knip": "6.32.2",
     "lefthook": "2.1.9",
     "markdownlint-cli2": "0.23.2",
@@ -61,7 +65,8 @@
     "tsx": "catalog:",
     "turbo": "^2.10.4",
     "typescript": "catalog:",
-    "typescript-language-server": "6.0.0"
+    "typescript-language-server": "6.0.0",
+    "yaml": "2.9.0"
   },
   "packageManager": "pnpm@12.9.0",
   "engines": {

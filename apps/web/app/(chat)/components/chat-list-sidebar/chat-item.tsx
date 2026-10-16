@@ -25,6 +25,8 @@ import {
   SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
 
+import type { RunPhase } from "@/lib/services/live/live-messages";
+
 import { ChatItemMenu } from "./chat-item-menu";
 import { ShareChatDialog } from "./share-chat-dialog";
 
@@ -35,9 +37,11 @@ const UNTITLED_CHAT_LABEL = "New chat";
 function ChatItemIcon({
   isArchived,
   activityStatus,
+  runPhase,
 }: {
   isArchived: boolean;
   activityStatus: ReturnType<typeof resolveChatActivityStatus>;
+  runPhase: RunPhase | undefined;
 }) {
   return (
     <span
@@ -53,7 +57,7 @@ function ChatItemIcon({
           position:relative anchor) took it out from under that rule, so the
           size has to be explicit here now. */}
       <MessagesSquareIcon className="text-muted-foreground size-4" />
-      <ChatActivityIndicator status={activityStatus} />
+      <ChatActivityIndicator status={activityStatus} phase={runPhase} />
     </span>
   );
 }
@@ -106,6 +110,7 @@ function ChatItemLink({
   isActive,
   isArchived,
   activityStatus,
+  runPhase,
   excerpt,
 }: {
   chat: ChatResponse;
@@ -113,6 +118,7 @@ function ChatItemLink({
   isActive: boolean;
   isArchived: boolean;
   activityStatus: ReturnType<typeof resolveChatActivityStatus>;
+  runPhase: RunPhase | undefined;
   excerpt: string | null | undefined;
 }) {
   return (
@@ -122,7 +128,11 @@ function ChatItemLink({
       isActive={isActive}
       render={<Link href={`/chat/${chat.id}`} />}
     >
-      <ChatItemIcon isArchived={isArchived} activityStatus={activityStatus} />
+      <ChatItemIcon
+        isArchived={isArchived}
+        activityStatus={activityStatus}
+        runPhase={runPhase}
+      />
       <ChatItemTitleBlock
         chat={chat}
         title={title}
@@ -226,7 +236,7 @@ function useChatItemRow(
   isPinned: boolean,
   isActive: boolean,
 ) {
-  const { completedChats, activeChatIds } = useActiveRuns();
+  const { completedChats, activeChatIds, runPhaseByChatId } = useActiveRuns();
   const activityStatus = resolveChatActivityStatus({
     processing: activeChatIds.has(chat.id),
     unread: completedChats.has(chat.id),
@@ -260,6 +270,7 @@ function useChatItemRow(
     isArchived: chat.archivedAt !== null,
     excerpt: chat.lastMessage,
     activityStatus,
+    runPhase: runPhaseByChatId.get(chat.id),
     onRename: dialogs.openRename,
     onShare: dialogs.openShare,
     onDelete: dialogs.openDelete,

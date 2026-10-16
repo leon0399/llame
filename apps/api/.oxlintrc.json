@@ -3,7 +3,11 @@
   "extends": ["../../.oxlintrc.json"],
   "options": { "typeAware": true },
   "env": { "node": true, "vitest": true },
-  "ignorePatterns": ["dist/**", "src/db/migrations/**"],
+  "ignorePatterns": [
+    "dist/**",
+    "src/db/migrations/**",
+    "src/live/generated/**"
+  ],
   "overrides": [
     {
       // Eval config parser reads raw JSONC from disk with no schema;
