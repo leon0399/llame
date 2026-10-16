@@ -470,7 +470,7 @@ export const SendsWithDefaultModel: Story = {
   },
 };
 
-const uploadImage = vi.mocked(uploads.uploadImage);
+const uploadAttachment = vi.mocked(uploads.uploadAttachment);
 
 const VISION: AvailableModel = {
   id: "system:openai:vision",
@@ -515,7 +515,7 @@ export const SendsImageOnlyMessage: Story = {
       "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01",
       "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02",
     ];
-    uploadImage.mockImplementation((file: File) => {
+    uploadAttachment.mockImplementation((file: File) => {
       const id = ids.shift();
       if (id === undefined) throw new Error("unexpected extra upload");
       return Promise.resolve(uploaded(id, file.name));
@@ -536,7 +536,7 @@ export const SendsImageOnlyMessage: Story = {
     const form = input.closest("form");
     if (form === null) throw new Error("expected the composer form");
     const list = await within(form).findByRole("list", {
-      name: "Attached images",
+      name: "Attachments",
     });
     await waitFor(() =>
       expect(within(list).queryAllByRole("status")).toEqual([]),
@@ -566,9 +566,9 @@ export const SendsImageOnlyMessage: Story = {
     });
     await expect(body.message.parts).toHaveLength(2);
     await waitFor(() =>
-      expect(
-        within(form).queryByRole("list", { name: "Attached images" }),
-      ).toBe(null),
+      expect(within(form).queryByRole("list", { name: "Attachments" })).toBe(
+        null,
+      ),
     );
   },
 };

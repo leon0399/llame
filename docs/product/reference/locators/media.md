@@ -3,7 +3,7 @@ summary: "The media:// locator: a read-only handle on an image or PDF the Run ow
 read_when:
   - you see a media://<id> locator in a result or an attachment label
   - you need to know what a media:// read returns or why it failed
-  - you want to know what a chat thumbnail or the image lightbox shows
+  - you want to know what an attachment tile or the image lightbox shows
 spec: native-file-tools
 configured_by:
   - ../../operator/media.md
@@ -49,26 +49,28 @@ never projected from an entered Workspace root.
 
 ## Behavior
 
-An owner gets a `media://` locator by attaching an image in the chat composer:
-paste it, pick it with the attach button, or drag and drop it onto the
+An owner gets a `media://` locator by attaching an image or PDF: paste it,
+pick it with the attach button, or drag and drop it onto the
 composer. A paste that also carries text stays an ordinary text paste and
-attaches nothing. Only PNG, JPEG, GIF, and WebP files attach; other files are ignored.
-A message carries at most 10 images: an eleventh is neither added nor uploaded.
+attaches nothing. PNG, JPEG, GIF, WebP, and PDF are the supported formats.
+A message carries at most 10 images and PDFs combined; an eleventh attachment
+is neither added nor uploaded.
 
-Each image uploads as soon as it is attached and shows as a removable
-thumbnail, marked while it uploads. A failed upload stays attached, marked as
-failed, with a retry that uploads the same file again. Send stays disabled while
-any upload is in flight or failed. A message may carry images and no text.
+Each attachment uploads as soon as it is added. Images show thumbnails; PDFs
+show document tiles. Both are removable and marked while uploading. A failed
+upload stays attached, marked as failed, with a retry of the same file. Send
+stays disabled while any upload is in flight or failed. A message may carry
+attachments without text.
 
-When the selected model has no image input, the attach button is disabled and a
-pasted or dropped image is refused with a `<model> has no image input` toast.
-Images already attached stay, the composer shows the same reason inline, and
-send stays disabled until they are removed or a model with image input is
-selected.
+The picker offers only the input kinds the selected model declares and is
+disabled when neither is supported. Pasting or dropping an unsupported image or
+PDF shows a toast explaining the missing input. Attached files stay when a
+model switch makes them unsupported; an inline reason blocks send until
+those files are removed or a compatible model is selected.
 
-A sent message shows its images as read-only thumbnails above its text, in
-attach order, each loading the image's `/model` variant. Upload bounds, the
-store, and its routes are described in [Media](../../operator/media.md).
+A sent message shows its attachments above its text in attach order. Images
+load their `/model` variant; PDF tiles never load that route. Upload bounds,
+the store, and its routes are described in [Media](../../operator/media.md).
 
 The web chat shows each stored image as a thumbnail of its
 [model variant](../../operator/media.md#model-variant): an image attached to
@@ -103,6 +105,13 @@ lightbox and returns focus to the thumbnail.
   original's dimensions and format and the locator as it was submitted: the
   path the model passed to `read` or the target you wrote after `@`, for
   example `1600×900 PNG · docs/shot.png`.
+
+PDFs use gray square tiles with a document icon in the composer, sent messages,
+`read` cards, and prompt-import chips. Their name comes from the available
+filename or source locator. A stored PDF's tile opens
+`/api/v1/media/<id>/original` in a new tab for the browser's PDF viewer. An
+unstored `read` or imported PDF has no original link and stays a static tile.
+PDFs never enter the image lightbox.
 
 ## Errors
 

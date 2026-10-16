@@ -262,9 +262,7 @@ describe("ChatPage image attachments", () => {
 
     await user.click(send);
     await waitFor(() =>
-      expect(screen.queryByRole("list", { name: "Attached images" })).toBe(
-        null,
-      ),
+      expect(screen.queryByRole("list", { name: "Attachments" })).toBe(null),
     );
     pasteImages(input, ["c.png"]);
     await screen.findByRole("img", { name: "c.png" });
@@ -295,9 +293,7 @@ describe("ChatPage image attachments", () => {
 
       await user.click(send);
       await waitFor(() =>
-        expect(screen.queryByRole("list", { name: "Attached images" })).toBe(
-          null,
-        ),
+        expect(screen.queryByRole("list", { name: "Attachments" })).toBe(null),
       );
       pasteImages(input, pendingNames);
       await screen.findByRole("img", { name: "pending-9.png" });

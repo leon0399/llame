@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-16
 
+- Added PDF composer attachments and document tiles (#1277). Models declaring
+  PDF input accept PDF paste, picker, and drop through the shared 10-attachment
+  limit. Stored PDFs open their original in a new tab; unstored read and import
+  PDFs show static tiles. Image thumbnails and lightboxes keep their existing
+  behavior.
+
 - The native `hackernews` adapter now reads the front page (`/`, `/news`,
   `/front`) and `/newest` as bullet lists of the first 30 stories — title,
   points, comment count, the story link, and its HN discussion link — from

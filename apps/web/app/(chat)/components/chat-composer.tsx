@@ -15,10 +15,10 @@ import {
   PromptInputToolbar,
 } from "./prompt-input";
 import {
-  AttachImagesButton,
+  AttachFilesButton,
   ComposerAttachmentRow,
-  dropImagesInto,
-  pasteImagesInto,
+  dropFilesInto,
+  pasteFilesInto,
 } from "./composer-attachments";
 import type { ComposerAttachments } from "./use-composer-attachments";
 
@@ -174,7 +174,7 @@ type ChatComposerToolbarProps = Pick<
   | "attachments"
 >;
 
-/** The toolbar under the textarea: the image picker and permission mode on
+/** The toolbar under the textarea: the file picker and permission mode on
  *  the left, the model/effort selectors and send/stop on the right. */
 function ChatComposerToolbar({
   status,
@@ -187,8 +187,9 @@ function ChatComposerToolbar({
   return (
     <PromptInputToolbar>
       <div className="flex items-center gap-1">
-        <AttachImagesButton
+        <AttachFilesButton
           onFiles={attachments.add}
+          accept={attachments.accept}
           disabled={attachments.attachDisabled}
         />
         <PermissionModeSelector chatId={chatId} />
@@ -217,7 +218,7 @@ function ChatComposerForm({
     <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0">
       <PromptInput
         onSubmit={preventWhenDisabled(disabled, onSubmit)}
-        {...dropImagesInto(attachments.add)}
+        {...dropFilesInto(attachments.add)}
       >
         <ComposerAttachmentRow attachments={attachments} />
         {/* Remount on unlock so autofocus applies (attr updates do not). */}
@@ -226,7 +227,7 @@ function ChatComposerForm({
           name="message"
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
-          onPaste={pasteImagesInto(attachments.add)}
+          onPaste={pasteFilesInto(attachments.add)}
           placeholder="What would you like to know?"
           disabled={disabled}
           // Deliberate: chat page sole purpose is this composer.
@@ -258,7 +259,7 @@ type ChatComposerProps = {
   pendingStop?: boolean;
   /** Whole composer locked (e.g. markdown renderers still loading). */
   disabled?: boolean;
-  /** Images attached to the unsent message. */
+  /** Images and PDFs attached to the unsent message. */
   attachments: ComposerAttachments;
 };
 

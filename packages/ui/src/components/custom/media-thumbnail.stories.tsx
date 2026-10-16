@@ -3,10 +3,10 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, waitFor, within } from "storybook/test";
 
 import {
-  ImageThumbnailRow,
-  type ImageThumbnailItem,
-  type ImageThumbnailRowProps,
-} from "./image-thumbnail.js";
+  MediaThumbnailRow,
+  type MediaThumbnailItem,
+  type MediaThumbnailRowProps,
+} from "./media-thumbnail.js";
 
 /** A solid square with a letter, as a self-contained data URL. */
 function swatch(letter: string, fill: string): string {
@@ -14,43 +14,46 @@ function swatch(letter: string, fill: string): string {
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
-const A: ImageThumbnailItem = {
+const A: MediaThumbnailItem = {
   key: "a",
+  kind: "image",
   src: swatch("A", "#2563eb"),
   alt: "a.png",
 };
-const B: ImageThumbnailItem = {
+const B: MediaThumbnailItem = {
   key: "b",
+  kind: "image",
   src: swatch("B", "#16a34a"),
   alt: "b.png",
 };
-const C: ImageThumbnailItem = {
+const C: MediaThumbnailItem = {
   key: "c",
+  kind: "image",
   src: swatch("C", "#9333ea"),
   alt: "c.png",
 };
 
 const meta = {
-  component: ImageThumbnailRow,
+  component: MediaThumbnailRow,
   parameters: { layout: "centered" },
   tags: ["autodocs"],
   args: {
     items: [A, B, C],
-    "aria-label": "Attached images",
+    "aria-label": "Attachments",
     onRemove: fn(),
     onRetry: fn(),
   },
-} satisfies Meta<typeof ImageThumbnailRow>;
+} satisfies Meta<typeof MediaThumbnailRow>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 /** Applies `onRemove` and `onRetry` (the tile goes back to `uploading`) to
  *  local state so edit stories show the result. */
-function EditableRow(args: ImageThumbnailRowProps) {
+function EditableRow(args: MediaThumbnailRowProps) {
   const [items, setItems] = React.useState(args.items);
   return (
-    <ImageThumbnailRow
+    <MediaThumbnailRow
       {...args}
       items={items}
       onRemove={(key) => {
@@ -171,5 +174,80 @@ export const ReadOnly: Story = {
     for (const image of canvas.getAllByRole("img")) {
       await expect(image).toHaveAttribute("loading", "lazy");
     }
+  },
+};
+
+/**
+ * A stored PDF opens its original in a new tab without loading an image.
+ * @summary a stored PDF attachment
+ */
+export const StoredPdf: Story = {
+  tags: ["ai-generated"],
+  args: {
+    items: [
+      {
+        key: "paper",
+        kind: "pdf",
+        name: "paper.pdf",
+        href: "/api/v1/media/0192f3a4-5b6c-7d8e-9f01-00000000000a/original",
+      },
+    ],
+    onRemove: undefined,
+    onRetry: undefined,
+  },
+  play: async ({ canvas }) => {
+    const link = canvas.getByRole("link", {
+      name: "Open paper.pdf in a new tab",
+    });
+    await expect(link.getAttribute("href")).toMatch(/\/original$/);
+    await expect(link).toHaveAttribute("target", "_blank");
+    await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(canvas.queryByRole("img")).toBeNull();
+  },
+};
+
+/**
+ * A PDF held only by a Run has no original route and remains a static tile.
+ * @summary an unstored PDF attachment
+ */
+export const UnstoredPdf: Story = {
+  tags: ["ai-generated"],
+  args: {
+    items: [{ key: "local", kind: "pdf", name: "local.pdf" }],
+    onRemove: undefined,
+    onRetry: undefined,
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("local.pdf")).toBeVisible();
+    await expect(canvas.queryByRole("link")).toBeNull();
+    await expect(canvas.queryByRole("button")).toBeNull();
+    await expect(canvas.queryByRole("img")).toBeNull();
+  },
+};
+
+/**
+ * An unfinished PDF upload cannot activate an original link.
+ * @summary a PDF upload in progress
+ */
+export const PdfUploading: Story = {
+  tags: ["ai-generated"],
+  args: {
+    items: [
+      {
+        key: "pending",
+        kind: "pdf",
+        name: "pending.pdf",
+        href: "/pending/original",
+        status: "uploading",
+      },
+    ],
+    onRemove: undefined,
+    onRetry: undefined,
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      canvas.getByRole("status", { name: "Uploading" }),
+    ).toBeVisible();
+    await expect(canvas.queryByRole("link")).toBeNull();
   },
 };
