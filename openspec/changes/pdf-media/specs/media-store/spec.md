@@ -129,11 +129,8 @@ preferential, not guaranteed under group-kill policies.
 Every stored image or PDF SHALL be one media object owned by exactly one owner, taken only from the
 authenticated request context, and only an owner upload SHALL create one. It SHALL carry a UUIDv7
 `id`, the original's detected format and byte size, the original's SHA-256 digest, a source label,
-and its creation time, and no provenance. An image object SHALL also carry the original's
-dimensions and the model variant's format, byte size, and dimensions, and SHALL keep its `original`
-and `model` byte variants apart from the metadata. A PDF object SHALL also carry its page count,
-between 1 and 100, SHALL carry no dimensions and no model variant, and SHALL keep only its
-`original` bytes apart from the metadata.
+and its creation time, and no provenance, and SHALL keep its byte variants apart from the
+metadata.
 
 #### Scenario: An ingested image has both variants
 
@@ -154,15 +151,25 @@ between 1 and 100, SHALL carry no dimensions and no model variant, and SHALL kee
 - **WHEN** an upload request carries an owner identifier field
 - **THEN** the object, if created, is owned by the authenticated caller only
 
+#### Scenario: An image object carries its variant fields
+
+- **WHEN** any owner upload creates an image object
+- **THEN** the object carries the original's dimensions and the model variant's format, byte size,
+  and dimensions
+- **AND** it keeps both its `original` and `model` byte variants
+
+#### Scenario: A PDF object's fields are closed
+
+- **WHEN** any owner upload creates a PDF object
+- **THEN** the object carries its page count, between 1 and 100
+- **AND** it carries no dimensions and no model variant
+- **AND** it keeps only its `original` bytes
+
 ### Requirement: The media descriptor is a closed shape
 
-The media descriptor SHALL take one of two closed shapes, chosen by `mediaType`. The image
-descriptor SHALL contain exactly `id`, `locator` (`media://<id>`), `mediaType`, `name` (the source
-label), `width`, `height`, `byteSize`, and `model`, an object of exactly `mediaType`, `width`,
-`height`, and `byteSize` for the model variant. The PDF descriptor SHALL contain exactly `id`,
-`locator` (`media://<id>`), `mediaType` (`application/pdf`), `name` (the source label), `byteSize`,
-and `pages`. Top-level fields describe the original. Neither descriptor SHALL expose an owner
-identifier, a digest, or provenance.
+The media descriptor SHALL take one of two closed shapes, chosen by `mediaType`, with its top-level
+fields describing the original, and neither shape SHALL expose an owner identifier, a digest, or
+provenance.
 
 #### Scenario: Descriptor fields are closed
 
@@ -178,6 +185,19 @@ identifier, a digest, or provenance.
   `byteSize`, and `pages` 15
 - **AND** it contains no `width`, no `height`, no `model`, no owner identifier, no SHA-256 digest,
   and no provenance
+
+#### Scenario: An image descriptor's fields are exactly its closed set
+
+- **WHEN** any owner request returns the descriptor of an image object
+- **THEN** it contains exactly `id`, `locator` (`media://<id>`), `mediaType`, `name` (the source
+  label), `width`, `height`, `byteSize`, and `model`
+- **AND** its `model` object contains exactly `mediaType`, `width`, `height`, and `byteSize`
+
+#### Scenario: A PDF descriptor's fields are exactly its closed set
+
+- **WHEN** any owner request returns the descriptor of a PDF object
+- **THEN** it contains exactly `id`, `locator` (`media://<id>`), `mediaType` (`application/pdf`),
+  `name` (the source label), `byteSize`, and `pages`
 
 ### Requirement: Ingest detects PNG, JPEG, GIF, and WebP by magic bytes
 
@@ -214,13 +234,11 @@ extension, or Content-Type SHALL NOT decide or override the format.
 
 ### Requirement: Ingest bounds are enforced before full decode
 
-Ingest SHALL refuse an input larger than 20 MiB before decoding or parsing it. It SHALL read an
-image's dimensions from the image header and refuse an image above 40 megapixels before a full
-decode. It SHALL refuse a PDF of more than 100 pages after parsing its structure. Every one of these
-refusals SHALL be `media_too_large` and SHALL create no media object. Its message SHALL name what was
-detected: `Image exceeds 20 MiB or 40 megapixels` for an image, `PDF exceeds 20 MiB or 100 pages`
-for a PDF, and `File exceeds 20 MiB` for an input refused before its format is detected. These
-bounds SHALL be fixed by the application and SHALL NOT be configurable.
+Ingest SHALL refuse an input larger than 20 MiB before decoding or parsing it, read an image's
+dimensions from its header and refuse an image above 40 megapixels before a full decode, and refuse
+a PDF of more than 100 pages after parsing its structure. Every such refusal SHALL be
+`media_too_large` and SHALL create no media object. These bounds SHALL be fixed by the application
+and SHALL NOT be configurable.
 
 #### Scenario: A 21 MiB file is refused
 
@@ -255,6 +273,14 @@ bounds SHALL be fixed by the application and SHALL NOT be configurable.
 
 - **WHEN** an owner ingests a valid, unencrypted PDF of exactly 100 pages and at most 20 MiB
 - **THEN** ingest stores it
+
+#### Scenario: Every bound refusal is media_too_large and creates no media object
+
+- **WHEN** any ingest input exceeds a bound and is refused
+- **THEN** the refusal is `media_too_large` and no media object is created
+- **AND** its message names what was detected: `Image exceeds 20 MiB or 40 megapixels` for an image
+  over the byte or pixel bound, `PDF exceeds 20 MiB or 100 pages` for a PDF over the byte or page
+  bound, and `File exceeds 20 MiB` for an input refused before its format is detected
 
 ### Requirement: The model variant is normalized
 
@@ -309,11 +335,10 @@ object.
 ### Requirement: Upload refusals and body limits
 
 An `unsupported_media_type` refusal SHALL return `415` and a `media_too_large` refusal SHALL return
-`413`, each carrying that error code and the refusal's message. The upload route SHALL bound the
-file at the media store's byte bound, and a file over it SHALL be answered `413` with the same
-`media_too_large` body shape as any ingest refusal, whichever layer detects the overflow; a file
-refused before its format is detected SHALL carry the message `File exceeds 20 MiB`. The JSON body
-limit of other routes SHALL remain unchanged.
+`413`, each carrying that error code and the refusal's message. The upload route SHALL bound the file
+at the media store's byte bound and answer a file over it `413` with the same `media_too_large` body
+shape as any ingest refusal, whichever layer detects the overflow. The JSON body limit of other
+routes SHALL remain unchanged.
 
 #### Scenario: Refusals map to HTTP statuses
 
@@ -341,16 +366,18 @@ limit of other routes SHALL remain unchanged.
 - **WHEN** a JSON request to another API route exceeds the existing JSON body limit
 - **THEN** it is refused as before
 
+#### Scenario: A file refused before detection carries the byte-bound message
+
+- **WHEN** the upload route refuses any file before its format is detected
+- **THEN** the refusal carries the message `File exceeds 20 MiB`
+
 ### Requirement: Owners fetch descriptors and bytes of their own media
 
 `GET /api/v1/media/:id` SHALL return the descriptor of an owned object.
 `GET /api/v1/media/:id/original` and `GET /api/v1/media/:id/model` SHALL return that variant's bytes
-with `Content-Type` set to its stored media type, `X-Content-Type-Options: nosniff`,
-`Content-Disposition: inline`, `Content-Security-Policy: sandbox`, `Cache-Control: private, no-cache`,
-and a strong `ETag` derived from the object's SHA-256 digest and the variant name. The bytes under
-an id SHALL never change. Because a PDF has no model variant, `GET /api/v1/media/:id/model` of an
-owned PDF SHALL return the same `404` response as an unknown id, whatever its `If-None-Match`
-header, while its `/original` SHALL be served like any other variant.
+with `Content-Type` set to its stored media type and the closed safe header set. Because a PDF has no
+model variant, `GET /api/v1/media/:id/model` of an owned PDF SHALL return the same `404` response as
+an unknown id, whatever its `If-None-Match` header.
 
 #### Scenario: Model bytes carry safe headers
 
@@ -371,3 +398,17 @@ header, while its `/original` SHALL be served like any other variant.
 - **WHEN** an owner fetches `/api/v1/media/<id>/model` for an owned PDF, with or without an
   `If-None-Match` header carrying the ETag the route would derive for that variant
 - **THEN** the API returns the same `404` response as for an unknown id, never `304`
+
+#### Scenario: Any variant's bytes carry the closed safe header set
+
+- **WHEN** any owner request returns the bytes of any variant of an owned object
+- **THEN** the response carries `Content-Type` set to that variant's stored media type,
+  `X-Content-Type-Options: nosniff`, `Content-Disposition: inline`,
+  `Content-Security-Policy: sandbox`, `Cache-Control: private, no-cache`, and a strong `ETag`
+  derived from the object's SHA-256 digest and the variant name
+
+#### Scenario: An object's bytes never change
+
+- **WHEN** any owner fetches any variant of an owned object, at any later time and however many
+  requests have intervened
+- **THEN** the bytes returned for that id and variant are the same bytes as before

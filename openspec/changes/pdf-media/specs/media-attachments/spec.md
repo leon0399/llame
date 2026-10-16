@@ -282,11 +282,9 @@ not they carry a `media` locator.
 
 Within one user message, the model-facing content SHALL be, in order: the message's context rail
 items, its temporal row, then for each file part in stored order a label text part followed by that
-file part's image or PDF, then the owner's text. An image file part's label SHALL be
-`Image n (media://<id>):` and a PDF file part's label `PDF n (media://<id>):`, where `n` SHALL count
-that message's file parts of the same kind from 1. Each image SHALL be the model variant, read from
-storage at request time. Each PDF SHALL be the original, read from storage at request time, sent as a
-file part with media type `application/pdf` and the stored name as its filename.
+file part's image or PDF, then the owner's text. A label SHALL be `Image n (media://<id>):` for an
+image and `PDF n (media://<id>):` for a PDF, where `n` SHALL count that message's file parts of the
+same kind from 1.
 
 #### Scenario: Images precede the owner's text
 
@@ -311,14 +309,20 @@ file part with media type `application/pdf` and the stored name as its filename.
   original of `B` with media type `application/pdf` and filename `paper.pdf`,
   `Image 2 (media://C):`, the model variant of `C`, and then `summarize`
 
+#### Scenario: Every file part carries its stored variant or original
+
+- **WHEN** any request composes a user message that carries file parts
+- **THEN** each image file part is the model variant, read from storage at request time
+- **AND** each PDF file part is the original, read from storage at request time, sent as a file part
+  with media type `application/pdf` and the stored name as its filename
+
 ### Requirement: Attempt memory retains only the images the window attaches
 
 An image entry SHALL hold the model variant's bytes and byte size when the attempt's model declares
 `image` input, and only the locator and original dimensions otherwise; holding an entry SHALL
 neither count nor cap anything. Each time a request is composed, the composer SHALL release the
-bytes of every unstored reference the epoch image window does not attach, so after each compose the
-attempt's retained bytes are those the window attached, at most 28 MiB of base64 in sum, however
-many steps it runs.
+bytes of every unstored reference the epoch image window does not attach, so the attempt's retained
+bytes are those the window attached.
 
 #### Scenario: Retained bytes stay within the window's budget
 
@@ -342,6 +346,11 @@ many steps it runs.
   the owner's next message imports `@shot.png`, so the attempt compacts before its first model step
 - **THEN** the import's model variant is retained
 - **AND** the attempt's first request sends it as an image under the new epoch
+
+#### Scenario: The byte bound holds however many steps a Run takes
+
+- **WHEN** any attempt composes requests across any number of steps
+- **THEN** after each compose the attempt's retained bytes stay at most 28 MiB of base64 in sum
 
 ### Requirement: A released entry is sized and refused again
 
@@ -394,15 +403,10 @@ window, and the references after them SHALL be admitted again oldest first.
 ### Requirement: An epoch image window selects which images are attached
 
 Within one compaction epoch, the rows after the active checkpoint plus the current attempt, requests
-SHALL admit attachable image and PDF references oldest first in request order, a repeated id
-counting again, while at most 100 images, at most 28 MiB (29,360,128 bytes) of summed base64 sizes,
-at most 100 PDF pages, and at most `floor(max(0, contextWindowTokens × 0.8 − reservedOutputTokens)
-/ 3,000)` PDF pages for the request's model hold, where 0.8 is the compaction window ratio that sets
-the default compaction threshold, `reservedOutputTokens` is the output reserve the request's fit
-check subtracts (0 when none is configured), and 3,000 the tokens charged per page: with no reserve,
-53 pages on a 200,000-token model, 34 on 128,000, and 100 on 400,000 or more; with a 64,000-token
-reserve, 32 pages on a 200,000-token model. The first reference that would exceed any bound, and
-every later one in that epoch, SHALL NOT be attached.
+SHALL admit attachable image and PDF references oldest first in request order, a repeated id counting
+again, while for the request's model at most 100 images, at most 28 MiB (29,360,128 bytes) of summed
+base64 sizes, at most 100 PDF pages, and at most `floor(max(0, contextWindowTokens × 0.8 −
+reservedOutputTokens) / 3,000)` PDF pages hold.
 
 #### Scenario: The 101st image in an epoch is not attached
 
@@ -464,14 +468,26 @@ every later one in that epoch, SHALL NOT be attached.
 - **AND** the 5-page PDF and every later reference in the epoch reach the model as the limit
   placeholder
 
+#### Scenario: The first reference past any bound is refused for the rest of the epoch
+
+- **WHEN** any request in an epoch would exceed any bound with its next attachable reference
+- **THEN** that reference and every later reference in that epoch are not attached
+
+#### Scenario: The page bound's terms and worked values apply to every request
+
+- **WHEN** any request's PDF page bound is computed
+- **THEN** 0.8 is the compaction window ratio that sets the default compaction threshold,
+  `reservedOutputTokens` is the output reserve the request's fit check subtracts (0 when none is
+  configured), and 3,000 is the tokens charged per page
+- **AND** with no reserve the bound is 53 pages on a 200,000-token model, 34 on 128,000, and 100 on
+  400,000 or more, and with a 64,000-token reserve it is 32 pages on a 200,000-token model
+
 ### Requirement: The byte bound is summed from variant sizes before loading
 
 A reference's base64 size SHALL be `4 × ceil(byteSize / 3)` of its model variant's byte size for an
-image and of its original's byte size for a PDF: the media descriptor's `model.byteSize` for a stored
-image, the descriptor's `byteSize` for a stored PDF, and the byte size its attempt-memory entry
-records for an unstored image or PDF, which the entry keeps after its bytes are released. The epoch
-image window SHALL sum these sizes from descriptors and attempt memory before any image or PDF bytes
-are loaded, independently of the dimension-based and page-based token estimates.
+image and of its original's byte size for a PDF. The epoch image window SHALL sum these sizes from
+descriptors and attempt memory before any image or PDF bytes are loaded, independently of the
+dimension-based and page-based token estimates.
 
 #### Scenario: Equal dimensions do not hide a byte overflow
 
@@ -490,14 +506,19 @@ are loaded, independently of the dimension-based and page-based token estimates.
   loading either
 - **AND** the PDF is sent as a PDF and the image reaches the model as the limit placeholder
 
+#### Scenario: Each reference kind reports the byte size the window sums
+
+- **WHEN** any request's epoch image window sums the base64 sizes of a stored image, a stored PDF, and
+  an unstored image or PDF
+- **THEN** it takes the media descriptor's `model.byteSize` for the stored image, the descriptor's
+  `byteSize` for the stored PDF, and the byte size the attempt-memory entry records for an unstored
+  image or PDF, which the entry keeps after its bytes are released
+
 ### Requirement: Only attachable references count toward the window
 
 An attachable reference SHALL be one of a kind the request's model declares as input, `image` for an
-image and `pdf` for a PDF: an owner file part, a `media://` tool result, or a `media://` prompt-import
-entry that resolves, an unstored image whose entry in the current attempt's memory records a
-model-variant byte size, or an unstored PDF whose entry in the current attempt's memory records its
-byte size, its bytes released or not. A not-retained, unavailable, or omitted reference SHALL NOT
-count toward any bound of the epoch image window.
+image and `pdf` for a PDF. A not-retained, unavailable, or omitted reference SHALL NOT count toward
+any bound of the epoch image window.
 
 #### Scenario: A not-retained read does not count
 
@@ -520,6 +541,16 @@ count toward any bound of the epoch image window.
   image
 - **THEN** all 100 owner images are sent as images
 - **AND** the PDF reaches the model as the omitted placeholder
+
+#### Scenario: Attachability covers every reference kind and its source
+
+- **WHEN** any request's epoch carries an owner file part, a `media://` tool result, a `media://`
+  prompt-import entry, an unstored image, or an unstored PDF
+- **THEN** a reference is attachable only when its kind is one the request's model declares as input,
+  `image` for an image and `pdf` for a PDF
+- **AND** a `media://` reference is attachable only when it resolves, an unstored image only when the
+  current attempt's memory entry records a model-variant byte size, and an unstored PDF only when
+  that entry records its byte size, its bytes released or not
 
 ### Requirement: Adding an image never changes an earlier attachment
 
@@ -561,14 +592,11 @@ SHALL instead take the PDF limit placeholder.
 
 ### Requirement: Image overflow compacts at the start of the next Run
 
-Before a Run's first model step, a prepared request SHALL count as reaching its compaction threshold
-when it carries an image or PDF reference that the epoch image window does not attach because its
-epoch's bounds are reached, and a stored
-reference attachable on the request's model, of a kind that model declares as input (a stored image
-when it declares `image`, a stored PDF when it declares `pdf`), in a row before the triggering user
-message. It SHALL trigger the compaction variant that `model-system-prompts` selects for it. The new
-epoch SHALL admit images and PDFs oldest first again. A Run SHALL NOT compact after its first model
-step.
+A request prepared before a Run's first model step SHALL count as reaching its compaction threshold
+when it carries an image or PDF reference the epoch image window leaves unattached because its
+epoch's bounds are reached, and when a row before the triggering user message holds a stored
+reference attachable on the request's model, of a kind that model declares as input. A Run SHALL NOT
+compact after its first model step.
 
 #### Scenario: Image overflow triggers compaction at the next Run
 
@@ -620,6 +648,22 @@ step.
 - **AND** the second Run's threshold-triggered compaction runs before its first model step, because
   the PDF is a stored reference in an earlier row, and absorbs the first message's row
 
+#### Scenario: The overflow trigger selects the compaction variant for its Run
+
+- **WHEN** any request counts as reaching its compaction threshold from overflow
+- **THEN** it triggers the compaction variant that `model-system-prompts` selects for it
+
+#### Scenario: An overflow compaction starts an epoch that admits oldest first again
+
+- **WHEN** an overflow-triggered compaction completes
+- **THEN** the new epoch admits images and PDFs oldest first again
+
+#### Scenario: The stored reference must be of a declared input kind
+
+- **WHEN** an overflowing request's earlier rows hold a stored image and a stored PDF
+- **THEN** the stored image counts as that stored reference only on a model that declares `image`
+  input, and the stored PDF only on a model that declares `pdf` input
+
 ### Requirement: A failed overflow compaction never fails the Run
 
 When image or PDF overflow is the only trigger condition and its compaction fails or yields no usable
@@ -644,12 +688,11 @@ epoch.
 
 ### Requirement: Unresolvable media references never fail a request
 
-A `media://` reference the chat owner's store cannot resolve, because the id is unknown or belongs
-to another owner, SHALL reach the model in its position as `[pdf media://<id> unavailable]` when it
-is a PDF, which a file part shows by its stored `mediaType` `application/pdf`, a prompt-import entry
-by its `pdf` kind, and a `read` result by its `pdf` kind, and as `[image media://<id> unavailable]`
-otherwise. It SHALL NOT count toward the epoch's bounds, SHALL NOT fail the request, and SHALL put no
-bytes or descriptor field of any object into the request.
+A `media://` reference the chat owner's store cannot resolve, because the id is unknown or belongs to
+another owner, SHALL reach the model in its position as `[pdf media://<id> unavailable]` when it is a
+PDF and as `[image media://<id> unavailable]` otherwise. It SHALL NOT count toward the epoch's
+bounds, SHALL NOT fail the request, and SHALL put no bytes or descriptor field of any object into the
+request.
 
 #### Scenario: An unresolvable reference becomes an unavailable placeholder
 
@@ -670,14 +713,19 @@ bytes or descriptor field of any object into the request.
 - **THEN** the model receives `[pdf media://<id> unavailable]` in its position
 - **AND** the Run proceeds
 
+#### Scenario: Each reference kind reports whether it is a PDF
+
+- **WHEN** any unresolvable `media://` reference is rendered
+- **THEN** a file part is a PDF by its stored `mediaType` `application/pdf`, a prompt-import entry by
+  its `pdf` kind, and a `read` result by its `pdf` kind, and every other reference is not
+
 ### Requirement: Chat Completions wires carry tool-result images in a following user message
 
-On `openai-completions` and `opencode-go`, a tool message SHALL NOT carry image or PDF content. A
-tool result whose image or PDF is attached SHALL keep only its text envelope in the tool message, or,
-when that envelope would be empty, a line saying the file follows in the next message; any other
-keeps its placeholder. The images and PDFs of consecutive tool messages SHALL follow them in one user
-message starting `Files from tool results:`, in tool-result order. Other wires keep images and PDFs
-inside the tool output.
+On `openai-completions` and `opencode-go`, a tool message SHALL NOT carry image or PDF content: an
+attached tool result keeps only its text envelope, or, when that envelope would be empty, a line
+saying the file follows in the next message, and any other keeps its placeholder. The images and PDFs
+of consecutive tool messages SHALL follow them in one user message starting
+`Files from tool results:`, in tool-result order.
 
 #### Scenario: A read image on Chat Completions arrives as an image part
 
@@ -711,6 +759,12 @@ inside the tool output.
 - **AND** one user-role message follows them with `Files from tool results:`, then
   `Image from read "/work/a.png":` and the image, then `PDF from read "/work/paper.pdf":` and the
   PDF
+
+#### Scenario: Every other wire keeps the file inside the tool output
+
+- **WHEN** an attached tool-result image or PDF is sent on any wire other than `openai-completions`
+  or `opencode-go`
+- **THEN** the tool output itself keeps that image or PDF
 
 ### Requirement: Moved tool-result images are labelled by their locator
 

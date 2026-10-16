@@ -841,9 +841,7 @@ SHALL have no representation, and an image or PDF result SHALL carry no
 For a regular file on a host path, `file:` alias, Workspace-relative path, `kb://`, or `skill://`,
 after the same admission, permission decision, owner resolution, and regular-file check as a text
 read, the reader SHALL compare the file's leading bytes with the PNG, JPEG, GIF, and WebP signatures
-and the PDF signature `%PDF-` before any UTF-8 decoding or line counting. The file extension SHALL
-NOT decide. Bytes that match no signature, SVG included, SHALL stay on the text path unchanged and
-SHALL decode no image and parse no PDF.
+and the PDF signature `%PDF-` before any UTF-8 decoding or line counting.
 
 #### Scenario: The extension does not decide
 
@@ -869,16 +867,23 @@ SHALL decode no image and parse no PDF.
 - **THEN** `/docs/paper.bin` returns the PDF result
 - **AND** `/docs/notes.pdf` returns its text with line numbers and no PDF is parsed
 
+#### Scenario: The extension never decides the path
+
+- **WHEN** any such read encounters a file
+- **THEN** the path is chosen only from the file's leading bytes, and the extension never decides
+  whether the read takes the media path or the text path
+
+#### Scenario: Bytes matching no signature stay on the text path
+
+- **WHEN** the bytes of any such read match no accepted signature, an SVG document included
+- **THEN** the read stays on the text path unchanged and decodes no image and parses no PDF
+
 ### Requirement: Image decode refusals fail the read
 
 A regular file whose leading bytes match an accepted image signature or the PDF signature and whose
 size exceeds the media store's byte bound SHALL be refused without being read whole. A file matching
 no signature SHALL stay on the text path whatever its size. A decode refusal SHALL fail the read with
-a bounded structured error, store nothing, and not fall back to text: `media_too_large` with the
-message `Image exceeds 20 MiB or 40 megapixels` for an image over the byte or pixel bound,
-`media_too_large` with the message `PDF exceeds 20 MiB or 100 pages` for a PDF over the byte or page
-bound, and `unsupported_media_type` for bytes that match a signature but cannot be decoded and for a
-PDF that is encrypted or does not open.
+a bounded structured error, store nothing, and not fall back to text.
 
 #### Scenario: An oversized image is refused
 
@@ -904,13 +909,25 @@ PDF that is encrypted or does not open.
 - **THEN** the read returns the file's text with line numbers under the ordinary text read rules
 - **AND** it does not fail with `media_too_large`, no image is decoded, and no PDF is parsed
 
+#### Scenario: A decode refusal's error names what was detected
+
+- **WHEN** any such read is refused, because an image is over the byte or pixel bound, a PDF is over
+  the byte or page bound, bytes matching a signature cannot be decoded, or a PDF is encrypted or
+  does not open
+- **THEN** an image over the byte or pixel bound fails with `media_too_large` and the message
+  `Image exceeds 20 MiB or 40 megapixels`
+- **AND** a PDF over the byte or page bound fails with `media_too_large` and the message
+  `PDF exceeds 20 MiB or 100 pages`
+- **AND** bytes that match a signature but cannot be decoded, and a PDF that is encrypted or does
+  not open, fail with `unsupported_media_type`
+
 ### Requirement: Media locators read the owner's stored media
 
 `read` SHALL accept `media://<id>`, where `<id>` is a lower-case canonical UUID under the
 `media-store` locator grammar, and SHALL return, for the Run owner's object with that id, the image
-result for an image or the PDF result for a PDF, with `media` and `path` both equal to the locator. The id SHALL resolve under tenant
-enforcement against the Run owner only. Another owner's id and an unknown id SHALL return the same
-`not_found`. A bare `media://` or a malformed id SHALL fail with `invalid_path` before any lookup.
+result for an image or the PDF result for a PDF, with `media` and `path` both equal to the locator.
+The id SHALL resolve under tenant enforcement against the Run owner only, and another owner's id and
+an unknown id SHALL return the same `not_found`.
 
 #### Scenario: The owner's stored image is returned
 
@@ -933,5 +950,12 @@ enforcement against the Run owner only. Another owner's id and an unknown id SHA
 #### Scenario: Bare and malformed media locators are invalid
 
 - **WHEN** the model reads `media://`, `media://123`, or `media://` followed by an upper-case UUID
+- **THEN** the tool returns `invalid_path`
+- **AND** no media lookup is performed
+
+#### Scenario: Any invalid media locator fails before lookup
+
+- **WHEN** any read's `media://` locator is bare or carries a malformed `id`, an upper-case UUID
+  included
 - **THEN** the tool returns `invalid_path`
 - **AND** no media lookup is performed

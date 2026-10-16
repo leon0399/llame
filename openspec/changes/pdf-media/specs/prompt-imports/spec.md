@@ -139,18 +139,9 @@ entry SHALL carry a `thumbnail`, and a client SHALL never supply any of these ke
 
 ### Requirement: Image entry payloads are validated exactly
 
-For an entry without `kind`, the API's payload validator SHALL accept `thumbnail` only as a
-`data:image/webp;base64,` URL within the thumbnail size cap, `width` and `height` only as positive
-integers, and `mediaType` only as `image/png`, `image/jpeg`, `image/gif`, or `image/webp`. It SHALL
-require `width`, `height`, and `mediaType` together whenever any of the four keys is present, SHALL
-accept those three with or without `thumbnail`, and SHALL reject an entry carrying `media` with any
-of the four as malformed.
-
-The validator SHALL also accept a PDF entry, whose keys SHALL be exactly `locator`, optional
-`resolved`, `outcome` `imported`, `kind` `pdf`, `mediaType` `application/pdf`, `pages` as an integer
-from 1 through 100, `byteSize` as a positive integer, and optional `media`. It SHALL reject as
-malformed an entry carrying `kind` with any other value, and a PDF entry lacking one of its required
-keys or carrying `truncated`, `thumbnail`, `width`, `height`, or any other key.
+The API's payload validator SHALL validate an entry without `kind` as an image entry and an entry
+carrying `kind` `pdf` as a PDF entry, and SHALL reject as malformed any entry that departs from the
+closed shape it claims.
 
 #### Scenario: A malformed image entry is rejected
 
@@ -188,6 +179,25 @@ keys or carrying `truncated`, `thumbnail`, `width`, `height`, or any other key.
 - **WHEN** a stored payload entry carries `kind` `pdf` together with `mediaType` `image/png`,
   `pages` 0 or 101, a missing `byteSize`, a `thumbnail`, `width`, or `truncated`
 - **THEN** the API's payload validator rejects that payload as malformed
+
+#### Scenario: Image entry keys are accepted only in their closed domains
+
+- **WHEN** any entry without `kind` reaches the payload validator
+- **THEN** it accepts `thumbnail` only as a `data:image/webp;base64,` URL within the thumbnail size
+  cap, `width` and `height` only as positive integers, and `mediaType` only as `image/png`,
+  `image/jpeg`, `image/gif`, or `image/webp`
+- **AND** it requires `width`, `height`, and `mediaType` together whenever any of the four keys is
+  present, accepts those three with or without `thumbnail`, and rejects an entry carrying `media`
+  with any of the four as malformed
+
+#### Scenario: A PDF entry's keys are exactly its closed set
+
+- **WHEN** any entry carrying `kind` `pdf` reaches the payload validator
+- **THEN** the validator accepts it only with the keys `locator`, optional `resolved`, `outcome`
+  `imported`, `kind` `pdf`, `mediaType` `application/pdf`, `pages` as an integer from 1 through 100,
+  `byteSize` as a positive integer, and optional `media`
+- **AND** it rejects as malformed a `kind` with any other value, and a PDF entry lacking one of its
+  required keys or carrying `truncated`, `thumbnail`, `width`, `height`, or any other key
 
 ### Requirement: Image entry payloads are never sent to a model
 
