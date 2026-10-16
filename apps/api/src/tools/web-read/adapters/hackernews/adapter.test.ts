@@ -15,6 +15,8 @@ const adapter = createHackernewsAdapter(
   { apiOrigin: API_ORIGIN },
 );
 const ITEM_URL = `${API_ORIGIN}/api/v1/items/1`;
+const FRONT_URL = `${API_ORIGIN}/api/v1/search?tags=front_page&hitsPerPage=30`;
+const NEWEST_URL = `${API_ORIGIN}/api/v1/search_by_date?tags=story&hitsPerPage=30`;
 
 function item(
   id: number,
@@ -36,6 +38,17 @@ function item(
   };
 }
 
+function story(objectId: string, extra: JsonObject = {}): JsonObject {
+  return {
+    objectID: objectId,
+    title: `Story ${objectId}`,
+    url: `https://example.com/${objectId}`,
+    points: 100,
+    num_comments: 10,
+    ...extra,
+  };
+}
+
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
@@ -46,16 +59,24 @@ describe('Hacker News adapter claim', () => {
   it.each([
     'https://news.ycombinator.com/item?id=8863',
     'https://news.ycombinator.com/item?id=8863&p=2',
+    'https://news.ycombinator.com/',
+    'https://news.ycombinator.com/news',
+    'https://news.ycombinator.com/front',
+    'https://news.ycombinator.com/news?p=2',
+    'https://news.ycombinator.com/newest',
   ])('claims %s', (source) => {
     expect(adapter.match(new URL(source))).toBe(true);
   });
 
   it.each([
-    'http://news.ycombinator.com/item?id=8863',
+    'http://news.ycombinator.com/',
     'https://news.ycombinator.com/item',
     'https://news.ycombinator.com/item?id=0',
     'https://news.ycombinator.com/item?id=abc',
-    'https://news.ycombinator.com/news',
+    'https://news.ycombinator.com/ask',
+    'https://news.ycombinator.com/show',
+    'https://news.ycombinator.com/best',
+    'https://news.ycombinator.com/submit',
     'https://news.ycombinator.com/user?id=pg',
     'https://hn.algolia.com/api/v1/items/8863',
   ])('leaves %s to the generic ladder', (source) => {
@@ -174,6 +195,89 @@ describe('Hacker News adapter read', () => {
     await expect(
       read('https://news.ycombinator.com/item?id=1', [
         [ITEM_URL, response({ id: 1 })],
+      ]),
+    ).resolves.toMatchObject({ outcome: { kind: 'failed', failure: 'parse' } });
+  });
+
+  it('renders the front page as a bullet list of stories', async () => {
+    const payload = {
+      hits: [
+        story('5001'),
+        story('5002', { url: null, points: 55, num_comments: 0 }),
+        story('5003', { url: null, points: null, num_comments: null }),
+      ],
+      nbHits: 3,
+    };
+
+    const { outcome, urls } = await read('https://news.ycombinator.com/', [
+      [FRONT_URL, response(payload)],
+    ]);
+
+    expect(urls).toStrictEqual([FRONT_URL]);
+    expect(outcome).toStrictEqual({
+      kind: 'rendered',
+      mediaType: 'text/markdown',
+      notes: [],
+      content: [
+        '# Hacker News: front page',
+        '',
+        '- **Story 5001** — 100 points — 10 comments — https://example.com/5001 — https://news.ycombinator.com/item?id=5001',
+        '- **Story 5002** — 55 points — 0 comments — https://news.ycombinator.com/item?id=5002',
+        '- **Story 5003** — https://news.ycombinator.com/item?id=5003',
+      ].join('\n'),
+    });
+  });
+
+  it('reads the newest page by date and notes a truncated page', async () => {
+    const hits = Array.from({ length: 30 }, (_, index) => story(`n${index}`));
+
+    const { outcome, urls } = await read(
+      'https://news.ycombinator.com/newest',
+      [[NEWEST_URL, response({ hits, nbHits: 5000 })]],
+    );
+
+    expect(urls).toStrictEqual([NEWEST_URL]);
+    expect(outcome).toMatchObject({
+      kind: 'rendered',
+      notes: ['stories truncated: the first 30 only'],
+    });
+  });
+
+  it('does not note a page that is the whole list', async () => {
+    const hits = Array.from({ length: 30 }, (_, index) => story(`f${index}`));
+
+    const { outcome } = await read('https://news.ycombinator.com/news', [
+      [FRONT_URL, response({ hits, nbHits: 30 })],
+    ]);
+
+    expect(outcome).toMatchObject({ kind: 'rendered', notes: [] });
+  });
+
+  it('renders an empty list as No stories', async () => {
+    const { outcome } = await read('https://news.ycombinator.com/news', [
+      [FRONT_URL, response({ hits: [], nbHits: 0 })],
+    ]);
+
+    expect(outcome.kind).toBe('rendered');
+    if (outcome.kind !== 'rendered') throw new Error('expected render');
+    expect(outcome.content).toBe('# Hacker News: front page\n\nNo stories.');
+  });
+
+  it('falls through for a missing or malformed list payload', async () => {
+    const notFound: WebFetchFailure = {
+      type: 'http_status',
+      message: 'HTTP 404',
+      httpStatus: 404,
+    };
+
+    await expect(
+      read('https://news.ycombinator.com/newest', [[NEWEST_URL, notFound]]),
+    ).resolves.toMatchObject({
+      outcome: { kind: 'failed', failure: 'status' },
+    });
+    await expect(
+      read('https://news.ycombinator.com/newest', [
+        [NEWEST_URL, response({ hits: [{}] })],
       ]),
     ).resolves.toMatchObject({ outcome: { kind: 'failed', failure: 'parse' } });
   });
