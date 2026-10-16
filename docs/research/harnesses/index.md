@@ -159,3 +159,4 @@ assessment.
 37. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
 38. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
 39. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate
+40. [AgentOne](./agent-one.md) — Desktop webview agent with no session workspace, transcript snapshots, and per-chat approval overlays
