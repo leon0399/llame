@@ -210,7 +210,7 @@ sources:
     title: "server-request ids are srq- plus 12 hex digits"
   - id: tui-gateway-event-replay-py-l131-l147
     resource: "https://github.com/NousResearch/hermes-agent/blob/acc3cada0da86c81efc8aa6c5a291989549ca900/tui_gateway/event_replay.py#L131-L147"
-    title: "events after last_seen, truncated when the ring evicted frames"
+    title: "events after last_seen; truncated means the consumer must refetch"
   - id: tui-gateway-ws-py-l331-l355
     resource: "https://github.com/NousResearch/hermes-agent/blob/acc3cada0da86c81efc8aa6c5a291989549ca900/tui_gateway/ws.py#L331-L355"
     title: "legacy fallback needs unknown-method, a registered handler, and the allow-list"
@@ -425,9 +425,11 @@ Self-improving agent with agent-curated memory, isolated subagents, and a plugga
    Events carry a per-session `seq`[^tui-gateway-server-py-l697-l704].
    `session.events.since` returns events with `seq` greater than `last_seen`
    and the still-open server requests. The ring is bounded. `truncated` means
-   a gap: frames were evicted, or an oversized frame was never retained, so
-   the client
-   refetches[^tui-gateway-methods-session-py-l2327-l2341][^tui-gateway-event-replay-py-l131-l147][^tui-gateway-event-replay-py-l108-l110].
+   a gap: frames were evicted, or an oversized frame was never retained, so a
+   consumer must refetch history instead of trusting the
+   replay[^tui-gateway-methods-session-py-l2327-l2341][^tui-gateway-event-replay-py-l131-l147][^tui-gateway-event-replay-py-l108-l110].
+   The canonical Ink client reconnects through the resume snapshot rather
+   than calling `session.events.since`.
    Transport notes also name `session.resume` as a carrier for those open
    requests[^tui-gateway-agents-md-l21-l34][^tui-gateway-server-requests-py-l15-l18],
    and the live-session result leaves `open_requests`
@@ -472,7 +474,8 @@ Self-improving agent with agent-curated memory, isolated subagents, and a plugga
    request goes to `AuthorityConnection`. Fallback to the legacy dispatcher
    runs only when the authority answers unknown-method, the method is still
    registered on that dispatcher, and `legacy_fallback_allowed` is true. A
-   method neither side knows stays on that `-32601`. Session writers stay on the authority's
+   method neither side knows stays on that `-32601`. Authority-owned
+   `session.`, `prompt.`, and `message.` methods stay on the authority's
    `-32601`, except `session.most_recent`, `session.active_list`,
    `session.events.stats`, `session.foreign.list`, `session.foreign.preview`,
    and `session.foreign.import`. Process-global methods do
@@ -720,7 +723,7 @@ assumption[^hermes-cli-auth-py-l1149-l1154].
 
 [^tui-gateway-server-requests-py-l9-l13]: [server-request ids are srq- plus 12 hex digits](https://github.com/NousResearch/hermes-agent/blob/acc3cada0da86c81efc8aa6c5a291989549ca900/tui_gateway/server_requests.py#L9-L13)
 
-[^tui-gateway-event-replay-py-l131-l147]: [events after last_seen, truncated when the ring evicted frames](https://github.com/NousResearch/hermes-agent/blob/acc3cada0da86c81efc8aa6c5a291989549ca900/tui_gateway/event_replay.py#L131-L147)
+[^tui-gateway-event-replay-py-l131-l147]: [events after last_seen; truncated means the consumer must refetch](https://github.com/NousResearch/hermes-agent/blob/acc3cada0da86c81efc8aa6c5a291989549ca900/tui_gateway/event_replay.py#L131-L147)
 
 [^tui-gateway-ws-py-l331-l355]: [legacy fallback needs unknown-method, a registered handler, and the allow-list](https://github.com/NousResearch/hermes-agent/blob/acc3cada0da86c81efc8aa6c5a291989549ca900/tui_gateway/ws.py#L331-L355)
 
