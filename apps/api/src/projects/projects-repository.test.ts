@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -26,6 +27,7 @@ function projectRow(overrides: Partial<Project> = {}): Project {
     id: 'project-1',
     ownerUserId: 'owner',
     name: 'Project',
+    description: null,
     createdAt: now,
     updatedAt: now,
     archivedAt: null,
@@ -136,13 +138,31 @@ describe('ProjectsRepository update', () => {
     await new ProjectsRepository(db)
       .update(current.id, current.ownerUserId, {
         name: 'Renamed',
+        description: 'Acme relaunch',
         archived: true,
       })
       .catch(() => null);
 
     expect(lastQuery(queries).sql).toContain('update "projects"');
     expect(lastQuery(queries).sql).toContain('"name" = $');
+    expect(lastQuery(queries).sql).toContain('"description" = $');
     expect(lastQuery(queries).sql).toContain('"archived_at" = $');
+    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
+  });
+
+  it('clears the description with an explicit null and still bumps updatedAt', async () => {
+    const { db, queries } = makeMockDb();
+    const current = projectRow({ description: 'Acme relaunch' });
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      current,
+    );
+
+    await new ProjectsRepository(db)
+      .update(current.id, current.ownerUserId, { description: null })
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('"description" = $');
+    expect(lastQuery(queries).params).toContain(null);
     expect(lastQuery(queries).sql).toContain('"updated_at" = $');
   });
 
@@ -171,6 +191,9 @@ describe('ProjectsRepository update', () => {
     );
     const repository = new ProjectsRepository(db);
 
+    // The guard's own `ConflictException`, not a message match: the mock db
+    // rejects every query with its SQL text, which names `archived_at`, so a
+    // /archived/ pattern would also "pass" for a write the guard let through.
     await repository
       .update(current.id, current.ownerUserId, { archived: false })
       .catch(() => null);
@@ -183,7 +206,46 @@ describe('ProjectsRepository update', () => {
 
     await expect(
       repository.update(current.id, current.ownerUserId, { name: 'Changed' }),
-    ).rejects.toThrow(/archived/u);
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // The description is a content field too: an archived project refuses it
+    // until it is unarchived, exactly like a rename.
+    await expect(
+      repository.update(current.id, current.ownerUserId, {
+        description: 'Changed',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // An archive transition carrying a content field is not a *pure* archive
+    // write, so it is refused as well — one assertion per field, because the
+    // guard reads both of them.
+    await expect(
+      repository.update(current.id, current.ownerUserId, {
+        archived: false,
+        name: 'Changed',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      repository.update(current.id, current.ownerUserId, {
+        archived: false,
+        description: 'Changed',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('bumps updatedAt for a rename alone', async () => {
+    const { db, queries } = makeMockDb();
+    const current = projectRow();
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      current,
+    );
+
+    await new ProjectsRepository(db)
+      .update(current.id, current.ownerUserId, { name: 'Renamed' })
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('"name" = $');
+    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
   });
 
   it('returns undefined when the owner-scoped current row is absent', async () => {

@@ -20,6 +20,11 @@ export const projects = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    // Owner-authored prose about what the project is for.
+    // Nullable, never defaulted: a project starts with no description, and the
+    // owner sets or clears it through PATCH /api/v1/projects/:id — creation
+    // takes a name only.
+    description: text('description'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
     // Archive state (chat-project-archive): a nullable timestamp on the row, so

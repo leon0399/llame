@@ -114,7 +114,7 @@ export class ProjectsRepository {
   async update(
     projectId: string,
     ownerUserId: string,
-    patch: { name?: string; archived?: boolean },
+    patch: { name?: string; description?: string | null; archived?: boolean },
   ): Promise<Project | undefined> {
     const current = await this.findById(projectId, ownerUserId);
     if (!current) return undefined;
@@ -122,7 +122,8 @@ export class ProjectsRepository {
     // Archive guard (chat-project-archive): an archived resource rejects every
     // write except pure unarchive (archived: false, no other fields) or pure
     // re-archive (archived: true on already archived — idempotent no-op).
-    const hasContentFields = patch.name !== undefined;
+    const hasContentFields =
+      patch.name !== undefined || patch.description !== undefined;
 
     if (current.archivedAt !== null) {
       const isPureUnarchive = patch.archived === false && !hasContentFields;
@@ -135,6 +136,7 @@ export class ProjectsRepository {
 
     const fields: Partial<typeof projects.$inferInsert> = {};
     if (patch.name !== undefined) fields.name = patch.name;
+    if (patch.description !== undefined) fields.description = patch.description;
     if (patch.archived === true && current.archivedAt === null) {
       fields.archivedAt = new Date();
     } else if (patch.archived === false) {
@@ -148,7 +150,8 @@ export class ProjectsRepository {
       return current;
     }
 
-    const contentChanged = patch.name !== undefined;
+    const contentChanged =
+      patch.name !== undefined || patch.description !== undefined;
 
     const [updated] = await this.db
       .update(projects)

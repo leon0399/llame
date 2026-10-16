@@ -44,6 +44,7 @@ export function liveProjectRecord(
     id: LIVE_PROJECT_ID,
     ownerUserId: LIVE_OWNER,
     name: 'Live project',
+    description: null,
     createdAt: at,
     updatedAt: at,
     archivedAt: null,

@@ -10,6 +10,8 @@ export interface ProjectResponse {
   id: string;
   ownerUserId: string;
   name: string;
+  /** @nullable */
+  description: string | null;
   createdAt: string;
   updatedAt: string;
   /** @nullable */
