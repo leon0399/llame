@@ -1152,7 +1152,9 @@ function streamedReply(
         });
         await ended;
         writer.write({ type: "text-end", id: "text-1" });
-        writer.write({ type: "finish" });
+        // The api's terminal chunk carries the run's completion marker; the
+        // client reads it to tell a finished turn from a cut stream (#1284).
+        writer.write({ type: "finish", finishReason: "stop" });
       },
     }),
   });
