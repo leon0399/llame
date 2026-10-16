@@ -142,13 +142,23 @@ function dropRun(
   return next;
 }
 
-function addTrackedRun(
+/** Title a run is tracked under until a real one is known. */
+const PLACEHOLDER_TITLE = "Chat";
+
+export function addTrackedRun(
   prev: Map<string, TrackedRun>,
   runId: string,
   chatId: string,
   title: string,
 ): Map<string, TrackedRun> {
-  if (prev.get(runId)?.chatId === chatId) return prev; // idempotent
+  const existing = prev.get(runId);
+  // Idempotent, except that a real title replaces the placeholder a live
+  // message may have tracked the run under before the sender's own call.
+  if (
+    existing?.chatId === chatId &&
+    (existing.title === title || title === PLACEHOLDER_TITLE)
+  )
+    return prev;
   return new Map(prev).set(runId, { chatId, title });
 }
 
@@ -471,7 +481,7 @@ function cachedChatTitle(queryClient: QueryClient, chatId: string): string {
   const detail = queryClient.getQueryData<{ title?: string | null }>(
     chatQueryKeys.detail(chatId),
   );
-  return detail?.title ?? "Chat";
+  return detail?.title ?? PLACEHOLDER_TITLE;
 }
 
 /** Next phase map after one progress message: set while in flight, cleared at

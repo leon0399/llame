@@ -8,7 +8,7 @@ import type {
   RunProgressMessage,
 } from "@/lib/services/live/live-messages";
 
-import { nextRunPhases } from "./active-runs-context";
+import { addTrackedRun, nextRunPhases } from "./active-runs-context";
 import { dispatchLiveMessage } from "./live-updates-context";
 
 const chatId = "11111111-1111-4111-8111-111111111111";
@@ -83,5 +83,19 @@ describe("nextRunPhases", () => {
       false,
     );
     expect(nextRunPhases(empty, updated("failed"))).toBe(empty);
+  });
+});
+
+describe("addTrackedRun", () => {
+  it("is idempotent for the same title and keeps a real title over the placeholder", () => {
+    const tracked = addTrackedRun(new Map(), runId, chatId, "Real title");
+    expect(addTrackedRun(tracked, runId, chatId, "Real title")).toBe(tracked);
+    expect(addTrackedRun(tracked, runId, chatId, "Chat")).toBe(tracked);
+  });
+
+  it("replaces the placeholder a live message tracked the run under", () => {
+    const live = addTrackedRun(new Map(), runId, chatId, "Chat");
+    const own = addTrackedRun(live, runId, chatId, "Real title");
+    expect(own.get(runId)).toEqual({ chatId, title: "Real title" });
   });
 });

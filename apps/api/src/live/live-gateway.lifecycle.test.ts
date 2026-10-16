@@ -5,7 +5,9 @@
  * heartbeats and session re-validation, and teardown.
  */
 
+import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import { connect } from 'node:net';
 import { WebSocket } from 'ws';
 import { isString } from '@workspace/runtime-safety';
 
@@ -187,6 +189,49 @@ describe('LiveGatewayService lifecycle', () => {
     expect(await a.closed).toBe(1001);
     expect(hub.unsubscribed).toBe(1);
     expect(server.listenerCount('upgrade')).toBe(0);
+  });
+
+  it('survives a client reset while its session is being validated', async () => {
+    let release = () => {};
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow = new LiveGatewayService(
+      { httpAdapter: { getHttpServer: () => server } },
+      {
+        validateToken: (token: string) =>
+          pending.then(() => auth.validateToken(token)),
+      },
+      hub,
+    );
+    gateway.onModuleDestroy();
+    slow.onApplicationBootstrap();
+    gateway = slow;
+    const address = server.address();
+    if (!address || isString(address)) throw new Error('expected TCP address');
+
+    const raw = connect(address.port, '127.0.0.1');
+    await new Promise<void>((resolve) => raw.on('connect', () => resolve()));
+    raw.write(
+      [
+        `GET ${LIVE_PATH} HTTP/1.1`,
+        'Host: 127.0.0.1',
+        'Connection: Upgrade',
+        'Upgrade: websocket',
+        'Sec-WebSocket-Version: 13',
+        `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`,
+        'Authorization: Bearer token-a',
+        '',
+        '',
+      ].join('\r\n'),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    raw.resetAndDestroy();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(hub.subscribers.size).toBe(0);
   });
 
   it('refuses a server that is not a Node HTTP server', () => {

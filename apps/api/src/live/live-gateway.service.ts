@@ -121,15 +121,25 @@ export class LiveGatewayService
     socket: Duplex,
     head: Buffer,
   ): Promise<void> {
+    // The HTTP server detaches its own socket error handler on upgrade; a
+    // client reset during the async checks below would otherwise be an
+    // unhandled 'error' event that crashes the process.
+    const onSocketError = () => socket.destroy();
+    socket.on('error', onSocketError);
     const decision = await decideUpgrade(request, {
       allowedOrigins: this.allowedOrigins,
       validateToken: (token) => this.auth.validateToken(token),
       openSockets: (userId) => this.countFor(userId),
     });
-    if (decision.kind === 'ignore') return; // not ours; leave it for any other handler
+    if (decision.kind === 'ignore') {
+      socket.off('error', onSocketError);
+      return; // not ours; leave it for any other handler
+    }
     if (decision.kind === 'reject') {
       return reject(socket, decision.status, decision.reason);
     }
+    if (socket.destroyed) return;
+    socket.off('error', onSocketError);
     this.wss.handleUpgrade(request, socket, head, (ws) =>
       this.attach(ws, decision.userId, decision.token),
     );
