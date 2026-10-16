@@ -13,6 +13,9 @@ tester.run("anti-slop/no-stacked-jsdoc", noStackedJsdocRule, {
     // A module overview may sit directly above the first declaration's doc.
     "/**\n * Module overview.\n */\n/** Adds one. */\nexport function inc(n: number) { return n + 1; }",
     "#!/usr/bin/env node\n/** Overview. */\n/** Adds one. */\nfunction inc(n: number) { return n + 1; }",
+    // A directive prologue does not make the overview a stray block.
+    '"use client";\n\n/** Overview. */\n/** Adds one. */\nexport function inc(n: number) { return n + 1; }',
+    "'use strict'\n\"use client\";\n/** Overview. */\n/** Adds one. */\nfunction inc(n: number) { return n + 1; }",
     // Separated by code: each block documents its own declaration.
     "import x from 'x';\n/** A. */\nconst a = x;\n/** B. */\nconst b = a;",
     // Plain block and line comments are not JSDoc.
@@ -31,6 +34,11 @@ tester.run("anti-slop/no-stacked-jsdoc", noStackedJsdocRule, {
     },
     {
       code: "class A {\n  /** Stale. */\n  /** Current. */\n  m() {}\n}",
+      errors: [error],
+    },
+    // A string expression after code is not a directive prologue.
+    {
+      code: 'const a = 1;\n"use client";\n/** Stranded. */\n/** Adds one. */\nfunction inc(n: number) { return n + a; }',
       errors: [error],
     },
     // Three in a row: the first two are stranded.

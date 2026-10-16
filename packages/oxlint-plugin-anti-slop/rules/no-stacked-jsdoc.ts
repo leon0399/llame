@@ -10,7 +10,8 @@ import { defineRule } from "@oxlint/plugins";
  * the wrong symbol or on none, and readers take it as describing whatever
  * follows.
  *
- * A block that begins the file is a module overview, not a stray declaration
+ * A block that begins the file (after any shebang or directive prologue such
+ * as `"use client"`) is a module overview, not a stray declaration
  * doc, so it may sit directly above the first declaration's own block.
  */
 export const noStackedJsdocRule = defineRule({
@@ -34,7 +35,7 @@ export const noStackedJsdocRule = defineRule({
         for (let index = 0; index < comments.length - 1; index += 1) {
           const current = comments[index];
           const next = comments[index + 1];
-          if (!current || !next || !isJsdoc(current) || !isJsdoc(next)) {
+          if (!isJsdoc(current) || !isJsdoc(next)) {
             continue;
           }
           const between = text.slice(current.range[1], next.range[0]);
@@ -51,12 +52,15 @@ function isJsdoc(comment: { type: string; value: string }): boolean {
   return comment.type === "Block" && comment.value.startsWith("*");
 }
 
-/** Whether only whitespace or a shebang line precedes `offset`. */
+const directivePrologue = /^(?:\s*(?:"[^"\n]*"|'[^'\n]*');?)+/u;
+
+/** Whether only whitespace, a shebang line or a directive prologue precedes `offset`. */
 function beginsFile(text: string, offset: number): boolean {
   return (
     text
       .slice(0, offset)
       .replace(/^#!.*\n/u, "")
+      .replace(directivePrologue, "")
       .trim() === ""
   );
 }
