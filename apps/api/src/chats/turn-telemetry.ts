@@ -43,6 +43,29 @@ export type TurnTelemetry = {
   /** Effective permission mode for this attempt; default is omitted. */
   permissionMode?: PermissionMode;
   latencyMs: number;
+  /**
+   * Milliseconds from the attempt's stream start to its first streamed output
+   * delta — the same baseline `latencyMs` measures from, so the usage card's
+   * Total and First token rows are comparable. A streamed output delta is a
+   * delivery of answer or reasoning text; an empty metadata-only reasoning
+   * delivery is a part boundary, not streamed output. Absent — never zero —
+   * for an attempt that streamed no output, and for turns recorded before the
+   * metric existed.
+   */
+  firstTokenMs?: number;
+  /**
+   * Count of streamed output deltas the attempt received (the same deliveries
+   * `firstTokenMs` measures). Absent — never zero — when none arrived.
+   */
+  chunkCount?: number;
+  /**
+   * Output-token throughput over the attempt's generation window: the
+   * aggregate `outputTokens` over `latencyMs` minus `firstTokenMs`, rounded to
+   * one decimal. Recorded only with an exact output total — every model
+   * request reported input and output counts — and a positive window, so it is
+   * never a rate over a partial total or a zero-length window.
+   */
+  tokensPerSecond?: number;
   finishReason: FinishReason | null;
   status: TurnStatus;
   costUsd?: number | null;
@@ -82,6 +105,10 @@ export type AggregateTurnTelemetryInput = Omit<
   permissionMode?: PermissionMode;
   receipts: ReadonlyArray<LanguageModelUsage>;
   stepCount?: number;
+  /** Milliseconds from stream start to the attempt's first streamed output delta; absent when none arrived. */
+  firstTokenMs?: number;
+  /** Count of streamed output deltas the attempt received; the aggregate omits a zero, like an absent count. */
+  chunkCount?: number;
 };
 
 type AggregateTurnTelemetryTotals = {
@@ -187,6 +214,40 @@ function finalRequestContextTokens(
     : requestContextTokens(finalReceipt);
 }
 
+/**
+ * The stream-derived performance metrics (#155). They describe what the
+ * attempt streamed, not what the provider reported, so they are taken
+ * straight from the caller's stamps: the first streamed output delta's offset
+ * from the same baseline `latencyMs` measures, how many such deltas arrived,
+ * and their output-token throughput. All three are absent — never zero — when
+ * the attempt streamed nothing; the rate additionally needs a window to divide
+ * by and an exact output total, which only a turn whose every request reported
+ * input and output counts has.
+ */
+function streamedOutputTelemetry(
+  input: AggregateTurnTelemetryInput,
+  totals: AggregateTurnTelemetryTotals,
+): Pick<TurnTelemetry, 'firstTokenMs' | 'chunkCount' | 'tokensPerSecond'> {
+  const chunkCount = input.chunkCount ?? 0;
+  if (input.firstTokenMs === undefined || chunkCount <= 0) {
+    return {};
+  }
+
+  const firstTokenMs = Math.round(input.firstTokenMs);
+  // Rounded and floored exactly as the recorded `latencyMs`, so the persisted
+  // rate divides the very window the card's Total and First token rows show.
+  const generationMs = Math.max(0, Math.round(input.latencyMs)) - firstTokenMs;
+  return {
+    firstTokenMs,
+    chunkCount,
+    ...(totals.everyReceiptHasCounts &&
+      generationMs > 0 && {
+        tokensPerSecond:
+          Math.round((totals.outputTokens / (generationMs / 1000)) * 10) / 10,
+      }),
+  };
+}
+
 export function aggregateTurnTelemetry(
   input: AggregateTurnTelemetryInput,
 ): TurnTelemetry & { complete: boolean } {
@@ -210,6 +271,7 @@ export function aggregateTurnTelemetry(
     modelId: input.modelId,
     ...(input.effort !== undefined && { effort: input.effort }),
     latencyMs: Math.max(0, Math.round(input.latencyMs)),
+    ...streamedOutputTelemetry(input, totals),
     finishReason: input.finishReason ?? null,
     status: input.status,
     ...(input.price === undefined

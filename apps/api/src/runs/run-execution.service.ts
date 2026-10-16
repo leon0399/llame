@@ -1064,6 +1064,20 @@ export class RunExecutionService {
 
     const streamStartedAt = Date.now();
     const requestUsageReceipts: Array<LanguageModelUsage> = [];
+    // Stream performance for the turn (#155): the first streamed output delta's
+    // offset and how many arrived. Both are stamped from the SAME baseline
+    // `streamStartedAt` that `latencyMs` is measured from, so the usage card's
+    // Total and First token rows are comparable, and the throughput derivation
+    // can subtract one from the other. A delta counts (and stamps the first)
+    // only when it carries text: an empty reasoning delivery is a part boundary
+    // whose text the provider withheld, not streamed output.
+    let firstOutputDeltaMs: number | undefined;
+    let outputDeltaCount = 0;
+    const noteOutputDelta = (text: string): void => {
+      if (text.length === 0) return;
+      firstOutputDeltaMs ??= Date.now() - streamStartedAt;
+      outputDeltaCount += 1;
+    };
     const buildAssistantTelemetry = (
       finishReason: TurnTelemetry['finishReason'],
       status: TurnTelemetry['status'],
@@ -1077,6 +1091,8 @@ export class RunExecutionService {
         effort,
         permissionMode: effectivePermissionMode,
         latencyMs: Date.now() - streamStartedAt,
+        firstTokenMs: firstOutputDeltaMs,
+        chunkCount: outputDeltaCount,
         price: client.pricing,
         billing: client.billing,
         stepCount,
@@ -1827,6 +1843,7 @@ export class RunExecutionService {
           },
         }),
         onTextDelta: (text) => {
+          noteOutputDelta(text);
           streamedText += text;
           assistantPartCollector.text(text);
           // Time-injected push: age-based flushes (#50 live-channel
@@ -1844,6 +1861,10 @@ export class RunExecutionService {
           persistDelta(deltas.push(text, Date.now()));
         },
         onReasoningDelta: (text, partId, providerMetadata) => {
+          // Reasoning text is streamed output too: it stamps the first delta and
+          // counts, exactly as answer text does (#155). The metadata-only
+          // deliveries below carry no text and do not.
+          noteOutputDelta(text);
           // A metadata-only delivery: a reasoning part's start/end carries the
           // opaque provider metadata but no delta of its own (design D15/D18).
           // Drain the buffer first so the durable log keeps the part's text

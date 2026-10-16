@@ -24,11 +24,13 @@
  * the content's background, producing a mismatched dark diamond glued to a
  * light card.
  *
- * Known gap vs. the design (flagged, not silently dropped): the Performance
- * column's "First token" / "Speed" / "Chunks" rows need per-turn instrumentation
- * (time-to-first-token, tokens/sec, delta-chunk count) that the persisted
- * `TurnTelemetry` doesn't compute yet — only "Total" (latencyMs) exists today.
- * That's a backend follow-up, out of scope for this display-only pass.
+ * The Performance column is complete as of #155: "Total" is the attempt's
+ * `latencyMs`, "First token" the time from the stream's start to its first
+ * streamed output delta, "Speed" the output-token throughput over the
+ * generation window that follows it, and "Chunks" how many streamed output
+ * deltas delivered the turn. A metric the turn has no value for — a turn
+ * recorded before this capture, or an attempt that streamed no output — shows
+ * "—", the way the Tokens section reports an unrecorded count.
  */
 
 import { InfoIcon } from "lucide-react";
@@ -63,6 +65,12 @@ export type TurnUsage = {
   effort?: string;
   permissionMode?: "bypass";
   latencyMs?: number;
+  /** Time from the attempt's stream start to its first streamed output delta. */
+  firstTokenMs?: number;
+  /** How many streamed output deltas delivered the turn. */
+  chunkCount?: number;
+  /** Output-token throughput over the attempt's generation window. */
+  tokensPerSecond?: number;
   costUsd?: number | null;
   status?: string;
   complete?: boolean;
@@ -103,6 +111,9 @@ type RawTurnUsage = {
   effort?: unknown;
   permissionMode?: unknown;
   latencyMs?: unknown;
+  firstTokenMs?: unknown;
+  chunkCount?: unknown;
+  tokensPerSecond?: unknown;
   costUsd?: unknown;
   status?: unknown;
   complete?: unknown;
@@ -132,6 +143,9 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
     permissionMode:
       u.permissionMode === "bypass" ? ("bypass" as const) : undefined,
     latencyMs: num(u.latencyMs),
+    firstTokenMs: num(u.firstTokenMs),
+    chunkCount: num(u.chunkCount),
+    tokensPerSecond: num(u.tokensPerSecond),
     costUsd: u.costUsd === null ? null : num(u.costUsd),
     status: isString(u.status) ? u.status : undefined,
     complete: isBoolean(u.complete) ? u.complete : undefined,
@@ -323,13 +337,53 @@ function buildBadgeText(
   return null;
 }
 
-// Performance section — only "Total" is available today; see the file header
-// for the First token / Speed / Chunks gap.
+/** The card's placeholder for a metric the turn has no recorded value for. */
+const unknownValue = "—";
+
+/**
+ * Throughput as displayed: one decimal with a trailing zero dropped (the way
+ * `fmtTokens` drops it), so a model slower than one token per second stays
+ * visible instead of rounding away to "0".
+ */
+function formatRate(tokensPerSecond: number): string {
+  return `${trimTrailingZero(tokensPerSecond.toFixed(1))} tok/s`;
+}
+
+/**
+ * Performance — every row the design specifies, with "—" where the turn has no
+ * recorded value: a turn persisted before #155 captured these metrics knows
+ * only its Total, and an attempt that streamed no output has no first token,
+ * rate, or delta count. The row set stays constant so a missing metric reads
+ * as unrecorded rather than as absent from llame.
+ */
 function buildPerformanceSection(usage: TurnUsage): UsageSection | null {
   if (usage.latencyMs === undefined) return null;
   return {
     header: "Performance",
-    rows: [{ label: "Total", value: formatLatency(usage.latencyMs) }],
+    rows: [
+      { label: "Total", value: formatLatency(usage.latencyMs) },
+      {
+        label: "First token",
+        value:
+          usage.firstTokenMs === undefined
+            ? unknownValue
+            : formatLatency(usage.firstTokenMs),
+      },
+      {
+        label: "Speed",
+        value:
+          usage.tokensPerSecond === undefined
+            ? unknownValue
+            : formatRate(usage.tokensPerSecond),
+      },
+      {
+        label: "Chunks",
+        value:
+          usage.chunkCount === undefined
+            ? unknownValue
+            : fmtTokens(usage.chunkCount),
+      },
+    ],
   };
 }
 
@@ -337,9 +391,9 @@ function unknownTokenSection(): UsageSection {
   return {
     header: "Tokens",
     rows: [
-      { label: "Input", value: "—" },
-      { label: "Output", value: "—" },
-      { label: "of which reasoning", value: "—" },
+      { label: "Input", value: unknownValue },
+      { label: "Output", value: unknownValue },
+      { label: "of which reasoning", value: unknownValue },
     ],
   };
 }
@@ -384,14 +438,14 @@ function buildTokenSection(usage: TurnUsage): UsageSection | null {
         label: "Output",
         value:
           usage.outputTokens === undefined
-            ? "—"
+            ? unknownValue
             : fmtTokens(usage.outputTokens),
       },
       {
         label: "of which reasoning",
         value:
           usage.reasoningTokens === undefined
-            ? "—"
+            ? unknownValue
             : fmtTokens(usage.reasoningTokens),
       },
     );

@@ -778,6 +778,62 @@ export const CacheWriteUsage: Story = {
   },
 };
 
+const STREAM_METRICS_MESSAGE: UIMessage = {
+  id: "assistant-stream-metrics",
+  role: "assistant",
+  metadata: {
+    usage: {
+      inputTokens: 12_800,
+      cachedInputTokens: 12_000,
+      cacheWriteTokens: 0,
+      outputTokens: 412,
+      totalTokens: 13_212,
+      modelId: CLAUDE_SONNET_MODEL.id,
+      latencyMs: 8240,
+      firstTokenMs: 1180,
+      chunkCount: 412,
+      tokensPerSecond: 58.4,
+      costUsd: 0.02,
+      status: "completed",
+      complete: true,
+      billing: "usage",
+    },
+  },
+  parts: [{ type: "text", text: "Streamed the whole answer token by token." }],
+};
+
+/**
+ * A completed streamed turn: hovering the usage badge reveals the Performance
+ * column's first-token time, output throughput, and chunk count beside Total,
+ * so a slow start and a slow generation are told apart before reading the
+ * answer.
+ *
+ * @summary the usage hover card shows the turn's stream performance
+ */
+export const StreamMetricsUsage: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: STREAM_METRICS_MESSAGE,
+    availableModels: [CLAUDE_SONNET_MODEL],
+  },
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(
+      () => canvas.getByRole("button", { name: /^Message usage:/ }),
+      { timeout: 15_000 },
+    );
+    await expect(trigger).toHaveTextContent("Claude Sonnet 5 · 8.24s");
+
+    await userEvent.hover(trigger);
+
+    const firstTokenRow = await revealedUsageRow("First token");
+    await expect(firstTokenRow).toHaveTextContent("1.18s");
+    const speedRow = await revealedUsageRow("Speed");
+    await expect(speedRow).toHaveTextContent("58.4 tok/s");
+    const chunksRow = await revealedUsageRow("Chunks");
+    await expect(chunksRow).toHaveTextContent("412");
+  },
+};
+
 const BYPASS_USAGE_MESSAGE: UIMessage = {
   id: "assistant-bypass-usage",
   role: "assistant",

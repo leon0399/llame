@@ -10,7 +10,7 @@ import {
   type LanguageModelUsage,
 } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
-import { isRecord } from '@workspace/runtime-safety';
+import { isNumber, isRecord } from '@workspace/runtime-safety';
 
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { SearchIndexService } from '../search/search-index.service';
@@ -92,6 +92,9 @@ type ProviderResponse = {
   parts: ReadonlyArray<LanguageModelV3StreamPart>;
   usage: LanguageModelV3Usage;
   finishReason?: LanguageModelV3FinishReason;
+  /** Milliseconds to hold the stream open before its content and before its finish part. */
+  leadInMs?: number;
+  tailMs?: number;
   beforeFinish?: {
     signalStarted: () => void;
     wait: Promise<void>;
@@ -168,12 +171,20 @@ function providerStream(
   request: ProviderResponse,
 ): ReadableStream<LanguageModelV3StreamPart> {
   return new ReadableStream({
-    start(controller) {
+    async start(controller) {
       controller.enqueue({ type: 'stream-start', warnings: [] });
+      // A held-open stream, so a test can measure the time to the first
+      // content part and the generation window that follows it (#155).
+      if (request.leadInMs !== undefined) {
+        await holdOpen(request.leadInMs);
+      }
       const hasToolCall = request.parts.some(
         (part) => part.type === 'tool-call',
       );
       for (const part of request.parts) controller.enqueue(part);
+      if (request.tailMs !== undefined) {
+        await holdOpen(request.tailMs);
+      }
       controller.enqueue({
         type: 'finish',
         finishReason:
@@ -186,6 +197,12 @@ function providerStream(
       });
       controller.close();
     },
+  });
+}
+
+function holdOpen(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
   });
 }
 
@@ -252,6 +269,18 @@ class UsageScriptedModelClient implements ModelClient {
     applyRequestUsageCallback(streamOptions, receiptInput);
     return awaitSettlementAfter(sdkStreamText(streamOptions), settlement);
   }
+}
+
+/** One numeric field of a reply's persisted usage, narrowed for assertions. */
+function numericUsageField(usage: unknown, field: string): number {
+  if (!isRecord(usage)) {
+    throw new Error('Expected the reply usage to be a record.');
+  }
+  const value = usage[field];
+  if (!isNumber(value)) {
+    throw new Error(`Expected usage.${field} to be a number.`);
+  }
+  return value;
 }
 
 function metadataUsages(stream: string): Array<unknown> {
@@ -901,5 +930,73 @@ describe('Run usage accounting through the worker and Postgres', () => {
     expect(replayUsages).toHaveLength(1);
     expect(replayUsages[0]).toEqual(liveUsages[0]);
     expect(replayUsages[0]).toEqual(reply.usage);
+  });
+
+  it('records streamed first-token time, chunk count, and throughput that match history and replay (1.9)', async () => {
+    const modelId = `test:run-usage:stream-metrics:${crypto.randomUUID()}`;
+    scripts.set(modelId, {
+      billing: 'usage',
+      requests: [
+        {
+          parts: [
+            { type: 'text-start', id: 'answer' },
+            { type: 'text-delta', id: 'answer', delta: 'streamed ' },
+            { type: 'text-delta', id: 'answer', delta: 'in ' },
+            { type: 'text-delta', id: 'answer', delta: 'chunks' },
+            { type: 'text-end', id: 'answer' },
+          ],
+          usage: providerUsage(120, 300),
+          leadInMs: 1000,
+          tailMs: 1000,
+        },
+      ],
+    });
+    const seed = await seedRun({
+      tenantDb: harness!.tenantDb,
+      userId: ownerId,
+      modelId,
+    });
+    const bridge = harness!.moduleRef.get(RunStreamBridgeService, {
+      strict: false,
+    });
+    const liveStream = bridge
+      .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
+      .text();
+    await enqueue(seed, modelId);
+    await waitForStatus(seed.runId, 'completed');
+
+    const reply = await waitForReply(seed.chatId, seed.userMessage.id);
+    expect(reply.usage).toMatchObject({
+      inputTokens: 120,
+      outputTokens: 300,
+      status: 'completed',
+      complete: true,
+      billing: 'usage',
+      modelId,
+      // One entry per text delta the adapter delivered.
+      chunkCount: 3,
+    });
+    // The provider held its content back for a second, so a stamp taken at the
+    // first streamed delta lands at the lead-in, not at the request's start.
+    expect(
+      numericUsageField(reply.usage, 'firstTokenMs'),
+    ).toBeGreaterThanOrEqual(1000);
+    // 300 output tokens over the ~1s window after that delta, with wall-clock
+    // tolerance for the test's own scheduling.
+    const tokensPerSecond = numericUsageField(reply.usage, 'tokensPerSecond');
+    expect(tokensPerSecond).toBeGreaterThan(150);
+    expect(tokensPerSecond).toBeLessThan(600);
+
+    const liveUsages = metadataUsages(await liveStream);
+    expect(liveUsages).toHaveLength(1);
+    expect(liveUsages[0]).toEqual(reply.usage);
+
+    const replayUsages = metadataUsages(
+      await bridge
+        .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
+        .text(),
+    );
+    expect(replayUsages).toHaveLength(1);
+    expect(replayUsages[0]).toEqual(liveUsages[0]);
   });
 });

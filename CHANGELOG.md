@@ -10,6 +10,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `/ask`, `/show`) stay on the generic ladder, because the API exposes no
   equivalent ranking.
 
+- The usage hover card now says what a turn's stream did, not just what it
+  cost: its time to first token, its output throughput, and how many streamed
+  deltas delivered the answer, beside the Total it already showed. The worker
+  stamps the first output delta against the same clock `latencyMs` measures
+  from, counts the deltas the model client delivers, and derives tokens/second
+  over the window that follows the first delta — all persisted on the
+  message's usage beside the tokens and cost, so the live card and a reloaded
+  one agree. A rate is recorded only when the turn's whole output total is
+  known and the window is non-empty, and a turn that streamed nothing (or
+  predates the capture) shows `—` rather than a fabricated zero (#155).
+
 - A long turn no longer loses its live stream. The run-event bridge is the
   only writer of a chat, and it cut every connection at five minutes of
   wall-clock time — mid-Run, while the Run was still streaming — then sent
