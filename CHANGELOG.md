@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-16
 
+- The native `hackernews` adapter now reads the front page (`/`, `/news`,
+  `/front`) and `/newest` as bullet lists of the first 30 stories — title,
+  points, comment count, the story link, and its HN discussion link — from
+  the keyless hn.algolia.com search endpoints. The front page's set matches
+  the site's, in the API's points order. The site's ranked pages (`/best`,
+  `/ask`, `/show`) stay on the generic ladder, because the API exposes no
+  equivalent ranking.
+
 - The usage hover card now says what a turn's stream did, not just what it
   cost: its time to first token, its output throughput, and how many streamed
   deltas delivered the answer, beside the Total it already showed. The worker
