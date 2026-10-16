@@ -1,0 +1,23 @@
+apps/api/src/live/live-gateway.lifecycle.test.ts
+  6c7fcdc962597e7d 1-64,67,69-149,151-152,154-193,195-202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "e82cd3ec2e9fcaefffec72d421e6ae1353bc7c64",
+  "prompts": {
+    "6c7fcdc962597e7d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9af45d1e-990b-48cf-bd63-4bacd9ff0fc0",
+        "model": "unknown"
+      },
+      "human_author": "leon0399 <leon.03.99@gmail.com>",
+      "messages": [],
+      "total_additions": 202,
+      "total_deletions": 0,
+      "accepted_lines": 196,
+      "overriden_lines": 4
+    }
+  }
+}
