@@ -51,7 +51,10 @@ export class SessionAuthGuard implements CanActivate {
   }
 }
 
-function getRequestToken(request: AuthenticatedRequest): string | undefined {
+/** Session token from a bearer header or the session cookie; shared with the live gateway's upgrade check. */
+export function getRequestToken(
+  request: Pick<AuthenticatedRequest, 'headers'>,
+): string | undefined {
   // Node's IncomingHttpHeaders types (and documents) `authorization`/`cookie`
   // as always a single string on this platform-express app — duplicates of
   // these specific headers are discarded by Node's own parser, never
