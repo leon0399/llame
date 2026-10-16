@@ -40,7 +40,7 @@ loop from the browser into the API. Build the signal first, then pick the
 transport. Both SSE and WebSocket carry the result; WebSocket is the chosen
 transport (D5).
 
-The protocol is defined design-first: a hand-authored AsyncAPI 3.0 document
+The protocol is defined design-first: a hand-authored AsyncAPI 3.1 document
 is the source, and the API's and web client's zod validators and types are
 generated from it. Code-first generation, the OpenAPI pattern in this repo,
 has no fitting Nest tool for WebSocket messages (D6).

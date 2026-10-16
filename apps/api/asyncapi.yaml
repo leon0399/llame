@@ -75,8 +75,10 @@ channels:
 
       ## Delivery
 
-      Each message carries the full current state of one record, never a
-      delta, so applying one is idempotent. Messages for one owner are sent
+      Record messages (`*.upserted`, `*.deleted`, `pins.replaced`,
+      `run.updated`) carry the full current state of one record, never a
+      delta, and `run.progress` carries a Run's current phase and step, so
+      applying any message again is harmless. Messages for one owner are sent
       in commit order, and rapid changes to one record may be coalesced into
       one message carrying its latest state. Messages sent while a client
       was disconnected are not replayed: on every (re)connect, and on
