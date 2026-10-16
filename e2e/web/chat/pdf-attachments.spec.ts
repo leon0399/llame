@@ -4,12 +4,16 @@
  * a new tab without an image variant or image lightbox.
  */
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { expect, test } from "../../support/fixtures";
 
 const PDF_NAME = "paper.pdf";
 const PDF_BYTES = readFileSync(
-  "apps/api/src/media/testing/pdf/fifteen-pages.pdf",
+  resolve(
+    __dirname,
+    "../../../apps/api/src/media/testing/pdf/fifteen-pages.pdf",
+  ),
 );
 const ORIGINAL_URL = /\/api\/v1\/media\/[0-9a-f-]{36}\/original$/;
 
