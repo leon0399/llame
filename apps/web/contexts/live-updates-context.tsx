@@ -13,11 +13,13 @@ import {
 
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
+import { handleUnauthorizedResponse } from "@/lib/api/fetch";
 import {
   applyLiveMessage,
   invalidateOwnerLists,
 } from "@/lib/services/live/apply-live-message";
 import {
+  CLOSE_SESSION_ENDED,
   liveUpdatesUrl,
   parseLiveMessage,
   reconnectDelayMs,
@@ -41,15 +43,19 @@ const LiveUpdatesContext = createContext<LiveUpdatesContextValue | null>(null);
  * in place; run messages go to subscribers (the active-runs provider).
  * Reconnects with jittered backoff; on every (re)connect it refetches the
  * owner lists, since messages sent while it was disconnected are lost.
+ * When the server ends the session (close code 4401) it stops and sends the
+ * user to sign in, as an HTTP 401 does.
  */
 export function LiveUpdatesProvider({
   children,
+  onSessionEnded = handleUnauthorizedResponse,
 }: {
   children: React.ReactNode;
+  onSessionEnded?: () => void;
 }) {
   const queryClient = useQueryClient();
   const listeners = useRef(new Set<RunMessageListener>());
-  const connected = useLiveSocket(queryClient, listeners);
+  const connected = useLiveSocket(queryClient, listeners, onSessionEnded);
 
   const subscribeRunMessages = useCallback((listener: RunMessageListener) => {
     listeners.current.add(listener);
@@ -84,47 +90,74 @@ export function dispatchLiveMessage(
   applyLiveMessage(queryClient, message);
 }
 
+type LiveSocketHandlers = {
+  onOpen: () => void;
+  onMessage: (message: LiveMessage | undefined) => void;
+  onClose: () => void;
+  onSessionEnded: () => void;
+};
+
+/**
+ * Opens the live socket and reopens it with jittered backoff after any close
+ * except a session end, which stops the loop. Returns the teardown.
+ */
+function connectLiveSocket(handlers: LiveSocketHandlers): () => void {
+  let socket: WebSocket | null = null;
+  let attempt = 0;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let stopped = false;
+
+  const open = () => {
+    socket = new WebSocket(liveUpdatesUrl());
+    socket.onopen = () => {
+      attempt = 0;
+      handlers.onOpen();
+    };
+    socket.onmessage = (event: MessageEvent<unknown>) =>
+      handlers.onMessage(parseLiveMessage(event.data));
+    socket.onclose = (event: CloseEvent) => {
+      handlers.onClose();
+      if (stopped) return;
+      if (event.code === CLOSE_SESSION_ENDED) {
+        stopped = true;
+        handlers.onSessionEnded();
+        return;
+      }
+      retry = setTimeout(open, reconnectDelayMs(attempt));
+      attempt += 1;
+    };
+  };
+
+  open();
+  return () => {
+    stopped = true;
+    if (retry) clearTimeout(retry);
+    socket?.close();
+  };
+}
+
 /** Owns the socket lifecycle; returns whether it is currently open. */
 function useLiveSocket(
   queryClient: QueryClient,
   listeners: MutableRefObject<Set<RunMessageListener>>,
+  onSessionEnded: () => void,
 ): boolean {
   const [connected, setConnected] = useState(false);
 
-  useEffect(() => {
-    let socket: WebSocket | null = null;
-    let attempt = 0;
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    let stopped = false;
-
-    const open = () => {
-      socket = new WebSocket(liveUpdatesUrl());
-      socket.onopen = () => {
-        attempt = 0;
-        setConnected(true);
-        invalidateOwnerLists(queryClient);
-      };
-      socket.onmessage = (event: MessageEvent<unknown>) =>
-        dispatchLiveMessage(
-          parseLiveMessage(event.data),
-          queryClient,
-          listeners.current,
-        );
-      socket.onclose = () => {
-        setConnected(false);
-        if (stopped) return;
-        retry = setTimeout(open, reconnectDelayMs(attempt));
-        attempt += 1;
-      };
-    };
-
-    open();
-    return () => {
-      stopped = true;
-      if (retry) clearTimeout(retry);
-      socket?.close();
-    };
-  }, [queryClient, listeners]);
+  useEffect(
+    () =>
+      connectLiveSocket({
+        onOpen: () => {
+          setConnected(true);
+          invalidateOwnerLists(queryClient);
+        },
+        onMessage: (message) =>
+          dispatchLiveMessage(message, queryClient, listeners.current),
+        onClose: () => setConnected(false),
+        onSessionEnded,
+      }),
+    [queryClient, listeners, onSessionEnded],
+  );
 
   return connected;
 }

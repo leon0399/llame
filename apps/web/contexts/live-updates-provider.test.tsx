@@ -39,7 +39,7 @@ class FakeWebSocket {
   static instances: Array<FakeWebSocket> = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number }) => void) | null = null;
   closed = false;
 
   constructor(readonly url: string) {
@@ -58,8 +58,8 @@ class FakeWebSocket {
     act(() => this.onmessage?.({ data: frame }));
   }
 
-  serverClose() {
-    act(() => this.onclose?.());
+  serverClose(code = 1006) {
+    act(() => this.onclose?.({ code }));
   }
 }
 
@@ -101,14 +101,19 @@ function RunsProbe() {
   );
 }
 
-function renderLive(children: React.ReactNode) {
+function renderLive(
+  children: React.ReactNode,
+  onSessionEnded: () => void = () => undefined,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   const invalidate = vi.spyOn(queryClient, "invalidateQueries");
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <LiveUpdatesProvider>{children}</LiveUpdatesProvider>
+      <LiveUpdatesProvider onSessionEnded={onSessionEnded}>
+        {children}
+      </LiveUpdatesProvider>
     </QueryClientProvider>,
   );
   return { queryClient, invalidate, view };
@@ -242,6 +247,17 @@ describe("LiveUpdatesProvider", () => {
 });
 
 describe("ActiveRunsProvider with live updates", () => {
+  it("signs in again instead of reconnecting when the session ended", async () => {
+    const onSessionEnded = vi.fn();
+    renderLive(<ConnectionProbe />, onSessionEnded);
+    latestSocket().serverOpen();
+
+    latestSocket().serverClose(4401);
+    expect(onSessionEnded).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
   it("tracks a run started elsewhere, shows its phase, and clears it at a terminal status", async () => {
     renderLive(
       <ActiveRunsProvider>
