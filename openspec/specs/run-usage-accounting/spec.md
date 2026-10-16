@@ -186,7 +186,7 @@ The `running` usage SHALL carry no stream metrics. A terminal assistant message 
 
 - `firstTokenMs`, the milliseconds from the same stream-start baseline `latencyMs` measures to the first streamed output delta;
 - `chunkCount`, the count of streamed output deltas the attempt received; and
-- `tokensPerSecond`, the attempt's output tokens over `latencyMs` minus `firstTokenMs`, rounded to one decimal.
+- `tokensPerSecond`, the attempt's output tokens over `latencyMs` minus `firstTokenMs`, rounded to one decimal. The denominator is the attempt's wall-clock stream window, from its first delta to its terminal telemetry, so on a tool-using turn it includes the tool-execution time between steps: the rate describes the whole turn's throughput, not the model's generation speed alone.
 
 When the attempt streamed no output, all three SHALL be absent rather than zero. `tokensPerSecond` SHALL additionally be absent when any model request of the attempt reported no input or output count, so the rate is never derived from a partial token total, or when `latencyMs` minus `firstTokenMs` is not positive. A missing metric SHALL NOT by itself mark usage incomplete, and a persisted value SHALL NOT be recomputed later. Usage recorded before this capability carries none of the keys and is otherwise unchanged.
 
