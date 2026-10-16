@@ -342,13 +342,10 @@ Ingest opens each PDF with `unpdf` (pdf.js) to count its pages and detect
 encryption. The parse runs in a short-lived child process, at most two at
 once per API or worker process, with others waiting for a slot. A child is
 killed 10 s after it starts; a timeout, crash, or abnormal exit refuses the PDF
-as `unsupported_media_type` without stopping the requesting process.
-
-Production requires the compiled `dist/media/pdf-parse-entry.js` shipped by
-the API build. If it is absent, parsing is refused with
-`PDF parsing is unavailable on this server` and the requesting process logs
-the start failure at error level. Production never starts the unbounded
-TypeScript test parser.
+as `unsupported_media_type` without stopping the requesting process. The child
+is the compiled `dist/media/pdf-parse-entry.js` the API build ships; a process
+without that file refuses every PDF the same way and logs the missing artifact
+at error level.
 
 On Linux the child is started through `sh`, which applies two bounds before
 `node` starts:

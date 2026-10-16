@@ -13,6 +13,8 @@ import {
 
 vi.setConfig({ testTimeout: 30_000 });
 
+afterEach(() => vi.unstubAllEnvs());
+
 const UNOPENABLE = {
   name: 'MediaIngestError',
   ...MEDIA_REFUSAL.unopenablePdf,
@@ -60,16 +62,12 @@ describe('preparePdf', () => {
     await expect(preparePdf(fixture(name))).resolves.toBe(pages);
   });
 
-  it('refuses a missing compiled parser in production', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
+  it('refuses a missing compiled parser outside vitest', async () => {
     vi.stubEnv('VITEST', undefined);
-    try {
-      await expect(preparePdf(fixture('one-page.pdf'))).rejects.toMatchObject(
-        UNAVAILABLE,
-      );
-    } finally {
-      vi.unstubAllEnvs();
-    }
+
+    await expect(preparePdf(fixture('one-page.pdf'))).rejects.toMatchObject(
+      UNAVAILABLE,
+    );
   });
 
   it('refuses a truncated PDF', async () => {
