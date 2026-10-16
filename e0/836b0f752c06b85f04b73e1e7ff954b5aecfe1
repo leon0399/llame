@@ -1,0 +1,23 @@
+openspec/changes/bash-process-concurrency/proposal.md
+  57636133ad929b86 26-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "e0836b0f752c06b85f04b73e1e7ff954b5aecfe1",
+  "prompts": {
+    "57636133ad929b86": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14433-ad46-7592-9ab3-615be76192d9",
+        "model": "unknown"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [],
+      "total_additions": 9,
+      "total_deletions": 6,
+      "accepted_lines": 8,
+      "overriden_lines": 0
+    }
+  }
+}
