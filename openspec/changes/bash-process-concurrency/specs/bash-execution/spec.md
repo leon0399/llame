@@ -128,11 +128,12 @@ SHALL reserve a slot before recording an attempt. A call beyond capacity SHALL
 return `process_limit` immediately, without a process or attempt, naming the
 capacity, per-worker scope, and possibility of a fresh retry. It SHALL NOT queue,
 automatically retry, or replay the refused call. Reservations SHALL release
-exactly once; existing unknown-outcome quarantine SHALL remain enforced.
+exactly once; existing live-unknown continuation and durable no-replay behavior
+SHALL remain unchanged.
 
 #### Scenario: Calls within the bound are admitted concurrently
 
-- **WHEN** a step issues two otherwise-valid bash calls with two free slots and no competing admissions or quarantine
+- **WHEN** a step issues two otherwise-valid bash calls with two free slots and no competing admissions
 - **THEN** both are admitted and each starts its own process
 - **AND** each records its own attempt and result
 
@@ -158,7 +159,7 @@ exactly once; existing unknown-outcome quarantine SHALL remain enforced.
 
 - **WHEN** two Runs execute concurrently on one worker and the first holds the bound
 - **THEN** a bash call in the second Run is refused under the same bound
-- **AND** after one reservation is released, a fresh otherwise-valid call in the second Run is admitted if no competitor takes that slot and no quarantine applies
+- **AND** after one reservation is released, a fresh otherwise-valid call in the second Run is admitted if no competitor takes that slot
 
 #### Scenario: Pending attempt writes consume capacity
 
@@ -170,7 +171,7 @@ exactly once; existing unknown-outcome quarantine SHALL remain enforced.
 - **WHEN** an admission is cancelled or abandoned before execution, its attempt write fails, its existing attempt is recovered, or its execution settles
 - **THEN** its reservation is released exactly once
 - **AND** cancellation after execution starts does not free that slot before execution settles
-- **AND** releasing capacity does not clear surviving-process quarantine
+- **AND** a settled live `outcome_unknown` frees its slot without quarantining later calls, while durable recovery still never re-executes its unresolved attempt
 
 ### Requirement: Operators configure the worker process capacity
 

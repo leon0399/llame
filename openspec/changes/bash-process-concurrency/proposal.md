@@ -83,6 +83,12 @@ None.
 
 ## Revision history
 
+- **v3 (2026-10-16):** Rebase onto master `a128882` and reconcile merged #1293:
+  live unknown outcomes release their slots without worker quarantine; durable
+  unresolved-attempt recovery still never replays. Document that the bound limits
+  admitted managed executions, not untracked surviving descendants. Two reviewers
+  found no new substantive issue in v2, but this upstream change requires a new
+  independent review round before handoff.
 - **v2 (2026-10-16):** Restore approved operator tuning; couple capacity and
   reservations in one worker-owned limiter; require two free slots for the
   two-call scenario; distinguish fresh retry from automatic replay; add

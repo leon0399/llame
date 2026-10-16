@@ -13,9 +13,11 @@ before the durable `native.attempt` write and `runAdmitted` releases it in a
 message: "Managed process limit reached." }`. This is a generic package
 admission classification, not an exact tag assigned by the spec to executor
 absence; the API's missing native identity path returns `executor_unavailable`.
-A different, untouched refusal path already exists for a process group that
-outlived an `outcome_unknown` Run (`openspec/specs/bash-execution/spec.md`,
-"Unknown command effects are never replayed automatically").
+Current master includes #1293: a live `outcome_unknown` is an observation, the
+Run may continue, and later approved calls are not quarantined. Durable recovery
+still never re-executes an unresolved attempt (`openspec/specs/bash-execution/spec.md`,
+"Unknown command effects are never replayed automatically"). This change must
+preserve both behaviors, not restore the pre-#1293 worker quarantine.
 
 ## Goals / Non-Goals
 
@@ -41,9 +43,12 @@ worker process has its own instance. Tests may construct isolated limiters.
 Admission synchronously acquires a reservation before any asynchronous durable
 attempt write. Its release is idempotent. Before execution begins, abort,
 existing-attempt recovery, or a failed attempt write releases the reservation;
-after execution starts, only the executor completion path releases it. Preserve
-surviving-process quarantine independently: freeing a reservation never clears
-an unknown-outcome fence or makes replay safe. No queue or timer is introduced.
+after execution starts, only the executor completion path releases it. A settled
+live `outcome_unknown` releases its reservation like other settled results; it
+does not quarantine the worker, matching #1293. Capacity bounds admitted managed
+executions, not all surviving descendants: an unproven stop can leave host
+processes alive after the slot is freed. Durable unresolved-attempt recovery
+still prevents replay. No queue or timer is introduced.
 
 Alternatives: raise the per-call number (rejected — capacity can still disagree
 for one shared counter); a host-wide semaphore across replicas (rejected — it
@@ -100,8 +105,9 @@ instructions. A hardcoded four is rejected because it contradicts Q2-A.
 
 ## Risks / Trade-offs
 
-- [Worst-case concurrent host processes rise from one to the bound per worker] →
-  the bound stays deliberately small and remains a hard refusal.
+- [Managed execution concurrency rises from one to the bound per worker] →
+  admission remains bounded, but this is not an OS-process ceiling: shells may
+  spawn children and #1293 allows survivors after unknown settlement.
 - [A step with more parallel calls than the bound still fails the excess] → the
   refusal now names the bound and permits a retry, and the tool description
   states that the bound is per worker and refuses rather than queues.
