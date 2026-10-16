@@ -450,6 +450,108 @@ describe('TurnTelemetry', () => {
       expect(telemetry.complete).toBe(false);
       expect(telemetry).not.toHaveProperty('reasoningTokens');
     });
+
+    describe('streamed performance (stream-metrics)', () => {
+      const streamed = {
+        receipts: [usageReceipt({ inputTokens: 1200, outputTokens: 300 })],
+        status: 'completed' as const,
+        modelId: 'priced-model',
+        stepCount: 1,
+      };
+
+      it('records the first-token offset, the delta count, and the throughput', () => {
+        const telemetry = aggregateTurnTelemetry({
+          ...streamed,
+          latencyMs: 4820,
+          firstTokenMs: 640,
+          chunkCount: 312,
+        });
+
+        expect(telemetry).toMatchObject({
+          firstTokenMs: 640,
+          chunkCount: 312,
+          // 300 output tokens over the 4,180ms window after the first delta.
+          tokensPerSecond: 71.8,
+        });
+      });
+
+      it('rounds the first-token offset to nearest whole millisecond', () => {
+        const firstTokenMsAt = (firstTokenMs: number) =>
+          aggregateTurnTelemetry({
+            ...streamed,
+            latencyMs: 4820,
+            firstTokenMs,
+            chunkCount: 1,
+          }).firstTokenMs;
+
+        expect(firstTokenMsAt(639.6)).toBe(640);
+        expect(firstTokenMsAt(640.4)).toBe(640);
+      });
+
+      it('omits every metric for an attempt that streamed no output', () => {
+        const telemetry = aggregateTurnTelemetry({
+          ...streamed,
+          latencyMs: 4820,
+        });
+
+        expect(telemetry).not.toHaveProperty('firstTokenMs');
+        expect(telemetry).not.toHaveProperty('chunkCount');
+        expect(telemetry).not.toHaveProperty('tokensPerSecond');
+      });
+
+      it('records no metrics for a zero delta count', () => {
+        const telemetry = aggregateTurnTelemetry({
+          ...streamed,
+          latencyMs: 4820,
+          firstTokenMs: 640,
+          chunkCount: 0,
+        });
+
+        expect(telemetry).not.toHaveProperty('firstTokenMs');
+        expect(telemetry).not.toHaveProperty('chunkCount');
+      });
+
+      it('records no first-token stamp without a delta count', () => {
+        const telemetry = aggregateTurnTelemetry({
+          ...streamed,
+          latencyMs: 4820,
+          firstTokenMs: 640,
+        });
+
+        expect(telemetry).not.toHaveProperty('firstTokenMs');
+        expect(telemetry).not.toHaveProperty('chunkCount');
+      });
+
+      it('records no throughput without a generation window', () => {
+        const telemetry = aggregateTurnTelemetry({
+          ...streamed,
+          latencyMs: 640,
+          firstTokenMs: 640,
+          chunkCount: 312,
+        });
+
+        expect(telemetry).toMatchObject({ firstTokenMs: 640, chunkCount: 312 });
+        expect(telemetry).not.toHaveProperty('tokensPerSecond');
+      });
+
+      it('records no throughput from a partial output total', () => {
+        const telemetry = aggregateTurnTelemetry({
+          receipts: [
+            usageReceipt({ inputTokens: 1200, outputTokens: 300 }),
+            usageReceipt({ inputTokens: 400 }),
+          ],
+          status: 'completed',
+          modelId: 'priced-model',
+          latencyMs: 4820,
+          firstTokenMs: 640,
+          chunkCount: 312,
+          stepCount: 2,
+        });
+
+        expect(telemetry).toMatchObject({ firstTokenMs: 640, chunkCount: 312 });
+        expect(telemetry).not.toHaveProperty('tokensPerSecond');
+      });
+    });
   });
 
   describe('cache-write cost', () => {
