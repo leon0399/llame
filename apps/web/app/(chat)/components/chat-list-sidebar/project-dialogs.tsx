@@ -345,8 +345,11 @@ function SettingsDescriptionField({
 /** The patch a save should send, or null when there is nothing to save: a
  *  blank name (Save is disabled for it, but Enter calls submit directly) or an
  *  untouched pair both just close the dialog, exactly as Rename's own field
- *  does. A blank description becomes null — the stored form of "no
- *  description". */
+ *  does. Only fields that actually moved are sent, so a `project.upserted`
+ *  that landed while the dialog was open (a rename from a second tab) is not
+ *  reverted by a save made to edit prose — the client keeps the API's
+ *  "omitted means unchanged" contract. A blank description becomes null, the
+ *  stored form of "no description". */
 function projectSettingsPatch(
   project: ProjectSettingsRef,
   name: string,
@@ -355,11 +358,12 @@ function projectSettingsPatch(
   const nextName = name.trim();
   if (!nextName) return null;
   const nextDescription = description.trim();
-  const unchanged =
-    nextName === project.name &&
-    nextDescription === (project.description ?? "");
-  if (unchanged) return null;
-  return { name: nextName, description: nextDescription || null };
+  const patch: UpdateProjectPatch = {};
+  if (nextName !== project.name) patch.name = nextName;
+  if (nextDescription !== (project.description ?? "")) {
+    patch.description = nextDescription || null;
+  }
+  return Object.keys(patch).length === 0 ? null : patch;
 }
 
 /** Seeded from the project at mount — i.e. each time the dialog opens — and

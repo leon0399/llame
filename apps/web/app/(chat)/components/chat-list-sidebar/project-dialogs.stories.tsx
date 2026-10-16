@@ -469,9 +469,11 @@ export const SettingsChanged: SettingsStory = {
 
 /**
  * Emptying the description saves it as an explicit null — the stored form of
- * "no description" — rather than as an empty string.
+ * "no description" — and sends only that field: an untouched name is omitted,
+ * not echoed back, so a rename that landed elsewhere while the dialog was open
+ * survives a save made to edit prose.
  *
- * @summary settings: an emptied description is sent as null
+ * @summary settings: an emptied description is sent as null, without the name
  */
 export const SettingsClearsDescription: SettingsStory = {
   tags: ["ai-generated"],
@@ -487,9 +489,33 @@ export const SettingsClearsDescription: SettingsStory = {
     await waitFor(() => expect(args.onOpenChange).toHaveBeenCalledWith(false));
     const request = await sentRequest();
     await expect(request.clone().json()).resolves.toEqual({
-      name: "Acme relaunch",
       description: null,
     });
+  },
+};
+
+/**
+ * The mirror of the case above: editing the name alone sends only the name, so
+ * a description that landed elsewhere while the dialog was open is not cleared
+ * by a save made to rename.
+ *
+ * @summary settings: a name-only edit is sent without the description
+ */
+export const SettingsRename: SettingsStory = {
+  tags: ["ai-generated"],
+  args: settingsArgs,
+  render: (args) => <SettingsProjectDialog {...args} />,
+  play: async ({ args }) => {
+    const dialog = await openedDialog("dialog", "Project settings");
+    const name = dialog.getByLabelText("Name");
+
+    await userEvent.clear(name);
+    await userEvent.type(name, "Renamed");
+    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(args.onOpenChange).toHaveBeenCalledWith(false));
+    const request = await sentRequest();
+    await expect(request.clone().json()).resolves.toEqual({ name: "Renamed" });
   },
 };
 

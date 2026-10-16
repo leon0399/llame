@@ -27,12 +27,12 @@ export class CreateProjectDto {
   name!: string;
 }
 
-// PATCH /api/v1/projects/:id — partial update. `name` is the only mutable
-// field today. ValidateIf (not IsOptional): IsOptional also waves an explicit
-// `null` through, and `name` is a NOT NULL column — an explicit null would
-// otherwise reach the repository and fail as a DB constraint violation (500)
-// instead of a clean 400. Only absence skips validation, mirroring
-// UpdateChatDto.title.
+// PATCH /api/v1/projects/:id — partial update. `name`, `description`, and
+// `archived` are the mutable fields. ValidateIf (not IsOptional) — here and on
+// `name`, unlike `description` below: IsOptional also waves an explicit `null`
+// through, and `name` is a NOT NULL column, so an explicit null would otherwise
+// reach the repository and fail as a DB constraint violation (500) instead of a
+// clean 400. Only absence skips validation, mirroring UpdateChatDto.title.
 export class UpdateProjectDto {
   @ApiPropertyOptional({ minLength: 1, maxLength: 200 })
   @ValidateIf((o: UpdateProjectDto) => o.name !== undefined)

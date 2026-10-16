@@ -227,7 +227,8 @@ function ProjectRowLabel({
 
 // One project row, mirroring ChatItem's shape: icon + name, a live pin
 // toggle (design D2/D5a — the unified /api/v1/pins resource, pins is the
-// sole source of pin state), and a "…" menu with Rename / Archive / Delete.
+// sole source of pin state), and a "…" menu with Rename / Settings / Archive /
+// Delete.
 type ProjectItemProps = {
   project: ProjectResponse;
   isActive: boolean;
