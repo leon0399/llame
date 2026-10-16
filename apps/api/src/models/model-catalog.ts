@@ -97,13 +97,6 @@ export interface PublicModelCatalogEntry {
 }
 
 /**
- * The internal execution-side entry: adds the server-only provider reference,
- * the optional per-model compaction and output-token overrides, and the
- * operator's provider-options object, none of which is display metadata or
- * exposed via `GET /api/v1/models` (same non-exposure rule as
- * `providerModelId`).
- */
-/**
  * Raw per-user values for one run, before escaping (add-user-personalization).
  * The caller decides WHICH values may render — the owner's `enabled` and
  * `shareAccountIdentity` toggles; the prompt loader decides HOW: escaping,
@@ -161,6 +154,13 @@ export type PromptSkillsInput = {
   omitted: number;
 };
 
+/**
+ * The internal execution-side entry: adds the server-only provider reference,
+ * the optional per-model compaction and output-token overrides, and the
+ * operator's provider-options object, none of which is display metadata or
+ * exposed via `GET /api/v1/models` (same non-exposure rule as
+ * `providerModelId`).
+ */
 export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** References a `providers[].id` in the resolved instance config. */
   provider: string;

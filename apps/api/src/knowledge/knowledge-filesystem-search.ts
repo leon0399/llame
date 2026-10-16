@@ -107,11 +107,6 @@ function advanceActiveInterval(
   return active;
 }
 
-/**
- * Bounded passage extraction shared by the live adapter and focused unit tests.
- * Logical lines intentionally match the ranged reader: only LF terminates a
- * line, and a preceding CR belongs to that delimiter as CRLF.
- */
 /** Constant across the whole scan — the folded query and the emit context
  *  every line's occurrence check and interval update shares. */
 type KnowledgeSearchScan = {
@@ -141,6 +136,11 @@ function advanceKnowledgeSearchLine(
   return advanceActiveInterval(step, active, scan.ctx);
 }
 
+/**
+ * Bounded passage extraction shared by the live adapter and focused unit tests.
+ * Logical lines intentionally match the ranged reader: only LF terminates a
+ * line, and a preceding CR belongs to that delimiter as CRLF.
+ */
 export async function collectKnowledgePassages(
   relativePath: string,
   text: string,

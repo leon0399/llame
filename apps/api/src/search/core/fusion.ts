@@ -127,17 +127,6 @@ export interface HybridSearchConfig {
 }
 
 /**
- * Build the hybrid lexical search query for the shared "chunks grouped into a
- * parent, plus a parent-field (title) leg" shape. Three ranked candidate legs
- * (FTS, trigram over documents; ILIKE/word_similarity over the parent), RRF-fused;
- * documents roll up to their parent with weighted top-3 aggregation; the parent
- * (title) leg fuses at parent level. Ordering is PURE RELEVANCE with a recency +
- * id tie-break (grill decision D4). The expensive `ts_headline` snippet is
- * computed only for the final page (after the LIMIT), over the best document of
- * each returned chat; a title-only match has a NULL snippet. Returns a drizzle
- * `SQL` ready for `db.execute`.
- */
-/**
  * The qualified column references and derived score expressions the query
  * assembly below interpolates, resolved once from the caller's column NAMES
  * (`config.document`/`config.parent`) so `buildHybridSearchQuery` itself
@@ -371,6 +360,17 @@ function buildFusedRanked(config: HybridSearchConfig, refs: QueryRefs) {
   `;
 }
 
+/**
+ * Build the hybrid lexical search query for the shared "chunks grouped into a
+ * parent, plus a parent-field (title) leg" shape. Three ranked candidate legs
+ * (FTS, trigram over documents; ILIKE/word_similarity over the parent), RRF-fused;
+ * documents roll up to their parent with weighted top-3 aggregation; the parent
+ * (title) leg fuses at parent level. Ordering is PURE RELEVANCE with a recency +
+ * id tie-break (grill decision D4). The expensive `ts_headline` snippet is
+ * computed only for the final page (after the LIMIT), over the best document of
+ * each returned chat; a title-only match has a NULL snippet. Returns a drizzle
+ * `SQL` ready for `db.execute`.
+ */
 export function buildHybridSearchQuery(config: HybridSearchConfig): SQL {
   assertScopePredicate(config.scope.document);
   assertScopePredicate(config.scope.parent);

@@ -442,7 +442,6 @@ function findConversationReadResult(value: JsonValue): boolean {
   return Object.values(parsed).some(findConversationReadResult);
 }
 
-/** Classify native and fixture-MCP tool-loop requests independently. */
 /**
  * Which knowledge-fixture scenario a prompt is asking for.
  *
@@ -499,6 +498,7 @@ function classifyKnowledgeRequest(content: string) {
   };
 }
 
+/** Classify native and fixture-MCP tool-loop requests independently. */
 function classify(raw: string) {
   try {
     // SAFETY: raw is this fixture's own /chat/completions request body --

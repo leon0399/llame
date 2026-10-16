@@ -31,17 +31,6 @@ interface ShortenedList {
 /** How many shortened lists the marker names before summarizing the rest. */
 const NAMED_LIST_LIMIT = 3;
 
-/**
- * Apply one shrink limit uniformly: strings keep their first `limit` code
- * units, arrays their first `limit` elements, nested objects their first
- * `limit` entries. Structure is preserved throughout — nothing is ever
- * re-serialized into a string, so redaction applied before truncation cannot
- * be defeated by an alternate representation (`mcp-tools` spec).
- *
- * Shortened lists are collected into `lists` as they are found: cut prose is
- * self-evident to a reader, but a list that quietly lost its tail reads as a
- * complete one, so the model is told what it kept of what.
- */
 /** The JSON-like shape `capValues`/`capRecord` preserve while shortening. */
 type CappedValue =
   | string
@@ -76,6 +65,17 @@ function capRecord(
   );
 }
 
+/**
+ * Apply one shrink limit uniformly: strings keep their first `limit` code
+ * units, arrays their first `limit` elements, nested objects their first
+ * `limit` entries. Structure is preserved throughout — nothing is ever
+ * re-serialized into a string, so redaction applied before truncation cannot
+ * be defeated by an alternate representation (`mcp-tools` spec).
+ *
+ * Shortened lists are collected into `lists` as they are found: cut prose is
+ * self-evident to a reader, but a list that quietly lost its tail reads as a
+ * complete one, so the model is told what it kept of what.
+ */
 function capValues(value: unknown, ctx: CapContext, path = ""): CappedValue {
   if (isString(value)) {
     return cutStringAtCodePointBoundary(value, ctx.limit);

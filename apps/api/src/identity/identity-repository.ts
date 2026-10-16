@@ -239,8 +239,7 @@ export class OrgUnitsRepository {
    * call time — see `lockTreeRoots`' doc for why locking anything narrower
    * than the tree root, or trusting a pre-lock read, doesn't close the
    * race). Move-to-root (`newParent` absent) needs only the source root.
-   */
-  /**
+   *
    * Returns the moved unit's post-move row, or `undefined` when the update
    * affected zero rows — the RLS zero-rows-under-USING landmine (3.x): if the
    * caller lacks admin-tier anywhere on the OLD path, `org_units_update`'s

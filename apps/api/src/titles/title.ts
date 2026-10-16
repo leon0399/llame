@@ -1,7 +1,3 @@
-import { jsonSchema } from 'ai';
-
-import { loadPackagedTemplate } from '../prompts/template-engine';
-
 /**
  * Chat title generation (#78) — pure logic.
  *
@@ -15,6 +11,10 @@ import { loadPackagedTemplate } from '../prompts/template-engine';
  * English. The LangChain tool-call output is replaced with plain text, so the
  * sanitation below still guards against models that add quotes or markdown.
  */
+
+import { jsonSchema } from 'ai';
+
+import { loadPackagedTemplate } from '../prompts/template-engine';
 
 /**
  * The title system prompt, packaged as `prompts/system.md` and rendered once at
@@ -33,13 +33,6 @@ const renderTitleSystemTemplate = loadPackagedTemplate<Record<string, never>>(
 
 export const TITLE_SYSTEM_PROMPT = renderTitleSystemTemplate({});
 
-/**
- * Schema for structured title generation — the pre-cutover generator forced a
- * generate_title tool call for exactly this reason: a schema-constrained output
- * can't ramble ("Sure! Here's a title: …") the way free text sometimes does.
- * Kept as plain JSON Schema (the AI SDK wraps it via jsonSchema()) — no zod
- * dependency in the api.
- */
 /** Tool identity from the pre-cutover generator's generate_title tool. */
 export const TITLE_SCHEMA_NAME = 'generate_title';
 export const TITLE_SCHEMA_DESCRIPTION =
@@ -50,6 +43,12 @@ export interface GeneratedTitle {
 }
 
 /**
+ * Schema for structured title generation — the pre-cutover generator forced a
+ * generate_title tool call for exactly this reason: a schema-constrained output
+ * can't ramble ("Sure! Here's a title: …") the way free text sometimes does.
+ * Kept as plain JSON Schema (the AI SDK wraps it via jsonSchema()) — no zod
+ * dependency in the api.
+ *
  * Typed schema handle: jsonSchema<T> binds the JSON Schema sent to the
  * provider to the TS type it produces, so generateObject results are typed
  * end-to-end (the SDK validates the tool-call input against this schema).

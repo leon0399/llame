@@ -419,6 +419,12 @@ function applyMembers(path: string, value: string, raw: boolean): ReadTarget {
   };
 }
 
+/** A native path split into its locator and optional read selector. */
+export interface SelectorSplit {
+  readonly path: string;
+  readonly selector?: string;
+}
+
 /**
  * Split the `path:selector` suffix off `input`: the `:raw` and `:outline`
  * forms claim everything after their marker, any other suffix splits at the
@@ -430,12 +436,6 @@ function applyMembers(path: string, value: string, raw: boolean): ReadTarget {
  * returned unvalidated — a caller that acts on it applies the shared grammar,
  * which rejects what the shape gate admits but the bounds do not.
  */
-/** A native path split into its locator and optional read selector. */
-export interface SelectorSplit {
-  readonly path: string;
-  readonly selector?: string;
-}
-
 export function splitSelectorSuffix(input: string): SelectorSplit {
   const raw = /:raw(?::([^:/]*))?$/.exec(input);
   if (raw) {

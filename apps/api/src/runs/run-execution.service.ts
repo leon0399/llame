@@ -707,17 +707,6 @@ function appendDerivedDecision(
   decisions.push({ ...decision.decision, kind: decision.kind });
 }
 
-/**
- * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
- * assembly, the model call, and every durable side effect (assistant turn,
- * run lifecycle + model.delta events, pre-step checkpointing and titling).
- *
- * Extracted from the HTTP-coupled ChatLoopService so the exact same execution
- * drives both venues: the queue worker calls executeRun and the request thread
- * streams from persisted run events. Everything here is transport-agnostic — no
- * HTTP types, and the caller supplies the ModelClient after resolving the run's
- * stored model id.
- */
 /** The capabilities the runs worker needs to drive and terminalize a turn. */
 export type RunExecutor = Pick<
   RunExecutionService,
@@ -743,6 +732,17 @@ type InstanceConfigWithIdentity = InstanceConfigReader &
  */
 type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 
+/**
+ * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
+ * assembly, the model call, and every durable side effect (assistant turn,
+ * run lifecycle + model.delta events, pre-step checkpointing and titling).
+ *
+ * Extracted from the HTTP-coupled ChatLoopService so the exact same execution
+ * drives both venues: the queue worker calls executeRun and the request thread
+ * streams from persisted run events. Everything here is transport-agnostic — no
+ * HTTP types, and the caller supplies the ModelClient after resolving the run's
+ * stored model id.
+ */
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
@@ -3521,11 +3521,6 @@ export class RunExecutionService {
   }
 
   /**
-   * Work that must NOT share the terminal transaction: it is best-effort, and
-   * a failure here must not roll back the committed turn. No-op when nothing
-   * was persisted (dual-fire, or the chat vanished mid-stream).
-   */
-  /**
    * Bump the chat's activity time so an in-place assistant-reply update
    * (which leaves messages.created_at unchanged) still moves the search
    * staleness high-water mark — the reindex sweep's backstop for a lost
@@ -3581,6 +3576,11 @@ export class RunExecutionService {
     }
   }
 
+  /**
+   * Work that must NOT share the terminal transaction: it is best-effort, and
+   * a failure here must not roll back the committed turn. No-op when nothing
+   * was persisted (dual-fire, or the chat vanished mid-stream).
+   */
   private async afterAssistantTurn(
     assistantMessage: Message | undefined,
     userId: string,

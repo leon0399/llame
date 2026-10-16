@@ -14,24 +14,6 @@ import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 
 /**
- * Executable provider client implementations (providers-and-models-as-code,
- * #167). `type` names the wire API the entry speaks — never inferred from
- * the `id`, the `baseUrl`, or a host: `openai-responses` executes the
- * Responses API through `@ai-sdk/openai` (hosted OpenAI or any compatible
- * `/v1/responses` server); `openai-completions` executes the Chat
- * Completions API through `@ai-sdk/openai-compatible` at its required
- * `baseUrl`; `anthropic-messages` executes the Messages API through
- * `@ai-sdk/anthropic` at its optional `baseUrl` (the Anthropic API by
- * default, a Messages-speaking gateway when configured); `openai-codex`
- * uses the personal Codex subscription backend; `opencode-go` executes the
- * Chat Completions wire against the OpenCode Go subscription gateway, at a
- * destination fixed in llame's code, from a required `key` and no endpoint
- * field of its own.
- * This set is strict-closed on purpose — a schema that advertised a `type`
- * it cannot execute would fail at request time instead of at the offending
- * config path.
- */
-/**
  * A configured provider connection: `type` selects the client
  * implementation, `key`/`baseUrl` are resolved (interpolated) values.
  * Providers are duplicable — two entries of the same `type` with distinct
@@ -105,6 +87,24 @@ export type OpenCodeGoProviderConfig = {
   headers: RequestHeaderTemplates;
 };
 
+/**
+ * Executable provider client implementations (providers-and-models-as-code,
+ * #167). `type` names the wire API the entry speaks — never inferred from
+ * the `id`, the `baseUrl`, or a host: `openai-responses` executes the
+ * Responses API through `@ai-sdk/openai` (hosted OpenAI or any compatible
+ * `/v1/responses` server); `openai-completions` executes the Chat
+ * Completions API through `@ai-sdk/openai-compatible` at its required
+ * `baseUrl`; `anthropic-messages` executes the Messages API through
+ * `@ai-sdk/anthropic` at its optional `baseUrl` (the Anthropic API by
+ * default, a Messages-speaking gateway when configured); `openai-codex`
+ * uses the personal Codex subscription backend; `opencode-go` executes the
+ * Chat Completions wire against the OpenCode Go subscription gateway, at a
+ * destination fixed in llame's code, from a required `key` and no endpoint
+ * field of its own.
+ * This set is strict-closed on purpose — a schema that advertised a `type`
+ * it cannot execute would fail at request time instead of at the offending
+ * config path.
+ */
 export type ProviderConfig =
   | OpenAIResponsesProviderConfig
   | OpenAICompletionsProviderConfig
@@ -473,15 +473,6 @@ export type RawModelEntry = {
   releasedAt?: string;
 };
 
-/**
- * The raw config document's shape once `assertValidRaw` (config-loader.ts)
- * has run the closed published JSON Schema over it — the composite fields
- * below are what the schema guarantees about their element/entry shape, not
- * a re-derivation of it. Scalar leaves stay `unknown`: `readLeaf` derives
- * per-group-and-key presence generically, and each resolver narrows its own
- * leaf with its own runtime check. Extending `Record<string, unknown>` keeps
- * this assignable everywhere a plain parsed-JSON record is still expected.
- */
 /** The still-uninterpolated web adapter entry once schema-validated. */
 export type RawWebAdapterEntry =
   | {
@@ -543,6 +534,15 @@ export type RawToolsConfig = {
   webAdapters?: Array<RawWebAdapterEntry>;
 };
 
+/**
+ * The raw config document's shape once `assertValidRaw` (config-loader.ts)
+ * has run the closed published JSON Schema over it — the composite fields
+ * below are what the schema guarantees about their element/entry shape, not
+ * a re-derivation of it. Scalar leaves stay `unknown`: `readLeaf` derives
+ * per-group-and-key presence generically, and each resolver narrows its own
+ * leaf with its own runtime check. Extending `Record<string, unknown>` keeps
+ * this assignable everywhere a plain parsed-JSON record is still expected.
+ */
 export interface RawInstanceConfig extends Record<string, unknown> {
   tools?: RawToolsConfig;
   mcpServers?: Record<string, RawMcpServerEntry>;

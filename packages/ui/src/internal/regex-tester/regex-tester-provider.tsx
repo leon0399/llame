@@ -270,17 +270,6 @@ export type RegexTesterOverlayResolver = (
 ) => HTMLElement | undefined;
 
 /**
- * Owns the click-to-target state machine: which token (if any) is active,
- * whether the popover is open, and which stage it shows. Derives
- * `activeTarget` from `target` rather than syncing it through an effect —
- * Streamdown re-renders a block on every tick until it is complete, so a
- * token clicked mid-stream can have its DOM node replaced underneath us,
- * leaving the popover anchored to a detached element that measures as a
- * zero-size box at the origin. This provider re-renders with the message
- * content, so the stale anchor is gone from the same render that replaced
- * it.
- */
-/**
  * Resolves the clicked `[data-regex-token]` descendant (if any) into a new
  * target, re-validating the attribute since it is DOM state, not trusted.
  */
@@ -314,6 +303,17 @@ function resolveClickTarget(
   };
 }
 
+/**
+ * Owns the click-to-target state machine: which token (if any) is active,
+ * whether the popover is open, and which stage it shows. Derives
+ * `activeTarget` from `target` rather than syncing it through an effect —
+ * Streamdown re-renders a block on every tick until it is complete, so a
+ * token clicked mid-stream can have its DOM node replaced underneath us,
+ * leaving the popover anchored to a detached element that measures as a
+ * zero-size box at the origin. This provider re-renders with the message
+ * content, so the stale anchor is gone from the same render that replaced
+ * it.
+ */
 function useRegexTesterState(
   resolveOverlayContainer: RegexTesterOverlayResolver,
 ) {

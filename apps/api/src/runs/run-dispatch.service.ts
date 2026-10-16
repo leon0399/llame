@@ -6,16 +6,16 @@ import { QUEUE, type JobState, type Queue } from '../queue/queue';
 import { failRunTransactionally } from './run-reply-finalizer';
 import { RUNS_QUEUE, runsQueueDefinition, type RunJob } from './run-queues';
 
+/** The chat send path's view of the publish side: enqueue a committed run and
+ *  read that run's job state (#268). */
+export type RunDispatcher = Pick<RunDispatchService, 'dispatch' | 'jobState'>;
+
 /**
  * RunDispatchService (#48/#50) — the publish side of run execution: the queue
  * declaration and the fail-the-run-on-enqueue-failure contract. Owns every
  * queue-facing detail so callers (the chat loop) know nothing about queue
  * names or payload shapes — dispatching a run is one call.
  */
-/** The chat send path's view of the publish side: enqueue a committed run and
- *  read that run's job state (#268). */
-export type RunDispatcher = Pick<RunDispatchService, 'dispatch' | 'jobState'>;
-
 @Injectable()
 export class RunDispatchService {
   private readonly logger = new Logger(RunDispatchService.name);

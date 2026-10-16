@@ -143,6 +143,10 @@ function embedGuardWhere(
   return sql`id = ${id} AND content_hash = ${contentHash} AND embed_input_version IS NOT DISTINCT FROM ${priorEmbedInputVersion}`;
 }
 
+/** The model/version identity every embedding write stamps — travels
+ *  together across `persistEmbeddingSuccess`/`persistEmbeddingFailure`. */
+type EmbedTarget = { readonly modelKey: string; readonly inputVersion: number };
+
 /**
  * Conditional persist of a successfully embedded document (design D7/D15).
  * See `embedGuardWhere` for the WHERE clause's guarantee.
@@ -152,10 +156,6 @@ function embedGuardWhere(
  * would let the lexical staleness predicate re-flag the chat, triggering a
  * rebuild, which enqueues an embed, forever.
  */
-/** The model/version identity every embedding write stamps — travels
- *  together across `persistEmbeddingSuccess`/`persistEmbeddingFailure`. */
-type EmbedTarget = { readonly modelKey: string; readonly inputVersion: number };
-
 async function persistEmbeddingSuccess(
   tx: Db,
   result: EmbeddingResult,
@@ -418,14 +418,6 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     void this.dispatch.enqueueChatEmbed(chatId, ownerUserId);
   }
 
-  /**
-   * One batch: re-query outstanding documents under `runAs(owner)`, close
-   * the transaction, embed over the network with NO transaction open
-   * (design D15 rule 1 — the embed's own persist takes a row-level lock a
-   * concurrent rebuild wants, so holding it across a provider call would
-   * block rebuilds directly), then persist conditionally in a short
-   * transaction (READ COMMITTED — `runAs`'s default, matching D15 rule 3).
-   */
   /** Persist every successfully embedded result, then (D1) write the binding
    *  ledger row on the first vector this batch actually persisted — see
    *  `ensureBindingLedgerRow`'s own comment. Returns how many wrote. */
@@ -555,6 +547,14 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     });
   }
 
+  /**
+   * One batch: re-query outstanding documents under `runAs(owner)`, close
+   * the transaction, embed over the network with NO transaction open
+   * (design D15 rule 1 — the embed's own persist takes a row-level lock a
+   * concurrent rebuild wants, so holding it across a provider call would
+   * block rebuilds directly), then persist conditionally in a short
+   * transaction (READ COMMITTED — `runAs`'s default, matching D15 rule 3).
+   */
   private async processBatch(
     chatId: string,
     ownerUserId: string,

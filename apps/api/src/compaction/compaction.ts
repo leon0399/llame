@@ -55,9 +55,7 @@ export type CompactionVariant = 'threshold' | 'window';
  * prose. The section headings and rules are literal text in
  * `prompts/instruction.md`; `compaction.test.ts` pins them against the
  * rendered instruction.
- */
-
-/**
+ *
  * Keeps the owner's standing profile out of the persisted checkpoint
  * (add-user-personalization D7).
  *

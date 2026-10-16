@@ -35,12 +35,6 @@ function sqlFile(relativePath: string): string {
 }
 
 /**
- * Reproduces the worst-case self-hosted role topology on a fresh container
- * and returns the `app` connection plus an unrelated login used to prove
- * PUBLIC cannot execute privileged functions. Every client it opens is closed
- * on the way out, including when a step throws.
- */
-/**
  * Cluster-level superuser work: the two login roles and the test database.
  * Separate from the rest because it runs on a DIFFERENT connection, before
  * `llame_test` exists to connect to.
@@ -113,6 +107,12 @@ async function prepareTestDatabase(
   }
 }
 
+/**
+ * Reproduces the worst-case self-hosted role topology on a fresh container
+ * and returns the `app` connection plus an unrelated login used to prove
+ * PUBLIC cannot execute privileged functions. Every client it opens is closed
+ * on the way out, including when a step throws.
+ */
 async function provision(
   superuserUri: string,
 ): Promise<{ appUrl: string; unprivilegedUrl: string }> {
