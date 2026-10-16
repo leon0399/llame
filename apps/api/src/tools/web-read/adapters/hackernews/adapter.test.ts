@@ -206,6 +206,7 @@ describe('Hacker News adapter read', () => {
         story('5002', { url: null, points: 55, num_comments: 0 }),
         story('5003', { url: null, points: null, num_comments: null }),
       ],
+      nbHits: 3,
     };
 
     const { outcome, urls } = await read('https://news.ycombinator.com/', [
@@ -227,12 +228,12 @@ describe('Hacker News adapter read', () => {
     });
   });
 
-  it('reads the newest page by date and notes a full page', async () => {
+  it('reads the newest page by date and notes a truncated page', async () => {
     const hits = Array.from({ length: 30 }, (_, index) => story(`n${index}`));
 
     const { outcome, urls } = await read(
       'https://news.ycombinator.com/newest',
-      [[NEWEST_URL, response({ hits })]],
+      [[NEWEST_URL, response({ hits, nbHits: 5000 })]],
     );
 
     expect(urls).toStrictEqual([NEWEST_URL]);
@@ -242,9 +243,19 @@ describe('Hacker News adapter read', () => {
     });
   });
 
+  it('does not note a page that is the whole list', async () => {
+    const hits = Array.from({ length: 30 }, (_, index) => story(`f${index}`));
+
+    const { outcome } = await read('https://news.ycombinator.com/news', [
+      [FRONT_URL, response({ hits, nbHits: 30 })],
+    ]);
+
+    expect(outcome).toMatchObject({ kind: 'rendered', notes: [] });
+  });
+
   it('renders an empty list as No stories', async () => {
     const { outcome } = await read('https://news.ycombinator.com/news', [
-      [FRONT_URL, response({ hits: [] })],
+      [FRONT_URL, response({ hits: [], nbHits: 0 })],
     ]);
 
     expect(outcome.kind).toBe('rendered');

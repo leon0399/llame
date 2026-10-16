@@ -948,7 +948,7 @@
                   "use": {
                     "type": "string",
                     "enum": ["hackernews"],
-                    "description": "Adapter implementation for news.ycombinator.com item URLs."
+                    "description": "Adapter implementation for news.ycombinator.com item and story-list URLs."
                   }
                 }
               },

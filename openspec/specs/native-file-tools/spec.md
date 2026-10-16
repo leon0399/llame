@@ -2701,9 +2701,10 @@ for `/newest`; a failed or unparsable response SHALL fall through.
 The render SHALL be `# Hacker News: front page` or `# Hacker News: newest`,
 then the first 30 stories as `- **{title}** — {points} points — {comments}
 comments — {url} — {item URL}` bullets, omitting the fields the API does not
-report; an empty page SHALL render `No stories.`, and a full page SHALL add a
-`stories truncated: the first 30 only` note. The front page's set matches the
-site's, in the API's points order.
+report; an empty page SHALL render `No stories.`, and a page whose API match
+count exceeds the shown stories SHALL add a `stories truncated: the first 30
+only` note. The front page's set matches the site's, in the API's points
+order.
 
 #### Scenario: The front page renders as a story list
 

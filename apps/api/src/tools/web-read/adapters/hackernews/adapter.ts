@@ -63,7 +63,7 @@ const STORY = z.object({
   num_comments: z.number().nullable().default(null),
 });
 type Story = z.infer<typeof STORY>;
-const SEARCH = z.object({ hits: z.array(STORY) });
+const SEARCH = z.object({ hits: z.array(STORY), nbHits: z.number() });
 
 /** A story-list page and the Algolia query it maps to. */
 type StoryList = {
@@ -175,7 +175,7 @@ async function readList(
     content: renderList(page, search.hits),
     mediaType: 'text/markdown',
     notes:
-      search.hits.length === LIST_PAGE_SIZE
+      search.nbHits > search.hits.length
         ? [`stories truncated: the first ${LIST_PAGE_SIZE} only`]
         : [],
   };
