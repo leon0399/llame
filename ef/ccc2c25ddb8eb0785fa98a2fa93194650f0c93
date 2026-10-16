@@ -1,0 +1,23 @@
+.gitattributes
+  6c7fcdc962597e7d 18-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "efccc2c25ddb8eb0785fa98a2fa93194650f0c93",
+  "prompts": {
+    "6c7fcdc962597e7d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9af45d1e-990b-48cf-bd63-4bacd9ff0fc0",
+        "model": "unknown"
+      },
+      "human_author": "leon0399 <leon.03.99@gmail.com>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 0,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}
