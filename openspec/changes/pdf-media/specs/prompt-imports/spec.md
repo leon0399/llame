@@ -141,7 +141,7 @@ entry SHALL carry a `thumbnail`, and a client SHALL never supply any of these ke
 
 The API's payload validator SHALL validate an entry without `kind` as an image entry and an entry
 carrying `kind` `pdf` as a PDF entry, and SHALL reject as malformed any entry that departs from the
-closed shape it claims.
+closed shape it claims. It SHALL reject as malformed an entry carrying `kind` with any other value.
 
 #### Scenario: A malformed image entry is rejected
 
@@ -196,8 +196,8 @@ closed shape it claims.
 - **THEN** the validator accepts it only with the keys `locator`, optional `resolved`, `outcome`
   `imported`, `kind` `pdf`, `mediaType` `application/pdf`, `pages` as an integer from 1 through 100,
   `byteSize` as a positive integer, and optional `media`
-- **AND** it rejects as malformed a `kind` with any other value, and a PDF entry lacking one of its
-  required keys or carrying `truncated`, `thumbnail`, `width`, `height`, or any other key
+- **AND** it rejects as malformed a PDF entry lacking one of its required keys or carrying
+  `truncated`, `thumbnail`, `width`, `height`, or any other key
 
 ### Requirement: Image entry payloads are never sent to a model
 

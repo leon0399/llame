@@ -508,17 +508,17 @@ dimension-based and page-based token estimates.
 
 #### Scenario: Each reference kind reports the byte size the window sums
 
-- **WHEN** any request's epoch image window sums the base64 sizes of a stored image, a stored PDF, and
-  an unstored image or PDF
-- **THEN** it takes the media descriptor's `model.byteSize` for the stored image, the descriptor's
-  `byteSize` for the stored PDF, and the byte size the attempt-memory entry records for an unstored
+- **WHEN** any request's epoch image window sums the base64 size of any media reference
+- **THEN** it takes the media descriptor's `model.byteSize` for a stored image, the descriptor's
+  `byteSize` for a stored PDF, and the byte size the attempt-memory entry records for an unstored
   image or PDF, which the entry keeps after its bytes are released
 
 ### Requirement: Only attachable references count toward the window
 
-An attachable reference SHALL be one of a kind the request's model declares as input, `image` for an
-image and `pdf` for a PDF. A not-retained, unavailable, or omitted reference SHALL NOT count toward
-any bound of the epoch image window.
+An attachable reference SHALL be an owner file part, a `media://` tool result or prompt-import entry,
+or an unstored image or PDF, of a kind the request's model declares as input (`image` for an image
+and `pdf` for a PDF). A not-retained, unavailable, or omitted reference SHALL NOT count toward any
+bound of the epoch image window.
 
 #### Scenario: A not-retained read does not count
 
@@ -660,7 +660,7 @@ compact after its first model step.
 
 #### Scenario: The stored reference must be of a declared input kind
 
-- **WHEN** an overflowing request's earlier rows hold a stored image and a stored PDF
+- **WHEN** an overflowing request's earlier rows hold a stored image or a stored PDF
 - **THEN** the stored image counts as that stored reference only on a model that declares `image`
   input, and the stored PDF only on a model that declares `pdf` input
 
