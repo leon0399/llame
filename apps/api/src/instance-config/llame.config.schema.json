@@ -936,7 +936,7 @@
               {
                 "type": "object",
                 "additionalProperties": false,
-                "description": "One native Hacker News adapter. It reads an item and its whole reply tree from the keyless hn.algolia.com API; it takes no credential.",
+                "description": "One native Hacker News adapter. It reads an item with its whole reply tree, and a story list's first page, from the keyless hn.algolia.com API; it takes no credential.",
                 "required": ["id", "use"],
                 "properties": {
                   "id": {

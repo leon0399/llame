@@ -2665,10 +2665,11 @@ anchors (such as GitHub-style heading links) removed.
 
 ### Requirement: Hacker News native adapter reads item threads
 
-A configured `hackernews` adapter SHALL claim only
+A configured `hackernews` adapter SHALL claim
 `https://news.ycombinator.com/item` locators whose `id` query parameter is a
-positive decimal item id, ignoring other query parameters; every other path
-SHALL be unclaimed. The adapter SHALL send one unauthenticated `GET` to
+positive decimal item id, ignoring other query parameters; the story-list
+paths are claimed by the story-list requirement below. The adapter SHALL send
+one unauthenticated `GET` to
 `https://hn.algolia.com/api/v1/items/{id}`; a failed or unparsable response,
 and a poll or poll option, SHALL fall through.
 
@@ -2686,6 +2687,29 @@ which the API omits together with their replies, are not rendered.
 - **WHEN** the model reads `https://news.ycombinator.com/item?id=8863`
 - **THEN** the adapter requests only `https://hn.algolia.com/api/v1/items/8863`
 - **AND** the text has one `Post` entry followed by one `Reply` entry per comment, each with `Source:` and `Date:` lines
+
+### Requirement: Hacker News native adapter reads story lists
+
+A configured `hackernews` adapter SHALL claim
+`https://news.ycombinator.com` locators for the front page (`/`, `/news`,
+`/front`) and `/newest`, ignoring query parameters; every other path SHALL be
+unclaimed. The adapter SHALL send one unauthenticated `GET`, with
+`hitsPerPage=30`, to `https://hn.algolia.com/api/v1/search?tags=front_page`
+for the front page and `https://hn.algolia.com/api/v1/search_by_date?tags=story`
+for `/newest`; a failed or unparsable response SHALL fall through.
+
+The render SHALL be `# Hacker News: front page` or `# Hacker News: newest`,
+then the first 30 stories as `- **{title}** — {points} points — {comments}
+comments — {url} — {item URL}` bullets, omitting the fields the API does not
+report; an empty page SHALL render `No stories.`, and a full page SHALL add a
+`stories truncated: the first 30 only` note. The front page's set matches the
+site's, in the API's points order.
+
+#### Scenario: The front page renders as a story list
+
+- **WHEN** the model reads `https://news.ycombinator.com/`
+- **THEN** the adapter requests only `https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=30`
+- **AND** the text has one bullet per story, each with its points, comment count, and item URL
 
 ### Requirement: DOI native adapter reads work metadata
 
