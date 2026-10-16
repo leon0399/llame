@@ -4,7 +4,7 @@
 
 See [`proposal.md`](proposal.md) — Why. Today the executor keeps one counter in
 module scope — `let activeProcesses = 0`
-(`packages/bash-executor/src/execute.ts:24`) — and compares it with a **per-call**
+(`packages/bash-executor/src/execute.ts:20`) — and compares it with a **per-call**
 `BashExecutorContext.maxProcesses` (`packages/bash-executor/src/types.ts:17`)
 that `apps/api/src/tools/bash.ts:41` sets to `1`. Admission reserves the slot
 before the durable `native.attempt` write and `runAdmitted` releases it in a
@@ -101,7 +101,8 @@ The reference and packaged description state the operator-selected per-worker
 scope without hardcoding a tunable number; refusal text names the actual capacity
 and says a fresh call may succeed after capacity frees. No automatic retry or
 replay is added. The operator page owns the key, default, validation, and restart
-instructions. A hardcoded four is rejected because it contradicts Q2-A.
+instructions. A hardcoded four is rejected because it contradicts this change's
+accepted requirement that the operator tunes the capacity.
 
 ## Risks / Trade-offs
 
