@@ -303,13 +303,13 @@ The system SHALL NOT verify that a declared level is accepted by the provider. A
 The optional `providerOptions` object carries provider-native request options for the adapter the entry's provider `type` selects, keyed as that adapter documents them. The published schema SHALL declare it as a typed free-form object, so the closed-schema rule applies to the `providerOptions` key itself and not to its contents. At load time the system SHALL validate only that it is a JSON object and SHALL otherwise retain it unchanged: it SHALL NOT constrain, interpret, or verify its keys or values against the adapter or the provider, because those vocabularies belong to the provider and change between releases. `{env:…}` and `{path:…}` interpolation syntax in any string value at any depth of the object SHALL fail startup naming the model id and the field before any token is resolved, so no interpolated secret can reach a request option. The object is not a credential channel: its contents are not redacted anywhere, and an operator SHALL NOT place a secret in it. The object is server-only and SHALL NOT be published in the public model catalog. How the retained options and the optional `maxOutputTokens` reach the provider, and what takes precedence over them, is specified by `provider-api-selection`.
 
 The optional `input` array declares the input modalities the model accepts. Its items SHALL come from
-the closed set `text` and `image`; the array SHALL contain `text` and SHALL NOT repeat an item. An
-absent `input` SHALL resolve to `["text"]`, and a present one SHALL be retained in its declared order.
-An item outside the set, an array without `text`, or a repeated item SHALL fail startup naming the
-model id and the field. The system SHALL NOT verify that a declared modality is accepted by the
-provider: a model declared with `image` that rejects images surfaces the provider's error when a Run
-sends it one. The resolved array is published on the model's available-model entry as required by
-`available-models`.
+the closed set `text`, `image`, and `pdf`; the array SHALL contain `text` and SHALL NOT repeat an
+item. An absent `input` SHALL resolve to `["text"]`, and a present one SHALL be retained in its
+declared order. An item outside the set, an array without `text`, or a repeated item SHALL fail
+startup naming the model id and the field. The system SHALL NOT verify that a declared modality is
+accepted by the provider: a model declared with `image` that rejects images, or with `pdf` that
+rejects PDFs, surfaces the provider's error when a Run sends it one. The resolved array is published
+on the model's available-model entry as required by `available-models`.
 
 #### Scenario: Model references a defined provider
 
@@ -443,6 +443,12 @@ sends it one. The resolved array is published on the model's available-model ent
 - **THEN** startup succeeds
 - **AND** the model's resolved `input` is `["text", "image"]`
 
+#### Scenario: PDF input is declared explicitly
+
+- **WHEN** a model entry sets `input` to `["text", "pdf"]`
+- **THEN** startup succeeds
+- **AND** the model's resolved `input` is `["text", "pdf"]`
+
 #### Scenario: Input without text fails startup
 
 - **WHEN** a model entry sets `input` to `["image"]` or to `[]`
@@ -458,6 +464,12 @@ sends it one. The resolved array is published on the model's available-model ent
 
 - **WHEN** a model entry sets `input` to `["text", "text"]` or `["text", "image", "image"]`
 - **THEN** startup fails naming the model id and the `input` field
+
+#### Scenario: Repeated PDF modality fails startup
+
+- **WHEN** a model entry sets `input` to `["text", "pdf", "pdf"]`
+- **THEN** startup fails naming the model id and the `input` field
+- **AND** no partial catalog is applied
 
 #### Scenario: Declared image input is not verified against the provider
 

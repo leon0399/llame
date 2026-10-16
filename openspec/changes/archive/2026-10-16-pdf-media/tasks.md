@@ -1,10 +1,10 @@
 Track [#1275](https://github.com/leon0399/llame/issues/1275), [#1277](https://github.com/leon0399/llame/issues/1277), and their PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's approval
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's approval
 of the published proposal revision; keep live status in the Project.
 
 Implementation is one `gh stack` rooted on `master`, one PR per layer, bottom to top. Every layer is
 created and published with `$gh-stack`, implemented with `$openspec-apply-change`, self-reviewed before
-it is marked ready, and monitored per [CONTRIBUTING.md](../../../CONTRIBUTING.md). Each implementation
+it is marked ready, and monitored per [CONTRIBUTING.md](../../../../CONTRIBUTING.md). Each implementation
 layer also gets one code-review and one ponytail-review subagent pass on its draft diff before ready.
 
 ```text
@@ -139,5 +139,9 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 Enter this layer with `$gh-stack` from the implementation top, before `$openspec-sync-specs`
 writes. Its self-review and GitHub review are post-archive gates, not tasks here.
 
-- [ ] 7.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass, or that every failure also fails on `master`
-- [ ] 7.2 Confirm `openspec status --change pdf-media --json` and this file show every task complete, run `$openspec-archive-change`, and verify `git diff --check` is clean
+- [x] 7.1 Run `$openspec-sync-specs`, then `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`; verify both pass, or that every failure also fails on `master`
+- [x] 7.2 Confirm `openspec status --change pdf-media --json` shows every planning artifact complete, every preceding task in this file is checked, and every delta is verified in sync; record archive readiness
+
+After 7.2 is checked, run `$openspec-archive-change` and verify `git diff --check`
+is clean. Then publish the finalize draft and complete its post-archive self-review
+and GitHub review gates before requesting merge authorization.
