@@ -594,7 +594,7 @@ SHALL instead take the PDF limit placeholder.
 
 A request prepared before a Run's first model step SHALL count as reaching its compaction threshold
 when it carries an image or PDF reference the epoch image window leaves unattached because its
-epoch's bounds are reached, and when a row before the triggering user message holds a stored
+epoch's bounds are reached, and a row before the triggering user message holds a stored
 reference attachable on the request's model, of a kind that model declares as input. A Run SHALL NOT
 compact after its first model step.
 
