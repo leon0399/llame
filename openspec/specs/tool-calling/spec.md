@@ -1441,8 +1441,9 @@ The code-owned tool inventory SHALL include `web_search`. It SHALL declare `read
 
 ### Requirement: PDF results are carried without bytes and their media locator survives the cap
 
-A PDF in a tool result SHALL be carried without PDF bytes and without a thumbnail, so the cap
-measures only the result's text. Truncation SHALL NOT cut, shorten, or omit the `media` locator of a
+A PDF in a tool result SHALL be carried without PDF bytes and without a thumbnail. The cap SHALL
+measure the serialized result's remaining fields, including its text and metadata. Truncation
+SHALL NOT cut, shorten, or omit the `media` locator of a
 `media://` PDF result: other values SHALL be shrunk and, at the floor, other fields omitted in its
 place, so a recorded `media://` PDF result always names the complete `media://` locator of the PDF
 it carries.
