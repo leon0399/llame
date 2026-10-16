@@ -132,7 +132,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 6.3 Document PDF attachments in `docs/product/reference/locators/media.md`; add the dated `CHANGELOG.md` entry; this layer's PR carries `Closes #1277`; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 6.4 Verify `pnpm --filter web lint`, `typecheck`, the `packages/ui` checks, and the focused E2E spec
 - [x] 6.5 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
-- [ ] 6.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
+- [x] 6.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 7. `pdf-media/finalize` — spec sync and archive
 
