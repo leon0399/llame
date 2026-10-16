@@ -14,7 +14,15 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 
+import { runStatus, type RunStatus } from '../db/schema/chats';
 import { TERMINAL_RUN_STATUSES } from '../runs/run-status';
+import type {
+  Change as LiveChange,
+  LiveMessage,
+  RunPhase,
+} from './generated/live-protocol';
+
+export type { LiveMessage, RunPhase } from './generated/live-protocol';
 
 /** The NOTIFY channel `llame_notify_change` writes to. */
 export const LIVE_CHANGES_CHANNEL = 'llame_changes';
@@ -31,7 +39,7 @@ export type ChangeNotification =
       owner: string;
       chat: string;
       run: string;
-      status: string;
+      status: RunStatus;
     }
   | {
       k: 'run_event';
@@ -43,23 +51,11 @@ export type ChangeNotification =
       type: string;
     };
 
-export type RunPhase = 'queued' | 'thinking' | 'tool' | 'writing' | 'finished';
+const RUN_STATUSES: ReadonlySet<string> = new Set(runStatus.enumValues);
 
-export type LiveChange = 'created' | 'updated' | 'deleted';
-
-export type LiveMessage =
-  | { type: 'chat.changed'; chatId: string; change: LiveChange }
-  | { type: 'project.changed'; projectId: string; change: LiveChange }
-  | { type: 'pin.changed'; itemId: string }
-  | {
-      type: 'run.progress';
-      runId: string;
-      chatId: string;
-      status: string;
-      phase: RunPhase;
-      step: number;
-    }
-  | { type: 'resync' };
+function isRunStatus(value: string | undefined): value is RunStatus {
+  return value !== undefined && RUN_STATUSES.has(value);
+}
 
 const OPS: ReadonlySet<string> = new Set(['insert', 'update', 'delete']);
 
@@ -120,7 +116,7 @@ function parseRun(
   const chat = str(parsed, 'chat');
   const run = str(parsed, 'run');
   const status = str(parsed, 'status');
-  if (!chat || !run || !status) return undefined;
+  if (!chat || !run || !isRunStatus(status)) return undefined;
   return { k: 'run', op, owner, chat, run, status };
 }
 
@@ -143,7 +139,11 @@ const CHANGE_OF_OP: Record<ChangeOp, LiveChange> = {
   delete: 'deleted',
 };
 
-const TERMINAL: ReadonlySet<string> = new Set(TERMINAL_RUN_STATUSES);
+const TERMINAL: ReadonlySet<RunStatus> = new Set(TERMINAL_RUN_STATUSES);
+/** `run.<status>` terminal events mapped to the status they record. */
+const TERMINAL_EVENT_STATUS: ReadonlyMap<string, RunStatus> = new Map(
+  TERMINAL_RUN_STATUSES.map((status) => [`run.${status}`, status]),
+);
 const FINISHED_CAP = 1024;
 
 /** Phase implied by one run event type; `undefined` leaves the phase unchanged. */
@@ -165,12 +165,12 @@ export function phaseOfEvent(eventType: string): RunPhase | undefined {
 
 type RunState = {
   chatId: string;
-  status: string;
+  status: RunStatus;
   phase: RunPhase;
   step: number;
 };
 
-type RunChange = { status?: string; phase?: RunPhase; stepped?: number };
+type RunChange = { status?: RunStatus; phase?: RunPhase; stepped?: number };
 
 /** Fold one change into a Run's summary. */
 function nextRunState(
@@ -234,11 +234,9 @@ export class RunProgressTracker {
     chatId: string,
     eventType: string,
   ): LiveMessage | undefined {
-    const terminal = /^run\.(completed|failed|cancelled|expired)$/.exec(
-      eventType,
-    );
+    const terminal = TERMINAL_EVENT_STATUS.get(eventType);
     if (terminal) {
-      return this.update(runId, chatId, { status: terminal[1] });
+      return this.update(runId, chatId, { status: terminal });
     }
     const phase = phaseOfEvent(eventType);
     const stepped = eventType === 'model.requested' ? 1 : 0;

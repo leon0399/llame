@@ -51,6 +51,7 @@
     "@workspace/config-typescript": "workspace:*",
     "eslint-plugin-sonarjs": "4.2.0",
     "jscpd": "5.0.16",
+    "json-schema-to-zod": "2.8.1",
     "knip": "6.32.2",
     "lefthook": "2.1.9",
     "markdownlint-cli2": "0.23.2",
@@ -61,7 +62,8 @@
     "tsx": "catalog:",
     "turbo": "^2.10.4",
     "typescript": "catalog:",
-    "typescript-language-server": "6.0.0"
+    "typescript-language-server": "6.0.0",
+    "yaml": "2.9.0"
   },
   "packageManager": "pnpm@12.9.0",
   "engines": {

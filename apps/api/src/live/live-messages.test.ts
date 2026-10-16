@@ -1,3 +1,4 @@
+import type { RunStatus } from '../db/schema/chats';
 import {
   parseChangeNotification,
   phaseOfEvent,
@@ -19,7 +20,7 @@ const runEvent = (type: string, seq = 1): ChangeNotification => ({
   type,
 });
 
-const runStatus = (status: string): ChangeNotification => ({
+const runStatus = (status: RunStatus): ChangeNotification => ({
   k: 'run',
   op: 'update',
   owner,

@@ -16,7 +16,7 @@ pre-commit:
       run: pnpm lint:code
 
     - name: OpenAPI lint
-      glob: &openapi-glob "{apps/api/openapi.json,apps/api/redocly.yaml}"
+      glob: &openapi-glob "{apps/api/openapi.json,apps/api/asyncapi.yaml,apps/api/redocly.yaml}"
       run: pnpm lint:openapi
 
     - name: dead-code lint

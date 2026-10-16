@@ -352,6 +352,9 @@ importers:
       jscpd:
         specifier: 5.0.16
         version: 5.0.16
+      json-schema-to-zod:
+        specifier: 2.8.1
+        version: 2.8.1
       knip:
         specifier: 6.32.2
         version: 6.32.2
@@ -385,6 +388,9 @@ importers:
       typescript-language-server:
         specifier: 6.0.0
         version: 6.0.0
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
 
   apps/api:
     dependencies:
@@ -7292,6 +7298,10 @@ packages:
 
   json-rpc-2.0@1.7.1:
     resolution: {integrity: sha512-JqZjhjAanbpkXIzFE7u8mE/iFblawwlXtONaCvRqI+pyABVz7B4M1EUNpyVW+dZjqgQ2L5HFmZCmOCgUKm00hg==}
+
+  json-schema-to-zod@2.8.1:
+    resolution: {integrity: sha512-fRr1mHgZ7hboLKBUdR428gd9dIHUFGivUqOeiDcSmyXkNZCtB1uGaZLvsjZ4GaN5pwBIs+TGIOf6s+Rp5/R/zA==}
+    hasBin: true
 
   json-schema-traverse@0.4.1:
     resolution: {integrity: sha512-xbbCH5dCYU5T8LcEhhuh7HJ88HXuW3qsI3Y0zOZFKfZEHcpWiHU/Jxzk629Brsab/mMiHQti9wMP+845RPe3Vg==}
@@ -15968,6 +15978,8 @@ snapshots:
   json-parse-even-better-errors@2.3.1: {}
 
   json-rpc-2.0@1.7.1: {}
+
+  json-schema-to-zod@2.8.1: {}
 
   json-schema-traverse@0.4.1: {}
 

@@ -3,5 +3,10 @@
   "extends": ["../../.oxlintrc.json"],
   "env": { "browser": true, "node": true },
   // Orval output is fixed at its OpenAPI or generator source.
-  "ignorePatterns": [".next/**", "next-env.d.ts", "lib/api/generated/**"]
+  "ignorePatterns": [
+    ".next/**",
+    "next-env.d.ts",
+    "lib/api/generated/**",
+    "lib/api/live-generated/**"
+  ]
 }

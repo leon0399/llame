@@ -1,52 +1,21 @@
 import { z } from "zod";
 
 import { getApiUrl } from "../../api/fetch";
-import { RunResponseStatus } from "../../api/generated/models";
+import {
+  LIVE_CHANNEL_ADDRESS,
+  liveMessageSchema,
+  type LiveMessage,
+  type RunPhase,
+  type RunProgressMessage,
+} from "../../api/live-generated/live-protocol";
 
 /**
- * Owner-scoped live update messages from `GET /api/v1/live` (WebSocket).
- * Mirrors `apps/api/src/live/live-messages.ts`. Messages are invalidation
- * hints and run progress summaries; record content is always refetched over
- * HTTP.
+ * Owner-scoped live update messages from the API's WebSocket. The schemas and
+ * types are generated from `apps/api/asyncapi.yaml`; this module adds only
+ * frame parsing and connection helpers.
  */
 
-const change = z.enum(["created", "updated", "deleted"]);
-
-export const runPhaseSchema = z.enum([
-  "queued",
-  "thinking",
-  "tool",
-  "writing",
-  "finished",
-]);
-
-export type RunPhase = z.infer<typeof runPhaseSchema>;
-
-const liveMessageSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("chat.changed"),
-    chatId: z.string(),
-    change,
-  }),
-  z.object({
-    type: z.literal("project.changed"),
-    projectId: z.string(),
-    change,
-  }),
-  z.object({ type: z.literal("pin.changed"), itemId: z.string() }),
-  z.object({
-    type: z.literal("run.progress"),
-    runId: z.string(),
-    chatId: z.string(),
-    status: z.enum(RunResponseStatus),
-    phase: runPhaseSchema,
-    step: z.number().int().nonnegative(),
-  }),
-  z.object({ type: z.literal("resync") }),
-]);
-
-export type LiveMessage = z.infer<typeof liveMessageSchema>;
-export type RunProgressMessage = Extract<LiveMessage, { type: "run.progress" }>;
+export type { LiveMessage, RunPhase, RunProgressMessage };
 
 /** Parse one frame; `undefined` for a binary frame, malformed JSON, or an
  *  unknown message type (forward compatible: a newer server may send types
@@ -66,7 +35,7 @@ export function parseLiveMessage(data: unknown): LiveMessage | undefined {
 
 /** `ws(s)://` URL of the live endpoint on the configured API origin. */
 export function liveUpdatesUrl(apiUrl: string = getApiUrl()): string {
-  const url = new URL("/api/v1/live", apiUrl);
+  const url = new URL(LIVE_CHANNEL_ADDRESS, apiUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }

@@ -1,0 +1,204 @@
+asyncapi: 3.0.0
+info:
+  title: llame live updates
+  version: '0.1'
+  description: |
+    Owner-scoped change notifications pushed from the API to signed-in
+    clients over one WebSocket.
+
+    Every message is an invalidation hint or a run progress summary. None
+    carries record content (titles, message text, tool output); clients
+    refetch records through the HTTP API, which applies the same
+    authorization. A connection receives only changes to records owned by
+    its authenticated user.
+
+    This document is the protocol's source of truth. The API's and web
+    client's message types and runtime validators are generated from it.
+defaultContentType: application/json
+servers:
+  api:
+    host: localhost:3001
+    protocol: ws
+    description: |
+      The llame API origin. Use `wss` behind TLS. The upgrade is refused
+      with `401` without a valid session and with `403` when a browser
+      `Origin` is not an allowed web origin.
+    security:
+      - $ref: '#/components/securitySchemes/sessionCookie'
+      - $ref: '#/components/securitySchemes/bearerToken'
+
+channels:
+  live:
+    address: /api/v1/live
+    title: Live updates
+    description: |
+      One connection per tab or device. The server ignores inbound frames.
+      On every (re)connect a client should refetch the lists it shows,
+      since messages sent while it was disconnected are not replayed.
+    messages:
+      chatChanged:
+        $ref: '#/components/messages/chatChanged'
+      projectChanged:
+        $ref: '#/components/messages/projectChanged'
+      pinChanged:
+        $ref: '#/components/messages/pinChanged'
+      runProgress:
+        $ref: '#/components/messages/runProgress'
+      resync:
+        $ref: '#/components/messages/resync'
+    bindings:
+      ws:
+        method: GET
+        bindingVersion: 0.1.0
+
+operations:
+  sendLiveUpdate:
+    action: send
+    channel:
+      $ref: '#/channels/live'
+    summary: The API pushes a change notification to the owner's connections.
+    messages:
+      - $ref: '#/channels/live/messages/chatChanged'
+      - $ref: '#/channels/live/messages/projectChanged'
+      - $ref: '#/channels/live/messages/pinChanged'
+      - $ref: '#/channels/live/messages/runProgress'
+      - $ref: '#/channels/live/messages/resync'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: httpApiKey
+      in: cookie
+      name: llame_session
+      description: The browser session cookie, sent with the upgrade request.
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: A session token, for non-browser clients.
+
+  messages:
+    chatChanged:
+      name: chat.changed
+      title: Chat changed
+      summary: A chat was created, updated (renamed, moved, archived, or new activity), or deleted.
+      payload:
+        $ref: '#/components/schemas/ChatChangedMessage'
+    projectChanged:
+      name: project.changed
+      title: Project changed
+      summary: A project was created, updated, or deleted.
+      payload:
+        $ref: '#/components/schemas/ProjectChangedMessage'
+    pinChanged:
+      name: pin.changed
+      title: Pin changed
+      summary: An item was pinned, unpinned, or reordered.
+      payload:
+        $ref: '#/components/schemas/PinChangedMessage'
+    runProgress:
+      name: run.progress
+      title: Run progress
+      summary: A Run's status, phase, or step changed. Sent once per change, not per streamed token.
+      payload:
+        $ref: '#/components/schemas/RunProgressMessage'
+    resync:
+      name: resync
+      title: Resync
+      summary: Changes may have been missed (the server's change listener reconnected); refetch owner lists.
+      payload:
+        $ref: '#/components/schemas/ResyncMessage'
+
+  schemas:
+    Change:
+      type: string
+      enum: [created, updated, deleted]
+    RunStatus:
+      type: string
+      enum:
+        - queued
+        - resolving_config
+        - retrieving_context
+        - planning
+        - waiting_for_approval
+        - running_model
+        - running_tool
+        - running_sandbox
+        - updating_artifact
+        - summarizing
+        - completed
+        - failed
+        - cancelled
+        - expired
+    RunPhase:
+      type: string
+      description: Coarse activity derived from run events; `finished` once the status is terminal.
+      enum: [queued, thinking, tool, writing, finished]
+
+    ChatChangedMessage:
+      type: object
+      additionalProperties: false
+      required: [type, chatId, change]
+      properties:
+        type:
+          type: string
+          const: chat.changed
+        chatId:
+          type: string
+          format: uuid
+        change:
+          $ref: '#/components/schemas/Change'
+    ProjectChangedMessage:
+      type: object
+      additionalProperties: false
+      required: [type, projectId, change]
+      properties:
+        type:
+          type: string
+          const: project.changed
+        projectId:
+          type: string
+          format: uuid
+        change:
+          $ref: '#/components/schemas/Change'
+    PinChangedMessage:
+      type: object
+      additionalProperties: false
+      required: [type, itemId]
+      properties:
+        type:
+          type: string
+          const: pin.changed
+        itemId:
+          type: string
+          format: uuid
+          description: The pinned chat or project.
+    RunProgressMessage:
+      type: object
+      additionalProperties: false
+      required: [type, runId, chatId, status, phase, step]
+      properties:
+        type:
+          type: string
+          const: run.progress
+        runId:
+          type: string
+          format: uuid
+        chatId:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/RunStatus'
+        phase:
+          $ref: '#/components/schemas/RunPhase'
+        step:
+          type: integer
+          minimum: 0
+          description: Model requests made so far in this Run.
+    ResyncMessage:
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          const: resync
