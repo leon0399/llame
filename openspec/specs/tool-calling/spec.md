@@ -328,8 +328,16 @@ A newly evaluated call SHALL persist the safe permission-decision metadata defin
 
 An uncertain native `edit` or `write` outcome SHALL abort the model execution
 signal and settle the Run without further tool steps. Its tool observation SHALL
-report `outcome_unknown` unless a known result is already durable. Ordinary
-isolated failures retain the continuation behavior below.
+report `outcome_unknown` unless a known result is already durable.
+
+A live bash or MCP `outcome_unknown` SHALL NOT abort the model execution
+signal. It SHALL be recorded, streamed, and visible to the model as a structured
+error result that tells the model to inspect the current state before retrying,
+and the run SHALL continue. Crash or redelivery recovery that finds a recorded
+native or MCP attempt without a durable result remains outside this live path
+and keeps its existing terminal settlement.
+
+Ordinary isolated failures retain the continuation behavior below.
 
 A tool that throws, times out, becomes unavailable, dynamically loses its trusted executor, or returns invalid output SHALL produce a structured error result — recorded, streamed, and visible to the model — and the run SHALL continue whenever the failure is isolated to that tool. Tool execution SHALL be bounded by the global `tools.callTimeoutSeconds` (operator config, documented built-in default 120). A trusted per-tool registration MAY only reduce that value and MUST be finite, positive, and no greater than the configured global maximum; an invalid override SHALL fail registration/admission before advertisement. The effective abort signal SHALL be forwarded into the executor and remote transport, and a timed-out MCP request/body SHALL be aborted and cleaned up before the structured timeout result settles. Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result.
 
@@ -347,7 +355,27 @@ A code-owned tool whose executor is inconsistent with its admitted in-memory id/
 #### Scenario: Tool error surfaces to the model and the run continues
 
 - **WHEN** an executing tool throws
-- **THEN** an error result part is recorded, the model observes it, and the run proceeds to a final answer
+- **THEN** the model receives a structured error result and may continue
+
+#### Scenario: Live bash unknown continues the Run
+
+- **WHEN** a bash call records `outcome_unknown` while the Run is executing
+- **THEN** the model receives that structured error result
+- **AND** the model execution signal is not aborted for that unknown
+- **AND** the Run continues
+
+#### Scenario: Live MCP unknown continues the Run
+
+- **WHEN** an MCP call records `outcome_unknown` while the Run is executing
+- **THEN** the model receives that structured error result
+- **AND** the model execution signal is not aborted for that unknown
+- **AND** the Run continues
+
+#### Scenario: Uncertain edit or write still aborts
+
+- **WHEN** a native `edit` or `write` outcome is uncertain
+- **THEN** the model execution signal is aborted
+- **AND** the Run settles without further tool steps
 
 #### Scenario: Tool call times out
 

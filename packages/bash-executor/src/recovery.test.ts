@@ -50,11 +50,10 @@ describe("recovery and attempt ledger", () => {
 
   it("admits a new Run after an unknown outcome with no surviving process", async () => {
     const input = { command: "bash", args: ["-c", "printf next"] };
-    // A survivor was observed at exit but disappeared before final settlement.
-    vi.spyOn(
-      processTree,
-      "waitForProcessGroupQuiescence",
-    ).mockResolvedValueOnce(false);
+    vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
+      false,
+    );
+    vi.spyOn(processTree, "stopProcessGroup").mockResolvedValue(false);
     expect(
       await executeManagedBash(input, context(directory), {
         toolCallId: "previous-run-call",
@@ -62,50 +61,21 @@ describe("recovery and attempt ledger", () => {
     ).toMatchObject({
       type: "outcome_unknown",
     });
+    vi.mocked(processTree.waitForProcessGroupQuiescence).mockRestore();
+    vi.mocked(processTree.stopProcessGroup).mockRestore();
     const result = await executeManagedBash(input, context(directory), {
       toolCallId: "new-run-call",
     });
     expect(result).toMatchObject({ status: "success", stdout: "next" });
   });
 
-  it("refuses admission only while the quarantined process survives", async () => {
-    const alive = vi
-      .spyOn(processTree, "processGroupAlive")
-      .mockReturnValue(true);
-    const signal = vi
-      .spyOn(processTree, "signalProcessGroup")
-      .mockImplementation(() => {});
-    completeAttemptUnknown("surviving-attempt", 12_345);
+  it("admits the next bash call after an unknown without quarantine", async () => {
+    completeAttemptUnknown("surviving-attempt");
     const input = { command: "bash", args: ["-c", "printf recovered"] };
-    const refused = await executeManagedBash(input, context(directory));
-    expect(refused).toMatchObject({
-      type: "unavailable",
-      message: "Process group from attempt surviving-attempt is still alive.",
-    });
-    expect(signal).toHaveBeenCalledWith(12_345, "SIGKILL");
-    alive.mockReturnValue(false);
     expect(await executeManagedBash(input, context(directory))).toMatchObject({
       status: "success",
       stdout: "recovered",
     });
-  });
-
-  it("drops dead quarantined groups without waiting for another admission", async () => {
-    vi.useFakeTimers();
-    const alive = vi
-      .spyOn(processTree, "processGroupAlive")
-      .mockReturnValue(true);
-    completeAttemptUnknown("swept-attempt", 12_346);
-    alive.mockReturnValue(false);
-    vi.advanceTimersByTime(100);
-    vi.useRealTimers();
-
-    alive.mockReturnValue(true);
-    const result = await executeManagedBash(
-      { command: "bash", args: ["-c", "printf swept"] },
-      context(directory),
-    );
-    expect(result).toMatchObject({ status: "success", stdout: "swept" });
   });
 
   it("treats a non-ESRCH group probe failure as alive", () => {
@@ -130,7 +100,7 @@ describe("recovery and attempt ledger", () => {
     expect(await pending).toMatchObject({ type: "cancelled" });
   });
 
-  it("treats surviving descendants as outcome_unknown", async () => {
+  it("records a known result after killing exit survivors", async () => {
     const result = await executeManagedBash(
       {
         command: "bash",
@@ -139,6 +109,6 @@ describe("recovery and attempt ledger", () => {
       context(directory),
       { toolCallId: "tc-orphan" },
     );
-    expect(result).toMatchObject({ type: "outcome_unknown" });
+    expect(result).toMatchObject({ status: "success", exitCode: 0 });
   });
 });

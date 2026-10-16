@@ -4952,9 +4952,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
     await vi.waitFor(() => expect(execute).toHaveBeenCalled());
     const startedAt = Date.now();
     controller.abort();
-    await expect(call).rejects.toThrow(
-      'Host command or mutation outcome is unknown',
-    );
+    await expect(call).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
     const elapsedMs = Date.now() - startedAt;
 
     expect(elapsedMs).toBeGreaterThanOrEqual(600);
@@ -5040,7 +5041,38 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(options.abortSignal?.aborted).toBe(true);
   });
 
-  it('stops an MCP unknown outcome without replaying the model step', async () => {
+  it('continues after a native read unknown outcome as a tool observation', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(nativeReadTool, 'execute').mockResolvedValue({
+      status: 'error',
+      type: 'outcome_unknown',
+      message: 'Unsettled read.',
+    });
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      'host-a',
+      { allowed: ['read'] },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    const bound = options.tools?.read;
+    if (!bound?.execute) throw new Error('Native read was not advertised.');
+    await expect(
+      bound.execute(
+        { path: '/native/file' },
+        { toolCallId: 'native-read-unknown', messages: [] },
+      ),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
+    expect(options.abortSignal?.aborted).toBeFalsy();
+  });
+
+  it('continues after an MCP unknown outcome as a tool observation', async () => {
     mockNormalExecutionRepositories();
     const toolOptions = withDeclaredTool();
     const capturing = makeCapturingClient();
@@ -5070,10 +5102,12 @@ describe('RunExecutionService executeRun — tool loop', () => {
         { q: 'unknown' },
         'mcp-unknown',
       ),
-    ).rejects.toThrow(
-      'MCP operation outcome is unknown; the Run cannot continue.',
-    );
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
     expect(execute).toHaveBeenCalledOnce();
+    expect(capturing.streamOptions().abortSignal?.aborted).toBeFalsy();
   });
   it('does not treat a successful MCP result with an unknown-looking field as unknown', async () => {
     mockNormalExecutionRepositories();

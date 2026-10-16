@@ -547,14 +547,13 @@ export class McpRuntimeService
       );
       return outcome;
     } catch {
-      context.onNativeMutationUnknown?.();
       return {
         disposition: outcome.disposition,
         result: {
           status: 'error',
           type: 'outcome_unknown',
           message:
-            'The MCP operation may have executed; it will not be repeated.',
+            'The MCP operation may have executed; inspect the current state before retrying. It will not be repeated automatically.',
         },
       };
     }

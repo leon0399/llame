@@ -1,6 +1,6 @@
 import { realpath, stat } from 'node:fs/promises';
 
-import { isBashTool, isHostCapabilityTool } from '../tools/bash';
+import { isBashTool } from '../tools/bash';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import {
@@ -1569,16 +1569,17 @@ export class RunExecutionService {
       } else {
         recordToolCompleted(toolCallId, declaration.id, args, result);
       }
+      // Live bash and MCP unknowns stay observations; only uncertain native
+      // file mutations (edit/write) abort the model loop here.
       if (
-        (isHostCapabilityTool(executor) || executor.id.startsWith('mcp__')) &&
+        isNativeFileTool(executor) &&
+        executor.id !== 'read' &&
         result.status === 'error' &&
         result.type === 'outcome_unknown'
       ) {
         await deltaWrites;
         throw new Error(
-          isHostCapabilityTool(executor)
-            ? 'Host command or mutation outcome is unknown; the Run cannot continue.'
-            : 'MCP operation outcome is unknown; the Run cannot continue.',
+          'Host command or mutation outcome is unknown; the Run cannot continue.',
         );
       }
       return isNativeFileTool(executor) ? result : neutralizeToolResult(result);

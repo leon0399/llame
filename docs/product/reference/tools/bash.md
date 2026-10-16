@@ -59,9 +59,10 @@ result. A call is a fresh process with no state carried into the next one.
 
 ## Errors
 
-An unproven stop leaves the attempt `outcome_unknown`; see
-[mutation recovery](../mutation-recovery.md) for the fence and the worker-crash
-limit on the process-group quarantine.
+An unproven stop leaves the attempt `outcome_unknown` as a tool observation
+while the Run continues; inspect the workspace before retrying. See
+[mutation recovery](../mutation-recovery.md) for the durable attempt fence and
+crash-recovery termination.
 
 ## Configured by
 

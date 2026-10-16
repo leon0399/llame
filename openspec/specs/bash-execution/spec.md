@@ -165,19 +165,29 @@ proven empty; a descendant that leaves the group is outside this proof, and
 the contract SHALL say so rather than claim a process tree. A timeout whose
 process group is proven empty SHALL be a known `timed_out` result carrying
 bounded partial output. An unproven stop after timeout, cancellation, or host
-failure SHALL produce terminal `outcome_unknown`. A process that never started
-SHALL be a known refusal, never `outcome_unknown`. An `outcome_unknown` SHALL
-terminate the Run that issued it. While a process of that attempt is still
-observed alive by the worker, the worker SHALL refuse new bash admission on
-that worker and SHALL re-signal the group on each refusal; the refusal SHALL
-lift without operator action once the group is empty, and SHALL NOT outlive
-the process it names.
-The quarantine is process-local and is lost if the worker crashes; the durable
-`native.attempt` SHALL still prevent recovery from re-executing the command,
-and recovery SHALL fail the Run with `outcome_unknown`. An in-flight shell
-process group can survive that crash, and a replacement worker can admit a new
-bash command while the old group remains alive because the replacement has no
-quarantine for the lost worker.
+failure SHALL produce `outcome_unknown`. A process that never started
+SHALL be a known refusal, never `outcome_unknown`.
+
+A live `outcome_unknown` result recorded while the Run is still executing
+SHALL be a tool observation: the Run SHALL continue, later approved bash
+calls on that worker SHALL be admitted, and the model-facing message SHALL
+tell the model to inspect the current workspace state before retrying. The
+host SHALL still best-effort signal the process group during settlement.
+The host SHALL NOT refuse later bash admission because of a prior unknown
+on that worker.
+
+The durable `native.attempt` SHALL still prevent recovery from re-executing
+the command. When a Run is resumed on any host after an attempt without a
+recorded result, recovery SHALL fail the Run with `outcome_unknown` and
+SHALL NOT re-execute the command. An in-flight shell process group can
+survive a worker crash, and a replacement worker MAY admit a new bash
+command while the old group remains alive.
+
+When the managed child closes and the process group is not yet proven empty,
+the executor SHALL SIGKILL the group and settle from that proof: a proven-empty
+group SHALL record a known result with the observed exit status; a group that
+cannot be proven empty SHALL record `outcome_unknown`.
+
 The runner SHALL pass bash a distinct effective timeout signal and duration;
 the effective deadline SHALL be the lesser of the runner's per-call timeout
 and the managed executor's 300-second cap, while caller cancellation remains
@@ -200,11 +210,12 @@ result SHALL NOT re-execute it.
 - **THEN** the result is `timed_out` with the output produced before the kill
 - **AND** the Run continues
 
-#### Scenario: Unproven stop after timeout is unknown
+#### Scenario: Unproven stop after timeout is unknown and the Run continues
 
 - **WHEN** the deadline elapses and the process group cannot be proven empty
 - **THEN** the result is `outcome_unknown`
-- **AND** the Run terminates
+- **AND** the Run continues
+- **AND** the next approved bash call on that worker is admitted
 
 #### Scenario: Crash becomes unknown
 
@@ -214,26 +225,25 @@ result SHALL NOT re-execute it.
 - **AND** the old process group may remain alive and untracked on the replacement
   worker, which may admit a new bash command beside it
 
-#### Scenario: Failed cancellation fences the context
+#### Scenario: Failed cancellation is an observation
 
 - **WHEN** cancellation cannot prove the process group empty
 - **THEN** the result is `outcome_unknown`
-- **AND** the fenced context is the Run: it terminates, and no other Run is
-  affected once its process group is observed empty
+- **AND** the Run continues when that unknown is recorded as a live tool result
+- **AND** a later bash call on the same worker is admitted
 
-#### Scenario: Surviving process quarantines the worker until it is gone
+#### Scenario: Exit with survivors uses post-kill proof
 
-- **WHEN** one Run ends with `outcome_unknown` and its process group is still
-  alive
-- **THEN** a bash call in another Run on the same worker is refused with a
-  result naming the surviving attempt, and the group is signalled again
-- **AND** once the group is observed empty the next call on that worker is
-  admitted, with no operator or process restart
+- **WHEN** the managed child closes and a process-group member is still observable
+- **THEN** the executor SIGKILLs the group
+- **AND** if the group is then proven empty, the attempt records a known result
+  with the observed exit status
+- **AND** if the group cannot be proven empty, the attempt records `outcome_unknown`
+  and the Run continues
 
-#### Scenario: Other Runs are unaffected once nothing survives
+#### Scenario: Other Runs are unaffected after an unknown
 
-- **WHEN** one Run ends with `outcome_unknown` and no process of it is observed
-  alive
+- **WHEN** one Run records a live `outcome_unknown`
 - **THEN** a later bash call in another Run on the same worker is admitted
 - **AND** no operator or process restart is needed
 
