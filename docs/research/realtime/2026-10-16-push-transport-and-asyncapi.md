@@ -1,7 +1,7 @@
 ---
 type: Research
 title: "Server-to-client push for record changes: signal, transport and AsyncAPI contracts"
-description: "Separates the missing change signal from the transport choice, recommends Postgres NOTIFY pointers fanned out over one owner-scoped stream of invalidation DTOs, and uses AsyncAPI 3.0 as generated documentation over the same @nestjs/swagger DTOs that orval already turns into client types."
+description: "Separates the missing change signal from the transport choice, fans Postgres NOTIFY pointers out over one owner-scoped WebSocket of invalidation messages, and makes a hand-authored AsyncAPI 3.0 document the protocol source from which server and client validators are generated."
 tags: [realtime, websocket, sse, listen-notify, asyncapi, openapi, dto, codegen]
 status: draft
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T00:00:00Z }
@@ -25,9 +25,9 @@ sources:
   - id: asyncapi-bindings
     resource: "https://github.com/asyncapi/bindings"
     title: "AsyncAPI protocol bindings"
-  - id: asyncapi-3-schema-format
-    resource: "https://www.asyncapi.com/docs/reference/specification/v3.0.0#multiFormatSchemaObject"
-    title: "AsyncAPI 3.0.0 Multi Format Schema Object"
+  - id: json-schema-to-zod
+    resource: "https://www.npmjs.com/package/json-schema-to-zod/v/2.8.1"
+    title: "json-schema-to-zod 2.8.1"
 ---
 
 # Server-to-client push for record changes
@@ -37,13 +37,13 @@ sources:
 The transport is the cheap part. llame has no change signal: every live
 surface polls Postgres. A WebSocket added on top of polling only moves the poll
 loop from the browser into the API. Build the signal first, then pick the
-transport by what the client needs to send back. Today the client sends
-nothing back on these surfaces, so SSE is enough (moderate-high confidence).
+transport. Both SSE and WebSocket carry the result; WebSocket is the chosen
+transport (D5).
 
-AsyncAPI fits as documentation and contract validation. It is a poor codegen
-source for this repo: orval, the generator in use, reads OpenAPI only, and
-Modelina would produce a second set of types for the same classes. One set of
-`@nestjs/swagger` DTO classes can feed both documents.
+The protocol is defined design-first: a hand-authored AsyncAPI 3.0 document
+is the source, and the API's and web client's zod validators and types are
+generated from it. Code-first generation, the OpenAPI pattern in this repo,
+has no fitting Nest tool for WebSocket messages (D6).
 
 ## Current state
 
@@ -152,7 +152,7 @@ The read path is unchanged, so replay and resume semantics stay as specified;
 only latency and idle query load drop. The fallback timeout (seconds, not
 milliseconds) covers a missed notification.
 
-### D5 Transport: SSE first, WebSocket when the client must send
+### D5 Transport: WebSocket
 
 | Concern                   | SSE                                                      | WebSocket                                                                                       |
 | ------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -163,58 +163,57 @@ milliseconds) covers a missed notification.
 | Infrastructure            | plain HTTP, existing Express adapter                     | `@nestjs/websockets` + `@nestjs/platform-ws` pinned to `^11` (latest is 12, needs Nest core 12) |
 | HTTP/1.1 connection limit | 6 per origin per browser, shared across tabs             | one socket per tab                                                                              |
 
-The connection limit is the strongest argument for WebSocket: on HTTP/1.1,
-three tabs each holding a feed and a Run stream exhaust it and block ordinary
-requests. HTTP/2 between browser and API removes the limit; a single shared
-feed per browser through a `SharedWorker` or `BroadcastChannel` leader is the
-other remedy. The deployment's HTTP version must be stated in the proposal.
+The connection limit favors WebSocket: on HTTP/1.1, three tabs each holding a
+feed and a Run stream exhaust it and block ordinary requests. WebSocket also
+leaves room for later client-to-server traffic such as presence or interactive
+approvals. Cancel does not need it; it is an HTTP `POST`, and the
+cross-process half is #207[^issue-207].
 
-WebSocket also earns its place when the browser sends frequent messages: presence,
-typing indicators, collaborative editing, or interactive tool approvals with
-sub-second round trips. Cancel does not qualify; it is an HTTP `POST`, and the
-cross-process half of it is #207[^issue-207], which is server-side.
+Binding rules for the WebSocket: use `ws`, not Socket.IO, whose framing
+AsyncAPI and plain clients would then have to model; authenticate in the
+upgrade handler from the session cookie or bearer token through the same
+session service and reject before `101`; allowlist `Origin` against the CORS
+origins; bind the socket to the owner id at upgrade and accept no subscription
+that names an owner. Cookie authentication assumes the web and API origins are
+same-site; a cross-site deployment needs a short-lived upgrade ticket.
 
-If Leo picks WebSocket anyway, the binding rules are: use `ws`, not Socket.IO
-(Socket.IO adds its own framing, which AsyncAPI and plain clients then have to
-model); authenticate in the upgrade handler from the session cookie through the
-same session service, reject before `101`; allowlist `Origin`; bind the socket
-to the owner id at upgrade and never accept a subscription that names an owner.
+### D6 Contracts: AsyncAPI document first, validators generated
 
-### D6 Contracts: one DTO source, two documents
+`apps/api/asyncapi.yaml` is the protocol's source of truth: one `ws` server,
+one channel, one `send` operation, one message per type, JSON Schema payloads
+discriminated by a `type` constant, and the security schemes and reconnect
+semantics in prose. A repository script walks the document's channel and
+operation and converts each payload with `json-schema-to-zod`[^json-schema-to-zod],
+emitting a zod discriminated union plus inferred types. The API and the web
+client each commit their generated copy. The script supports only the subset
+the protocol uses and fails on anything else.
 
-Author each feed message as a class with `@ApiProperty`, with a `type`
-discriminator, and a union schema built with `@ApiExtraModels` and
-`getSchemaPath`. Then:
+Code-first generation was rejected for this protocol:
 
-- **Client types: OpenAPI and orval.** Register the message classes as extra
-  models in `generate-openapi.ts` and reference the union from the feed
-  operation's `text/event-stream` response schema; `streamRunEvents` declares
-  `{ type: string }` today. Orval generates the union type. Unverified: the
-  `orval.config.ts` filter excludes the `streaming` tag, and whether that also
-  drops schemas reachable only from excluded operations needs a spike. If it
-  does, reference the union from an included operation or set orval's schema
-  filter explicitly.
-- **Documentation: AsyncAPI 3.0.** `nestjs-asyncapi` 2.0.1 emits AsyncAPI
-  `3.0.0`, discovers `@Controller` classes, reads DTOs through `@ApiProperty`,
-  and accepts `@nestjs/swagger` `^11` and Nest `^11`[^nestjs-asyncapi]. It
-  bundles `@asyncapi/generator`, so keep it a dev dependency imported only by a
-  `generate-asyncapi.ts` script that mirrors `generate-openapi.ts`, and commit
-  `asyncapi.json` beside `openapi.json`.
-- **SSE binding.** No SSE binding exists in the AsyncAPI bindings
-  repository[^asyncapi-bindings]. Model the feed as an `http` server with a
-  `GET` channel and `text/event-stream` content type. For WebSocket, the `ws`
-  binding is official.
-- **Fallback without the library.** Hand-author `asyncapi.yaml` and point
-  message payloads at `openapi.json#/components/schemas/...` with
-  `schemaFormat: application/vnd.oai.openapi;version=3.0.0`[^asyncapi-3-schema-format];
-  `@nestjs/swagger` emits OpenAPI `3.0.0`, whose `nullable` is not JSON Schema,
-  so the format declaration is required for the references to validate.
-- **Contract test.** Parse the generated document with `@asyncapi/parser` in a
-  test next to `openapi.contract.test.ts`, and assert that every message
-  `type` in the union appears in the document.
+- `nestjs-asyncapi` 2.0.1 emits AsyncAPI `3.0.0` from `@nestjs/swagger`
+  DTOs[^nestjs-asyncapi], but types bindings only for Kafka and AMQP, bundles
+  `@asyncapi/generator` into anything that imports its decorators, and
+  inherits the OpenAPI 3.0 schema dialect.
+- No controller emits these messages; the hub builds plain objects. Code-first
+  would add DTO classes only to feed a generator.
+- Design-first gives the server compile-time types as well: a tracker output
+  outside the document fails the API typecheck.
 
-Skip Modelina and the AsyncAPI generator templates for client code: they would
-produce a second set of types for the same classes orval already covers.
+No SSE binding exists in the AsyncAPI bindings repository[^asyncapi-bindings];
+with WebSocket the official `ws` binding applies. Modelina generates types in
+many languages but no runtime validators, so it serves external consumers of
+the same document rather than these two clients.
+
+Drift gates match the OpenAPI ones:
+
+- Redocly lints the document with `openapi.json` in `pnpm lint:openapi`.
+- `generate:api-schema` and `generate:web-client` regenerate both copies, and
+  CI fails on any diff.
+- A script test renders the document per target and compares it with each
+  committed copy.
+- An API contract test validates every tracker output against the generated
+  union and asserts the generated `RunStatus` equals the database enum, the
+  one field whose truth lives in code.
 
 ## Security
 
@@ -244,15 +243,13 @@ Threats the design must state in its proposal:
    unblocks every later item, including #207[^issue-207].
 2. **A2 Wake the two run-event pollers.** Closes #118[^issue-118]; token
    latency drops by up to the poll interval and idle query load disappears.
-3. **A3 Owner feed over SSE with invalidation DTOs.** Retires the 4 s
-   `refetchInterval` loop in `active-runs-context.tsx` (keep it only while the
-   feed is disconnected) and makes titles, pins and cross-device changes live.
-   Needs an issue and an OpenSpec proposal; it adds an owner-visible contract.
-4. **A4 AsyncAPI generation and contract test.** Lands with A3, from the same
-   DTO classes.
-5. **A5 WebSocket.** Only when a client-to-server real-time need is approved.
-   The DTOs, hub and AsyncAPI document carry over unchanged; only the gateway
-   and the binding change.
+3. **A3 Owner feed over WebSocket with invalidation messages.** Retires the 4 s
+   `refetchInterval` loop in `active-runs-context.tsx` (kept only while the
+   socket is disconnected) and makes titles, pins and cross-device changes
+   live. Needs an issue and an OpenSpec proposal; it adds an owner-visible
+   contract.
+4. **A4 AsyncAPI document and generated validators.** Lands with A3; every
+   message type exists in the document before either side uses it.
 
 [^issue-118]: <https://github.com/leon0399/llame/issues/118>
 
@@ -262,8 +259,8 @@ Threats the design must state in its proposal:
 
 [^postgresjs-listen]: postgres.js 3.4.7 README, "Listen & notify": dedicated connection, backoff reconnect, `onlisten` callback on connect and reconnect. <https://github.com/porsager/postgres/tree/v3.4.7#listen--notify>
 
-[^nestjs-asyncapi]: Inspected from the published 2.0.1 tarball: `asyncapi: '3.0.0'` in `dist/lib/asyncapi-document.builder.js`; peers and controller discovery from its README. <https://www.npmjs.com/package/nestjs-asyncapi/v/2.0.1>
+[^nestjs-asyncapi]: Inspected from the published 2.0.1 tarball: `asyncapi: '3.0.0'` in `dist/lib/asyncapi-document.builder.js`; binding types limited to Kafka and AMQP in `dist/lib/interface`. <https://www.npmjs.com/package/nestjs-asyncapi/v/2.0.1>
 
 [^asyncapi-bindings]: <https://github.com/asyncapi/bindings>
 
-[^asyncapi-3-schema-format]: <https://www.asyncapi.com/docs/reference/specification/v3.0.0#multiFormatSchemaObject>
+[^json-schema-to-zod]: Emits zod v4 source by default; no runtime dependencies. <https://www.npmjs.com/package/json-schema-to-zod/v/2.8.1>
