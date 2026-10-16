@@ -1,9 +1,9 @@
 import type { UIMessage } from "ai";
 
 /**
- * Pure decision logic for background run-completion notifications — extracted
- * from the effect so the branching (the regression-prone part) is testable
- * without timers, polling, or the DOM.
+ * Pure decision logic for run tracking, stream completion, and background
+ * run-completion notifications — extracted from the effect so the branching
+ * (the regression-prone part) is testable without timers, polling, or the DOM.
  */
 
 export type RunStatus = string;

@@ -7,7 +7,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useChatContext } from "@/contexts/chat-context";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
-import { useStreamInterruption } from "@/lib/services/chat/stream-repair";
+import {
+  useStreamInterruption,
+  type StreamInterruption,
+} from "@/lib/services/chat/stream-repair";
 import {
   mergeTrustedModelContextParts,
   type Compaction,
@@ -187,7 +190,7 @@ type UseChatSideEffectsArgs = {
   trackRun: (runId: string, chatId: string, label: string) => void;
   markChatSeen: (chatId: string) => void;
   refreshChatBinding: () => void;
-  interruption: { runId: string; seq: number } | null;
+  interruption: StreamInterruption | null;
 };
 
 /** Every effect the conversation state drives once messages exist: the

@@ -44,11 +44,14 @@ function mergeEpisode(
       ? held
       : { runId: interruption.runId, seq: 0, attempts: 0, timer: null };
   episode.seq = interruption.seq;
-  if (episode.timer !== null) {
-    clearTimeout(episode.timer);
-    episode.timer = null;
-  }
+  cancelRetry(episode);
   return episode;
+}
+
+function cancelRetry(episode: RepairEpisode): void {
+  if (episode.timer === null) return;
+  clearTimeout(episode.timer);
+  episode.timer = null;
 }
 
 /** Spends one attempt of the episode: attaches now, or schedules the wait. */
@@ -90,13 +93,29 @@ export function useStreamInterruption() {
 export function useStreamRepair(options: {
   attach: () => void;
   interruption: StreamInterruption | null;
+  /** The Run the live transcript is streaming (`streamingRunId(messages)`), or
+   *  null when it holds no streaming answer. */
+  currentRunId: string | null;
   /** True while the Run's stream is delivering events. */
   healthy: boolean;
   /** Runs before each attempt (the mount probe claims the same attach slot). */
   onAttempt: () => void;
 }): void {
-  const { attach, interruption, healthy, onAttempt } = options;
+  const { attach, interruption, currentRunId, healthy, onAttempt } = options;
   const episodeRef = useRef<RepairEpisode | null>(null);
+
+  // A new turn supersedes the episode: its retry belongs to a Run the client is
+  // no longer streaming, and attaching now would open a second stream on the
+  // Chat while the new send owns the response — writes the SDK drops, plus a
+  // stray `send-failed` while that send is still in flight. The dep list
+  // compares by value, so this runs only when the streaming Run actually
+  // changes, and no equality test on the previous id is reachable.
+  useEffect(() => {
+    const episode = episodeRef.current;
+    if (!episode) return;
+    cancelRetry(episode);
+    episodeRef.current = null;
+  }, [currentRunId]);
 
   useEffect(() => {
     if (!interruption || episodeRef.current?.seq === interruption.seq) return;
@@ -113,7 +132,7 @@ export function useStreamRepair(options: {
   useEffect(
     () => () => {
       const episode = episodeRef.current;
-      if (episode?.timer != null) clearTimeout(episode.timer);
+      if (episode) cancelRetry(episode);
     },
     [],
   );

@@ -581,6 +581,7 @@ export function useChatHistorySync({
   useStreamRepair({
     attach,
     interruption,
+    currentRunId: streamingRunId(messages),
     healthy: status === "streaming",
     onAttempt: claimAttachSlot,
   });

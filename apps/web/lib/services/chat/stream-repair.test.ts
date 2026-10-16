@@ -13,6 +13,7 @@ function repairProps(overrides: Partial<RepairProps> = {}): RepairProps {
   return {
     attach: vi.fn(),
     interruption: null,
+    currentRunId: "run-1",
     healthy: false,
     onAttempt: vi.fn(),
     ...overrides,
@@ -128,6 +129,34 @@ describe("useStreamRepair", () => {
       expect(props.attach).toHaveBeenCalledTimes(1);
       act(() => void vi.advanceTimersByTime(500));
       expect(props.attach).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("drops a pending retry once another run takes over the transcript", () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const props = repairProps({ currentRunId: "run-1" });
+      const { rerender } = renderRepair(props);
+      let current: RepairProps = props;
+      const update = (changes: Partial<RepairProps>) => {
+        current = { ...current, ...changes };
+        rerender(current);
+      };
+
+      update({ interruption: { runId: "run-1", seq: 1 } }); // attempt 1: immediate
+      update({ interruption: { runId: "run-1", seq: 2 } }); // attempt 2: waits 500 ms
+      expect(props.attach).toHaveBeenCalledTimes(1);
+
+      // The user sends again: the transcript now streams a different Run, so the
+      // scheduled retry must not open a second stream beside that send.
+      update({ currentRunId: "run-2" });
+      act(() => void vi.advanceTimersByTime(60_000));
+
+      expect(props.attach).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
       vi.restoreAllMocks();
