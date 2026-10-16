@@ -29,9 +29,17 @@ type RepairEpisode = {
   timer: ReturnType<typeof setTimeout> | null;
 };
 
-/** The wait before the next attempt: none for the first, equal-jitter after. */
+/** The repair's ceiling: with STREAM_REPAIR_MAX_ATTEMPTS attempts the last
+ *  doubling is 8 s, so this is the widest wait the policy reaches rather than a
+ *  bound it never touches. */
+const STREAM_REPAIR_CEILING_MS = 8000;
+
+/** The wait before the next attempt: none for the first, equal-jitter after
+ *  within the repair's own ceiling. */
 export function streamRepairDelayMs(attempts: number): number {
-  return attempts === 0 ? 0 : equalJitterDelayMs(attempts - 1);
+  return attempts === 0
+    ? 0
+    : equalJitterDelayMs(attempts - 1, STREAM_REPAIR_CEILING_MS);
 }
 
 /** The episode an interruption continues, or a fresh one for another Run. */
