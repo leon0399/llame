@@ -161,6 +161,8 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(
         `Dropped a ${message.type} message that violates asyncapi.yaml`,
       );
+      // The client stopped polling while connected; have it refetch instead.
+      if (message.type !== 'resync') this.send(ownerId, { type: 'resync' });
       return;
     }
     // Serialized once per owner, not once per socket.

@@ -334,7 +334,7 @@ describe('ChangeHubService diagnostics', () => {
     );
   });
 
-  it('logs and drops a message that violates the document', async () => {
+  it('drops a message that violates the document and requests a resync', async () => {
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
@@ -352,7 +352,7 @@ describe('ChangeHubService diagnostics', () => {
     expect(error).toHaveBeenCalledWith(
       'Dropped a chat.upserted message that violates asyncapi.yaml',
     );
-    expect(received).toEqual([]);
+    expect(received).toEqual([{ type: 'resync' }]);
   });
 
   it('keeps delivering to the remaining socket after another unsubscribes', async () => {
