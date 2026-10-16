@@ -146,9 +146,9 @@ that is not a canonical UUID all return the same `404`.
 | `GET /api/v1/media/:id/original` | the original bytes, unchanged            |
 | `GET /api/v1/media/:id/model`    | the model variant bytes; `404` for a PDF |
 
-The web client loads every chat thumbnail from `/model` and a lightbox image
-from `/original`; it does not show PDF attachments yet. What the owner sees is
-described under [`media://` behavior](../reference/locators/media.md#behavior).
+The web client loads stored image thumbnails from `/model` and lightbox images
+from `/original`. Stored PDF tiles open `/original` in a new tab. See
+[`media://` behavior](../reference/locators/media.md#behavior).
 
 ### Upload
 

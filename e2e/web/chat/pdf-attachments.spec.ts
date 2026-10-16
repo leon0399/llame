@@ -1,8 +1,3 @@
-/**
- * PDF attachment browser proof (pdf-media task 6.2): a PDF-only model receives
- * the uploaded original, and a persisted document tile opens that original in
- * a new tab without an image variant or image lightbox.
- */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
