@@ -18,6 +18,7 @@
 import {
   Inject,
   Injectable,
+  Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
 } from '@nestjs/common';
@@ -34,8 +35,9 @@ import {
   ChangeHubService,
   type ChangeHubSubscriptions,
 } from './change-hub.service';
+import { LIVE_CHANNEL_ADDRESS } from './generated/live-protocol';
 
-export const LIVE_PATH = '/api/v1/live';
+export const LIVE_PATH = LIVE_CHANNEL_ADDRESS;
 /** Heartbeat and session re-validation cadence. */
 const HEARTBEAT_MS = 30_000;
 /** Open sockets per user (tabs and devices). */
@@ -67,6 +69,7 @@ export class LiveGatewayService
   implements OnApplicationBootstrap, OnModuleDestroy
 {
   private readonly wss = new WebSocketServer({ noServer: true });
+  private readonly logger = new Logger(LiveGatewayService.name);
   private readonly sockets = new Set<LiveSocket>();
   private readonly allowedOrigins: ReadonlySet<string> = new Set(
     getAllowedWebOrigins(),
@@ -180,7 +183,8 @@ export class LiveGatewayService
   /**
    * One heartbeat round, run every `HEARTBEAT_MS`: terminates a socket that
    * did not answer the previous ping, pings the rest, and closes any socket
-   * whose session no longer validates.
+   * whose session no longer validates. A failed session lookup is not an
+   * ended session.
    */
   async checkHeartbeats(): Promise<void> {
     for (const live of this.sockets) {
@@ -190,10 +194,18 @@ export class LiveGatewayService
       }
       live.alive = false;
       live.socket.ping();
-      const session = await this.auth
-        .validateToken(live.token)
-        .catch(() => undefined);
-      if (session?.userId !== live.userId) {
+      // Only a lookup that answers "no session" ends it; a failed lookup
+      // keeps the socket until the next round, since 4401 signs the user out.
+      const ended = await this.auth.validateToken(live.token).then(
+        (session) => session?.userId !== live.userId,
+        (error: unknown) => {
+          this.logger.warn(
+            `Live session check failed; keeping the socket: ${error instanceof Error ? error.message : 'unknown'}`,
+          );
+          return false;
+        },
+      );
+      if (ended) {
         live.socket.close(CLOSE_SESSION_ENDED, 'session ended');
       }
     }

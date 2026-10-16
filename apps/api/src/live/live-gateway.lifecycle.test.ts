@@ -5,6 +5,7 @@
  * heartbeats and session re-validation, and teardown.
  */
 
+import { Logger } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { connect } from 'node:net';
@@ -46,13 +47,17 @@ const sessions = new Map<string, string>([
   ['token-b', 'user-b'],
 ]);
 
+let sessionLookupFails = false;
+
 const auth: LiveAuth = {
   validateToken: (token: string) =>
-    Promise.resolve(
-      sessions.has(token)
-        ? { userId: sessions.get(token) ?? '', sessionId: token }
-        : undefined,
-    ),
+    sessionLookupFails
+      ? Promise.reject(new Error('database unavailable'))
+      : Promise.resolve(
+          sessions.has(token)
+            ? { userId: sessions.get(token) ?? '', sessionId: token }
+            : undefined,
+        ),
 };
 
 let server: Server;
@@ -77,6 +82,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const client of clients.splice(0)) client.terminate();
   gateway.onModuleDestroy();
   await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -168,6 +174,27 @@ describe('LiveGatewayService lifecycle', () => {
     } finally {
       sessions.set('token-a', 'user-a');
     }
+  });
+
+  it('keeps the socket when the session lookup fails', async () => {
+    const warn = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    const a = open('token-a');
+    await a.opened;
+
+    sessionLookupFails = true;
+    try {
+      await gateway.checkHeartbeats();
+    } finally {
+      sessionLookupFails = false;
+    }
+    hub.emit('user-a', 'still-open');
+
+    await vi.waitFor(() => expect(a.frames).toContain('still-open'));
+    expect(warn).toHaveBeenCalledWith(
+      'Live session check failed; keeping the socket: database unavailable',
+    );
   });
 
   it('terminates a socket that did not answer the previous ping', async () => {
