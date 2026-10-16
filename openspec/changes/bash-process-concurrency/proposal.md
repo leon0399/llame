@@ -96,4 +96,4 @@ None.
   findings are checked against the executor and API admission paths. The finding
   that the timeout split contradicts issue ownership is rejected: this change
   deliberately leaves #1050 open for its remaining timeout acceptance.
-- **v1:** Initial proposal, commit `d11db9c7`.
+- **v1:** Initial proposal, commit `48ff4107`.
