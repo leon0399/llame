@@ -27,6 +27,10 @@ import {
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
+import {
+  useStreamRepair,
+  type StreamInterruption,
+} from "@/lib/services/chat/stream-repair";
 import { pinQueryKeys } from "@/lib/services/pins/queries";
 import {
   hasModelId,
@@ -517,9 +521,9 @@ type UseChatHistorySyncArgs = {
   messages: Array<UIMessage>;
   status: ReturnType<typeof useChat>["status"];
   setMessages: ReturnType<typeof useChat>["setMessages"];
-  /** The run whose stream ended while it was still executing (see
+  /** The Run whose stream ended while it was still executing (see
    *  `isInterruptedStream`), or null. */
-  interruptedRunId: string | null;
+  interruption: StreamInterruption | null;
 };
 
 /** Resume-on-refresh and live first-send recovery (#49), re-attaching after an
@@ -533,15 +537,12 @@ export function useChatHistorySync({
   messages,
   status,
   setMessages,
-  interruptedRunId,
+  interruption,
 }: UseChatHistorySyncArgs) {
-  // One attach per mount for the `resume` probe, and one per interrupted Run
-  // for the repair below: each is set synchronously before its call, so a
-  // second invocation is a no-op and Strict Mode's double-invoked mount effect
-  // cannot race two reconnects on the same Chat instance (#259/#260 — see the
-  // note at the useChat call in `useChatEngine`).
+  // One attach per mount for the `resume` probe; the repair below claims the
+  // same slot so the two cannot race two reconnects on the same Chat instance
+  // (#259/#260 — see the note at the useChat call in `useChatEngine`).
   const attachedRef = useRef(false);
-  const repairedRunRef = useRef<string | null>(null);
 
   // Always re-read history once the probe settles, INCLUDING when it answers
   // 204. Verified in the pinned SDK (ai 6.0.217): `reconnectToStream` returns
@@ -571,22 +572,18 @@ export function useChatHistorySync({
     attach();
   }, [resume, attach]);
 
-  // Repair an interrupted stream by re-attaching to the same Run's log. The
-  // mount probe above cannot cover this: it has already run for any chat this
-  // page opened, so without this a stream that drops after mount — the common
-  // case for the second and later turns of a long conversation — would stay
-  // dead until a reload. Claiming the attach slot keeps that probe from
-  // issuing a second, competing reconnect when a `fresh` chat's failed-send
-  // recovery re-arms `resume` moments later; if this re-attach fails too, the
-  // tracked Run's completion still refreshes the transcript.
-  useEffect(() => {
-    if (!interruptedRunId || repairedRunRef.current === interruptedRunId) {
-      return;
-    }
-    repairedRunRef.current = interruptedRunId;
+  // The repair episode itself — immediate first attempt, equal-jitter retries,
+  // capped — lives in its own module. This hook owns only the attach and the
+  // slot the probe below shares with it (#1284).
+  const claimAttachSlot = useCallback(() => {
     attachedRef.current = true;
-    attach();
-  }, [interruptedRunId, attach]);
+  }, []);
+  useStreamRepair({
+    attach,
+    interruption,
+    healthy: status === "streaming",
+    onAttempt: claimAttachSlot,
+  });
 
   // Adopt that refetched history — the client half of #261. useChat freezes
   // `messages` at creation (see PersistedChatSession) and never re-adopts a

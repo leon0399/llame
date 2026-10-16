@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useChatContext } from "@/contexts/chat-context";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
+import { useStreamInterruption } from "@/lib/services/chat/stream-repair";
 import {
   mergeTrustedModelContextParts,
   type Compaction,
@@ -186,7 +187,7 @@ type UseChatSideEffectsArgs = {
   trackRun: (runId: string, chatId: string, label: string) => void;
   markChatSeen: (chatId: string) => void;
   refreshChatBinding: () => void;
-  interruptedRunId: string | null;
+  interruption: { runId: string; seq: number } | null;
 };
 
 /** Every effect the conversation state drives once messages exist: the
@@ -205,7 +206,7 @@ function useChatSideEffects({
   trackRun,
   markChatSeen,
   refreshChatBinding,
-  interruptedRunId,
+  interruption,
 }: UseChatSideEffectsArgs) {
   useChatHistorySync({
     resume,
@@ -215,7 +216,7 @@ function useChatSideEffects({
     messages,
     status,
     setMessages,
-    interruptedRunId,
+    interruption,
   });
   useChatPresenceEffects({
     status,
@@ -280,7 +281,8 @@ function useChatEngineState({
   // here rather than acted on in the finish handler: re-attaching needs the
   // `Chat` instance `useChatEngine` returns, and an effect is where that
   // boundary is already crossed.
-  const [interruptedRunId, setInterruptedRunId] = useState<string | null>(null);
+  const { interruption, report: reportInterruptedStream } =
+    useStreamInterruption();
   const engine = useChatEngine({
     ...setup,
     chatId,
@@ -288,7 +290,7 @@ function useChatEngineState({
     onFinished,
     onTargetSendInterrupted,
     onSendFailed,
-    onStreamInterrupted: setInterruptedRunId,
+    onStreamInterrupted: reportInterruptedStream,
   });
   const { displayMessages, compactionIndex } = deriveChatTranscript(
     engine.messages,
@@ -305,7 +307,7 @@ function useChatEngineState({
     status: engine.status,
     setMessages: engine.setMessages,
     chatId,
-    interruptedRunId,
+    interruption,
   });
 
   return { engine, displayMessages, compactionIndex };

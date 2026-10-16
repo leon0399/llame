@@ -47,12 +47,3 @@ export function liveUpdatesUrl(apiUrl: string = getApiUrl()): string {
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }
-
-/** Reconnect delay: exponential from 1 s to 30 s, with full jitter. */
-export function reconnectDelayMs(
-  attempt: number,
-  random: () => number = Math.random,
-): number {
-  const ceiling = Math.min(30_000, 1000 * 2 ** attempt);
-  return Math.round(ceiling / 2 + (random() * ceiling) / 2);
-}

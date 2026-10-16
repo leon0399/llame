@@ -14,6 +14,7 @@ import {
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { handleUnauthorizedResponse } from "@/lib/api/fetch";
+import { equalJitterDelayMs } from "@/lib/equal-jitter";
 import {
   applyLiveMessage,
   invalidateOwnerLists,
@@ -22,7 +23,6 @@ import {
   CLOSE_SESSION_ENDED,
   liveUpdatesUrl,
   parseLiveMessage,
-  reconnectDelayMs,
   type LiveMessage,
   type RunMessage,
 } from "@/lib/services/live/live-messages";
@@ -123,7 +123,7 @@ function connectLiveSocket(handlers: LiveSocketHandlers): () => void {
         handlers.onSessionEnded();
         return;
       }
-      retry = setTimeout(open, reconnectDelayMs(attempt));
+      retry = setTimeout(open, equalJitterDelayMs(attempt));
       attempt += 1;
     };
   };

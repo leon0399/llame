@@ -13,9 +13,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   an SSE comment rather than being cut. The bridge's terminal chunk now carries
   `finishReason`, the only positive signal that a Run reached its end — a
   failed Run still replaces it with its error — and the client re-attaches to a
-  stream that ended without one, once per Run, so a dropped connection, a proxy
-  timeout, or a deploy resumes rendering instead of reporting a turn that never
-  finished (#1284).
+  stream that ended without one, so a dropped connection, a proxy timeout, or a
+  deploy resumes rendering instead of reporting a turn that never finished. The
+  first attempt is immediate; consecutive failures wait an equal-jitter delay,
+  and five of them hand the Run to the durable path. That policy is its own
+  module, because it is what makes an hours-long Run viewable and not a corner
+  of the chat engine (#1284).
 
 - Documented how each context document is chosen, imported, and injected.
   [Context documents](docs/product/reference/context-documents.md) maps the

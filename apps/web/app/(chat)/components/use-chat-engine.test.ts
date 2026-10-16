@@ -96,7 +96,7 @@ function historySyncProps(
     messages: [],
     status: "error",
     setMessages: vi.fn(),
-    interruptedRunId: null,
+    interruption: null,
     ...overrides,
   };
 }
@@ -130,7 +130,9 @@ describe("useChatHistorySync", () => {
   });
 
   it("re-attaches to a run whose stream ended while it was executing", async () => {
-    const props = historySyncProps({ interruptedRunId: "run-1" });
+    const props = historySyncProps({
+      interruption: { runId: "run-1", seq: 1 },
+    });
     renderHistorySync(props);
 
     expect(props.resumeStream).toHaveBeenCalledTimes(1);
@@ -139,26 +141,17 @@ describe("useChatHistorySync", () => {
     );
   });
 
-  it("ignores an interruption with no run to re-attach to", () => {
-    const props = historySyncProps({ interruptedRunId: null });
-    renderHistorySync(props);
-
-    expect(props.resumeStream).not.toHaveBeenCalled();
-  });
-
-  it("re-attaches once per interrupted run", () => {
-    const props = historySyncProps({ interruptedRunId: "run-1" });
+  it("ignores an interruption the effect already handled", () => {
+    const props = historySyncProps({
+      interruption: { runId: "run-1", seq: 1 },
+    });
     const { rerender } = renderHistorySync(props);
+    expect(props.resumeStream).toHaveBeenCalledTimes(1);
 
-    // A fresh transport on the same Chat (a chatId change rebuilds one) must
-    // not re-attach the run that was already repaired.
-    const next = historySyncProps({ interruptedRunId: "run-1" });
-    rerender(next);
-    expect(next.resumeStream).not.toHaveBeenCalled();
-
-    const later = historySyncProps({ interruptedRunId: "run-2" });
-    rerender(later);
-    expect(later.resumeStream).toHaveBeenCalledTimes(1);
+    // Same interruption re-rendered (a render the effect re-runs on) must not
+    // attach twice.
+    rerender({ ...props, messages: [] });
+    expect(props.resumeStream).toHaveBeenCalledTimes(1);
   });
 
   it("does not double-attach when a failed send's recovery re-arms the resume probe", () => {
@@ -167,17 +160,17 @@ describe("useChatHistorySync", () => {
     const { rerender } = renderHistorySync(props);
     expect(props.resumeStream).not.toHaveBeenCalled();
 
-    const interrupted = historySyncProps({ interruptedRunId: "run-1" });
-    rerender(interrupted);
-    expect(interrupted.resumeStream).toHaveBeenCalledTimes(1);
+    let current: HistorySyncProps = {
+      ...props,
+      interruption: { runId: "run-1", seq: 1 },
+    };
+    rerender(current);
+    expect(props.resumeStream).toHaveBeenCalledTimes(1);
 
     // The failed-send recovery drives the draft session to `persisted`, which
     // asks for the mount probe again — the repair already covered this run.
-    const recovered = historySyncProps({
-      interruptedRunId: "run-1",
-      resume: true,
-    });
-    rerender(recovered);
-    expect(recovered.resumeStream).not.toHaveBeenCalled();
+    current = { ...current, resume: true };
+    rerender(current);
+    expect(props.resumeStream).toHaveBeenCalledTimes(1);
   });
 });

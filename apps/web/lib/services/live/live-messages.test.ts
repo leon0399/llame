@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  liveUpdatesUrl,
-  parseLiveMessage,
-  reconnectDelayMs,
-} from "./live-messages";
+import { liveUpdatesUrl, parseLiveMessage } from "./live-messages";
 
 const chatId = "11111111-1111-4111-8111-111111111111";
 const runId = "22222222-2222-4222-8222-222222222222";
@@ -73,15 +69,5 @@ describe("liveUpdatesUrl", () => {
     expect(liveUpdatesUrl("https://api.example.com")).toBe(
       "wss://api.example.com/api/v1/live",
     );
-  });
-});
-
-describe("reconnectDelayMs", () => {
-  it("backs off exponentially within a jittered half-to-full window, capped at 30 s", () => {
-    expect(reconnectDelayMs(0, () => 0)).toBe(500);
-    expect(reconnectDelayMs(0, () => 1)).toBe(1000);
-    expect(reconnectDelayMs(3, () => 1)).toBe(8000);
-    expect(reconnectDelayMs(20, () => 1)).toBe(30_000);
-    expect(reconnectDelayMs(20, () => 0)).toBe(15_000);
   });
 });
