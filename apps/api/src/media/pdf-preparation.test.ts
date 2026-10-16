@@ -60,6 +60,18 @@ describe('preparePdf', () => {
     await expect(preparePdf(fixture(name))).resolves.toBe(pages);
   });
 
+  it('refuses a missing compiled parser in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VITEST', undefined);
+    try {
+      await expect(preparePdf(fixture('one-page.pdf'))).rejects.toMatchObject(
+        UNAVAILABLE,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('refuses a truncated PDF', async () => {
     const input = fixture('one-page.pdf');
 

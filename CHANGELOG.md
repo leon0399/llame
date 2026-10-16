@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-16
 
+- PDF parsing now fails closed when the compiled parse entry is missing.
+  Production no longer selects the unbounded TypeScript test parser; requests
+  report `PDF parsing is unavailable on this server` and log the start failure.
+
 - The native `hackernews` adapter now reads the front page (`/`, `/news`,
   `/front`) and `/newest` as bullet lists of the first 30 stories — title,
   points, comment count, the story link, and its HN discussion link — from

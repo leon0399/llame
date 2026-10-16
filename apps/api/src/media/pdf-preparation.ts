@@ -16,6 +16,7 @@ import {
   MEDIA_REFUSAL,
   MediaIngestError,
 } from './media-ingest';
+import { processEnvironment } from '../tools/env';
 
 export const PDF_MEDIA_TYPE = 'application/pdf';
 export const PDF_MAX_PAGES = 100;
@@ -62,10 +63,9 @@ export function isPdfSignature(head: Uint8Array): boolean {
 }
 
 /**
- * Production runs the compiled entry under the bounded start. Under vitest
- * only the TypeScript entry exists, and no TypeScript loader (tsx, type
- * stripping) starts under an address-space limit, so that entry runs
- * unbounded and the bounds are proved with injected JavaScript entries.
+ * The TypeScript loader cannot start under the address-space limit, so only
+ * Vitest may use the unbounded source entry. Every runtime caller requires
+ * the compiled entry; the bounds are proved with injected JavaScript entries.
  * Without trap handlers V8 stops reserving about 10 GiB of address space per
  * WebAssembly memory, which the 2 GiB limit refuses; pdf.js instantiates
  * WebAssembly for some inputs.
@@ -74,6 +74,10 @@ function defaultParseChild(): PdfParseChild {
   const compiled = path.join(__dirname, 'pdf-parse-entry.js');
   if (existsSync(compiled)) {
     return pdfParseChild(['--disable-wasm-trap-handler', compiled]);
+  }
+  if (processEnvironment().VITEST !== 'true') {
+    logger.error('PDF parse child failed to start: compiled entry is missing');
+    throw new MediaIngestError(MEDIA_REFUSAL.pdfUnavailable);
   }
   const entry = path.join(__dirname, 'pdf-parse-entry.ts');
   const args = ['--import', 'tsx', entry];
