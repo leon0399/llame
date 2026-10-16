@@ -92,9 +92,10 @@ function ConnectionProbe() {
 }
 
 function RunsProbe() {
-  const { activeChatIds, runPhaseByChatId } = useActiveRuns();
+  const { activeChatIds, runPhaseByChatId, completedChats } = useActiveRuns();
   return (
     <div>
+      <span data-testid="completed">{String(completedChats.has(chatId))}</span>
       <span data-testid="processing">{String(activeChatIds.has(chatId))}</span>
       <span data-testid="phase">{runPhaseByChatId.get(chatId) ?? "none"}</span>
     </div>
@@ -294,5 +295,38 @@ describe("ActiveRunsProvider with live updates", () => {
 
     latestSocket().serverClose();
     expect(screen.getByTestId("phase").textContent).toBe("none");
+  });
+
+  it("does not restore a phase from before the disconnect after reconnecting", async () => {
+    renderLive(
+      <ActiveRunsProvider>
+        <RunsProbe />
+      </ActiveRunsProvider>,
+    );
+    latestSocket().serverOpen();
+    latestSocket().serverSend(JSON.stringify(runProgress({ phase: "tool" })));
+    latestSocket().serverClose();
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2), {
+      timeout: 2000,
+    });
+
+    latestSocket().serverOpen();
+    expect(screen.getByTestId("phase").textContent).toBe("none");
+  });
+
+  it("notifies the completion of a run whose first message is already terminal", async () => {
+    renderLive(
+      <ActiveRunsProvider>
+        <RunsProbe />
+      </ActiveRunsProvider>,
+    );
+    latestSocket().serverOpen();
+
+    latestSocket().serverSend(JSON.stringify(runUpdated("completed")));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("completed").textContent).toBe("true"),
+    );
+    expect(screen.getByTestId("processing").textContent).toBe("false");
   });
 });

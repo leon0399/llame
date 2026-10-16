@@ -391,7 +391,7 @@ describe("applyLiveMessage", () => {
 
     applyLiveMessage(client, { type: "resync" });
     expect(invalidate.mock.calls.map(([f]) => f?.queryKey)).toEqual([
-      chatQueryKeys.lists(),
+      chatQueryKeys.all,
       pinQueryKeys.list(),
       projectQueryKeys.lists(),
       activeRunsQueryKeys.all,

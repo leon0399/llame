@@ -61,8 +61,10 @@ export function applyLiveMessage(
 
 /** Every owner-level list a missed message could have changed. */
 export function invalidateOwnerLists(queryClient: QueryClient): void {
+  // `chatQueryKeys.all` covers lists and every chat's detail and messages:
+  // a Run that finished while disconnected changed the open transcript too.
   for (const queryKey of [
-    chatQueryKeys.lists(),
+    chatQueryKeys.all,
     pinQueryKeys.list(),
     projectQueryKeys.lists(),
     activeRunsQueryKeys.all,

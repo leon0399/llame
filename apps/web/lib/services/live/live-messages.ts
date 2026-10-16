@@ -22,12 +22,12 @@ export type RunPhase = RunProgressMessage["phase"];
 /** The run messages the active-runs provider consumes. */
 export type RunMessage = RunProgressMessage | RunUpdatedMessage;
 
-/** Parse one frame; `undefined` for a binary frame, malformed JSON, or an
- *  unknown message type (forward compatible: a newer server may send types
- *  this client ignores). */
 /** Close code for a session that ended; the client signs in again rather than reconnecting. */
 export const CLOSE_SESSION_ENDED = 4401;
 
+/** Parse one frame; `undefined` for a binary frame, malformed JSON, or an
+ *  unknown message type (forward compatible: a newer server may send types
+ *  this client ignores). */
 export function parseLiveMessage(data: unknown): LiveMessage | undefined {
   const text = z.string().safeParse(data);
   if (!text.success) return undefined;

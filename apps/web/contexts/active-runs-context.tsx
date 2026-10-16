@@ -316,7 +316,7 @@ function handleTerminalRun(
     viewedChatIdRef,
     routerRef,
   } = deps;
-  if (handledRunIds.current.has(runId)) return;
+  if (handledRunIds.current.has(runId)) return drop(runId); // re-tracked late
   if (run === undefined) return; // still loading / errored — keep waiting
   if (run === null) {
     handledRunIds.current.add(runId);
@@ -525,9 +525,9 @@ function useLiveRunProgress(
       setPhases((prev) => nextRunPhases(prev, message));
       if (message.type !== "run.updated") return;
       const { run } = message;
-      if (!isTerminalRunStatus(run.status)) {
-        trackRun(run.id, run.chatId, cachedChatTitle(queryClient, run.chatId));
-      }
+      // Terminal too: coalescing can deliver a Run's first message already
+      // finished, and its completion must still notify this tab.
+      trackRun(run.id, run.chatId, cachedChatTitle(queryClient, run.chatId));
       queryClient.setQueryData<Run | null>(
         activeRunsQueryKeys.run(run.id),
         (prev) => (prev && isTerminalRunStatus(prev.status) ? prev : run),
@@ -535,9 +535,15 @@ function useLiveRunProgress(
     });
   }, [subscribe, trackRun, queryClient]);
 
-  // Phases are only maintained while connected; drop them on disconnect so a
-  // stale label cannot outlive the stream that set it.
+  // Phases are only maintained while connected; clear them on disconnect so
+  // a stale label cannot outlive the stream that set it, even after a
+  // reconnect.
   const connected = live?.connected ?? false;
+  const [phasesConnected, setPhasesConnected] = useState(connected);
+  if (phasesConnected !== connected) {
+    setPhasesConnected(connected);
+    if (!connected) setPhases(EMPTY_PHASES);
+  }
   return connected ? phases : EMPTY_PHASES;
 }
 
