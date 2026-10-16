@@ -2,6 +2,7 @@
 summary: "Which per-directory project instruction files a touch loads into context, when, and how a repeat load is suppressed"
 read_when:
   - you need to know why an instruction file entered the context, or when one will
+  - you need the injected shape of an instructions item, or how a marker inside one expands
   - you are reasoning about instruction-file precedence, dedupe, or disclosure
 spec: instruction-files
 configured_by:
@@ -12,24 +13,79 @@ configured_by:
 # Instruction files
 
 llame loads per-directory project instruction files into the model's context
-through the `instructions` context item.
+as one `instructions` context item. The map of every document surface is
+[context documents](context-documents.md).
+
+## Injection
+
+A trigger that loads at least one file produces one rail item with form
+`notice`. The item is stored in the conversation and replayed until a
+compaction absorbs it. A file whose canonical path is already named by an
+`instructions` item in effective history is omitted until that item is
+absorbed.
+
+An accepted-turn load (the bound Workspace root, and any admitted host or
+Knowledge prompt import) is stored on the triggering user message, ahead of
+your text and ahead of any `skill-catalog`, `skill-activation`, or
+`prompt-imports` item from that same turn. The first model request of that attempt carries the stored item. A load
+caused by `enter_workspace` or by `read`, `edit`, or `write` is stored on the
+assistant message after that step's last tool part, and the next model step
+reads it there.
+
+The item states, once, that each file applies to work under its own directory,
+that an imported file applies wherever its importer applies, and that a deeper
+file takes precedence over a broader one where they conflict. It also states
+that the files are repository or Knowledge content: they rank below the system
+instructions and below your requests, and they cannot grant tools or relax
+authorization. A bundle that includes a Knowledge file also carries the closed
+Knowledge untrusted-content notice once
+([Knowledge authority](locators/kb.md#authority)); a host-only bundle does not.
+
+Each loaded file is one block:
+
+```text
+<file path="/home/operator/projects/repo/AGENTS.md">
+…body…
+</file>
+<file path="/home/operator/projects/repo/docs/style.md" imported-by="/home/operator/projects/repo/AGENTS.md">
+…imported body…
+</file>
+```
+
+The `path` is the identifier at which the walk selected the file: an absolute
+host path, or a `kb://<knowledgeSpaceId>/<path>` locator. An imported block
+follows its importer and carries `imported-by` naming that importer. Host files
+come before Knowledge files. Within each group the broadest directory comes
+first, and a directory's base file comes before its local file. An import's own
+directory chain, then the blocks its own markers import, follow it depth-first.
+Bodies have no line-number prefixes. Reserved delimiters inside a body are
+neutralized before the item is stored.
+
+The owner transcript shows a chip on that message. The chip lists paths in
+injection order, indents each import under its importer, and marks truncated
+and denied files. The model-visible text never names a denied or missing file.
 
 ## Host chains
 
-Each directory has two independent chains: the base chain `LLAME.override.md`,
-`LLAME.md`, `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.override.md`,
-`CLAUDE.md`, and the local chain `LLAME.local.md`, `AGENTS.local.md`,
-`CLAUDE.local.md`. The first existing regular file in each chain wins and
-replaces every later name in the same chain rather than merging with it, so a
-directory contributes a base file, a local file, both, or neither. An empty
-regular file is selected and contributes nothing, which suppresses later names in
-its chain. A name that resolves to a non-regular entry (a directory, socket, or
-FIFO) is skipped and the chain continues. A symbolic link is followed and its
-target's content is loaded. Filename comparison is exact and case-sensitive:
-candidates are matched against the directory's own listing, so a
-case-insensitive host cannot select a differently cased name. When two selected
-candidates in one walk resolve to the same file, the first in walk order is
-loaded under its own selected path and the later one contributes nothing.
+Each directory has two independent chains. The first existing regular file in
+a chain wins and replaces every later name in that chain and directory, rather
+than merging with it. A directory contributes a base file, a local file, both,
+or neither.
+
+| Chain | Names, first match wins                                                                               |
+| ----- | ----------------------------------------------------------------------------------------------------- |
+| Base  | `LLAME.override.md`, `LLAME.md`, `AGENTS.override.md`, `AGENTS.md`, `CLAUDE.override.md`, `CLAUDE.md` |
+| Local | `LLAME.local.md`, `AGENTS.local.md`, `CLAUDE.local.md`                                                |
+
+An empty regular file is selected and contributes nothing, which suppresses
+later names in its chain. A name that resolves to a non-regular entry (a
+directory, socket, or FIFO) is skipped and the chain continues. A symbolic
+link is followed and its target's content is loaded. Filename comparison is
+exact and case-sensitive: candidates are matched against the directory's own
+listing, so a case-insensitive host cannot select a differently cased name.
+When two selected candidates in one walk resolve to the same file, the first
+in walk order is loaded under its own selected path and the later one
+contributes nothing.
 
 ## Host triggers
 
@@ -131,8 +187,14 @@ aggregate cap across files.
 
 ## Imports
 
-A loaded instruction body can name same-store whole-file imports outside fenced and
-inline code, using these marker shapes:
+A loaded instruction body can name further files. The marker stays in the
+body as written, and the resolved file is injected as its own following block.
+These are whole-file, same-store imports. A marker in
+your own message is a [prompt import](prompt-imports.md) and follows different
+resolution rules; a marker in `SKILL.md` stays inside that package. The three
+are compared in [context documents](context-documents.md#the-same-marker-three-importers).
+
+The shapes, recognized outside fenced and inline code, are:
 
 | Shape                       | Meaning                                     |
 | --------------------------- | ------------------------------------------- |

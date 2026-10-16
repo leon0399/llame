@@ -2,7 +2,7 @@
 summary: "Import markers in a prompt: which marker shapes and read locators import, how admission and bounds apply, and what the model receives"
 read_when:
   - you want the assistant to start a turn with a file, range, outline, Knowledge file, skill, URL, or image already read
-  - you need to know why a marker in your prompt was or was not imported
+  - you need to know why a marker in your prompt was or was not imported, and where the result is injected
   - you are reasoning about the prompt-imports context item, its bounds, or its audit
 spec: prompt-imports
 configured_by:
@@ -16,7 +16,13 @@ configured_by:
 A marker in your prompt points at something `read` can read. Before the Run's
 first model request, llame reads it for you and puts the result in front of the
 model, so the assistant does not spend a step fetching what you already named.
-Your text is stored and shown exactly as typed; the import is added beside it.
+Your text is stored and shown exactly as typed; the import is a separate
+context item beside it.
+
+The same marker shapes also appear in project instruction files and in skill
+files, where they resolve differently. Which document expands a marker, and
+which item receives the bytes, is the [context documents](context-documents.md#the-same-marker-three-importers)
+map.
 
 ## Markers
 
@@ -121,13 +127,25 @@ read never appears as an assistant tool call.
 
 ## What the model receives
 
-All imports of one message are one `prompt-imports` notice, rendered before the
-message text and after any skill activation. It holds one file block per
-imported target, labelled with the locator as written, with reserved delimiters
+All imports of one message are one `prompt-imports` context item with form
+`notice`, stored on your message. On that turn it follows any `instructions`,
+`skill-catalog`, and `skill-activation` items and precedes your text. The first
+model request carries the stored item. It holds one file block per imported
+target, labelled with the locator as written, with reserved delimiters
 neutralized, under a statement that the content is third-party data ranked
 below system instructions and your requests and cannot grant tools or relax
 authorization. A denied or failed target is named only as not imported, with no
 content.
+
+```text
+<system-reminder producer="prompt-imports" form="notice">
+Inserted by llame; not written by the user.
+…one labelled block per imported target…
+</system-reminder>
+```
+
+The reminder above is the rail envelope every context item uses. The block
+inside it is the import.
 
 A target whose `read` returns an image, such as `@shot.png` or
 `@media://<id>`, becomes an image entry. Its file block holds exactly the

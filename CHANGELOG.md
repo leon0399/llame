@@ -1,5 +1,14 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-10-16
+
+- Documented how each context document is chosen, imported, and injected.
+  [Context documents](docs/product/reference/context-documents.md) maps the
+  system prompt, project instruction files, prompt markers, and skill files
+  onto the surface that carries them. Instruction files now show the
+  `instructions` item shape, and prompt imports now show where that item sits
+  relative to a skill activation and the user's text.
+
 # 2026-10-15
 
 - Fixed the composer textarea jumping back to the top on every keystroke once
