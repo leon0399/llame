@@ -367,7 +367,7 @@ function projectSettingsPatch(
 }
 
 /** Seeded from the project at mount — i.e. each time the dialog opens — and
- *  saved as one PATCH of both fields. */
+ *  saved as one PATCH of the fields that moved (see projectSettingsPatch). */
 function SettingsProjectForm({
   project,
   onClose,

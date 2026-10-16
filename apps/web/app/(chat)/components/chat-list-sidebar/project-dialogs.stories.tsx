@@ -436,10 +436,11 @@ export const SettingsSeed: SettingsStory = {
 };
 
 /**
- * Editing either field PATCHes both in one request — the name and the
- * description — and closes the dialog once the server accepts it.
+ * Editing both fields PATCHes both in one request — the name and the
+ * description — and closes the dialog once the server accepts it. The
+ * single-field cases are `SettingsRename` and `SettingsClearsDescription`.
  *
- * @summary settings: Save sends the name and the description together
+ * @summary settings: Save with both fields edited sends both
  */
 export const SettingsChanged: SettingsStory = {
   tags: ["ai-generated"],
