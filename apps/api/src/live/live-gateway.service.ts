@@ -40,7 +40,7 @@ export const LIVE_PATH = '/api/v1/live';
 /** Heartbeat and session re-validation cadence. */
 const HEARTBEAT_MS = 30_000;
 /** Open sockets per user (tabs and devices). */
-const MAX_SOCKETS_PER_USER = 16;
+export const MAX_SOCKETS_PER_USER = 16;
 /** A socket this far behind is closed rather than buffered without bound. */
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 
@@ -114,26 +114,17 @@ export class LiveGatewayService
     socket: Duplex,
     head: Buffer,
   ): Promise<void> {
-    const path = (request.url ?? '').split('?')[0];
-    if (path !== LIVE_PATH) return; // not ours; leave it for any other handler
-
-    const origin = request.headers.origin;
-    if (origin !== undefined && !this.allowedOrigins.has(origin)) {
-      return reject(socket, 403, 'Forbidden');
-    }
-    const token = getRequestToken(request);
-    const session = token
-      ? await this.auth.validateToken(token).catch(() => undefined)
-      : undefined;
-    if (!token || !session?.userId) {
-      return reject(socket, 401, 'Unauthorized');
-    }
-    const userId = session.userId;
-    if (this.countFor(userId) >= MAX_SOCKETS_PER_USER) {
-      return reject(socket, 429, 'Too Many Requests');
+    const decision = await decideUpgrade(request, {
+      allowedOrigins: this.allowedOrigins,
+      validateToken: (token) => this.auth.validateToken(token),
+      openSockets: (userId) => this.countFor(userId),
+    });
+    if (decision.kind === 'ignore') return; // not ours; leave it for any other handler
+    if (decision.kind === 'reject') {
+      return reject(socket, decision.status, decision.reason);
     }
     this.wss.handleUpgrade(request, socket, head, (ws) =>
-      this.attach(ws, userId, token),
+      this.attach(ws, decision.userId, decision.token),
     );
   }
 
@@ -191,6 +182,46 @@ export class LiveGatewayService
     for (const live of this.sockets) if (live.userId === userId) count += 1;
     return count;
   }
+}
+
+export type UpgradeDecision =
+  | { kind: 'ignore' }
+  | { kind: 'reject'; status: 401 | 403 | 429; reason: string }
+  | { kind: 'accept'; userId: string; token: string };
+
+export type UpgradeDeps = {
+  allowedOrigins: ReadonlySet<string>;
+  validateToken: LiveAuth['validateToken'];
+  openSockets: (userId: string) => number;
+};
+
+/**
+ * Whether to accept an upgrade request, and as whom. Another path is ignored.
+ * A browser `Origin` outside the allowlist is refused before the session is
+ * looked at; a missing, invalid, or failing session is refused; a user at the
+ * socket cap is refused.
+ */
+export async function decideUpgrade(
+  request: Pick<IncomingMessage, 'url' | 'headers'>,
+  deps: UpgradeDeps,
+): Promise<UpgradeDecision> {
+  const path = (request.url ?? '').split('?')[0];
+  if (path !== LIVE_PATH) return { kind: 'ignore' };
+  const origin = request.headers.origin;
+  if (origin !== undefined && !deps.allowedOrigins.has(origin)) {
+    return { kind: 'reject', status: 403, reason: 'Forbidden' };
+  }
+  const token = getRequestToken(request);
+  const session = token
+    ? await deps.validateToken(token).catch(() => undefined)
+    : undefined;
+  if (!token || !session?.userId) {
+    return { kind: 'reject', status: 401, reason: 'Unauthorized' };
+  }
+  if (deps.openSockets(session.userId) >= MAX_SOCKETS_PER_USER) {
+    return { kind: 'reject', status: 429, reason: 'Too Many Requests' };
+  }
+  return { kind: 'accept', userId: session.userId, token };
 }
 
 function reject(socket: Duplex, status: number, reason: string): void {

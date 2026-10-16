@@ -5,7 +5,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { resolveChatActivityStatus } from "./chat-activity-indicator";
+import {
+  processingLabel,
+  resolveChatActivityStatus,
+} from "./chat-activity-indicator";
 
 describe("resolveChatActivityStatus", () => {
   it("is null when neither signal is set (idle chat)", () => {
@@ -30,5 +33,17 @@ describe("resolveChatActivityStatus", () => {
     expect(resolveChatActivityStatus({ processing: true, unread: true })).toBe(
       "processing",
     );
+  });
+});
+
+describe("processingLabel", () => {
+  it.each([
+    [undefined, "Generating response"],
+    ["queued", "Generating response: queued"],
+    ["thinking", "Generating response: thinking"],
+    ["tool", "Generating response: using a tool"],
+    ["writing", "Generating response: writing"],
+  ] as const)("labels phase %s as %s", (phase, label) => {
+    expect(processingLabel(phase)).toBe(label);
   });
 });

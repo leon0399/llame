@@ -4,11 +4,33 @@ import path from "node:path";
 import { test } from "node:test";
 import { parse as parseYaml } from "yaml";
 
-import { inlineSchema, renderLiveProtocol } from "./generate-live-protocol.mjs";
+import {
+  parseRef,
+  renderLiveProtocol,
+  validateAsyncApi,
+} from "./generate-live-protocol.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
+const source = path.join(root, "apps/api/asyncapi.yaml");
 const read = (relative) => readFileSync(path.join(root, relative), "utf8");
-const document = () => parseYaml(read("apps/api/asyncapi.yaml"));
+
+/** A document reader over the real files, with selected documents replaced. */
+function readerWith(overrides = {}) {
+  return (file) => {
+    if (overrides[file]) return overrides[file];
+    const text = readFileSync(file, "utf8");
+    return file.endsWith(".json") ? JSON.parse(text) : parseYaml(text);
+  };
+}
+
+const asyncapi = () => parseYaml(read("apps/api/asyncapi.yaml"));
+const render = (document) =>
+  renderLiveProtocol(
+    source,
+    "test",
+    undefined,
+    readerWith({ [source]: document }),
+  );
 
 test("both committed protocol modules match the AsyncAPI document", async () => {
   for (const generated of [
@@ -16,7 +38,7 @@ test("both committed protocol modules match the AsyncAPI document", async () => 
     "apps/web/lib/api/live-generated/live-protocol.ts",
   ]) {
     const expected = await renderLiveProtocol(
-      document(),
+      source,
       "apps/api/asyncapi.yaml",
       path.join(root, generated),
     );
@@ -28,38 +50,77 @@ test("both committed protocol modules match the AsyncAPI document", async () => 
   }
 });
 
-test("rejects a schema keyword the generator does not support", () => {
-  assert.throws(
-    () => inlineSchema({}, { type: "string", pattern: "^x$" }),
-    /Unsupported JSON Schema keyword: pattern/,
-  );
+test("the AsyncAPI document passes the official parser", async () => {
+  await validateAsyncApi(source);
 });
 
-test("rejects an unresolved or external reference", () => {
-  assert.throws(
-    () => inlineSchema({ components: {} }, { $ref: "#/components/nope" }),
-    /Unresolved reference/,
+test("generates OpenAPI records as named schemas and pins as a discriminated union", async () => {
+  const module = await render(asyncapi());
+  assert.match(module, /export const chatListItemResponseSchema = z/);
+  assert.match(module, /chat: chatListItemResponseSchema/);
+  assert.match(
+    module,
+    /z\.discriminatedUnion\("itemType", \[\s*chatPinnedItemResponseSchema,\s*projectPinnedItemResponseSchema,?\s*\]\)/,
   );
-  assert.throws(
-    () => inlineSchema({}, { $ref: "other.yaml#/x" }),
-    /Only local references/,
-  );
+  assert.doesNotMatch(module, /z\.any\(\)\.superRefine/);
 });
 
-test("rejects a message whose payload type const does not match its name", async () => {
-  const broken = document();
-  broken.components.schemas.ResyncMessage.properties.type.const = "other";
+test("rejects a schema keyword the generator does not support", async () => {
+  const broken = asyncapi();
+  broken.components.schemas.ResyncMessage.schema.properties.type.pattern =
+    "^x$";
+  await assert.rejects(render(broken), /Unsupported schema keyword: pattern/);
+});
+
+test("rejects a oneOf without a discriminator", async () => {
+  const broken = asyncapi();
+  const items =
+    broken.components.schemas.PinsReplacedMessage.schema.properties.items;
+  delete items.items.discriminator;
+  await assert.rejects(render(broken), /oneOf needs a discriminator/);
+});
+
+test("rejects a message whose payload type enum does not match its name", async () => {
+  const broken = asyncapi();
+  broken.components.schemas.ResyncMessage.schema.properties.type.enum = [
+    "other",
+  ];
   await assert.rejects(
-    renderLiveProtocol(broken, "test"),
-    /ResyncMessage must be an object whose type const is "resync"/,
+    render(broken),
+    /ResyncMessage must declare type enum \[resync\]/,
   );
 });
 
 test("rejects a document without exactly one send operation", async () => {
-  const broken = document();
+  const broken = asyncapi();
   broken.operations.sendLiveUpdate.action = "receive";
   await assert.rejects(
-    renderLiveProtocol(broken, "test"),
+    render(broken),
     /Expected exactly one send operation, found 0/,
+  );
+});
+
+test("rejects a reference that does not resolve", async () => {
+  const broken = asyncapi();
+  broken.components.schemas.ChatUpsertedMessage.schema.properties.chat.$ref =
+    "./openapi.json#/components/schemas/Nope";
+  await assert.rejects(render(broken), /Unresolved reference: .*Nope/);
+});
+
+test("resolves references relative to the referring document", () => {
+  assert.deepEqual(
+    parseRef("./openapi.json#/components/schemas/ChatListItemResponse", source),
+    {
+      file: path.join(root, "apps/api/openapi.json"),
+      name: "ChatListItemResponse",
+    },
+  );
+  assert.deepEqual(parseRef("#/components/schemas/RunPhase", source), {
+    file: source,
+    name: "RunPhase",
+  });
+  assert.throws(
+    () => parseRef("#/components/messages/resync", source),
+    /Only component schema references/,
   );
 });

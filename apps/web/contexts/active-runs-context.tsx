@@ -36,10 +36,7 @@ import {
   isTerminalRunStatus,
   resolveTerminalRun,
 } from "@/lib/services/chat/run-notifications";
-import type {
-  RunPhase,
-  RunProgressMessage,
-} from "@/lib/services/live/live-messages";
+import type { RunMessage, RunPhase } from "@/lib/services/live/live-messages";
 import { useOptionalLiveUpdates } from "@/contexts/live-updates-context";
 
 const POLL_MS = 4000;
@@ -481,24 +478,26 @@ function cachedChatTitle(queryClient: QueryClient, chatId: string): string {
  *  terminal. Returns `prev` when nothing changed. */
 export function nextRunPhases(
   prev: ReadonlyMap<string, RunPhase>,
-  message: RunProgressMessage,
+  message: RunMessage,
 ): ReadonlyMap<string, RunPhase> {
-  if (isTerminalRunStatus(message.status)) {
-    if (!prev.has(message.chatId)) return prev;
-    const next = new Map(prev);
-    next.delete(message.chatId);
-    return next;
+  if (message.type === "run.progress") {
+    if (prev.get(message.chatId) === message.phase) return prev;
+    return new Map(prev).set(message.chatId, message.phase);
   }
-  if (prev.get(message.chatId) === message.phase) return prev;
-  return new Map(prev).set(message.chatId, message.phase);
+  const { chatId, status } = message.run;
+  if (!isTerminalRunStatus(status) || !prev.has(chatId)) return prev;
+  const next = new Map(prev);
+  next.delete(chatId);
+  return next;
 }
 
 /**
- * Applies live `run.progress` messages: tracks a run started elsewhere (so the
- * sidebar shows it processing and its completion notifies), writes the pushed
- * status into the run's query cache (so the existing terminal handling fires
- * without a poll), and keeps the per-chat phase. A terminal cached status is
- * never overwritten by a later non-terminal one.
+ * Applies live run messages. `run.updated` carries the Run record: a Run
+ * started elsewhere is tracked (so the sidebar shows it processing and its
+ * completion notifies), and the record is written into the run's query cache
+ * so the existing terminal handling fires without a poll; a terminal cached
+ * status is never overwritten by a later non-terminal one. `run.progress`
+ * keeps the per-chat phase.
  */
 function useLiveRunProgress(
   trackRun: ActiveRunsContextValue["trackRun"],
@@ -508,27 +507,21 @@ function useLiveRunProgress(
   const [phases, setPhases] = useState<ReadonlyMap<string, RunPhase>>(
     () => new Map(),
   );
-  const subscribe = live?.subscribeRunProgress;
+  const subscribe = live?.subscribeRunMessages;
 
   useEffect(() => {
     if (!subscribe) return undefined;
     return subscribe((message) => {
-      const terminal = isTerminalRunStatus(message.status);
-      if (!terminal) {
-        trackRun(
-          message.runId,
-          message.chatId,
-          cachedChatTitle(queryClient, message.chatId),
-        );
+      setPhases((prev) => nextRunPhases(prev, message));
+      if (message.type !== "run.updated") return;
+      const { run } = message;
+      if (!isTerminalRunStatus(run.status)) {
+        trackRun(run.id, run.chatId, cachedChatTitle(queryClient, run.chatId));
       }
       queryClient.setQueryData<Run | null>(
-        activeRunsQueryKeys.run(message.runId),
-        (prev) =>
-          prev && isTerminalRunStatus(prev.status)
-            ? prev
-            : { id: message.runId, status: message.status },
+        activeRunsQueryKeys.run(run.id),
+        (prev) => (prev && isTerminalRunStatus(prev.status) ? prev : run),
       );
-      setPhases((prev) => nextRunPhases(prev, message));
     });
   }, [subscribe, trackRun, queryClient]);
 

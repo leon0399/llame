@@ -1,8 +1,6 @@
 apis:
   llame:
     root: ./openapi.json
-  llame-live:
-    root: ./asyncapi.yaml
 
 extends:
   - spec

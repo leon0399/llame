@@ -4,87 +4,160 @@ import { z } from "zod";
 
 export const LIVE_CHANNEL_ADDRESS = "/api/v1/live";
 
-export const changeSchema = z.enum(["created", "updated", "deleted"]);
-export type Change = z.infer<typeof changeSchema>;
+export const chatListItemResponseSchema = z.object({
+  id: z.string().uuid(),
+  ownerUserId: z.string(),
+  title: z.string().nullable(),
+  visibility: z.enum(["private", "public"]),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+  archivedAt: z.string().datetime({ offset: true }).nullable(),
+  projectId: z.string().uuid().nullable(),
+  workspaceRoot: z
+    .string()
+    .nullable()
+    .describe(
+      "Canonical absolute root of the current Workspace binding. Owner-only; null when this Chat has no binding.",
+    ),
+  lastMessage: z.string().max(160).nullable(),
+});
+export type ChatListItemResponse = z.infer<typeof chatListItemResponseSchema>;
 
-export const runStatusSchema = z.enum([
-  "queued",
-  "resolving_config",
-  "retrieving_context",
-  "planning",
-  "waiting_for_approval",
-  "running_model",
-  "running_tool",
-  "running_sandbox",
-  "updating_artifact",
-  "summarizing",
-  "completed",
-  "failed",
-  "cancelled",
-  "expired",
-]);
-export type RunStatus = z.infer<typeof runStatusSchema>;
-
-/** Coarse activity derived from run events; `finished` once the status is terminal. */
-export const runPhaseSchema = z
-  .enum(["queued", "thinking", "tool", "writing", "finished"])
-  .describe(
-    "Coarse activity derived from run events; `finished` once the status is terminal.",
-  );
-export type RunPhase = z.infer<typeof runPhaseSchema>;
-
-export const chatChangedMessageSchema = z
+export const chatUpsertedMessageSchema = z
   .object({
-    type: z.literal("chat.changed"),
-    chatId: z.string().uuid(),
-    change: z.enum(["created", "updated", "deleted"]),
+    type: z.literal("chat.upserted"),
+    chat: chatListItemResponseSchema,
   })
   .strict();
-export type ChatChangedMessage = z.infer<typeof chatChangedMessageSchema>;
+export type ChatUpsertedMessage = z.infer<typeof chatUpsertedMessageSchema>;
 
-export const projectChangedMessageSchema = z
+export const chatDeletedMessageSchema = z
+  .object({ type: z.literal("chat.deleted"), chatId: z.string().uuid() })
+  .strict();
+export type ChatDeletedMessage = z.infer<typeof chatDeletedMessageSchema>;
+
+export const projectResponseSchema = z.object({
+  id: z.string().uuid(),
+  ownerUserId: z.string(),
+  name: z.string(),
+  createdAt: z.string().datetime({ offset: true }),
+  updatedAt: z.string().datetime({ offset: true }),
+  archivedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type ProjectResponse = z.infer<typeof projectResponseSchema>;
+
+export const projectUpsertedMessageSchema = z
   .object({
-    type: z.literal("project.changed"),
-    projectId: z.string().uuid(),
-    change: z.enum(["created", "updated", "deleted"]),
+    type: z.literal("project.upserted"),
+    project: projectResponseSchema,
   })
   .strict();
-export type ProjectChangedMessage = z.infer<typeof projectChangedMessageSchema>;
+export type ProjectUpsertedMessage = z.infer<
+  typeof projectUpsertedMessageSchema
+>;
 
-export const pinChangedMessageSchema = z
+export const projectDeletedMessageSchema = z
+  .object({ type: z.literal("project.deleted"), projectId: z.string().uuid() })
+  .strict();
+export type ProjectDeletedMessage = z.infer<typeof projectDeletedMessageSchema>;
+
+export const chatRefCardSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().nullable(),
+  archivedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type ChatRefCard = z.infer<typeof chatRefCardSchema>;
+
+export const chatPinnedItemResponseSchema = z.object({
+  itemType: z.literal("chat"),
+  itemId: z.string().uuid(),
+  pinnedAt: z.string().datetime({ offset: true }),
+  item: chatRefCardSchema,
+});
+export type ChatPinnedItemResponse = z.infer<
+  typeof chatPinnedItemResponseSchema
+>;
+
+export const projectRefCardSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  archivedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type ProjectRefCard = z.infer<typeof projectRefCardSchema>;
+
+export const projectPinnedItemResponseSchema = z.object({
+  itemType: z.literal("project"),
+  itemId: z.string().uuid(),
+  pinnedAt: z.string().datetime({ offset: true }),
+  item: projectRefCardSchema,
+});
+export type ProjectPinnedItemResponse = z.infer<
+  typeof projectPinnedItemResponseSchema
+>;
+
+export const pinsReplacedMessageSchema = z
   .object({
-    type: z.literal("pin.changed"),
-    itemId: z.string().uuid().describe("The pinned chat or project."),
+    type: z.literal("pins.replaced"),
+    items: z.array(
+      z.discriminatedUnion("itemType", [
+        chatPinnedItemResponseSchema,
+        projectPinnedItemResponseSchema,
+      ]),
+    ),
   })
   .strict();
-export type PinChangedMessage = z.infer<typeof pinChangedMessageSchema>;
+export type PinsReplacedMessage = z.infer<typeof pinsReplacedMessageSchema>;
+
+export const runResponseSchema = z.object({
+  id: z.string().uuid(),
+  chatId: z.string().uuid(),
+  messageId: z.string().uuid().nullable(),
+  modelId: z.string(),
+  effort: z
+    .string()
+    .describe(
+      "Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. An opaque provider token — a receipt of what ran, never recomputed from current configuration.",
+    )
+    .optional(),
+  permissionMode: z
+    .enum(["default", "bypass"])
+    .describe("Accepted permission mode for this run."),
+  status: z.enum([
+    "queued",
+    "resolving_config",
+    "retrieving_context",
+    "planning",
+    "waiting_for_approval",
+    "running_model",
+    "running_tool",
+    "running_sandbox",
+    "updating_artifact",
+    "summarizing",
+    "completed",
+    "failed",
+    "cancelled",
+    "expired",
+  ]),
+  error: z.record(z.string(), z.any()).nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+  startedAt: z.string().datetime({ offset: true }).nullable(),
+  finishedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type RunResponse = z.infer<typeof runResponseSchema>;
+
+export const runUpdatedMessageSchema = z
+  .object({ type: z.literal("run.updated"), run: runResponseSchema })
+  .strict();
+export type RunUpdatedMessage = z.infer<typeof runUpdatedMessageSchema>;
 
 export const runProgressMessageSchema = z
   .object({
     type: z.literal("run.progress"),
     runId: z.string().uuid(),
     chatId: z.string().uuid(),
-    status: z.enum([
-      "queued",
-      "resolving_config",
-      "retrieving_context",
-      "planning",
-      "waiting_for_approval",
-      "running_model",
-      "running_tool",
-      "running_sandbox",
-      "updating_artifact",
-      "summarizing",
-      "completed",
-      "failed",
-      "cancelled",
-      "expired",
-    ]),
     phase: z
-      .enum(["queued", "thinking", "tool", "writing", "finished"])
-      .describe(
-        "Coarse activity derived from run events; `finished` once the status is terminal.",
-      ),
+      .enum(["queued", "thinking", "tool", "writing"])
+      .describe("Coarse activity derived from run events."),
     step: z
       .number()
       .int()
@@ -101,9 +174,12 @@ export type ResyncMessage = z.infer<typeof resyncMessageSchema>;
 
 /** Every message the server sends on the channel. */
 export const liveMessageSchema = z.discriminatedUnion("type", [
-  chatChangedMessageSchema,
-  projectChangedMessageSchema,
-  pinChangedMessageSchema,
+  chatUpsertedMessageSchema,
+  chatDeletedMessageSchema,
+  projectUpsertedMessageSchema,
+  projectDeletedMessageSchema,
+  pinsReplacedMessageSchema,
+  runUpdatedMessageSchema,
   runProgressMessageSchema,
   resyncMessageSchema,
 ]);

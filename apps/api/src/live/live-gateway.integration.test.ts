@@ -2,8 +2,8 @@
  * Live gateway over a real WebSocket against a live DB:
  * - an upgrade without a session, with an invalid one, or from a foreign
  *   Origin is refused before `101`;
- * - an owner's socket receives `chat.changed` for the owner's own rename and
- *   `run.progress` for the owner's own Run;
+ * - an owner's socket receives the renamed chat record, the new Run record,
+ *   and the Run's progress for the owner's own changes;
  * - another owner's socket receives nothing for those changes (isolation).
  *
  * TEST_DATABASE_URL-gated; run by test:integration.
@@ -172,11 +172,11 @@ describeIfDb('LiveGatewayService', () => {
     await waitForMessage(
       a,
       (m) =>
-        m['type'] === 'chat.changed' &&
-        m['chatId'] === chatId &&
-        m['change'] === 'updated',
+        m['type'] === 'chat.upserted' &&
+        isRecord(m['chat']) &&
+        m['chat']['id'] === chatId &&
+        m['chat']['title'] === 'Renamed live',
     );
-    expect(JSON.stringify(a.messages)).not.toContain('Renamed live');
 
     const runId = await tenantDb.runAs(users.a.id, async (tx) => {
       const message = await new MessagesRepository(tx).create({
@@ -199,6 +199,14 @@ describeIfDb('LiveGatewayService', () => {
     await waitForMessage(
       a,
       (m) =>
+        m['type'] === 'run.updated' &&
+        isRecord(m['run']) &&
+        m['run']['id'] === runId &&
+        m['run']['status'] === 'queued',
+    );
+    await waitForMessage(
+      a,
+      (m) =>
         m['type'] === 'run.progress' &&
         m['runId'] === runId &&
         m['phase'] === 'tool',
@@ -207,10 +215,14 @@ describeIfDb('LiveGatewayService', () => {
     // B's own change is a marker: once it arrives, any leak of A's earlier
     // changes would already have arrived too (one ordered NOTIFY stream).
     const marker = await newChat(users.b.id);
-    await waitForMessage(b, (m) => m['chatId'] === marker);
-    expect(
-      b.messages.filter((m) => m['chatId'] === chatId || m['runId'] === runId),
-    ).toEqual([]);
-    expect(a.messages.some((m) => m['chatId'] === marker)).toBe(false);
+    await waitForMessage(
+      b,
+      (m) => isRecord(m['chat']) && m['chat']['id'] === marker,
+    );
+    const seenByB = JSON.stringify(b.messages);
+    expect(seenByB).not.toContain(chatId);
+    expect(seenByB).not.toContain(runId);
+    expect(seenByB).not.toContain('Renamed live');
+    expect(JSON.stringify(a.messages)).not.toContain(marker);
   });
 });

@@ -5,8 +5,8 @@ import {
   LIVE_CHANNEL_ADDRESS,
   liveMessageSchema,
   type LiveMessage,
-  type RunPhase,
   type RunProgressMessage,
+  type RunUpdatedMessage,
 } from "../../api/live-generated/live-protocol";
 
 /**
@@ -15,7 +15,12 @@ import {
  * frame parsing and connection helpers.
  */
 
-export type { LiveMessage, RunPhase, RunProgressMessage };
+export type { LiveMessage, RunProgressMessage, RunUpdatedMessage };
+
+export type RunPhase = RunProgressMessage["phase"];
+
+/** The run messages the active-runs provider consumes. */
+export type RunMessage = RunProgressMessage | RunUpdatedMessage;
 
 /** Parse one frame; `undefined` for a binary frame, malformed JSON, or an
  *  unknown message type (forward compatible: a newer server may send types

@@ -1,95 +1,87 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 
-import { activeRunsQueryKeys } from "@/lib/services/chat/active-runs";
-import { chatQueryKeys } from "@/lib/services/chat/queries";
-import type { RunProgressMessage } from "@/lib/services/live/live-messages";
+import type { RunUpdatedMessage } from "@/lib/api/live-generated/live-protocol";
 import { pinQueryKeys } from "@/lib/services/pins/queries";
-import { projectQueryKeys } from "@/lib/services/project/queries";
+import type {
+  RunMessage,
+  RunProgressMessage,
+} from "@/lib/services/live/live-messages";
 
 import { nextRunPhases } from "./active-runs-context";
-import { invalidationsFor } from "./live-updates-context";
+import { dispatchLiveMessage } from "./live-updates-context";
 
-const chatId = "chat-1";
+const chatId = "11111111-1111-4111-8111-111111111111";
+const runId = "22222222-2222-4222-8222-222222222222";
 
-describe("invalidationsFor", () => {
-  it("invalidates the chat lists and that chat's detail on a chat change", () => {
-    expect(
-      invalidationsFor({ type: "chat.changed", chatId, change: "created" }),
-    ).toEqual([
-      { queryKey: chatQueryKeys.lists(), exact: false },
-      { queryKey: chatQueryKeys.detail(chatId), exact: true },
-    ]);
-  });
+const progress = (phase: RunProgressMessage["phase"]): RunProgressMessage => ({
+  type: "run.progress",
+  runId,
+  chatId,
+  phase,
+  step: 1,
+});
 
-  it("invalidates projects and chat lists on a project change, pins on a pin change", () => {
-    expect(
-      invalidationsFor({
-        type: "project.changed",
-        projectId: "p",
-        change: "updated",
-      }),
-    ).toEqual([
-      { queryKey: projectQueryKeys.lists(), exact: false },
-      { queryKey: chatQueryKeys.lists(), exact: false },
-    ]);
-    expect(invalidationsFor({ type: "pin.changed", itemId: "x" })).toEqual([
-      { queryKey: pinQueryKeys.list(), exact: false },
-    ]);
-  });
+const updated = (
+  status: RunUpdatedMessage["run"]["status"],
+): RunUpdatedMessage => ({
+  type: "run.updated",
+  run: {
+    id: runId,
+    chatId,
+    messageId: null,
+    modelId: "m",
+    permissionMode: "default",
+    status,
+    error: null,
+    createdAt: "2026-10-16T12:00:00.000Z",
+    startedAt: null,
+    finishedAt: null,
+  },
+});
 
-  it("invalidates every owner list on resync and nothing for run progress", () => {
-    expect(invalidationsFor({ type: "resync" })).toEqual(
-      [
-        chatQueryKeys.lists(),
-        pinQueryKeys.list(),
-        projectQueryKeys.lists(),
-        activeRunsQueryKeys.all,
-      ].map((queryKey) => ({ queryKey, exact: false })),
+describe("dispatchLiveMessage", () => {
+  it("routes run messages to subscribers and records to the caches", () => {
+    const client = new QueryClient();
+    const received: Array<RunMessage> = [];
+    const listeners = new Set([(m: RunMessage) => received.push(m)]);
+
+    dispatchLiveMessage(progress("tool"), client, listeners);
+    dispatchLiveMessage(updated("completed"), client, listeners);
+    dispatchLiveMessage(
+      { type: "pins.replaced", items: [] },
+      client,
+      listeners,
     );
-    expect(
-      invalidationsFor({
-        type: "run.progress",
-        runId: "r",
-        chatId,
-        status: "running_model",
-        phase: "tool",
-        step: 1,
-      }),
-    ).toEqual([]);
+    dispatchLiveMessage(undefined, client, listeners);
+
+    expect(received.map((m) => m.type)).toEqual([
+      "run.progress",
+      "run.updated",
+    ]);
+    expect(client.getQueryData(pinQueryKeys.list())).toEqual([]);
+  });
+
+  it("does not patch caches for run messages", () => {
+    const client = new QueryClient();
+    const setQueryData = vi.spyOn(client, "setQueryData");
+    dispatchLiveMessage(progress("tool"), client, new Set());
+    expect(setQueryData).not.toHaveBeenCalled();
   });
 });
 
 describe("nextRunPhases", () => {
-  const progress = (
-    status: RunProgressMessage["status"],
-    phase: RunProgressMessage["phase"],
-  ): RunProgressMessage => ({
-    type: "run.progress",
-    runId: "r",
-    chatId,
-    status,
-    phase,
-    step: 1,
-  });
-
-  it("sets the phase while in flight and clears it at a terminal status", () => {
+  it("sets the phase from progress and clears it when the Run finishes", () => {
     const empty = new Map();
-    const thinking = nextRunPhases(
-      empty,
-      progress("running_model", "thinking"),
-    );
+    const thinking = nextRunPhases(empty, progress("thinking"));
     expect(thinking.get(chatId)).toBe("thinking");
-    expect(nextRunPhases(thinking, progress("running_model", "thinking"))).toBe(
-      thinking,
-    );
-    const writing = nextRunPhases(
-      thinking,
-      progress("running_model", "writing"),
-    );
+    expect(nextRunPhases(thinking, progress("thinking"))).toBe(thinking);
+    const writing = nextRunPhases(thinking, progress("writing"));
     expect(writing.get(chatId)).toBe("writing");
-    expect(
-      nextRunPhases(writing, progress("completed", "finished")).has(chatId),
-    ).toBe(false);
-    expect(nextRunPhases(empty, progress("failed", "finished"))).toBe(empty);
+    expect(nextRunPhases(writing, updated("running_model"))).toBe(writing);
+    expect(nextRunPhases(writing, updated("completed")).has(chatId)).toBe(
+      false,
+    );
+    expect(nextRunPhases(empty, updated("failed"))).toBe(empty);
   });
 });

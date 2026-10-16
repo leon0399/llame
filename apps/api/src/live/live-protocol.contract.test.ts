@@ -1,81 +1,101 @@
 /**
  * The hub against the published live protocol (`apps/api/asyncapi.yaml`):
- * every message the tracker emits must validate against the generated
- * schema, and the document's `RunStatus` must stay identical to the
- * database enum it mirrors.
+ * every message type, built from the API's own response DTOs, must survive
+ * the hub's serialization and validate against the generated wire schema,
+ * and the generated record types must stay assignable from those DTOs once
+ * serialized. This is the compatibility between `openapi.json` records and
+ * the socket made checkable.
  */
 
-import { runStatus, type RunStatus } from '../db/schema/chats';
+import type { ChatListItemResponse as ChatDto } from '../chats/dto/chats.dto';
+import type { RunResponse as RunDto } from '../runs/dto/runs.dto';
 import {
-  liveMessageSchema,
-  runStatusSchema,
-  type RunStatus as ProtocolRunStatus,
+  LIVE_CHAT_ID,
+  LIVE_OWNER,
+  LIVE_PROJECT_ID,
+  LIVE_RUN_ID,
+  liveChatRecord,
+  livePinRecords,
+  liveProjectRecord,
+  liveRunRecord,
+} from '../testing/live-records';
+import { toWireMessage } from './change-hub.service';
+import type {
+  ChatListItemResponse as ChatWire,
+  RunResponse as RunWire,
 } from './generated/live-protocol';
-import { RunProgressTracker, type ChangeNotification } from './live-messages';
+import { RunProgressTracker, type ServerLiveMessage } from './live-messages';
 
-type Equal<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
-    ? true
-    : false;
-
-const owner = 'user-a';
-const chat = '11111111-1111-4111-8111-111111111111';
-const run = '22222222-2222-4222-8222-222222222222';
+/** `T` with its `Date` fields as the ISO strings JSON produces. */
+type Serialized<T> = {
+  [K in keyof T]: T[K] extends Date
+    ? string
+    : T[K] extends Date | null
+      ? string | null
+      : T[K];
+};
 
 describe('live protocol contract', () => {
-  it('mirrors the database run status enum exactly', () => {
-    const sameType: Equal<ProtocolRunStatus, RunStatus> = true;
-    expect(sameType).toBe(true);
-    expect([...runStatusSchema.options].sort()).toEqual(
-      [...runStatus.enumValues].sort(),
-    );
-  });
-
-  it('emits only messages the published document describes', () => {
+  it('describes every message the hub can send', () => {
     const tracker = new RunProgressTracker();
-    const notifications: Array<ChangeNotification> = [
-      { k: 'chat', op: 'insert', owner, chat },
-      { k: 'chat', op: 'update', owner, chat },
-      { k: 'chat', op: 'delete', owner, chat },
-      { k: 'project', op: 'update', owner, project: chat },
-      { k: 'pin', op: 'insert', owner, item: chat },
-      { k: 'run', op: 'insert', owner, chat, run, status: 'queued' },
-      { k: 'run', op: 'update', owner, chat, run, status: 'running_model' },
-      ...[
-        'model.requested',
-        'reasoning.delta',
-        'model.delta',
-        'tool.requested',
-        'tool.completed',
-        'model.requested',
-        'run.completed',
-      ].map(
-        (type, seq): ChangeNotification => ({
-          k: 'run_event',
-          op: 'insert',
-          owner,
-          chat,
-          run,
-          seq,
-          type,
+    const progress = tracker.apply({
+      k: 'run_event',
+      op: 'insert',
+      owner: LIVE_OWNER,
+      chat: LIVE_CHAT_ID,
+      run: LIVE_RUN_ID,
+      seq: 1,
+      type: 'tool.started',
+    });
+    if (!progress) throw new Error('expected run progress');
+    const messages: Array<ServerLiveMessage> = [
+      { type: 'chat.upserted', chat: liveChatRecord() },
+      {
+        type: 'chat.upserted',
+        chat: liveChatRecord({
+          title: null,
+          archivedAt: new Date(),
+          projectId: LIVE_PROJECT_ID,
+          workspaceRoot: '/srv/work',
+          lastMessage: null,
         }),
-      ),
+      },
+      { type: 'chat.deleted', chatId: LIVE_CHAT_ID },
+      { type: 'project.upserted', project: liveProjectRecord() },
+      { type: 'project.deleted', projectId: LIVE_PROJECT_ID },
+      { type: 'pins.replaced', items: livePinRecords() },
+      { type: 'pins.replaced', items: [] },
+      { type: 'run.updated', run: liveRunRecord() },
+      {
+        type: 'run.updated',
+        run: liveRunRecord({
+          status: 'failed',
+          effort: 'high',
+          error: { code: 'model_stream_idle' },
+          finishedAt: new Date(),
+        }),
+      },
+      progress,
+      { type: 'resync' },
     ];
 
-    const messages = notifications.flatMap((n) => tracker.apply(n) ?? []);
-    messages.push({ type: 'resync' });
-
-    expect(new Set(messages.map((m) => m.type))).toEqual(
-      new Set([
-        'chat.changed',
-        'project.changed',
-        'pin.changed',
-        'run.progress',
-        'resync',
-      ]),
+    const rejected = messages.flatMap((message) =>
+      toWireMessage(message) === undefined ? [message.type] : [],
     );
-    for (const message of messages) {
-      expect(liveMessageSchema.safeParse(message).error).toBeUndefined();
-    }
+    expect(rejected).toEqual([]);
+  });
+
+  it('keeps the generated record types compatible with the serialized DTOs', () => {
+    // A DTO serialized to JSON must be assignable to the generated wire type;
+    // the run error is `unknown` server-side and an object or null on the wire.
+    const chatCompatible: Serialized<ChatDto> extends ChatWire ? true : false =
+      true;
+    const runCompatible: Omit<Serialized<RunDto>, 'error'> extends Omit<
+      RunWire,
+      'error'
+    >
+      ? true
+      : false = true;
+    expect([chatCompatible, runCompatible]).toEqual([true, true]);
   });
 });

@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "pnpm generate:live-protocol && nest build && node dist/instance-config/prompt-built-runtime.contract.js && node dist/generate-openapi.js && prettier --write --log-level warn openapi.json",
+    "build": "nest build && node dist/instance-config/prompt-built-runtime.contract.js && node dist/generate-openapi.js && prettier --write --log-level warn openapi.json && pnpm generate:live-protocol",
     "db:check": "drizzle-kit check",
     "generate:live-protocol": "node ../../scripts/generate-live-protocol.mjs asyncapi.yaml src/live/generated/live-protocol.ts",
     "db:generate": "drizzle-kit generate && prettier --write --log-level warn \"src/db/migrations/meta/**/*.json\"",

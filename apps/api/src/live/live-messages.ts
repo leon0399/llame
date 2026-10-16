@@ -1,10 +1,12 @@
 /**
- * Live update protocol: database change notifications in, owner-scoped
- * WebSocket messages out. Pure functions only; the hub and gateway own I/O.
+ * Live update protocol, server side: database change notifications in,
+ * owner-scoped messages out. Pure functions only; the hub and gateway own
+ * I/O.
  *
- * Every message is an invalidation hint or a run progress summary. None
- * carries record content: clients refetch records through the RLS-scoped
- * HTTP API.
+ * A notification is a pointer. The hub turns it into a record job, reads the
+ * record as its owner through `LiveRecordLoader`, and sends the record in the
+ * shape the HTTP API returns. Run progress needs no read: it is folded from
+ * run event types alone.
  */
 
 import {
@@ -14,15 +16,33 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 
+import type { ChatListItemResponse } from '../chats/dto/chats.dto';
 import { runStatus, type RunStatus } from '../db/schema/chats';
+import type { PinnedItemResponse } from '../pins/dto/pins.dto';
+import type { ProjectResponse } from '../projects/dto/projects.dto';
+import type { RunResponse } from '../runs/dto/runs.dto';
 import { TERMINAL_RUN_STATUSES } from '../runs/run-status';
-import type {
-  Change as LiveChange,
-  LiveMessage,
-  RunPhase,
-} from './generated/live-protocol';
+import type { RunProgressMessage } from './generated/live-protocol';
+import type { LiveRecordLoader } from './live-record-loader';
 
-export type { LiveMessage, RunPhase } from './generated/live-protocol';
+export type { LiveMessage } from './generated/live-protocol';
+
+export type RunPhase = RunProgressMessage['phase'];
+
+/**
+ * A message before serialization: records as the API's response mappers
+ * build them (`Date` fields). The hub serializes it to JSON and validates the
+ * result against the generated wire schema before sending.
+ */
+export type ServerLiveMessage =
+  | { type: 'chat.upserted'; chat: ChatListItemResponse }
+  | { type: 'chat.deleted'; chatId: string }
+  | { type: 'project.upserted'; project: ProjectResponse }
+  | { type: 'project.deleted'; projectId: string }
+  | { type: 'pins.replaced'; items: Array<PinnedItemResponse> }
+  | { type: 'run.updated'; run: RunResponse }
+  | RunProgressMessage
+  | { type: 'resync' };
 
 /** The NOTIFY channel `llame_notify_change` writes to. */
 export const LIVE_CHANGES_CHANNEL = 'llame_changes';
@@ -133,16 +153,10 @@ function parseRunEvent(
   return { k: 'run_event', op, owner, chat, run, seq, type };
 }
 
-const CHANGE_OF_OP: Record<ChangeOp, LiveChange> = {
-  insert: 'created',
-  update: 'updated',
-  delete: 'deleted',
-};
-
 const TERMINAL: ReadonlySet<RunStatus> = new Set(TERMINAL_RUN_STATUSES);
-/** `run.<status>` terminal events mapped to the status they record. */
-const TERMINAL_EVENT_STATUS: ReadonlyMap<string, RunStatus> = new Map(
-  TERMINAL_RUN_STATUSES.map((status) => [`run.${status}`, status]),
+/** `run.<status>` events that end a Run. */
+const TERMINAL_EVENTS: ReadonlySet<string> = new Set(
+  TERMINAL_RUN_STATUSES.map((status) => `run.${status}`),
 );
 const FINISHED_CAP = 1024;
 
@@ -163,122 +177,130 @@ export function phaseOfEvent(eventType: string): RunPhase | undefined {
   }
 }
 
-type RunState = {
-  chatId: string;
-  status: RunStatus;
-  phase: RunPhase;
-  step: number;
-};
-
-type RunChange = { status?: RunStatus; phase?: RunPhase; stepped?: number };
-
-/** Fold one change into a Run's summary. */
-function nextRunState(
-  previous: RunState | undefined,
-  chatId: string,
-  change: RunChange,
-): RunState {
-  // A Run first seen through a progress event (the hub started mid-Run) is
-  // already executing.
-  const status =
-    change.status ??
-    previous?.status ??
-    (change.phase ? 'running_model' : 'queued');
-  return {
-    chatId,
-    status,
-    phase: TERMINAL.has(status)
-      ? 'finished'
-      : (change.phase ?? previous?.phase ?? 'queued'),
-    step: (previous?.step ?? 0) + (change.stepped ?? 0),
-  };
-}
+type RunProgress = { phase: RunPhase; step: number };
 
 /**
- * Per-process run progress tracker. Folds run and run-event notifications into
- * one summary per Run and emits a `run.progress` message only when status,
- * phase or step changes, so a stream of `model.delta` events produces one
- * message, not one per delta. Terminal Runs are forgotten, which bounds the
- * map by the number of in-flight Runs.
+ * Per-process run progress tracker. Folds run events into one phase-and-step
+ * summary per Run and emits `run.progress` only when either changes, so a
+ * stream of `model.delta` events produces one message, not one per delta. A
+ * Run is forgotten once its status is terminal; its final state reaches
+ * clients as `run.updated`. Needs no database read.
  */
 export class RunProgressTracker {
-  private readonly runs = new Map<string, RunState>();
+  private readonly runs = new Map<string, RunProgress>();
   private readonly finished = new Set<string>();
 
-  /** Owner-scoped message for one notification, or `undefined` when nothing changed. */
-  apply(n: ChangeNotification): LiveMessage | undefined {
-    switch (n.k) {
-      case 'chat':
-        return {
-          type: 'chat.changed',
-          chatId: n.chat,
-          change: CHANGE_OF_OP[n.op],
-        };
-      case 'project':
-        return {
-          type: 'project.changed',
-          projectId: n.project,
-          change: CHANGE_OF_OP[n.op],
-        };
-      case 'pin':
-        return { type: 'pin.changed', itemId: n.item };
-      case 'run':
-        return this.update(n.run, n.chat, { status: n.status });
-      case 'run_event':
-        return this.onRunEvent(n.run, n.chat, n.type);
+  apply(n: ChangeNotification): RunProgressMessage | undefined {
+    if (n.k === 'run' && TERMINAL.has(n.status)) {
+      this.finish(n.run);
+      return undefined;
     }
-  }
-
-  private onRunEvent(
-    runId: string,
-    chatId: string,
-    eventType: string,
-  ): LiveMessage | undefined {
-    const terminal = TERMINAL_EVENT_STATUS.get(eventType);
-    if (terminal) {
-      return this.update(runId, chatId, { status: terminal });
+    if (n.k !== 'run_event') return undefined;
+    if (TERMINAL_EVENTS.has(n.type)) {
+      this.finish(n.run);
+      return undefined;
     }
-    const phase = phaseOfEvent(eventType);
-    const stepped = eventType === 'model.requested' ? 1 : 0;
+    if (this.finished.has(n.run)) return undefined;
+    const phase = phaseOfEvent(n.type);
+    const stepped = n.type === 'model.requested' ? 1 : 0;
     if (!phase && !stepped) return undefined;
-    return this.update(runId, chatId, { phase, stepped });
-  }
-
-  private update(
-    runId: string,
-    chatId: string,
-    change: RunChange,
-  ): LiveMessage | undefined {
-    // A Run already reported terminal stays reported: a trailing run event or a
-    // duplicate status notification must not resurrect it.
-    if (this.finished.has(runId)) return undefined;
-    const previous = this.runs.get(runId);
-    const next = nextRunState(previous, chatId, change);
-    const terminal = TERMINAL.has(next.status);
+    const previous = this.runs.get(n.run);
+    const next: RunProgress = {
+      phase: phase ?? previous?.phase ?? 'queued',
+      step: (previous?.step ?? 0) + stepped,
+    };
     if (
-      previous &&
-      next.status === previous.status &&
-      next.phase === previous.phase &&
-      next.step === previous.step
+      previous !== undefined &&
+      previous.phase === next.phase &&
+      previous.step === next.step
     ) {
       return undefined;
     }
-    if (terminal) {
-      this.runs.delete(runId);
-      // Bounded: past the cap a very late straggler can at worst emit one
-      // stale non-terminal message.
-      if (this.finished.size >= FINISHED_CAP) this.finished.clear();
-      this.finished.add(runId);
-    } else {
-      this.runs.set(runId, next);
-    }
+    this.runs.set(n.run, next);
     return {
       type: 'run.progress',
-      runId,
-      chatId,
-      status: next.status,
+      runId: n.run,
+      chatId: n.chat,
       phase: next.phase,
       step: next.step,
     };
   }
+
+  private finish(runId: string): void {
+    this.runs.delete(runId);
+    // Bounded: past the cap a very late straggler can at worst emit one stale
+    // progress message, which a client ignores for a finished Run.
+    if (this.finished.size >= FINISHED_CAP) this.finished.clear();
+    this.finished.add(runId);
+  }
+}
+
+/**
+ * The record read a notification calls for. `key` identifies the record, so
+ * a second notification for a record whose read has not started yet is
+ * coalesced into the first; a job without a key is never coalesced.
+ */
+export type RecordJob = {
+  key?: string;
+  load: (loader: LiveRecordLoader) => Promise<ServerLiveMessage | undefined>;
+};
+
+/** The record job for one notification; `undefined` when it needs none. */
+export function recordJobFor(n: ChangeNotification): RecordJob | undefined {
+  switch (n.k) {
+    case 'chat':
+      return n.op === 'delete'
+        ? ready({ type: 'chat.deleted', chatId: n.chat })
+        : chatJob(n.owner, n.chat);
+    case 'project':
+      return n.op === 'delete'
+        ? ready({ type: 'project.deleted', projectId: n.project })
+        : projectJob(n.owner, n.project);
+    case 'pin':
+      return {
+        key: 'pins',
+        load: async (loader) => ({
+          type: 'pins.replaced',
+          items: await loader.pins(n.owner),
+        }),
+      };
+    case 'run':
+      return runJob(n.owner, n.run);
+    case 'run_event':
+      return undefined;
+  }
+}
+
+function chatJob(owner: string, chatId: string): RecordJob {
+  return {
+    key: `chat:${chatId}`,
+    load: async (loader) => {
+      const chat = await loader.chat(owner, chatId);
+      return chat && { type: 'chat.upserted', chat };
+    },
+  };
+}
+
+function projectJob(owner: string, projectId: string): RecordJob {
+  return {
+    key: `project:${projectId}`,
+    load: async (loader) => {
+      const project = await loader.project(owner, projectId);
+      return project && { type: 'project.upserted', project };
+    },
+  };
+}
+
+function runJob(owner: string, runId: string): RecordJob {
+  return {
+    key: `run:${runId}`,
+    load: async (loader) => {
+      const run = await loader.run(owner, runId);
+      return run && { type: 'run.updated', run };
+    },
+  };
+}
+
+function ready(message: ServerLiveMessage): RecordJob {
+  return { load: () => Promise.resolve(message) };
 }

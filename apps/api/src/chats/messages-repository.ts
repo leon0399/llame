@@ -313,7 +313,11 @@ export class MessagesRepository {
    * Owner-scoped via the chats join, same defense-in-depth as findByChatId:
    * RLS is the primary guarantee, the ownerUserId predicate is the seatbelt.
    */
-  async findLatestPerOwnedChat(ownerUserId: string): Promise<Array<Message>> {
+  /** Latest listable message per owned chat; `chatId` narrows to one chat. */
+  async findLatestPerOwnedChat(
+    ownerUserId: string,
+    chatId?: string,
+  ): Promise<Array<Message>> {
     const rows = await this.db
       .selectDistinctOn([messages.chatId])
       .from(messages)
@@ -321,6 +325,7 @@ export class MessagesRepository {
       .where(
         and(
           eq(chats.ownerUserId, ownerUserId),
+          chatId === undefined ? undefined : eq(messages.chatId, chatId),
           inArray(messages.role, ['user', 'assistant']),
           notRunningReply,
         ),

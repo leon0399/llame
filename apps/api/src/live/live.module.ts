@@ -3,6 +3,10 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { ChangeHubService } from './change-hub.service';
 import { LiveGatewayService } from './live-gateway.service';
+import {
+  LIVE_RECORD_LOADER,
+  TenantLiveRecordLoader,
+} from './live-record-loader';
 
 /**
  * Owner-scoped live updates over WebSocket. API process only: the gateway
@@ -10,6 +14,10 @@ import { LiveGatewayService } from './live-gateway.service';
  */
 @Module({
   imports: [AuthModule],
-  providers: [ChangeHubService, LiveGatewayService],
+  providers: [
+    ChangeHubService,
+    LiveGatewayService,
+    { provide: LIVE_RECORD_LOADER, useClass: TenantLiveRecordLoader },
+  ],
 })
 export class LiveModule {}

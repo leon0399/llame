@@ -2,10 +2,17 @@
  * ChangeHub — one Postgres LISTEN connection per API process, fanned out to
  * owner-scoped subscribers (the live WebSocket gateway).
  *
- * The hub performs no database reads: owner, record ids and run progress all
- * come from the trigger's pointer payload, so the listener connection never
- * needs a tenant identity. Routing is by the payload's owner, which the
- * trigger reads from the changed row, never from a caller.
+ * A notification is a pointer: routing uses the payload's owner, which the
+ * trigger reads from the changed row, never from a caller. For an owner with
+ * open connections the hub then reads the changed record as that owner
+ * through `LiveRecordLoader` (row-level security applies) and sends it.
+ * Reads run in notification order per owner; a notification for a record
+ * whose read has not started yet is merged into that read, which then sees
+ * the latest committed state. A failed read sends `resync`.
+ *
+ * Every outgoing message is serialized and validated against the generated
+ * wire schema, so the server cannot send a shape `asyncapi.yaml` does not
+ * describe.
  *
  * Notifications sent while the listener was disconnected are lost. postgres.js
  * reconnects with backoff and calls `onlisten` on every (re)connect; after the
@@ -22,29 +29,51 @@ import {
 import { ConfigService } from '@nestjs/config';
 import postgres, { type Sql } from 'postgres';
 
+import { liveMessageSchema } from './generated/live-protocol';
 import {
   LIVE_CHANGES_CHANNEL,
   parseChangeNotification,
+  recordJobFor,
   RunProgressTracker,
   type LiveMessage,
+  type RecordJob,
+  type ServerLiveMessage,
 } from './live-messages';
+import {
+  LIVE_RECORD_LOADER,
+  type LiveRecordLoader,
+} from './live-record-loader';
 
 export type LiveSubscriber = (message: LiveMessage) => void;
 
 /** What the gateway needs from the hub. */
 export type ChangeHubSubscriptions = Pick<ChangeHubService, 'subscribe'>;
 
+type OwnerQueue = { jobs: Array<RecordJob>; waiting: Set<string> };
+
+/** The wire form of a message, or `undefined` when it violates the schema. */
+export function toWireMessage(
+  message: ServerLiveMessage,
+): LiveMessage | undefined {
+  const wire: unknown = JSON.parse(JSON.stringify(message));
+  const parsed = liveMessageSchema.safeParse(wire);
+  return parsed.success ? parsed.data : undefined;
+}
+
 @Injectable()
 export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ChangeHubService.name);
   private readonly subscribers = new Map<string, Set<LiveSubscriber>>();
   private readonly tracker = new RunProgressTracker();
+  private readonly queues = new Map<string, OwnerQueue>();
   private client: Sql | undefined;
   private listenCount = 0;
 
   constructor(
     @Inject(ConfigService)
     private readonly config: Pick<ConfigService, 'get' | 'getOrThrow'>,
+    @Inject(LIVE_RECORD_LOADER)
+    private readonly loader: LiveRecordLoader,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -62,6 +91,7 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     this.subscribers.clear();
+    this.queues.clear();
     await this.client?.end({ timeout: 5 });
   }
 
@@ -76,7 +106,7 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /** Handle one NOTIFY payload. Public for the hub's routing test. */
+  /** Handle one NOTIFY payload. */
   dispatch(raw: string): void {
     const notification = parseChangeNotification(raw);
     if (!notification) {
@@ -84,10 +114,42 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     // Fold every notification, even for owners with no subscriber, so the
-    // run tracker's state stays current for when one connects.
-    const message = this.tracker.apply(notification);
-    if (!message) return;
-    this.send(notification.owner, message);
+    // tracker's state stays current for when one connects.
+    const progress = this.tracker.apply(notification);
+    if (progress) this.send(notification.owner, progress);
+    // Records are read only for an owner someone is listening to.
+    if (!this.subscribers.has(notification.owner)) return;
+    const job = recordJobFor(notification);
+    if (job) this.enqueue(notification.owner, job);
+  }
+
+  private enqueue(owner: string, job: RecordJob): void {
+    const existing = this.queues.get(owner);
+    const queue = existing ?? { jobs: [], waiting: new Set<string>() };
+    if (job.key !== undefined) {
+      if (queue.waiting.has(job.key)) return;
+      queue.waiting.add(job.key);
+    }
+    queue.jobs.push(job);
+    if (existing) return;
+    this.queues.set(owner, queue);
+    void this.drain(owner, queue);
+  }
+
+  private async drain(owner: string, queue: OwnerQueue): Promise<void> {
+    for (let job = queue.jobs.shift(); job; job = queue.jobs.shift()) {
+      if (job.key !== undefined) queue.waiting.delete(job.key);
+      try {
+        const message = await job.load(this.loader);
+        if (message) this.send(owner, message);
+      } catch (error) {
+        this.logger.warn(
+          `Live record read failed; requesting resync: ${error instanceof Error ? error.message : 'unknown'}`,
+        );
+        this.send(owner, { type: 'resync' });
+      }
+    }
+    this.queues.delete(owner);
   }
 
   private onListen(): void {
@@ -99,10 +161,19 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private send(ownerId: string, message: LiveMessage): void {
-    for (const subscriber of this.subscribers.get(ownerId) ?? []) {
+  private send(ownerId: string, message: ServerLiveMessage): void {
+    const subscribers = this.subscribers.get(ownerId);
+    if (!subscribers) return;
+    const wire = toWireMessage(message);
+    if (!wire) {
+      this.logger.error(
+        `Dropped a ${message.type} message that violates asyncapi.yaml`,
+      );
+      return;
+    }
+    for (const subscriber of subscribers) {
       try {
-        subscriber(message);
+        subscriber(wire);
       } catch (error) {
         this.logger.warn(
           `Live subscriber failed: ${error instanceof Error ? error.message : 'unknown'}`,

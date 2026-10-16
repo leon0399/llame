@@ -1,16 +1,16 @@
-asyncapi: 3.0.0
+asyncapi: 3.1.0
 info:
   title: llame live updates
-  version: '0.1'
+  version: '0.2'
   description: |
-    Owner-scoped change notifications pushed from the API to signed-in
-    clients over one WebSocket.
+    Owner-scoped record updates pushed from the API to signed-in clients over
+    one WebSocket, so clients keep their caches current without refetching.
 
-    Every message is an invalidation hint or a run progress summary. None
-    carries record content (titles, message text, tool output); clients
-    refetch records through the HTTP API, which applies the same
-    authorization. A connection receives only changes to records owned by
-    its authenticated user.
+    Record payloads are the same schemas the HTTP API returns
+    (`openapi.json`): a `chat.upserted` carries the chat exactly as
+    `GET /api/v1/chats` lists it. The server reads each record as its owner,
+    under the same authorization as the HTTP API, and a connection receives
+    only records owned by its authenticated user.
 
     This document is the protocol's source of truth. The API's and web
     client's message types and runtime validators are generated from it.
@@ -26,22 +26,27 @@ servers:
     security:
       - $ref: '#/components/securitySchemes/sessionCookie'
       - $ref: '#/components/securitySchemes/bearerToken'
-
 channels:
   live:
     address: /api/v1/live
     title: Live updates
     description: |
       One connection per tab or device. The server ignores inbound frames.
-      On every (re)connect a client should refetch the lists it shows,
-      since messages sent while it was disconnected are not replayed.
+      Messages sent while a client was disconnected are not replayed: on
+      every (re)connect, and on `resync`, a client refetches what it shows.
     messages:
-      chatChanged:
-        $ref: '#/components/messages/chatChanged'
-      projectChanged:
-        $ref: '#/components/messages/projectChanged'
-      pinChanged:
-        $ref: '#/components/messages/pinChanged'
+      chatUpserted:
+        $ref: '#/components/messages/chatUpserted'
+      chatDeleted:
+        $ref: '#/components/messages/chatDeleted'
+      projectUpserted:
+        $ref: '#/components/messages/projectUpserted'
+      projectDeleted:
+        $ref: '#/components/messages/projectDeleted'
+      pinsReplaced:
+        $ref: '#/components/messages/pinsReplaced'
+      runUpdated:
+        $ref: '#/components/messages/runUpdated'
       runProgress:
         $ref: '#/components/messages/runProgress'
       resync:
@@ -50,20 +55,21 @@ channels:
       ws:
         method: GET
         bindingVersion: 0.1.0
-
 operations:
   sendLiveUpdate:
     action: send
     channel:
       $ref: '#/channels/live'
-    summary: The API pushes a change notification to the owner's connections.
+    summary: The API pushes a record update to the owner's connections.
     messages:
-      - $ref: '#/channels/live/messages/chatChanged'
-      - $ref: '#/channels/live/messages/projectChanged'
-      - $ref: '#/channels/live/messages/pinChanged'
+      - $ref: '#/channels/live/messages/chatUpserted'
+      - $ref: '#/channels/live/messages/chatDeleted'
+      - $ref: '#/channels/live/messages/projectUpserted'
+      - $ref: '#/channels/live/messages/projectDeleted'
+      - $ref: '#/channels/live/messages/pinsReplaced'
+      - $ref: '#/channels/live/messages/runUpdated'
       - $ref: '#/channels/live/messages/runProgress'
       - $ref: '#/channels/live/messages/resync'
-
 components:
   securitySchemes:
     sessionCookie:
@@ -75,130 +81,194 @@ components:
       type: http
       scheme: bearer
       description: A session token, for non-browser clients.
-
   messages:
-    chatChanged:
-      name: chat.changed
-      title: Chat changed
-      summary: A chat was created, updated (renamed, moved, archived, or new activity), or deleted.
+    chatUpserted:
+      name: chat.upserted
+      title: Chat created or updated
+      summary: The chat as `GET /api/v1/chats` lists it, after any change (rename, filing, archive, new message).
       payload:
-        $ref: '#/components/schemas/ChatChangedMessage'
-    projectChanged:
-      name: project.changed
-      title: Project changed
-      summary: A project was created, updated, or deleted.
+        $ref: '#/components/schemas/ChatUpsertedMessage'
+    chatDeleted:
+      name: chat.deleted
+      title: Chat deleted
       payload:
-        $ref: '#/components/schemas/ProjectChangedMessage'
-    pinChanged:
-      name: pin.changed
-      title: Pin changed
-      summary: An item was pinned, unpinned, or reordered.
+        $ref: '#/components/schemas/ChatDeletedMessage'
+    projectUpserted:
+      name: project.upserted
+      title: Project created or updated
       payload:
-        $ref: '#/components/schemas/PinChangedMessage'
+        $ref: '#/components/schemas/ProjectUpsertedMessage'
+    projectDeleted:
+      name: project.deleted
+      title: Project deleted
+      payload:
+        $ref: '#/components/schemas/ProjectDeletedMessage'
+    pinsReplaced:
+      name: pins.replaced
+      title: Pins replaced
+      summary: The owner's complete pinned list, in `GET /api/v1/pins` order, after any pin, unpin, or reorder.
+      payload:
+        $ref: '#/components/schemas/PinsReplacedMessage'
+    runUpdated:
+      name: run.updated
+      title: Run created or status changed
+      summary: The Run as `GET /api/v1/runs/{id}` returns it.
+      payload:
+        $ref: '#/components/schemas/RunUpdatedMessage'
     runProgress:
       name: run.progress
       title: Run progress
-      summary: A Run's status, phase, or step changed. Sent once per change, not per streamed token.
+      summary: A Run's activity phase or step changed. Sent once per change, not per streamed token.
       payload:
         $ref: '#/components/schemas/RunProgressMessage'
     resync:
       name: resync
       title: Resync
-      summary: Changes may have been missed (the server's change listener reconnected); refetch owner lists.
+      summary: Updates may have been missed (the server's change listener reconnected); refetch what is shown.
       payload:
         $ref: '#/components/schemas/ResyncMessage'
-
   schemas:
-    Change:
-      type: string
-      enum: [created, updated, deleted]
-    RunStatus:
-      type: string
-      enum:
-        - queued
-        - resolving_config
-        - retrieving_context
-        - planning
-        - waiting_for_approval
-        - running_model
-        - running_tool
-        - running_sandbox
-        - updating_artifact
-        - summarizing
-        - completed
-        - failed
-        - cancelled
-        - expired
-    RunPhase:
-      type: string
-      description: Coarse activity derived from run events; `finished` once the status is terminal.
-      enum: [queued, thinking, tool, writing, finished]
-
-    ChatChangedMessage:
-      type: object
-      additionalProperties: false
-      required: [type, chatId, change]
-      properties:
-        type:
-          type: string
-          const: chat.changed
-        chatId:
-          type: string
-          format: uuid
-        change:
-          $ref: '#/components/schemas/Change'
-    ProjectChangedMessage:
-      type: object
-      additionalProperties: false
-      required: [type, projectId, change]
-      properties:
-        type:
-          type: string
-          const: project.changed
-        projectId:
-          type: string
-          format: uuid
-        change:
-          $ref: '#/components/schemas/Change'
-    PinChangedMessage:
-      type: object
-      additionalProperties: false
-      required: [type, itemId]
-      properties:
-        type:
-          type: string
-          const: pin.changed
-        itemId:
-          type: string
-          format: uuid
-          description: The pinned chat or project.
+    ChatUpsertedMessage:
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+          - chat
+        properties:
+          type:
+            type: string
+            enum:
+              - chat.upserted
+          chat:
+            $ref: ./openapi.json#/components/schemas/ChatListItemResponse
+    ChatDeletedMessage:
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+          - chatId
+        properties:
+          type:
+            type: string
+            enum:
+              - chat.deleted
+          chatId:
+            type: string
+            format: uuid
+    ProjectUpsertedMessage:
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+          - project
+        properties:
+          type:
+            type: string
+            enum:
+              - project.upserted
+          project:
+            $ref: ./openapi.json#/components/schemas/ProjectResponse
+    ProjectDeletedMessage:
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+          - projectId
+        properties:
+          type:
+            type: string
+            enum:
+              - project.deleted
+          projectId:
+            type: string
+            format: uuid
+    PinsReplacedMessage:
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+          - items
+        properties:
+          type:
+            type: string
+            enum:
+              - pins.replaced
+          items:
+            type: array
+            items:
+              oneOf:
+                - $ref: ./openapi.json#/components/schemas/ChatPinnedItemResponse
+                - $ref: ./openapi.json#/components/schemas/ProjectPinnedItemResponse
+              discriminator:
+                propertyName: itemType
+    RunUpdatedMessage:
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+          - run
+        properties:
+          type:
+            type: string
+            enum:
+              - run.updated
+          run:
+            $ref: ./openapi.json#/components/schemas/RunResponse
     RunProgressMessage:
-      type: object
-      additionalProperties: false
-      required: [type, runId, chatId, status, phase, step]
-      properties:
-        type:
-          type: string
-          const: run.progress
-        runId:
-          type: string
-          format: uuid
-        chatId:
-          type: string
-          format: uuid
-        status:
-          $ref: '#/components/schemas/RunStatus'
-        phase:
-          $ref: '#/components/schemas/RunPhase'
-        step:
-          type: integer
-          minimum: 0
-          description: Model requests made so far in this Run.
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+          - runId
+          - chatId
+          - phase
+          - step
+        properties:
+          type:
+            type: string
+            enum:
+              - run.progress
+          runId:
+            type: string
+            format: uuid
+          chatId:
+            type: string
+            format: uuid
+          phase:
+            type: string
+            description: Coarse activity derived from run events.
+            enum:
+              - queued
+              - thinking
+              - tool
+              - writing
+          step:
+            type: integer
+            minimum: 0
+            description: Model requests made so far in this Run.
     ResyncMessage:
-      type: object
-      additionalProperties: false
-      required: [type]
-      properties:
-        type:
-          type: string
-          const: resync
+      schemaFormat: application/vnd.oai.openapi;version=3.0.0
+      schema:
+        type: object
+        additionalProperties: false
+        required:
+          - type
+        properties:
+          type:
+            type: string
+            enum:
+              - resync
