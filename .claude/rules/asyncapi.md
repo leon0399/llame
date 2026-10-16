@@ -29,6 +29,16 @@ schemas.
 - Each message's `name` equals its payload's `type` enum value, every payload
   is an object with `additionalProperties: false`, and `required` lists every
   field. The generator rejects a mismatch.
+- Every message has a `summary` and at least one hand-written `examples`
+  entry on the message object (never inside the payload schema, which the
+  generator's keyword check would reject). The contract test validates each
+  example against the generated schema; the AsyncAPI parser does not.
+- The channel `description` is the connection contract: authentication,
+  refusal statuses, heartbeat, close codes, delivery and compatibility. When
+  the gateway's behavior changes, change that text in the same commit.
+- Messages carry full record state, never deltas, so they need no ids or
+  sequence numbers; a missed message is recovered by refetch on reconnect
+  and on `resync`.
 - Messages never carry content the owner could not read over HTTP, and the
   NOTIFY payloads behind them never carry content at all: pointers only.
 - The generator supports only the schema subset the protocol uses
@@ -41,8 +51,9 @@ schemas.
 
 ## Adding or changing a message
 
-1. Edit `apps/api/asyncapi.yaml`: payload schema, message, channel entry, and
-   the `sendLiveUpdate` operation's message list.
+1. Edit `apps/api/asyncapi.yaml`: payload schema, message (with `summary`
+   and `examples`), channel entry, and the `sendLiveUpdate` operation's
+   message list.
 2. `pnpm lint:asyncapi` (the official AsyncAPI parser with its OpenAPI schema
    parser).
 3. `pnpm generate:api-client`, which builds the API (OpenAPI, then the live

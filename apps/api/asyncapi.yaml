@@ -1,7 +1,10 @@
 asyncapi: 3.1.0
 info:
   title: llame live updates
-  version: '0.2'
+  version: '0.3'
+  license:
+    name: MIT
+    url: https://github.com/leon0399/llame/blob/master/LICENSE
   description: |
     Owner-scoped record updates pushed from the API to signed-in clients over
     one WebSocket, so clients keep their caches current without refetching.
@@ -12,17 +15,23 @@ info:
     under the same authorization as the HTTP API, and a connection receives
     only records owned by its authenticated user.
 
+    The document is written from the API's perspective: `send` operations
+    are frames the API sends and clients receive.
+
     This document is the protocol's source of truth. The API's and web
     client's message types and runtime validators are generated from it.
 defaultContentType: application/json
 servers:
   api:
-    host: localhost:3001
+    host: '{host}'
     protocol: ws
     description: |
-      The llame API origin. Use `wss` behind TLS. The upgrade is refused
-      with `401` without a valid session and with `403` when a browser
-      `Origin` is not an allowed web origin.
+      The llame API origin, the same host and port the HTTP API serves. Use
+      `wss` behind TLS.
+    variables:
+      host:
+        default: localhost:3001
+        description: The API host and port (the web client's `NEXT_PUBLIC_API_URL`).
     security:
       - $ref: '#/components/securitySchemes/sessionCookie'
       - $ref: '#/components/securitySchemes/bearerToken'
@@ -31,9 +40,56 @@ channels:
     address: /api/v1/live
     title: Live updates
     description: |
-      One connection per tab or device. The server ignores inbound frames.
-      Messages sent while a client was disconnected are not replayed: on
-      every (re)connect, and on `resync`, a client refetches what it shows.
+      One connection per tab or device; the server pushes, and ignores
+      inbound frames.
+
+      ## Opening
+
+      A `GET` upgrade on this address. Authenticate with the session cookie
+      (browsers send it automatically) or `Authorization: Bearer <token>`.
+      A browser request whose `Origin` is not an allowed web origin is
+      refused; requests without `Origin` (non-browser clients) are not.
+      Refusals happen before the upgrade, as plain HTTP responses:
+
+      | Status | Meaning |
+      | ------ | ------- |
+      | `401` | No valid session. |
+      | `403` | `Origin` is not an allowed web origin. |
+      | `429` | The user already holds 16 open connections. |
+
+      ## Liveness and closing
+
+      The server pings every 30 seconds and terminates a connection that
+      did not answer the previous ping. Browsers answer pings themselves
+      and expose no ping event, so a browser client's only signal is
+      `close`. On each ping round the server also re-validates the session.
+
+      | Close code | Meaning | Client action |
+      | ---------- | ------- | ------------- |
+      | `4401` | The session ended (signed out, expired, revoked). | Do not reconnect; sign in again. |
+      | `4408` | The client fell more than 1 MiB of unsent frames behind. | Reconnect. |
+      | `1001` | The server is shutting down. | Reconnect. |
+      | other / abnormal | Network loss or missed ping. | Reconnect. |
+
+      Reconnect with jittered exponential backoff.
+
+      ## Delivery
+
+      Each message carries the full current state of one record, never a
+      delta, so applying one is idempotent. Messages for one owner are sent
+      in commit order, and rapid changes to one record may be coalesced into
+      one message carrying its latest state. Messages sent while a client
+      was disconnected are not replayed: on every (re)connect, and on
+      `resync`, a client refetches what it shows.
+
+      ## Compatibility
+
+      Messages are discriminated by `type`. A client discards any message
+      that does not validate against its generated schema, an unknown
+      `type` included, so a new message type is safe for older clients,
+      while a changed record shape is ignored by clients built before it
+      until they update. A breaking change moves the channel to a new
+      versioned address.
     messages:
       chatUpserted:
         $ref: '#/components/messages/chatUpserted'
@@ -88,45 +144,132 @@ components:
       summary: The chat as `GET /api/v1/chats` lists it, after any change (rename, filing, archive, new message).
       payload:
         $ref: '#/components/schemas/ChatUpsertedMessage'
+      examples:
+        - name: renamed
+          summary: A chat received its generated title.
+          payload:
+            type: chat.upserted
+            chat:
+              id: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+              ownerUserId: usr_8Jq2mXv4Kp
+              title: Postgres LISTEN reconnect handling
+              visibility: private
+              createdAt: '2026-10-16T09:12:04.118Z'
+              updatedAt: '2026-10-16T09:12:09.503Z'
+              archivedAt: null
+              projectId: null
+              workspaceRoot: null
+              lastMessage: How does postgres.js re-LISTEN after a dropped connection?
     chatDeleted:
       name: chat.deleted
       title: Chat deleted
+      summary: The chat no longer exists; drop it from every list and close it if open.
       payload:
         $ref: '#/components/schemas/ChatDeletedMessage'
+      examples:
+        - name: deleted
+          payload:
+            type: chat.deleted
+            chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
     projectUpserted:
       name: project.upserted
       title: Project created or updated
+      summary: The project as `GET /api/v1/projects` lists it, after any change (rename, archive).
       payload:
         $ref: '#/components/schemas/ProjectUpsertedMessage'
+      examples:
+        - name: created
+          payload:
+            type: project.upserted
+            project:
+              id: 5d0f2b9e-71c4-4a6b-8e3d-2f9a1c7b4e60
+              ownerUserId: usr_8Jq2mXv4Kp
+              name: Realtime
+              createdAt: '2026-10-16T09:20:31.004Z'
+              updatedAt: '2026-10-16T09:20:31.004Z'
+              archivedAt: null
     projectDeleted:
       name: project.deleted
       title: Project deleted
+      summary: The project no longer exists; drop it from every list.
       payload:
         $ref: '#/components/schemas/ProjectDeletedMessage'
+      examples:
+        - name: deleted
+          payload:
+            type: project.deleted
+            projectId: 5d0f2b9e-71c4-4a6b-8e3d-2f9a1c7b4e60
     pinsReplaced:
       name: pins.replaced
       title: Pins replaced
       summary: The owner's complete pinned list, in `GET /api/v1/pins` order, after any pin, unpin, or reorder.
       payload:
         $ref: '#/components/schemas/PinsReplacedMessage'
+      examples:
+        - name: chatAndProject
+          summary: One pinned project above one pinned chat.
+          payload:
+            type: pins.replaced
+            items:
+              - itemType: project
+                itemId: 5d0f2b9e-71c4-4a6b-8e3d-2f9a1c7b4e60
+                pinnedAt: '2026-10-16T09:21:02.770Z'
+                item:
+                  id: 5d0f2b9e-71c4-4a6b-8e3d-2f9a1c7b4e60
+                  name: Realtime
+                  archivedAt: null
+              - itemType: chat
+                itemId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+                pinnedAt: '2026-10-16T09:15:47.219Z'
+                item:
+                  id: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+                  title: Postgres LISTEN reconnect handling
+                  archivedAt: null
     runUpdated:
       name: run.updated
       title: Run created or status changed
-      summary: The Run as `GET /api/v1/runs/{id}` returns it.
+      summary: The Run as `GET /api/v1/runs/{id}` returns it, when it is created and on every status change.
       payload:
         $ref: '#/components/schemas/RunUpdatedMessage'
+      examples:
+        - name: running
+          payload:
+            type: run.updated
+            run:
+              id: 9c3a7e14-2b6d-4f80-a5c9-1e7d3b8f2a06
+              chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+              messageId: 3e8b1f6c-9a24-4d7e-b05a-7c2f9d1e4b83
+              modelId: gpt-5.5
+              permissionMode: default
+              status: running_model
+              error: null
+              createdAt: '2026-10-16T09:12:04.231Z'
+              startedAt: '2026-10-16T09:12:04.402Z'
+              finishedAt: null
     runProgress:
       name: run.progress
       title: Run progress
       summary: A Run's activity phase or step changed. Sent once per change, not per streamed token.
       payload:
         $ref: '#/components/schemas/RunProgressMessage'
+      examples:
+        - name: thinking
+          payload:
+            type: run.progress
+            runId: 9c3a7e14-2b6d-4f80-a5c9-1e7d3b8f2a06
+            chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+            phase: thinking
+            step: 1
     resync:
       name: resync
       title: Resync
       summary: Updates may have been missed (the server's change listener reconnected); refetch what is shown.
       payload:
         $ref: '#/components/schemas/ResyncMessage'
+      examples:
+        - name: resync
+          payload:
+            type: resync
   schemas:
     ChatUpsertedMessage:
       schemaFormat: application/vnd.oai.openapi;version=3.0.0

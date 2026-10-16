@@ -7,6 +7,10 @@
  * the socket made checkable.
  */
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { parse as parseYaml } from 'yaml';
+import { z } from 'zod';
 import type { ChatListItemResponse as ChatDto } from '../chats/dto/chats.dto';
 import type { RunResponse as RunDto } from '../runs/dto/runs.dto';
 import {
@@ -20,11 +24,25 @@ import {
   liveRunRecord,
 } from '../testing/live-records';
 import { toWireMessage } from './change-hub.service';
-import type {
-  ChatListItemResponse as ChatWire,
-  RunResponse as RunWire,
+import {
+  type ChatListItemResponse as ChatWire,
+  liveMessageSchema,
+  type RunResponse as RunWire,
 } from './generated/live-protocol';
 import { RunProgressTracker, type ServerLiveMessage } from './live-messages';
+
+const asyncApiMessagesSchema = z.object({
+  components: z.object({
+    messages: z.record(
+      z.string(),
+      z.object({
+        name: z.string(),
+        summary: z.string(),
+        examples: z.array(z.object({ payload: z.unknown() })).min(1),
+      }),
+    ),
+  }),
+});
 
 /** `T` with its `Date` fields as the ISO strings JSON produces. */
 type Serialized<T> = {
@@ -81,6 +99,24 @@ describe('live protocol contract', () => {
       toWireMessage(message) === undefined ? [message.type] : [],
     );
     expect(rejected).toEqual([]);
+  });
+
+  it('documents every message with a summary and examples that validate', () => {
+    const document = asyncApiMessagesSchema.parse(
+      parseYaml(
+        readFileSync(path.resolve(__dirname, '../../asyncapi.yaml'), 'utf8'),
+      ),
+    );
+    const invalid = Object.values(document.components.messages).flatMap(
+      (message) =>
+        message.examples.flatMap(({ payload }) => {
+          const parsed = liveMessageSchema.safeParse(payload);
+          return parsed.success && parsed.data.type === message.name
+            ? []
+            : [message.name];
+        }),
+    );
+    expect(invalid).toEqual([]);
   });
 
   it('keeps the generated record types compatible with the serialized DTOs', () => {
