@@ -10,7 +10,6 @@ import { toolTerminationMessage } from './tool-settlement';
  */
 
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
@@ -53,7 +52,7 @@ export type UiChunk =
       data: { stepsUsed: number; maxSteps: number };
     }
   | { type: 'error'; errorText: string }
-  | { type: 'finish' };
+  | { type: 'finish'; finishReason: 'stop' };
 
 export interface RunEventLike {
   eventType: string;
@@ -396,7 +395,10 @@ class RunEventTranslatorImpl implements RunEventTranslator {
           event.eventType === 'run.cancelled' ? 'cancelled' : 'failed',
         ),
       ),
-      { type: 'finish' },
+      // The only chunk that says the run reached its terminal state. A client
+      // reads its presence — not its value — as "this turn ended here", so a
+      // connection that drops mid-run cannot look like a finished answer.
+      { type: 'finish', finishReason: 'stop' },
     ];
   }
 
@@ -425,26 +427,29 @@ export function createRunEventTranslator(
 }
 
 const POLL_MS = 200;
-/** Default hard cap on one bridge connection; override via RUN_STREAM_MAX_MS. */
-const DEFAULT_MAX_STREAM_MS = 5 * 60 * 1000;
+/**
+ * How long a connection may stay silent before the bridge writes an SSE
+ * comment to hold it open. A Run between model requests — thinking, waiting on
+ * a long tool call — emits no event for minutes, and a reverse proxy's read
+ * timeout would otherwise end a stream whose Run is still executing.
+ */
+const KEEPALIVE_MS = 15 * 1000;
 
 @Injectable()
 export class RunStreamBridgeService {
-  constructor(
-    private readonly tenantDb: TenantDbService,
-    private readonly config: ConfigService,
-  ) {}
-
-  private maxStreamMs(): number {
-    const raw = Number(this.config.get<string>('RUN_STREAM_MAX_MS'));
-    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_MAX_STREAM_MS;
-  }
+  constructor(private readonly tenantDb: TenantDbService) {}
 
   /**
    * Build the SSE Response for a freshly enqueued run. Polls run_events by
    * cursor until the run is terminal, translating to UI-message chunks. The
    * `messageId` in the start chunk is the run id — a client-side surrogate;
    * reloads read real message ids from history.
+   *
+   * The stream has no wall-clock bound: it ends when the run reaches a terminal
+   * event, when the client goes away, or when the run row is already terminal.
+   * A Run may legitimately take as long as it likes (durable-runs has no
+   * default limit), so cutting the connection mid-run would turn a normal
+   * long turn into a client-visible failure.
    */
   createUiMessageStreamResponse(input: {
     runId: string;
@@ -452,7 +457,6 @@ export class RunStreamBridgeService {
     abortSignal?: AbortSignal;
   }): Response {
     const translator = createRunEventTranslator(input.runId);
-    const maxStreamMs = this.maxStreamMs();
 
     const stream = new ReadableStream<string>({
       start: async (controller) => {
@@ -461,7 +465,6 @@ export class RunStreamBridgeService {
             controller,
             input,
             translator,
-            maxStreamMs,
           });
         } catch (error) {
           controller.error(error);
@@ -512,13 +515,14 @@ export class RunStreamBridgeService {
     controller: ReadableStreamDefaultController<string>;
     input: { runId: string; userId: string; abortSignal?: AbortSignal };
     translator: RunEventTranslator;
-    maxStreamMs: number;
   }): Promise<void> {
-    const { controller, input, translator, maxStreamMs } = options;
-    const startedAt = Date.now();
+    const { controller, input, translator } = options;
     let cursor = 0;
-    const emit = (chunk: UiChunk) =>
+    let lastWriteAt = Date.now();
+    const emit = (chunk: UiChunk) => {
+      lastWriteAt = Date.now();
       controller.enqueue(`data: ${JSON.stringify(chunk)}\n\n`);
+    };
 
     // Acknowledge acceptance before any poll so the client has the Run id
     // (and the response headers flush) while the Run may still be queued.
@@ -548,17 +552,6 @@ export class RunStreamBridgeService {
         controller.close();
         return;
       }
-      if (Date.now() - startedAt > maxStreamMs) {
-        // The cap is a bridge limit, not a run outcome — tell the
-        // client explicitly instead of closing mid-'streaming' (the
-        // resume-by-cursor UX lands with the web slice, #49).
-        emit({
-          type: 'error',
-          errorText:
-            'Stream window elapsed; the run is still executing. Reload to see the result.',
-        });
-        break;
-      }
 
       // Defensive: if the run row reached terminal without a terminal
       // event (or was deleted), close instead of spinning. The terminal event
@@ -578,6 +571,14 @@ export class RunStreamBridgeService {
           });
           break;
         }
+      }
+      // Hold a quiet connection open: the Run is still executing, and an
+      // intermediary that sees no bytes for long enough will close the stream
+      // under the client. An SSE comment carries no event, so no chunk parser
+      // sees it.
+      if (Date.now() - lastWriteAt >= KEEPALIVE_MS) {
+        lastWriteAt = Date.now();
+        controller.enqueue(': keepalive\n\n');
       }
       // Floor delay on EVERY non-terminal pass — an actively streaming
       // run yields events on each poll, and without the floor this loop

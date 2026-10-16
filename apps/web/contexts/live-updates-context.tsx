@@ -14,6 +14,7 @@ import {
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { handleUnauthorizedResponse } from "@/lib/api/fetch";
+import { equalJitterDelayMs } from "@/lib/equal-jitter";
 import {
   applyLiveMessage,
   invalidateOwnerLists,
@@ -22,7 +23,6 @@ import {
   CLOSE_SESSION_ENDED,
   liveUpdatesUrl,
   parseLiveMessage,
-  reconnectDelayMs,
   type LiveMessage,
   type RunMessage,
 } from "@/lib/services/live/live-messages";
@@ -97,6 +97,9 @@ type LiveSocketHandlers = {
   onSessionEnded: () => void;
 };
 
+/** The socket's reconnect budget: an exponential delay up to this ceiling. */
+const SOCKET_RECONNECT_CEILING_MS = 30_000;
+
 /**
  * Opens the live socket and reopens it with jittered backoff after any close
  * except a session end, which stops the loop. Returns the teardown.
@@ -123,7 +126,10 @@ function connectLiveSocket(handlers: LiveSocketHandlers): () => void {
         handlers.onSessionEnded();
         return;
       }
-      retry = setTimeout(open, reconnectDelayMs(attempt));
+      retry = setTimeout(
+        open,
+        equalJitterDelayMs(attempt, SOCKET_RECONNECT_CEILING_MS),
+      );
       attempt += 1;
     };
   };

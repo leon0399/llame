@@ -2,6 +2,24 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-16
 
+- A long turn no longer loses its live stream. The run-event bridge is the
+  only writer of a chat, and it cut every connection at five minutes of
+  wall-clock time — mid-Run, while the Run was still streaming — then sent
+  `Stream window elapsed; the run is still executing`, which the durable-run
+  design never asked for: the Run kept executing, the composer stopped
+  rendering it, and the record of the send survived only for a full page load
+  to replay. The window is gone, so a Run's stream lives exactly as long as the
+  Run does, and a quiet stretch (thinking, a long tool call) is held open with
+  an SSE comment rather than being cut. The bridge's terminal chunk now carries
+  `finishReason`, the only positive signal that a Run reached its end — a
+  failed Run still replaces it with its error — and the client re-attaches to a
+  stream that ended without one, so a dropped connection, a proxy timeout, or a
+  deploy resumes rendering instead of reporting a turn that never finished. The
+  first attempt is immediate; consecutive failures wait an equal-jitter delay,
+  and five of them hand the Run to the durable path. That policy is its own
+  module, because it is what makes an hours-long Run viewable and not a corner
+  of the chat engine (#1284).
+
 - Documented how each context document is chosen, imported, and injected.
   [Context documents](docs/product/reference/context-documents.md) maps the
   system prompt, project instruction files, prompt markers, and skill files

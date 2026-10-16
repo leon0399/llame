@@ -8,6 +8,10 @@ import { useChatContext } from "@/contexts/chat-context";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
 import {
+  useStreamInterruption,
+  type StreamInterruption,
+} from "@/lib/services/chat/stream-repair";
+import {
   mergeTrustedModelContextParts,
   type Compaction,
 } from "@/lib/services/chat/history";
@@ -186,12 +190,13 @@ type UseChatSideEffectsArgs = {
   trackRun: (runId: string, chatId: string, label: string) => void;
   markChatSeen: (chatId: string) => void;
   refreshChatBinding: () => void;
+  interruption: StreamInterruption | null;
 };
 
 /** Every effect the conversation state drives once messages exist: the
- *  resume/history-adoption pair (#261) and the run-presence pair — composed
- *  here, in this order, so their relative passive-effect scheduling matches a
- *  single component's call order. */
+ *  resume/history-adoption pair (#261), the interrupted-stream repair (#1284),
+ *  and the run-presence pair — composed here, in this order, so their relative
+ *  passive-effect scheduling matches a single component's call order. */
 function useChatSideEffects({
   resume,
   resumeStream,
@@ -204,6 +209,7 @@ function useChatSideEffects({
   trackRun,
   markChatSeen,
   refreshChatBinding,
+  interruption,
 }: UseChatSideEffectsArgs) {
   useChatHistorySync({
     resume,
@@ -213,6 +219,7 @@ function useChatSideEffects({
     messages,
     status,
     setMessages,
+    interruption,
   });
   useChatPresenceEffects({
     status,
@@ -273,6 +280,12 @@ function useChatEngineState({
   onSendFailed,
   setup,
 }: UseChatEngineStateArgs) {
+  // The run whose stream dropped while it was still executing (#1284). Held
+  // here rather than acted on in the finish handler: re-attaching needs the
+  // `Chat` instance `useChatEngine` returns, and an effect is where that
+  // boundary is already crossed.
+  const { interruption, report: reportInterruptedStream } =
+    useStreamInterruption();
   const engine = useChatEngine({
     ...setup,
     chatId,
@@ -280,6 +293,7 @@ function useChatEngineState({
     onFinished,
     onTargetSendInterrupted,
     onSendFailed,
+    onStreamInterrupted: reportInterruptedStream,
   });
   const { displayMessages, compactionIndex } = deriveChatTranscript(
     engine.messages,
@@ -296,6 +310,7 @@ function useChatEngineState({
     status: engine.status,
     setMessages: engine.setMessages,
     chatId,
+    interruption,
   });
 
   return { engine, displayMessages, compactionIndex };

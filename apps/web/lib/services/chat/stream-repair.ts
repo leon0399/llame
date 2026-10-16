@@ -1,0 +1,147 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { equalJitterDelayMs } from "@/lib/equal-jitter";
+
+// Re-attaching an interrupted Run's stream (#1284).
+//
+// The mount probe in `useChatHistorySync` cannot cover an interruption that
+// happens after mount — the second and later turns of a conversation, and any
+// hours-long Run interrupted by a suspend, a deploy, or a network change —
+// because it has already run for this page. This module owns that repair
+// episode: the first attempt is immediate, consecutive failures wait an
+// equal-jitter delay, and after `STREAM_REPAIR_MAX_ATTEMPTS` failures the Run
+// is handed to the durable path (the tracked Run's completion refreshes the
+// transcript). `healthy` resets the count, so an interruption of a Run whose
+// stream was flowing starts from zero rather than from an accumulated backoff.
+
+/** Consecutive failed re-attaches before the durable path takes the Run. */
+export const STREAM_REPAIR_MAX_ATTEMPTS = 5;
+
+/** One interruption, with a fresh `seq` per event: a Run interrupted again
+ *  after a failed re-attach must re-run the repair, and an equal state value
+ *  would be ignored. */
+export type StreamInterruption = { runId: string; seq: number };
+
+type RepairEpisode = {
+  runId: string;
+  seq: number;
+  attempts: number;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
+/** The repair's ceiling: with STREAM_REPAIR_MAX_ATTEMPTS attempts the last
+ *  doubling is 8 s, so this is the widest wait the policy reaches rather than a
+ *  bound it never touches. */
+const STREAM_REPAIR_CEILING_MS = 8000;
+
+/** The wait before the next attempt: none for the first, equal-jitter after
+ *  within the repair's own ceiling. */
+export function streamRepairDelayMs(attempts: number): number {
+  return attempts === 0
+    ? 0
+    : equalJitterDelayMs(attempts - 1, STREAM_REPAIR_CEILING_MS);
+}
+
+/** The episode an interruption continues, or a fresh one for another Run. */
+function mergeEpisode(
+  held: RepairEpisode | null,
+  interruption: StreamInterruption,
+): RepairEpisode {
+  const episode =
+    held && held.runId === interruption.runId
+      ? held
+      : { runId: interruption.runId, seq: 0, attempts: 0, timer: null };
+  episode.seq = interruption.seq;
+  cancelRetry(episode);
+  return episode;
+}
+
+function cancelRetry(episode: RepairEpisode): void {
+  if (episode.timer === null) return;
+  clearTimeout(episode.timer);
+  episode.timer = null;
+}
+
+/** Spends one attempt of the episode: attaches now, or schedules the wait. */
+function spendAttempt(
+  episode: RepairEpisode,
+  attach: () => void,
+  onAttempt: () => void,
+): void {
+  if (episode.attempts >= STREAM_REPAIR_MAX_ATTEMPTS) return;
+  const delayMs = streamRepairDelayMs(episode.attempts);
+  episode.attempts += 1;
+  onAttempt();
+  if (delayMs === 0) {
+    attach();
+    return;
+  }
+  episode.timer = setTimeout(attach, delayMs);
+}
+
+/**
+ * The interruption a stream reported, and the reporter `onStreamInterrupted`
+ * wires into the engine. A fresh `seq` per event is what makes a Run
+ * interrupted *again* re-run the repair: an equal state value is ignored.
+ */
+export function useStreamInterruption() {
+  const [interruption, setInterruption] = useState<StreamInterruption | null>(
+    null,
+  );
+  const report = useCallback((runId: string | null) => {
+    if (!runId) return;
+    setInterruption((previous) => ({
+      runId,
+      seq: (previous?.seq ?? 0) + 1,
+    }));
+  }, []);
+  return { interruption, report };
+}
+
+export function useStreamRepair(options: {
+  attach: () => void;
+  interruption: StreamInterruption | null;
+  /** The Run the live transcript is streaming (`streamingRunId(messages)`), or
+   *  null when it holds no streaming answer. */
+  currentRunId: string | null;
+  /** True while the Run's stream is delivering events. */
+  healthy: boolean;
+  /** Runs before each attempt (the mount probe claims the same attach slot). */
+  onAttempt: () => void;
+}): void {
+  const { attach, interruption, currentRunId, healthy, onAttempt } = options;
+  const episodeRef = useRef<RepairEpisode | null>(null);
+
+  // A new turn supersedes the episode: its retry belongs to a Run the client is
+  // no longer streaming, and attaching now would open a second stream on the
+  // Chat while the new send owns the response — writes the SDK drops, plus a
+  // stray `send-failed` while that send is still in flight. The dep list
+  // compares by value, so this runs only when the streaming Run actually
+  // changes, and no equality test on the previous id is reachable.
+  useEffect(() => {
+    const episode = episodeRef.current;
+    if (!episode) return;
+    cancelRetry(episode);
+    episodeRef.current = null;
+  }, [currentRunId]);
+
+  useEffect(() => {
+    if (!interruption || episodeRef.current?.seq === interruption.seq) return;
+    const episode = mergeEpisode(episodeRef.current, interruption);
+    episodeRef.current = episode;
+    spendAttempt(episode, attach, onAttempt);
+  }, [interruption, attach, onAttempt]);
+
+  useEffect(() => {
+    if (!healthy || !episodeRef.current) return;
+    episodeRef.current.attempts = 0;
+  }, [healthy]);
+
+  useEffect(
+    () => () => {
+      const episode = episodeRef.current;
+      if (episode) cancelRetry(episode);
+    },
+    [],
+  );
+}

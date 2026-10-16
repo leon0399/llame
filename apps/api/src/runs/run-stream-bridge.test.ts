@@ -3,7 +3,6 @@ import { toolTerminationMessage } from './tool-settlement';
  * Run-event → UI-chunk translator unit tests (#50) — pure state machine.
  */
 
-import { ConfigService } from '@nestjs/config';
 import { parseJsonEventStream } from '@ai-sdk/provider-utils';
 import {
   readUIMessageStream,
@@ -43,7 +42,7 @@ function runEvent(
   };
 }
 
-function bridgeFixture(configValues: Record<string, string> = {}) {
+function bridgeFixture() {
   const db: Db = drizzle.mock({ schema });
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
@@ -52,11 +51,9 @@ function bridgeFixture(configValues: Record<string, string> = {}) {
     async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
       callback(db),
   );
-  const config = new ConfigService(configValues);
   return {
-    bridge: new RunStreamBridgeService(tenantDb, config),
+    bridge: new RunStreamBridgeService(tenantDb),
     tenantDb,
-    config,
   };
 }
 
@@ -88,7 +85,7 @@ describe('createRunEventTranslator', () => {
     expect(t.finished()).toBe(false);
     expect(t.translate({ eventType: 'run.completed', payload: null })).toEqual([
       { type: 'text-end', id: 'text-1' },
-      { type: 'finish' },
+      { type: 'finish', finishReason: 'stop' },
     ]);
     expect(t.finished()).toBe(true);
   });
@@ -231,7 +228,7 @@ describe('createRunEventTranslator', () => {
     t.translate({ eventType: 'model.delta', payload: { text: 'partial' } });
     expect(t.translate({ eventType: 'run.cancelled', payload: null })).toEqual([
       { type: 'text-end', id: 'text-1' },
-      { type: 'finish' },
+      { type: 'finish', finishReason: 'stop' },
     ]);
   });
 
@@ -262,7 +259,7 @@ describe('createRunEventTranslator', () => {
         providerMetadata: { llame: { cancelled: true } },
         dynamic: true,
       },
-      { type: 'finish' },
+      { type: 'finish', finishReason: 'stop' },
     ]);
   });
 
@@ -365,7 +362,7 @@ describe('createRunEventTranslator', () => {
 
     // Already settled — the terminal event must not emit a second outcome.
     expect(t.translate({ eventType: 'run.cancelled', payload: null })).toEqual([
-      { type: 'finish' },
+      { type: 'finish', finishReason: 'stop' },
     ]);
   });
 
@@ -492,7 +489,7 @@ describe('createRunEventTranslator', () => {
 
     expect(t.translate({ eventType: 'run.completed', payload: null })).toEqual([
       { type: 'text-end', id: 'text-1' },
-      { type: 'finish' },
+      { type: 'finish', finishReason: 'stop' },
     ]);
   });
 
@@ -605,7 +602,7 @@ describe('createRunEventTranslator', () => {
     });
     expect(t.translate({ eventType: 'run.completed', payload: null })).toEqual([
       { type: 'reasoning-end', id: 'reasoning-1' },
-      { type: 'finish' },
+      { type: 'finish', finishReason: 'stop' },
     ]);
   });
 
@@ -687,7 +684,7 @@ describe('createRunEventTranslator', () => {
 
     expect(t.translate({ eventType: 'run.completed', payload: null })).toEqual([
       { type: 'text-end', id: 'text-2' },
-      { type: 'finish' },
+      { type: 'finish', finishReason: 'stop' },
     ]);
   });
 
@@ -717,7 +714,7 @@ describe('createRunEventTranslator', () => {
 
     // run.completed's own text-end is a no-op — model.completed already closed it.
     expect(t.translate({ eventType: 'run.completed', payload: null })).toEqual([
-      { type: 'finish' },
+      { type: 'finish', finishReason: 'stop' },
     ]);
     expect(t.finished()).toBe(true);
   });
@@ -972,23 +969,54 @@ describe('RunStreamBridgeService', () => {
     expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
   });
 
-  it('emits an explicit error when the configured stream window expires', async () => {
-    vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(1002);
-    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
-      [],
-    );
-    const { bridge } = bridgeFixture({ RUN_STREAM_MAX_MS: '1' });
-
-    const response = bridge.createUiMessageStreamResponse({
-      runId: RUN_ID,
+  it('keeps a quiet, still-executing run open instead of ending its stream', async () => {
+    // A long turn: the first three polls find no events at all (the worker is
+    // thinking, or a tool call is running), the last streams and completes.
+    // Elapsed time alone must never end the stream — the old wall-clock window
+    // cut exactly this case off with a `Stream window elapsed` error. The clock
+    // steps 5s per read, so the first two polls sit below the keepalive
+    // interval, the third lands exactly on it, and the exact count below pins
+    // both that boundary and the direction of the elapsed-time arithmetic.
+    let clock = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => (clock += 5000));
+    const listByRunId = vi
+      .spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([runEvent(1, 'run.completed', null)]);
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      id: RUN_ID,
+      chatId: '00000000-0000-4000-8000-000000000002',
+      messageId: null,
       userId: 'user-1',
+      modelId: 'model-1',
+      activeAttemptId: null,
+      completedAttemptId: null,
+      turnToolAvailability: null,
+      status: 'running_model',
+      workerId: null,
+      cancelRequestedAt: null,
+      error: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      startedAt: null,
+      finishedAt: null,
+      effort: null,
+      permissionMode: 'default' as const,
     });
-    const body = await response.text();
+    const { bridge } = bridgeFixture();
 
-    expect(body).toContain(
-      'Stream window elapsed; the run is still executing. Reload to see the result.',
-    );
-    expect(body).not.toContain('data: [DONE]');
+    const body = await bridge
+      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .text();
+
+    // One comment across the quiet stretch, not one per poll, and everything
+    // the run produced still reaches the client before its own terminal chunk.
+    expect(body.match(/: keepalive\n\n/g)).toHaveLength(1);
+    expect(body).not.toContain('Stream window elapsed');
+    expect(body).toContain('"type":"finish"');
+    expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
+    expect(listByRunId).toHaveBeenCalledTimes(4);
   });
 
   it('closes without output when the client aborts before polling', async () => {
@@ -1255,29 +1283,7 @@ describe('createRunEventTranslator part identity and error text', () => {
   });
 });
 
-describe('RunStreamBridgeService stream window', () => {
-  it('falls back to the default window when RUN_STREAM_MAX_MS is unusable', async () => {
-    for (const raw of ['0', '-1', 'not-a-number', '']) {
-      const { bridge } = bridgeFixture({ RUN_STREAM_MAX_MS: raw });
-      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
-        runEvent(1, 'run.started', null),
-        runEvent(2, 'run.completed', null),
-      ]);
-
-      const response = bridge.createUiMessageStreamResponse({
-        runId: RUN_ID,
-        userId: 'user-1',
-      });
-
-      // A zero/negative/NaN window would trip the elapsed check on the very
-      // first pass and emit the window-elapsed error instead of finishing.
-      const body = await response.text();
-      expect(body).toContain('"type":"finish"');
-      expect(body).not.toContain('Stream window elapsed');
-      vi.restoreAllMocks();
-    }
-  });
-
+describe('RunStreamBridgeService response contract', () => {
   it('sets the AI SDK UI-message-stream headers on the response', () => {
     const { bridge } = bridgeFixture();
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
@@ -1295,7 +1301,7 @@ describe('RunStreamBridgeService stream window', () => {
     expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1');
   });
 
-  it('terminates the SSE body with the DONE sentinel once the run finishes', async () => {
+  it('marks the terminal chunk so a client can tell a finished turn from a dropped stream', async () => {
     const { bridge } = bridgeFixture();
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
       runEvent(1, 'run.started', null),
@@ -1307,6 +1313,7 @@ describe('RunStreamBridgeService stream window', () => {
       .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
       .text();
 
+    expect(body).toContain('{"type":"finish","finishReason":"stop"}');
     expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
   });
 
@@ -1324,7 +1331,7 @@ describe('RunStreamBridgeService stream window', () => {
   });
 });
 
-describe('RunStreamBridgeService window and terminal-status fallbacks', () => {
+describe('RunStreamBridgeService terminal-status fallbacks', () => {
   const terminalRun = (status: Run['status']): Run => ({
     id: RUN_ID,
     chatId: '00000000-0000-4000-8000-000000000002',
@@ -1345,43 +1352,26 @@ describe('RunStreamBridgeService window and terminal-status fallbacks', () => {
     permissionMode: 'default' as const,
   });
 
-  it('ignores a non-positive configured window and stops on a terminal run row instead', async () => {
-    vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(1002);
-    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
-      [],
-    );
-    const findById = vi
-      .spyOn(RunsRepository.prototype, 'findById')
-      .mockResolvedValue(terminalRun('expired'));
-    const { bridge } = bridgeFixture({ RUN_STREAM_MAX_MS: '0' });
+  it('stops on a terminal run row that never published a terminal event', async () => {
+    for (const status of ['cancelled', 'expired'] as const) {
+      vi.restoreAllMocks();
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+        [],
+      );
+      const findById = vi
+        .spyOn(RunsRepository.prototype, 'findById')
+        .mockResolvedValue(terminalRun(status));
+      const { bridge } = bridgeFixture();
 
-    const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
-      .text();
-
-    expect(body).toBe(
-      `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
-    );
-    expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
-  });
-
-  it('treats a cancelled run row as terminal when no terminal event arrived', async () => {
-    vi.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(1002);
-    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
-      [],
-    );
-    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(
-      terminalRun('cancelled'),
-    );
-    const { bridge } = bridgeFixture({ RUN_STREAM_MAX_MS: '-1' });
-
-    await expect(
-      bridge
-        .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
-        .text(),
-    ).resolves.toBe(
-      `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
-    );
+      await expect(
+        bridge
+          .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+          .text(),
+      ).resolves.toBe(
+        `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
+      );
+      expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
+    }
   });
 
   it('emits nothing for an empty reasoning delta', () => {
