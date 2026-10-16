@@ -3481,6 +3481,56 @@ describe('RunExecutionService executeRun — stream completion', () => {
     ).toMatchObject({ latencyMs: 750 });
   });
 
+  it('stamps the first streamed delta, counts the deltas, and derives throughput on the completed usage (#155)', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const now = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+
+    // Two completed text deltas and one reasoning delta each stamp/count once,
+    // and the first stamp survives the second: the offset is measured from the
+    // same stream start `latencyMs` uses.
+    now.mockReturnValue(10_200);
+    options.onTextDelta?.('alpha');
+    now.mockReturnValue(10_300);
+    options.onTextDelta?.('beta');
+    now.mockReturnValue(10_400);
+    options.onReasoningDelta?.('thinking', 'reasoning-1');
+    // An empty reasoning delivery is a part boundary, not streamed output.
+    now.mockReturnValue(10_500);
+    options.onReasoningDelta?.('', 'reasoning-2', { tag: 'metadata' });
+    options.onRequestUsage?.(
+      requestUsageReceipt({
+        inputTokens: 1000,
+        cachedInputTokens: 0,
+        outputTokens: 90,
+        totalTokens: 1090,
+        reasoningTokens: 30,
+      }),
+    );
+    now.mockReturnValue(10_600);
+    await options.onFinish?.({
+      text: 'alphabeta',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const usage = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage;
+    expect(usage).toMatchObject({
+      status: 'completed',
+      complete: true,
+      // First non-empty text delta at 200 ms; 3 streamed output deltas (2 text +
+      // 1 reasoning); 90 output tokens over the (600 − 200) ms generation window.
+      firstTokenMs: 200,
+      chunkCount: 3,
+      tokensPerSecond: 225,
+    });
+  });
+
   it('marks the completed aggregate incomplete when step count exceeds receipts', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
