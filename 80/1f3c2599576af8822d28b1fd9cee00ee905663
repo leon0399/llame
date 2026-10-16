@@ -1,0 +1,29 @@
+apps/api/src/live/live-protocol.contract.test.ts
+  6c7fcdc962597e7d 1-81
+scripts/generate-live-protocol.test.mjs
+  6c7fcdc962597e7d 1-20,23-65
+scripts/generate-live-protocol.mjs
+  6c7fcdc962597e7d 1-91,93-104,106-127,133-164,166,169-174,176-178,182-184,187-197
+apps/api/asyncapi.yaml
+  6c7fcdc962597e7d 1-204
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "801f3c2599576af8822d28b1fd9cee00ee905663",
+  "prompts": {
+    "6c7fcdc962597e7d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9af45d1e-990b-48cf-bd63-4bacd9ff0fc0",
+        "model": "unknown"
+      },
+      "human_author": "leon0399 <leon.03.99@gmail.com>",
+      "messages": [],
+      "total_additions": 829,
+      "total_deletions": 0,
+      "accepted_lines": 823,
+      "overriden_lines": 18
+    }
+  }
+}
