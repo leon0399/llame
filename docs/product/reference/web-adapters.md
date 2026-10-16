@@ -80,8 +80,9 @@ Date: 2026-10-01T00:00:00Z
   withheld.
 - **Hacker News:** the item as `Post` (a story adds its title, `Link:`, and
   `Points:`), then replies depth-first in API order. Dead and deleted comments
-  are omitted. `/`, `/news`, and `/front` render `# Hacker News: front page`,
-  and `/newest` renders `# Hacker News: newest`: the first 30 stories as
+  are omitted. Outside the thread layout, the list pages render
+  `# Hacker News: front page` (`/`, `/news`, `/front`) and
+  `# Hacker News: newest` (`/newest`), each listing the first 30 stories as
   `- **{title}** — {points} points — {comments} comments — {url} — {item URL}`
   bullets, omitting fields the API does not report. The front page's set
   matches the site's, in the API's points order.
