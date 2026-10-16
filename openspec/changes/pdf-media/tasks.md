@@ -131,7 +131,7 @@ Each shipping layer adds its own documentation and dated `CHANGELOG.md` entry.
 - [x] 6.2 Accept `application/pdf` in paste, picker, and drop only when the selected model's published `input` contains `pdf`, refuse it otherwise with a toast, count PDFs toward the 10-attachment limit, and open a stored PDF's `/original` in a new tab while an unstored PDF tile is not clickable; verify by story play functions and a focused product E2E test that uploads a PDF, sends it to a scripted `pdf` model, reloads, and sees the tile
 - [x] 6.3 Document PDF attachments in `docs/product/reference/locators/media.md`; add the dated `CHANGELOG.md` entry; this layer's PR carries `Closes #1277`; verify `pnpm lint:markdown` and `pnpm format:check`
 - [x] 6.4 Verify `pnpm --filter web lint`, `typecheck`, the `packages/ui` checks, and the focused E2E spec
-- [ ] 6.5 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
+- [x] 6.5 SR: self-review the parent-relative diff with the code-review and ponytail-review passes, fix accepted findings, then mark ready
 - [ ] 6.6 GR: complete the ready-PR monitoring loop with terminal passing CI and no actionable unresolved feedback
 
 ## 7. `pdf-media/finalize` — spec sync and archive
