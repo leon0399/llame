@@ -355,7 +355,7 @@ A code-owned tool whose executor is inconsistent with its admitted in-memory id/
 #### Scenario: Tool error surfaces to the model and the run continues
 
 - **WHEN** an executing tool throws
-- **THEN** an error result part is recorded, the model observes it, and the run proceeds to a final answer
+- **THEN** the model receives a structured error result and may continue
 
 #### Scenario: Live bash unknown continues the Run
 
