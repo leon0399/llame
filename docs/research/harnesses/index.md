@@ -138,7 +138,7 @@ assessment.
 16. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
 17. [T3 Code](./t3-code.md) — Environment identity, transactional receipts, and provider instances
 18. [DeepSeek Harness](./deepseek-harness.md) — Session projections and explicit approval outcomes
-19. [Hermes Agent](./hermes-agent.md) — Recall framing and memory-provider lifecycle
+19. [Hermes Agent](./hermes-agent.md) — Recall framing, memory-provider lifecycle, and TUI gateway transport and workspace cwd
 20. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
 21. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
 22. [AX](./ax.md) — Desired-state task sandboxes, snapshot-backed workspaces, and fail-open control-plane gaps
