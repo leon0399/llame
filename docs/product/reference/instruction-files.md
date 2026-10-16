@@ -26,11 +26,14 @@ absorbed.
 
 An accepted-turn load (the bound Workspace root, and any admitted host or
 Knowledge prompt import) is stored on the triggering user message, ahead of
-your text and ahead of any `skill-catalog`, `skill-activation`, or
-`prompt-imports` item from that same turn. The first model request of that attempt carries the stored item. A load
-caused by `enter_workspace` or by `read`, `edit`, or `write` is stored on the
-assistant message after that step's last tool part, and the next model step
-reads it there.
+your text. On the first dispatch it precedes any `skill-catalog`,
+`skill-activation`, or `prompt-imports` item from that turn. A retry whose
+earlier attempt already dispatched keeps that stored bundle in place and
+appends a newly derived bundle after the last stored context item. The first
+model request of the attempt carries the stored item. A load caused by
+`enter_workspace` or by `read`, `edit`, or `write` is stored on the assistant
+message after that step's last tool part, and the next model step reads it
+there.
 
 The item states, once, that each file applies to work under its own directory,
 that an imported file applies wherever its importer applies, and that a deeper

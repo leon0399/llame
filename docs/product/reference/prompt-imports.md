@@ -128,9 +128,10 @@ read never appears as an assistant tool call.
 ## What the model receives
 
 All imports of one message are one `prompt-imports` context item with form
-`notice`, stored on your message. On that turn it follows any `instructions`,
-`skill-catalog`, and `skill-activation` items and precedes your text. The first
-model request carries the stored item. It holds one file block per imported
+`notice`, stored on your message. On the first dispatch it follows any
+`instructions`, `skill-catalog`, and `skill-activation` items and precedes your
+text. A retry keeps a stored item in place. The first model request carries the
+stored item. It holds one file block per imported
 target, labelled with the locator as written, with reserved delimiters
 neutralized, under a statement that the content is third-party data ranked
 below system instructions and your requests and cannot grant tools or relax

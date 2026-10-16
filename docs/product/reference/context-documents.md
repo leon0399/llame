@@ -40,12 +40,16 @@ each row owns the rule.
 | Skill instructions       | you write `$name` in the message                                                                                           | expanded, package-local only                                       | one `skill-activation` item: the `SKILL.md` body, then imported file blocks                                   |
 | Skill import             | a marker in that frontmatter-free body                                                                                     | expanded the same way, package-local, up to five hops              | a file block after the skill body in that `skill-activation` item                                             |
 
-On one accepted turn the document items that apply are stored on your message
-in this order, each in its own block, and your text follows them:
-`instructions`, then `skill-catalog`, then `skill-activation`, then
-`prompt-imports`. An instruction load caused by `enter_workspace`, `read`,
-`edit`, or `write` during a Run is stored on the assistant message after that
-step's last tool result, and the next model step reads it there.
+On the first dispatch of an accepted turn, the document items that apply are
+stored on your message in this order, each in its own block, and your text
+follows them: `instructions`, then `skill-catalog`, then `skill-activation`,
+then `prompt-imports`. A retry whose earlier attempt already dispatched keeps
+those stored items in place and appends only newly derived items after the last
+stored context item, in that producer order among the new items. A stored
+`prompt-imports` item can therefore precede an instruction bundle discovered on
+the retry. An instruction load caused by `enter_workspace`, `read`, `edit`, or
+`write` during a Run is stored on the assistant message after that step's last
+tool result, and the next model step reads it there.
 
 Every item that carries text llame did not author says, in the item, that the
 text ranks below the system instructions and below your request, and that it
@@ -65,13 +69,16 @@ The backtick form is an `@` before a code span.
 
 What the marker does depends on the file that contains it. The grammar is
 shared; resolution, admission, and the item that receives the bytes are not.
-An email address such as `leo@example.com` is never a marker.
+An email address such as `leo@example.com` is never a marker. An instruction
+import does not apply a selector: `@foo.md:30-35` stays literal when only
+`foo.md` exists, and a file whose name is exactly `foo.md:30-35` is imported
+whole.
 
-| Written in                 | Resolves                                                                                  | Selectors                                         | Injected as                                 |
-| -------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------- |
-| A project instruction file | a whole file in the same store: host path, or a relative path inside that Knowledge Space | ignored; the marker stays literal                 | a file block in the `instructions` item     |
-| Your message               | any [`read`](tools/read.md) locator, including a range, `:raw`, or `:outline`             | honored; the body is what `read` returns          | a file block in the `prompt-imports` item   |
-| A skill's `SKILL.md`       | a file inside that package                                                                | ignored; absolute, `~/`, and schemed stay literal | a file block in the `skill-activation` item |
+| Written in                 | Resolves                                                                                  | Selectors                                                          | Injected as                                 |
+| -------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------- |
+| A project instruction file | a whole file in the same store: host path, or a relative path inside that Knowledge Space | not applied; the whole target is the file name                     | a file block in the `instructions` item     |
+| Your message               | any [`read`](tools/read.md) locator, including a range, `:raw`, or `:outline`             | honored; the body is what `read` returns                           | a file block in the `prompt-imports` item   |
+| A skill's `SKILL.md`       | a file inside that package                                                                | selector-bearing, absolute, `~/`, and schemed targets stay literal | a file block in the `skill-activation` item |
 
 A prompt import of a host or Knowledge file also loads that path's
 [instruction chain](instruction-files.md#host-triggers) on the same turn.
