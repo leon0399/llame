@@ -3501,7 +3501,9 @@ describe('RunExecutionService executeRun — stream completion', () => {
     options.onReasoningDelta?.('thinking', 'reasoning-1');
     // An empty reasoning delivery is a part boundary, not streamed output.
     now.mockReturnValue(10_500);
-    options.onReasoningDelta?.('', 'reasoning-2', { tag: 'metadata' });
+    options.onReasoningDelta?.('', 'reasoning-2', {
+      tag: { note: 'metadata' },
+    });
     options.onRequestUsage?.(
       requestUsageReceipt({
         inputTokens: 1000,
