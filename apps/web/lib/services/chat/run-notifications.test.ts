@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isInterruptedStream,
   isTerminalRunStatus,
   notificationLabel,
   resolveTerminalRun,
@@ -112,5 +113,55 @@ describe("notificationLabel", () => {
 
   it("falls back to a generic label when there is no user turn yet", () => {
     expect(notificationLabel([])).toBe("your conversation");
+  });
+});
+
+describe("isInterruptedStream", () => {
+  const completion: Parameters<typeof isInterruptedStream>[0] = {
+    isAbort: false,
+    isDisconnect: false,
+    isError: false,
+    finishReason: "stop",
+  };
+
+  it("treats a stream that carried the run's terminal chunk as finished", () => {
+    expect(isInterruptedStream(completion)).toBe(false);
+  });
+
+  it("treats a stream that ended without a terminal chunk as interrupted", () => {
+    expect(
+      isInterruptedStream({ ...completion, finishReason: undefined }),
+    ).toBe(true);
+  });
+
+  it("treats the user's own stop as an end, not an interruption to repair", () => {
+    expect(
+      isInterruptedStream({
+        ...completion,
+        isAbort: true,
+        finishReason: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("treats a failed run as an end — its error chunk is terminal too", () => {
+    expect(
+      isInterruptedStream({
+        ...completion,
+        isError: true,
+        finishReason: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("treats a dropped connection as an interruption, not a failed run", () => {
+    expect(
+      isInterruptedStream({
+        ...completion,
+        isDisconnect: true,
+        isError: true,
+        finishReason: undefined,
+      }),
+    ).toBe(true);
   });
 });

@@ -46,6 +46,8 @@ import { adoptServerHistory } from "@/lib/services/chat/history";
 import {
   notificationLabel,
   streamingRunId,
+  isInterruptedStream,
+  type StreamCompletion,
 } from "@/lib/services/chat/run-notifications";
 import { safeRandomUUID } from "@/lib/uuid";
 
@@ -412,20 +414,34 @@ type UseChatEngineArgs = {
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;
   onSendFailed: () => void;
+  /** The run a just-ended stream belonged to, when that stream ended while the
+   *  run was still executing (see `isInterruptedStream`). */
+  onStreamInterrupted: (runId: string | null) => void;
   untrackChat: (chatId: string) => void;
   refreshChatData: () => void;
 };
 
-/** A stream that ended by abort/disconnect/error is NOT a completed turn: a
- *  page reload aborts the in-flight fetch, and treating that as finish cleared
- *  the recorded draft id during teardown — destroying the refresh-resume path
- *  this slice adds (found via CI trace diagnostics). The run survives
+/** A stream that ended by abort/disconnect/error/truncation is NOT a completed
+ *  turn: a page reload aborts the in-flight fetch, and treating that as finish
+ *  cleared the recorded draft id during teardown — destroying the refresh-resume
+ *  path this slice adds (found via CI trace diagnostics). The run survives
  *  server-side; the reloaded page recovers the sent route and resumes it. */
 function handleChatFinish(
-  status: { isAbort: boolean; isDisconnect: boolean; isError: boolean },
+  status: StreamCompletion,
   args: UseChatEngineArgs,
 ): void {
-  if (status.isAbort || status.isDisconnect || status.isError) {
+  if (
+    status.isAbort ||
+    status.isDisconnect ||
+    status.isError ||
+    status.finishReason === undefined
+  ) {
+    // Re-attach before the draft/history path below gets a chance to: for a
+    // chat whose mount probe already ran, that path recovers nothing, which is
+    // what left a long turn dead until a manual reload.
+    if (isInterruptedStream(status)) {
+      args.onStreamInterrupted(streamingRunId(status.messages));
+    }
     if (args.onTargetSendInterrupted()) {
       args.refreshChatData();
       return;
@@ -501,10 +517,14 @@ type UseChatHistorySyncArgs = {
   messages: Array<UIMessage>;
   status: ReturnType<typeof useChat>["status"];
   setMessages: ReturnType<typeof useChat>["setMessages"];
+  /** The run whose stream ended while it was still executing (see
+   *  `isInterruptedStream`), or null. */
+  interruptedRunId: string | null;
 };
 
-/** Resume-on-refresh and live first-send recovery (#49), and adopting the
- *  refetched history it triggers (#261). */
+/** Resume-on-refresh and live first-send recovery (#49), re-attaching after an
+ *  interrupted stream (#1284), and adopting the refetched history it triggers
+ *  (#261). */
 export function useChatHistorySync({
   resume,
   resumeStream,
@@ -513,32 +533,60 @@ export function useChatHistorySync({
   messages,
   status,
   setMessages,
+  interruptedRunId,
 }: UseChatHistorySyncArgs) {
+  // One attach per mount for the `resume` probe, and one per interrupted Run
+  // for the repair below: each is set synchronously before its call, so a
+  // second invocation is a no-op and Strict Mode's double-invoked mount effect
+  // cannot race two reconnects on the same Chat instance (#259/#260 — see the
+  // note at the useChat call in `useChatEngine`).
+  const attachedRef = useRef(false);
+  const repairedRunRef = useRef<string | null>(null);
+
+  // Always re-read history once the probe settles, INCLUDING when it answers
+  // 204. Verified in the pinned SDK (ai 6.0.217): `reconnectToStream` returns
+  // null on 204 and `makeRequest` then returns before the block that fires
+  // onFinish — so that path emits no callback at all, and with a 60s
+  // staleTime nothing else would refetch. That is precisely the case where
+  // the run went terminal between this page's history read and the probe,
+  // i.e. where the answer is durable and the log is the only stale thing
+  // (#261). Cheap and idempotent otherwise: the adoption below is a no-op
+  // when the refetch brings nothing new.
+  // Promise.resolve: `resumeStream()` is a promise in the SDK, but wrapping
+  // keeps this from depending on that — a stubbed/void-returning
+  // implementation must not throw here.
+  const attach = useCallback(() => {
+    void Promise.resolve(resumeStream()).finally(refreshChatMessages);
+  }, [resumeStream, refreshChatMessages]);
+
   // Driven here instead of via useChat's `resume` prop: the SDK's own effect
   // has no cleanup or re-entrancy guard, so Strict Mode's double-invoked
   // mount effect resumes the same Chat instance twice and the two concurrent
   // requests race on shared state (#259/#260 — see the note at the useChat
-  // call in `useChatEngine`). The ref is set synchronously before the call,
-  // so the second invocation is a no-op; each route identity has one owner
-  // and one Chat instance.
-  const resumedRef = useRef(false);
+  // call in `useChatEngine`). Each route identity has one owner and one Chat
+  // instance.
   useEffect(() => {
-    if (!resume || resumedRef.current) return;
-    resumedRef.current = true;
-    // Always re-read history once the probe settles, INCLUDING when it answers
-    // 204. Verified in the pinned SDK (ai 6.0.217): `reconnectToStream` returns
-    // null on 204 and `makeRequest` then returns before the block that fires
-    // onFinish — so that path emits no callback at all, and with a 60s
-    // staleTime nothing else would refetch. That is precisely the case where
-    // the run went terminal between this page's history read and the probe,
-    // i.e. where the answer is durable and the log is the only stale thing
-    // (#261). Cheap and idempotent otherwise: the adoption below is a no-op
-    // when the refetch brings nothing new.
-    // Promise.resolve: `resumeStream()` is a promise in the SDK, but wrapping
-    // keeps this from depending on that — a stubbed/void-returning
-    // implementation must not throw here.
-    void Promise.resolve(resumeStream()).finally(refreshChatMessages);
-  }, [resume, resumeStream, refreshChatMessages]);
+    if (!resume || attachedRef.current) return;
+    attachedRef.current = true;
+    attach();
+  }, [resume, attach]);
+
+  // Repair an interrupted stream by re-attaching to the same Run's log. The
+  // mount probe above cannot cover this: it has already run for any chat this
+  // page opened, so without this a stream that drops after mount — the common
+  // case for the second and later turns of a long conversation — would stay
+  // dead until a reload. Claiming the attach slot keeps that probe from
+  // issuing a second, competing reconnect when a `fresh` chat's failed-send
+  // recovery re-arms `resume` moments later; if this re-attach fails too, the
+  // tracked Run's completion still refreshes the transcript.
+  useEffect(() => {
+    if (!interruptedRunId || repairedRunRef.current === interruptedRunId) {
+      return;
+    }
+    repairedRunRef.current = interruptedRunId;
+    attachedRef.current = true;
+    attach();
+  }, [interruptedRunId, attach]);
 
   // Adopt that refetched history — the client half of #261. useChat freezes
   // `messages` at creation (see PersistedChatSession) and never re-adopts a
